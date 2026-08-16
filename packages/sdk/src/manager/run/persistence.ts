@@ -680,7 +680,7 @@ export class RunPersistence {
 
 		this.log.info('Run persisted to disk', {
 			[NAMZU.RUN_ID]: this.run.id,
-			dir: this.runStore.getRunDir(),
+			'namzu.manager.dir': this.runStore.getRunDir(),
 		})
 	}
 }

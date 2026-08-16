@@ -162,7 +162,11 @@ describe('planning the resume of a part-executed batch', () => {
 		planCrashResume(checkpointWith(parkedBatch()), new Map([['t1', {}]]), log)
 
 		const warned = (log.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]
-		expect(warned?.[1]).toMatchObject({ completed: 1, total: 2, remaining: ['send_email'] })
+		expect(warned?.[1]).toMatchObject({
+			'namzu.runtime.completed': 1,
+			'namzu.runtime.total': 2,
+			'namzu.runtime.remaining': ['send_email'],
+		})
 	})
 
 	it('does nothing when the turn is fully answered', () => {

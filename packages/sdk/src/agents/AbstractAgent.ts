@@ -181,7 +181,7 @@ export abstract class AbstractAgent<
 		if (inflight) {
 			this.log.info('Joining an invocation already running under this key', {
 				[GENAI.AGENT_ID]: this.metadata.id,
-				idempotencyKey: key,
+				'namzu.agents.idempotency_key': key,
 			})
 			return inflight as Promise<T>
 		}

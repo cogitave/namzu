@@ -49,7 +49,7 @@ export async function runInputGuardrails(
 			log.warn('Input guardrail blocked the run', {
 				[NAMZU.RUN_ID]: ctx.runId,
 				'namzu.guardrail.name': nameOf({ name }, index),
-				reason: verdict.reason,
+				'namzu.runtime.reason': verdict.reason,
 			})
 			return { blocked: true, name: nameOf({ name }, index), reason: verdict.reason }
 		}
@@ -102,7 +102,7 @@ export async function runOutputGuardrails(
 			log.warn('Output guardrail blocked the result', {
 				[NAMZU.RUN_ID]: ctx.runId,
 				'namzu.guardrail.name': nameOf({ name }, index),
-				reason: verdict.reason,
+				'namzu.runtime.reason': verdict.reason,
 			})
 			return { blocked: true, name: nameOf({ name }, index), reason: verdict.reason }
 		}
@@ -111,7 +111,7 @@ export async function runOutputGuardrails(
 			log.info('Output guardrail rewrote the result', {
 				[NAMZU.RUN_ID]: ctx.runId,
 				'namzu.guardrail.name': nameOf({ name }, index),
-				reason: verdict.reason,
+				'namzu.runtime.reason': verdict.reason,
 			})
 			current = verdict.output
 			rewritten = true

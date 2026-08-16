@@ -132,11 +132,11 @@ export function withProviderRetry(
 				if (produced || !classified.retryable || exhausted) {
 					log?.warn('Provider call failed', {
 						[GENAI.SYSTEM]: provider.id,
-						code: classified.code,
-						status: classified.status,
+						'namzu.provider.code': classified.code,
+						'namzu.provider.status': classified.status,
 						'namzu.retry.attempt': attempt + 1,
-						retryable: classified.retryable,
-						reason: produced
+						'namzu.provider.retryable': classified.retryable,
+						'namzu.provider.reason': produced
 							? 'stream already produced output — cannot retry without duplicating it'
 							: exhausted
 								? 'retries exhausted'
@@ -186,12 +186,13 @@ export function withProviderRetry(
 				if (serverDirected !== undefined && serverDirected > config.maxRetryAfterMs) {
 					log?.warn('Provider call failed — server-directed wait exceeds the ceiling', {
 						[GENAI.SYSTEM]: provider.id,
-						code: classified.code,
-						status: classified.status,
+						'namzu.provider.code': classified.code,
+						'namzu.provider.status': classified.status,
 						'namzu.retry.attempt': attempt + 1,
-						retryAfterMs: serverDirected,
-						maxRetryAfterMs: config.maxRetryAfterMs,
-						reason: 'surfacing rather than retrying — the caller decides how to wait',
+						'namzu.provider.retry_after_ms': serverDirected,
+						'namzu.provider.max_retry_after_ms': config.maxRetryAfterMs,
+						'namzu.provider.reason':
+							'surfacing rather than retrying — the caller decides how to wait',
 					})
 					throw isProviderRequestError(err) ? err : classified
 				}
@@ -200,12 +201,12 @@ export function withProviderRetry(
 
 				log?.warn('Provider call failed — retrying', {
 					[GENAI.SYSTEM]: provider.id,
-					code: classified.code,
-					status: classified.status,
+					'namzu.provider.code': classified.code,
+					'namzu.provider.status': classified.status,
 					'namzu.retry.attempt': attempt + 1,
-					maxRetries: config.maxRetries,
-					delayMs: delay,
-					serverDirected: serverDirected !== undefined,
+					'namzu.provider.max_retries': config.maxRetries,
+					'namzu.provider.delay_ms': delay,
+					'namzu.provider.server_directed': serverDirected !== undefined,
 				})
 
 				// Tell the consumer BEFORE sleeping. With the default policy a

@@ -324,8 +324,8 @@ export function withProviderFallback(
 				if (produced || !to || !shouldFallOver(err, member.provider.id)) {
 					log?.warn('Provider chain: not falling over', {
 						[GENAI.SYSTEM]: member.provider.id,
-						position: cursor,
-						reason: produced
+						'namzu.provider.position': cursor,
+						'namzu.provider.reason': produced
 							? 'stream already produced output — cannot restart without duplicating it'
 							: !to
 								? 'chain exhausted'
@@ -337,12 +337,12 @@ export function withProviderFallback(
 				const classified = classifyProviderError(err, member.provider.id)
 				cursor = next
 				log?.warn('Provider chain: falling over', {
-					from: member.provider.id,
-					fromPosition: cursor - 1,
-					to: to.provider.id,
-					toPosition: cursor,
-					code: classified.code,
-					status: classified.status,
+					'namzu.provider.from': member.provider.id,
+					'namzu.provider.from_position': cursor - 1,
+					'namzu.provider.to': to.provider.id,
+					'namzu.provider.to_position': cursor,
+					'namzu.provider.code': classified.code,
+					'namzu.provider.status': classified.status,
 				})
 
 				// In-band, exactly like the retry notice and for the same reason: the

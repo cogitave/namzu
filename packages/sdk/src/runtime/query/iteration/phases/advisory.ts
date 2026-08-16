@@ -55,7 +55,7 @@ export async function runAdvisoryPhase(
 	if (!budgetCheck.allowed) {
 		ctx.log.debug('Advisory budget exhausted, skipping advisory phase', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			reason: budgetCheck.reason,
+			'namzu.runtime.reason': budgetCheck.reason,
 		})
 		return
 	}
@@ -82,7 +82,7 @@ export async function runAdvisoryPhase(
 	if (!advisor) {
 		ctx.log.warn('Advisory trigger fired but advisor not found', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			triggerId: trigger.id,
+			'namzu.runtime.trigger_id': trigger.id,
 			'namzu.advisory.id': trigger.advisorId,
 		})
 		return
@@ -174,16 +174,16 @@ export async function runAdvisoryPhase(
 		ctx.log.info('Advisory phase completed', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			[NAMZU.ITERATION]: iterationNum,
-			triggerId: trigger.id,
+			'namzu.runtime.trigger_id': trigger.id,
 			'namzu.advisory.id': advisor.id,
 			'namzu.duration_ms': executionResult.durationMs,
-			totalAdvisoryCalls: advisoryCtx.callHistory.length,
+			'namzu.runtime.total_advisory_calls': advisoryCtx.callHistory.length,
 		})
 	} catch (err) {
 		ctx.log.warn('Advisory phase failed', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			[NAMZU.ITERATION]: iterationNum,
-			triggerId: trigger.id,
+			'namzu.runtime.trigger_id': trigger.id,
 			'namzu.advisory.id': advisor.id,
 			'exception.message': toErrorMessage(err),
 		})

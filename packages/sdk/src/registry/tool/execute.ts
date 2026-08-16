@@ -475,7 +475,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					const msg = `Tool "${toolName}" is not available on this step. Available: ${allowed.length > 0 ? allowed.join(', ') : '(none)'}`
 					this.log.warn('Blocked a tool outside the step allow-list', {
 						[GENAI.TOOL_NAME]: toolName,
-						allowed: allowed.length,
+						'namzu.registry.allowed': allowed.length,
 					})
 					span.setAttributes({
 						[NAMZU.TOOL_SUCCESS]: false,
@@ -548,8 +548,8 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 					this.log.error('Tool input validation failed', {
 						'namzu.tool.name': toolName,
-						errors: errorMessage,
-						empty: isEmptyInput,
+						'namzu.registry.errors': errorMessage,
+						'namzu.registry.empty': isEmptyInput,
 					})
 
 					span.setAttributes({
@@ -592,7 +592,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					const durationMs = Date.now() - startedAt
 					this.log.debug('Tool completed', {
 						'namzu.tool.name': toolName,
-						success: result.success,
+						'namzu.registry.success': result.success,
 					})
 
 					span.setAttribute(NAMZU.TOOL_SUCCESS, result.success)

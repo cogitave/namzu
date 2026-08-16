@@ -323,9 +323,9 @@ describe('DefaultFilesystemMigrator.migrate', () => {
 			expect(calls).toHaveLength(1)
 			expect(calls[0]?.level).toBe('info')
 			expect(calls[0]?.data?.[EVENT_NAME_ATTRIBUTE]).toBe(BOOT_EVENT_NAMES.MIGRATION_COMPLETED)
-			expect(calls[0]?.data?.kind).toBe('migrated')
-			expect(calls[0]?.data?.markerPath).toBe('/root/.migration/v0.2.0')
-			expect(calls[0]?.data?.migratedThreadCount).toBe(2)
+			expect(calls[0]?.data?.['namzu.migration.kind']).toBe('migrated')
+			expect(calls[0]?.data?.['namzu.migration.marker_path']).toBe('/root/.migration/v0.2.0')
+			expect(calls[0]?.data?.['namzu.migration.migrated_thread_count']).toBe(2)
 		})
 
 		it('end to end: DefaultFilesystemMigrator(loggingMigrationSink(log)) logs exactly once on a real cold-boot migration', async () => {

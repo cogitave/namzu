@@ -13,6 +13,7 @@
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { NAMZU } from '../../constants/telemetry/index.js'
 import type { GitWorktreeBackendMeta, WorkspaceRef } from '../../types/workspace/ref.js'
 import { generateWorkspaceId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
@@ -105,9 +106,9 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 				throw new WorkspaceBackendError({ op: 'create', kind: this.kind, cause })
 			}
 			this.log.warn('git-worktree add reported failure but the worktree is present', {
-				branch,
-				worktreePath,
-				cause: cause instanceof Error ? cause.message : String(cause),
+				'namzu.session.branch': branch,
+				'namzu.session.worktree_path': worktreePath,
+				'namzu.session.cause': cause instanceof Error ? cause.message : String(cause),
 			})
 		}
 
@@ -118,7 +119,11 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 			worktreePath,
 		}
 
-		this.log.info('git-worktree created', { id, branch, worktreePath })
+		this.log.info('git-worktree created', {
+			[NAMZU.SESSION_ID]: id,
+			'namzu.session.branch': branch,
+			'namzu.session.worktree_path': worktreePath,
+		})
 		return {
 			id,
 			meta,
@@ -145,15 +150,18 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 				ref.meta.worktreePath,
 				'--force',
 			])
-			this.log.info('git-worktree disposed', { id: ref.id, path: ref.meta.worktreePath })
+			this.log.info('git-worktree disposed', {
+				[NAMZU.SESSION_ID]: ref.id,
+				'namzu.session.path': ref.meta.worktreePath,
+			})
 		} catch (cause) {
 			const message = cause instanceof Error ? cause.message : String(cause)
 			// git exits non-zero with "is not a working tree" when the path is
 			// absent; treat as idempotent success and log at debug.
 			if (/not a working tree|does not exist|No such file/i.test(message)) {
 				this.log.debug('git-worktree already gone; dispose idempotent', {
-					id: ref.id,
-					path: ref.meta.worktreePath,
+					[NAMZU.SESSION_ID]: ref.id,
+					'namzu.session.path': ref.meta.worktreePath,
 				})
 				return
 			}

@@ -99,7 +99,7 @@ export async function screenToolResult(
 			log.error('Tool-result guardrail halted the run', {
 				[GENAI.TOOL_NAME]: ctx.toolName,
 				'namzu.guardrail.name': label,
-				reason: verdict.reason,
+				'namzu.registry.reason': verdict.reason,
 			})
 			throw new ToolResultHalted(label, verdict.reason)
 		}
@@ -108,7 +108,7 @@ export async function screenToolResult(
 			log.warn('Tool-result guardrail refused the result', {
 				[GENAI.TOOL_NAME]: ctx.toolName,
 				'namzu.guardrail.name': label,
-				reason: verdict.reason,
+				'namzu.registry.reason': verdict.reason,
 			})
 			return {
 				success: false,
@@ -121,7 +121,7 @@ export async function screenToolResult(
 			log.info('Tool-result guardrail rewrote the result', {
 				[GENAI.TOOL_NAME]: ctx.toolName,
 				'namzu.guardrail.name': label,
-				reason: verdict.reason,
+				'namzu.registry.reason': verdict.reason,
 			})
 			current = verdict.output
 			rewritten = true

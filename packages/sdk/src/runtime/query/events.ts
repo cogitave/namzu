@@ -77,8 +77,8 @@ export class EventTranslator {
 				if (this.droppedDeltaCount === 1 || this.droppedDeltaCount % 100 === 0) {
 					this.log.warn('Dropped ephemeral RunEvent under bus pressure', {
 						[NAMZU.RUN_ID]: event.runId,
-						droppedCount: this.droppedDeltaCount,
-						queueSize: this.pendingEvents.length,
+						'namzu.runtime.dropped_count': this.droppedDeltaCount,
+						'namzu.runtime.queue_size': this.pendingEvents.length,
 					})
 				}
 			}

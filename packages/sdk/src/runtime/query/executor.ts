@@ -479,9 +479,9 @@ export class ToolExecutor {
 	): Promise<ToolExecutionBatch> {
 		this.log.debug('Executing tool batch', {
 			[NAMZU.RUN_ID]: this.config.runId,
-			toolCount: toolCalls.length,
-			deniedCount: denials?.size ?? 0,
-			recoveredCount: prior?.size ?? 0,
+			'namzu.runtime.tool_count': toolCalls.length,
+			'namzu.runtime.denied_count': denials?.size ?? 0,
+			'namzu.runtime.recovered_count': prior?.size ?? 0,
 			'namzu.tool.names': toolCalls.map((tc) => tc.function.name),
 		})
 
@@ -844,8 +844,8 @@ export class ToolExecutor {
 			this.log.warn('Tool call denied by probe', {
 				[NAMZU.RUN_ID]: this.config.runId,
 				[GENAI.TOOL_NAME]: toolName,
-				probeName,
-				reason,
+				'namzu.runtime.probe_name': probeName,
+				'namzu.runtime.reason': reason,
 			})
 			if (activity) {
 				this.activityStore.fail(activity.id, veto.message)
@@ -945,9 +945,9 @@ export class ToolExecutor {
 				[NAMZU.RUN_ID]: this.config.runId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.retry.attempt': attempt,
-				budget,
-				requestedByHook: post.retry,
-				delayMs,
+				'namzu.runtime.budget': budget,
+				'namzu.runtime.requested_by_hook': post.retry,
+				'namzu.runtime.delay_ms': delayMs,
 				'exception.message': result.error,
 			})
 
@@ -994,8 +994,8 @@ export class ToolExecutor {
 			this.log.warn('Tool output exceeded the model-visible budget', {
 				[NAMZU.RUN_ID]: this.config.runId,
 				[GENAI.TOOL_NAME]: toolName,
-				originalLength: budgeted.originalLength,
-				spillPath: budgeted.spillPath,
+				'namzu.runtime.original_length': budgeted.originalLength,
+				'namzu.runtime.spill_path': budgeted.spillPath,
 			})
 		}
 		output = budgeted.output
@@ -1031,7 +1031,7 @@ export class ToolExecutor {
 				[NAMZU.RUN_ID]: this.config.runId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.duration_ms': durationMs,
-				outputLength: output.length,
+				'namzu.runtime.output_length': output.length,
 			})
 		} else {
 			this.log.warn('Tool execution failed', {
@@ -1173,7 +1173,7 @@ export class ToolExecutor {
 				this.log.warn('Tool timed out', {
 					[NAMZU.RUN_ID]: this.config.runId,
 					[GENAI.TOOL_NAME]: toolName,
-					timeoutMs,
+					'namzu.runtime.timeout_ms': timeoutMs,
 				})
 				return {
 					success: false,
@@ -1303,8 +1303,10 @@ export class ToolExecutor {
 			this.log.info('Repaired a malformed tool call', {
 				[NAMZU.RUN_ID]: this.config.runId,
 				[GENAI.TOOL_NAME]: toolName,
-				reason: failure.reason,
-				...(repair.toolName && repair.toolName !== toolName ? { repairedTo: repair.toolName } : {}),
+				'namzu.runtime.reason': failure.reason,
+				...(repair.toolName && repair.toolName !== toolName
+					? { 'namzu.runtime.repaired_to': repair.toolName }
+					: {}),
 			})
 			toolName = repair.toolName ?? toolName
 			raw = repair.arguments
@@ -1336,7 +1338,7 @@ export class ToolExecutor {
 			this.log.info('Repaired a tool call whose input stream was truncated', {
 				[NAMZU.RUN_ID]: this.config.runId,
 				[GENAI.TOOL_NAME]: toolName,
-				partialLength: partial.length,
+				'namzu.runtime.partial_length': partial.length,
 			})
 		}
 		return repair
@@ -1517,8 +1519,8 @@ export class ToolExecutor {
 		this.log.info('Tool call denied — synthesizing tool_result', {
 			[NAMZU.RUN_ID]: this.config.runId,
 			[GENAI.TOOL_NAME]: toolName,
-			toolUseId: toolCall.id,
-			reason,
+			'namzu.runtime.tool_use_id': toolCall.id,
+			'namzu.runtime.reason': reason,
 		})
 
 		const activity = this.activityStore.create({
@@ -1615,8 +1617,8 @@ export class ToolExecutor {
 		this.log.warn('Tool result content exceeded the rich-content budget', {
 			[NAMZU.RUN_ID]: this.config.runId,
 			[GENAI.TOOL_NAME]: toolName,
-			contentBytes: size,
-			cap,
+			'namzu.runtime.content_bytes': size,
+			'namzu.runtime.cap': cap,
 		})
 
 		const described = describeDroppedContent(content)
@@ -1640,9 +1642,11 @@ export class ToolExecutor {
 		if (compressed.length < output.length) {
 			this.log.debug('Shell output compressed', {
 				[GENAI.TOOL_NAME]: toolName,
-				originalLength: output.length,
-				compressedLength: compressed.length,
-				reductionPercent: Math.round((1 - compressed.length / output.length) * 100),
+				'namzu.runtime.original_length': output.length,
+				'namzu.runtime.compressed_length': compressed.length,
+				'namzu.runtime.reduction_percent': Math.round(
+					(1 - compressed.length / output.length) * 100,
+				),
 			})
 		}
 		return compressed

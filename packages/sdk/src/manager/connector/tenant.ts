@@ -303,7 +303,7 @@ export class TenantConnectorManager {
 				listener(event)
 			} catch (err) {
 				this.log.error('Tenant event listener error', {
-					tenantId,
+					'namzu.manager.tenant_id': tenantId,
 					'exception.message': toErrorMessage(err),
 				})
 			}

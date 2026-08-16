@@ -128,7 +128,10 @@ describe('a fan-out interrupted part-way through', () => {
 		)
 
 		const warned = (log.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]
-		expect(warned?.[1]).toMatchObject({ completed: 3, total: 5 })
+		expect(warned?.[1]).toMatchObject({
+			'namzu.runtime.completed': 3,
+			'namzu.runtime.total': 5,
+		})
 	})
 
 	it('leaves an untouched fan-out to the ordinary repair', async () => {

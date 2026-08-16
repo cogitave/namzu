@@ -125,7 +125,10 @@ export class DoctorRegistry {
 				result = await Promise.race([checkPromise, timeoutPromise])
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error)
-				this.log?.warn('doctor check threw', { id: check.id, message })
+				this.log?.warn('doctor check threw', {
+					'namzu.doctor.id': check.id,
+					'namzu.doctor.message': message,
+				})
 				result = { status: 'fail', message: `check threw: ${message}` }
 			}
 			recordCompletion({
@@ -151,9 +154,9 @@ export class DoctorRegistry {
 			this.log?.warn(
 				raceWinner === 'aborted' ? 'doctor aborted by signal' : 'doctor wall-clock timeout',
 				{
-					wall,
-					total: filteredChecks.length,
-					unfinished: unfinished.length,
+					'namzu.doctor.wall': wall,
+					'namzu.doctor.total': filteredChecks.length,
+					'namzu.doctor.unfinished': unfinished.length,
 				},
 			)
 			records = filteredChecks.map((check): DoctorCheckRecord => {
@@ -206,7 +209,10 @@ export class DoctorRegistry {
 			fn()
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
-			this.log?.warn('doctor callback threw', { phase, message })
+			this.log?.warn('doctor callback threw', {
+				'namzu.doctor.phase': phase,
+				'namzu.doctor.message': message,
+			})
 		}
 	}
 }

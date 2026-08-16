@@ -199,8 +199,8 @@ export class PluginLifecycleManager {
 		this.log.info('Plugin installed', {
 			'namzu.plugin.name': manifest.name,
 			'namzu.plugin.id': pluginId,
-			scope,
-			version: manifest.version,
+			'namzu.plugin.scope': scope,
+			'namzu.plugin.version': manifest.version,
 		})
 
 		return definition

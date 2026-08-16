@@ -80,8 +80,8 @@ export function planPendingResume(
 	if (pending.request.type !== 'tool_review') {
 		log.info('Pending decision supplied for a park that leaves no tool calls to apply it to', {
 			'namzu.checkpoint.id': checkpoint.id,
-			pendingType: pending.request.type,
-			decision: decision.action,
+			'namzu.runtime.pending_type': pending.request.type,
+			'namzu.runtime.decision': decision.action,
 		})
 		return null
 	}
@@ -103,8 +103,8 @@ export function planPendingResume(
 	if (mismatched.length > 0 || recordedIds.size !== actualIds.length) {
 		log.error('Tool calls in the checkpoint do not match the ones the decision was made about', {
 			'namzu.checkpoint.id': checkpoint.id,
-			recorded: [...recordedIds],
-			actual: actualIds,
+			'namzu.runtime.recorded': [...recordedIds],
+			'namzu.runtime.actual': actualIds,
 		})
 		return null
 	}
@@ -166,7 +166,7 @@ function planQuestionResume(
 	if (!assistant.toolCalls.some((tc) => isPauseForCall(questionId, tc.id))) {
 		log.error('The parked question does not belong to any unanswered call in this turn', {
 			'namzu.checkpoint.id': checkpoint.id,
-			questionId,
+			'namzu.runtime.question_id': questionId,
 		})
 		return null
 	}
@@ -216,9 +216,11 @@ export function planCrashResume(
 
 	log.warn('Checkpoint holds a tool batch that was part-way through executing', {
 		'namzu.checkpoint.id': checkpoint.id,
-		completed: done.length,
-		total: calls.length,
-		remaining: calls.filter((tc) => !completed.has(tc.id)).map((tc) => tc.function.name),
+		'namzu.runtime.completed': done.length,
+		'namzu.runtime.total': calls.length,
+		'namzu.runtime.remaining': calls
+			.filter((tc) => !completed.has(tc.id))
+			.map((tc) => tc.function.name),
 	})
 
 	return {
@@ -283,8 +285,8 @@ export async function recoverCompletedCalls(
 
 	if (recovered.size > 0) {
 		log.info('Recovered tool results from the transcript instead of re-executing', {
-			recovered: recovered.size,
-			ofCalls: toolCalls.length,
+			'namzu.runtime.recovered': recovered.size,
+			'namzu.runtime.of_calls': toolCalls.length,
 		})
 	}
 	return recovered

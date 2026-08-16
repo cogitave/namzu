@@ -209,7 +209,7 @@ export class DiskTaskStore implements TaskStore {
 
 		this.log.info('Task created', {
 			'namzu.task.id': taskId,
-			subject: params.subject,
+			'namzu.store.subject': params.subject,
 			[NAMZU.RUN_ID]: runId,
 		})
 		this.emit({ type: 'task.created', taskId, task, timestamp: Date.now() })
@@ -332,7 +332,7 @@ export class DiskTaskStore implements TaskStore {
 			files = await records.scanNames(dir, '')
 		} catch (err) {
 			this.log.warn('Failed to list task directory', {
-				dir,
+				'namzu.store.dir': dir,
 				'exception.message': err instanceof Error ? err.message : String(err),
 			})
 			return []
@@ -346,7 +346,7 @@ export class DiskTaskStore implements TaskStore {
 				if (task !== null) tasks.push(task)
 			} catch (err) {
 				this.log.warn('Failed to read task file', {
-					file,
+					'namzu.store.file': file,
 					'exception.message': err instanceof Error ? err.message : String(err),
 				})
 			}
@@ -401,10 +401,10 @@ export class DiskTaskStore implements TaskStore {
 			// whole operation instead.
 			if (!blocker || !blocked) {
 				this.log.warn('block(): task disappeared before lock acquired; skipping', {
-					blockerId,
-					blockedId,
-					blockerExists: !!blocker,
-					blockedExists: !!blocked,
+					'namzu.store.blocker_id': blockerId,
+					'namzu.store.blocked_id': blockedId,
+					'namzu.store.blocker_exists': !!blocker,
+					'namzu.store.blocked_exists': !!blocked,
 				})
 				return
 			}
@@ -421,7 +421,10 @@ export class DiskTaskStore implements TaskStore {
 				mutated = true
 			}
 			if (!mutated) {
-				this.log.debug('block(): edge already exists', { blockerId, blockedId })
+				this.log.debug('block(): edge already exists', {
+					'namzu.store.blocker_id': blockerId,
+					'namzu.store.blocked_id': blockedId,
+				})
 				return
 			}
 
@@ -452,7 +455,7 @@ export class DiskTaskStore implements TaskStore {
 		} catch (err) {
 			this.log.error('Corrupt task JSON on disk', {
 				'namzu.task.id': taskId,
-				path,
+				'namzu.store.path': path,
 				'exception.message': err instanceof Error ? err.message : String(err),
 			})
 			return null
@@ -505,7 +508,7 @@ export class DiskTaskStore implements TaskStore {
 			const code = (err as NodeJS.ErrnoException).code
 			if (code !== 'ENOENT') {
 				this.log.warn('Failed to enumerate task run directories', {
-					root,
+					'namzu.store.root': root,
 					'exception.message': err instanceof Error ? err.message : String(err),
 				})
 			}

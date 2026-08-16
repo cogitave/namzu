@@ -44,12 +44,22 @@ function makeLogger(): Logger {
 	return self
 }
 
-/** The one log line that reports what the trigger measured. */
+/**
+ * The one log line that reports what the trigger measured.
+ *
+ * Read through the NAMESPACED keys (LOG-22). The bare `measuredBy` and
+ * `contextTokens` these assertions used to name were the same defect one
+ * level down from what this file tests: a key that reads fine here and
+ * collides with whatever the next module calls its own `contextTokens`.
+ */
 function compactionLog(log: Logger): Record<string, unknown> | undefined {
 	const calls = (log.info as unknown as { mock: { calls: unknown[][] } }).mock.calls
 	const hit = calls.find((call) => String(call[0]).includes('Compaction threshold reached'))
 	return hit?.[1] as Record<string, unknown> | undefined
 }
+
+const MEASURED_BY = 'namzu.runtime.measured_by'
+const CONTEXT_TOKENS = 'namzu.runtime.context_tokens'
 
 const WINDOW = 2_500
 
@@ -115,11 +125,11 @@ describe('the tail appended after the measurement', () => {
 
 		const entry = compactionLog(log)
 		expect(entry).toBeDefined()
-		expect(entry?.measuredBy).toBe('provider')
+		expect(entry?.[MEASURED_BY]).toBe('provider')
 		// The measurement is kept whole and the tail added to it — not
 		// re-estimated from scratch, which would throw away the one real
 		// number available.
-		expect(entry?.contextTokens).toBeGreaterThanOrEqual(2_200)
+		expect(entry?.[CONTEXT_TOKENS]).toBeGreaterThanOrEqual(2_200)
 	})
 
 	it('leaves the measurement alone when nothing was appended', async () => {
@@ -131,7 +141,7 @@ describe('the tail appended after the measurement', () => {
 		})
 		await runCompactionCheck(ctx)
 
-		expect(compactionLog(log)?.contextTokens).toBe(2_000)
+		expect(compactionLog(log)?.[CONTEXT_TOKENS]).toBe(2_000)
 	})
 
 	it('falls back to the measurement verbatim when no watermark was recorded', async () => {
@@ -142,7 +152,7 @@ describe('the tail appended after the measurement', () => {
 		const { ctx, log } = makeCtx({ messages, lastPromptTokens: 2_000 })
 		await runCompactionCheck(ctx)
 
-		expect(compactionLog(log)?.contextTokens).toBe(2_000)
+		expect(compactionLog(log)?.[CONTEXT_TOKENS]).toBe(2_000)
 	})
 })
 
@@ -164,8 +174,8 @@ describe('the tool catalogue', () => {
 		await runCompactionCheck(ctx)
 
 		const entry = compactionLog(log)
-		expect(entry?.measuredBy).toBe('estimate')
-		expect(entry?.contextTokens).toBeGreaterThan(WINDOW * 0.7)
+		expect(entry?.[MEASURED_BY]).toBe('estimate')
+		expect(entry?.[CONTEXT_TOKENS]).toBeGreaterThan(WINDOW * 0.7)
 	})
 
 	it('does not fire on a small catalogue and a small history', async () => {

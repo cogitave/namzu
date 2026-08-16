@@ -27,7 +27,7 @@ export class DecisionParser {
 		const jsonStr = this.extractJson(rawContent)
 		if (!jsonStr) {
 			this.log.warn('Failed to extract JSON from LLM routing response', {
-				contentPreview: rawContent.slice(0, 200),
+				'namzu.runtime.content_preview': rawContent.slice(0, 200),
 			})
 			return {
 				ok: false,
@@ -42,7 +42,7 @@ export class DecisionParser {
 		} catch (err) {
 			this.log.warn('Invalid JSON in routing response', {
 				'exception.message': String(err),
-				contentPreview: jsonStr.slice(0, 200),
+				'namzu.runtime.content_preview': jsonStr.slice(0, 200),
 			})
 			return {
 				ok: false,
@@ -57,7 +57,7 @@ export class DecisionParser {
 				.map((i) => `${i.path.join('.')}: ${i.message}`)
 				.join('; ')
 
-			this.log.warn('Routing response failed schema validation', { errors })
+			this.log.warn('Routing response failed schema validation', { 'namzu.runtime.errors': errors })
 
 			return {
 				ok: false,
@@ -71,7 +71,7 @@ export class DecisionParser {
 		if (!this.config.validAgentIds.includes(response.agentId)) {
 			this.log.warn('LLM returned unknown agentId', {
 				[GENAI.AGENT_ID]: response.agentId,
-				validIds: this.config.validAgentIds,
+				'namzu.runtime.valid_ids': this.config.validAgentIds,
 			})
 
 			return {
@@ -83,8 +83,8 @@ export class DecisionParser {
 
 		if (response.confidence < this.config.minConfidence) {
 			this.log.info('Routing confidence below threshold', {
-				confidence: response.confidence,
-				threshold: this.config.minConfidence,
+				'namzu.runtime.confidence': response.confidence,
+				'namzu.runtime.threshold': this.config.minConfidence,
 				[GENAI.AGENT_ID]: response.agentId,
 			})
 

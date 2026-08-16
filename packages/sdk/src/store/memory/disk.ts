@@ -72,7 +72,7 @@ export class DiskMemoryStore implements MemoryStore {
 			const entries = await this.indexRecords.read(this.indexPath)
 			if (entries !== null) {
 				this.index.rebuild([...entries])
-				this.log.info('Memory index loaded', { count: entries.length })
+				this.log.info('Memory index loaded', { 'namzu.store.count': entries.length })
 			}
 		} catch (err) {
 			this.log.warn('Failed to read memory index — starting fresh', {
@@ -112,7 +112,7 @@ export class DiskMemoryStore implements MemoryStore {
 		await this.persistIndex()
 		await this.records.write(this.contentPath(id), memoryContent)
 
-		this.log.info('Memory created', { 'namzu.memory.id': id, title: params.title })
+		this.log.info('Memory created', { 'namzu.memory.id': id, 'namzu.store.title': params.title })
 
 		return { entry, content: memoryContent }
 	}

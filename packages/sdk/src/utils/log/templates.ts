@@ -81,7 +81,12 @@ export const BOOT_TEMPLATES: Record<BootEventName, BootTemplate> = {
 	[BOOT_EVENT_NAMES.CAPABILITY_BROKEN]: (r) =>
 		bodyWith(r, ['namzu.capability.name', 'namzu.capability.reason']),
 	[BOOT_EVENT_NAMES.TELEMETRY_STATUS]: (r) => r.body,
-	[BOOT_EVENT_NAMES.MIGRATION_COMPLETED]: (r) => bodyWith(r, ['namzu.migration.root']),
+	// `kind`, not `root`. This asked for `namzu.migration.root`, which NOTHING
+	// has ever written — neither `loggingMigrationSink` nor the
+	// nothing-to-do branch in `runtime/query/index.ts` — so the operator's
+	// migration line rendered the body and appended an empty string. `kind`
+	// is the fact worth seeing: migrated, already_migrated, or noop_no_legacy.
+	[BOOT_EVENT_NAMES.MIGRATION_COMPLETED]: (r) => bodyWith(r, ['namzu.migration.kind']),
 	[BOOT_EVENT_NAMES.DISCOVERY_COMPLETED]: (r) =>
 		joined([
 			r.body,

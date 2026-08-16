@@ -120,8 +120,8 @@ export class MCPClient {
 			}
 			if (negotiated && negotiated !== MCP_PROTOCOL_VERSION) {
 				this.log.info('MCP server negotiated a different protocol version', {
-					requested: MCP_PROTOCOL_VERSION,
-					negotiated,
+					'namzu.connector.requested': MCP_PROTOCOL_VERSION,
+					'namzu.connector.negotiated': negotiated,
 				})
 			}
 
@@ -378,9 +378,9 @@ export class MCPClient {
 			const timer = setTimeout(() => {
 				this.pendingRequests.delete(id)
 				this.log.warn('MCP request timed out', {
-					server: this.config.serverName,
-					method,
-					timeoutMs,
+					'namzu.connector.server': this.config.serverName,
+					'namzu.connector.method': method,
+					'namzu.connector.timeout_ms': timeoutMs,
 				})
 				reject(
 					new Error(
@@ -418,9 +418,9 @@ export class MCPClient {
 	private rejectAllPending(reason: string): void {
 		if (this.pendingRequests.size === 0) return
 		this.log.warn('Failing in-flight MCP requests', {
-			server: this.config.serverName,
-			count: this.pendingRequests.size,
-			reason,
+			'namzu.connector.server': this.config.serverName,
+			'namzu.connector.count': this.pendingRequests.size,
+			'namzu.connector.reason': reason,
 		})
 		for (const [, pending] of this.pendingRequests) {
 			pending.reject(new Error(reason))
@@ -466,8 +466,8 @@ export class MCPClient {
 		// Answer honestly: we do not implement these yet.
 		if (message.method && message.id !== undefined) {
 			this.log.warn('Declining unsupported server-initiated MCP request', {
-				server: this.config.serverName,
-				method: message.method,
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.method': message.method,
 			})
 			void this.transport
 				.send({

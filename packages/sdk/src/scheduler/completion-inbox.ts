@@ -155,7 +155,10 @@ export class CompletionInbox {
 					.child({ component: 'CompletionInbox' })
 					.warn(
 						"Unclaimed completion buffer is full — dropped the oldest. If that task was this run's, its result is now unreachable; raise UNOWNED_BUFFER_LIMIT or launch fewer tasks per turn.",
-						{ dropped: oldest.value, limit: UNOWNED_BUFFER_LIMIT },
+						{
+							'namzu.scheduler.dropped': oldest.value,
+							'namzu.scheduler.limit': UNOWNED_BUFFER_LIMIT,
+						},
 					)
 			}
 		}

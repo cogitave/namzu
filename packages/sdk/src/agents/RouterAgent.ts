@@ -238,8 +238,8 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 				if (parseResult.ok && parseResult.source === 'fallback') {
 					log.warn('Routing attempt fell back', {
 						'namzu.router.attempt': attempt + 1,
-						reason: parseResult.reason,
-						decision: parseResult.decision,
+						'namzu.agents.reason': parseResult.reason,
+						'namzu.agents.decision': parseResult.decision,
 					})
 
 					if (attempt === maxRetries - 1) {

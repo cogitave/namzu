@@ -80,8 +80,8 @@ export class AdvisoryExecutor {
 		this.logger.debug('advisory call starting', {
 			'namzu.advisory.id': advisor.id,
 			[GENAI.REQUEST_MODEL]: advisor.model,
-			messageCount: messages.length,
-			urgency: request.urgency,
+			'namzu.advisory.message_count': messages.length,
+			'namzu.advisory.urgency': request.urgency,
 		})
 
 		const response = await collectChatCompletion(

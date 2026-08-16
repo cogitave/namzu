@@ -42,7 +42,7 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 			// directory listed is not the directory loaded.
 			const s = await lstat(fullPath)
 			if (s.isSymbolicLink()) {
-				logger.warn('Refusing a symlinked plugin directory', { path: fullPath })
+				logger.warn('Refusing a symlinked plugin directory', { 'namzu.plugin.path': fullPath })
 				continue
 			}
 			if (!s.isDirectory()) continue
@@ -56,7 +56,7 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 			}
 		}
 	} catch {
-		logger.debug('Plugins directory not found', { parentDir })
+		logger.debug('Plugins directory not found', { 'namzu.plugin.parent_dir': parentDir })
 	}
 
 	return dirs
@@ -196,8 +196,8 @@ export async function discoverAllPluginDirs(
 	const logger = resolveLogger(options?.log).child({ component: 'PluginLoader' })
 	if (options?.enabled === false || options?.autoDiscovery === false) {
 		logger.debug('Plugin discovery skipped', {
-			enabled: options.enabled,
-			autoDiscovery: options.autoDiscovery,
+			'namzu.plugin.enabled': options.enabled,
+			'namzu.plugin.auto_discovery': options.autoDiscovery,
 		})
 		return { project: [], user: [] }
 	}
@@ -216,9 +216,9 @@ export async function discoverAllPluginDirs(
 	])
 
 	logger.debug('Plugin discovery complete', {
-		projectCount: project.length,
-		userCount: user.length,
-		...(scopes ? { allowedScopes: scopes } : {}),
+		'namzu.plugin.project_count': project.length,
+		'namzu.plugin.user_count': user.length,
+		...(scopes ? { 'namzu.plugin.allowed_scopes': scopes } : {}),
 	})
 
 	return { project, user }

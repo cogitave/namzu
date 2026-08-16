@@ -78,9 +78,9 @@ export class SkillRegistry {
 		}
 
 		this.log.debug('Registered skills from directory', {
-			parentDir,
-			count: results.length,
-			names: results.map((s) => s.metadata.name),
+			'namzu.skills.parent_dir': parentDir,
+			'namzu.skills.count': results.length,
+			'namzu.skills.names': results.map((s) => s.metadata.name),
 		})
 
 		return results
@@ -255,9 +255,9 @@ export async function resolveSkillChain(
 	resolveLogger(log)
 		.child({ component: 'SkillRegistry' })
 		.debug('Resolved skill chain', {
-			inherited: inherited.map((s) => s.metadata.name),
-			own: own.map((s) => s.metadata.name),
-			resolved: resolved.map((s) => s.metadata.name),
+			'namzu.skills.inherited': inherited.map((s) => s.metadata.name),
+			'namzu.skills.own': own.map((s) => s.metadata.name),
+			'namzu.skills.resolved': resolved.map((s) => s.metadata.name),
 		})
 
 	return { inherited, own, resolved }

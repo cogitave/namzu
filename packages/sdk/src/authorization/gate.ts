@@ -123,9 +123,9 @@ export class AuthorizationGate {
 			if (rule.type === 'custom_pattern') {
 				if (rule.pattern.length > MAX_CUSTOM_PATTERN_LENGTH) {
 					this.log.warn('Custom pattern exceeds max length, skipping', {
-						index: i,
-						length: rule.pattern.length,
-						maxLength: MAX_CUSTOM_PATTERN_LENGTH,
+						'namzu.authorization.index': i,
+						'namzu.authorization.length': rule.pattern.length,
+						'namzu.authorization.max_length': MAX_CUSTOM_PATTERN_LENGTH,
 					})
 					continue
 				}
@@ -133,8 +133,8 @@ export class AuthorizationGate {
 					this.compiledPatterns.set(i, new RegExp(rule.pattern))
 				} catch (err) {
 					this.log.warn('Invalid custom pattern regex, skipping', {
-						index: i,
-						pattern: rule.pattern,
+						'namzu.authorization.index': i,
+						'namzu.authorization.pattern': rule.pattern,
 						'exception.message': err instanceof Error ? err.message : String(err),
 					})
 				}
@@ -158,9 +158,9 @@ export class AuthorizationGate {
 				// it.
 				if (rule.pattern.length > MAX_CUSTOM_PATTERN_LENGTH) {
 					this.log.warn('Argument pattern exceeds max length, skipping', {
-						index: i,
-						length: rule.pattern.length,
-						maxLength: MAX_CUSTOM_PATTERN_LENGTH,
+						'namzu.authorization.index': i,
+						'namzu.authorization.length': rule.pattern.length,
+						'namzu.authorization.max_length': MAX_CUSTOM_PATTERN_LENGTH,
 					})
 					continue
 				}
@@ -170,8 +170,8 @@ export class AuthorizationGate {
 					this.nameSets.set(i, new Set(rule.toolNames))
 				} catch (err) {
 					this.log.warn('Invalid argument pattern regex, skipping', {
-						index: i,
-						pattern: rule.pattern,
+						'namzu.authorization.index': i,
+						'namzu.authorization.pattern': rule.pattern,
 						'exception.message': err instanceof Error ? err.message : String(err),
 					})
 				}
@@ -217,9 +217,9 @@ export class AuthorizationGate {
 				if (this.logDecisions) {
 					this.log.debug('Gate decision', {
 						[GENAI.TOOL_NAME]: ctx.toolName,
-						decision,
-						ruleType: rule.type,
-						ruleIndex: i,
+						'namzu.authorization.decision': decision,
+						'namzu.authorization.rule_type': rule.type,
+						'namzu.authorization.rule_index': i,
 					})
 				}
 
@@ -236,7 +236,7 @@ export class AuthorizationGate {
 		if (this.logDecisions) {
 			this.log.debug('Gate decision (default)', {
 				[GENAI.TOOL_NAME]: ctx.toolName,
-				decision: 'review',
+				'namzu.authorization.decision': 'review',
 			})
 		}
 

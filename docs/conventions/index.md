@@ -121,10 +121,9 @@ from reading as permission.
 - [One log record has one shape, and rules 3 and 4 prove it against the type, not the name](one-record-one-shape.md)
   — two of six enforced rules resolve on the real `Logger` and `LogAttributes`
   types rather than a name match, closing what a name-matching walk cannot
-  see. Both counts are measured and ratcheted rather than assumed away: the
-  non-constant bodies are now at **0**, so rule 3 is a floor and any new one
-  fails the gate; the un-namespaced attribute keys are still being worked
-  down.
+  see. Both counts are measured and ratcheted, and both are now at **0** —
+  so each rule is a floor, and the first new non-constant body or bare
+  attribute key fails the gate rather than the hundredth.
 
 ## How to add one
 

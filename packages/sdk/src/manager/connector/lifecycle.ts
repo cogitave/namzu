@@ -189,7 +189,7 @@ export class ConnectorManager {
 		if (instance.status === 'connected') {
 			await this.disconnect(instanceId).catch((err) => {
 				this.log.warn('Disconnect failed during removal', {
-					instanceId,
+					'namzu.manager.instance_id': instanceId,
 					'exception.message': toErrorMessage(err),
 				})
 			})

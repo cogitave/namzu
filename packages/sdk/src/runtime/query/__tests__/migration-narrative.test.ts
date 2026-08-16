@@ -69,9 +69,9 @@ describe('the boot-time filesystem migration reaches a log through a real query(
 		const migrationRecords = migrationRecordsFrom(records)
 		expect(migrationRecords).toHaveLength(1)
 		expect(migrationRecords[0]?.severityText).toBe('info')
-		expect(migrationRecords[0]?.attributes.kind).toBe('migrated')
-		expect(migrationRecords[0]?.attributes.markerPath).toContain('.migration')
-		expect(migrationRecords[0]?.attributes.migratedThreadCount).toBe(1)
+		expect(migrationRecords[0]?.attributes['namzu.migration.kind']).toBe('migrated')
+		expect(migrationRecords[0]?.attributes['namzu.migration.marker_path']).toContain('.migration')
+		expect(migrationRecords[0]?.attributes['namzu.migration.migrated_thread_count']).toBe(1)
 	})
 
 	it('a fresh root with no legacy layout logs noop_no_legacy at debug under the same event name', async () => {
@@ -87,7 +87,7 @@ describe('the boot-time filesystem migration reaches a log through a real query(
 		const migrationRecords = migrationRecordsFrom(records)
 		expect(migrationRecords).toHaveLength(1)
 		expect(migrationRecords[0]?.severityText).toBe('debug')
-		expect(migrationRecords[0]?.attributes.kind).toBe('noop_no_legacy')
+		expect(migrationRecords[0]?.attributes['namzu.migration.kind']).toBe('noop_no_legacy')
 	})
 
 	it('a root with an existing migration marker logs already_migrated at debug under the same event name', async () => {
@@ -110,6 +110,6 @@ describe('the boot-time filesystem migration reaches a log through a real query(
 		const migrationRecords = migrationRecordsFrom(records)
 		expect(migrationRecords).toHaveLength(1)
 		expect(migrationRecords[0]?.severityText).toBe('debug')
-		expect(migrationRecords[0]?.attributes.kind).toBe('already_migrated')
+		expect(migrationRecords[0]?.attributes['namzu.migration.kind']).toBe('already_migrated')
 	})
 })

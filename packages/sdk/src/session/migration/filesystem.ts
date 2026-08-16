@@ -133,9 +133,9 @@ export function loggingMigrationSink(log: Logger): FilesystemMigrationSink {
 			const { result } = event
 			log.info('filesystem migration completed', {
 				[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.MIGRATION_COMPLETED,
-				kind: result.kind,
-				markerPath: result.markerPath,
-				migratedThreadCount: result.migratedThreads.length,
+				'namzu.migration.kind': result.kind,
+				'namzu.migration.marker_path': result.markerPath,
+				'namzu.migration.migrated_thread_count': result.migratedThreads.length,
 			})
 		},
 	}

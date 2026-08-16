@@ -124,7 +124,7 @@ export class MCPToolDiscovery {
 			this.log.warn('MCP tools refused by policy', {
 				[NAMZU.SERVER_NAME]: state.serverName,
 				'namzu.mcp.client_id': client.id,
-				refused: refused.map((r) => `${r.name} (${r.reason})`),
+				'namzu.connector.refused': refused.map((r) => `${r.name} (${r.reason})`),
 			})
 		}
 
@@ -160,7 +160,7 @@ export class MCPToolDiscovery {
 			this.log.debug('MCP server published no prompts', {
 				[NAMZU.SERVER_NAME]: state.serverName,
 				'namzu.mcp.client_id': client.id,
-				reason: toErrorMessage(err),
+				'namzu.connector.reason': toErrorMessage(err),
 			})
 			return []
 		}
@@ -172,7 +172,7 @@ export class MCPToolDiscovery {
 			this.log.warn('MCP prompts refused by policy', {
 				[NAMZU.SERVER_NAME]: state.serverName,
 				'namzu.mcp.client_id': client.id,
-				refused: refused.map((r) => `${r.name} (${r.reason})`),
+				'namzu.connector.refused': refused.map((r) => `${r.name} (${r.reason})`),
 			})
 		}
 
@@ -201,9 +201,9 @@ export class MCPToolDiscovery {
 		this.log.warn('MCP server tool set changed since the last discovery', {
 			[NAMZU.SERVER_NAME]: serverName,
 			'namzu.mcp.client_id': clientId,
-			added: drift.added,
-			removed: drift.removed,
-			changed: drift.changed,
+			'namzu.connector.added': drift.added,
+			'namzu.connector.removed': drift.removed,
+			'namzu.connector.changed': drift.changed,
 		})
 		this.options.onDrift?.({ serverName, clientId, drift })
 	}

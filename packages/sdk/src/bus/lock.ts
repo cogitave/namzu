@@ -70,8 +70,8 @@ export class FileLockManager {
 			}
 			this.log.debug('lock denied', {
 				'namzu.file.path': filePath,
-				requester: owner,
-				holder: existing.owner,
+				'namzu.bus.requester': owner,
+				'namzu.bus.holder': existing.owner,
 			})
 			this.emit({
 				type: 'lock_denied',
@@ -85,9 +85,9 @@ export class FileLockManager {
 		const agentLockSet = this.getAgentLockSet(owner)
 		if (agentLockSet.size >= this.config.maxLocksPerAgent) {
 			this.log.warn('max locks per agent reached', {
-				owner,
-				currentCount: agentLockSet.size,
-				max: this.config.maxLocksPerAgent,
+				'namzu.bus.owner': owner,
+				'namzu.bus.current_count': agentLockSet.size,
+				'namzu.bus.max': this.config.maxLocksPerAgent,
 			})
 			return { acquired: false, holder: owner, filePath }
 		}
@@ -105,7 +105,11 @@ export class FileLockManager {
 		this.locks.set(filePath, lock)
 		agentLockSet.add(filePath)
 
-		this.log.debug('lock acquired', { 'namzu.lock.id': lockId, 'namzu.file.path': filePath, owner })
+		this.log.debug('lock acquired', {
+			'namzu.lock.id': lockId,
+			'namzu.file.path': filePath,
+			'namzu.bus.owner': owner,
+		})
 		this.emit({ type: 'lock_acquired', lockId, filePath, owner })
 		return { acquired: true, lock }
 	}
@@ -151,7 +155,7 @@ export class FileLockManager {
 		this.log.debug('lock released', {
 			'namzu.lock.id': existing.lockId,
 			'namzu.file.path': filePath,
-			owner,
+			'namzu.bus.owner': owner,
 		})
 		this.emit({
 			type: 'lock_released',
@@ -174,7 +178,7 @@ export class FileLockManager {
 				this.log.debug('lock released (cleanup)', {
 					'namzu.lock.id': lock.lockId,
 					'namzu.file.path': filePath,
-					owner,
+					'namzu.bus.owner': owner,
 				})
 				this.emit({
 					type: 'lock_released',
@@ -233,7 +237,7 @@ export class FileLockManager {
 		this.log.info('lock expired', {
 			'namzu.lock.id': lock.lockId,
 			'namzu.file.path': filePath,
-			owner: lock.owner,
+			'namzu.bus.owner': lock.owner,
 		})
 		this.emit({
 			type: 'lock_expired',

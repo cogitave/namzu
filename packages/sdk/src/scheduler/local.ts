@@ -223,9 +223,9 @@ export class LocalTaskScheduler implements TaskScheduler {
 			resolveLogger(this.log)
 				.child({ component: 'LocalTaskScheduler' })
 				.info('Cancelled siblings after a child failed', {
-					failed: finished.taskId,
+					'namzu.scheduler.failed': finished.taskId,
 					[GENAI.AGENT_ID]: finished.agentId,
-					cancelled,
+					'namzu.scheduler.cancelled': cancelled,
 				})
 		}
 	}

@@ -51,7 +51,7 @@ export class CircuitBreaker {
 					breaker.state = 'half_open'
 					this.log.info('circuit breaker transitioning to half_open', {
 						'namzu.agent.run_id': agentRunId,
-						elapsed,
+						'namzu.bus.elapsed': elapsed,
 					})
 					this.emit({ type: 'breaker_half_open', agentRunId })
 					return true
@@ -90,7 +90,7 @@ export class CircuitBreaker {
 			case 'open':
 				this.log.warn('recordSuccess called while breaker is open', {
 					'namzu.agent.run_id': agentRunId,
-					previousState,
+					'namzu.bus.previous_state': previousState,
 				})
 				break
 			default: {
@@ -121,7 +121,7 @@ export class CircuitBreaker {
 					breaker.trippedAt = Date.now()
 					this.log.warn('circuit breaker tripped', {
 						'namzu.agent.run_id': agentRunId,
-						consecutiveFailures: breaker.consecutiveFailures,
+						'namzu.bus.consecutive_failures': breaker.consecutiveFailures,
 					})
 					this.emit({
 						type: 'breaker_tripped',

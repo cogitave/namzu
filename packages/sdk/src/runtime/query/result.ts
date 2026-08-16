@@ -110,9 +110,9 @@ export class ResultAssembler {
 
 		log.info('Query completed', {
 			[NAMZU.RUN_ID]: runMgr.id,
-			iterations: runMgr.currentIteration,
-			stopReason: runMgr.stopReason,
-			activityStats: activityStore.enabled ? activityStore.stats() : undefined,
+			'namzu.runtime.iterations': runMgr.currentIteration,
+			'namzu.runtime.stop_reason': runMgr.stopReason,
+			'namzu.runtime.activity_stats': activityStore.enabled ? activityStore.stats() : undefined,
 		})
 	}
 
@@ -160,7 +160,7 @@ export class ResultAssembler {
 			log.warn('Run paused on a recoverable failure — resume from the checkpoint', {
 				[NAMZU.RUN_ID]: runMgr.id,
 				'namzu.checkpoint.id': resumeFrom,
-				code: failure.code,
+				'namzu.runtime.code': failure.code,
 				'exception.message': errorMessage,
 			})
 			return

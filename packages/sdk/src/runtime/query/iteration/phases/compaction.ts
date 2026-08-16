@@ -175,18 +175,18 @@ export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 	if (shed < meaningful) {
 		ctx.log.warn('Context overflow with too little left to shed — the prompt is irreducible', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			messages: before,
-			charsShed: shed,
-			neededAtLeast: Math.ceil(meaningful),
+			'namzu.runtime.messages': before,
+			'namzu.runtime.chars_shed': shed,
+			'namzu.runtime.needed_at_least': Math.ceil(meaningful),
 		})
 		return false
 	}
 
 	ctx.log.info('Relieved a context overflow by compacting', {
 		[NAMZU.RUN_ID]: ctx.runMgr.id,
-		messagesBefore: before,
-		messagesAfter: ctx.runMgr.messages.length,
-		charsShed: shed,
+		'namzu.runtime.messages_before': before,
+		'namzu.runtime.messages_after': ctx.runMgr.messages.length,
+		'namzu.runtime.chars_shed': shed,
 	})
 	return true
 }
@@ -301,7 +301,7 @@ async function applyReducer(
 		const message = error instanceof Error ? error.message : String(error)
 		ctx.log.warn('Context reducer threw — keeping the full history', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			reason: reduction.reason,
+			'namzu.runtime.reason': reduction.reason,
 			'exception.message': message,
 		})
 		await declined(ctx, 'reducer_threw', before, message)
@@ -311,8 +311,8 @@ async function applyReducer(
 	if (!next || next.length >= before) {
 		ctx.log.debug('Context reducer shed nothing', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			reason: reduction.reason,
-			messages: before,
+			'namzu.runtime.reason': reduction.reason,
+			'namzu.runtime.messages': before,
 		})
 		await declined(ctx, 'shed_nothing', before)
 		return
@@ -324,9 +324,10 @@ async function applyReducer(
 	if (toolPairOutcome.state === 'violated') {
 		ctx.log.warn('Context reducer split a tool pair — refusing its result', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			reason: reduction.reason,
-			hint: 'use findSafeTrimIndex to move a cut off a tool_use/tool_result boundary',
-			detail: toolPairOutcome.detail,
+			'namzu.runtime.reason': reduction.reason,
+			'namzu.runtime.hint':
+				'use findSafeTrimIndex to move a cut off a tool_use/tool_result boundary',
+			'namzu.runtime.detail': toolPairOutcome.detail,
 		})
 		await declined(ctx, 'split_tool_pair', before)
 		return
@@ -344,10 +345,10 @@ async function applyReducer(
 
 	ctx.log.info('Context reduced', {
 		[NAMZU.RUN_ID]: ctx.runMgr.id,
-		reason: reduction.reason,
-		oldMessageCount: before,
-		newMessageCount: messages.length,
-		charsShed: beforeChars - totalChars(messages),
+		'namzu.runtime.reason': reduction.reason,
+		'namzu.runtime.old_message_count': before,
+		'namzu.runtime.new_message_count': messages.length,
+		'namzu.runtime.chars_shed': beforeChars - totalChars(messages),
 	})
 
 	// This path emitted NOTHING on success, and it is the path a host-supplied
@@ -472,13 +473,13 @@ export async function runCompactionCheck(
 
 	ctx.log.info('Compaction threshold reached — compacting context', {
 		[NAMZU.RUN_ID]: ctx.runMgr.id,
-		contextTokens: estimatedTokens,
-		measuredBy: measured.source,
-		window: budget,
-		windowSource: window.source,
-		usage: Math.round(usage * 100),
-		triggerThreshold: config.triggerThreshold,
-		slotCount: manager.slotCount(),
+		'namzu.runtime.context_tokens': estimatedTokens,
+		'namzu.runtime.measured_by': measured.source,
+		'namzu.runtime.window': budget,
+		'namzu.runtime.window_source': window.source,
+		'namzu.runtime.usage': Math.round(usage * 100),
+		'namzu.runtime.trigger_threshold': config.triggerThreshold,
+		'namzu.runtime.slot_count': manager.slotCount(),
 	})
 
 	// Try the cheap, NON-destructive reclaim first: clear the output of old,
@@ -511,9 +512,9 @@ export async function runCompactionCheck(
 
 		ctx.log.info('Cleared stale tool results instead of compacting', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			cleared: clearPlan.clearedCount,
-			charsReclaimed: clearPlan.charsReclaimed,
-			reclaimedTokens: clearPlan.reclaimedTokens,
+			'namzu.runtime.cleared': clearPlan.clearedCount,
+			'namzu.runtime.chars_reclaimed': clearPlan.charsReclaimed,
+			'namzu.runtime.reclaimed_tokens': clearPlan.reclaimedTokens,
 		})
 
 		// Emitted BEFORE the return so the insufficient branch is not the
@@ -558,15 +559,15 @@ export async function runCompactionCheck(
 			switch (plan.reason) {
 				case 'too_few_messages':
 					ctx.log.debug('Not enough messages to compact', {
-						messageCount: messages.length,
-						keepRecentMessages: config.keepRecentMessages,
+						'namzu.runtime.message_count': messages.length,
+						'namzu.runtime.keep_recent_messages': config.keepRecentMessages,
 					})
 					break
 				case 'no_safe_cut':
 					ctx.log.debug('Skipping compaction — no safe cut at or below the naive boundary', {
 						[NAMZU.RUN_ID]: ctx.runMgr.id,
-						systemMessages: messages.filter((m) => m.role === 'system').length,
-						messageCount: messages.length,
+						'namzu.runtime.system_messages': messages.filter((m) => m.role === 'system').length,
+						'namzu.runtime.message_count': messages.length,
 					})
 					break
 				case 'too_few_older':
@@ -686,22 +687,23 @@ export async function runCompactionCheck(
 	if (!reachedReset) {
 		ctx.log.warn('Compaction did not reach its reset threshold — context may still be tight', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			afterUsage: Math.round((newEstimate / budget) * 100),
-			resetThreshold: Math.round(config.resetThreshold * 100),
-			hint: 'lower keepRecentMessages, or raise the context window if the model supports one',
+			'namzu.runtime.after_usage': Math.round((newEstimate / budget) * 100),
+			'namzu.runtime.reset_threshold': Math.round(config.resetThreshold * 100),
+			'namzu.runtime.hint':
+				'lower keepRecentMessages, or raise the context window if the model supports one',
 		})
 	}
 
 	ctx.log.info('Context compacted', {
 		[NAMZU.RUN_ID]: ctx.runMgr.id,
-		oldMessageCount: oldCount,
-		newMessageCount: messages.length,
-		removedMessages: oldCount - messages.length,
-		oldTokenEstimate: estimatedTokens,
-		newTokenEstimate: newEstimate,
-		reductionPercent: Math.round((1 - newEstimate / estimatedTokens) * 100),
-		reachedReset,
-		slotCount: manager.slotCount(),
+		'namzu.runtime.old_message_count': oldCount,
+		'namzu.runtime.new_message_count': messages.length,
+		'namzu.runtime.removed_messages': oldCount - messages.length,
+		'namzu.runtime.old_token_estimate': estimatedTokens,
+		'namzu.runtime.new_token_estimate': newEstimate,
+		'namzu.runtime.reduction_percent': Math.round((1 - newEstimate / estimatedTokens) * 100),
+		'namzu.runtime.reached_reset': reachedReset,
+		'namzu.runtime.slot_count': manager.slotCount(),
 	})
 
 	// Compaction is destructive and was, until now, completely silent: no

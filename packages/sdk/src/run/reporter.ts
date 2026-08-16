@@ -27,8 +27,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'run_started':
 				log.info('Run started', {
 					[NAMZU.RUN_ID]: event.runId,
-					hasSystemPrompt: !!event.systemPrompt,
-					systemPromptLength: event.systemPrompt?.length ?? 0,
+					'namzu.run.has_system_prompt': !!event.systemPrompt,
+					'namzu.run.system_prompt_length': event.systemPrompt?.length ?? 0,
 				})
 				break
 
@@ -55,7 +55,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.info('Iteration completed', {
 					[NAMZU.RUN_ID]: event.runId,
 					[NAMZU.ITERATION]: event.iteration,
-					hasToolCalls: event.hasToolCalls,
+					'namzu.run.has_tool_calls': event.hasToolCalls,
 				})
 				break
 
@@ -76,10 +76,10 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'token_usage_updated':
 				log.info('Token usage updated', {
 					[NAMZU.RUN_ID]: event.runId,
-					'gen_ai.usage.input_tokens': event.usage.promptTokens,
-					'gen_ai.usage.output_tokens': event.usage.completionTokens,
+					[GENAI.USAGE_INPUT_TOKENS]: event.usage.promptTokens,
+					[GENAI.USAGE_OUTPUT_TOKENS]: event.usage.completionTokens,
 					'namzu.usage.total_tokens': event.usage.totalTokens,
-					totalCost: event.cost.totalCost,
+					'namzu.run.total_cost': event.cost.totalCost,
 				})
 				break
 
@@ -94,9 +94,9 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 					// A greppable id and a sentence saying what to change,
 					// where before there was only whatever prose the vendor
 					// SDK happened to write.
-					code: event.failure?.code,
-					reason: event.explanation?.id,
-					hint: event.explanation?.hint,
+					'namzu.run.code': event.failure?.code,
+					'namzu.run.reason': event.explanation?.id,
+					'namzu.run.hint': event.explanation?.hint,
 				})
 				break
 
@@ -129,8 +129,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.info('Agent task pending', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.task.id': event.taskId,
-					parentAgentId: event.parentAgentId,
-					childAgentId: event.childAgentId,
+					'namzu.run.parent_agent_id': event.parentAgentId,
+					'namzu.run.child_agent_id': event.childAgentId,
 					'namzu.agent.depth': event.depth,
 				})
 				break
@@ -139,8 +139,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.info('Agent task completed', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.task.id': event.taskId,
-					status: event.result.status,
-					iterations: event.result.iterations,
+					[NAMZU.RUN_STATUS]: event.result.status,
+					'namzu.run.iterations': event.result.iterations,
 				})
 				break
 
@@ -164,7 +164,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 					'namzu.task.subject': event.subject,
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.task.id': event.taskId,
-					status: event.status,
+					[NAMZU.RUN_STATUS]: event.status,
 				})
 				break
 
@@ -173,8 +173,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 					'namzu.task.subject': event.subject,
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.task.id': event.taskId,
-					status: event.status,
-					owner: event.owner,
+					[NAMZU.RUN_STATUS]: event.status,
+					'namzu.run.owner': event.owner,
 				})
 				break
 
@@ -182,7 +182,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.debug('Plugin hook executing', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.plugin.id': event.pluginId,
-					hookEvent: event.hookEvent,
+					'namzu.run.hook_event': event.hookEvent,
 				})
 				break
 
@@ -190,8 +190,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.debug('Plugin hook completed', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.plugin.id': event.pluginId,
-					hookEvent: event.hookEvent,
-					action: event.result.action,
+					'namzu.run.hook_event': event.hookEvent,
+					'namzu.run.action': event.result.action,
 				})
 				break
 
@@ -207,8 +207,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.debug('Sandbox exec', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.sandbox.id': event.sandboxId,
-					command: event.command,
-					exitCode: event.exitCode,
+					'namzu.run.command': event.command,
+					'namzu.run.exit_code': event.exitCode,
 					'namzu.duration_ms': event.durationMs,
 				})
 				break
@@ -224,7 +224,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.debug('Sub-session spawned', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.sub_session.id': event.subSessionId,
-					parentSessionId: event.parentSessionId,
+					'namzu.run.parent_session_id': event.parentSessionId,
 					'namzu.agent.depth': event.lineage.depth,
 				})
 				break
@@ -233,8 +233,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.debug('Sub-session message', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.sub_session.id': event.subSessionId,
-					parentSessionId: event.parentSessionId,
-					messageId: event.messageId,
+					'namzu.run.parent_session_id': event.parentSessionId,
+					'namzu.run.message_id': event.messageId,
 					'namzu.agent.depth': event.lineage.depth,
 				})
 				break
@@ -243,7 +243,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.debug('Sub-session idled', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.sub_session.id': event.subSessionId,
-					parentSessionId: event.parentSessionId,
+					'namzu.run.parent_session_id': event.parentSessionId,
 					'namzu.agent.depth': event.lineage.depth,
 				})
 				break
@@ -258,19 +258,19 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.debug('Reasoning block completed', {
 					[NAMZU.RUN_ID]: event.runId,
 					[NAMZU.ITERATION]: event.iteration,
-					blockIndex: event.blockIndex,
-					signed: event.signed,
-					chars: event.text?.length ?? 0,
+					'namzu.run.block_index': event.blockIndex,
+					'namzu.run.signed': event.signed,
+					'namzu.run.chars': event.text?.length ?? 0,
 				})
 				break
 
 			case 'guardrail_triggered':
 				log.warn('Guardrail triggered', {
 					[NAMZU.RUN_ID]: event.runId,
-					stage: event.stage,
-					action: event.action,
+					'namzu.run.stage': event.stage,
+					'namzu.run.action': event.action,
 					'namzu.guardrail.name': event.guardrail,
-					reason: event.reason,
+					'namzu.run.reason': event.reason,
 				})
 				break
 
@@ -278,12 +278,12 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.info('Context compacted', {
 					[NAMZU.RUN_ID]: event.runId,
 					[NAMZU.ITERATION]: event.iteration,
-					messagesDropped: event.messagesBefore - event.messagesAfter,
-					tokensBefore: event.tokensBefore,
-					tokensAfter: event.tokensAfter,
-					measuredBy: event.measuredBy,
-					contextWindowTokens: event.contextWindowTokens,
-					windowSource: event.windowSource,
+					'namzu.run.messages_dropped': event.messagesBefore - event.messagesAfter,
+					'namzu.run.tokens_before': event.tokensBefore,
+					'namzu.run.tokens_after': event.tokensAfter,
+					'namzu.run.measured_by': event.measuredBy,
+					'namzu.run.context_window_tokens': event.contextWindowTokens,
+					'namzu.run.window_source': event.windowSource,
 				})
 				break
 
@@ -293,8 +293,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				// a default-level start that printed one would bury everything
 				// else the way the registry's `info` registrations did.
 				log.debug('Request envelope changed', {
-					'namzu.run.id': event.runId,
-					'namzu.iteration': event.iteration,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
 					'namzu.request.model': event.model,
 					'namzu.request.tool_count': event.toolNames.length,
 					'namzu.request.tool_schema_digest': event.toolSchemaDigest,
@@ -312,8 +312,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				// froze; NEW keys have no reason to join it, and adding six
 				// would have moved a number LOG-22 exists to drive to zero.
 				log.info('Cleared oversized tool results', {
-					'namzu.run.id': event.runId,
-					'namzu.iteration': event.iteration,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
 					'namzu.compaction.cleared_count': event.clearedCount,
 					'namzu.compaction.chars_reclaimed': event.charsReclaimed,
 					'namzu.compaction.reclaimed_tokens': event.reclaimedTokens,
@@ -327,18 +327,18 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.warn('Context compaction shed nothing', {
 					[NAMZU.RUN_ID]: event.runId,
 					[NAMZU.ITERATION]: event.iteration,
-					cause: event.cause,
-					messages: event.messages,
-					...(event.error !== undefined ? { error: event.error } : {}),
+					'namzu.run.cause': event.cause,
+					'namzu.run.messages': event.messages,
+					...(event.error !== undefined ? { 'exception.message': event.error } : {}),
 				})
 				break
 
 			case 'capability_warning':
 				log.warn('Provider capability mismatch', {
 					[NAMZU.RUN_ID]: event.runId,
-					capability: event.capability,
+					'namzu.run.capability': event.capability,
 					[GENAI.SYSTEM]: event.providerId,
-					message: event.message,
+					'namzu.run.message': event.message,
 				})
 				break
 
@@ -348,7 +348,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.debug('Tool progress', {
 					[NAMZU.RUN_ID]: event.runId,
 					[GENAI.TOOL_NAME]: event.toolName,
-					message: event.message,
+					'namzu.run.message': event.message,
 				})
 				break
 
@@ -356,7 +356,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.info('Question asked — the run is parked on an answer', {
 					[NAMZU.RUN_ID]: event.runId,
 					'namzu.checkpoint.id': event.checkpointId,
-					questionId: event.questionId,
+					'namzu.run.question_id': event.questionId,
 				})
 				break
 
@@ -375,10 +375,10 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 					[NAMZU.RUN_ID]: event.runId,
 					[NAMZU.ITERATION]: event.iteration,
 					'namzu.retry.attempt': event.attempt,
-					maxRetries: event.maxRetries,
-					code: event.code,
-					status: event.status,
-					serverDirected: event.serverDirected,
+					'namzu.run.max_retries': event.maxRetries,
+					'namzu.run.code': event.code,
+					[NAMZU.RUN_STATUS]: event.status,
+					'namzu.run.server_directed': event.serverDirected,
 				})
 				break
 
@@ -388,14 +388,14 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.warn('Provider could not serve — continuing on the fallback', {
 					[NAMZU.RUN_ID]: event.runId,
 					[NAMZU.ITERATION]: event.iteration,
-					fromIndex: event.fromIndex,
-					fromProviderId: event.fromProviderId,
-					fromModel: event.fromModel,
-					toIndex: event.toIndex,
-					toProviderId: event.toProviderId,
-					toModel: event.toModel,
-					code: event.code,
-					status: event.status,
+					'namzu.run.from_index': event.fromIndex,
+					'namzu.run.from_provider_id': event.fromProviderId,
+					'namzu.run.from_model': event.fromModel,
+					'namzu.run.to_index': event.toIndex,
+					'namzu.run.to_provider_id': event.toProviderId,
+					'namzu.run.to_model': event.toModel,
+					'namzu.run.code': event.code,
+					[NAMZU.RUN_STATUS]: event.status,
 				})
 				break
 
@@ -419,15 +419,15 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 		log.info('Run summary', {
 			[NAMZU.RUN_ID]: run.id,
-			agent: run.metadata.agentName,
-			status: run.status,
-			stopReason: stopReason ?? 'unknown',
-			iterations: currentIteration,
-			'gen_ai.usage.input_tokens': tokenUsage.promptTokens,
-			'gen_ai.usage.output_tokens': tokenUsage.completionTokens,
+			'namzu.run.agent': run.metadata.agentName,
+			[NAMZU.RUN_STATUS]: run.status,
+			'namzu.run.stop_reason': stopReason ?? 'unknown',
+			'namzu.run.iterations': currentIteration,
+			[GENAI.USAGE_INPUT_TOKENS]: tokenUsage.promptTokens,
+			[GENAI.USAGE_OUTPUT_TOKENS]: tokenUsage.completionTokens,
 			'namzu.usage.total_tokens': tokenUsage.totalTokens,
-			cost: formatCost(costInfo.totalCost),
-			duration: formatDuration(elapsed),
+			'namzu.run.cost': formatCost(costInfo.totalCost),
+			'namzu.run.duration': formatDuration(elapsed),
 		})
 	}
 

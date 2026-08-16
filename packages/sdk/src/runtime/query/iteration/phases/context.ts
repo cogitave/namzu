@@ -411,7 +411,7 @@ export async function* handleHITLDecision(
 			ctx.log.info('Run paused', {
 				'namzu.run.phase': context,
 				[NAMZU.RUN_ID]: ctx.runMgr.id,
-				reason: decision.reason,
+				'namzu.runtime.reason': decision.reason,
 			})
 			return 'stop'
 		}
@@ -421,7 +421,7 @@ export async function* handleHITLDecision(
 			ctx.log.info('Run aborted', {
 				'namzu.run.phase': context,
 				[NAMZU.RUN_ID]: ctx.runMgr.id,
-				reason: decision.reason,
+				'namzu.runtime.reason': decision.reason,
 			})
 			return 'stop'
 		}
@@ -429,7 +429,7 @@ export async function* handleHITLDecision(
 			ctx.runMgr.setStopReason('plan_rejected')
 			ctx.log.info('Plan rejected by user', {
 				[NAMZU.RUN_ID]: ctx.runMgr.id,
-				feedback: decision.feedback,
+				'namzu.runtime.feedback': decision.feedback,
 			})
 			return 'stop'
 		}

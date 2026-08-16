@@ -912,8 +912,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	if (migrationResult.kind !== 'migrated') {
 		log.debug('filesystem migration: nothing to do', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.MIGRATION_COMPLETED,
-			kind: migrationResult.kind,
-			markerPath: migrationResult.markerPath,
+			// `namzu.migration.*`, matching `loggingMigrationSink` — the OTHER
+			// emitter of this same event name. Two emitters of one event writing
+			// two namespaces for the same fact is precisely the collision the
+			// namespaced-key rule exists to stop, and a per-module derivation is
+			// how it would be reintroduced.
+			'namzu.migration.kind': migrationResult.kind,
+			'namzu.migration.marker_path': migrationResult.markerPath,
 		})
 	}
 
@@ -1192,7 +1197,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		ctx.log.warn('Capability mismatch: the provider declares no tool support', {
 			'namzu.capability.detail': message,
 			[GENAI.SYSTEM]: params.provider.id,
-			registeredToolCount,
+			'namzu.runtime.registered_tool_count': registeredToolCount,
 		})
 	}
 
@@ -1208,7 +1213,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		ctx.log.warn('Capability mismatch: the provider declares no vision support', {
 			'namzu.capability.detail': message,
 			[GENAI.SYSTEM]: params.provider.id,
-			attachmentMessageCount,
+			'namzu.runtime.attachment_message_count': attachmentMessageCount,
 		})
 	}
 
@@ -1224,7 +1229,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		ctx.log.warn('Capability mismatch: the provider declares no document support', {
 			'namzu.capability.detail': message,
 			[GENAI.SYSTEM]: params.provider.id,
-			documentMessageCount,
+			'namzu.runtime.document_message_count': documentMessageCount,
 		})
 	}
 
@@ -1586,7 +1591,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					// state will not see this question.
 					ctx.log.error('Failed to record a question park — it is not resumable', {
 						[NAMZU.RUN_ID]: ctx.runMgr.id,
-						questionId: question.questionId,
+						'namzu.runtime.question_id': question.questionId,
 						'exception.message': err instanceof Error ? err.message : String(err),
 					})
 					return null
@@ -1662,12 +1667,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 			ctx.log.info('Starting query', {
 				[NAMZU.RUN_ID]: ctx.runMgr.id,
-				agent: params.agentName,
+				'namzu.runtime.agent': params.agentName,
 				[GENAI.REQUEST_MODEL]: params.runConfig.model,
-				tokenBudget: params.runConfig.tokenBudget,
-				activityTracking: ctx.activityStore.enabled,
-				permissionMode: ctx.permissionMode.current,
-				resumeFromCheckpoint: params.resumeFromCheckpoint ?? null,
+				'namzu.runtime.token_budget': params.runConfig.tokenBudget,
+				'namzu.runtime.activity_tracking': ctx.activityStore.enabled,
+				'namzu.runtime.permission_mode': ctx.permissionMode.current,
+				'namzu.runtime.resume_from_checkpoint': params.resumeFromCheckpoint ?? null,
 			})
 
 			const contextLevel = params.contextLevel ?? 'full'
@@ -1687,8 +1692,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				: promptBuilder.buildSegmented(contextLevel, params.workingDirectory)
 
 			ctx.log.info('Prompt segments assembled', {
-				staticLength: segments.static.length,
-				dynamicLength: segments.dynamic.length,
+				'namzu.runtime.static_length': segments.static.length,
+				'namzu.runtime.dynamic_length': segments.dynamic.length,
 			})
 
 			const pushSystemMessages = (): void => {
@@ -1733,16 +1738,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					ctx.log.info('Restored compaction working state from checkpoint', {
 						[NAMZU.RUN_ID]: ctx.runMgr.id,
 						'namzu.checkpoint.id': checkpoint.id,
-						slots: workingStateManager.slotCount(),
+						'namzu.runtime.slots': workingStateManager.slotCount(),
 					})
 				}
 				ctx.log.info('Restored budgets from checkpoint', {
 					[NAMZU.RUN_ID]: ctx.runMgr.id,
 					'namzu.checkpoint.id': checkpoint.id,
 					'namzu.usage.total_tokens': checkpoint.tokenUsage.totalTokens,
-					totalCost: checkpoint.costInfo.totalCost,
+					'namzu.runtime.total_cost': checkpoint.costInfo.totalCost,
 					[NAMZU.ITERATION]: checkpoint.guardState.iterationCount,
-					elapsedMs: checkpoint.guardState.elapsedMs,
+					'namzu.runtime.elapsed_ms': checkpoint.guardState.elapsedMs,
 				})
 
 				pushSystemMessages()
@@ -1797,9 +1802,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					ctx.log.warn('Checkpoint contained unanswered tool calls — repaired on restore', {
 						[NAMZU.RUN_ID]: ctx.runMgr.id,
 						'namzu.checkpoint.id': checkpoint.id,
-						unansweredAssistantTurns: dangling.assistantsWithUnmatchedCalls.length,
-						orphanedToolMessages: dangling.orphanedToolMessages.length,
-						removed: checkpoint.messages.length - restoredMessages.length,
+						'namzu.runtime.unanswered_assistant_turns':
+							dangling.assistantsWithUnmatchedCalls.length,
+						'namzu.runtime.orphaned_tool_messages': dangling.orphanedToolMessages.length,
+						'namzu.runtime.removed': checkpoint.messages.length - restoredMessages.length,
 					})
 				}
 
@@ -1950,7 +1956,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				ctx.log.info('Sandbox created for run', {
 					'namzu.sandbox.id': sandbox.id,
 					'namzu.execution.environment': sandbox.environment,
-					rootDir: sandbox.rootDir,
+					'namzu.runtime.root_dir': sandbox.rootDir,
 				})
 			}
 
@@ -2016,7 +2022,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					'namzu.tool.names': pendingResume.response.message.toolCalls?.map(
 						(tc) => tc.function.name,
 					),
-					denied: pendingResume.denials.size,
+					'namzu.runtime.denied': pendingResume.denials.size,
 				})
 				// Hand the recorded answer to the already-built tool. The tool
 				// closed over its registry when the agent was constructed,

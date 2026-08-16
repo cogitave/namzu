@@ -102,15 +102,15 @@ export class AgentBus {
 
 		this.log.info('agent cleanup complete', {
 			[NAMZU.RUN_ID]: runId,
-			locksReleased,
-			ownershipsReleased,
+			'namzu.bus.locks_released': locksReleased,
+			'namzu.bus.ownerships_released': ownershipsReleased,
 		})
 	}
 
 	maintenance(): void {
 		const expired = this.locks.expireStale()
 		if (expired > 0) {
-			this.log.info('maintenance: expired stale locks', { count: expired })
+			this.log.info('maintenance: expired stale locks', { 'namzu.bus.count': expired })
 		}
 	}
 }

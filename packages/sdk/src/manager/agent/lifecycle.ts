@@ -1021,9 +1021,9 @@ export class AgentManager {
 		agentTask.context.budgetTracker.remaining += unused
 		this.log.debug('Returned unspent child budget', {
 			'namzu.task.id': agentTask.taskId,
-			reserved,
-			spent,
-			returned: unused,
+			'namzu.manager.reserved': reserved,
+			'namzu.manager.spent': spent,
+			'namzu.manager.returned': unused,
 		})
 	}
 
@@ -1133,8 +1133,8 @@ export class AgentManager {
 			.dispose(spawnRecord.workspaceRef)
 			.catch((disposeErr) => {
 				this.log.warn('Workspace dispose failed', {
-					backend,
-					workspaceId: spawnRecord.workspaceRef?.id,
+					'namzu.manager.backend': backend,
+					'namzu.manager.workspace_id': spawnRecord.workspaceRef?.id,
 					'namzu.sub_session.id': spawnRecord.subSessionId,
 					'exception.message': toErrorMessage(disposeErr),
 				})

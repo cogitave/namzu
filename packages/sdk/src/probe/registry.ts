@@ -317,7 +317,7 @@ export class ProbeRegistry implements ProbeObservation, ProbeEnforcement {
 	private logThrow(probeName: string, eventType: string, error: unknown): void {
 		if (!this.log) return
 		this.log.error('probe handler threw', {
-			probeName,
+			'namzu.probe.probe_name': probeName,
 			'namzu.event.type': eventType,
 			'exception.message': error instanceof Error ? error.message : String(error),
 		})

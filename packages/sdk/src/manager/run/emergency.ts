@@ -68,7 +68,7 @@ export class EmergencySaveManager {
 			process.on(event, handler)
 		}
 
-		this.log.info('Emergency save handlers attached', { outputDir })
+		this.log.info('Emergency save handlers attached', { 'namzu.manager.output_dir': outputDir })
 	}
 
 	detach(): void {
@@ -102,8 +102,8 @@ export class EmergencySaveManager {
 
 			this.log.warn('Emergency save completed', {
 				[NAMZU.RUN_ID]: snapshot.runId,
-				signal,
-				path: finalPath,
+				'namzu.manager.signal': signal,
+				'namzu.manager.path': finalPath,
 			})
 		} catch (err) {
 			if (tmpPath) {
@@ -116,7 +116,7 @@ export class EmergencySaveManager {
 			}
 			try {
 				this.log.error('Emergency save failed', {
-					signal,
+					'namzu.manager.signal': signal,
 					'exception.message': err instanceof Error ? err.message : String(err),
 				})
 			} catch {

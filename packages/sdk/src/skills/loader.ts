@@ -180,9 +180,9 @@ export async function loadSkill(
 	// the process default.
 	const logger = resolveLogger(log).child({ component: 'SkillLoader' })
 	logger.debug('Loaded skill', {
-		name: metadata.name,
-		level,
-		tokens: metadataTokens + bodyTokens,
+		'namzu.skills.name': metadata.name,
+		'namzu.skills.level': level,
+		'namzu.skills.tokens': metadataTokens + bodyTokens,
 	})
 
 	return {
@@ -213,7 +213,7 @@ export async function discoverSkills(parentDir: string, log?: Logger): Promise<s
 			} catch {}
 		}
 	} catch {
-		logger.debug('Skills directory not found', { parentDir })
+		logger.debug('Skills directory not found', { 'namzu.skills.parent_dir': parentDir })
 	}
 
 	return dirs.sort()

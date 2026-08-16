@@ -161,7 +161,9 @@ describe('what counts as relief', () => {
 		await relieveOverflow(ctx)
 
 		const warned = (log.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]
-		expect(warned?.[1]).toMatchObject({ charsShed: expect.any(Number) })
-		expect((warned?.[1] as { neededAtLeast: number }).neededAtLeast).toBeGreaterThan(0)
+		expect(warned?.[1]).toMatchObject({ 'namzu.runtime.chars_shed': expect.any(Number) })
+		expect(
+			(warned?.[1] as Record<string, number>)['namzu.runtime.needed_at_least'],
+		).toBeGreaterThan(0)
 	})
 })

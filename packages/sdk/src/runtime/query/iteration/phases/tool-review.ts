@@ -170,7 +170,7 @@ export async function* runToolReview(
 		}
 
 		ctx.log.debug('Verification gate: mixed decisions, proceeding to review', {
-			decisions: gateResults.map((gr) => ({
+			'namzu.runtime.decisions': gateResults.map((gr) => ({
 				tool: gr.toolCall.name,
 				decision: gr.gateResult.decision,
 			})),
@@ -320,7 +320,7 @@ export async function* runToolReview(
 		// and proceed with execution rather than stalling the run.
 		case 'answer_question': {
 			ctx.log.warn('Unexpected plan decision during tool review', {
-				action: reviewDecision.action,
+				'namzu.runtime.action': reviewDecision.action,
 			})
 			await settle(gateDenied)
 			yield* ctx.drainPending()

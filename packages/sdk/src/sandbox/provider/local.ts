@@ -380,7 +380,10 @@ class LocalSandbox implements Sandbox {
 		this._status = 'ready'
 		this.log = log.child({ component: 'LocalSandbox', sandboxId: id })
 
-		this.log.info('Sandbox created', { rootDir, 'namzu.execution.environment': environment })
+		this.log.info('Sandbox created', {
+			'namzu.sandbox.root_dir': rootDir,
+			'namzu.execution.environment': environment,
+		})
 	}
 
 	async exec(
@@ -403,9 +406,9 @@ class LocalSandbox implements Sandbox {
 		const { spawnCommand, spawnArgs } = this.buildSpawnArgs(command, args)
 
 		this.log.debug('Executing command', {
-			command,
-			args,
-			timeout,
+			'namzu.sandbox.command': command,
+			'namzu.sandbox.args': args,
+			'namzu.sandbox.timeout': timeout,
 			'namzu.execution.environment': this.environment,
 		})
 
@@ -475,7 +478,7 @@ class LocalSandbox implements Sandbox {
 		await fsWriteFile(tmpPath, content)
 		await rename(tmpPath, resolved)
 
-		this.log.debug('File written', { path: resolved })
+		this.log.debug('File written', { 'namzu.sandbox.path': resolved })
 	}
 
 	async readFile(path: string): Promise<Buffer> {
@@ -677,10 +680,13 @@ export class LocalSandboxProvider implements SandboxProvider {
 			// believe otherwise.
 			this.log.warn('No isolation available on this host; commands run unconfined', {
 				'namzu.execution.environment': this.environment,
-				enforced,
+				'namzu.sandbox.enforced': enforced,
 			})
 		} else {
-			this.log.info('Initialized', { 'namzu.execution.environment': this.environment, enforced })
+			this.log.info('Initialized', {
+				'namzu.execution.environment': this.environment,
+				'namzu.sandbox.enforced': enforced,
+			})
 		}
 	}
 
@@ -694,7 +700,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 		// Canonicalize — macOS symlinks like /var → /private/var must be resolved
 		const rootDir = canonicalizePath(rawDir)
 
-		this.log.info('Creating sandbox', { 'namzu.sandbox.id': id, rootDir })
+		this.log.info('Creating sandbox', { 'namzu.sandbox.id': id, 'namzu.sandbox.root_dir': rootDir })
 
 		return new LocalSandbox(id, rootDir, this.environment, config ?? {}, this.log, this.ptyLoader)
 	}

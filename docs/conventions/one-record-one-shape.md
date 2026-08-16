@@ -90,14 +90,28 @@ pre-existing gap the rules made visible for the first time, not a defect in
 the rules themselves; driving either number to zero was its own follow-up
 task, the shape `LOG-09` already was for `unnamespacedBindingCount`.
 
-**Rule 3 is now at zero, and that changes what it is.** LOG-21 rewrote all
-87 sites: each message became a constant and each interpolated value moved
-into a namespaced attribute beside it. A ratchet at zero is no longer a
-budget being spent down — it is a floor, and the *first* new template
-literal in a `Logger` call fails CI rather than the hundredth. Rule 4 is
-still above zero and still being worked down.
+**Both rules are now at zero, and that changes what they are.** LOG-21
+rewrote all 87 non-constant message bodies; LOG-22 renamed all 794
+un-namespaced attribute keys. A ratchet at zero is no longer a budget being
+spent down — it is a floor, and the *first* new template literal or bare key
+in a `Logger` call fails CI rather than the hundredth.
 
-Two things that rewrite taught, both worth keeping:
+Two things LOG-22 measured that are worth keeping:
+
+- **None of the 794 were the hard case.** Rule 4 also covers an attribute
+  bag it cannot prove is `LogAttributes` — an identifier, a call — and there
+  were zero of those. Every violation was a plain object-literal key, so a
+  rule that reads as though it needs judgement was, on this tree, a rename.
+- **A namespace derived per module reintroduces the collision it prevents.**
+  258 distinct keys is too many to name by hand, so the long tail was
+  namespaced as `namzu.<module>.<key>`. That is right where a key is local
+  to one module and wrong where two modules emit the SAME event: the
+  boot-time migration is logged from `session/migration/filesystem.ts` and
+  again from `runtime/query/index.ts`, and the derivation gave them
+  `namzu.migration.kind` and `namzu.runtime.kind` for one fact. The rule
+  scopes by module; an event's keys have to be scoped by the event.
+
+Two things LOG-21's rewrite taught, both worth keeping:
 
 - **The value has to land somewhere.** Constantising `` `Tool completed:
   ${toolName}` `` to `'Tool completed'` and stopping there deletes the only
