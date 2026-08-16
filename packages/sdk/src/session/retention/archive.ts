@@ -28,7 +28,11 @@
 import type { SessionId, SubSessionId, TenantId } from '../../types/ids/index.js'
 import type { WorkspaceId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
-import type { SubSession, SubSessionStatus } from '../../types/session/sub-session.js'
+import type {
+	SubSession,
+	SubSessionDelegationStatus,
+	SubSessionStatus,
+} from '../../types/session/sub-session.js'
 import type { WorkspaceRef } from '../../types/workspace/ref.js'
 import type { WorkspaceBackendRegistry } from '../workspace/registry.js'
 import type { ArchiveBackend, SubSessionTombstone } from './backend.js'
@@ -103,17 +107,33 @@ export type WorkspaceResolver = (
 ) => Promise<WorkspaceRef | null>
 
 /**
- * Sub-session statuses eligible for archival. Pattern doc §12.3 speaks of
- * "idle" broadly; we honor the enumerated terminal-like states. Anything
- * else (active / pending / in-flight merge) rejects with
- * `'not_idle'`.
+ * Delegation states eligible for archival. Anything else — `pending`,
+ * `active` — rejects with `'not_idle'`.
+ *
+ * Typed as {@link SubSessionDelegationStatus}, which is what makes it say
+ * something true: these are values the kernel actually writes.
  */
-const ARCHIVABLE_STATUSES: ReadonlySet<SubSessionStatus> = new Set([
-	'idle',
-	'merged',
-	'merge_rejected',
-	'failed',
-])
+const ARCHIVABLE: ReadonlySet<SubSessionDelegationStatus> = new Set(['idle', 'failed'])
+
+/**
+ * Values no code path in this package can write, kept archivable anyway.
+ *
+ * `merged` and `merge_rejected` sat in the one set above, and nothing has
+ * ever produced either — so that membership described a match that could
+ * not happen. The temptation is to delete them, and that would be wrong:
+ * `SubSessionStore.updateSubSession` takes a whole `SubSession`, so a HOST
+ * could have persisted one of these while the wide union permitted it, and
+ * dropping them here would strand exactly those records as permanently
+ * un-archivable. The union stays wide for one release precisely so such a
+ * host can migrate; this set is the other half of that promise.
+ *
+ * It goes when the six deprecated members go.
+ */
+const ARCHIVABLE_LEGACY: ReadonlySet<SubSessionStatus> = new Set(['merged', 'merge_rejected'])
+
+function isArchivable(status: SubSessionStatus): boolean {
+	return ARCHIVABLE.has(status as SubSessionDelegationStatus) || ARCHIVABLE_LEGACY.has(status)
+}
 
 export interface ArchivalManagerDeps {
 	readonly sessionStore: SessionStore
@@ -165,7 +185,7 @@ export class ArchivalManager {
 		if (sub.status === 'archived') {
 			throw new SubSessionNotArchivableError({ subSessionId, reason: 'already_archived' })
 		}
-		if (!ARCHIVABLE_STATUSES.has(sub.status)) {
+		if (!isArchivable(sub.status)) {
 			throw new SubSessionNotArchivableError({ subSessionId, reason: 'not_idle' })
 		}
 

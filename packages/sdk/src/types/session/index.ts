@@ -39,5 +39,6 @@ export type {
 	FailureMode,
 	SubSession,
 	SubSessionKind,
+	SubSessionDelegationStatus,
 	SubSessionStatus,
 } from './sub-session.js'

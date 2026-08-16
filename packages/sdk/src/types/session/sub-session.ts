@@ -5,23 +5,56 @@ import type { ActorRef } from './actor.js'
 import type { SubSessionId, SummaryId, WorkspaceId } from './ids.js'
 
 /**
- * Full 11-variant status union. See session-hierarchy.md §4.4 and the merge
- * state machine in §4.4.1. Absence of a `closed` state is load-bearing —
- * completed sub-sessions land on `idle` and stay there for drill-down
- * (Decision #5).
+ * The lifecycle of the DELEGATION — the edge from parent to child, not the
+ * child.
+ *
+ * This is the distinction the eleven-variant union lost. A `SubSession`
+ * record describes one parent's handoff to one child; the child is an
+ * ordinary `Session` in `SessionStore` with its own `SessionStatus`. Both
+ * unions carry `active`, `idle` and `archived`, and `SessionStatus`
+ * additionally carries `awaiting_merge` — so "is this thing active" had two
+ * answers and nothing said which record to ask.
+ *
+ * Ask this one about the delegation: has the parent handed off yet, is the
+ * child working, did the handoff fail, has the edge been retired. Ask
+ * `SessionStatus` about the child's own work.
+ *
+ * These five are every value the kernel produces. Absence of a `closed`
+ * state is load-bearing: a completed sub-session lands on `idle` and stays
+ * there so it can still be drilled into.
+ */
+export type SubSessionDelegationStatus = 'pending' | 'active' | 'idle' | 'failed' | 'archived'
+
+/**
+ * @deprecated Use {@link SubSessionDelegationStatus}. Removal is a later
+ * major, and the six extra members go with it.
+ *
+ * The merge half of this union was declared and never driven. Grepping
+ * `packages/sdk` and `packages/cli` for each of `awaiting_merge`,
+ * `pending_merge`, `merging`, `merged`, `merge_conflict` and
+ * `merge_rejected` AS A SUB-SESSION STATUS finds no writer at all — the
+ * many hits on `awaiting_merge` are `SessionStatus`, which is the shadowing
+ * this type's replacement exists to end. Two of them (`merged`,
+ * `merge_rejected`) had a READER: they sat in `ARCHIVABLE_STATUSES`, a set
+ * that could never match on them.
+ *
+ * The union stays this wide for one release so a host that persisted one of
+ * these values still typechecks while it migrates.
  */
 export type SubSessionStatus =
-	| 'pending'
-	| 'active'
-	| 'idle'
-	| 'failed'
+	| SubSessionDelegationStatus
+	/** @deprecated no producer since ratification */
 	| 'awaiting_merge'
+	/** @deprecated no producer since ratification */
 	| 'pending_merge'
+	/** @deprecated no producer since ratification */
 	| 'merging'
+	/** @deprecated no producer since ratification */
 	| 'merged'
+	/** @deprecated no producer since ratification */
 	| 'merge_conflict'
+	/** @deprecated no producer since ratification */
 	| 'merge_rejected'
-	| 'archived'
 
 /**
  * Discriminator for how a sub-session was created. Pattern doc §4.4
@@ -65,6 +98,14 @@ export interface SubSession {
 	parentSessionId: SessionId
 	childSessionId: SessionId
 	kind: SubSessionKind
+	/**
+	 * The DELEGATION's lifecycle, not the child's. The child session has its
+	 * own {@link import('./entity.js').SessionStatus}; when the two disagree
+	 * this one is authoritative about whether the parent still has a live
+	 * handoff, and that one is authoritative about whether the child is
+	 * working. Typed as the wide alias for one more release; every value the
+	 * kernel writes is a {@link SubSessionDelegationStatus}.
+	 */
 	status: SubSessionStatus
 	spawnedBy: ActorRef
 	spawnedAt: Date

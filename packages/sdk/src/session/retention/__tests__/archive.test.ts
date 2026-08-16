@@ -119,6 +119,30 @@ describe('ArchivalManager', () => {
 		expect(after?.archivedAt).toBeInstanceOf(Date)
 	})
 
+	it.each(['merged', 'merge_rejected'] as const)(
+		'still archives a sub-session a host left on %s, though nothing here can write one',
+		async (legacy) => {
+			// NZ-RUNREC-13 narrowed the archivable set to the two states the
+			// kernel actually produces. These two are not among them and never
+			// were producible — but `updateSubSession` takes a whole
+			// `SubSession`, so a host could have persisted one while the wide
+			// union permitted it. Dropping them from the set would have left
+			// exactly those records permanently un-archivable, which is the
+			// opposite of what a deprecation window is for. Deleting
+			// `ARCHIVABLE_LEGACY` fails this.
+			const { sub } = await seedIdleSubSession(store)
+			await store.updateSubSession({ ...sub, status: legacy }, tenantA)
+
+			const manager = new ArchivalManager({
+				sessionStore: store,
+				workspaceRegistry: buildRegistry(),
+				archiveBackend: backend,
+			})
+
+			await expect(manager.archive(sub.id, tenantA)).resolves.toBeDefined()
+		},
+	)
+
 	it('rejects non-archivable statuses (running/active → not_idle)', async () => {
 		const { sub } = await seedIdleSubSession(store)
 		await store.updateSubSession({ ...sub, status: 'active' }, tenantA)
