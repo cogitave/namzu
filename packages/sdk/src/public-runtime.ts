@@ -25,6 +25,12 @@ export {
 
 export * from './constants/index.js'
 
+export type {
+	CodeNavigationProvider,
+	CodeNavigationResult,
+	SourceLocation,
+} from './types/code-navigation/index.js'
+
 // ─── wire schemas + a2a (contracts/) ─────────────────────────────────────
 
 export {

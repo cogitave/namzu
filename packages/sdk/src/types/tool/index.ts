@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 import type { Logger } from '../../utils/logger.js'
+import type { CodeNavigationProvider } from '../code-navigation/index.js'
 // Type-only, and circular by design: a tool-result guardrail is described in
 // terms of the tool that produced the result, and the registry that holds
 // the guardrails is described here. Erased at compile time, so neither
@@ -187,6 +188,14 @@ export interface ToolContext {
 	 */
 	allowedTools?: readonly string[]
 	sandbox?: Sandbox
+	/**
+	 * Symbol resolution for this run, when a host wired one up.
+	 *
+	 * Absent means the `lsp` tool is not registered at all — see
+	 * `tools/builtins/lsp.ts` for why a tool that is always present and
+	 * always says "unavailable" is worse than one that is not there.
+	 */
+	codeNavigation?: CodeNavigationProvider
 	fileReadTracker?: FileReadTracker
 
 	/**

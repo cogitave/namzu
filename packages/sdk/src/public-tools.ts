@@ -28,6 +28,7 @@ export { ReadFileTool } from './tools/builtins/read-file.js'
 export { WriteFileTool } from './tools/builtins/write-file.js'
 export { EditTool } from './tools/builtins/edit.js'
 export { BashTool } from './tools/builtins/bash.js'
+export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './tools/builtins/lsp.js'
 export { GlobTool } from './tools/builtins/glob.js'
 export { GrepTool } from './tools/builtins/grep.js'
 // Reads, lists and stops what `bash run_in_background` starts. Ships in
