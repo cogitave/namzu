@@ -355,6 +355,16 @@ export {
 } from './store/feedback/index.js'
 export { resolveRunEventReplay } from './types/run/event-cursor.js'
 
+// Commands a HOST offers its operator. Deliberately NOT tools: no
+// descriptor reaches a provider and no dispatch path reaches the model — a
+// `/tasks` readout is a question the operator asked, and making it callable
+// would let the model spend a turn on it and record the output as a finding.
+export {
+	HostCommandNameCollisionError,
+	HostCommandRegistry,
+	kernelHostCommands,
+} from './registry/command/index-exports.js'
+
 export {
 	AgentRegistry,
 	BaseRegistry,

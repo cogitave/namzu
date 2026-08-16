@@ -199,3 +199,11 @@ export type {
 } from './compaction/index.js'
 export type * from './eval/index.js'
 export type * from './types/guardrail/index.js'
+
+export type {
+	HostCommandContext,
+	HostCommandDescriptor,
+	HostCommandOutcome,
+	HostCommandRow,
+	SerializableHostCommand,
+} from './types/command/index.js'

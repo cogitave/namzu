@@ -17,3 +17,9 @@ export { ScopedConnectorRegistry } from './connector/scoped.js'
 
 export { AgentRegistry } from './agent/definitions.js'
 export { PluginRegistry } from './plugin/index.js'
+
+// Commands a HOST offers its operator — never model-visible, and not tools.
+// The whole vocabulary used to be a literal array in one host's TUI module.
+export { HostCommandNameCollisionError, HostCommandRegistry } from './command/index.js'
+export { kernelHostCommands } from './command/kernel-commands.js'
+export type { KernelCommandOptions } from './command/kernel-commands.js'
