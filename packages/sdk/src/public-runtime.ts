@@ -617,6 +617,18 @@ export {
 	runToA2ATask,
 } from './bridge/a2a/index.js'
 
+// The client half. Until this landed the bridge was a one-way door: this
+// kernel served a card and could read nobody else's, so the delegate seam
+// had no driven consumer.
+export {
+	A2ADelegate,
+	A2AProtocolMismatchError,
+	A2ARequestError,
+	InvalidAgentCardError,
+	fetchAgentCard,
+} from './bridge/a2a/client.js'
+export type { A2ADelegateConfig, FetchLike } from './bridge/a2a/client.js'
+
 export {
 	mapRunToStreamEvent,
 	mapSessionToStreamEvent,
