@@ -239,10 +239,13 @@ export class IterationOrchestrator {
 				// rate limit or a revoked tenant actually needs.
 				const veto = await this.beforeStep(runMgr.currentIteration + 1)
 				if (veto) {
+					// Namespaced. The un-namespaced keys elsewhere in this file are
+					// the frozen inventory LOG-22 exists to drain; a new call site
+					// has no reason to join it.
 					this.ctx.log.info('Step refused by beforeStep', {
-						runId: runMgr.id,
-						iteration: runMgr.currentIteration + 1,
-						reason: veto.reason,
+						'namzu.run.id': runMgr.id,
+						'namzu.iteration': runMgr.currentIteration + 1,
+						'namzu.step.veto_reason': veto.reason,
 					})
 					runMgr.setLastError(`beforeStep refused the next step: ${veto.reason}`)
 					runMgr.setStopReason('step_refused')
