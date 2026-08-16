@@ -25,7 +25,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
-import { SLASH_COMMANDS, type SlashContext, runSlash } from '../tui/slashCommands.js'
+import { CLI_LOCAL_COMMANDS, type SlashContext, runSlash } from '../tui/slashCommands.js'
 import { discoverUserCommands } from '../user-commands/store.js'
 
 const queryCalls: Record<string, unknown>[] = []
@@ -70,7 +70,6 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 			approvalLatched: () => false,
 			neverPrompted: () => [],
 		},
-		agentIds: [],
 		instructionFiles: [],
 		userCommands,
 	}
@@ -84,7 +83,7 @@ describe('a command file the operator wrote', () => {
 		const commands = discoverUserCommands({
 			home: cwd,
 			cwd,
-			reserved: SLASH_COMMANDS.map((c) => c.name),
+			reserved: CLI_LOCAL_COMMANDS.map((c) => c.name),
 		})
 		expect(
 			commands.map((c) => c.name),

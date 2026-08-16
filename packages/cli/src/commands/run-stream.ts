@@ -69,7 +69,7 @@ import { contextLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
-import { SLASH_COMMANDS } from '../tui/slashCommands.js'
+import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import {
 	applyProviderFlags,
@@ -200,7 +200,11 @@ export const runStreamCommand: CommandDef = {
 		// improvising on the literal text.
 		const expansion = expandHeadlessCommand(prompt, {
 			cwd,
-			builtins: SLASH_COMMANDS.map((c) => c.name),
+			// Through the merge, so a kernel-registered command is refused or
+			// expanded here with the same vocabulary the interactive path
+			// uses. Mapping the local array left it unknown, and an unknown
+			// name goes to the model as prose.
+			builtins: hostCommandNames(),
 		})
 		// Two different refusals wear this one word. An interactive builtin named
 		// headlessly, or arguments handed to a template that takes none, are fixed

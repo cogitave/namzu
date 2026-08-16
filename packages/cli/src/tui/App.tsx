@@ -13,6 +13,8 @@
 
 import {
 	DiskMessageFeedbackStore,
+	HostCommandRegistry,
+	kernelHostCommands,
 	type CostInfo,
 	type ImageAttachment,
 	type Message,
@@ -80,7 +82,14 @@ import {
 } from './agent.js'
 import { ResumePicker } from './ResumePicker.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
-import { SLASH_COMMANDS, type SlashContext, runSlash } from './slashCommands.js'
+import {
+	type SlashContext,
+	hostCommandNames,
+	kernelCommandDescriptors,
+	mergeHostCommands,
+	renderOutcome,
+	runSlash,
+} from './slashCommands.js'
 import { splitCompleteBlocks } from './stream-blocks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
@@ -400,7 +409,7 @@ export function App({ ctx }: AppProps) {
 					// Builtins are reserved: a `help.md` must not take over `/help`.
 					// Passing the names here is what lets the loader tell its author
 					// the file is shadowed instead of leaving it silently unused.
-					reserved: SLASH_COMMANDS.map((c) => c.name),
+					reserved: hostCommandNames(),
 				}),
 			)
 			setCurrentProvider(primaryProvider(prefs).id)
@@ -690,7 +699,15 @@ export function App({ ctx }: AppProps) {
 				})
 			: 0
 
+	// One merged vocabulary for the session: this host's own commands plus
+	// whatever the kernel's registry reports. Built here so `/help`, the
+	// autocomplete and the dispatcher all answer from the same list — three
+	// places that used to read one hardcoded array and would otherwise
+	// disagree the moment a capability added a command.
+	const hostCommands = mergeHostCommands(kernelCommandDescriptors())
+
 	const slashCtx: SlashContext = {
+		builtins: hostCommands,
 		lastAssistantMessageId: () => lastAssistantMessage.current?.messageId ?? null,
 		// Called when `/tools` renders, not read here — the same shape, and the
 		// same reason, as `neverPrompted` below.
@@ -717,7 +734,6 @@ export function App({ ctx }: AppProps) {
 			approvalLatched: () => session?.approvalLatched() ?? false,
 			neverPrompted: () => session?.promptExemptTools() ?? [],
 		},
-		agentIds: session?.agentIds ?? [],
 		instructionFiles: session?.instructionFiles ?? [],
 		userCommands,
 	}
@@ -1176,7 +1192,7 @@ export function App({ ctx }: AppProps) {
 			// including the queue — so a command-driven turn is not a second way
 			// to run one.
 			let outgoing = value
-			const slash = runSlash(value, slashCtx)
+			const slash = runSlash(value, slashCtx, hostCommands)
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
@@ -1374,6 +1390,26 @@ export function App({ ctx }: AppProps) {
 						break
 					case 'none':
 						return
+					case 'host-command': {
+						// Dispatched through the kernel's registry, built with what
+						// THIS session can answer from. The descriptors used for
+						// the merge above carry no store — they are names — so the
+						// registry is rebuilt here with the live one.
+						const registry = new HostCommandRegistry()
+						registry.register(kernelHostCommands({ allowedAgentIds: session?.agentIds ?? [] }))
+						void (async () => {
+							const outcome = await registry.dispatch(
+								`/${slash.name} ${slash.args.join(' ')}`.trim(),
+							)
+							pushMessage(
+								'system',
+								outcome
+									? renderOutcome(outcome)
+									: `/${slash.name} is registered but this session cannot run it.`,
+							)
+						})()
+						return
+					}
 					case 'feedback': {
 						const target = lastAssistantMessage.current
 						// Written under the same `<cwd>/.namzu` root the runs live

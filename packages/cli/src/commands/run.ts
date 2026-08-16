@@ -28,7 +28,7 @@ import { contextLogging, createStderrSink } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
-import { SLASH_COMMANDS } from '../tui/slashCommands.js'
+import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import { resolveResume } from './resume.js'
 import {
@@ -225,7 +225,11 @@ export const runCommand: CommandDef = {
 		// trusted first.
 		const expansion = expandHeadlessCommand(prompt, {
 			cwd: resolved.cwd,
-			builtins: SLASH_COMMANDS.map((c) => c.name),
+			// Through the merge, so a kernel-registered command is refused or
+			// expanded here with the same vocabulary the interactive path
+			// uses. Mapping the local array left it unknown, and an unknown
+			// name goes to the model as prose.
+			builtins: hostCommandNames(),
 		})
 		if (expansion.kind === 'refused') {
 			ctx.formatter.error({ message: expansion.reason })

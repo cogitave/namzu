@@ -23,7 +23,13 @@
  * to "does block 4 exist" in two places at once.
  */
 
-import type { AuthorizationRule, CostInfo } from '@namzu/sdk'
+import {
+	type AuthorizationRule,
+	type CostInfo,
+	type HostCommandOutcome,
+	type SerializableHostCommand,
+	kernelHostCommands,
+} from '@namzu/sdk'
 
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
@@ -38,6 +44,15 @@ export type SlashAction =
 	| { kind: 'list-skills' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
+	/**
+	 * A command the KERNEL registered, to be dispatched and rendered.
+	 *
+	 * Its own action kind because the registry's handlers are async — a
+	 * `/tasks` readout reads a store — and this union is synchronous. Making
+	 * the action itself async would push that everywhere; naming the
+	 * dispatch as a result keeps the boundary where it is.
+	 */
+	| { kind: 'host-command'; name: string; args: readonly string[] }
 	/**
 	 * Record a judgment on the run's last assistant message.
 	 *
@@ -133,11 +148,6 @@ export interface SlashContext {
 		readonly neverPrompted: () => readonly string[]
 	}
 	/**
-	 * Delegate ids this session can dispatch to, empty when the delegation tool
-	 * is not mounted.
-	 */
-	readonly agentIds: readonly string[]
-	/**
 	 * Absolute paths of the project-instruction files already in this session's
 	 * system prompt.
 	 *
@@ -154,6 +164,14 @@ export interface SlashContext {
 	 * already answers to. Empty is the normal case.
 	 */
 	readonly userCommands: readonly UserCommand[]
+
+	/**
+	 * Everything this session answers to, for `/help` to list.
+	 *
+	 * Absent falls back to the CLI's own, which is right for a caller with
+	 * no registry and wrong to assume anywhere else.
+	 */
+	readonly builtins?: readonly SlashCommand[]
 	/**
 	 * The last assistant message this run produced, or `null` before there
 	 * is one.
@@ -187,6 +205,15 @@ export interface ParsedSlash {
 export function matchSlashCommands(
 	value: string,
 	userCommands: readonly UserCommand[] = [],
+	/**
+	 * What this session actually offers.
+	 *
+	 * Passed rather than read from a module constant, because the kernel's
+	 * registry decides part of it at runtime — a command a capability adds
+	 * has to reach the dropdown without an edit here, which is the whole
+	 * point. Defaults to the CLI's own for callers with no registry.
+	 */
+	builtins: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
 ): SlashCommand[] {
 	const m = /^\/([\w-]*)$/.exec(value)
 	if (!m) return []
@@ -201,7 +228,106 @@ export function matchSlashCommands(
 		action: () => ({ kind: 'none' }) as const,
 	}))
 
-	return [...SLASH_COMMANDS, ...own].filter((c) => c.name.startsWith(prefix))
+	return [...builtins, ...own].filter((c) => c.name.startsWith(prefix))
+}
+
+/** A registry command whose name a CLI-local one already answers to. */
+export class CommandNameCollisionError extends Error {
+	constructor(name: string) {
+		super(
+			`/${name} is registered by the kernel AND by this host. One of them would silently never run, and which depends on merge order — rename one.`,
+		)
+		this.name = 'CommandNameCollisionError'
+	}
+}
+
+/**
+ * The CLI's own commands plus whatever the kernel's registry reports.
+ *
+ * This file used to BE the vocabulary: a hardcoded array, with two headless
+ * commands importing it for a name list, so nothing a capability added could
+ * reach the operator without editing here.
+ *
+ * A collision THROWS rather than letting local win quietly. One of the two
+ * would never run, which one depends on merge order, and neither the kernel
+ * nor the host author would ever see it — the same reasoning the registry
+ * itself uses for its own duplicate names.
+ */
+export function mergeHostCommands(
+	descriptors: readonly SerializableHostCommand[],
+	locals: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
+): readonly SlashCommand[] {
+	const localNames = new Set(locals.map((c) => c.name))
+	for (const descriptor of descriptors) {
+		if (localNames.has(descriptor.name)) throw new CommandNameCollisionError(descriptor.name)
+	}
+
+	return [
+		...locals,
+		...descriptors.map(
+			(descriptor): SlashCommand => ({
+				name: descriptor.name,
+				description: descriptor.description,
+				action: (_ctx, args) => ({ kind: 'host-command', name: descriptor.name, args }),
+			}),
+		),
+	]
+}
+
+/**
+ * A kernel outcome, drawn the way this surface draws things.
+ *
+ * The SDK returns fields and formats nothing, which is the whole reason a
+ * TUI and a JSON command can both consume it. This is the TUI's half.
+ */
+export function renderOutcome(outcome: HostCommandOutcome): string {
+	switch (outcome.kind) {
+		case 'ack':
+			return outcome.message
+		case 'prompt':
+			return outcome.text
+		case 'refused':
+			return outcome.reason
+		case 'report': {
+			if (outcome.rows.length === 0) return `${outcome.title}: none.`
+			const columns = [...new Set(outcome.rows.flatMap((r) => Object.keys(r)))]
+			return [
+				`${outcome.title} (${outcome.rows.length}):`,
+				...outcome.rows.map(
+					(row) =>
+						`  ${columns
+							.map((c) => (row[c] === null || row[c] === undefined ? '-' : String(row[c])))
+							.join('  ')}`,
+				),
+			].join('\n')
+		}
+	}
+}
+
+/**
+ * Every name this build answers to, kernel commands included.
+ *
+ * The headless commands used to map the raw array, so a registry command
+ * was invisible to them — and a name they do not know is sent to the MODEL
+ * as prose, silently, which is both a wrong answer and a tool call nobody
+ * asked for.
+ */
+export function hostCommandNames(
+	descriptors: readonly SerializableHostCommand[] = kernelCommandDescriptors(),
+	locals: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
+): string[] {
+	return mergeHostCommands(descriptors, locals).map((c) => c.name)
+}
+
+/**
+ * The kernel's own commands, as descriptors.
+ *
+ * Built with empty options because only the NAMES are wanted here — a
+ * headless path deciding whether `/tasks` is a command it knows does not
+ * need a task store to answer that.
+ */
+export function kernelCommandDescriptors(): readonly SerializableHostCommand[] {
+	return kernelHostCommands({}).map(({ handler: _handler, ...rest }) => rest)
 }
 
 /** Returns null when the line is not a slash command. */
@@ -213,12 +339,25 @@ export function parseSlash(line: string): ParsedSlash | null {
 	return { name, args }
 }
 
-export const SLASH_COMMANDS: readonly SlashCommand[] = [
+/**
+ * The commands that are genuinely this host's.
+ *
+ * A transcript, a picker, a login, an expand — every one is about something
+ * the TUI owns and the kernel has no view of. What is NOT here is anything
+ * the kernel can answer, which now arrives through the registry instead of
+ * being restated in this file.
+ */
+export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'help',
 		description: 'Show available slash commands.',
 		action: (ctx) => {
-			const builtin = SLASH_COMMANDS.map((c) => `/${c.name.padEnd(12)} ${c.description}`)
+			// Reads what this session OFFERS, not a module constant. A command
+			// the kernel registered and `/help` did not list is a command
+			// nobody discovers.
+			const builtin = (ctx.builtins ?? CLI_LOCAL_COMMANDS).map(
+				(c) => `/${c.name.padEnd(12)} ${c.description}`,
+			)
 			// Listed separately and always, including the refused ones with their
 			// reason. A command file that exists and does not work is exactly what
 			// its author needs to see here — leaving it out of `/help` is how it
@@ -407,11 +546,6 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 			role: 'system',
 			content: renderPermissions(ctx.permissions),
 		}),
-	},
-	{
-		name: 'agents',
-		description: 'List the delegates this session can dispatch to.',
-		action: (ctx) => ({ kind: 'message', role: 'system', content: renderAgents(ctx.agentIds) }),
 	},
 	{
 		name: 'init',
@@ -658,13 +792,22 @@ function describeRule(rule: AuthorizationRule): string {
 }
 
 /** The delegate roster, and an honest answer when there is none. */
-export function renderAgents(agentIds: readonly string[]): string {
-	if (agentIds.length === 0) {
+/**
+ * The roster, drawn.
+ *
+ * Kept as a formatter and moved off `SlashContext.agentIds`: the roster is
+ * the KERNEL's fact — the delegation tools already hold it — and having the
+ * CLI carry a second copy meant two answers to one question that could
+ * disagree. The command is answered by the registry now; this draws what it
+ * reports.
+ */
+export function renderAgents(ids: readonly string[]): string {
+	if (ids.length === 0) {
 		return 'No delegates. This session has no delegation tool mounted, so it does the work itself.'
 	}
 	return [
-		`Delegates (${agentIds.length}):`,
-		...agentIds.map((id) => `  ${id}`),
+		`Delegates (${ids.length}):`,
+		...ids.map((id) => `  ${id}`),
 		'',
 		'The agent dispatches to these itself when a task suits one. It may also',
 		'define a specialist for a single task, which is not listed here because',
@@ -672,7 +815,11 @@ export function renderAgents(agentIds: readonly string[]): string {
 	].join('\n')
 }
 
-export function runSlash(line: string, ctx: SlashContext): SlashAction | null {
+export function runSlash(
+	line: string,
+	ctx: SlashContext,
+	builtins: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
+): SlashAction | null {
 	const parsed = parseSlash(line)
 	if (!parsed) return null
 
@@ -680,7 +827,7 @@ export function runSlash(line: string, ctx: SlashContext): SlashAction | null {
 	// the TUI already answers to — `discoverUserCommands` marks those files with
 	// a `problem` so their author is told, rather than leaving them to wonder
 	// why the file never ran.
-	const cmd = SLASH_COMMANDS.find((c) => c.name === parsed.name)
+	const cmd = builtins.find((c) => c.name === parsed.name)
 	if (cmd) return cmd.action(ctx, parsed.args)
 
 	const user = ctx.userCommands.find((c) => c.name === parsed.name)

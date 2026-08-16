@@ -2,11 +2,14 @@ import type { CostInfo } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
-	SLASH_COMMANDS,
+	CLI_LOCAL_COMMANDS,
 	type SlashContext,
 	initPrompt,
+	kernelCommandDescriptors,
 	matchSlashCommands,
+	mergeHostCommands,
 	parseSlash,
+	renderAgents,
 	runSlash,
 } from './slashCommands.js'
 
@@ -50,7 +53,6 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		modelSummary: null,
 		usage: null,
 		permissions: permissions(),
-		agentIds: [],
 		instructionFiles: [],
 		userCommands: [],
 		...over,
@@ -67,7 +69,7 @@ const ctxWithTools: SlashContext = context({
 
 describe('matchSlashCommands', () => {
 	it('returns all commands for a bare slash', () => {
-		expect(matchSlashCommands('/')).toEqual(SLASH_COMMANDS)
+		expect(matchSlashCommands('/')).toEqual(CLI_LOCAL_COMMANDS)
 	})
 
 	it('filters by name prefix (case-insensitive)', () => {
@@ -131,7 +133,7 @@ describe('runSlash', () => {
 		const r = runSlash('/help', ctx)
 		expect(r?.kind).toBe('message')
 		if (r?.kind === 'message') {
-			for (const cmd of SLASH_COMMANDS) {
+			for (const cmd of CLI_LOCAL_COMMANDS) {
 				expect(r.content).toContain(`/${cmd.name}`)
 			}
 		}
@@ -447,22 +449,23 @@ describe('/permissions', () => {
 	})
 })
 
-describe('/agents', () => {
+describe('the roster formatter', () => {
+	// `/agents` is answered by the KERNEL's registry now — the roster is its
+	// fact, and the CLI carrying a second copy meant two answers to one
+	// question that could disagree. What is left here is the drawing.
 	it('answers honestly when nothing is mounted', () => {
-		const r = runSlash('/agents', context({ agentIds: [] }))
-		if (r?.kind === 'message') {
-			expect(r.content).toContain('No delegates')
-			expect(r.content).toContain('does the work itself')
-		}
+		const rendered = renderAgents([])
+
+		expect(rendered).toContain('No delegates')
+		expect(rendered).toContain('does the work itself')
 	})
 
 	it('lists the roster it was given', () => {
-		const r = runSlash('/agents', context({ agentIds: ['general-purpose', 'reviewer'] }))
-		if (r?.kind === 'message') {
-			expect(r.content).toContain('general-purpose')
-			expect(r.content).toContain('reviewer')
-			expect(r.content).toContain('2')
-		}
+		const rendered = renderAgents(['general-purpose', 'reviewer'])
+
+		expect(rendered).toContain('general-purpose')
+		expect(rendered).toContain('reviewer')
+		expect(rendered).toContain('2')
 	})
 })
 
@@ -506,7 +509,11 @@ describe('/init', () => {
 
 describe('the new commands are reachable', () => {
 	it('/help lists them, so they are discoverable without docs', () => {
-		const r = runSlash('/help', ctx)
+		// Through the MERGED set, which is the whole claim: `/agents` is the
+		// kernel's command now, and it reaches `/help` with no edit to this
+		// file. Deleting the merge makes this fail.
+		const merged = mergeHostCommands(kernelCommandDescriptors())
+		const r = runSlash('/help', { ...ctx, builtins: merged }, merged)
 		expect(r?.kind).toBe('message')
 		if (r?.kind === 'message') {
 			// Anchored on the whole name, not a prefix. `toContain('/agents')` was
@@ -526,10 +533,15 @@ describe('the new commands are reachable', () => {
 	})
 
 	it('autocomplete offers them', () => {
-		expect(matchSlashCommands('/co').map((c) => c.name)).toContain('cost')
-		expect(matchSlashCommands('/ag').map((c) => c.name)).toContain('agents')
-		expect(matchSlashCommands('/per').map((c) => c.name)).toContain('permissions')
-		expect(matchSlashCommands('/ex').map((c) => c.name)).toContain('expand')
+		const merged = mergeHostCommands(kernelCommandDescriptors())
+		const names = (prefix: string) => matchSlashCommands(prefix, [], merged).map((c) => c.name)
+
+		expect(names('/co')).toContain('cost')
+		// The kernel's, reaching the dropdown with no edit to this file.
+		expect(names('/ag')).toContain('agents')
+		expect(names('/ta')).toContain('tasks')
+		expect(names('/per')).toContain('permissions')
+		expect(names('/ex')).toContain('expand')
 	})
 })
 
@@ -629,7 +641,7 @@ describe('/login and /logout', () => {
 
 describe('/feedback', () => {
 	const run = (args: string[], last: string | null) =>
-		SLASH_COMMANDS.find((c) => c.name === 'feedback')?.action(
+		CLI_LOCAL_COMMANDS.find((c) => c.name === 'feedback')?.action(
 			context({ lastAssistantMessageId: () => last }),
 			args,
 		)
