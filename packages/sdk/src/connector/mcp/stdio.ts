@@ -151,12 +151,14 @@ export class StdioTransport implements MCPTransport {
 		})
 
 		this.process.stderr?.on('data', (chunk: Buffer) => {
-			this.log.warn(`MCP server stderr: ${chunk.toString('utf-8').trim()}`)
+			this.log.warn('MCP server stderr', {
+				'namzu.mcp.stderr': chunk.toString('utf-8').trim(),
+			})
 		})
 
 		this.process.on('close', (code) => {
 			this.connected = false
-			this.log.info(`MCP server process exited with code ${code}`)
+			this.log.info('MCP server process exited', { 'namzu.mcp.exit_code': code })
 			for (const handler of this.closeHandlers) handler()
 			// After the notification, not before it: this event is what tells
 			// `MCPClient` the session ended.
@@ -170,9 +172,10 @@ export class StdioTransport implements MCPTransport {
 		})
 
 		this.connected = true
-		this.log.info(
-			`StdioTransport connected: ${this.config.command} ${(this.config.args ?? []).join(' ')}`,
-		)
+		this.log.info('StdioTransport connected', {
+			'namzu.mcp.command': this.config.command,
+			'namzu.mcp.args': (this.config.args ?? []).join(' '),
+		})
 	}
 
 	async close(): Promise<void> {
@@ -275,7 +278,9 @@ export class StdioTransport implements MCPTransport {
 				const message = JSON.parse(trimmed) as MCPJsonRpcMessage
 				for (const handler of this.messageHandlers) handler(message)
 			} catch {
-				this.log.warn(`StdioTransport: invalid JSON-RPC message: ${trimmed.slice(0, 100)}`)
+				this.log.warn('StdioTransport: invalid JSON-RPC message', {
+					'namzu.mcp.message_head': trimmed.slice(0, 100),
+				})
 			}
 		}
 	}

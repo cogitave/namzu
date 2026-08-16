@@ -67,7 +67,7 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 			Object.assign(this.defaultHeaders, this.resolveAuthHeaders(auth))
 		}
 
-		this.log.info(`HTTP connector connected to ${this.baseUrl}`)
+		this.log.info('HTTP connector connected', { 'namzu.connector.base_url': this.baseUrl })
 	}
 
 	async disconnect(): Promise<void> {

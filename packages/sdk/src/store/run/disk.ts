@@ -59,7 +59,7 @@ export class RunDiskStore implements RunStore {
 		await mkdir(this.runDir, { recursive: true })
 		await healTornTranscript(this.runDir)
 		await healTornAuditTrail(this.runDir)
-		this.log.info(`Run directory created: ${this.runDir}`)
+		this.log.info('Run directory created', { 'namzu.run.dir': this.runDir })
 		return this.runDir
 	}
 
@@ -213,7 +213,7 @@ export class RunDiskStore implements RunStore {
 
 		const reportPath = join(dir, 'report.md')
 		await atomicWriteFile(reportPath, content)
-		this.log.info(`Report written: ${reportPath}`)
+		this.log.info('Report written', { 'namzu.run.report_path': reportPath })
 		return reportPath
 	}
 

@@ -75,7 +75,10 @@ export class ConnectorManager {
 		this.instances.set(instanceId, instance)
 		this.liveConnectors.set(instanceId, connector)
 		this.emit({ type: 'instance_created', instanceId, connectorId: config.connectorId })
-		this.log.info(`Connector instance created: ${instanceId} (${config.connectorId})`)
+		this.log.info('Connector instance created', {
+			'namzu.connector.instance_id': instanceId,
+			'namzu.connector.id': config.connectorId,
+		})
 
 		return instance
 	}
@@ -94,12 +97,15 @@ export class ConnectorManager {
 			this.updateStatus(instanceId, 'connected')
 			instance.connectedAt = Date.now()
 			this.emit({ type: 'instance_connected', instanceId })
-			this.log.info(`Connector connected: ${instanceId}`)
+			this.log.info('Connector connected', { 'namzu.connector.instance_id': instanceId })
 		} catch (err) {
 			const message = toErrorMessage(err)
 			this.updateStatus(instanceId, 'error', message)
 			this.emit({ type: 'instance_error', instanceId, error: message })
-			this.log.error(`Connector connection failed: ${instanceId}`, { error: message })
+			this.log.error('Connector connection failed', {
+				'namzu.connector.instance_id': instanceId,
+				error: message,
+			})
 			throw err
 		}
 	}
@@ -111,10 +117,13 @@ export class ConnectorManager {
 			await connector.disconnect()
 			this.updateStatus(instanceId, 'disconnected')
 			this.emit({ type: 'instance_disconnected', instanceId })
-			this.log.info(`Connector disconnected: ${instanceId}`)
+			this.log.info('Connector disconnected', { 'namzu.connector.instance_id': instanceId })
 		} catch (err) {
 			const message = toErrorMessage(err)
-			this.log.error(`Connector disconnect failed: ${instanceId}`, { error: message })
+			this.log.error('Connector disconnect failed', {
+				'namzu.connector.instance_id': instanceId,
+				error: message,
+			})
 			throw err
 		}
 	}
@@ -189,7 +198,7 @@ export class ConnectorManager {
 		this.instances.delete(instanceId)
 		this.liveConnectors.delete(instanceId)
 		this.emit({ type: 'instance_removed', instanceId })
-		this.log.info(`Connector instance removed: ${instanceId}`)
+		this.log.info('Connector instance removed', { 'namzu.connector.instance_id': instanceId })
 	}
 
 	getRegistry(): ConnectorRegistry {

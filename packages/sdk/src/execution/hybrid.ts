@@ -76,9 +76,11 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 		}
 		await Promise.all(initPromises)
 
-		this.log.info(
-			`Hybrid context initialized: local(${this.localCtx.getCwd()}) + ${this.remoteCtxs.size} remote(s), strategy=${this.routingStrategy}`,
-		)
+		this.log.info('Hybrid context initialized', {
+			'namzu.execution.local_cwd': this.localCtx.getCwd(),
+			'namzu.execution.remote_count': this.remoteCtxs.size,
+			'namzu.execution.routing_strategy': this.routingStrategy,
+		})
 	}
 
 	protected async doTeardown(): Promise<void> {

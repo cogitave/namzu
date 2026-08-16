@@ -236,7 +236,8 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 				}
 
 				if (parseResult.ok && parseResult.source === 'fallback') {
-					log.warn(`Routing attempt ${attempt + 1} fell back`, {
+					log.warn('Routing attempt fell back', {
+						'namzu.router.attempt': attempt + 1,
 						reason: parseResult.reason,
 						decision: parseResult.decision,
 					})
@@ -255,7 +256,8 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 				}
 
 				if (!parseResult.ok) {
-					log.warn(`Routing attempt ${attempt + 1} failed to parse`, {
+					log.warn('Routing attempt failed to parse', {
+						'namzu.router.attempt': attempt + 1,
 						error: parseResult.error,
 					})
 					if (attempt === maxRetries - 1) {
@@ -263,7 +265,8 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 					}
 				}
 			} catch (err) {
-				log.warn(`Routing LLM call failed on attempt ${attempt + 1}`, {
+				log.warn('Routing LLM call failed', {
+					'namzu.router.attempt': attempt + 1,
 					error: String(err),
 				})
 				if (attempt === maxRetries - 1) {

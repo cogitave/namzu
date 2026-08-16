@@ -265,13 +265,14 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 		if (source) counts[source.kind]++
 	}
 	const keyCount = Object.keys(provenance).length
-	log.info(
-		`${keyCount} keys from default(${counts.default}) user-file(${counts['user-file']}) project-file(${counts['project-file']}) env(${counts.env})`,
-		{
-			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CONFIG_RESOLVED,
-			'namzu.config.key_count': keyCount,
-		},
-	)
+	log.info('Configuration resolved', {
+		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CONFIG_RESOLVED,
+		'namzu.config.key_count': keyCount,
+		'namzu.config.default_count': counts.default,
+		'namzu.config.user_file_count': counts['user-file'],
+		'namzu.config.project_file_count': counts['project-file'],
+		'namzu.config.env_count': counts.env,
+	})
 	// Per-key debug rows. The value is handed to the logger as JSON text, not
 	// hand-masked by key name and not omitted — the record-boundary
 	// redaction scan every sink sits behind

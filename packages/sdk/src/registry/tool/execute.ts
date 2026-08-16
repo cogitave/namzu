@@ -224,7 +224,7 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 		for (const name of names) {
 			this.getOrThrow(name)
 			this.availability.set(name, 'active')
-			this.log.debug(`Tool activated: ${name}`)
+			this.log.debug('Tool activated', { 'namzu.tool.name': name })
 		}
 	}
 
@@ -232,7 +232,7 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 		for (const name of names) {
 			this.getOrThrow(name)
 			this.availability.set(name, 'deferred')
-			this.log.debug(`Tool deferred: ${name}`)
+			this.log.debug('Tool deferred', { 'namzu.tool.name': name })
 		}
 	}
 
@@ -546,7 +546,8 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						? `Tool "${toolName}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
 						: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}${recoveryHint}`
 
-					this.log.error(`Tool input validation failed: ${toolName}`, {
+					this.log.error('Tool input validation failed', {
+						'namzu.tool.name': toolName,
 						errors: errorMessage,
 						empty: isEmptyInput,
 					})
@@ -567,7 +568,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				const finalInput = parseResult.data
 
 				try {
-					this.log.debug(`Executing tool: ${toolName}`)
+					this.log.debug('Executing tool', { 'namzu.tool.name': toolName })
 					const startedAt = Date.now()
 					const produced = await tool.execute(finalInput, context)
 					// Screened here, which is the only place a result can be
@@ -589,7 +590,8 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						this.log,
 					)
 					const durationMs = Date.now() - startedAt
-					this.log.debug(`Tool completed: ${toolName}`, {
+					this.log.debug('Tool completed', {
+						'namzu.tool.name': toolName,
 						success: result.success,
 					})
 
@@ -624,7 +626,8 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						throw err
 					}
 					const errorMessage = toErrorMessage(err)
-					this.log.error(`Tool execution error: ${toolName}`, {
+					this.log.error('Tool execution error', {
+						'namzu.tool.name': toolName,
 						error: errorMessage,
 					})
 

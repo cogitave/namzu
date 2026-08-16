@@ -82,7 +82,7 @@ describe('TenantConnectorManager — per-tenant log correlation', () => {
 			new TestConnector(),
 		)
 
-		const creationRecords = records.filter((r) => r.message.includes('Connector instance created'))
+		const creationRecords = records.filter((r) => r.message === 'Connector instance created')
 		expect(creationRecords).toHaveLength(2)
 
 		const aRecords = creationRecords.filter((r) => r.bound[NAMZU.TENANT_ID] === 't_a')

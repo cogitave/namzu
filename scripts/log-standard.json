@@ -4,7 +4,7 @@
 	"$comment_scope": "getRootLoggerCount and unnamespacedBindingCount are scoped to packages/sdk/src (excluding __tests__, __fixtures__ and *.test.ts). consoleAllowlist and streamWriteAllowlist are scoped to packages/*/src across every package (one directory below packages/ — packages/providers/<name>/src is nested one level deeper and out of scope; see the script's file header).",
 	"getRootLoggerCount": 1,
 	"unnamespacedBindingCount": 40,
-	"constantBodyViolationCount": 87,
+	"constantBodyViolationCount": 0,
 	"namespacedAttributeKeyViolationCount": 794,
 	"constantBodyExcludes": [],
 	"namespacedAttributeKeyExcludes": [],

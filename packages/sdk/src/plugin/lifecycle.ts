@@ -195,7 +195,8 @@ export class PluginLifecycleManager {
 			scope,
 		})
 
-		this.log.info(`Plugin installed: ${manifest.name}`, {
+		this.log.info('Plugin installed', {
+			'namzu.plugin.name': manifest.name,
 			pluginId,
 			scope,
 			version: manifest.version,
@@ -330,12 +331,13 @@ export class PluginLifecycleManager {
 			name: manifest.name,
 		})
 
-		this.log.info(`Plugin enabled: ${manifest.name}`, {
-			// All four namespaced, not just the new one. Adding a bare
-			// `skillCount` beside three bare neighbours would have moved the
+		this.log.info('Plugin enabled', {
+			// Every key namespaced, not just the newest one. Adding a bare
+			// `skillCount` beside bare neighbours would have moved the
 			// log-standard ratchet the wrong way for the sake of matching
 			// prose that is itself the debt.
 			'namzu.plugin.id': pluginId,
+			'namzu.plugin.name': manifest.name,
 			'namzu.plugin.tool_count': contributions.toolNames.length,
 			'namzu.plugin.skill_count': contributions.skillNames.length,
 			'namzu.plugin.mcp_server_count': contributions.mcpClients.length,
@@ -496,7 +498,7 @@ export class PluginLifecycleManager {
 			name: plugin.manifest.name,
 		})
 
-		this.log.info(`Plugin disabled: ${plugin.manifest.name}`, { pluginId })
+		this.log.info('Plugin disabled', { 'namzu.plugin.name': plugin.manifest.name, pluginId })
 	}
 
 	async uninstall(pluginId: PluginId): Promise<void> {
@@ -514,7 +516,7 @@ export class PluginLifecycleManager {
 			name: plugin.manifest.name,
 		})
 
-		this.log.info(`Plugin uninstalled: ${plugin.manifest.name}`, { pluginId })
+		this.log.info('Plugin uninstalled', { 'namzu.plugin.name': plugin.manifest.name, pluginId })
 	}
 
 	async executeHooks(

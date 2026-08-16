@@ -37,7 +37,10 @@ export class RemoteExecutionContext extends BaseExecutionContext {
 
 	protected async doInitialize(): Promise<void> {
 		this.validateTarget(this.target)
-		this.log.info(`Remote context initialized for ${this.target.type}://${this.target.host}`)
+		this.log.info('Remote context initialized', {
+			'namzu.execution.target_type': this.target.type,
+			'namzu.execution.target_host': this.target.host,
+		})
 	}
 
 	protected async doTeardown(): Promise<void> {
@@ -58,9 +61,11 @@ export class RemoteExecutionContext extends BaseExecutionContext {
 			contextId: this.id,
 			target: this.target,
 		})
-		this.log.info(
-			`Remote connected: ${this.target.type}://${this.target.host}:${this.target.port ?? 'default'}`,
-		)
+		this.log.info('Remote connected', {
+			'namzu.execution.target_type': this.target.type,
+			'namzu.execution.target_host': this.target.host,
+			'namzu.execution.target_port': this.target.port ?? 'default',
+		})
 	}
 
 	async disconnect(): Promise<void> {
@@ -71,7 +76,7 @@ export class RemoteExecutionContext extends BaseExecutionContext {
 			contextId: this.id,
 			host: this.target.host,
 		})
-		this.log.info(`Remote disconnected: ${this.target.host}`)
+		this.log.info('Remote disconnected', { 'namzu.execution.target_host': this.target.host })
 	}
 
 	isConnected(): boolean {

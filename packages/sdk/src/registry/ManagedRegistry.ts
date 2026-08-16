@@ -47,10 +47,10 @@ export class ManagedRegistry<TDefinition> extends BaseRegistry<TDefinition> {
 			const id = idOrItem
 			const item = maybeItem
 			if (this.has(id)) {
-				this.log.warn(`"${id}" already registered, overwriting.`)
+				this.log.warn('Already registered, overwriting', { 'namzu.registry.item_id': id })
 			}
 			super.register(id, item)
-			this.log.debug(`Registered: ${id}`)
+			this.log.debug('Registered', { 'namzu.registry.item_id': id })
 			return
 		}
 
@@ -65,15 +65,15 @@ export class ManagedRegistry<TDefinition> extends BaseRegistry<TDefinition> {
 		}
 
 		if (this.has(id)) {
-			this.log.warn(`"${id}" already registered, overwriting.`)
+			this.log.warn('Already registered, overwriting', { 'namzu.registry.item_id': id })
 		}
 		super.register(id, item)
 		// `debug`, not `info`. Registration is the startup path doing exactly
 		// what it is supposed to do, once per item, and there are dozens: a
-		// default-level run opened with twenty lines of `Registered: read`,
-		// `Registered: write` before anything an operator could act on. That is
-		// the same failure as silence with the sign flipped — the interesting
-		// lines are there, and nobody can find them.
+		// default-level run opened with twenty `Registered` lines, one per
+		// tool, before anything an operator could act on. That is the same
+		// failure as silence with the sign flipped — the interesting lines are
+		// there, and nobody can find them.
 		//
 		// The overwrite case above stays at `warn`, because a second
 		// registration under a live id IS news.
@@ -82,7 +82,7 @@ export class ManagedRegistry<TDefinition> extends BaseRegistry<TDefinition> {
 		// Every unit test here asserts on a logger stub, so the LEVEL was
 		// invisible to all of them: what a start actually reads like is not a
 		// property any of them measure.
-		this.log.debug(`Registered: ${id}`)
+		this.log.debug('Registered', { 'namzu.registry.item_id': id })
 	}
 
 	getOrThrow(id: string): TDefinition {

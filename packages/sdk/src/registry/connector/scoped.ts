@@ -26,14 +26,14 @@ export class ScopedConnectorRegistry {
 	set(config: ScopedConnectorConfig): void {
 		const key = scopeKey(config.scope.scope, config.scope.scopeId, config.connectorId)
 		this.configs.set(key, config)
-		this.log.info(`Scoped config set: ${key}`)
+		this.log.info('Scoped config set', { 'namzu.connector.scope_key': key })
 	}
 
 	remove(scope: ScopeRef, connectorId: ConnectorId): boolean {
 		const key = scopeKey(scope.scope, scope.scopeId, connectorId)
 		const removed = this.configs.delete(key)
 		if (removed) {
-			this.log.info(`Scoped config removed: ${key}`)
+			this.log.info('Scoped config removed', { 'namzu.connector.scope_key': key })
 		}
 		return removed
 	}

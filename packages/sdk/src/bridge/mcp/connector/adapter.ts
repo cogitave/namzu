@@ -43,7 +43,10 @@ export class MCPConnectorBridge {
 			}
 		}
 
-		this.log.info(`Bridge generated ${tools.length} MCP tools from ${instances.length} instances`)
+		this.log.info('Bridge generated MCP tools', {
+			'namzu.mcp.tool_count': tools.length,
+			'namzu.connector.instance_count': instances.length,
+		})
 		return tools
 	}
 

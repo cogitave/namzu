@@ -58,7 +58,13 @@ describe('ManagedRegistry', () => {
 			r.register('a', a)
 			r.register('a', b)
 			expect(r.get('a')?.value).toBe(2)
-			expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('"a" already registered'))
+			// Exact, both halves. The id moved out of the message body and into
+			// an attribute (LOG-21), so a `stringContaining` on the message
+			// alone would now pass while the id went missing entirely — the
+			// one thing this record exists to carry.
+			expect(logger.warn).toHaveBeenCalledWith('Already registered, overwriting', {
+				'namzu.registry.item_id': 'a',
+			})
 		})
 	})
 

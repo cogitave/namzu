@@ -55,7 +55,7 @@ export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 			this.defaultHeaders.Authorization = `Bearer ${auth.credentials.token}`
 		}
 
-		this.log.info(`Webhook connector connected to ${this.url}`)
+		this.log.info('Webhook connector connected', { 'namzu.connector.url': this.url })
 	}
 
 	async disconnect(): Promise<void> {

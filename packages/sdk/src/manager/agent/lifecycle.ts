@@ -310,7 +310,11 @@ export class AgentManager {
 				at: new Date(),
 			})
 		}
-		this.log.info(`Agent task pending: ${taskId} (${options.agentId}, depth=${context.depth})`)
+		this.log.info('Agent task pending', {
+			'namzu.agent.task_id': taskId,
+			'namzu.agent.definition_id': options.agentId,
+			'namzu.agent.depth': context.depth,
+		})
 
 		const definition = this.registry.getOrThrow(options.agentId)
 		let childConfig: BaseAgentConfig
@@ -479,7 +483,9 @@ export class AgentManager {
 			role: 'user' as const,
 			content: message,
 		} as Message)
-		this.log.info(`Message queued for task ${taskId} via continueTask`)
+		this.log.info('Message queued for task via continueTask', {
+			'namzu.agent.task_id': taskId,
+		})
 	}
 
 	queueMessage(taskId: TaskId, message: Message): void {
@@ -1035,7 +1041,7 @@ export class AgentManager {
 			taskId,
 			result,
 		})
-		this.log.info(`Agent task completed: ${taskId}`)
+		this.log.info('Agent task completed', { 'namzu.agent.task_id': taskId })
 		this.scheduleEviction(taskId)
 		this.resolveCompletionCallbacks(taskId)
 	}
@@ -1068,7 +1074,7 @@ export class AgentManager {
 			taskId,
 			error,
 		})
-		this.log.error(`Agent task failed: ${taskId}`, { error })
+		this.log.error('Agent task failed', { 'namzu.agent.task_id': taskId, error })
 
 		// Best-effort: mark sub-session failed + dispose workspace. The result
 		// emission path already synthesized a failure result above.
@@ -1144,7 +1150,7 @@ export class AgentManager {
 			taskId,
 			...(cause ? { cancelCause: cause } : {}),
 		})
-		this.log.info(`Agent task canceled: ${taskId}`)
+		this.log.info('Agent task canceled', { 'namzu.agent.task_id': taskId })
 		this.scheduleEviction(taskId)
 		this.resolveCompletionCallbacks(taskId)
 	}
@@ -1174,7 +1180,7 @@ export class AgentManager {
 			this.instances.delete(taskId)
 			this.spawnRecords.delete(taskId)
 			this.evictionTimers.delete(taskId)
-			this.log.info(`Agent task evicted: ${taskId}`)
+			this.log.info('Agent task evicted', { 'namzu.agent.task_id': taskId })
 		}, this.config.evictionMs)
 
 		this.evictionTimers.set(taskId, timer)

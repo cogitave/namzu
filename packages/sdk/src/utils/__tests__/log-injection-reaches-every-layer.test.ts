@@ -119,7 +119,7 @@ describe('a host-injected logger reaches the agent, connector AND vault layers',
 		})
 
 		const agentRecords = records.filter((r) => r.message === 'agent layer reached')
-		const connectorRecords = records.filter((r) => r.message.includes('Connector instance created'))
+		const connectorRecords = records.filter((r) => r.message === 'Connector instance created')
 		const vaultRecords = records.filter((r) => r.message === 'Credential stored')
 
 		expect(agentRecords).toHaveLength(1)

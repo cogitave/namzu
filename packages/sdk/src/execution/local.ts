@@ -46,7 +46,7 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 		if (!existsSync(this.cwd)) {
 			throw new Error(`Working directory does not exist: ${this.cwd}`)
 		}
-		this.log.info(`Local context initialized at ${this.cwd}`)
+		this.log.info('Local context initialized', { 'namzu.execution.cwd': this.cwd })
 	}
 
 	protected async doTeardown(): Promise<void> {}

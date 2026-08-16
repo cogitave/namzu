@@ -2211,14 +2211,14 @@ function logCapabilities(probes: readonly CapabilityProbe[]): void {
 	log.info(summary, { [EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED })
 	for (const probe of probes) {
 		if (probe.state === 'broken') {
-			log.error(`${probe.specifier} failed to load`, {
+			log.error('Capability probe failed to load', {
 				[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_BROKEN,
 				'namzu.capability.name': probe.specifier,
 				...exceptionAttributes(probe.error),
 			})
 			continue
 		}
-		log.debug(`${probe.specifier} ${probe.state}`, {
+		log.debug('Capability probe completed', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED,
 			'namzu.capability.name': probe.specifier,
 			'namzu.capability.state': probe.state,

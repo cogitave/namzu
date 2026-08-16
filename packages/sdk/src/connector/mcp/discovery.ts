@@ -86,7 +86,7 @@ export class MCPToolDiscovery {
 
 		for (const client of this.clients) {
 			if (!client.isConnected()) {
-				this.log.warn(`Skipping disconnected MCP client: ${client.id}`)
+				this.log.warn('Skipping disconnected MCP client', { 'namzu.mcp.client_id': client.id })
 				continue
 			}
 
@@ -94,13 +94,17 @@ export class MCPToolDiscovery {
 				const tools = await this.discoverFrom(client)
 				results.push(...tools)
 			} catch (err) {
-				this.log.error(`Failed to discover tools from ${client.id}`, {
+				this.log.error('Failed to discover tools from an MCP client', {
+					'namzu.mcp.client_id': client.id,
 					error: toErrorMessage(err),
 				})
 			}
 		}
 
-		this.log.info(`Discovered ${results.length} MCP tools from ${this.clients.length} clients`)
+		this.log.info('Discovered MCP tools', {
+			'namzu.mcp.tool_count': results.length,
+			'namzu.mcp.client_count': this.clients.length,
+		})
 		return results
 	}
 

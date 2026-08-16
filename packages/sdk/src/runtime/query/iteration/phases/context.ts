@@ -401,7 +401,8 @@ export async function* handleHITLDecision(
 			})
 			yield* ctx.drainPending()
 			ctx.runMgr.setStopReason('paused')
-			ctx.log.info(`Run paused at ${context}`, {
+			ctx.log.info('Run paused', {
+				'namzu.run.phase': context,
 				sessionId: ctx.runMgr.id,
 				reason: decision.reason,
 			})
@@ -410,7 +411,8 @@ export async function* handleHITLDecision(
 		case 'abort': {
 			ctx.runMgr.setStopReason('cancelled')
 			ctx.runMgr.markCancelled()
-			ctx.log.info(`Run aborted at ${context}`, {
+			ctx.log.info('Run aborted', {
+				'namzu.run.phase': context,
 				sessionId: ctx.runMgr.id,
 				reason: decision.reason,
 			})

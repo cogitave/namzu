@@ -45,14 +45,14 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				break
 
 			case 'iteration_started':
-				log.info(`Iteration ${event.iteration} started`, {
+				log.info('Iteration started', {
 					runId: event.runId,
 					iteration: event.iteration,
 				})
 				break
 
 			case 'iteration_completed':
-				log.info(`Iteration ${event.iteration} completed`, {
+				log.info('Iteration completed', {
 					runId: event.runId,
 					iteration: event.iteration,
 					hasToolCalls: event.hasToolCalls,
@@ -60,14 +60,14 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				break
 
 			case 'tool_executing':
-				log.info(`Tool executing: ${event.toolName}`, {
+				log.info('Tool executing', {
 					runId: event.runId,
 					tool: event.toolName,
 				})
 				break
 
 			case 'tool_completed':
-				log.info(`Tool completed: ${event.toolName}`, {
+				log.info('Tool completed', {
 					runId: event.runId,
 					tool: event.toolName,
 				})
@@ -126,7 +126,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				break
 
 			case 'agent_pending':
-				log.info(`Agent task pending: ${event.childAgentId}`, {
+				log.info('Agent task pending', {
 					runId: event.runId,
 					taskId: event.taskId,
 					parentAgentId: event.parentAgentId,
@@ -160,7 +160,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				break
 
 			case 'task_created':
-				log.info(`Task created: ${event.subject}`, {
+				log.info('Task created', {
+					'namzu.task.subject': event.subject,
 					runId: event.runId,
 					taskId: event.taskId,
 					status: event.status,
@@ -168,7 +169,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				break
 
 			case 'task_updated':
-				log.info(`Task updated: ${event.subject}`, {
+				log.info('Task updated', {
+					'namzu.task.subject': event.subject,
 					runId: event.runId,
 					taskId: event.taskId,
 					status: event.status,
@@ -343,7 +345,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'tool_progress':
 				// Debug, not info: a long tool can emit many of these and they
 				// are a live-view signal, not a run milestone.
-				log.debug(`Tool progress: ${event.toolName}`, {
+				log.debug('Tool progress', {
 					runId: event.runId,
 					tool: event.toolName,
 					message: event.message,
@@ -368,7 +370,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'provider_retry':
 				// `warn`, not debug: this is the run going quiet for a
 				// measurable stretch, and the delay it names is still ahead.
-				log.warn(`Model call failed — retrying in ${event.delayMs}ms`, {
+				log.warn('Model call failed — retrying', {
+					'namzu.provider.retry_delay_ms': event.delayMs,
 					runId: event.runId,
 					iteration: event.iteration,
 					attempt: event.attempt,
@@ -382,21 +385,18 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'provider_fallback':
 				// `warn` for the same reason as a retry, and one stronger: the rest
 				// of this run is being served by a provider the caller did not pick.
-				log.warn(
-					`Provider ${event.fromProviderId} could not serve — continuing on ${event.toProviderId}`,
-					{
-						runId: event.runId,
-						iteration: event.iteration,
-						fromIndex: event.fromIndex,
-						fromProviderId: event.fromProviderId,
-						fromModel: event.fromModel,
-						toIndex: event.toIndex,
-						toProviderId: event.toProviderId,
-						toModel: event.toModel,
-						code: event.code,
-						status: event.status,
-					},
-				)
+				log.warn('Provider could not serve — continuing on the fallback', {
+					runId: event.runId,
+					iteration: event.iteration,
+					fromIndex: event.fromIndex,
+					fromProviderId: event.fromProviderId,
+					fromModel: event.fromModel,
+					toIndex: event.toIndex,
+					toProviderId: event.toProviderId,
+					toModel: event.toModel,
+					code: event.code,
+					status: event.status,
+				})
 				break
 
 			case 'compaction_shed':

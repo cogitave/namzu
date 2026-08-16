@@ -35,7 +35,8 @@ export class ConnectorToolRouter {
 			try {
 				tools.push(...connectorInstanceToTools(instance.id, this.manager))
 			} catch (err) {
-				this.log.error(`Failed to create tools for instance ${instance.id}`, {
+				this.log.error('Failed to create tools for a connector instance', {
+					'namzu.connector.instance_id': instance.id,
 					error: toErrorMessage(err),
 				})
 			}
@@ -50,7 +51,10 @@ export class ConnectorToolRouter {
 			toolRegistry.register(tool)
 			names.push(tool.name)
 		}
-		this.log.info(`Registered ${names.length} connector tools`, { tools: names })
+		this.log.info('Registered connector tools', {
+			'namzu.connector.tool_count': names.length,
+			tools: names,
+		})
 		return names
 	}
 
@@ -58,7 +62,9 @@ export class ConnectorToolRouter {
 		for (const name of toolNames) {
 			toolRegistry.unregister(name)
 		}
-		this.log.info(`Unregistered ${toolNames.length} connector tools`)
+		this.log.info('Unregistered connector tools', {
+			'namzu.connector.tool_count': toolNames.length,
+		})
 	}
 
 	refreshTools(toolRegistry: ToolRegistryContract, previousNames: string[]): string[] {

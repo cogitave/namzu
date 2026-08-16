@@ -28,11 +28,17 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 			this.ready = true
 			this.emit({ type: 'context_initialized', contextId: this.id, environment: this.environment })
 			this.emit({ type: 'context_ready', contextId: this.id })
-			this.log.info(`Execution context initialized: ${this.id} (${this.environment})`)
+			this.log.info('Execution context initialized', {
+				'namzu.execution.context_id': this.id,
+				'namzu.execution.environment': this.environment,
+			})
 		} catch (err) {
 			const message = toErrorMessage(err)
 			this.emit({ type: 'context_error', contextId: this.id, error: message })
-			this.log.error(`Execution context initialization failed: ${this.id}`, { error: message })
+			this.log.error('Execution context initialization failed', {
+				'namzu.execution.context_id': this.id,
+				error: message,
+			})
 			throw err
 		}
 	}
@@ -47,7 +53,7 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 		} finally {
 			this.ready = false
 			this.emit({ type: 'context_teardown', contextId: this.id })
-			this.log.info(`Execution context torn down: ${this.id}`)
+			this.log.info('Execution context torn down', { 'namzu.execution.context_id': this.id })
 		}
 	}
 

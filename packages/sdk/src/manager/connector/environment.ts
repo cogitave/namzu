@@ -67,7 +67,9 @@ export class EnvironmentConnectorManager {
 	registerEnvironment(setup: EnvironmentConnectorSetup): void {
 		const envId = setup.environment.id
 		if (this.environments.has(envId)) {
-			this.log.warn(`Environment "${envId}" already registered, skipping.`)
+			this.log.warn('Environment already registered, skipping', {
+				'namzu.environment.id': envId,
+			})
 			return
 		}
 
@@ -88,16 +90,20 @@ export class EnvironmentConnectorManager {
 			connectorOverrides: setup.connectorOverrides ?? {},
 		})
 
-		this.log.info(
-			`Environment registered: ${envId} (${setup.environment.name}, tier=${setup.environment.tier})`,
-		)
+		this.log.info('Environment registered', {
+			'namzu.environment.id': envId,
+			'namzu.environment.name': setup.environment.name,
+			'namzu.environment.tier': setup.environment.tier,
+		})
 	}
 
 	async initializeEnvironment(envId: EnvironmentId): Promise<void> {
 		const state = this.getEnvironmentOrThrow(envId)
 		if (state.executionContext) {
 			await state.executionContext.initialize()
-			this.log.info(`Environment "${envId}" execution context initialized`)
+			this.log.info('Environment execution context initialized', {
+				'namzu.environment.id': envId,
+			})
 		}
 	}
 
@@ -110,7 +116,7 @@ export class EnvironmentConnectorManager {
 			await state.executionContext.teardown()
 		}
 		this.environments.delete(envId)
-		this.log.info(`Environment unregistered: ${envId}`)
+		this.log.info('Environment unregistered', { 'namzu.environment.id': envId })
 	}
 
 	getEnvironment(envId: EnvironmentId): EnvironmentDescriptor | undefined {

@@ -68,7 +68,7 @@ export class TenantConnectorManager {
 
 	registerTenant(descriptor: TenantDescriptor, rateLimit?: TenantRateLimitConfig): void {
 		if (this.tenants.has(descriptor.id)) {
-			this.log.warn(`Tenant "${descriptor.id}" already registered, skipping.`)
+			this.log.warn('Tenant already registered, skipping', { [NAMZU.TENANT_ID]: descriptor.id })
 			return
 		}
 
@@ -86,7 +86,10 @@ export class TenantConnectorManager {
 			rateWindows: new Map(),
 		})
 
-		this.log.info(`Tenant registered: ${descriptor.id} (${descriptor.name})`)
+		this.log.info('Tenant registered', {
+			[NAMZU.TENANT_ID]: descriptor.id,
+			'namzu.tenant.name': descriptor.name,
+		})
 	}
 
 	async unregisterTenant(tenantId: TenantId): Promise<void> {
@@ -95,7 +98,7 @@ export class TenantConnectorManager {
 
 		await state.manager.disconnectAll()
 		this.tenants.delete(tenantId)
-		this.log.info(`Tenant unregistered: ${tenantId}`)
+		this.log.info('Tenant unregistered', { [NAMZU.TENANT_ID]: tenantId })
 	}
 
 	getTenant(tenantId: TenantId): TenantDescriptor | undefined {
@@ -153,9 +156,11 @@ export class TenantConnectorManager {
 					const auth = await this.credentialVault.retrieve(credId)
 					if (auth) {
 						instance.config.auth = auth
-						this.log.info(
-							`Auto-resolved credential "${credId}" for instance "${instanceId}" (tenant: ${tenantId})`,
-						)
+						this.log.info('Auto-resolved credential for instance', {
+							[NAMZU.CREDENTIAL_ID]: credId,
+							'namzu.connector.instance_id': instanceId,
+							[NAMZU.TENANT_ID]: tenantId,
+						})
 					}
 				}
 			}
@@ -185,9 +190,11 @@ export class TenantConnectorManager {
 		}
 
 		instance.config.auth = auth
-		this.log.info(
-			`Credential "${credentialId}" applied to instance "${instanceId}" (tenant: ${tenantId})`,
-		)
+		this.log.info('Credential applied to instance', {
+			[NAMZU.CREDENTIAL_ID]: credentialId,
+			'namzu.connector.instance_id': instanceId,
+			[NAMZU.TENANT_ID]: tenantId,
+		})
 		return state.manager.connect(instanceId)
 	}
 

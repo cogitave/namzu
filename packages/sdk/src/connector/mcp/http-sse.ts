@@ -46,7 +46,7 @@ export class HttpSseTransport implements MCPTransport {
 		this.abortController = new AbortController()
 		await this.startSSE()
 		this.connected = true
-		this.log.info(`HttpSseTransport connected to ${this.config.url}`)
+		this.log.info('HttpSseTransport connected', { 'namzu.mcp.url': this.config.url })
 	}
 
 	async close(): Promise<void> {
@@ -165,7 +165,9 @@ export class HttpSseTransport implements MCPTransport {
 					const message = JSON.parse(data) as MCPJsonRpcMessage
 					for (const handler of this.messageHandlers) handler(message)
 				} catch {
-					this.log.warn(`HttpSseTransport: invalid SSE data: ${data.slice(0, 100)}`)
+					this.log.warn('HttpSseTransport: invalid SSE data', {
+						'namzu.mcp.data_head': data.slice(0, 100),
+					})
 				}
 			}
 		}

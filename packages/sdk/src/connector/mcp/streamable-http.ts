@@ -25,7 +25,7 @@ export class StreamableHttpTransport implements MCPTransport {
 	async connect(): Promise<void> {
 		if (this.connected) return
 		this.connected = true
-		this.log.info(`StreamableHttpTransport connected to ${this.config.url}`)
+		this.log.info('StreamableHttpTransport connected', { 'namzu.mcp.url': this.config.url })
 	}
 
 	async close(): Promise<void> {

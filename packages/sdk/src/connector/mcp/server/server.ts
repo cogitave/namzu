@@ -102,7 +102,7 @@ export class MCPServer {
 		await transport.connect()
 		this.running = true
 		this.startedAt = Date.now()
-		this.log.info(`MCPServer "${this.config.name}" started`)
+		this.log.info('MCPServer started', { 'namzu.mcp.server_name': this.config.name })
 	}
 
 	async stop(): Promise<void> {
@@ -112,7 +112,7 @@ export class MCPServer {
 			await this.transport.close()
 			this.transport = null
 		}
-		this.log.info(`MCPServer "${this.config.name}" stopped`)
+		this.log.info('MCPServer stopped', { 'namzu.mcp.server_name': this.config.name })
 	}
 
 	isRunning(): boolean {

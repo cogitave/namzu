@@ -82,13 +82,36 @@ that.
 
 ## What is measured, not assumed
 
-Both ratchets are non-zero at the time this change lands: 87 sites with a
+Both ratchets were non-zero when the rules landed: 87 sites with a
 non-constant message body, 802 attribute keys that do not match the
 namespace pattern, across `packages/*/src` (the same scope the two
-allowlists already use — `Logger` is not an SDK-only type). That is a real,
-pre-existing gap the rules make visible for the first time, not a defect in
-the rules themselves; driving either number to zero is its own future task,
-the shape `LOG-09` already was for `unnamespacedBindingCount`.
+allowlists already use — `Logger` is not an SDK-only type). That was a real,
+pre-existing gap the rules made visible for the first time, not a defect in
+the rules themselves; driving either number to zero was its own follow-up
+task, the shape `LOG-09` already was for `unnamespacedBindingCount`.
+
+**Rule 3 is now at zero, and that changes what it is.** LOG-21 rewrote all
+87 sites: each message became a constant and each interpolated value moved
+into a namespaced attribute beside it. A ratchet at zero is no longer a
+budget being spent down — it is a floor, and the *first* new template
+literal in a `Logger` call fails CI rather than the hundredth. Rule 4 is
+still above zero and still being worked down.
+
+Two things that rewrite taught, both worth keeping:
+
+- **The value has to land somewhere.** Constantising `` `Tool completed:
+  ${toolName}` `` to `'Tool completed'` and stopping there deletes the only
+  copy of the tool's name from the record. Where the neighbouring attribute
+  bag already carried it, the message alone changed; where it did not, the
+  value moved into a `namzu.*` key in the same edit. A constant body that
+  costs an operator the identifier is a worse record, not a compliant one.
+- **A test that matched the interpolation goes quiet, it does not go red.**
+  `expect.stringContaining('"a" already registered')` fails loudly and gets
+  fixed. `r.message.includes('Connector instance created')` keeps passing
+  while the id it used to imply is gone — the substring is now the whole
+  message. Both call sites were tightened to exact equality on the message
+  plus an assertion on the attribute, which is what the record actually
+  promises now.
 
 Both counts are also a property of the gate's own, deliberately non-strict
 `ts.Program` (see that Program's own compiler-options comment in

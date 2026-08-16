@@ -37,17 +37,57 @@ describe('emitBootNarrative', () => {
 	})
 
 	it('summarizes the source breakdown at info, one key per declared source', () => {
-		const records = capturingSink()
+		// The breakdown moved out of the body and into attributes (LOG-21), so
+		// the body is now a constant an operator can group by and every count
+		// is a key a dashboard can read.
+		//
+		// TWO scenarios, and the counts within each are pairwise distinct on
+		// purpose. The first version of this assertion used one key per source
+		// — default 1, env 1 — and `'namzu.config.default_count': counts.env`
+		// passed it: two counters holding the same number are one counter as
+		// far as any assertion can tell. Five config keys cannot make four
+		// POSITIVE counts distinct at once (that needs 1+2+3+4), so the four
+		// sources are split across two calls, three-and-two each way.
+		const summaryOf = (records: LogRecord[]) =>
+			records.find((r) => r.eventName === 'namzu.config.resolved' && r.severityText === 'info')
+
+		const fileRecords = capturingSink()
 		emitBootNarrative(
-			{ format: { kind: 'default' }, quiet: { kind: 'env', variable: 'NAMZU_QUIET' } },
+			{
+				format: { kind: 'default' },
+				quiet: { kind: 'default' },
+				permissions: { kind: 'default' },
+				mcpServers: { kind: 'user-file', path: '/home/u/.namzu.json' },
+				sandbox: { kind: 'user-file', path: '/home/u/.namzu.json' },
+			},
 			{ ...DEFAULT_CONFIG, format: 'text', quiet: true },
 		)
-		const summary = records.find(
-			(r) => r.eventName === 'namzu.config.resolved' && r.severityText === 'info',
+		const fileSummary = summaryOf(fileRecords)
+		expect(fileSummary?.body).toBe('Configuration resolved')
+		expect(fileSummary?.attributes['namzu.config.key_count']).toBe(5)
+		expect(fileSummary?.attributes['namzu.config.default_count']).toBe(3)
+		expect(fileSummary?.attributes['namzu.config.user_file_count']).toBe(2)
+		expect(fileSummary?.attributes['namzu.config.project_file_count']).toBe(0)
+		expect(fileSummary?.attributes['namzu.config.env_count']).toBe(0)
+
+		const envRecords = capturingSink()
+		emitBootNarrative(
+			{
+				format: { kind: 'project-file', path: '/w/.namzu.json' },
+				quiet: { kind: 'project-file', path: '/w/.namzu.json' },
+				permissions: { kind: 'project-file', path: '/w/.namzu.json' },
+				mcpServers: { kind: 'env', variable: 'NAMZU_MCP_SERVERS' },
+				sandbox: { kind: 'env', variable: 'NAMZU_SANDBOX' },
+			},
+			{ ...DEFAULT_CONFIG, format: 'text', quiet: true },
 		)
-		expect(summary?.body).toContain('2 keys')
-		expect(summary?.body).toContain('default(1)')
-		expect(summary?.body).toContain('env(1)')
+		const envSummary = summaryOf(envRecords)
+		expect(envSummary?.body).toBe('Configuration resolved')
+		expect(envSummary?.attributes['namzu.config.key_count']).toBe(5)
+		expect(envSummary?.attributes['namzu.config.project_file_count']).toBe(3)
+		expect(envSummary?.attributes['namzu.config.env_count']).toBe(2)
+		expect(envSummary?.attributes['namzu.config.default_count']).toBe(0)
+		expect(envSummary?.attributes['namzu.config.user_file_count']).toBe(0)
 	})
 
 	it('reports each resolved key at debug, naming which source won it', () => {

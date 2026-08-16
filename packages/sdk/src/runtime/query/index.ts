@@ -1189,7 +1189,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				details: { providerId: params.provider.id, capability: 'tools', registeredToolCount },
 			})
 		}
-		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
+		ctx.log.warn('Capability mismatch: the provider declares no tool support', {
+			'namzu.capability.detail': message,
 			providerId: params.provider.id,
 			registeredToolCount,
 		})
@@ -1204,7 +1205,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				details: { providerId: params.provider.id, capability: 'vision', attachmentMessageCount },
 			})
 		}
-		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
+		ctx.log.warn('Capability mismatch: the provider declares no vision support', {
+			'namzu.capability.detail': message,
 			providerId: params.provider.id,
 			attachmentMessageCount,
 		})
@@ -1219,7 +1221,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				details: { providerId: params.provider.id, capability: 'documents', documentMessageCount },
 			})
 		}
-		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
+		ctx.log.warn('Capability mismatch: the provider declares no document support', {
+			'namzu.capability.detail': message,
 			providerId: params.provider.id,
 			documentMessageCount,
 		})
