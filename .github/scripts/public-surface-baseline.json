@@ -189,16 +189,6 @@
       ],
       "deprecated": []
     },
-    "./postgres": {
-      "runtime": [],
-      "declared": [],
-      "deprecated": []
-    },
-    "./s3": {
-      "runtime": [],
-      "declared": [],
-      "deprecated": []
-    },
     "./azure-blob": {
       "runtime": [
         "AzureBlobStore"
@@ -207,11 +197,6 @@
         "AzureBlobStore",
         "AzureBlobStoreOptions"
       ],
-      "deprecated": []
-    },
-    "./gcs": {
-      "runtime": [],
-      "declared": [],
       "deprecated": []
     },
     "./http": {

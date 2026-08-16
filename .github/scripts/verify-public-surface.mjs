@@ -34,9 +34,9 @@
  *
  * Per-entry-point rather than per-package because a package's surface is not
  * its root barrel. `@namzu/files` exports **one** name from `.` and the rest
- * of its API from seven subpaths (`./local`, `./postgres`, `./s3`, …). A gate
- * that recorded only `.` for that package would guard one name, report the
- * surface intact for every possible change to the other seven, and read in CI
+ * of its API from subpaths (`./inmem`, `./local`, `./azure-blob`, `./http`). A
+ * gate that recorded only `.` for that package would guard one name, report
+ * the surface intact for every possible change to the others, and read in CI
  * exactly like a gate that worked — `a-check-that-cannot-fail`.
  *
  * A package with no non-glob `exports` entry is recorded as having no
@@ -246,6 +246,40 @@ for (const pkg of packages) {
 			deprecated: declared.deprecated,
 		}
 	}
+}
+
+/**
+ * An entry point a consumer can import that hands them nothing.
+ *
+ * `@namzu/files` published `./postgres`, `./s3` and `./gcs` at 0.2.1 with
+ * `export {}` behind each — placeholders for adapters that had not been
+ * written. The import RESOLVES, so a reader gets no error and no module
+ * either: `import { S3BlobStore } from '@namzu/files/s3'` is `undefined` at
+ * runtime, discovered wherever it is first called.
+ *
+ * Distinct from the zero-byte check in `check-publish-metadata.mjs`, which
+ * these passed at 44 bytes each. That one asks whether a file has content;
+ * this asks whether an ENTRY POINT has a surface, which is the question a
+ * consumer is really asking when they write the import.
+ *
+ * A package with no guardable entry point at all — `@namzu/evals` — is a
+ * different statement and is not caught here: it declares no `.`, so nobody
+ * can import it expecting one.
+ */
+const hollow = []
+for (const [pkgName, byEntry] of Object.entries(current))
+	for (const [subpath, view] of Object.entries(byEntry))
+		if (view.runtime.length === 0 && view.declared.length === 0)
+			hollow.push(`${pkgName}${subpath === '.' ? '' : subpath.slice(1)}`)
+
+if (hollow.length > 0) {
+	console.error(`\n✗ ${hollow.length} entry point(s) resolve to nothing:`)
+	for (const name of hollow) console.error(`  - ${name}`)
+	console.error(
+		'\n  A consumer importing one gets no error and no module. Remove the subpath from\n' +
+			'  `exports` until it has something to export, or give it the surface its name implies.',
+	)
+	process.exit(1)
 }
 
 // A missing build output is not "no exports" — recording it as an empty
