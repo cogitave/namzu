@@ -1,11 +1,12 @@
 import { pathToFileURL } from 'node:url'
+import type { ConfigRegistry } from '../config/registry.js'
 import { mcpToolToToolDefinition } from '../connector/mcp/adapter.js'
 import { MCPClient } from '../connector/mcp/client.js'
 import { MCPToolDiscovery } from '../connector/mcp/discovery.js'
 import type { MCPToolDiscoveryOptions } from '../connector/mcp/discovery.js'
 import type { MCPToolPolicy } from '../connector/mcp/policy.js'
 import { mcpPromptToToolDefinition } from '../connector/mcp/prompt-adapter.js'
-import { MCPReconnectSupervisor } from '../connector/mcp/reconnect.js'
+import { MCPReconnectOptionsSchema, MCPReconnectSupervisor } from '../connector/mcp/reconnect.js'
 import {
 	DEFAULT_HOOK_PRIORITY,
 	HOOK_TIMEOUT_MS,
@@ -67,6 +68,16 @@ export interface PluginLifecycleManagerConfig {
 	skillRegistry?: SkillRegistry
 	log: Logger
 	hookTimeoutMs?: number
+	/**
+	 * Where each MCP server's reconnect policy is registered, so an operator
+	 * can retune it while a run is live.
+	 *
+	 * Optional, and its absence is not a degraded mode: without one the
+	 * supervisor uses its own defaults, which is what it did before this
+	 * existed. What a registry buys is the ability to change them without
+	 * restarting the process — see `config/registry.ts`.
+	 */
+	configRegistry?: ConfigRegistry
 
 	/**
 	 * What each MCP server a plugin brings is allowed to contribute, keyed by
@@ -110,6 +121,7 @@ export class PluginLifecycleManager {
 	> = new Map()
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
 	private hookTimeoutMs: number
+	private readonly configRegistry: ConfigRegistry | undefined
 	private log: Logger
 	/**
 	 * The admission boundary for everything a plugin's MCP servers advertise.
@@ -134,6 +146,7 @@ export class PluginLifecycleManager {
 		this.toolRegistry = config.toolRegistry
 		this.skillRegistry = config.skillRegistry
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
+		this.configRegistry = config.configRegistry
 		this.log = config.log.child({ component: 'PluginLifecycleManager' })
 		this.mcpDiscovery = new MCPToolDiscovery([], {
 			...(config.mcpToolPolicies ? { policies: config.mcpToolPolicies } : {}),
@@ -381,7 +394,22 @@ export class PluginLifecycleManager {
 		// its pending calls, and nothing scheduled another try — so one blip
 		// took this plugin's tools out for the life of the process while the
 		// plugin went on reporting as enabled.
-		const supervisor = new MCPReconnectSupervisor(client)
+		// The policy is read from the registry on EVERY attempt, not captured
+		// here. That is what makes the seam live: raising `maxAttempts` during
+		// an outage takes effect on the retry that is already running, which is
+		// the moment an operator actually reaches for it.
+		//
+		// Namespaced per server rather than globally, because two plugins'
+		// servers fail differently — one behind a flaky proxy wants patience,
+		// one behind a crash loop wants to give up and say so.
+		const policyScope = this.configRegistry?.register(
+			`mcp.${config.name}`,
+			MCPReconnectOptionsSchema,
+		)
+		const supervisor = new MCPReconnectSupervisor(
+			client,
+			policyScope ? () => policyScope.get() : {},
+		)
 		supervisor.start()
 		contributions.mcpSupervisors.push(supervisor)
 

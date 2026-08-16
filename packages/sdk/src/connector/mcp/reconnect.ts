@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import type { MCPClient } from './client.js'
 
 /**
@@ -64,9 +66,19 @@ const DEFAULTS = {
  * event cannot be, and widening the event to carry a cause would change a
  * published union for every consumer.
  */
+/**
+ * Where the policy comes from, read fresh.
+ *
+ * A function rather than a value, and that is the difference between a
+ * configuration seam that is live and one that merely exists: an operator
+ * raising `maxAttempts` during an outage wants the retry that is happening
+ * NOW to take it, not the next process. `ConfigRegistry` supplies
+ * `() => scope.get()`; a caller with a fixed policy supplies a constant.
+ */
+export type MCPReconnectPolicySource = () => MCPReconnectOptions
+
 export class MCPReconnectSupervisor {
-	private readonly options: Required<Omit<MCPReconnectOptions, 'onReconnected' | 'onGaveUp'>> &
-		Pick<MCPReconnectOptions, 'onReconnected' | 'onGaveUp'>
+	private readonly readPolicy: MCPReconnectPolicySource
 	private unsubscribe?: () => void
 	private stopped = false
 	private inFlight = false
@@ -74,14 +86,27 @@ export class MCPReconnectSupervisor {
 
 	constructor(
 		private readonly client: MCPClient,
-		options: MCPReconnectOptions = {},
+		options: MCPReconnectOptions | MCPReconnectPolicySource = {},
 	) {
-		this.options = { ...DEFAULTS, ...options }
+		this.readPolicy = typeof options === 'function' ? options : () => options
+	}
+
+	/**
+	 * The policy as of right now.
+	 *
+	 * Called at each decision point rather than cached in a field. Caching it
+	 * in the constructor is what made this a declaration nothing drove: the
+	 * registry could be updated and the supervisor would go on using the
+	 * numbers it read at start-up.
+	 */
+	private policy(): Required<Omit<MCPReconnectOptions, 'onReconnected' | 'onGaveUp'>> &
+		Pick<MCPReconnectOptions, 'onReconnected' | 'onGaveUp'> {
+		return { ...DEFAULTS, ...this.readPolicy() }
 	}
 
 	/** Begin watching. Idempotent. */
 	start(): void {
-		if (!this.options.enabled || this.unsubscribe || this.stopped) return
+		if (!this.policy().enabled || this.unsubscribe || this.stopped) return
 		this.unsubscribe = this.client.onLifecycle((event) => {
 			if (event.type !== 'mcp_client_disconnected' && event.type !== 'mcp_client_error') return
 			void this.recover()
@@ -112,8 +137,12 @@ export class MCPReconnectSupervisor {
 		this.inFlight = true
 
 		try {
-			let delay = this.options.initialDelayMs
-			for (let attempt = 1; attempt <= this.options.maxAttempts; attempt++) {
+			let delay = this.policy().initialDelayMs
+			// The bound is re-read on EVERY iteration, not captured once. An
+			// operator raising `maxAttempts` mid-outage is doing it because the
+			// attempts in flight are about to run out, and a loop that had
+			// already fixed its ceiling would give up anyway.
+			for (let attempt = 1; attempt <= this.policy().maxAttempts; attempt++) {
 				if (this.stopped) return
 				await this.wait(delay)
 				if (this.stopped) return
@@ -125,17 +154,17 @@ export class MCPReconnectSupervisor {
 
 				try {
 					await this.client.connect()
-					await this.options.onReconnected?.()
+					await this.policy().onReconnected?.()
 					return
 				} catch {
 					// Deliberately swallowed: a failed attempt is the normal
 					// case here and the client has already logged and emitted
 					// its own error. Re-raising would surface a routine retry
 					// as an unhandled rejection from a timer.
-					delay = Math.min(delay * 2, this.options.maxDelayMs)
+					delay = Math.min(delay * 2, this.policy().maxDelayMs)
 				}
 			}
-			this.options.onGaveUp?.(this.options.maxAttempts)
+			this.policy().onGaveUp?.(this.policy().maxAttempts)
 		} finally {
 			this.inFlight = false
 		}
@@ -147,3 +176,19 @@ export class MCPReconnectSupervisor {
 		})
 	}
 }
+
+/**
+ * The policy as a schema, so a `ConfigRegistry` can validate an operator's
+ * patch against it.
+ *
+ * The callbacks are absent from it on purpose: `onReconnected` and
+ * `onGaveUp` are functions a host wires up in code, and neither survives
+ * JSON or belongs in a file an operator edits. What is here is exactly the
+ * part that is a NUMBER somebody wants to change during an outage.
+ */
+export const MCPReconnectOptionsSchema = z.object({
+	enabled: z.boolean().default(true),
+	initialDelayMs: z.number().int().positive().default(DEFAULTS.initialDelayMs),
+	maxDelayMs: z.number().int().positive().default(DEFAULTS.maxDelayMs),
+	maxAttempts: z.number().int().positive().default(DEFAULTS.maxAttempts),
+})

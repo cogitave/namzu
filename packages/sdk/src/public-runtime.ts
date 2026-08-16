@@ -25,6 +25,16 @@ export {
 
 export * from './constants/index.js'
 
+export { ConfigNamespaceCollisionError, ConfigRegistry } from './config/registry.js'
+export type { ConfigRegistryOptions, ConfigScope } from './config/registry.js'
+export {
+	DiskConfigOverrideStore,
+	InMemoryConfigOverrideStore,
+} from './store/config/index.js'
+export type { ConfigOverrideStore } from './store/config/index.js'
+export { MCPReconnectOptionsSchema, MCPReconnectSupervisor } from './connector/mcp/reconnect.js'
+export type { MCPReconnectOptions, MCPReconnectPolicySource } from './connector/mcp/reconnect.js'
+
 export type {
 	CodeNavigationProvider,
 	CodeNavigationResult,
