@@ -652,7 +652,16 @@ export {
 // the verdict without the sentence would have left the same hole one layer up
 // for anyone driving the rules directly instead of through the gate.
 export {
+	PERMISSION_PRESETS,
+	SANDBOXED_PRESET,
+	SANDBOXED_SHELL_PRESET,
+	SUPERVISED_PRESET,
+	UNATTENDED_PRESET,
+	UnsupportedPermissionPresetError,
+	availablePermissionPresets,
 	defaultSandboxedGateConfig,
+	permissionPreset,
+	resolvePermissionPreset,
 	defaultSandboxedShellGateConfig,
 	describeRule,
 	evaluateRule,

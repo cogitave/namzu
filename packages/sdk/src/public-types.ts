@@ -180,6 +180,7 @@ export type { MappedStreamEvent } from './bridge/sse/index.js'
 export type { AgentBusConfig } from './bus/index.js'
 
 export type { ToolCallContext } from './authorization/index.js'
+export type { PermissionPreset } from './authorization/index.js'
 
 export type { DiskSessionStoreConfig, LinkageView } from './store/session/index.js'
 
