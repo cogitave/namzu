@@ -20,6 +20,22 @@ export interface LLMProvider {
 	readonly capabilities?: ProviderCapabilities
 
 	/**
+	 * Retry behaviour this DRIVER wants, when the generic default is wrong
+	 * for the vendor behind it.
+	 *
+	 * One config was applied to every member of a chain, so an operator
+	 * running [expensive primary, cheap self-hosted backup] could not give
+	 * the backup a shorter budget — the two have different failure shapes
+	 * and different costs per attempt, and only the driver knows which.
+	 *
+	 * Merged UNDER a caller's config, never over it: the host asked for
+	 * something specific and the driver is expressing a default. Absent
+	 * means the generic default, which is what every driver had before this
+	 * existed.
+	 */
+	readonly retryDefaults?: Partial<import('../../provider/retry.js').ProviderRetryConfig>
+
+	/**
 	 * The single LLM entry point. Returns an async iterable of
 	 * {@link StreamChunk} carrying text deltas, tool-call argument
 	 * fragments, and per-tool-block boundary signals (`toolCallEnd`).

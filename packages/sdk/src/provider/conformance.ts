@@ -4,6 +4,7 @@ import type {
 	ConformanceIt,
 } from '../store/run/conformance.js'
 import type { LLMProvider } from '../types/provider/interface.js'
+import type { ProviderRetryConfig } from './retry.js'
 
 /**
  * The driver contract, as a suite every driver package runs.
@@ -66,6 +67,16 @@ export interface ProviderDriverConformanceOptions {
 	 * instance the suite would then have to clean.
 	 */
 	readonly makeProvider: () => LLMProvider | Promise<LLMProvider>
+	/**
+	 * What this driver declares as its retry defaults, restated here.
+	 *
+	 * REQUIRED, and required as a value rather than inferred from the
+	 * driver, so a new package cannot skip the decision by not thinking
+	 * about it. `undefined` is a legitimate answer — it means the generic
+	 * default suits this vendor — but it has to be written down, which is
+	 * the difference between a decision and an omission.
+	 */
+	readonly retryDefaults: Partial<ProviderRetryConfig> | undefined
 	/** Names the driver in test output. Defaults to `provider driver`. */
 	readonly label?: string
 }
@@ -139,6 +150,18 @@ export function defineProviderDriverConformance(options: ProviderDriverConforman
 		// The reintroduction of a literal zero is caught by a source scan in
 		// `provider/__tests__/conformance-fails-a-wrong-driver.test.ts`,
 		// which depends on reaching nothing.
+
+		it('declares the retry defaults its conformance run says it does', async () => {
+			// The option above forces the decision; this asserts the answer is
+			// TRUE of the driver. Without it a package could declare one thing
+			// in its test and ship another, which is the same gap as no
+			// declaration at all with an extra place to look.
+			const provider = await makeProvider()
+
+			expect(JSON.stringify(provider.retryDefaults ?? null)).toBe(
+				JSON.stringify(options.retryDefaults ?? null),
+			)
+		})
 
 		it('builds a second instance independent of the first', async () => {
 			// The property the suite itself relies on, and one a driver can

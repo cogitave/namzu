@@ -67,11 +67,28 @@ export function withProviderRetry(
 	provider: LLMProvider,
 	options: WithProviderRetryOptions = {},
 ): LLMProvider {
-	const config: ProviderRetryConfig = { ...DEFAULT_PROVIDER_RETRY, ...options.config }
+	// Three layers, and the order is the contract. A driver's declaration is
+	// a DEFAULT — it sits above the generic one and below whatever the
+	// caller asked for, because the caller asked for something specific and
+	// the driver is only expressing what usually suits its vendor.
+	//
+	// Merged HERE rather than at the one call site in `query()`, because
+	// this function is exported: a host wrapping its own chain must get the
+	// same precedence, and a merge upstream would give it the generic
+	// default while `query()` got the driver's.
+	const config: ProviderRetryConfig = {
+		...DEFAULT_PROVIDER_RETRY,
+		...provider.retryDefaults,
+		...options.config,
+	}
 	const random = options.random ?? Math.random
 	const doSleep = options.sleepFn ?? sleep
 	const log = options.log
 
+	// AFTER the merge. Above it, a driver declaring `maxRetries: 0` — the
+	// one that most needs to be honoured, because it is saying its vendor
+	// must not be retried — was read from the generic default instead and
+	// retried anyway.
 	if (config.maxRetries <= 0) return provider
 
 	async function* chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
