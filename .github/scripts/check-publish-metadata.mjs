@@ -141,8 +141,8 @@ for (const dir of packageDirs()) {
 
 	// A module with no content in it.
 	//
-	// `@namzu/openai` shipped `src/strict-schema.ts` at zero bytes from PR #64
-	// onward, plus the four `dist/strict-schema.*` artifacts the compiler
+	// One driver package shipped `src/strict-schema.ts` at zero bytes from PR
+	// #64 onward, plus the four `dist/strict-schema.*` artifacts the compiler
 	// dutifully emitted for it. Nothing imported it and it exported nothing,
 	// so no typecheck, no test and no lint had anything to say — a filename
 	// promising logic, published, holding none.
