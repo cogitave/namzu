@@ -71,7 +71,7 @@ When `inputSchema` rejects a call, `ToolRegistry` appends
 `validationErrorHint` to the structured failure. Keep the hint concise and
 include one complete safe payload:
 
-```ts
+```ts sketch
 validationErrorHint:
   'Required shape: {"path":"file.md","old_string":"exact text","new_string":"replacement"}.',
 ```
@@ -84,6 +84,9 @@ reviewed override through `toLLMTools()` while runtime execution remains
 authoritative:
 
 ```ts
+import { defineTool } from '@namzu/sdk'
+import { z } from 'zod'
+
 const editLike = defineTool({
   name: 'edit_like',
   description: 'Replace exact text in a file.',
@@ -165,7 +168,11 @@ same three functions are exported:
 ```ts
 import { renderToolSchema, toSchemaDialect, findDraft07Only } from '@namzu/sdk'
 
-const rendered = renderToolSchema(tool.inputSchema) // memoized, frozen, draft-07
+import { z } from 'zod'
+
+const inputSchema = z.object({ path: z.string() })
+
+const rendered = renderToolSchema(inputSchema) // memoized, frozen, draft-07
 const forThisWire = toSchemaDialect(rendered, '2020-12')
 
 findDraft07Only(forThisWire) // [] — nothing a 2020-12 parser will refuse
@@ -223,17 +230,23 @@ destructive migration — usually wants its OWN confirmation with its own
 wording, not the generic tool-review gate:
 
 ```ts
-const outcome = await context.requestPause?.({
-  name: 'target_environment',
-  prompt: 'Which environment should this deploy run against?',
-  options: [
-    { id: 'staging', label: 'Staging (Recommended)' },
-    { id: 'production', label: 'Production', description: 'Live traffic' },
-  ],
-})
+import type { ToolContext, ToolResult } from '@namzu/sdk'
 
-if (outcome?.status !== 'answered') {
-  return { success: false, output: '', error: 'no environment was chosen' }
+async function execute(context: ToolContext): Promise<ToolResult> {
+  const outcome = await context.requestPause?.({
+    name: 'target_environment',
+    prompt: 'Which environment should this deploy run against?',
+    options: [
+      { id: 'staging', label: 'Staging (Recommended)' },
+      { id: 'production', label: 'Production', description: 'Live traffic' },
+    ],
+  })
+
+  if (outcome?.status !== 'answered') {
+    return { success: false, output: '', error: 'no environment was chosen' }
+  }
+
+  return { success: true, output: `deploying to ${outcome.selectedOptionIds[0]}` }
 }
 ```
 
@@ -307,6 +320,18 @@ One of the most important runtime behaviors is that tools do not need to be visi
 Typical pattern:
 
 ```ts
+import {
+  BashTool,
+  EditTool,
+  LsTool,
+  ReadFileTool,
+  SearchToolsTool,
+  ToolRegistry,
+  WriteFileTool,
+} from '@namzu/sdk'
+
+const tools = new ToolRegistry()
+
 tools.register([ReadFileTool, LsTool, SearchToolsTool], 'active')
 tools.register([EditTool, WriteFileTool, BashTool], 'deferred')
 ```
@@ -321,21 +346,22 @@ That gives the runtime:
 Pass `structuredOutput` to `query()` when the final answer must match a schema. The runtime registers a schema-bound tool, validates the call, puts the parsed value on `Run.structuredOutput`, and ends the run there.
 
 ```ts
-const run = await runToCompletion(
-  query({
-    provider,
-    tools,
-    structuredOutput: {
-      schema: z.object({
-        verdict: z.enum(['pass', 'fail']),
-        findings: z.array(z.string()),
-      }),
-      // Re-prompts before giving up. Default: 2.
-      maxRetries: 2,
-    },
-    // …
-  }),
-)
+import { drainQuery, type QueryParams } from '@namzu/sdk'
+import { z } from 'zod'
+
+declare const rest: Omit<QueryParams, 'structuredOutput'>
+
+const run = await drainQuery({
+  ...rest,
+  structuredOutput: {
+    schema: z.object({
+      verdict: z.enum(['pass', 'fail']),
+      findings: z.array(z.string()),
+    }),
+    // Re-prompts before giving up. Default: 2.
+    maxRetries: 2,
+  },
+})
 
 run.structuredOutput // { verdict, findings } — already validated
 run.result           // the same value, serialized
@@ -348,6 +374,14 @@ run.result           // the same value, serialized
 The same value comes back through every boundary above `query()`:
 
 ```ts
+import { runAgent, type LLMProvider } from '@namzu/sdk'
+import type { z } from 'zod'
+
+declare const provider: LLMProvider
+declare const model: string
+declare const prompt: string
+declare const schema: z.ZodTypeAny
+
 // The front door can ask for a schema, and hands the parsed value back.
 const { structuredOutput } = await runAgent({
   provider, model, prompt,
@@ -379,7 +413,11 @@ This is especially useful for:
 `ToolResult.output` is the text form — what the host, the transcript and compaction see. When the model needs something a string cannot carry, set `content` as well:
 
 ```ts
-return {
+import type { ToolResult } from '@namzu/sdk'
+
+declare const base64Png: string
+
+const result: ToolResult = {
   success: true,
   output: 'Screenshot captured (1920x1080, image/png).',
   content: [
@@ -421,7 +459,7 @@ Relatedly, `read` returns the first 2000 lines when given no window, and says so
 `retryable: true`, and the executor will re-run it in-loop instead of
 sending the error back for the model to re-decide.
 
-```ts
+```ts sketch
 defineTool({
   name: 'fetch_page',
   maxRetries: 2,
@@ -455,9 +493,34 @@ the tool name. See
 endpoints can make that unnecessary: they constrain decoding to the
 schema, so invalid arguments cannot be emitted at all.
 
+It is opted into per TOOL, not per provider — the tool's author is the one
+who knows whether closing its schema is safe:
+
 ```ts
-new OpenAIProvider({ apiKey, strictTools: true })
+import { defineTool } from '@namzu/sdk'
+import { z } from 'zod'
+
+const deploy = defineTool({
+  name: 'deploy',
+  description: 'Deploy a build to an environment.',
+  inputSchema: z.object({ environment: z.string() }),
+  category: 'shell',
+  permissions: [],
+  readOnly: false,
+  destructive: true,
+  concurrencySafe: false,
+  // The opt-in. Everything above is what any tool declares.
+  enforceModelInput: true,
+  async execute({ environment }) {
+    return { success: true, output: `deployed to ${environment}` }
+  },
+})
 ```
+
+The kernel collects the enforced names per request and passes them to the
+driver as `ChatCompletionParams.enforceToolInputSchema`; a driver that
+supports constrained decoding maps them onto its own wire (OpenAI takes
+`strict: true` on the function). Nothing is set on the provider itself.
 
 Off by default, and the reason is a real trade rather than caution.
 Strict decoding requires **every** property to be required, so the driver
@@ -476,7 +539,7 @@ the other turns a correctness feature into a 400.
 A tool declared `terminal: true` ends the run with its own output instead
 of handing control back to the model:
 
-```ts
+```ts sketch
 defineTool({
   name: 'ask_specialist',
   terminal: true,

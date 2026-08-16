@@ -35,11 +35,69 @@ import ts from "typescript";
  * an entry listing files with no compilable fence is caught by the
  * zero-count guard at the bottom.
  */
-const FENCE_CONFORMING = ["docs/sdk/observability"];
+const FENCE_CONFORMING = ["docs/sdk/observability", "docs/sdk/tools"];
 
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, ".."));
 const distDir = join(root, "packages", "sdk", "dist");
 const rel = (p) => relative(root, p).split("\\").join("/");
+
+/**
+ * What a fence is allowed to import, mapped to the artifact a reader would
+ * actually get.
+ *
+ * This was one entry, `@namzu/sdk`, and that quietly decided which pages
+ * could EVER come under this gate: a page documenting `@namzu/lsp` or
+ * `@namzu/computer-use` fails with TS2307 on its first line no matter how
+ * correct it is, so the adoption path the header describes was closed for
+ * every optional package in the repo.
+ *
+ * Derived from the workspace rather than listed, for the reason the publint
+ * step learned the hard way: a hand-written list of packages is wrong the
+ * day someone adds one. Every publishable package's every `types` condition
+ * is mapped, so `@namzu/files/local` resolves as readily as `@namzu/files`.
+ *
+ * `zod` is here because it is a real peer dependency a reader has, and pnpm
+ * puts it under `packages/sdk/node_modules` rather than at the root where
+ * the virtual fence file sits — so `import { z } from "zod"`, which is the
+ * first line of half the tool documentation, could not resolve.
+ */
+function fencePaths() {
+	const paths = {};
+	const toPosix = (p) => p.split("\\").join("/");
+	const packagesDir = join(root, "packages");
+	const dirs = [];
+	for (const name of readdirSync(packagesDir)) {
+		if (name === "node_modules") continue;
+		const dir = join(packagesDir, name);
+		if (!statSync(dir).isDirectory()) continue;
+		if (existsSync(join(dir, "package.json"))) {
+			dirs.push(dir);
+			continue;
+		}
+		for (const nested of readdirSync(dir)) {
+			if (existsSync(join(dir, nested, "package.json")))
+				dirs.push(join(dir, nested));
+		}
+	}
+	for (const dir of dirs) {
+		const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+		if (manifest.private || !manifest.exports) continue;
+		for (const [subpath, condition] of Object.entries(manifest.exports)) {
+			if (subpath.includes("*") || subpath === "./package.json") continue;
+			const types =
+				typeof condition === "object" ? condition.types : undefined;
+			if (typeof types !== "string") continue;
+			const target = join(dir, types);
+			if (!existsSync(target)) continue;
+			const specifier =
+				subpath === "." ? manifest.name : `${manifest.name}${subpath.slice(1)}`;
+			paths[specifier] = [toPosix(target)];
+		}
+	}
+	const zod = join(root, "packages", "sdk", "node_modules", "zod");
+	if (existsSync(zod)) paths.zod = [toPosix(zod)];
+	return paths;
+}
 
 let problems = 0;
 const fail = (...lines) => {
@@ -164,12 +222,10 @@ function compileFences(units) {
 			// everything about the harness.
 			module: ts.ModuleKind.ESNext,
 			moduleResolution: ts.ModuleResolutionKind.Bundler,
-			// The specifier a READER writes. Mapped to the built package, so a
-			// fence that names an internal symbol the package does not export
-			// fails here rather than passing against `src/`.
-			paths: {
-				"@namzu/sdk": [join(distDir, "index.d.ts").split("\\").join("/")],
-			},
+			// The specifiers a READER writes. Mapped to the built packages, so a
+			// fence that names an internal symbol a package does not export
+			// fails here rather than passing against `src/`. See `fencePaths`.
+			paths: fencePaths(),
 			strict: true,
 			noEmit: true,
 			skipLibCheck: true,

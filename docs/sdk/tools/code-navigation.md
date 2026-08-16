@@ -34,6 +34,8 @@ seam; the package owns the process that answers.
 import { RoutingCodeNavigationProvider } from '@namzu/lsp'
 import { getCodeNavigationTools, ToolRegistry } from '@namzu/sdk'
 
+const rootDir = '/path/to/your/workspace'
+
 const codeNavigation = new RoutingCodeNavigationProvider({
   routes: [
     { extensions: ['.ts', '.tsx'], server: { command: 'ts-server', rootDir } },
@@ -81,10 +83,17 @@ to invent two numbers.
 ## Three answers, not two
 
 ```ts
-type CodeNavigationResult =
+import type { CodeNavigationResult, SourceLocation } from '@namzu/sdk'
+
+type TheUnion =
   | { kind: 'locations'; locations: readonly SourceLocation[] }
   | { kind: 'unsupported'; reason: string }
   | { kind: 'failed'; error: string }
+
+// Both directions, so this page fails to build if the union ever gains,
+// loses or renames a member — the drift a `resource:` timestamp cannot see.
+const _shapeIsWhatWeSay: CodeNavigationResult = null as unknown as TheUnion
+const _andNothingMore: TheUnion = null as unknown as CodeNavigationResult
 ```
 
 - `unsupported` — this server does not do that. A caller can fall back to

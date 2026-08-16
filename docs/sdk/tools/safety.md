@@ -153,7 +153,9 @@ it applies to and the argument it reads, so an anchored pattern means what it
 looks like it means:
 
 ```ts
-{
+import type { AuthorizationRule } from '@namzu/sdk'
+
+const noPushing: AuthorizationRule = {
   type: 'argument_pattern',
   toolNames: ['bash'],
   argument: 'command',
@@ -243,10 +245,12 @@ Those declarations make it easier to write policy that matches real behavior.
 `defineTool()` catches thrown errors and converts them into structured failed `ToolResult`s:
 
 ```ts
-{
+import type { ToolResult } from '@namzu/sdk'
+
+const failed: ToolResult = {
   success: false,
   output: '',
-  error: 'tool_name failed: ...'
+  error: 'tool_name failed: ...',
 }
 ```
 
