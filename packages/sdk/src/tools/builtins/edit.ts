@@ -184,6 +184,31 @@ export const EditTool = defineTool({
 	destructive: false,
 	concurrencySafe: false,
 
+	/**
+	 * The diff this tool is about to make, described by the tool.
+	 *
+	 * A host used to reconstruct this by matching `name === 'edit'` and
+	 * reaching into the arguments — which worked for exactly two builtin
+	 * names and left every MCP or plugin tool that patches something with a
+	 * truncated string. The knowledge of what an edit IS belongs here.
+	 *
+	 * `undefined` for an INSERT: there is no `before` text to diff against,
+	 * and inventing an empty one would render as "the whole file was
+	 * added". No opinion is the honest answer, and the host's generic label
+	 * is a better one than a wrong diff.
+	 */
+	presentCall(input: EditInput) {
+		const before = input.old_string ?? input.oldStr
+		const after = input.new_string ?? input.newStr
+		if (typeof before !== 'string' || typeof after !== 'string') return undefined
+		return {
+			kind: 'diff' as const,
+			...(input.path ? { path: input.path } : {}),
+			before,
+			after,
+		}
+	},
+
 	async execute(input: EditInput, context) {
 		// Re-validated here rather than trusted from the registry: `execute` is
 		// reachable directly, and the closed contract is only closed if the

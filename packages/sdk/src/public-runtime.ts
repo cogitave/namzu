@@ -90,6 +90,12 @@ export {
 // implementing its own gateway holds an abort REASON, not a RunCancelled.
 export { cancelCauseOf, RunCancelled } from './types/run/cancel-cause.js'
 
+// A tool authors how it is shown; a host resolves through this rather than
+// switching on a lowercased tool name, which is what left every MCP and
+// plugin tool with a truncated string no matter what it did.
+export { createToolPresenter, genericLabel } from './registry/tool/presentation.js'
+export type { ToolPresenter } from './registry/tool/presentation.js'
+
 export { isTrustedReadOnly } from './tools/trusted-read-only.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
 export {

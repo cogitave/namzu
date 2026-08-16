@@ -5,6 +5,7 @@ import type {
 	ToolPermission,
 	ToolResult,
 } from '../types/tool/index.js'
+import type { ToolPresentation } from '../types/tool/presentation.js'
 import { toErrorMessage } from '../utils/error.js'
 
 export interface DefineToolOptions<S extends z.ZodType> {
@@ -20,6 +21,17 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	destructive: boolean | ((input: z.infer<S>) => boolean)
 	concurrencySafe: boolean
 	tier?: string
+	/**
+	 * How this tool's call and result should be shown; see
+	 * {@link ToolPresentation}.
+	 *
+	 * Here rather than only on `ToolDefinition` for the reason `maxRetries`
+	 * is: this builder is the sanctioned way to author a tool, and a field
+	 * the executor reads that the builder cannot set is a field only
+	 * hand-written definitions can use.
+	 */
+	presentCall?: ToolPresentation<z.infer<S>>['presentCall']
+	presentResult?: ToolPresentation<z.infer<S>>['presentResult']
 	/** Per-execution deadline; see {@link ToolDefinition.timeoutMs}. */
 	timeoutMs?: number
 	/**
@@ -54,6 +66,8 @@ export function defineTool<S extends z.ZodType>(
 		tier: options.tier,
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+		...(options.presentCall ? { presentCall: options.presentCall } : {}),
+		...(options.presentResult ? { presentResult: options.presentResult } : {}),
 		...(options.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),
 		...(options.terminal !== undefined ? { terminal: options.terminal } : {}),
 		category: options.category,

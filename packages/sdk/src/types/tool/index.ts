@@ -9,6 +9,7 @@ import type { RunId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { Sandbox } from '../sandbox/index.js'
+import type { ToolPresentation } from './presentation.js'
 
 export interface ToolRegistryRef {
 	searchDeferred(query: string): ToolDefinition[]
@@ -222,7 +223,7 @@ export interface ToolResult {
 	retryable?: boolean
 }
 
-export interface ToolDefinition<TInput = unknown> {
+export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInput> {
 	name: string
 	description: string
 	inputSchema: z.ZodType<TInput, z.ZodTypeDef, unknown>
@@ -450,3 +451,5 @@ export interface ToolRegistryContract {
 }
 
 export * from './repair.js'
+
+export type { ToolCallView, ToolPresentation, ToolResultView } from './presentation.js'
