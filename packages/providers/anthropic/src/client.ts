@@ -128,13 +128,33 @@ interface AnthropicToolParam {
 }
 
 /** Shape of an SDK `MessageAttachment` (read structurally to avoid coupling). */
-interface AttachmentLike {
-	readonly type?: 'image' | 'document'
-	readonly data: string
-	readonly mediaType: string
-	readonly name?: string
-	readonly citations?: boolean
-}
+/**
+ * The attachment shape this driver reads, structurally.
+ *
+ * The `stored` member is not decoration. `msg` is CAST to a shape carrying
+ * these, so widening `MessageAttachment` in the SDK does not reach this
+ * file — the compiler checked the cast, not the source. Without the member
+ * below, a stored attachment arriving here has `data: undefined`, and the
+ * driver sends `data: undefined` to the API in a block it built happily.
+ * The sibling OpenAI driver reads the real SDK type and was caught by the
+ * type system; this one was not, and that difference is why the member is
+ * spelled out rather than assumed.
+ */
+type AttachmentLike =
+	| {
+			readonly type?: 'image' | 'document'
+			readonly data: string
+			readonly mediaType: string
+			readonly name?: string
+			readonly citations?: boolean
+	  }
+	| {
+			readonly type: 'stored'
+			readonly ref: string
+			readonly mediaType: string
+			readonly name?: string
+			readonly citations?: boolean
+	  }
 
 /**
  * A reasoning block, replayed exactly as it arrived.
@@ -342,6 +362,16 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 						...(att.citations ? { citations: { enabled: true as const } } : {}),
 					})
 					continue
+				}
+				if (att.type === 'stored') {
+					// Unreachable through `query`, which resolves stored
+					// attachments before a driver sees them. REFUSED rather than
+					// skipped: a user message that silently lost its image has
+					// the model answering about a picture it never saw, and
+					// nothing in the transcript says why.
+					throw new Error(
+						`A stored attachment ("${att.ref}") reached the driver unresolved. Resolve it against the run's attachment store before sending.`,
+					)
 				}
 				blocks.push({
 					type: 'image',

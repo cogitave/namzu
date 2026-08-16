@@ -1026,3 +1026,15 @@ export {
 	WebFetchRefusedError,
 	isPrivateAddress,
 } from './connector/web/index.js'
+
+// Where an attachment's bytes live when the message does not carry them.
+// Inline base64 lands in the transcript, in every checkpoint, and on the
+// wire once per turn; a reference does not.
+export {
+	AttachmentMediaTypeMismatchError,
+	AttachmentNotFoundError,
+	NoAttachmentStoreError,
+	isStoredAttachment,
+	resolveAttachment,
+	resolveAttachments,
+} from './store/attachment/index.js'

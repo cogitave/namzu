@@ -80,7 +80,31 @@ export interface Citation {
 }
 
 /** What a user message may carry alongside its text. */
-export type MessageAttachment = ImageAttachment | DocumentAttachment
+/**
+ * An attachment whose bytes are held by a store, not by the message.
+ *
+ * Structural rather than an import from `store/attachment`, so this types
+ * module keeps depending on nothing — the same reasoning `ToolRegistryRef`
+ * gives. `store/attachment` owns the resolution and its refusals; this is
+ * the shape a message may carry.
+ *
+ * Inline base64 puts the bytes in the durable transcript, in every
+ * checkpoint, in every compaction pass, and — because a conversation
+ * resends its history — on the wire once per turn. A 4 MB PDF attached once
+ * is 4 MB per request for the rest of the run.
+ */
+export interface StoredAttachmentRef {
+	readonly type: 'stored'
+	/** Opaque to the kernel. Meaningful to the store that minted it. */
+	readonly ref: string
+	readonly mediaType: string
+	/** Which kind of content block to build once the bytes arrive. */
+	readonly kind: 'image' | 'document'
+	readonly name?: string
+	readonly citations?: boolean
+}
+
+export type MessageAttachment = ImageAttachment | DocumentAttachment | StoredAttachmentRef
 
 export const isDocumentAttachment = (
 	attachment: MessageAttachment,

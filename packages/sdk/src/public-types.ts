@@ -264,3 +264,9 @@ export type {
 	WebSearchRequest,
 	WebSearchResult,
 } from './connector/web/index.js'
+
+export type {
+	AttachmentStore,
+	StoredAttachment,
+	StoredBytes,
+} from './store/attachment/index.js'

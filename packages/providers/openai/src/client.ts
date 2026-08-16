@@ -170,6 +170,16 @@ export function toOpenAIMessages(
 						} as ChatCompletionContentPart)
 						continue
 					}
+					if (att.type === 'stored') {
+						// Unreachable through `query`, which resolves stored
+						// attachments before a driver sees them. REFUSED rather
+						// than skipped because the alternative is a user message
+						// that silently lost its image: the model answers about a
+						// picture it never saw, confidently, and nothing says why.
+						throw new Error(
+							`A stored attachment ("${att.ref}") reached the driver unresolved. Resolve it against the run's attachment store before sending.`,
+						)
+					}
 					parts.push({
 						type: 'image_url',
 						image_url: { url: `data:${att.mediaType};base64,${att.data}` },

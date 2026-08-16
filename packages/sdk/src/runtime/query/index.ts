@@ -29,6 +29,7 @@ import {
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import { DefaultFilesystemMigrator, loggingMigrationSink } from '../../session/migration/index.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
+import { resolveAttachments } from '../../store/attachment/index.js'
 import {
 	GENAI,
 	NAMZU,
@@ -267,6 +268,15 @@ export interface QueryParams {
 	 * granting a way to pull bodies in mid-run.
 	 */
 	skillRegistry?: import('../../types/tool/index.js').SkillRegistryRef
+
+	/**
+	 * Where a message's stored attachments are resolved from.
+	 *
+	 * Absent is fine for every run whose attachments are inline, which is
+	 * every run that existed before this. A message carrying a ref with no
+	 * store REFUSES rather than dropping the attachment.
+	 */
+	attachmentStore?: import('../../store/attachment/index.js').AttachmentStore
 
 	/**
 	 * How this run reaches the web.
@@ -1010,8 +1020,17 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// One effective list, used everywhere the run is seeded from. Three
 	// branches below push from it, and computing it at each would be three
 	// places to forget the queue.
-	const initialMessages: Message[] =
+	//
+	// Stored attachments are resolved HERE, once, before the messages reach
+	// the run record. Resolving later — at the provider boundary — would put
+	// refs in the durable transcript and in every checkpoint, and a run
+	// resumed against a store that had since forgotten a ref would fail
+	// replaying its own history rather than at the moment somebody asked for
+	// the bytes. Every failure refuses: a message that silently lost its
+	// image is a model answering about a picture it never saw.
+	const seeded: Message[] =
 		queuedForThisRun.length > 0 ? [...queuedForThisRun, ...params.messages] : params.messages
+	const initialMessages: Message[] = [...(await resolveAttachments(seeded, params.attachmentStore))]
 
 	const ctx = RunContextFactory.build({
 		...(topicState ? { topicPermissionMode: topicState.permissionMode } : {}),
