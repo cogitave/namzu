@@ -220,7 +220,7 @@ export class IterationOrchestrator {
 
 				if (guardResult.shouldStop) {
 					if (guardResult.isCancelled) {
-						this.ctx.log.info('Run cancelled by signal', { runId: runMgr.id })
+						this.ctx.log.info('Run cancelled by signal', { [NAMZU.RUN_ID]: runMgr.id })
 						runMgr.setStopReason('cancelled')
 						runMgr.markCancelled()
 						break
@@ -228,9 +228,9 @@ export class IterationOrchestrator {
 
 					const stopReason = guardResult.stopReason ?? 'end_turn'
 					this.ctx.log.info('Guard enforcing stop', {
-						runId: runMgr.id,
+						[NAMZU.RUN_ID]: runMgr.id,
 						stopReason,
-						iteration: runMgr.currentIteration,
+						[NAMZU.ITERATION]: runMgr.currentIteration,
 						inputTokens: runMgr.tokenUsage.promptTokens,
 						outputTokens: runMgr.tokenUsage.completionTokens,
 					})
@@ -263,9 +263,9 @@ export class IterationOrchestrator {
 				const forceFinalize = guardResult.forceFinalize
 				const iterationNum = runMgr.incrementIteration()
 				this.ctx.log.debug('Iteration started', {
-					runId: runMgr.id,
-					iteration: iterationNum,
-					model,
+					[NAMZU.RUN_ID]: runMgr.id,
+					[NAMZU.ITERATION]: iterationNum,
+					[GENAI.REQUEST_MODEL]: model,
 					forceFinalize,
 					messageCount: runMgr.messages.length,
 				})
@@ -634,14 +634,14 @@ export class IterationOrchestrator {
 					}
 
 					this.ctx.log.debug('LLM response received', {
-						runId: runMgr.id,
-						iteration: iterationNum,
+						[NAMZU.RUN_ID]: runMgr.id,
+						[NAMZU.ITERATION]: iterationNum,
 						finishReason: response.finishReason,
 						hasContent: response.message.content !== null && response.message.content.length > 0,
 						toolCallCount: response.message.toolCalls?.length ?? 0,
-						promptTokens: response.usage.promptTokens,
-						completionTokens: response.usage.completionTokens,
-						totalTokens: runMgr.tokenUsage.totalTokens,
+						'gen_ai.usage.input_tokens': response.usage.promptTokens,
+						'gen_ai.usage.output_tokens': response.usage.completionTokens,
+						'namzu.usage.total_tokens': runMgr.tokenUsage.totalTokens,
 						totalCost: runMgr.costInfo.totalCost,
 					})
 
@@ -749,8 +749,8 @@ export class IterationOrchestrator {
 							this.ctx.log.warn(
 								'LLM ended turn with agent tasks still running — ending run without waiting (orphan tasks have no delivery path)',
 								{
-									runId: runMgr.id,
-									iteration: iterationNum,
+									[NAMZU.RUN_ID]: runMgr.id,
+									[NAMZU.ITERATION]: iterationNum,
 								},
 							)
 						}
@@ -835,9 +835,9 @@ export class IterationOrchestrator {
 						//   - max_iterations bounds the loop in any case.
 						if (!forceFinalize && response.finishReason === 'length' && hasContent) {
 							this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
-								runId: runMgr.id,
-								iteration: iterationNum,
-								completionTokens: response.usage.completionTokens,
+								[NAMZU.RUN_ID]: runMgr.id,
+								[NAMZU.ITERATION]: iterationNum,
+								'gen_ai.usage.output_tokens': response.usage.completionTokens,
 							})
 							runMgr.pushMessage(createUserMessage(AUTO_CONTINUATION_USER_MESSAGE))
 							await this.ctx.emitEvent({
@@ -860,15 +860,15 @@ export class IterationOrchestrator {
 							const limit = this.structuredOutputRetryLimit()
 							if (attempt > limit) {
 								this.ctx.log.warn('Structured output not produced within its retries', {
-									runId: runMgr.id,
+									[NAMZU.RUN_ID]: runMgr.id,
 									attempts: attempt - 1,
 								})
 								runMgr.setStopReason('structured_output_failed')
 								break
 							}
 							this.ctx.log.info('Re-prompting for structured output', {
-								runId: runMgr.id,
-								attempt,
+								[NAMZU.RUN_ID]: runMgr.id,
+								'namzu.retry.attempt': attempt,
 								limit,
 							})
 							runMgr.pushMessage(createUserMessage(STRUCTURED_OUTPUT_REPROMPT))
@@ -902,7 +902,7 @@ export class IterationOrchestrator {
 								const limit = this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT
 								if (attempt > limit) {
 									this.ctx.log.warn('Answer rejected more times than the run allows', {
-										runId: runMgr.id,
+										[NAMZU.RUN_ID]: runMgr.id,
 										attempts: attempt - 1,
 										limit,
 									})
@@ -910,8 +910,8 @@ export class IterationOrchestrator {
 									break
 								}
 								this.ctx.log.info('Answer rejected — returning it to the model', {
-									runId: runMgr.id,
-									attempt,
+									[NAMZU.RUN_ID]: runMgr.id,
+									'namzu.retry.attempt': attempt,
 									limit,
 								})
 								runMgr.pushMessage(createUserMessage(review.feedback))
@@ -958,7 +958,7 @@ export class IterationOrchestrator {
 
 						if (!hasContent && !forceFinalize) {
 							this.ctx.log.warn('Empty completion detected — requesting final summary', {
-								iteration: iterationNum,
+								[NAMZU.ITERATION]: iterationNum,
 								finishReason: response.finishReason,
 							})
 							await this.requestFinalResponse(model, 'end_turn')
@@ -1032,8 +1032,8 @@ export class IterationOrchestrator {
 					// other calls, which relays instead. See the method.
 					if (this.captureStructuredOutput(reviewOutcome.results, response)) {
 						this.ctx.log.info('Structured output produced — ending run', {
-							runId: runMgr.id,
-							iteration: iterationNum,
+							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.ITERATION]: iterationNum,
 						})
 						runMgr.setStopReason('end_turn')
 						await this.ctx.emitEvent({
@@ -1056,9 +1056,9 @@ export class IterationOrchestrator {
 					const settled = this.terminalToolOutput(reviewOutcome.results, response)
 					if (settled !== undefined) {
 						this.ctx.log.info('Terminal tool produced the answer — ending run', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-							tool: settled.toolName,
+							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.ITERATION]: iterationNum,
+							[GENAI.TOOL_NAME]: settled.toolName,
 						})
 						runMgr.setResult(settled.output)
 						runMgr.setStopReason('end_turn')
@@ -1102,8 +1102,8 @@ export class IterationOrchestrator {
 						}
 
 						this.ctx.log.info('Stop condition met', {
-							runId: runMgr.id,
-							iteration: iterationNum,
+							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.ITERATION]: iterationNum,
 						})
 						runMgr.setStopReason('stop_condition')
 						await this.ctx.emitEvent({
@@ -1143,8 +1143,8 @@ export class IterationOrchestrator {
 					const unheard = this.ctx.completionInbox?.drain() ?? []
 					if (unheard.length > 0) {
 						this.ctx.log.info('Delivering unawaited task completions', {
-							runId: runMgr.id,
-							iteration: iterationNum,
+							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.ITERATION]: iterationNum,
 							tasks: unheard.map((h) => h.taskId),
 						})
 						runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
@@ -1216,9 +1216,9 @@ export class IterationOrchestrator {
 					// followed it reaches the caller as the run's error.
 					if (this.steps.at(-1)?.stepNumber === iterationNum) {
 						this.ctx.log.warn('Iteration failed after its step was already recorded', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-							error: toErrorMessage(err),
+							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.ITERATION]: iterationNum,
+							'exception.message': toErrorMessage(err),
 						})
 					} else {
 						this.recordStep({
@@ -1279,8 +1279,8 @@ export class IterationOrchestrator {
 						const shed = await relieveOverflow(this.ctx)
 						if (shed) {
 							this.ctx.log.info('Retrying the turn after relieving a context overflow', {
-								runId: runMgr.id,
-								iteration: iterationNum,
+								[NAMZU.RUN_ID]: runMgr.id,
+								[NAMZU.ITERATION]: iterationNum,
 							})
 							if (iterationActivity) {
 								this.ctx.activityStore.complete(iterationActivity.id)
@@ -1334,8 +1334,8 @@ export class IterationOrchestrator {
 		// must not open a wait against a reserve it has already entered.
 		const graceMs = settleGraceMs(this.ctx.guard.remainingBeforeFinalizeMs())
 		this.ctx.log.info('Holding the run open for a background task', {
-			runId: this.ctx.runMgr.id,
-			iteration: iterationNum,
+			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+			[NAMZU.ITERATION]: iterationNum,
 			graceMs,
 		})
 		await this.ctx.completionInbox.waitForArrival(graceMs)
@@ -1389,7 +1389,7 @@ export class IterationOrchestrator {
 		if (abandoned.length === 0) return
 
 		this.ctx.log.warn('Run ended with delegated work still running', {
-			runId: this.ctx.runMgr.id,
+			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
 			tasks: abandoned,
 		})
 		this.ctx.runMgr.setAbandonedTaskIds(abandoned)
@@ -1419,7 +1419,7 @@ export class IterationOrchestrator {
 		if (answer.length > 0) this.ctx.runMgr.setResult(answer)
 
 		this.ctx.log.info('Delivering task completions the run would have settled over', {
-			runId: this.ctx.runMgr.id,
+			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
 			tasks: unheard.map((h) => h.taskId),
 		})
 		this.ctx.runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
@@ -1494,9 +1494,9 @@ export class IterationOrchestrator {
 				// Skipped, and the rest still run: one broken concern must
 				// not silently disable the others it was declared beside.
 				this.ctx.log.error('a prepareStep stage threw — skipping it', {
-					runId: this.ctx.runMgr.id,
+					[NAMZU.RUN_ID]: this.ctx.runMgr.id,
 					stepNumber,
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}
@@ -1531,7 +1531,7 @@ export class IterationOrchestrator {
 						? 'prepareStep named only tools that are not registered — this step can call nothing'
 						: 'prepareStep named tools that are not registered — ignoring them'
 				this.ctx.log.warn(message, {
-					runId: this.ctx.runMgr.id,
+					[NAMZU.RUN_ID]: this.ctx.runMgr.id,
 					stepNumber,
 					unknown,
 					remaining: known.length,
@@ -1686,9 +1686,9 @@ export class IterationOrchestrator {
 			this.ctx.onStepFinish?.(step)
 		} catch (err) {
 			this.ctx.log.warn('onStepFinish threw while recording a failed step', {
-				runId: runMgr.id,
+				[NAMZU.RUN_ID]: runMgr.id,
 				step: input.stepNumber,
-				error: toErrorMessage(err),
+				'exception.message': toErrorMessage(err),
 			})
 		}
 	}
@@ -1728,8 +1728,8 @@ export class IterationOrchestrator {
 		const callCount = response.message.toolCalls?.length ?? 0
 		if (callCount > 1) {
 			this.ctx.log.info('Terminal tool shared its turn — relaying instead of settling', {
-				runId: this.ctx.runMgr.id,
-				tool: terminal[0]?.toolName,
+				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				[GENAI.TOOL_NAME]: terminal[0]?.toolName,
 				callsInTurn: callCount,
 			})
 			return undefined
@@ -1738,8 +1738,8 @@ export class IterationOrchestrator {
 		const hit = terminal[0]
 		if (!hit || hit.isError) {
 			this.ctx.log.info('Terminal tool failed — returning the error to the model', {
-				runId: this.ctx.runMgr.id,
-				tool: hit?.toolName,
+				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				[GENAI.TOOL_NAME]: hit?.toolName,
 			})
 			return undefined
 		}
@@ -1801,7 +1801,7 @@ export class IterationOrchestrator {
 		const callCount = response.message.toolCalls?.length ?? 0
 		if (callCount > 1) {
 			this.ctx.log.info('Structured output shared its turn — relaying instead of settling', {
-				runId: this.ctx.runMgr.id,
+				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
 				callsInTurn: callCount,
 			})
 			return false
@@ -1840,8 +1840,8 @@ export class IterationOrchestrator {
 			})
 		} catch (err) {
 			this.ctx.log.error('Answer review threw — accepting the answer unreviewed', {
-				runId: this.ctx.runMgr.id,
-				error: toErrorMessage(err),
+				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				'exception.message': toErrorMessage(err),
 			})
 			return { accept: true }
 		}
@@ -1863,8 +1863,8 @@ export class IterationOrchestrator {
 			// A throwing predicate must not kill a run that is otherwise
 			// healthy; failing open keeps the existing budgets in charge.
 			this.ctx.log.error('Stop condition threw — continuing the run', {
-				runId: this.ctx.runMgr.id,
-				error: toErrorMessage(err),
+				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				'exception.message': toErrorMessage(err),
 			})
 			return false
 		}
@@ -1953,7 +1953,7 @@ export class IterationOrchestrator {
 			})
 		} catch (err) {
 			this.ctx.log.error('Failed to get final response', {
-				error: toErrorMessage(err),
+				'exception.message': toErrorMessage(err),
 			})
 		}
 	}

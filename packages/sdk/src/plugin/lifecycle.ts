@@ -10,6 +10,7 @@ import {
 	HOOK_TIMEOUT_MS,
 	PLUGIN_NAMESPACE_SEPARATOR,
 } from '../constants/plugin/index.js'
+import { GENAI } from '../constants/telemetry/index.js'
 import type { PluginRegistry } from '../registry/plugin/index.js'
 import { loadSkill } from '../skills/loader.js'
 import type { SkillRegistry } from '../skills/registry.js'
@@ -197,7 +198,7 @@ export class PluginLifecycleManager {
 
 		this.log.info('Plugin installed', {
 			'namzu.plugin.name': manifest.name,
-			pluginId,
+			'namzu.plugin.id': pluginId,
 			scope,
 			version: manifest.version,
 		})
@@ -402,8 +403,8 @@ export class PluginLifecycleManager {
 				this.toolRegistry.unregister(name)
 			} catch (unregErr) {
 				this.log.warn('Rollback: tool unregister failed', {
-					tool: name,
-					error: toErrorMessage(unregErr),
+					[GENAI.TOOL_NAME]: name,
+					'exception.message': toErrorMessage(unregErr),
 				})
 			}
 		}
@@ -417,8 +418,8 @@ export class PluginLifecycleManager {
 				await client.disconnect()
 			} catch (discErr) {
 				this.log.warn('Rollback: MCP disconnect failed', {
-					clientId: client.id,
-					error: toErrorMessage(discErr),
+					'namzu.mcp.client_id': client.id,
+					'exception.message': toErrorMessage(discErr),
 				})
 			}
 		}
@@ -453,8 +454,8 @@ export class PluginLifecycleManager {
 				await client.disconnect()
 			} catch (err) {
 				this.log.warn('MCP client disconnect failed during disable', {
-					clientId: client.id,
-					error: toErrorMessage(err),
+					'namzu.mcp.client_id': client.id,
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}
@@ -498,7 +499,10 @@ export class PluginLifecycleManager {
 			name: plugin.manifest.name,
 		})
 
-		this.log.info('Plugin disabled', { 'namzu.plugin.name': plugin.manifest.name, pluginId })
+		this.log.info('Plugin disabled', {
+			'namzu.plugin.name': plugin.manifest.name,
+			'namzu.plugin.id': pluginId,
+		})
 	}
 
 	async uninstall(pluginId: PluginId): Promise<void> {
@@ -516,7 +520,10 @@ export class PluginLifecycleManager {
 			name: plugin.manifest.name,
 		})
 
-		this.log.info('Plugin uninstalled', { 'namzu.plugin.name': plugin.manifest.name, pluginId })
+		this.log.info('Plugin uninstalled', {
+			'namzu.plugin.name': plugin.manifest.name,
+			'namzu.plugin.id': pluginId,
+		})
 	}
 
 	async executeHooks(
@@ -646,7 +653,7 @@ export class PluginLifecycleManager {
 				listener(event)
 			} catch (err) {
 				this.log.error('Plugin event listener error', {
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}

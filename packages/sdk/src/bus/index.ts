@@ -11,6 +11,7 @@ import type { AgentBusEvent, AgentBusEventListener } from '../types/bus/index.js
 import type { RunId } from '../types/ids/index.js'
 import type { Logger } from '../utils/logger.js'
 
+import { NAMZU } from '../constants/telemetry/index.js'
 import { CircuitBreaker } from './breaker.js'
 import { FileLockManager } from './lock.js'
 import { EditOwnershipTracker } from './ownership.js'
@@ -85,8 +86,8 @@ export class AgentBus {
 					listener(event)
 				} catch (error) {
 					this.log.error('event listener threw', {
-						eventType: event.type,
-						error: error instanceof Error ? error.message : String(error),
+						'namzu.event.type': event.type,
+						'exception.message': error instanceof Error ? error.message : String(error),
 					})
 				}
 			}
@@ -94,13 +95,13 @@ export class AgentBus {
 	}
 
 	cleanupAgent(runId: RunId): void {
-		this.log.info('cleaning up agent resources', { runId })
+		this.log.info('cleaning up agent resources', { [NAMZU.RUN_ID]: runId })
 		const locksReleased = this.locks.releaseAll(runId)
 		const ownershipsReleased = this.ownership.releaseAll(runId)
 		this.breaker.reset(runId)
 
 		this.log.info('agent cleanup complete', {
-			runId,
+			[NAMZU.RUN_ID]: runId,
 			locksReleased,
 			ownershipsReleased,
 		})

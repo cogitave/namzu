@@ -1,6 +1,7 @@
 import type { Span } from '@opentelemetry/api'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
+import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import { buildProbeContext } from '../../probe/context.js'
 import { ProbeVetoError } from '../../probe/errors.js'
@@ -477,11 +478,11 @@ export class ToolExecutor {
 		prior?: PriorToolResults,
 	): Promise<ToolExecutionBatch> {
 		this.log.debug('Executing tool batch', {
-			runId: this.config.runId,
+			[NAMZU.RUN_ID]: this.config.runId,
 			toolCount: toolCalls.length,
 			deniedCount: denials?.size ?? 0,
 			recoveredCount: prior?.size ?? 0,
-			tools: toolCalls.map((tc) => tc.function.name),
+			'namzu.tool.names': toolCalls.map((tc) => tc.function.name),
 		})
 
 		// One context per call so each execution can see its own
@@ -841,8 +842,8 @@ export class ToolExecutor {
 			const reason = vetoOutcome.reason ?? 'no reason provided'
 			const veto = new ProbeVetoError(probeName, reason, 'tool_executing')
 			this.log.warn('Tool call denied by probe', {
-				runId: this.config.runId,
-				tool: toolName,
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
 				probeName,
 				reason,
 			})
@@ -941,13 +942,13 @@ export class ToolExecutor {
 			const delayMs = backoffWithJitter(attempt - 1, backoff)
 
 			this.log.info('Retrying a failed tool call', {
-				runId: this.config.runId,
-				tool: toolName,
-				attempt,
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
+				'namzu.retry.attempt': attempt,
 				budget,
 				requestedByHook: post.retry,
 				delayMs,
-				error: result.error,
+				'exception.message': result.error,
 			})
 
 			try {
@@ -984,15 +985,15 @@ export class ToolExecutor {
 			spillDir: this.config.toolOutputDir,
 			onError: (message) =>
 				this.log.warn('Failed to spill oversized tool output', {
-					runId: this.config.runId,
-					tool: toolName,
-					error: message,
+					[NAMZU.RUN_ID]: this.config.runId,
+					[GENAI.TOOL_NAME]: toolName,
+					'exception.message': message,
 				}),
 		})
 		if (budgeted.truncated) {
 			this.log.warn('Tool output exceeded the model-visible budget', {
-				runId: this.config.runId,
-				tool: toolName,
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
 				originalLength: budgeted.originalLength,
 				spillPath: budgeted.spillPath,
 			})
@@ -1027,17 +1028,17 @@ export class ToolExecutor {
 
 		if (result.success) {
 			this.log.debug('Tool executed successfully', {
-				runId: this.config.runId,
-				tool: toolName,
-				durationMs,
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
+				'namzu.duration_ms': durationMs,
 				outputLength: output.length,
 			})
 		} else {
 			this.log.warn('Tool execution failed', {
-				runId: this.config.runId,
-				tool: toolName,
-				durationMs,
-				error: result.error ?? 'unknown',
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
+				'namzu.duration_ms': durationMs,
+				'exception.message': result.error ?? 'unknown',
 			})
 		}
 
@@ -1170,8 +1171,8 @@ export class ToolExecutor {
 
 			if (outcome === 'timeout') {
 				this.log.warn('Tool timed out', {
-					runId: this.config.runId,
-					tool: toolName,
+					[NAMZU.RUN_ID]: this.config.runId,
+					[GENAI.TOOL_NAME]: toolName,
 					timeoutMs,
 				})
 				return {
@@ -1300,8 +1301,8 @@ export class ToolExecutor {
 			}
 
 			this.log.info('Repaired a malformed tool call', {
-				runId: this.config.runId,
-				tool: toolName,
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
 				reason: failure.reason,
 				...(repair.toolName && repair.toolName !== toolName ? { repairedTo: repair.toolName } : {}),
 			})
@@ -1333,8 +1334,8 @@ export class ToolExecutor {
 		)
 		if (repair) {
 			this.log.info('Repaired a tool call whose input stream was truncated', {
-				runId: this.config.runId,
-				tool: toolName,
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
 				partialLength: partial.length,
 			})
 		}
@@ -1401,9 +1402,9 @@ export class ToolExecutor {
 			// failed run: the original error is still a perfectly good answer
 			// to give the model.
 			this.log.error('repairToolCall threw — falling back to the original error', {
-				runId: this.config.runId,
-				tool: toolName,
-				error: toErrorMessage(err),
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
+				'exception.message': toErrorMessage(err),
 			})
 			return null
 		}
@@ -1431,9 +1432,9 @@ export class ToolExecutor {
 		} catch (err) {
 			const message = toErrorMessage(err)
 			this.log.warn('Tool execution threw', {
-				runId: this.config.runId,
-				tool: toolName,
-				error: message,
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
+				'exception.message': message,
 			})
 			return { success: false, output: '', error: message }
 		}
@@ -1514,8 +1515,8 @@ export class ToolExecutor {
 		const output = deniedToolOutput(toolName, reason)
 
 		this.log.info('Tool call denied — synthesizing tool_result', {
-			runId: this.config.runId,
-			tool: toolName,
+			[NAMZU.RUN_ID]: this.config.runId,
+			[GENAI.TOOL_NAME]: toolName,
 			toolUseId: toolCall.id,
 			reason,
 		})
@@ -1612,8 +1613,8 @@ export class ToolExecutor {
 		if (size <= cap) return content
 
 		this.log.warn('Tool result content exceeded the rich-content budget', {
-			runId: this.config.runId,
-			tool: toolName,
+			[NAMZU.RUN_ID]: this.config.runId,
+			[GENAI.TOOL_NAME]: toolName,
 			contentBytes: size,
 			cap,
 		})
@@ -1638,7 +1639,7 @@ export class ToolExecutor {
 		const compressed = compressShellOutput(output)
 		if (compressed.length < output.length) {
 			this.log.debug('Shell output compressed', {
-				tool: toolName,
+				[GENAI.TOOL_NAME]: toolName,
 				originalLength: output.length,
 				compressedLength: compressed.length,
 				reductionPercent: Math.round((1 - compressed.length / output.length) * 100),

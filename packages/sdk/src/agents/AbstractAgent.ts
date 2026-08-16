@@ -98,8 +98,8 @@ export abstract class AbstractAgent<
 			this.log.warn(
 				'Could not build a per-run shell; concurrent runs of this agent will still be refused',
 				{
-					agentId: this.metadata.id,
-					error: err instanceof Error ? err.message : String(err),
+					[GENAI.AGENT_ID]: this.metadata.id,
+					'exception.message': err instanceof Error ? err.message : String(err),
 				},
 			)
 			return this
@@ -180,7 +180,7 @@ export abstract class AbstractAgent<
 		const inflight = this.inflightByKey.get(key)
 		if (inflight) {
 			this.log.info('Joining an invocation already running under this key', {
-				agentId: this.metadata.id,
+				[GENAI.AGENT_ID]: this.metadata.id,
 				idempotencyKey: key,
 			})
 			return inflight as Promise<T>
@@ -268,7 +268,7 @@ export abstract class AbstractAgent<
 			await listener(event)
 		} catch (err) {
 			this.log.error('Event listener error', {
-				error: toErrorMessage(err),
+				'exception.message': toErrorMessage(err),
 			})
 		}
 	}

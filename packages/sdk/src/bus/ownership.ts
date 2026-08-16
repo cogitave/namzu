@@ -24,7 +24,7 @@ export class EditOwnershipTracker {
 
 		if (existing && existing.owner !== owner) {
 			this.log.debug('ownership claim denied', {
-				filePath: normalized,
+				'namzu.file.path': normalized,
 				requester: owner,
 				currentOwner: existing.owner,
 			})
@@ -48,7 +48,7 @@ export class EditOwnershipTracker {
 		}
 		this.ownerships.set(normalized, ownership)
 
-		this.log.debug('ownership claimed', { filePath: normalized, owner })
+		this.log.debug('ownership claimed', { 'namzu.file.path': normalized, owner })
 		this.emit({ type: 'ownership_claimed', filePath: normalized, owner })
 		return { claimed: true, ownership }
 	}
@@ -62,7 +62,7 @@ export class EditOwnershipTracker {
 		}
 
 		this.ownerships.delete(normalized)
-		this.log.debug('ownership released', { filePath: normalized, previousOwner: owner })
+		this.log.debug('ownership released', { 'namzu.file.path': normalized, previousOwner: owner })
 		this.emit({ type: 'ownership_released', filePath: normalized, previousOwner: owner })
 		return true
 	}
@@ -82,7 +82,7 @@ export class EditOwnershipTracker {
 		}
 		this.ownerships.set(normalized, transferred)
 
-		this.log.info('ownership transferred', { filePath: normalized, from, to })
+		this.log.info('ownership transferred', { 'namzu.file.path': normalized, from, to })
 		this.emit({ type: 'ownership_transferred', filePath: normalized, from, to })
 		return true
 	}
@@ -93,7 +93,7 @@ export class EditOwnershipTracker {
 			if (ownership.owner === owner) {
 				this.ownerships.delete(normalized)
 				this.log.debug('ownership released (cleanup)', {
-					filePath: normalized,
+					'namzu.file.path': normalized,
 					previousOwner: owner,
 				})
 				this.emit({

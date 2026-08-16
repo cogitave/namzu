@@ -50,7 +50,7 @@ export class CircuitBreaker {
 				if (elapsed >= this.resetTimeoutMs) {
 					breaker.state = 'half_open'
 					this.log.info('circuit breaker transitioning to half_open', {
-						agentRunId,
+						'namzu.agent.run_id': agentRunId,
 						elapsed,
 					})
 					this.emit({ type: 'breaker_half_open', agentRunId })
@@ -81,13 +81,15 @@ export class CircuitBreaker {
 			case 'half_open':
 				breaker.state = 'closed'
 				breaker.trippedAt = undefined
-				this.log.info('circuit breaker reset after probe success', { agentRunId })
+				this.log.info('circuit breaker reset after probe success', {
+					'namzu.agent.run_id': agentRunId,
+				})
 				this.emit({ type: 'breaker_probe_success', agentRunId })
 				this.emit({ type: 'breaker_reset', agentRunId })
 				break
 			case 'open':
 				this.log.warn('recordSuccess called while breaker is open', {
-					agentRunId,
+					'namzu.agent.run_id': agentRunId,
 					previousState,
 				})
 				break
@@ -118,7 +120,7 @@ export class CircuitBreaker {
 					breaker.state = 'open'
 					breaker.trippedAt = Date.now()
 					this.log.warn('circuit breaker tripped', {
-						agentRunId,
+						'namzu.agent.run_id': agentRunId,
 						consecutiveFailures: breaker.consecutiveFailures,
 					})
 					this.emit({
@@ -131,7 +133,9 @@ export class CircuitBreaker {
 			case 'half_open':
 				breaker.state = 'open'
 				breaker.trippedAt = Date.now()
-				this.log.warn('circuit breaker re-tripped from half_open', { agentRunId })
+				this.log.warn('circuit breaker re-tripped from half_open', {
+					'namzu.agent.run_id': agentRunId,
+				})
 				this.emit({ type: 'breaker_probe_failure', agentRunId })
 				this.emit({
 					type: 'breaker_tripped',
@@ -169,7 +173,7 @@ export class CircuitBreaker {
 		breaker.state = 'closed'
 		breaker.consecutiveFailures = 0
 		breaker.trippedAt = undefined
-		this.log.info('circuit breaker manually reset', { agentRunId })
+		this.log.info('circuit breaker manually reset', { 'namzu.agent.run_id': agentRunId })
 		this.emit({ type: 'breaker_reset', agentRunId })
 	}
 

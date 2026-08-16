@@ -1,3 +1,4 @@
+import { GENAI } from '../constants/telemetry/index.js'
 import { taskFailed } from '../tools/coordinator/outcome.js'
 import type { AgentInput } from '../types/agent/base.js'
 import type { AgentManagerContract } from '../types/agent/manager.js'
@@ -179,8 +180,8 @@ export class LocalTaskScheduler implements TaskScheduler {
 				resolveLogger(this.log)
 					.child({ component: 'LocalTaskScheduler' })
 					.error('Task completion tracking failed', {
-						taskId: task.taskId,
-						error: toErrorMessage(err),
+						'namzu.task.id': task.taskId,
+						'exception.message': toErrorMessage(err),
 					})
 			})
 
@@ -223,7 +224,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 				.child({ component: 'LocalTaskScheduler' })
 				.info('Cancelled siblings after a child failed', {
 					failed: finished.taskId,
-					agentId: finished.agentId,
+					[GENAI.AGENT_ID]: finished.agentId,
 					cancelled,
 				})
 		}

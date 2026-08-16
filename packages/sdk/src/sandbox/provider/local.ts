@@ -380,7 +380,7 @@ class LocalSandbox implements Sandbox {
 		this._status = 'ready'
 		this.log = log.child({ component: 'LocalSandbox', sandboxId: id })
 
-		this.log.info('Sandbox created', { rootDir, environment })
+		this.log.info('Sandbox created', { rootDir, 'namzu.execution.environment': environment })
 	}
 
 	async exec(
@@ -402,7 +402,12 @@ class LocalSandbox implements Sandbox {
 
 		const { spawnCommand, spawnArgs } = this.buildSpawnArgs(command, args)
 
-		this.log.debug('Executing command', { command, args, timeout, environment: this.environment })
+		this.log.debug('Executing command', {
+			command,
+			args,
+			timeout,
+			'namzu.execution.environment': this.environment,
+		})
 
 		// The caller's cancellation and this call's own deadline both have to
 		// reach `spawn`, and `spawn` takes exactly one signal.
@@ -520,7 +525,7 @@ class LocalSandbox implements Sandbox {
 		this._status = 'destroyed'
 		await rm(this.rootDir, { recursive: true, force: true })
 
-		this.log.info('Sandbox destroyed', { sandboxId: this.id })
+		this.log.info('Sandbox destroyed', { 'namzu.sandbox.id': this.id })
 	}
 
 	// -----------------------------------------------------------------------
@@ -671,11 +676,11 @@ export class LocalSandboxProvider implements SandboxProvider {
 			// that reads "sandbox created" in its log has every reason to
 			// believe otherwise.
 			this.log.warn('No isolation available on this host; commands run unconfined', {
-				environment: this.environment,
+				'namzu.execution.environment': this.environment,
 				enforced,
 			})
 		} else {
-			this.log.info('Initialized', { environment: this.environment, enforced })
+			this.log.info('Initialized', { 'namzu.execution.environment': this.environment, enforced })
 		}
 	}
 
@@ -689,7 +694,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 		// Canonicalize — macOS symlinks like /var → /private/var must be resolved
 		const rootDir = canonicalizePath(rawDir)
 
-		this.log.info('Creating sandbox', { sandboxId: id, rootDir })
+		this.log.info('Creating sandbox', { 'namzu.sandbox.id': id, rootDir })
 
 		return new LocalSandbox(id, rootDir, this.environment, config ?? {}, this.log, this.ptyLoader)
 	}

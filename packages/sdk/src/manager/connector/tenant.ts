@@ -304,7 +304,7 @@ export class TenantConnectorManager {
 			} catch (err) {
 				this.log.error('Tenant event listener error', {
 					tenantId,
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}

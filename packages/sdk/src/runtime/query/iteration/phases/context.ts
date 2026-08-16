@@ -3,6 +3,7 @@ import type { AgentBus } from '../../../../bus/index.js'
 import type { WorkingStateManager } from '../../../../compaction/manager.js'
 import type { ContextReducer } from '../../../../compaction/reducer.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
+import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { PromptContributionRegistry } from '../../../../prompt/contributions.js'
@@ -253,9 +254,9 @@ export async function awaitDecisionDurably(
 			// with it — the in-process await is still perfectly valid, it is
 			// only the cross-process handoff that is lost. Loudly, though.
 			ctx.log.error('Failed to record a HITL park — the run is not resumable across a restart', {
-				runId: ctx.runMgr.id,
-				checkpointId: checkpoint.id,
-				error: err instanceof Error ? err.message : String(err),
+				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				'namzu.checkpoint.id': checkpoint.id,
+				'exception.message': err instanceof Error ? err.message : String(err),
 			})
 		}
 	}
@@ -322,9 +323,9 @@ export async function awaitDecisionDurably(
 		if (recorded) {
 			await ctx.checkpointMgr.unpark(checkpoint.id, decision).catch((err: unknown) => {
 				ctx.log.error('Failed to clear a recorded HITL park', {
-					runId: ctx.runMgr.id,
-					checkpointId: checkpoint.id,
-					error: err instanceof Error ? err.message : String(err),
+					[NAMZU.RUN_ID]: ctx.runMgr.id,
+					'namzu.checkpoint.id': checkpoint.id,
+					'exception.message': err instanceof Error ? err.message : String(err),
 				})
 				return null
 			})
@@ -409,7 +410,7 @@ export async function* handleHITLDecision(
 			ctx.runMgr.setStopReason('paused')
 			ctx.log.info('Run paused', {
 				'namzu.run.phase': context,
-				sessionId: ctx.runMgr.id,
+				[NAMZU.RUN_ID]: ctx.runMgr.id,
 				reason: decision.reason,
 			})
 			return 'stop'
@@ -419,7 +420,7 @@ export async function* handleHITLDecision(
 			ctx.runMgr.markCancelled()
 			ctx.log.info('Run aborted', {
 				'namzu.run.phase': context,
-				sessionId: ctx.runMgr.id,
+				[NAMZU.RUN_ID]: ctx.runMgr.id,
 				reason: decision.reason,
 			})
 			return 'stop'
@@ -427,7 +428,7 @@ export async function* handleHITLDecision(
 		case 'reject_plan': {
 			ctx.runMgr.setStopReason('plan_rejected')
 			ctx.log.info('Plan rejected by user', {
-				sessionId: ctx.runMgr.id,
+				[NAMZU.RUN_ID]: ctx.runMgr.id,
 				feedback: decision.feedback,
 			})
 			return 'stop'
@@ -437,7 +438,7 @@ export async function* handleHITLDecision(
 				ctx.planManager.approve()
 				ctx.planManager.startExecution()
 			}
-			ctx.log.info('Plan approved by user', { sessionId: ctx.runMgr.id })
+			ctx.log.info('Plan approved by user', { [NAMZU.RUN_ID]: ctx.runMgr.id })
 			return 'continue'
 		}
 		case 'continue':

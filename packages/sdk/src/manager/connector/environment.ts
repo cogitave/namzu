@@ -253,7 +253,7 @@ export class EnvironmentConnectorManager {
 				listener(event)
 			} catch (err) {
 				this.log.error('Environment event listener error', {
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}

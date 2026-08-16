@@ -1,3 +1,4 @@
+import { NAMZU } from '../../constants/telemetry/index.js'
 import type {
 	GuardrailVerdict,
 	InputGuardrailContext,
@@ -46,8 +47,8 @@ export async function runInputGuardrails(
 		const verdict = await safely(() => check(ctx), nameOf({ name }, index), log)
 		if (verdict.action === 'block') {
 			log.warn('Input guardrail blocked the run', {
-				runId: ctx.runId,
-				guardrail: nameOf({ name }, index),
+				[NAMZU.RUN_ID]: ctx.runId,
+				'namzu.guardrail.name': nameOf({ name }, index),
 				reason: verdict.reason,
 			})
 			return { blocked: true, name: nameOf({ name }, index), reason: verdict.reason }
@@ -57,8 +58,8 @@ export async function runInputGuardrails(
 		// different (and worse) feature than refusing it.
 		if (verdict.action === 'rewrite') {
 			log.warn('Input guardrail returned `rewrite`, which is not supported on input — ignoring', {
-				runId: ctx.runId,
-				guardrail: nameOf({ name }, index),
+				[NAMZU.RUN_ID]: ctx.runId,
+				'namzu.guardrail.name': nameOf({ name }, index),
 			})
 		}
 	}
@@ -99,8 +100,8 @@ export async function runOutputGuardrails(
 
 		if (verdict.action === 'block') {
 			log.warn('Output guardrail blocked the result', {
-				runId: ctx.runId,
-				guardrail: nameOf({ name }, index),
+				[NAMZU.RUN_ID]: ctx.runId,
+				'namzu.guardrail.name': nameOf({ name }, index),
 				reason: verdict.reason,
 			})
 			return { blocked: true, name: nameOf({ name }, index), reason: verdict.reason }
@@ -108,8 +109,8 @@ export async function runOutputGuardrails(
 
 		if (verdict.action === 'rewrite') {
 			log.info('Output guardrail rewrote the result', {
-				runId: ctx.runId,
-				guardrail: nameOf({ name }, index),
+				[NAMZU.RUN_ID]: ctx.runId,
+				'namzu.guardrail.name': nameOf({ name }, index),
 				reason: verdict.reason,
 			})
 			current = verdict.output
@@ -138,7 +139,10 @@ async function safely(
 		return await run()
 	} catch (err) {
 		const reason = `guardrail "${name}" threw: ${toErrorMessage(err)}`
-		log.error('Guardrail threw — failing closed', { guardrail: name, error: toErrorMessage(err) })
+		log.error('Guardrail threw — failing closed', {
+			'namzu.guardrail.name': name,
+			'exception.message': toErrorMessage(err),
+		})
 		return { action: 'block', reason }
 	}
 }

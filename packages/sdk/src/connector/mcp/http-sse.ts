@@ -125,7 +125,7 @@ export class HttpSseTransport implements MCPTransport {
 	private async startSSE(): Promise<void> {
 		this.listenSSE().catch((err) => {
 			if (this.connected) {
-				this.log.error('SSE stream error', { error: String(err) })
+				this.log.error('SSE stream error', { 'exception.message': String(err) })
 				for (const handler of this.errorHandlers)
 					handler(err instanceof Error ? err : new Error(String(err)))
 			}

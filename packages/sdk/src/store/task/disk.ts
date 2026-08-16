@@ -1,5 +1,6 @@
 import { mkdir, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { NAMZU } from '../../constants/telemetry/index.js'
 import type { RunId, TaskId, TenantId } from '../../types/ids/index.js'
 import type {
 	CreateTaskParams,
@@ -155,8 +156,8 @@ export class DiskTaskStore implements TaskStore {
 				listener(event)
 			} catch (err) {
 				this.log.warn('Task event listener threw', {
-					error: err instanceof Error ? err.message : String(err),
-					eventType: event.type,
+					'exception.message': err instanceof Error ? err.message : String(err),
+					'namzu.event.type': event.type,
 				})
 			}
 		}
@@ -206,7 +207,11 @@ export class DiskTaskStore implements TaskStore {
 			})
 		}
 
-		this.log.info('Task created', { taskId, subject: params.subject, runId })
+		this.log.info('Task created', {
+			'namzu.task.id': taskId,
+			subject: params.subject,
+			[NAMZU.RUN_ID]: runId,
+		})
 		this.emit({ type: 'task.created', taskId, task, timestamp: Date.now() })
 		return task
 	}
@@ -304,15 +309,15 @@ export class DiskTaskStore implements TaskStore {
 					this.log.error(
 						'Failed to delete task file; relations may be in a partially-updated state',
 						{
-							taskId: id,
-							error: err instanceof Error ? err.message : String(err),
+							'namzu.task.id': id,
+							'exception.message': err instanceof Error ? err.message : String(err),
 						},
 					)
 					throw err
 				}
 				// ENOENT: already gone, treat as success.
 			}
-			this.log.info('Task deleted', { taskId: id })
+			this.log.info('Task deleted', { 'namzu.task.id': id })
 			this.emit({ type: 'task.deleted', taskId: id, task, timestamp: Date.now() })
 			return true
 		})
@@ -328,7 +333,7 @@ export class DiskTaskStore implements TaskStore {
 		} catch (err) {
 			this.log.warn('Failed to list task directory', {
 				dir,
-				error: err instanceof Error ? err.message : String(err),
+				'exception.message': err instanceof Error ? err.message : String(err),
 			})
 			return []
 		}
@@ -342,7 +347,7 @@ export class DiskTaskStore implements TaskStore {
 			} catch (err) {
 				this.log.warn('Failed to read task file', {
 					file,
-					error: err instanceof Error ? err.message : String(err),
+					'exception.message': err instanceof Error ? err.message : String(err),
 				})
 			}
 		}
@@ -446,9 +451,9 @@ export class DiskTaskStore implements TaskStore {
 			return await records.read(path)
 		} catch (err) {
 			this.log.error('Corrupt task JSON on disk', {
-				taskId,
+				'namzu.task.id': taskId,
 				path,
-				error: err instanceof Error ? err.message : String(err),
+				'exception.message': err instanceof Error ? err.message : String(err),
 			})
 			return null
 		}
@@ -501,7 +506,7 @@ export class DiskTaskStore implements TaskStore {
 			if (code !== 'ENOENT') {
 				this.log.warn('Failed to enumerate task run directories', {
 					root,
-					error: err instanceof Error ? err.message : String(err),
+					'exception.message': err instanceof Error ? err.message : String(err),
 				})
 			}
 			return []

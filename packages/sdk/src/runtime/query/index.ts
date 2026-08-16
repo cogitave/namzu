@@ -1191,7 +1191,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 		ctx.log.warn('Capability mismatch: the provider declares no tool support', {
 			'namzu.capability.detail': message,
-			providerId: params.provider.id,
+			[GENAI.SYSTEM]: params.provider.id,
 			registeredToolCount,
 		})
 	}
@@ -1207,7 +1207,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 		ctx.log.warn('Capability mismatch: the provider declares no vision support', {
 			'namzu.capability.detail': message,
-			providerId: params.provider.id,
+			[GENAI.SYSTEM]: params.provider.id,
 			attachmentMessageCount,
 		})
 	}
@@ -1223,7 +1223,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 		ctx.log.warn('Capability mismatch: the provider declares no document support', {
 			'namzu.capability.detail': message,
-			providerId: params.provider.id,
+			[GENAI.SYSTEM]: params.provider.id,
 			documentMessageCount,
 		})
 	}
@@ -1585,9 +1585,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					// because a host building an approval queue from durable
 					// state will not see this question.
 					ctx.log.error('Failed to record a question park — it is not resumable', {
-						runId: ctx.runMgr.id,
+						[NAMZU.RUN_ID]: ctx.runMgr.id,
 						questionId: question.questionId,
-						error: err instanceof Error ? err.message : String(err),
+						'exception.message': err instanceof Error ? err.message : String(err),
 					})
 					return null
 				}
@@ -1595,9 +1595,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			resolve: async (checkpointId, decision) => {
 				await checkpointMgr.unpark(checkpointId, decision).catch((err: unknown) => {
 					ctx.log.error('Failed to clear a recorded question park', {
-						runId: ctx.runMgr.id,
-						checkpointId,
-						error: err instanceof Error ? err.message : String(err),
+						[NAMZU.RUN_ID]: ctx.runMgr.id,
+						'namzu.checkpoint.id': checkpointId,
+						'exception.message': err instanceof Error ? err.message : String(err),
 					})
 					return null
 				})
@@ -1661,9 +1661,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			params.onContextCreated?.({ planManager: ctx.planManager })
 
 			ctx.log.info('Starting query', {
-				runId: ctx.runMgr.id,
+				[NAMZU.RUN_ID]: ctx.runMgr.id,
 				agent: params.agentName,
-				model: params.runConfig.model,
+				[GENAI.REQUEST_MODEL]: params.runConfig.model,
 				tokenBudget: params.runConfig.tokenBudget,
 				activityTracking: ctx.activityStore.enabled,
 				permissionMode: ctx.permissionMode.current,
@@ -1731,17 +1731,17 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					const revived = restoreWorkingState(checkpoint.workingState, params.compactionConfig)
 					workingStateManager.replaceState(revived.getState())
 					ctx.log.info('Restored compaction working state from checkpoint', {
-						runId: ctx.runMgr.id,
-						checkpointId: checkpoint.id,
+						[NAMZU.RUN_ID]: ctx.runMgr.id,
+						'namzu.checkpoint.id': checkpoint.id,
 						slots: workingStateManager.slotCount(),
 					})
 				}
 				ctx.log.info('Restored budgets from checkpoint', {
-					runId: ctx.runMgr.id,
-					checkpointId: checkpoint.id,
-					totalTokens: checkpoint.tokenUsage.totalTokens,
+					[NAMZU.RUN_ID]: ctx.runMgr.id,
+					'namzu.checkpoint.id': checkpoint.id,
+					'namzu.usage.total_tokens': checkpoint.tokenUsage.totalTokens,
 					totalCost: checkpoint.costInfo.totalCost,
-					iteration: checkpoint.guardState.iterationCount,
+					[NAMZU.ITERATION]: checkpoint.guardState.iterationCount,
 					elapsedMs: checkpoint.guardState.elapsedMs,
 				})
 
@@ -1795,8 +1795,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					: removeDanglingMessages(checkpoint.messages)
 				if (!dangling.isValid && !pendingResume) {
 					ctx.log.warn('Checkpoint contained unanswered tool calls — repaired on restore', {
-						runId: ctx.runMgr.id,
-						checkpointId: checkpoint.id,
+						[NAMZU.RUN_ID]: ctx.runMgr.id,
+						'namzu.checkpoint.id': checkpoint.id,
 						unansweredAssistantTurns: dangling.assistantsWithUnmatchedCalls.length,
 						orphanedToolMessages: dangling.orphanedToolMessages.length,
 						removed: checkpoint.messages.length - restoredMessages.length,
@@ -1948,8 +1948,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				yield* eventTranslator.drainPending()
 
 				ctx.log.info('Sandbox created for run', {
-					sandboxId: sandbox.id,
-					environment: sandbox.environment,
+					'namzu.sandbox.id': sandbox.id,
+					'namzu.execution.environment': sandbox.environment,
 					rootDir: sandbox.rootDir,
 				})
 			}
@@ -1964,7 +1964,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				} else {
 					ctx.log.warn(
 						'emergencySave requested but the run has no output directory — crash dumps disabled',
-						{ runId: ctx.runId },
+						{ [NAMZU.RUN_ID]: ctx.runId },
 					)
 				}
 			}
@@ -2012,8 +2012,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// tool that needs one gets it.
 			if (pendingResume) {
 				ctx.log.info('Applying a pending HITL decision to the checkpointed tool calls', {
-					runId: ctx.runId,
-					tools: pendingResume.response.message.toolCalls?.map((tc) => tc.function.name),
+					[NAMZU.RUN_ID]: ctx.runId,
+					'namzu.tool.names': pendingResume.response.message.toolCalls?.map(
+						(tc) => tc.function.name,
+					),
 					denied: pendingResume.denials.size,
 				})
 				// Hand the recorded answer to the already-built tool. The tool
@@ -2040,9 +2042,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						.unpark(resolvedCheckpointId, params.pendingDecision)
 						.catch((err: unknown) => {
 							ctx.log.error('Applied a pending decision but failed to clear the park', {
-								runId: ctx.runId,
-								checkpointId: resolvedCheckpointId,
-								error: err instanceof Error ? err.message : String(err),
+								[NAMZU.RUN_ID]: ctx.runId,
+								'namzu.checkpoint.id': resolvedCheckpointId,
+								'exception.message': err instanceof Error ? err.message : String(err),
 							})
 							return null
 						})
@@ -2170,8 +2172,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					await params.promoteMemory(candidate)
 				} catch (promoteErr) {
 					ctx.log.error('Memory promotion threw — the run is unaffected', {
-						runId: ctx.runId,
-						error: promoteErr instanceof Error ? promoteErr.message : String(promoteErr),
+						[NAMZU.RUN_ID]: ctx.runId,
+						'exception.message':
+							promoteErr instanceof Error ? promoteErr.message : String(promoteErr),
 					})
 				}
 			}
@@ -2186,11 +2189,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						runId: ctx.runId,
 						sandboxId,
 					})
-					ctx.log.info('Sandbox destroyed', { sandboxId })
+					ctx.log.info('Sandbox destroyed', { 'namzu.sandbox.id': sandboxId })
 				} catch (destroyErr) {
 					ctx.log.error('Sandbox destroy failed', {
-						sandboxId,
-						error: destroyErr instanceof Error ? destroyErr.message : String(destroyErr),
+						'namzu.sandbox.id': sandboxId,
+						'exception.message':
+							destroyErr instanceof Error ? destroyErr.message : String(destroyErr),
 					})
 				}
 			}

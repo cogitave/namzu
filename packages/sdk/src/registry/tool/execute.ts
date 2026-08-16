@@ -474,7 +474,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				if (allowed !== undefined && !allowed.includes(toolName)) {
 					const msg = `Tool "${toolName}" is not available on this step. Available: ${allowed.length > 0 ? allowed.join(', ') : '(none)'}`
 					this.log.warn('Blocked a tool outside the step allow-list', {
-						tool: toolName,
+						[GENAI.TOOL_NAME]: toolName,
 						allowed: allowed.length,
 					})
 					span.setAttributes({
@@ -628,7 +628,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					const errorMessage = toErrorMessage(err)
 					this.log.error('Tool execution error', {
 						'namzu.tool.name': toolName,
-						error: errorMessage,
+						'exception.message': errorMessage,
 					})
 
 					span.setAttributes({

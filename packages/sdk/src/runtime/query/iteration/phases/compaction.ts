@@ -8,6 +8,7 @@ import { serializeState } from '../../../../compaction/serializer.js'
 import { buildCompactionMessage, isCompactionMessage } from '../../../../compaction/summary.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
+import { NAMZU } from '../../../../constants/telemetry/index.js'
 import { invariants } from '../../../../invariants/index.js'
 import { resolveTaskModel } from '../../../../model-router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
@@ -173,7 +174,7 @@ export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 	const meaningful = Math.max(MIN_RELIEF_CHARS, beforeChars * MIN_RELIEF_FRACTION)
 	if (shed < meaningful) {
 		ctx.log.warn('Context overflow with too little left to shed — the prompt is irreducible', {
-			runId: ctx.runMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			messages: before,
 			charsShed: shed,
 			neededAtLeast: Math.ceil(meaningful),
@@ -182,7 +183,7 @@ export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 	}
 
 	ctx.log.info('Relieved a context overflow by compacting', {
-		runId: ctx.runMgr.id,
+		[NAMZU.RUN_ID]: ctx.runMgr.id,
 		messagesBefore: before,
 		messagesAfter: ctx.runMgr.messages.length,
 		charsShed: shed,
@@ -299,9 +300,9 @@ async function applyReducer(
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
 		ctx.log.warn('Context reducer threw — keeping the full history', {
-			runId: ctx.runMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			reason: reduction.reason,
-			error: message,
+			'exception.message': message,
 		})
 		await declined(ctx, 'reducer_threw', before, message)
 		return
@@ -309,7 +310,7 @@ async function applyReducer(
 
 	if (!next || next.length >= before) {
 		ctx.log.debug('Context reducer shed nothing', {
-			runId: ctx.runMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			reason: reduction.reason,
 			messages: before,
 		})
@@ -322,7 +323,7 @@ async function applyReducer(
 	})
 	if (toolPairOutcome.state === 'violated') {
 		ctx.log.warn('Context reducer split a tool pair — refusing its result', {
-			runId: ctx.runMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			reason: reduction.reason,
 			hint: 'use findSafeTrimIndex to move a cut off a tool_use/tool_result boundary',
 			detail: toolPairOutcome.detail,
@@ -342,7 +343,7 @@ async function applyReducer(
 	ctx.runMgr.clearLastPromptTokens?.()
 
 	ctx.log.info('Context reduced', {
-		runId: ctx.runMgr.id,
+		[NAMZU.RUN_ID]: ctx.runMgr.id,
 		reason: reduction.reason,
 		oldMessageCount: before,
 		newMessageCount: messages.length,
@@ -470,7 +471,7 @@ export async function runCompactionCheck(
 	if (!manager) return
 
 	ctx.log.info('Compaction threshold reached — compacting context', {
-		runId: ctx.runMgr.id,
+		[NAMZU.RUN_ID]: ctx.runMgr.id,
 		contextTokens: estimatedTokens,
 		measuredBy: measured.source,
 		window: budget,
@@ -509,7 +510,7 @@ export async function runCompactionCheck(
 		})
 
 		ctx.log.info('Cleared stale tool results instead of compacting', {
-			runId: ctx.runMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			cleared: clearPlan.clearedCount,
 			charsReclaimed: clearPlan.charsReclaimed,
 			reclaimedTokens: clearPlan.reclaimedTokens,
@@ -563,14 +564,14 @@ export async function runCompactionCheck(
 					break
 				case 'no_safe_cut':
 					ctx.log.debug('Skipping compaction — no safe cut at or below the naive boundary', {
-						runId: ctx.runMgr.id,
+						[NAMZU.RUN_ID]: ctx.runMgr.id,
 						systemMessages: messages.filter((m) => m.role === 'system').length,
 						messageCount: messages.length,
 					})
 					break
 				case 'too_few_older':
 					ctx.log.debug('Skipping compaction — too few older messages', {
-						runId: ctx.runMgr.id,
+						[NAMZU.RUN_ID]: ctx.runMgr.id,
 					})
 					break
 				case 'no_system_floor':
@@ -653,7 +654,7 @@ export async function runCompactionCheck(
 			// Re-pin as the last leading system message, before the summary.
 			newMessages.splice(preservedSystem.length, 0, priorSlot)
 			ctx.log.warn('Re-pinned working-memory slot dropped by compaction', {
-				runId: ctx.runMgr.id,
+				[NAMZU.RUN_ID]: ctx.runMgr.id,
 			})
 		}
 	}
@@ -684,7 +685,7 @@ export async function runCompactionCheck(
 	const reachedReset = newEstimate / budget <= config.resetThreshold
 	if (!reachedReset) {
 		ctx.log.warn('Compaction did not reach its reset threshold — context may still be tight', {
-			runId: ctx.runMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			afterUsage: Math.round((newEstimate / budget) * 100),
 			resetThreshold: Math.round(config.resetThreshold * 100),
 			hint: 'lower keepRecentMessages, or raise the context window if the model supports one',
@@ -692,7 +693,7 @@ export async function runCompactionCheck(
 	}
 
 	ctx.log.info('Context compacted', {
-		runId: ctx.runMgr.id,
+		[NAMZU.RUN_ID]: ctx.runMgr.id,
 		oldMessageCount: oldCount,
 		newMessageCount: messages.length,
 		removedMessages: oldCount - messages.length,

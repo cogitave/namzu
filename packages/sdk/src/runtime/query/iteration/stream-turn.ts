@@ -419,7 +419,7 @@ export async function* streamProviderTurn(
 				if (fragment) {
 					if (!bucket.id) {
 						log.warn('tool_input_delta arrived before tool id was known; dropping fragment', {
-							runId,
+							[NAMZU.RUN_ID]: runId,
 							index: tc.index,
 							length: fragment.length,
 						})
@@ -447,9 +447,9 @@ export async function* streamProviderTurn(
 					} catch (err) {
 						bucket.inputTruncated = true
 						log.warn('tool input JSON parse failed at content_block_stop', {
-							runId,
+							[NAMZU.RUN_ID]: runId,
 							toolUseId: endId,
-							error: err instanceof Error ? err.message : String(err),
+							'exception.message': err instanceof Error ? err.message : String(err),
 						})
 					}
 					bucket.parsed = parsed
@@ -559,9 +559,9 @@ export async function* streamProviderTurn(
 			bucket.inputTruncated = truncated
 			if (truncated) {
 				log.warn('tool input truncated by upstream cutoff (no toolCallEnd, argsBuf unparsable)', {
-					runId,
+					[NAMZU.RUN_ID]: runId,
 					toolUseId: bucket.id,
-					toolName: bucket.name,
+					[GENAI.TOOL_NAME]: bucket.name,
 					bufferLength: bucket.argsBuf.length,
 				})
 			}
@@ -610,9 +610,9 @@ export async function* streamProviderTurn(
 
 	if (recoveredToolInputFromStreamError) {
 		log.warn('provider stream failed after tool input; surfacing tool call to executor', {
-			runId,
-			iteration,
-			error: streamError,
+			[NAMZU.RUN_ID]: runId,
+			[NAMZU.ITERATION]: iteration,
+			'exception.message': streamError,
 			toolCallCount: toolCalls.length,
 		})
 	}

@@ -94,7 +94,7 @@ export class MCPClient {
 			this.transport.onError((err) => {
 				this.status = 'error'
 				this.error = err.message
-				this.log.error('MCP transport error', { error: err.message })
+				this.log.error('MCP transport error', { 'exception.message': err.message })
 				this.emitLifecycle({ type: 'mcp_client_error', clientId: this.id, error: err.message })
 				this.rejectAllPending(`MCP transport to "${this.config.serverName}" failed: ${err.message}`)
 			})
@@ -146,7 +146,7 @@ export class MCPClient {
 		} catch (err) {
 			this.status = 'error'
 			this.error = toErrorMessage(err)
-			this.log.error('MCP connection failed', { error: this.error })
+			this.log.error('MCP connection failed', { 'exception.message': this.error })
 			this.emitLifecycle({ type: 'mcp_client_error', clientId: this.id, error: this.error })
 			throw err
 		}
@@ -333,7 +333,7 @@ export class MCPClient {
 			try {
 				listener(event)
 			} catch (err) {
-				this.log.warn('MCP lifecycle listener threw', { error: toErrorMessage(err) })
+				this.log.warn('MCP lifecycle listener threw', { 'exception.message': toErrorMessage(err) })
 			}
 		}
 	}
@@ -480,7 +480,7 @@ export class MCPClient {
 				})
 				.catch((err) => {
 					this.log.debug('Failed to send method-not-found reply', {
-						error: toErrorMessage(err),
+						'exception.message': toErrorMessage(err),
 					})
 				})
 		}

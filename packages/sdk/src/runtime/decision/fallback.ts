@@ -1,3 +1,4 @@
+import { GENAI } from '../../constants/telemetry/index.js'
 import type { RoutingDecision } from '../../types/agent/router.js'
 import type { FallbackStrategy } from '../../types/decision/index.js'
 import type { Logger } from '../../utils/logger.js'
@@ -17,7 +18,7 @@ export class FallbackResolver {
 				case 'pattern_match': {
 					const match = this.matchPatterns(userContent, strategy.patterns)
 					if (match && validAgentIds.includes(match)) {
-						this.log.info('Fallback resolved via pattern match', { agentId: match })
+						this.log.info('Fallback resolved via pattern match', { [GENAI.AGENT_ID]: match })
 						return {
 							agentId: match,
 							confidence: 0.5,
@@ -29,7 +30,9 @@ export class FallbackResolver {
 				}
 				case 'fixed': {
 					if (validAgentIds.includes(strategy.agentId)) {
-						this.log.info('Fallback resolved via fixed strategy', { agentId: strategy.agentId })
+						this.log.info('Fallback resolved via fixed strategy', {
+							[GENAI.AGENT_ID]: strategy.agentId,
+						})
 						return {
 							agentId: strategy.agentId,
 							confidence: 0,
@@ -42,7 +45,7 @@ export class FallbackResolver {
 				case 'first_route': {
 					const first = validAgentIds[0]
 					if (first !== undefined) {
-						this.log.info('Fallback resolved via first_route strategy', { agentId: first })
+						this.log.info('Fallback resolved via first_route strategy', { [GENAI.AGENT_ID]: first })
 						return {
 							agentId: first,
 							confidence: 0,

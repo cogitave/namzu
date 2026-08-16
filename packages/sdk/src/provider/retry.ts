@@ -1,3 +1,4 @@
+import { GENAI } from '../constants/telemetry/index.js'
 import { classifyProviderError, isAbortError } from '../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../types/provider/index.js'
 import { type BackoffPolicy, backoffWithJitter, sleep } from '../utils/backoff.js'
@@ -130,10 +131,10 @@ export function withProviderRetry(
 
 				if (produced || !classified.retryable || exhausted) {
 					log?.warn('Provider call failed', {
-						provider: provider.id,
+						[GENAI.SYSTEM]: provider.id,
 						code: classified.code,
 						status: classified.status,
-						attempt: attempt + 1,
+						'namzu.retry.attempt': attempt + 1,
 						retryable: classified.retryable,
 						reason: produced
 							? 'stream already produced output — cannot retry without duplicating it'
@@ -184,10 +185,10 @@ export function withProviderRetry(
 				// failure until those attempts were gone.
 				if (serverDirected !== undefined && serverDirected > config.maxRetryAfterMs) {
 					log?.warn('Provider call failed — server-directed wait exceeds the ceiling', {
-						provider: provider.id,
+						[GENAI.SYSTEM]: provider.id,
 						code: classified.code,
 						status: classified.status,
-						attempt: attempt + 1,
+						'namzu.retry.attempt': attempt + 1,
 						retryAfterMs: serverDirected,
 						maxRetryAfterMs: config.maxRetryAfterMs,
 						reason: 'surfacing rather than retrying — the caller decides how to wait',
@@ -198,10 +199,10 @@ export function withProviderRetry(
 				const delay = serverDirected ?? backoffWithJitter(attempt, config, random)
 
 				log?.warn('Provider call failed — retrying', {
-					provider: provider.id,
+					[GENAI.SYSTEM]: provider.id,
 					code: classified.code,
 					status: classified.status,
-					attempt: attempt + 1,
+					'namzu.retry.attempt': attempt + 1,
 					maxRetries: config.maxRetries,
 					delayMs: delay,
 					serverDirected: serverDirected !== undefined,

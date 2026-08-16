@@ -13,6 +13,7 @@ import {
 	EMERGENCY_EVENTS,
 	EMERGENCY_SIGNALS,
 } from '../../constants/emergency.js'
+import { NAMZU } from '../../constants/telemetry/index.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { Logger } from '../../utils/logger.js'
 import type { RunPersistence } from './persistence.js'
@@ -100,7 +101,7 @@ export class EmergencySaveManager {
 			tmpPath = undefined
 
 			this.log.warn('Emergency save completed', {
-				runId: snapshot.runId,
+				[NAMZU.RUN_ID]: snapshot.runId,
 				signal,
 				path: finalPath,
 			})
@@ -116,7 +117,7 @@ export class EmergencySaveManager {
 			try {
 				this.log.error('Emergency save failed', {
 					signal,
-					error: err instanceof Error ? err.message : String(err),
+					'exception.message': err instanceof Error ? err.message : String(err),
 				})
 			} catch {
 				// Logger itself failed — nothing more we can safely do.

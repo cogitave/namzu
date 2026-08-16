@@ -157,7 +157,7 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 					} catch (rollbackErr) {
 						this.log.error('Rollback failed for a step', {
 							'namzu.pipeline.step_name': step.name,
-							error: toErrorMessage(rollbackErr),
+							'exception.message': toErrorMessage(rollbackErr),
 						})
 					}
 				}

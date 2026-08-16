@@ -1,5 +1,6 @@
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
+import { GENAI } from '../../constants/telemetry/index.js'
 import type { AgentRegistry } from '../../registry/agent/definitions.js'
 import {
 	type CapacityValidator,
@@ -379,7 +380,7 @@ export class AgentManager {
 			if (inheritedEnv) childConfig.env = inheritedEnv
 		} else {
 			this.log.warn('No configBuilder, using bare config', {
-				agentId: options.agentId,
+				[GENAI.AGENT_ID]: options.agentId,
 			})
 			childConfig = {
 				model: options.configOverrides?.model ?? 'default',
@@ -957,8 +958,8 @@ export class AgentManager {
 				await this.disposeChildWorkspace(spawnRecord)
 			} catch (err) {
 				this.log.error('Sub-session finalization failed', {
-					taskId: agentTask.taskId,
-					error: toErrorMessage(err),
+					'namzu.task.id': agentTask.taskId,
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}
@@ -984,8 +985,8 @@ export class AgentManager {
 				})
 			} catch (err) {
 				this.log.error('subsession_idled emission error', {
-					taskId: agentTask.taskId,
-					error: toErrorMessage(err),
+					'namzu.task.id': agentTask.taskId,
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}
@@ -1019,7 +1020,7 @@ export class AgentManager {
 		if (unused === 0) return
 		agentTask.context.budgetTracker.remaining += unused
 		this.log.debug('Returned unspent child budget', {
-			taskId: agentTask.taskId,
+			'namzu.task.id': agentTask.taskId,
 			reserved,
 			spent,
 			returned: unused,
@@ -1074,7 +1075,10 @@ export class AgentManager {
 			taskId,
 			error,
 		})
-		this.log.error('Agent task failed', { 'namzu.agent.task_id': taskId, error })
+		this.log.error('Agent task failed', {
+			'namzu.agent.task_id': taskId,
+			'exception.message': error,
+		})
 
 		// Best-effort: mark sub-session failed + dispose workspace. The result
 		// emission path already synthesized a failure result above.
@@ -1082,8 +1086,8 @@ export class AgentManager {
 		if (spawnRecord) {
 			this.failSubSession(spawnRecord).catch((err) => {
 				this.log.warn('SubSession failure update failed', {
-					taskId,
-					error: toErrorMessage(err),
+					'namzu.task.id': taskId,
+					'exception.message': toErrorMessage(err),
 				})
 			})
 		}
@@ -1131,8 +1135,8 @@ export class AgentManager {
 				this.log.warn('Workspace dispose failed', {
 					backend,
 					workspaceId: spawnRecord.workspaceRef?.id,
-					subSessionId: spawnRecord.subSessionId,
-					error: toErrorMessage(disposeErr),
+					'namzu.sub_session.id': spawnRecord.subSessionId,
+					'exception.message': toErrorMessage(disposeErr),
 				})
 			})
 	}
@@ -1208,8 +1212,8 @@ export class AgentManager {
 				listener(event)
 			} catch (err) {
 				this.log.error('Agent lifecycle listener error', {
-					eventType: event.type,
-					error: toErrorMessage(err),
+					'namzu.event.type': event.type,
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}
@@ -1221,9 +1225,9 @@ export class AgentManager {
 			agentTask.runEventListener(event)
 		} catch (err) {
 			this.log.error('RunEvent emission error', {
-				eventType: event.type,
-				taskId: agentTask.taskId,
-				error: toErrorMessage(err),
+				'namzu.event.type': event.type,
+				'namzu.task.id': agentTask.taskId,
+				'exception.message': toErrorMessage(err),
 			})
 		}
 	}

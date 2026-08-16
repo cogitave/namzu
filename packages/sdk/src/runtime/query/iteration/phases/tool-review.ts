@@ -153,7 +153,7 @@ export async function* runToolReview(
 
 		if (allAllowed) {
 			ctx.log.debug('Verification gate: all tool calls pre-approved', {
-				tools: gateResults.map((gr) => gr.toolCall.name),
+				'namzu.tool.names': gateResults.map((gr) => gr.toolCall.name),
 			})
 			await settle()
 			yield* ctx.drainPending()
@@ -162,7 +162,7 @@ export async function* runToolReview(
 
 		if (allDenied) {
 			ctx.log.debug('Verification gate: all tool calls denied', {
-				tools: gateResults.map((gr) => gr.toolCall.name),
+				'namzu.tool.names': gateResults.map((gr) => gr.toolCall.name),
 			})
 			await settle(gateDenied)
 			yield* ctx.drainPending()
@@ -190,7 +190,7 @@ export async function* runToolReview(
 		toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))
 	) {
 		ctx.log.debug('Every tool call is covered by an approval already granted', {
-			tools: toolCallSummaries.map((tc) => tc.name),
+			'namzu.tool.names': toolCallSummaries.map((tc) => tc.name),
 		})
 		await settle()
 		yield* ctx.drainPending()

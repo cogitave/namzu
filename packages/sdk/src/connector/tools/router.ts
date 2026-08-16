@@ -37,7 +37,7 @@ export class ConnectorToolRouter {
 			} catch (err) {
 				this.log.error('Failed to create tools for a connector instance', {
 					'namzu.connector.instance_id': instance.id,
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}
@@ -53,7 +53,7 @@ export class ConnectorToolRouter {
 		}
 		this.log.info('Registered connector tools', {
 			'namzu.connector.tool_count': names.length,
-			tools: names,
+			'namzu.tool.names': names,
 		})
 		return names
 	}

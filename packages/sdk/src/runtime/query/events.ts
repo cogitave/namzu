@@ -1,3 +1,4 @@
+import { NAMZU } from '../../constants/telemetry/index.js'
 import type { PlanEvent, PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import { buildProbeContext } from '../../probe/context.js'
@@ -75,7 +76,7 @@ export class EventTranslator {
 				this.droppedDeltaCount += 1
 				if (this.droppedDeltaCount === 1 || this.droppedDeltaCount % 100 === 0) {
 					this.log.warn('Dropped ephemeral RunEvent under bus pressure', {
-						runId: event.runId,
+						[NAMZU.RUN_ID]: event.runId,
 						droppedCount: this.droppedDeltaCount,
 						queueSize: this.pendingEvents.length,
 					})

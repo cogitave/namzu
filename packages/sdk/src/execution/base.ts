@@ -37,7 +37,7 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 			this.emit({ type: 'context_error', contextId: this.id, error: message })
 			this.log.error('Execution context initialization failed', {
 				'namzu.execution.context_id': this.id,
-				error: message,
+				'exception.message': message,
 			})
 			throw err
 		}
@@ -72,7 +72,7 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 				listener(event)
 			} catch (err) {
 				this.log.error('Execution context event listener error', {
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}

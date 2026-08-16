@@ -1,3 +1,4 @@
+import { GENAI } from '../../constants/telemetry/index.js'
 import {
 	type DecisionParseResult,
 	type DecisionParserConfig,
@@ -40,7 +41,7 @@ export class DecisionParser {
 			parsed = JSON.parse(jsonStr)
 		} catch (err) {
 			this.log.warn('Invalid JSON in routing response', {
-				error: String(err),
+				'exception.message': String(err),
 				contentPreview: jsonStr.slice(0, 200),
 			})
 			return {
@@ -69,7 +70,7 @@ export class DecisionParser {
 
 		if (!this.config.validAgentIds.includes(response.agentId)) {
 			this.log.warn('LLM returned unknown agentId', {
-				agentId: response.agentId,
+				[GENAI.AGENT_ID]: response.agentId,
 				validIds: this.config.validAgentIds,
 			})
 
@@ -84,7 +85,7 @@ export class DecisionParser {
 			this.log.info('Routing confidence below threshold', {
 				confidence: response.confidence,
 				threshold: this.config.minConfidence,
-				agentId: response.agentId,
+				[GENAI.AGENT_ID]: response.agentId,
 			})
 
 			return {

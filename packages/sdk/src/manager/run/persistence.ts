@@ -1,5 +1,6 @@
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../constants/continuation.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
+import { NAMZU } from '../../constants/telemetry/index.js'
 import { resolveModelPricing } from '../../pricing/index.js'
 import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
 import { RunDiskStore } from '../../store/run/disk.js'
@@ -678,7 +679,7 @@ export class RunPersistence {
 		}
 
 		this.log.info('Run persisted to disk', {
-			runId: this.run.id,
+			[NAMZU.RUN_ID]: this.run.id,
 			dir: this.runStore.getRunDir(),
 		})
 	}

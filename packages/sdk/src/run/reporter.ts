@@ -1,4 +1,4 @@
-import { NAMZU } from '../constants/telemetry/index.js'
+import { GENAI, NAMZU } from '../constants/telemetry/index.js'
 import type { Run, RunEvent, RunEventListener } from '../types/run/index.js'
 import { formatCost } from '../utils/cost.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
@@ -26,7 +26,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 		switch (event.type) {
 			case 'run_started':
 				log.info('Run started', {
-					runId: event.runId,
+					[NAMZU.RUN_ID]: event.runId,
 					hasSystemPrompt: !!event.systemPrompt,
 					systemPromptLength: event.systemPrompt?.length ?? 0,
 				})
@@ -46,51 +46,51 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 			case 'iteration_started':
 				log.info('Iteration started', {
-					runId: event.runId,
-					iteration: event.iteration,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
 				})
 				break
 
 			case 'iteration_completed':
 				log.info('Iteration completed', {
-					runId: event.runId,
-					iteration: event.iteration,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
 					hasToolCalls: event.hasToolCalls,
 				})
 				break
 
 			case 'tool_executing':
 				log.info('Tool executing', {
-					runId: event.runId,
-					tool: event.toolName,
+					[NAMZU.RUN_ID]: event.runId,
+					[GENAI.TOOL_NAME]: event.toolName,
 				})
 				break
 
 			case 'tool_completed':
 				log.info('Tool completed', {
-					runId: event.runId,
-					tool: event.toolName,
+					[NAMZU.RUN_ID]: event.runId,
+					[GENAI.TOOL_NAME]: event.toolName,
 				})
 				break
 
 			case 'token_usage_updated':
 				log.info('Token usage updated', {
-					runId: event.runId,
-					promptTokens: event.usage.promptTokens,
-					completionTokens: event.usage.completionTokens,
-					totalTokens: event.usage.totalTokens,
+					[NAMZU.RUN_ID]: event.runId,
+					'gen_ai.usage.input_tokens': event.usage.promptTokens,
+					'gen_ai.usage.output_tokens': event.usage.completionTokens,
+					'namzu.usage.total_tokens': event.usage.totalTokens,
 					totalCost: event.cost.totalCost,
 				})
 				break
 
 			case 'run_completed':
-				log.info('Run completed', { runId: event.runId })
+				log.info('Run completed', { [NAMZU.RUN_ID]: event.runId })
 				break
 
 			case 'run_failed':
 				log.error('Run failed', {
-					runId: event.runId,
-					error: event.error,
+					[NAMZU.RUN_ID]: event.runId,
+					'exception.message': event.error,
 					// A greppable id and a sentence saying what to change,
 					// where before there was only whatever prose the vendor
 					// SDK happened to write.
@@ -127,18 +127,18 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 			case 'agent_pending':
 				log.info('Agent task pending', {
-					runId: event.runId,
-					taskId: event.taskId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.task.id': event.taskId,
 					parentAgentId: event.parentAgentId,
 					childAgentId: event.childAgentId,
-					depth: event.depth,
+					'namzu.agent.depth': event.depth,
 				})
 				break
 
 			case 'agent_completed':
 				log.info('Agent task completed', {
-					runId: event.runId,
-					taskId: event.taskId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.task.id': event.taskId,
 					status: event.result.status,
 					iterations: event.result.iterations,
 				})
@@ -146,24 +146,24 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 			case 'agent_failed':
 				log.error('Agent task failed', {
-					runId: event.runId,
-					taskId: event.taskId,
-					error: event.error,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.task.id': event.taskId,
+					'exception.message': event.error,
 				})
 				break
 
 			case 'agent_canceled':
 				log.info('Agent task canceled', {
-					runId: event.runId,
-					taskId: event.taskId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.task.id': event.taskId,
 				})
 				break
 
 			case 'task_created':
 				log.info('Task created', {
 					'namzu.task.subject': event.subject,
-					runId: event.runId,
-					taskId: event.taskId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.task.id': event.taskId,
 					status: event.status,
 				})
 				break
@@ -171,8 +171,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'task_updated':
 				log.info('Task updated', {
 					'namzu.task.subject': event.subject,
-					runId: event.runId,
-					taskId: event.taskId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.task.id': event.taskId,
 					status: event.status,
 					owner: event.owner,
 				})
@@ -180,16 +180,16 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 			case 'plugin_hook_executing':
 				log.debug('Plugin hook executing', {
-					runId: event.runId,
-					pluginId: event.pluginId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.plugin.id': event.pluginId,
 					hookEvent: event.hookEvent,
 				})
 				break
 
 			case 'plugin_hook_completed':
 				log.debug('Plugin hook completed', {
-					runId: event.runId,
-					pluginId: event.pluginId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.plugin.id': event.pluginId,
 					hookEvent: event.hookEvent,
 					action: event.result.action,
 				})
@@ -197,54 +197,54 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 			case 'sandbox_created':
 				log.info('Sandbox created', {
-					runId: event.runId,
-					sandboxId: event.sandboxId,
-					environment: event.environment,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.sandbox.id': event.sandboxId,
+					'namzu.execution.environment': event.environment,
 				})
 				break
 
 			case 'sandbox_exec':
 				log.debug('Sandbox exec', {
-					runId: event.runId,
-					sandboxId: event.sandboxId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.sandbox.id': event.sandboxId,
 					command: event.command,
 					exitCode: event.exitCode,
-					durationMs: event.durationMs,
+					'namzu.duration_ms': event.durationMs,
 				})
 				break
 
 			case 'sandbox_destroyed':
 				log.info('Sandbox destroyed', {
-					runId: event.runId,
-					sandboxId: event.sandboxId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.sandbox.id': event.sandboxId,
 				})
 				break
 
 			case 'subsession_spawned':
 				log.debug('Sub-session spawned', {
-					runId: event.runId,
-					subSessionId: event.subSessionId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.sub_session.id': event.subSessionId,
 					parentSessionId: event.parentSessionId,
-					depth: event.lineage.depth,
+					'namzu.agent.depth': event.lineage.depth,
 				})
 				break
 
 			case 'subsession_messaged':
 				log.debug('Sub-session message', {
-					runId: event.runId,
-					subSessionId: event.subSessionId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.sub_session.id': event.subSessionId,
 					parentSessionId: event.parentSessionId,
 					messageId: event.messageId,
-					depth: event.lineage.depth,
+					'namzu.agent.depth': event.lineage.depth,
 				})
 				break
 
 			case 'subsession_idled':
 				log.debug('Sub-session idled', {
-					runId: event.runId,
-					subSessionId: event.subSessionId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.sub_session.id': event.subSessionId,
 					parentSessionId: event.parentSessionId,
-					depth: event.lineage.depth,
+					'namzu.agent.depth': event.lineage.depth,
 				})
 				break
 
@@ -256,8 +256,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 			case 'reasoning_completed':
 				log.debug('Reasoning block completed', {
-					runId: event.runId,
-					iteration: event.iteration,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
 					blockIndex: event.blockIndex,
 					signed: event.signed,
 					chars: event.text?.length ?? 0,
@@ -266,18 +266,18 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 			case 'guardrail_triggered':
 				log.warn('Guardrail triggered', {
-					runId: event.runId,
+					[NAMZU.RUN_ID]: event.runId,
 					stage: event.stage,
 					action: event.action,
-					guardrail: event.guardrail,
+					'namzu.guardrail.name': event.guardrail,
 					reason: event.reason,
 				})
 				break
 
 			case 'compaction_completed':
 				log.info('Context compacted', {
-					runId: event.runId,
-					iteration: event.iteration,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
 					messagesDropped: event.messagesBefore - event.messagesAfter,
 					tokensBefore: event.tokensBefore,
 					tokensAfter: event.tokensAfter,
@@ -325,8 +325,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				// warn rather than info: the run is now continuing at a context
 				// size it had already decided was too large.
 				log.warn('Context compaction shed nothing', {
-					runId: event.runId,
-					iteration: event.iteration,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
 					cause: event.cause,
 					messages: event.messages,
 					...(event.error !== undefined ? { error: event.error } : {}),
@@ -335,9 +335,9 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 			case 'capability_warning':
 				log.warn('Provider capability mismatch', {
-					runId: event.runId,
+					[NAMZU.RUN_ID]: event.runId,
 					capability: event.capability,
-					providerId: event.providerId,
+					[GENAI.SYSTEM]: event.providerId,
 					message: event.message,
 				})
 				break
@@ -346,24 +346,24 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				// Debug, not info: a long tool can emit many of these and they
 				// are a live-view signal, not a run milestone.
 				log.debug('Tool progress', {
-					runId: event.runId,
-					tool: event.toolName,
+					[NAMZU.RUN_ID]: event.runId,
+					[GENAI.TOOL_NAME]: event.toolName,
 					message: event.message,
 				})
 				break
 
 			case 'user_question_asked':
 				log.info('Question asked — the run is parked on an answer', {
-					runId: event.runId,
-					checkpointId: event.checkpointId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.checkpoint.id': event.checkpointId,
 					questionId: event.questionId,
 				})
 				break
 
 			case 'user_question_answered':
 				log.info(event.answered ? 'Question answered' : 'Question closed unanswered', {
-					runId: event.runId,
-					checkpointId: event.checkpointId,
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.checkpoint.id': event.checkpointId,
 				})
 				break
 
@@ -372,9 +372,9 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				// measurable stretch, and the delay it names is still ahead.
 				log.warn('Model call failed — retrying', {
 					'namzu.provider.retry_delay_ms': event.delayMs,
-					runId: event.runId,
-					iteration: event.iteration,
-					attempt: event.attempt,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
+					'namzu.retry.attempt': event.attempt,
 					maxRetries: event.maxRetries,
 					code: event.code,
 					status: event.status,
@@ -386,8 +386,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				// `warn` for the same reason as a retry, and one stronger: the rest
 				// of this run is being served by a provider the caller did not pick.
 				log.warn('Provider could not serve — continuing on the fallback', {
-					runId: event.runId,
-					iteration: event.iteration,
+					[NAMZU.RUN_ID]: event.runId,
+					[NAMZU.ITERATION]: event.iteration,
 					fromIndex: event.fromIndex,
 					fromProviderId: event.fromProviderId,
 					fromModel: event.fromModel,
@@ -418,14 +418,14 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 		const { tokenUsage, costInfo, currentIteration, stopReason } = run
 
 		log.info('Run summary', {
-			runId: run.id,
+			[NAMZU.RUN_ID]: run.id,
 			agent: run.metadata.agentName,
 			status: run.status,
 			stopReason: stopReason ?? 'unknown',
 			iterations: currentIteration,
-			promptTokens: tokenUsage.promptTokens,
-			completionTokens: tokenUsage.completionTokens,
-			totalTokens: tokenUsage.totalTokens,
+			'gen_ai.usage.input_tokens': tokenUsage.promptTokens,
+			'gen_ai.usage.output_tokens': tokenUsage.completionTokens,
+			'namzu.usage.total_tokens': tokenUsage.totalTokens,
 			cost: formatCost(costInfo.totalCost),
 			duration: formatDuration(elapsed),
 		})

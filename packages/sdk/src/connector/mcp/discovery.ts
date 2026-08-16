@@ -1,3 +1,4 @@
+import { NAMZU } from '../../constants/telemetry/index.js'
 import type {
 	MCPDiscoveredTool,
 	MCPPromptDefinition,
@@ -96,7 +97,7 @@ export class MCPToolDiscovery {
 			} catch (err) {
 				this.log.error('Failed to discover tools from an MCP client', {
 					'namzu.mcp.client_id': client.id,
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}
@@ -121,8 +122,8 @@ export class MCPToolDiscovery {
 
 		if (refused.length > 0) {
 			this.log.warn('MCP tools refused by policy', {
-				serverName: state.serverName,
-				clientId: client.id,
+				[NAMZU.SERVER_NAME]: state.serverName,
+				'namzu.mcp.client_id': client.id,
 				refused: refused.map((r) => `${r.name} (${r.reason})`),
 			})
 		}
@@ -157,8 +158,8 @@ export class MCPToolDiscovery {
 			advertised = await client.listPrompts()
 		} catch (err) {
 			this.log.debug('MCP server published no prompts', {
-				serverName: state.serverName,
-				clientId: client.id,
+				[NAMZU.SERVER_NAME]: state.serverName,
+				'namzu.mcp.client_id': client.id,
 				reason: toErrorMessage(err),
 			})
 			return []
@@ -169,8 +170,8 @@ export class MCPToolDiscovery {
 
 		if (refused.length > 0) {
 			this.log.warn('MCP prompts refused by policy', {
-				serverName: state.serverName,
-				clientId: client.id,
+				[NAMZU.SERVER_NAME]: state.serverName,
+				'namzu.mcp.client_id': client.id,
 				refused: refused.map((r) => `${r.name} (${r.reason})`),
 			})
 		}
@@ -198,8 +199,8 @@ export class MCPToolDiscovery {
 		if (!hasDrift(drift)) return
 
 		this.log.warn('MCP server tool set changed since the last discovery', {
-			serverName,
-			clientId,
+			[NAMZU.SERVER_NAME]: serverName,
+			'namzu.mcp.client_id': clientId,
 			added: drift.added,
 			removed: drift.removed,
 			changed: drift.changed,

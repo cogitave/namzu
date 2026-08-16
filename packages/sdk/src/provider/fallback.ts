@@ -21,6 +21,7 @@
  * host assemble it in whichever order it happens to pick.
  */
 
+import { GENAI } from '../constants/telemetry/index.js'
 import { classifyProviderError, isAbortError } from '../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../types/provider/index.js'
 import type { Logger } from '../utils/logger.js'
@@ -322,7 +323,7 @@ export function withProviderFallback(
 				const to = members[next]
 				if (produced || !to || !shouldFallOver(err, member.provider.id)) {
 					log?.warn('Provider chain: not falling over', {
-						provider: member.provider.id,
+						[GENAI.SYSTEM]: member.provider.id,
 						position: cursor,
 						reason: produced
 							? 'stream already produced output — cannot restart without duplicating it'

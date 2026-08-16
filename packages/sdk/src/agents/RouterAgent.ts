@@ -258,7 +258,7 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 				if (!parseResult.ok) {
 					log.warn('Routing attempt failed to parse', {
 						'namzu.router.attempt': attempt + 1,
-						error: parseResult.error,
+						'exception.message': parseResult.error,
 					})
 					if (attempt === maxRetries - 1) {
 						break
@@ -267,7 +267,7 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			} catch (err) {
 				log.warn('Routing LLM call failed', {
 					'namzu.router.attempt': attempt + 1,
-					error: String(err),
+					'exception.message': String(err),
 				})
 				if (attempt === maxRetries - 1) {
 					break

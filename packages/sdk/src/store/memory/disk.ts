@@ -76,7 +76,7 @@ export class DiskMemoryStore implements MemoryStore {
 			}
 		} catch (err) {
 			this.log.warn('Failed to read memory index — starting fresh', {
-				error: String(err),
+				'exception.message': String(err),
 			})
 		}
 
@@ -112,7 +112,7 @@ export class DiskMemoryStore implements MemoryStore {
 		await this.persistIndex()
 		await this.records.write(this.contentPath(id), memoryContent)
 
-		this.log.info('Memory created', { memoryId: id, title: params.title })
+		this.log.info('Memory created', { 'namzu.memory.id': id, title: params.title })
 
 		return { entry, content: memoryContent }
 	}
@@ -125,7 +125,7 @@ export class DiskMemoryStore implements MemoryStore {
 		try {
 			return (await this.records.read(this.contentPath(id))) ?? undefined
 		} catch {
-			this.log.warn('Failed to read memory content', { memoryId: id })
+			this.log.warn('Failed to read memory content', { 'namzu.memory.id': id })
 			return undefined
 		}
 	}
@@ -171,11 +171,11 @@ export class DiskMemoryStore implements MemoryStore {
 
 				await this.records.write(this.contentPath(id), updatedContent)
 			} catch {
-				this.log.warn('Failed to update memory content', { memoryId: id })
+				this.log.warn('Failed to update memory content', { 'namzu.memory.id': id })
 			}
 		}
 
-		this.log.info('Memory updated', { memoryId: id })
+		this.log.info('Memory updated', { 'namzu.memory.id': id })
 		return updated
 	}
 
@@ -188,7 +188,7 @@ export class DiskMemoryStore implements MemoryStore {
 		await this.persistIndex()
 		await unlink(this.contentPath(id)).catch(() => undefined)
 
-		this.log.info('Memory deleted', { memoryId: id })
+		this.log.info('Memory deleted', { 'namzu.memory.id': id })
 		return true
 	}
 

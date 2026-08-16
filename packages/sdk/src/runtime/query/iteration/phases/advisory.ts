@@ -1,4 +1,5 @@
 import { serializeState } from '../../../../compaction/serializer.js'
+import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/advisory/index.js'
 import { toolResultToText } from '../../../../types/message/content.js'
 import { createUserMessage } from '../../../../types/message/index.js'
@@ -53,7 +54,7 @@ export async function runAdvisoryPhase(
 	const budgetCheck = advisoryCtx.checkBudget()
 	if (!budgetCheck.allowed) {
 		ctx.log.debug('Advisory budget exhausted, skipping advisory phase', {
-			runId: ctx.runMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			reason: budgetCheck.reason,
 		})
 		return
@@ -80,9 +81,9 @@ export async function runAdvisoryPhase(
 	const advisor = advisoryCtx.registry.resolve(trigger.advisorId)
 	if (!advisor) {
 		ctx.log.warn('Advisory trigger fired but advisor not found', {
-			runId: ctx.runMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			triggerId: trigger.id,
-			advisorId: trigger.advisorId,
+			'namzu.advisory.id': trigger.advisorId,
 		})
 		return
 	}
@@ -171,20 +172,20 @@ export async function runAdvisoryPhase(
 		ctx.runMgr.pushMessage(createUserMessage(sections.join('\n')))
 
 		ctx.log.info('Advisory phase completed', {
-			runId: ctx.runMgr.id,
-			iteration: iterationNum,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.ITERATION]: iterationNum,
 			triggerId: trigger.id,
-			advisorId: advisor.id,
-			durationMs: executionResult.durationMs,
+			'namzu.advisory.id': advisor.id,
+			'namzu.duration_ms': executionResult.durationMs,
 			totalAdvisoryCalls: advisoryCtx.callHistory.length,
 		})
 	} catch (err) {
 		ctx.log.warn('Advisory phase failed', {
-			runId: ctx.runMgr.id,
-			iteration: iterationNum,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.ITERATION]: iterationNum,
 			triggerId: trigger.id,
-			advisorId: advisor.id,
-			error: toErrorMessage(err),
+			'namzu.advisory.id': advisor.id,
+			'exception.message': toErrorMessage(err),
 		})
 	}
 }

@@ -1,4 +1,5 @@
 import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/authorization/index.js'
+import { GENAI } from '../constants/telemetry/index.js'
 import type {
 	AuthorizationGateConfig,
 	AuthorizationRule,
@@ -134,7 +135,7 @@ export class AuthorizationGate {
 					this.log.warn('Invalid custom pattern regex, skipping', {
 						index: i,
 						pattern: rule.pattern,
-						error: err instanceof Error ? err.message : String(err),
+						'exception.message': err instanceof Error ? err.message : String(err),
 					})
 				}
 			}
@@ -171,7 +172,7 @@ export class AuthorizationGate {
 					this.log.warn('Invalid argument pattern regex, skipping', {
 						index: i,
 						pattern: rule.pattern,
-						error: err instanceof Error ? err.message : String(err),
+						'exception.message': err instanceof Error ? err.message : String(err),
 					})
 				}
 			}
@@ -215,7 +216,7 @@ export class AuthorizationGate {
 
 				if (this.logDecisions) {
 					this.log.debug('Gate decision', {
-						toolName: ctx.toolName,
+						[GENAI.TOOL_NAME]: ctx.toolName,
 						decision,
 						ruleType: rule.type,
 						ruleIndex: i,
@@ -234,7 +235,7 @@ export class AuthorizationGate {
 
 		if (this.logDecisions) {
 			this.log.debug('Gate decision (default)', {
-				toolName: ctx.toolName,
+				[GENAI.TOOL_NAME]: ctx.toolName,
 				decision: 'review',
 			})
 		}

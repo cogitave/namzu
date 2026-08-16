@@ -96,7 +96,7 @@ export class MCPServer {
 			this.log.info('MCP client disconnected')
 		})
 		transport.onError((err) => {
-			this.log.error('MCP server transport error', { error: err.message })
+			this.log.error('MCP server transport error', { 'exception.message': err.message })
 		})
 
 		await transport.connect()

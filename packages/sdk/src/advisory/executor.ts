@@ -3,6 +3,7 @@ import { assembleSystemPrompt } from '../persona/assembler.js'
 import { resolveModelPricing } from '../pricing/index.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 
+import { GENAI } from '../constants/telemetry/index.js'
 import type { AdvisorDefinition, AdvisoryBudget } from '../types/advisory/config.js'
 import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.js'
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
@@ -77,8 +78,8 @@ export class AdvisoryExecutor {
 		]
 
 		this.logger.debug('advisory call starting', {
-			advisorId: advisor.id,
-			model: advisor.model,
+			'namzu.advisory.id': advisor.id,
+			[GENAI.REQUEST_MODEL]: advisor.model,
 			messageCount: messages.length,
 			urgency: request.urgency,
 		})
@@ -100,10 +101,10 @@ export class AdvisoryExecutor {
 		const cost = this.computeCost(advisor, response.usage)
 
 		this.logger.info('advisory call completed', {
-			advisorId: advisor.id,
-			model: advisor.model,
-			durationMs,
-			totalTokens: response.usage.totalTokens,
+			'namzu.advisory.id': advisor.id,
+			[GENAI.REQUEST_MODEL]: advisor.model,
+			'namzu.duration_ms': durationMs,
+			'namzu.usage.total_tokens': response.usage.totalTokens,
 		})
 
 		return {

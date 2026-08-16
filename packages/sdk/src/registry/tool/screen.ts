@@ -1,3 +1,4 @@
+import { GENAI } from '../../constants/telemetry/index.js'
 import type {
 	ToolResultGuardrailContext,
 	ToolResultGuardrailSpec,
@@ -53,8 +54,8 @@ async function safely(
 	} catch (err) {
 		const reason = `guardrail "${name}" threw: ${toErrorMessage(err)}`
 		log.error('Tool-result guardrail threw — failing closed', {
-			guardrail: name,
-			error: toErrorMessage(err),
+			'namzu.guardrail.name': name,
+			'exception.message': toErrorMessage(err),
 		})
 		return { action: 'refuse', reason }
 	}
@@ -96,8 +97,8 @@ export async function screenToolResult(
 
 		if (verdict.action === 'halt') {
 			log.error('Tool-result guardrail halted the run', {
-				tool: ctx.toolName,
-				guardrail: label,
+				[GENAI.TOOL_NAME]: ctx.toolName,
+				'namzu.guardrail.name': label,
 				reason: verdict.reason,
 			})
 			throw new ToolResultHalted(label, verdict.reason)
@@ -105,8 +106,8 @@ export async function screenToolResult(
 
 		if (verdict.action === 'refuse') {
 			log.warn('Tool-result guardrail refused the result', {
-				tool: ctx.toolName,
-				guardrail: label,
+				[GENAI.TOOL_NAME]: ctx.toolName,
+				'namzu.guardrail.name': label,
 				reason: verdict.reason,
 			})
 			return {
@@ -118,8 +119,8 @@ export async function screenToolResult(
 
 		if (verdict.action === 'rewrite') {
 			log.info('Tool-result guardrail rewrote the result', {
-				tool: ctx.toolName,
-				guardrail: label,
+				[GENAI.TOOL_NAME]: ctx.toolName,
+				'namzu.guardrail.name': label,
 				reason: verdict.reason,
 			})
 			current = verdict.output

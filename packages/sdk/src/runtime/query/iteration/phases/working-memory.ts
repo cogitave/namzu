@@ -1,3 +1,4 @@
+import { NAMZU } from '../../../../constants/telemetry/index.js'
 import { createSystemMessage } from '../../../../types/message/index.js'
 import type { IterationContext } from './context.js'
 
@@ -47,8 +48,8 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 			})) ?? ''
 	} catch (err) {
 		ctx.log.warn('workingMemoryProvider failed; keeping prior slot', {
-			runId: ctx.runMgr.id,
-			error: err instanceof Error ? err.message : String(err),
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			'exception.message': err instanceof Error ? err.message : String(err),
 		})
 		return
 	}

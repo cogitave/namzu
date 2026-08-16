@@ -69,7 +69,7 @@ export class FileLockManager {
 				return { acquired: true, lock: existing }
 			}
 			this.log.debug('lock denied', {
-				filePath,
+				'namzu.file.path': filePath,
 				requester: owner,
 				holder: existing.owner,
 			})
@@ -105,7 +105,7 @@ export class FileLockManager {
 		this.locks.set(filePath, lock)
 		agentLockSet.add(filePath)
 
-		this.log.debug('lock acquired', { lockId, filePath, owner })
+		this.log.debug('lock acquired', { 'namzu.lock.id': lockId, 'namzu.file.path': filePath, owner })
 		this.emit({ type: 'lock_acquired', lockId, filePath, owner })
 		return { acquired: true, lock }
 	}
@@ -149,8 +149,8 @@ export class FileLockManager {
 		}
 
 		this.log.debug('lock released', {
-			lockId: existing.lockId,
-			filePath,
+			'namzu.lock.id': existing.lockId,
+			'namzu.file.path': filePath,
 			owner,
 		})
 		this.emit({
@@ -172,8 +172,8 @@ export class FileLockManager {
 			if (lock && lock.owner === owner) {
 				this.locks.delete(filePath)
 				this.log.debug('lock released (cleanup)', {
-					lockId: lock.lockId,
-					filePath,
+					'namzu.lock.id': lock.lockId,
+					'namzu.file.path': filePath,
 					owner,
 				})
 				this.emit({
@@ -231,8 +231,8 @@ export class FileLockManager {
 		}
 
 		this.log.info('lock expired', {
-			lockId: lock.lockId,
-			filePath,
+			'namzu.lock.id': lock.lockId,
+			'namzu.file.path': filePath,
 			owner: lock.owner,
 		})
 		this.emit({

@@ -104,7 +104,7 @@ export class ConnectorManager {
 			this.emit({ type: 'instance_error', instanceId, error: message })
 			this.log.error('Connector connection failed', {
 				'namzu.connector.instance_id': instanceId,
-				error: message,
+				'exception.message': message,
 			})
 			throw err
 		}
@@ -122,7 +122,7 @@ export class ConnectorManager {
 			const message = toErrorMessage(err)
 			this.log.error('Connector disconnect failed', {
 				'namzu.connector.instance_id': instanceId,
-				error: message,
+				'exception.message': message,
 			})
 			throw err
 		}
@@ -190,7 +190,7 @@ export class ConnectorManager {
 			await this.disconnect(instanceId).catch((err) => {
 				this.log.warn('Disconnect failed during removal', {
 					instanceId,
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			})
 		}
@@ -264,7 +264,7 @@ export class ConnectorManager {
 				listener(event)
 			} catch (err) {
 				this.log.error('Connector event listener error', {
-					error: toErrorMessage(err),
+					'exception.message': toErrorMessage(err),
 				})
 			}
 		}

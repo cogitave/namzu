@@ -79,7 +79,7 @@ export function planPendingResume(
 
 	if (pending.request.type !== 'tool_review') {
 		log.info('Pending decision supplied for a park that leaves no tool calls to apply it to', {
-			checkpointId: checkpoint.id,
+			'namzu.checkpoint.id': checkpoint.id,
 			pendingType: pending.request.type,
 			decision: decision.action,
 		})
@@ -89,7 +89,7 @@ export function planPendingResume(
 	const assistant = lastAssistantWithUnansweredCalls(checkpoint.messages)
 	if (!assistant?.toolCalls || assistant.toolCalls.length === 0) {
 		log.warn('Checkpoint records a tool_review park but has no unanswered tool calls', {
-			checkpointId: checkpoint.id,
+			'namzu.checkpoint.id': checkpoint.id,
 		})
 		return null
 	}
@@ -102,7 +102,7 @@ export function planPendingResume(
 	const mismatched = actualIds.filter((id) => !recordedIds.has(id))
 	if (mismatched.length > 0 || recordedIds.size !== actualIds.length) {
 		log.error('Tool calls in the checkpoint do not match the ones the decision was made about', {
-			checkpointId: checkpoint.id,
+			'namzu.checkpoint.id': checkpoint.id,
 			recorded: [...recordedIds],
 			actual: actualIds,
 		})
@@ -145,7 +145,7 @@ function planQuestionResume(
 	const assistant = lastAssistantWithUnansweredCalls(checkpoint.messages)
 	if (!assistant?.toolCalls || assistant.toolCalls.length === 0) {
 		log.warn('Checkpoint records a question park but has no unanswered tool calls', {
-			checkpointId: checkpoint.id,
+			'namzu.checkpoint.id': checkpoint.id,
 		})
 		return null
 	}
@@ -165,7 +165,7 @@ function planQuestionResume(
 	// under the bare tool-use id.
 	if (!assistant.toolCalls.some((tc) => isPauseForCall(questionId, tc.id))) {
 		log.error('The parked question does not belong to any unanswered call in this turn', {
-			checkpointId: checkpoint.id,
+			'namzu.checkpoint.id': checkpoint.id,
 			questionId,
 		})
 		return null
@@ -215,7 +215,7 @@ export function planCrashResume(
 	if (done.length === 0) return null
 
 	log.warn('Checkpoint holds a tool batch that was part-way through executing', {
-		checkpointId: checkpoint.id,
+		'namzu.checkpoint.id': checkpoint.id,
 		completed: done.length,
 		total: calls.length,
 		remaining: calls.filter((tc) => !completed.has(tc.id)).map((tc) => tc.function.name),
@@ -276,7 +276,7 @@ export async function recoverCompletedCalls(
 		}
 	} catch (error) {
 		log.warn('Could not read the transcript to recover completed tool calls', {
-			error: error instanceof Error ? error.message : String(error),
+			'exception.message': error instanceof Error ? error.message : String(error),
 		})
 		return new Map()
 	}

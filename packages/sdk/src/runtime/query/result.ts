@@ -109,7 +109,7 @@ export class ResultAssembler {
 		rootSpan.setStatus({ code: SpanStatusCode.OK })
 
 		log.info('Query completed', {
-			runId: runMgr.id,
+			[NAMZU.RUN_ID]: runMgr.id,
 			iterations: runMgr.currentIteration,
 			stopReason: runMgr.stopReason,
 			activityStats: activityStore.enabled ? activityStore.stats() : undefined,
@@ -158,10 +158,10 @@ export class ResultAssembler {
 			rootSpan.setStatus({ code: SpanStatusCode.OK })
 
 			log.warn('Run paused on a recoverable failure — resume from the checkpoint', {
-				runId: runMgr.id,
-				checkpointId: resumeFrom,
+				[NAMZU.RUN_ID]: runMgr.id,
+				'namzu.checkpoint.id': resumeFrom,
 				code: failure.code,
-				error: errorMessage,
+				'exception.message': errorMessage,
 			})
 			return
 		}
@@ -221,8 +221,8 @@ export class ResultAssembler {
 		rootSpan.recordException(err instanceof Error ? err : new Error(errorMessage))
 
 		log.error('Query failed', {
-			runId: runMgr.id,
-			error: errorMessage,
+			[NAMZU.RUN_ID]: runMgr.id,
+			'exception.message': errorMessage,
 		})
 	}
 
