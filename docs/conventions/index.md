@@ -90,6 +90,11 @@ from reading as permission.
   — right path, wrong observer, wrong moment. A live run is not exempt.
 - [A fixture unlike production tests a system that does not ship](fixture-must-match-production.md)
   — the defect lives in a branch an empty listener set never enters.
+- [A green run on your machine is not a green run](a-green-run-on-your-machine.md)
+  — three CI failures in one session, none reproducible locally, none about the
+  change. What differed was never configured: what happened to be built already,
+  which shell `/bin/sh` is, what the job installed. Reproduce the condition —
+  each took minutes with a shim and would have taken an afternoon to argue about.
 - [A check that cannot fail is worse than no check](a-check-that-cannot-fail.md)
   — it teaches the next reader that the checks here are decoration. Includes the
   loose matcher: `toContain(old)` cannot see a change that only adds around it.

@@ -14,6 +14,7 @@
     "mutation-check-every-test",
     "sound-about-the-wrong-thing",
     "fixture-must-match-production",
+    "a-green-run-on-your-machine",
     "a-check-that-cannot-fail",
     "a-gate-must-say-where-it-looks",
     "---Reading The Evidence---",
