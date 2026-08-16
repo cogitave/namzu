@@ -35,7 +35,7 @@ import ts from "typescript";
  * an entry listing files with no compilable fence is caught by the
  * zero-count guard at the bottom.
  */
-const FENCE_CONFORMING = ["docs/sdk/observability", "docs/sdk/tools"];
+const FENCE_CONFORMING = ["docs/sdk/observability", "docs/sdk/tools", "docs/sdk/runtime"];
 
 const root = resolve(process.argv[2] ?? join(import.meta.dirname, ".."));
 const distDir = join(root, "packages", "sdk", "dist");

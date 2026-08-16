@@ -11,6 +11,11 @@ related_packages: ["@namzu/sdk", "@namzu/anthropic"]
 `query()` runs the agent loop. This page covers the seams for controlling
 when it stops, seeing what it did, and surviving the things that go wrong.
 
+Every example below sets one seam at a time, so `base` stands for the rest of
+the required `QueryParams` — the provider, the tool registry, `runConfig`, the
+messages, the resume handler and the scope ids. See
+[Runtime Configuration](./configuration.md) for what goes in it.
+
 ## 1. Stopping the Loop
 
 The loop ends naturally when the model stops calling tools. Everything
@@ -19,10 +24,12 @@ else is a policy you supply.
 ### Programmable stop conditions
 
 ```ts
-import { query, hasToolCall, stepCountIs, anyOf } from '@namzu/sdk'
+import { query, hasToolCall, stepCountIs, anyOf, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
 
 query({
-  // …
+  ...base,
   stopWhen: anyOf(hasToolCall('submit_answer'), stepCountIs(20)),
 })
 ```
@@ -53,7 +60,13 @@ feed the failure back, let it try again) meant starting a whole new run and
 re-supplying the context the first one had already assembled.
 
 ```ts
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+declare function runBuild(): Promise<{ ok: boolean; output: string }>
+
 query({
+  ...base,
   reviewAnswer: async (answer, { messages }) => {
     const build = await runBuild()
     return build.ok
@@ -135,8 +148,12 @@ inside an iteration without being one; they reach `run.tokenUsage` and no step,
 so a run that makes them reconciles short by exactly their cost.
 
 ```ts
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+
 query({
-  // …
+  ...base,
   onStepFinish: (step) => {
     console.log(step.stepNumber, step.usage.totalTokens, step.durationMs)
   },
@@ -173,6 +190,10 @@ so a ledger was complete except on the turns that went wrong, which reads as
 | `cancelled` | a Stop tore the turn down. There is no failure to report |
 
 ```ts
+import type { Run } from '@namzu/sdk'
+
+declare const run: Run
+
 for (const step of run.steps ?? []) {
   if (step.finishReason !== 'error') continue
   console.log(step.stepNumber, step.failure?.code, step.failure?.message)
@@ -212,6 +233,10 @@ the override a [`prepareStep`](#5-shaping-each-step) hook returned for this
 step. `servedBy` is who answered it:
 
 ```ts
+import type { StepResult } from '@namzu/sdk'
+
+declare const step: StepResult
+
 step.model    // 'primary-model' — what the step asked for
 step.servedBy // { providerId: 'fallback-provider', model: 'fallback-model', chainIndex: 1 }
 ```
@@ -240,8 +265,12 @@ Model calls are retried by default with exponential backoff and full
 jitter, honouring a server-sent `Retry-After`.
 
 ```ts
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+
 query({
-  // …
+  ...base,
   retry: { maxRetries: 5, initialDelayMs: 1_000 }, // or `false` to opt out
 })
 ```
@@ -271,9 +300,11 @@ instructed. Past it, the error is surfaced with `retryAfterMs` intact and the
 decision is yours:
 
 ```ts
+import type { ProviderRetryConfig } from '@namzu/sdk'
+
 // The provider said "come back in 15 minutes". You get the error, now,
 // carrying 900_000 — schedule against it, or raise the ceiling.
-retry: { maxRetryAfterMs: 60_000 }
+const retry: Partial<ProviderRetryConfig> = { maxRetryAfterMs: 60_000 }
 ```
 
 It used to fall through to the ordinary jittered backoff instead, so a provider
@@ -342,7 +373,12 @@ verifier, agent routing — are counted against the same budgets.
 next step should look — the other half of the same idea.
 
 ```ts
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+
 query({
+  ...base,
   prepareStep: ({ stepNumber, steps, messages }) => {
     if (stepNumber <= 3) return { activeTools: ['search', 'read_file'] }
     return { activeTools: ['write_file'], model: 'claude-haiku-4-5-20251001' }
@@ -432,7 +468,15 @@ array and each stage runs in **declaration order**, seeing what the ones
 before it decided:
 
 ```ts
+import { query, type QueryParams, type RunId, type StepResult } from '@namzu/sdk'
+
+declare const base: QueryParams
+declare function tenantPrefixFor(runId: RunId): string
+declare function spend(steps: readonly StepResult[]): number
+declare const budget: number
+
 query({
+  ...base,
   prepareStep: [
     ({ runId }) => ({ system: tenantPrefixFor(runId) }),
     ({ steps, prepared }) =>
@@ -526,7 +570,12 @@ Set `retain: true` on a message and neither the summarization rebuild nor
 the in-place clearing pass will touch it:
 
 ```ts
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+
 query({
+  ...base,
   messages: [
     { role: 'user', content: 'the account id is 4471; never bill a different one', retain: true },
     { role: 'user', content: 'draft the invoice' },
@@ -619,14 +668,22 @@ distinction rather than presenting an estimate as a measurement.
 
 All four are **absent when the run has no compaction configuration** — nothing
 then resolves a window, and inventing one would be the guess these fields exist
-to replace. `measureContext` is exported for a host that wants to compute the
-same figure itself.
+to replace. There is no public helper that recomputes them: the measurement
+reads the last turn's reported prompt size and the messages appended since,
+which are run internals a host cannot see, so this event is the only source.
+Configure compaction if you want the figure.
 
 ## 6b. What a Finished Run Leaves Behind
 
 ```ts
+import { CompactionConfigSchema, query, type MemoryStore, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+declare const memoryStore: MemoryStore
+
 query({
-  compactionConfig: { strategy: 'structured' },
+  ...base,
+  compactionConfig: CompactionConfigSchema.parse({ strategy: 'structured' }),
   promoteMemory: async (candidate) => {
     for (const requirement of candidate.userRequirements) {
       await memoryStore.create({ title: candidate.task, summary: requirement, content: requirement })
@@ -670,10 +727,14 @@ happened.
 ## 7. Extended Thinking and Effort
 
 ```ts
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+
 query({
-  // …
+  ...base,
   runConfig: {
-    // …
+    ...base.runConfig,
     thinking: { type: 'adaptive' },
     effort: 'high',
   },
@@ -726,9 +787,12 @@ The three gates on tool calls — probe veto, `AuthorizationGate`, HITL review
 are the other direction.
 
 ```ts
-import { secretRedactionGuardrail } from '@namzu/sdk'
+import { query, secretRedactionGuardrail, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
 
 query({
+  ...base,
   inputGuardrails: [({ messages }) => /* … */ ({ action: 'pass' })],
   outputGuardrails: [secretRedactionGuardrail()],
 })
@@ -763,7 +827,13 @@ a `tool_result`, the model re-reads the entire context, and issues a second
 inference to add a missing brace.
 
 ```ts
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+declare function fixJson(args: string, schema: Record<string, unknown> | undefined): Promise<string>
+
 query({
+  ...base,
   repairToolCall: async ({ toolCall, reason, jsonSchema, availableTools }) => {
     if (reason !== 'invalid_json') return null
     return { arguments: await fixJson(toolCall.function.arguments, jsonSchema) }
@@ -784,11 +854,15 @@ the model as before.
 ### Per-tool retry budget
 
 ```ts
+import { z } from 'zod'
+import type { ToolDefinition } from '@namzu/sdk'
+
 const tool: ToolDefinition = {
   name: 'fetch_page',
+  description: 'Fetch a URL and return the page text.',
+  inputSchema: z.object({ url: z.string() }),
   maxRetries: 2,
   execute: async () => ({ success: false, output: '', error: 'ECONNRESET', retryable: true }),
-  // …
 }
 ```
 
@@ -808,8 +882,12 @@ likely to prolong the condition being retried against. Waits double per
 attempt from `initialDelayMs`, each drawn uniformly from `[0, curve]`:
 
 ```ts
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+
 query({
-  // …
+  ...base,
   toolRetryBackoff: { initialDelayMs: 500, maxDelayMs: 16_000 }, // the defaults
 })
 ```
@@ -828,7 +906,9 @@ the call unanswered.
 ## 10. Typed Failures
 
 ```ts
-import { toPlatformError } from '@namzu/sdk'
+import { drainQuery, toPlatformError, type QueryParams } from '@namzu/sdk'
+
+declare const params: QueryParams
 
 try {
   await drainQuery(params)
@@ -852,12 +932,22 @@ caller does something different about it: `invalid_config`,
 ## 11. Crash Save
 
 ```ts
-query({ emergencySave: true })
+import { query, type QueryParams } from '@namzu/sdk'
+
+declare const base: QueryParams
+
+query({
+  ...base,
+  emergencySave: true,
+})
 ```
 
 Installs SIGINT / SIGTERM / `uncaughtException` handlers that dump run
-state to `<runDir>/../emergency/<runId>.json`, readable by
-`replay({ fromCheckpoint: 'emergency' })`. Handlers are removed when the
+state to `<runDir>/../emergency/<runId>.json`. That file is read by
+`prepareReplayState({ fromCheckpoint: 'emergency', emergencyDir })`, which
+projects it into a checkpoint whose messages seed the recovering run —
+there is no single-call `replay()` entry point, so the fork is the two-step
+flow in [Replay and Checkpoints](./replay.md). Handlers are removed when the
 run settles.
 
 **Off by default, deliberately.** Attaching means calling `process.on(...)`

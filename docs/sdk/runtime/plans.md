@@ -113,6 +113,10 @@ Without this tool, a plan containing one such step could never settle however we
 From a host, the same reporting is one call:
 
 ```ts
+import type { PlanManager } from '@namzu/sdk'
+
+declare const planManager: PlanManager
+
 planManager.updateStepStatus('step-3', 'skipped')
 ```
 
@@ -165,16 +169,24 @@ The A2A bridge is narrower on purpose: only `plan_ready` crosses, mapping to tas
 
 `onContextCreated` is the callback for this work, and as of 12.0.0 it fires where it can be heard: after the event translator is wired and after run-store initialisation, still before the iteration loop. Previously it ran ahead of the wiring, so a host that built its plan there did it into silence — `plan_ready`, `plan_approved`, and every `plan_step_updated` emitted with nothing subscribed.
 
+`PlanManager.on(listener)` is the subscription, and it returns the function that unsubscribes.
+
 ```ts
+import { drainQuery, type QueryParams } from '@namzu/sdk'
+
+declare const params: Omit<QueryParams, 'onContextCreated'>
+
 await drainQuery({
-  // …
+  ...params,
   onContextCreated({ planManager }) {
-    planManager.onEvent((event) => {
+    planManager.on((event) => {
       console.log(event.type, event.plan.status)
     })
   },
 })
 ```
+
+A `PlanEvent['type']` is dotted — `plan.ready`, `plan.step_updated`, `plan.completed` — where the `RunEvent` names in section 6 are underscored. They are two vocabularies for the same transitions: `PlanEvent` is what this manager emits to its own listeners, and the event translator is what turns each one into the `RunEvent` the run stream carries.
 
 ## Related
 

@@ -1,7 +1,7 @@
 ---
 title: Low-Level Runtime
-description: Use query() and drainQuery() directly in @namzu/sdk when you need sandbox providers, plugin wiring, event streaming, or other query-only runtime controls.
-last_updated: 2026-08-06
+description: Use query() and drainQuery() directly in @namzu/sdk when you need plugin wiring, an agent bus, a prompt cache, or generator-level RunEvent streaming — the runtime controls ReactiveAgentConfig does not surface.
+last_updated: 2026-08-16
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai"]
 ---
@@ -14,18 +14,17 @@ related_packages: ["@namzu/sdk", "@namzu/openai"]
 
 Use the low-level runtime when you need:
 
-- a `sandboxProvider` that injects a real sandbox into tool context
 - direct `RunEvent` streaming
-- plugin manager, task router, agent bus, or compaction wiring
-- custom resume-handler behavior for HITL review or checkpoints
+- plugin manager, agent bus, or prompt-cache wiring
+- a task router on a plain `ReactiveAgent` (`SupervisorAgentConfig` already takes one)
 
-If you only need messages, tools, provider, IDs, and a final result, stay with `ReactiveAgent.run()`. `authorizationGate` is also accepted directly on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so a policy gate alone does not require dropping below the high-level surface.
+If you only need messages, tools, provider, IDs, and a final result, stay with `ReactiveAgent.run()`. `authorizationGate`, `sandboxProvider`, `compactionConfig` and `resumeHandler` are accepted directly on `ReactiveAgentConfig` and `SupervisorAgentConfig`, and `checkpointStore` on `ReactiveAgentConfig` — all of them forwarded into `drainQuery` — so neither a policy gate, a sandbox, a compaction policy nor a custom HITL handler is a reason to drop below the high-level surface.
 
 ## 2. `ReactiveAgent.run()` vs `drainQuery()`
 
 | Surface | Best for | Notable limits |
 | --- | --- | --- |
-| `ReactiveAgent.run()` | Standard app integrations and quickstarts | Does not expose the genuinely query-only runtime fields (`pluginManager`, `taskRouter`, `agentBus`, `contextCache`). `authorizationGate`, `sandboxProvider` and `compactionConfig` ARE on `ReactiveAgentConfig` and forwarded into `drainQuery` |
+| `ReactiveAgent.run()` | Standard app integrations and quickstarts | Does not expose the genuinely query-only runtime fields (`pluginManager`, `taskRouter`, `agentBus`, `contextCache`). `authorizationGate`, `sandboxProvider`, `compactionConfig`, `resumeHandler` and `checkpointStore` ARE on `ReactiveAgentConfig` and forwarded into `drainQuery` |
 | `drainQuery()` | Low-level runtime control with a final `AgentRun` result | You supply more runtime wiring yourself |
 | `query()` | Full async-generator control over every emitted event | You manage iteration over the generator directly |
 
@@ -42,6 +41,7 @@ import {
   generateProjectId,
   generateSessionId,
   generateTenantId,
+  generateTopicId,
   getRootLogger,
 } from '@namzu/sdk'
 import { registerOpenAI } from '@namzu/openai'
@@ -80,12 +80,14 @@ const run = await drainQuery(
     },
     projectId: generateProjectId(),
     sessionId: generateSessionId(),
+    topicId: generateTopicId(),
     tenantId: generateTenantId(),
     resumeHandler: autoApproveHandler,
     authorizationGate: {
       enabled: true,
       allowReadOnlyTools: true,
       denyDangerousPatterns: true,
+      logDecisions: true,
       rules: [{ type: 'allow_by_category', categories: ['filesystem'] }],
     },
     sandboxProvider,
@@ -101,7 +103,7 @@ console.log(run.result)
 This example shows the main low-level boundary:
 
 - `runConfig` still carries model, budget, and permission settings
-- query-only fields such as `sandboxProvider`, `pluginManager`, and `agentBus` live beside that config; `authorizationGate` is also accepted here but is *also* exposed on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so dropping to `drainQuery` is not required just to enable a policy gate
+- query-only fields such as `pluginManager`, `agentBus`, and `contextCache` live beside that config; `authorizationGate` and `sandboxProvider` are accepted here but are *also* exposed on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so dropping to `drainQuery` is not required just to enable a policy gate or hand the run a sandbox
 - `drainQuery()` still returns the same final `AgentRun` shape that high-level agent flows assemble
 
 ## 4. What `drainQuery()` Gives You
@@ -127,7 +129,13 @@ import {
   generateProjectId,
   generateSessionId,
   generateTenantId,
+  generateTopicId,
 } from '@namzu/sdk'
+import type { LLMProvider, ToolRegistry } from '@namzu/sdk'
+
+// Built exactly as in the `drainQuery()` example above.
+declare const provider: LLMProvider
+declare const tools: ToolRegistry
 
 const iterator = query({
   provider,
@@ -143,6 +151,7 @@ const iterator = query({
   },
   projectId: generateProjectId(),
   sessionId: generateSessionId(),
+  topicId: generateTopicId(),
   tenantId: generateTenantId(),
   resumeHandler: autoApproveHandler,
 })
@@ -171,23 +180,23 @@ Use this pattern when a transport layer or UI needs every incremental event as i
 
 | Field | Purpose |
 | --- | --- |
-| `sandboxProvider` | Create a sandbox for the run and inject it into tool context |
 | `pluginManager` | Run plugin hooks and plugin-contributed runtime behavior |
-| `taskRouter` | Task-specific model routing |
+| `taskRouter` | Task-specific model routing (`SupervisorAgentConfig` takes one too; `ReactiveAgentConfig` does not) |
 | `agentBus` | Concurrency coordination and lock-style runtime controls |
-| `compactionConfig` | Working-state compaction and message compression policy |
 | `contextCache` | Prompt cache and context reuse controls |
 
 That is the main reason this page exists: these are real public runtime features, but they are lower-level than the first-run agent API.
 
-`authorizationGate` is intentionally **not** in this table — it is exposed on both `ReactiveAgentConfig` and `SupervisorAgentConfig` and forwarded into `drainQuery` automatically. It still appears in the `drainQuery()` example above because the low-level surface accepts it too; just don't read that as "you have to drop here to use it."
+`authorizationGate`, `sandboxProvider`, `compactionConfig` and `resumeHandler` are intentionally **not** in this table — each is exposed on both `ReactiveAgentConfig` and `SupervisorAgentConfig` and forwarded into `drainQuery` automatically. They still appear in the `drainQuery()` example above because the low-level surface accepts them too; just don't read that as "you have to drop here to use them."
 
 ## 7. Resume Handlers and HITL
 
 Low-level runtime control is also where human-in-the-loop policy becomes explicit.
 
 ```ts
-const resumeHandler = async (request) => {
+import type { ResumeHandler } from '@namzu/sdk'
+
+const resumeHandler: ResumeHandler = async (request) => {
   switch (request.type) {
     case 'plan_approval':
       return { action: 'approve_plan' }
@@ -195,9 +204,22 @@ const resumeHandler = async (request) => {
       return { action: 'approve_tools' }
     case 'iteration_checkpoint':
       return { action: 'continue' }
+    case 'user_question':
+      return {
+        action: 'answer_question',
+        selectedOptionIds: [],
+        freeText: 'No user is available to answer. Proceed using your best judgment.',
+        questionId: request.question.questionId,
+      }
   }
 }
 ```
+
+`HITLDecisionRequest` has four members, and a `ResumeHandler` owes an answer to
+every one of them — `user_question`, the model asking the user something through
+the same park, included. An empty `selectedOptionIds` is how a headless handler
+declines without fabricating a choice, and echoing `request.question.questionId`
+back stops a late answer from being applied to the question that replaced it.
 
 Use `autoApproveHandler` only when the runtime should continue automatically.
 
@@ -224,17 +246,24 @@ the only escape was a blanket session grant that also covered every
 destructive call.
 
 ```ts
-import { toolGrantKeys } from '@namzu/sdk'
+import { autoApproveHandler, toolGrantKeys } from '@namzu/sdk'
+import type { ResumeHandler } from '@namzu/sdk'
 
-case 'tool_review': {
-  const call = request.toolCalls[0]
-  const keys = toolGrantKeys(call)
+const resumeHandler: ResumeHandler = async (request) => {
+  switch (request.type) {
+    case 'tool_review': {
+      const call = request.toolCalls[0]
+      const keys = toolGrantKeys(call)
 
-  return {
-    action: 'approve_tools',
-    // This exact invocation, for the rest of the run:
-    remember: [keys.call],
-    // …or `[keys.tool]` for the whole tool, whatever the arguments.
+      return {
+        action: 'approve_tools',
+        // This exact invocation, for the rest of the run:
+        remember: [keys.call],
+        // …or `[keys.tool]` for the whole tool, whatever the arguments.
+      }
+    }
+    default:
+      return autoApproveHandler(request)
   }
 }
 ```
@@ -270,6 +299,11 @@ Expiry is enforced on read — `findPendingCheckpoint` skips an expired park
 
 ```ts
 import { listExpiredParks } from '@namzu/sdk'
+import type { CheckpointManager, CheckpointRunScope, CheckpointStore } from '@namzu/sdk'
+
+declare const store: CheckpointStore
+declare const scope: CheckpointRunScope
+declare const checkpointMgr: CheckpointManager
 
 for (const stale of await listExpiredParks(store, scope)) {
   await checkpointMgr.expire(stale.id)
@@ -294,14 +328,14 @@ Two runtime fields are easy to confuse:
 | Field | Role | Where exposed |
 | --- | --- | --- |
 | `authorizationGate` | Decide whether a tool call should proceed | `ReactiveAgentConfig`, `SupervisorAgentConfig`, and `QueryParams` |
-| `sandboxProvider` | Constrain what sandbox-aware tools can do if the call proceeds | `QueryParams` only (low-level) |
+| `sandboxProvider` | Constrain what sandbox-aware tools can do if the call proceeds | `ReactiveAgentConfig`, `SupervisorAgentConfig`, and `QueryParams` |
 
 This separation matters operationally:
 
-- verification is policy
+- authorization is policy
 - sandboxing is containment
 
-Verification is wired through agent config so a policy gate is a one-line addition; sandbox providers stay at the `query()` / `drainQuery()` layer because they touch tool-context injection that the high-level wrapper doesn't expose.
+They are two different questions, not two different layers: both are wired through agent config, so either one is a one-line addition and neither is a reason to drop to `query()` / `drainQuery()`. Nothing propagates a sandbox for you — a multi-agent host that wants one ephemeral container per task threads the *same* provider instance into the supervisor's `sandboxProvider` and into every child `ReactiveAgentConfig.sandboxProvider` itself.
 
 ## 9. Event Streaming and SSE Mapping
 
@@ -320,6 +354,11 @@ That means stream transport code usually needs both:
 Provider failures carry an additional safe, serializable classification:
 
 ```ts
+import { drainQuery } from '@namzu/sdk'
+import type { QueryParams } from '@namzu/sdk'
+
+declare const params: QueryParams
+
 const run = await drainQuery(params, async (event) => {
   if (event.type === 'run_failed' && event.providerError) {
     console.error({
@@ -347,6 +386,10 @@ usually names the exact rejected parameter, so a failure UI can show the cause
 without parsing the message string:
 
 ```ts
+import type { AgentRun } from '@namzu/sdk'
+
+declare const run: AgentRun
+
 if (run.lastProviderError?.kind === 'bad_request') {
   console.error(run.lastProviderError.detail)
   // e.g. "tools.0.custom.input_schema: JSON schema is invalid. …"
@@ -360,7 +403,7 @@ if (run.lastProviderError?.kind === 'bad_request') {
 
 | Mistake | Why it breaks |
 | --- | --- |
-| assuming `ReactiveAgent.run()` exposes every runtime field | query-only controls such as `sandboxProvider`, `pluginManager`, and `agentBus` are lower-level (note: `authorizationGate` IS on `ReactiveAgentConfig`) |
+| assuming `ReactiveAgent.run()` exposes every runtime field | query-only controls such as `pluginManager`, `agentBus`, and `contextCache` are lower-level (note: `authorizationGate`, `sandboxProvider`, `compactionConfig` and `resumeHandler` ARE on `ReactiveAgentConfig`) |
 | forgetting `resumeHandler` when calling `query()` | `query()` requires it directly, unlike `drainQuery()` |
 | skipping `workingDirectory` | filesystem tools and path layout lose their stable base path |
 | treating `mapRunToStreamEvent()` as the final result channel | completion still comes from generator completion or `drainQuery()` |

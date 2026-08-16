@@ -50,6 +50,8 @@ Retry policy, stream recovery and truncation handling are all testable
 without a network.
 
 ```ts
+import { MockLLMProvider } from '@namzu/sdk'
+
 // A 429 the runtime should retry.
 new MockLLMProvider({ turns: [{ error: { message: 'rate limited', status: 429 } }] })
 
@@ -65,6 +67,14 @@ new MockLLMProvider({
 ## 4. Assert on What the Runtime Sent
 
 ```ts
+import { MockLLMProvider } from '@namzu/sdk'
+
+// Your test framework's, whichever it is.
+declare const expect: (actual: unknown) => {
+  toContain: (expected: unknown) => void
+  toEqual: (expected: unknown) => void
+}
+
 const provider = new MockLLMProvider({ turns: [{ text: 'ok' }] })
 
 // … run the agent …
@@ -73,12 +83,18 @@ expect(provider.requests[0]?.tools?.map((t) => t.function.name)).toContain('read
 expect(provider.requests[0]?.cacheControl).toEqual({ type: 'auto' })
 ```
 
+`requests` is `ChatCompletionParams[]`, so the request the runtime built is
+checked as a typed value: `tools` is `LLMToolSchema[]` (hence
+`t.function.name`) and `cacheControl` is `{ type: 'auto' | 'ephemeral' }`.
+
 `onRequest(params)` is the callback form. `provider.reset()` rewinds the
 script and clears captured requests between cases.
 
 ## 5. Decide Each Turn From the Request
 
 ```ts
+import { MockLLMProvider } from '@namzu/sdk'
+
 new MockLLMProvider({
   nextTurn: (params, i) =>
     params.messages.some((m) => String(m.content).includes('error'))

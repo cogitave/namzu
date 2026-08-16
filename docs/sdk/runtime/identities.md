@@ -100,6 +100,7 @@ import {
   generateSessionId,
   generateTenantId,
   generateTopicId,
+  type LLMProvider,
 } from '@namzu/sdk'
 
 const agent = new ReactiveAgent({
@@ -110,7 +111,9 @@ const agent = new ReactiveAgent({
   description: 'Example for required run IDs.',
 })
 
-// Assume `provider` has already been created through ProviderRegistry.create(...).
+// Created through ProviderRegistry.create(...) — see ../providers.
+declare const provider: LLMProvider
+
 const result = await agent.run(
   {
     messages: [{ role: 'user', content: 'Summarize what these IDs mean.' }],

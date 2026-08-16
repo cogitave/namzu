@@ -1,7 +1,7 @@
 ---
 title: Run Configuration
 description: Required and optional runtime config for Namzu agents, including model, limits, thinking and effort, permissions, environment, and working directory.
-last_updated: 2026-08-05
+last_updated: 2026-08-16
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -21,13 +21,33 @@ Every run has two distinct inputs:
 
 This distinction matters because the SDK separates per-invocation message state from runtime policy and dependencies.
 
-It also matters because some low-level runtime fields are intentionally not exposed on `ReactiveAgentConfig` today. If you need `sandboxProvider`, `pluginManager`, `taskRouter`, `agentBus`, or `compactionConfig`, use [Low-Level Runtime](./low-level.md). `authorizationGate` is exposed on `ReactiveAgentConfig` directly (mirrors `SupervisorAgentConfig`); pass it there for a sane policy gate without dropping to `drainQuery`.
+It also matters because some low-level runtime fields are still reachable only through `QueryParams`. If you need `pluginManager`, `taskRouter`, or `agentBus`, use [Low-Level Runtime](./low-level.md).
+
+`sandboxProvider` and `compactionConfig` are **not** in that group any more — both are declared on `ReactiveAgentConfig` and forwarded verbatim to `drainQuery`, so a sandboxed or compaction-configured run needs no drop to the kernel. `authorizationGate` is on `ReactiveAgentConfig` too (mirroring `SupervisorAgentConfig`); pass it there for a policy gate without dropping to `drainQuery`.
 
 ## 2. Minimal `ReactiveAgent.run()` Shape
 
 ```ts
-// Assume `provider`, `tools`, `projectId`, `sessionId`, and `tenantId`
-// have already been prepared by your app-level runtime bootstrap.
+import type {
+  LLMProvider,
+  ProjectId,
+  ReactiveAgent,
+  SessionId,
+  TenantId,
+  ToolRegistryContract,
+  TopicId,
+} from '@namzu/sdk'
+
+// Assume the agent, `provider`, `tools`, and the four run IDs have already
+// been prepared by your app-level runtime bootstrap.
+declare const agent: ReactiveAgent
+declare const provider: LLMProvider
+declare const tools: ToolRegistryContract
+declare const projectId: ProjectId
+declare const topicId: TopicId
+declare const sessionId: SessionId
+declare const tenantId: TenantId
+
 const result = await agent.run(
   {
     messages: [{ role: 'user', content: 'Hello' }],
@@ -40,6 +60,7 @@ const result = await agent.run(
     tokenBudget: 8_192,
     timeoutMs: 60_000,
     projectId,
+    topicId,
     sessionId,
     tenantId,
   },
@@ -54,10 +75,17 @@ At minimum, a practical run needs:
 - `tokenBudget`
 - `timeoutMs`
 - `projectId`
+- `topicId`
 - `sessionId`
 - `tenantId`
 - `messages`
 - `workingDirectory`
+
+All four IDs are checked together at the top of the run, and a missing one is
+an error rather than a default: `ReactiveAgent` throws `requires sessionId,
+topicId, projectId, and tenantId in config`. `topicId` is easy to miss because
+the type marks it optional — it is optional there only so `AgentManager` can
+stamp it after a `configBuilder` returns.
 
 ## 3. Core Runtime Fields
 
@@ -69,6 +97,7 @@ At minimum, a practical run needs:
 | `tokenBudget` | Yes | Maximum token budget for the run |
 | `timeoutMs` | Yes | Wall-clock timeout for the run |
 | `projectId` | Yes | Long-lived project scope |
+| `topicId` | Yes | The issue, ticket or line of work the run belongs to |
 | `sessionId` | Yes | Immediate session scope |
 | `tenantId` | Yes | Isolation boundary |
 | `workingDirectory` | Yes | Filesystem root for built-in tool behavior |
@@ -149,9 +178,34 @@ Both are declared on `BaseAgentConfig`, which every agent config extends, so the
 are set the same way whichever entry point you use:
 
 ```ts
-// Assume `provider`, `tools`, `model`, `projectId`, `sessionId` and `tenantId`
-// were prepared by your runtime bootstrap, as in section 2.
-const agent = new ReactiveAgent()
+import { ReactiveAgent } from '@namzu/sdk'
+import type {
+  LLMProvider,
+  ProjectId,
+  SessionId,
+  TenantId,
+  ToolRegistryContract,
+  TopicId,
+} from '@namzu/sdk'
+
+// Assume `provider`, `tools`, `model` and the run IDs were prepared by your
+// runtime bootstrap, as in section 2.
+declare const provider: LLMProvider
+declare const tools: ToolRegistryContract
+declare const model: string
+declare const projectId: ProjectId
+declare const topicId: TopicId
+declare const sessionId: SessionId
+declare const tenantId: TenantId
+
+// The constructor takes the agent's metadata; there is no zero-argument form.
+const agent = new ReactiveAgent({
+  id: 'ledger-reconciler',
+  name: 'Ledger Reconciler',
+  version: '1.0.0',
+  category: 'example',
+  description: 'Example agent for the thinking and effort fields.',
+})
 
 await agent.run(
   {
@@ -165,6 +219,7 @@ await agent.run(
     tokenBudget: 32_768,
     timeoutMs: 120_000,
     projectId,
+    topicId,
     sessionId,
     tenantId,
     thinking: { type: 'adaptive' },
@@ -269,7 +324,9 @@ import {
   generateProjectId,
   generateSessionId,
   generateTenantId,
+  generateTopicId,
 } from '@namzu/sdk'
+import type { LLMProvider, ReactiveAgentConfig, ToolRegistryContract } from '@namzu/sdk'
 
 const runtime = {
   ...RUNTIME_DEFAULTS,
@@ -279,7 +336,10 @@ const runtime = {
 }
 
 // Assume `provider` and `tools` were created during runtime bootstrap.
-const agentConfig = {
+declare const provider: LLMProvider
+declare const tools: ToolRegistryContract
+
+const agentConfig: ReactiveAgentConfig = {
   provider,
   tools,
   model: runtime.model,
@@ -288,6 +348,7 @@ const agentConfig = {
   maxIterations: runtime.maxIterations,
   temperature: runtime.temperature,
   projectId: generateProjectId(),
+  topicId: generateTopicId(),
   sessionId: generateSessionId(),
   tenantId: generateTenantId(),
 }

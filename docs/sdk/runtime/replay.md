@@ -28,8 +28,8 @@ Replay lets you fork an existing run from any stored checkpoint and continue exe
 The runtime ships two public helpers that together cover the v1 flow:
 
 ```ts
-import { listCheckpoints, prepareReplayState, query } from '@namzu/sdk'
-import type { Mutation, RunId } from '@namzu/sdk'
+import { drainQuery, listCheckpoints, prepareReplayState } from '@namzu/sdk'
+import type { Mutation, QueryParams, RunId, ToolCallId } from '@namzu/sdk'
 
 // Step 1 — discover checkpoints for the source run.
 const entries = await listCheckpoints({
@@ -42,7 +42,7 @@ const entries = await listCheckpoints({
 const mutations: Mutation[] = [
   {
     type: 'injectToolResponse',
-    toolCallId: 'call_xyz' as never,
+    toolCallId: 'call_xyz' as ToolCallId,
     response: { success: true, output: 'mocked response' },
   },
 ]
@@ -54,17 +54,22 @@ const prepared = await prepareReplayState({
   mutate: mutations,
 })
 
-// Step 3 — hand the prepared state to your own query() call. Pass
-// `prepared.messages` as `messages` and DO NOT pass
-// `resumeFromCheckpoint` — the mutated history already encodes the
-// restored state plus any injected tool response, and the resume path
-// would reload the checkpoint's unmutated messages and silently drop
-// your mutation.
+// Step 3 — hand the prepared state to your own query() call — `drainQuery`
+// is the awaitable form of it. Pass `prepared.messages` as `messages` and
+// DO NOT pass `resumeFromCheckpoint` — the mutated history already encodes
+// the restored state plus any injected tool response, and the resume path
+// would reload the checkpoint's unmutated messages and silently drop your
+// mutation.
+
+// Everything a run needs that the replay does not change: provider, tools,
+// runConfig, sessionId, topicId, projectId, tenantId, agentId, agentName,
+// resumeHandler, …
+declare const params: Omit<QueryParams, 'messages' | 'resumeFromCheckpoint'>
+
 const replayRun = await drainQuery({
+  ...params,
   messages: prepared.messages,
   // NOT: resumeFromCheckpoint: prepared.sourceCheckpoint.id
-  // ...your provider, tools, runConfig, sessionId, threadId, projectId,
-  //    tenantId, agentId, agentName, resumeHandler, etc.
 })
 
 // Step 4 — stamp attribution on the run record so callers downstream can
@@ -93,6 +98,8 @@ The `'emergency'` selector is lossy — `costInfo`, `guardState.elapsedMs`, and 
 One mutation variant in v1:
 
 ```ts
+import type { ToolCallId, ToolResult } from '@namzu/sdk'
+
 type Mutation = {
   type: 'injectToolResponse'
   toolCallId: ToolCallId
@@ -104,15 +111,25 @@ type Mutation = {
 
 ```ts
 import { MutationNotApplicableError, prepareReplayState } from '@namzu/sdk'
+import type { Mutation, RunId } from '@namzu/sdk'
 
-try {
-  await prepareReplayState({ /* ... */, mutate: [/* ... */] })
-} catch (err) {
-  if (err instanceof MutationNotApplicableError) {
-    console.error('fork point has no matching tool call; pending ids were:', err.availableToolCallIds)
-    return
+declare const mutations: Mutation[]
+
+async function forkAtLatest(runId: RunId): Promise<void> {
+  try {
+    await prepareReplayState({
+      baseDir: '/path/to/.namzu/runs',
+      runId,
+      fromCheckpoint: 'latest',
+      mutate: mutations,
+    })
+  } catch (err) {
+    if (err instanceof MutationNotApplicableError) {
+      console.error('fork point has no matching tool call; pending ids were:', err.availableToolCallIds)
+      return
+    }
+    throw err
   }
-  throw err
 }
 ```
 
@@ -139,6 +156,8 @@ If you need byte-identical reproduction for regression tests, v1 is not it — t
 `prepareReplayState` returns an `attribution` record:
 
 ```ts
+import type { CheckpointId, Mutation, RunId } from '@namzu/sdk'
+
 type ReplayAttribution = {
   sourceRunId: RunId
   fromCheckpointId: CheckpointId
@@ -161,11 +180,16 @@ the promise had to stay alive to receive the answer.
 ### Finding a parked run
 
 ```ts
-import { findPendingCheckpoint, loadRunState } from '@namzu/sdk'
+import { loadRunState } from '@namzu/sdk'
+import type { CheckpointStore, ProjectId, RunId, SessionId, TenantId, TopicId } from '@namzu/sdk'
 
 // In a different process: a store and a scope, and nothing else.
+declare const checkpointStore: CheckpointStore
+declare const tenantId: TenantId, projectId: ProjectId, sessionId: SessionId
+declare const topicId: TopicId, runId: RunId
+
 const state = await loadRunState(checkpointStore, {
-  tenantId, projectId, sessionId, threadId, runId,
+  tenantId, projectId, sessionId, topicId, runId,
 })
 
 if (state?.pending && state.pending.resolvedAt === undefined) {
@@ -186,7 +210,11 @@ answer "is *this* run waiting" and not "which runs are waiting". The second
 question is `listDurableRuns`, a listing above the run:
 
 ```ts
-import { listDurableRuns } from '@namzu/sdk'
+import { findPendingCheckpoint, listDurableRuns } from '@namzu/sdk'
+import type { CheckpointStore, ProjectId, TenantId } from '@namzu/sdk'
+
+declare const checkpointStore: CheckpointStore
+declare const tenantId: TenantId, projectId: ProjectId
 
 // An approval inbox: every outstanding park under one tenant.
 let cursor: string | undefined
@@ -253,8 +281,17 @@ both restore the same checkpoint, both execute its tools, and both write
 under one run id — half the work vanishing with no error anywhere.
 
 ```ts
-const claim = await claimRun(store, entry, { holder: 'worker-3', ttlMs: 60_000 })
-if (!claim) continue // somebody else got there first — not an error
+import { claimRun } from '@namzu/sdk'
+import type { CheckpointStore, DurableRunEntry } from '@namzu/sdk'
+
+declare const store: CheckpointStore
+declare const entries: readonly DurableRunEntry[] // one page of the listing above
+
+for (const entry of entries) {
+  const claim = await claimRun(store, entry, { holder: 'worker-3', ttlMs: 60_000 })
+  if (!claim) continue // somebody else got there first — not an error
+  // …resume the run, carrying `claim.fence` on every durable write.
+}
 ```
 
 Add `claimed: false` to the listing options and a reader sees only the work
@@ -303,6 +340,16 @@ serverless pattern, where the host cannot block and comes back later.
 ### Honoring the answer
 
 ```ts
+import { drainQuery } from '@namzu/sdk'
+import type { QueryParams, RunState } from '@namzu/sdk'
+
+declare const params: Omit<
+  QueryParams,
+  'messages' | 'resumeFromCheckpoint' | 'pendingDecision'
+>
+// The parked snapshot `loadRunState` handed back above.
+declare const state: RunState
+
 await drainQuery({
   ...params,
   messages: [],
@@ -331,6 +378,22 @@ read back. Together they are how a consumer that lost its connection catches
 up instead of re-deriving the whole run from scratch.
 
 ```ts
+import { resumeRun } from '@namzu/sdk'
+import type {
+  CheckpointStore,
+  QueryParams,
+  RunEvent,
+  RunLease,
+  RunStateScope,
+} from '@namzu/sdk'
+
+declare const params: Omit<QueryParams, 'messages' | 'runId' | 'resumeFromCheckpoint'>
+declare const scope: RunStateScope
+declare const checkpointStore: CheckpointStore
+// From `claimRun` above — `null` when nobody fenced this run.
+declare const claim: RunLease | null
+declare const stream: { write: (event: RunEvent) => void }
+
 const outcome = await resumeRun({
   ...params,
   scope,

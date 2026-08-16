@@ -23,6 +23,10 @@ duplex path that still would not fit.
 
 ```ts
 import { startBidiRun } from '@namzu/sdk'
+import type { BidiProvider, ToolRegistry } from '@namzu/sdk'
+
+declare const provider: BidiProvider
+declare const tools: ToolRegistry
 
 const run = await startBidiRun({
   provider,               // a BidiProvider
