@@ -1,5 +1,5 @@
 import type { AgentPersona, OutputDiscipline } from '../types/persona/index.js'
-import type { Skill } from '../types/skills/index.js'
+import { type Skill, isInvocableBy } from '../types/skills/index.js'
 
 export function assembleSystemPrompt(persona: AgentPersona, skills?: Skill[]): string {
 	const sections: string[] = []
@@ -46,7 +46,14 @@ export function assembleSystemPrompt(persona: AgentPersona, skills?: Skill[]): s
 export function renderSkillsSection(skills?: Skill[]): string | null {
 	if (!skills || skills.length === 0) return null
 
-	const available = skills
+	// Only what the MODEL may invoke. An operator-only skill listed here is
+	// something the model will read as available and attempt — "collect a
+	// support bundle", "rotate the deploy key" — and the attempt is the
+	// failure, not the listing.
+	const forModel = skills.filter((skill) => isInvocableBy(skill, 'model'))
+	if (forModel.length === 0) return null
+
+	const available = forModel
 		.map((s) => {
 			const lines = [
 				'<skill>',
@@ -68,7 +75,11 @@ export function renderSkillsSection(skills?: Skill[]): string | null {
 		})
 		.join('\n')
 
-	const loadedSkills = skills.filter((s) => s.body)
+	// `forModel`, not `skills`: a loaded operator-only skill would otherwise
+	// have its whole BODY pasted into the model's prompt while being absent
+	// from the manifest above — the worst of both, since the model gets the
+	// instructions and no listing that would let it reason about them.
+	const loadedSkills = forModel.filter((s) => s.body)
 	const sections = [
 		`## Available Skills\nThe following block is a manifest, not the full skill content. Skill metadata is always visible; SKILL.md bodies are loaded only when the user's task matches the skill description.\n\n<available_skills>\n${available}\n</available_skills>\n\nSkill usage protocol:\n- Plain questions do not require a skill.\n- When a matching skill is already listed under Loaded Skills, apply its loaded instructions.\n- When a matching skill is not loaded and the runtime exposes filesystem or skill-loading tools, read the SKILL.md at its <location> before writing code, creating files, running shell commands for that workflow, or calling mutation tools guided by the skill.\n- Do not claim to have read a SKILL.md until its content is actually present in the prompt or returned by a tool.\n- Tool schemas and runtime permissions remain authoritative; skills provide guidance, not hidden tools.`,
 	]

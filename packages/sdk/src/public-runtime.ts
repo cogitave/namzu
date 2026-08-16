@@ -1007,3 +1007,13 @@ export {
 	SKILLS_CONTRIBUTION_ID,
 	skillsContribution,
 } from './prompt/index.js'
+
+// Who may reach for a skill. Runtime, not types: `public-types.ts` does
+// `export type *` from the same module, which carries the union and leaves
+// the resolver and the predicate behind — a consumer could name the policy
+// and not ask about it.
+export {
+	SKILL_INVOCATION_DEFAULT,
+	isInvocableBy,
+	skillInvocation,
+} from './types/skills/index.js'

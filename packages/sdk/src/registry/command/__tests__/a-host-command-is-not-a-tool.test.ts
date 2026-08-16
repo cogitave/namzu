@@ -113,7 +113,7 @@ describe('a descriptor survives the wire', () => {
 		// registry nobody filled is the failure this task exists to avoid.
 		const described = registryWith(kernelHostCommands({})).describe()
 
-		expect(described.map((c) => c.name)).toEqual(['agents', 'tasks'])
+		expect(described.map((c) => c.name)).toEqual(['agents', 'skills', 'tasks'])
 	})
 })
 

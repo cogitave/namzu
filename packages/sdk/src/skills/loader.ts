@@ -88,6 +88,20 @@ function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetad
 		skillMetadata.allowedTools = allowedTools
 	}
 
+	const invocation = scalarAt(values, 'invocation')
+	if (invocation) {
+		// Refused rather than defaulted. A typo'd `invocaton: operator` that
+		// quietly resolved to `both` would put an operator-only skill back in
+		// front of the model, which is precisely what the field was added to
+		// stop — and the author would have no way to tell.
+		if (invocation !== 'model' && invocation !== 'operator' && invocation !== 'both') {
+			throw new Error(
+				`${source}: invocation must be one of model, operator, both — got "${invocation}"`,
+			)
+		}
+		skillMetadata.invocation = invocation
+	}
+
 	const extra = mappingAt(values, 'metadata')
 	if (extra && Object.keys(extra).length > 0) {
 		skillMetadata.metadata = { ...extra }
