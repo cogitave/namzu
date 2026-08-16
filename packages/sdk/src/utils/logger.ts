@@ -1,5 +1,6 @@
 import { createLogger } from './log/create-logger.js'
-import { getProcessSink } from './log/process-sink.js'
+import { getProcessSink, getProcessSinkCounters } from './log/process-sink.js'
+import type { LogSinkCounters } from './log/types.js'
 import { type LevelFilter, type LogSink, SCOPE_ATTRIBUTE } from './log/types.js'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent'
@@ -111,6 +112,23 @@ export function resolveLogger(logger: Logger | undefined): Logger {
 }
 
 /**
+ * What the record pipeline did to the records it was given, or `undefined`
+ * when no host has claimed the process's log destination.
+ *
+ * `undefined` is the honest answer for that case, not a zeroed set. With no
+ * sink installed `getRootLogger` falls back to the legacy stderr writer,
+ * which has no pipeline and therefore no redaction pass, no size caps and
+ * nothing to count -- reporting five zeros there would read as "nothing was
+ * dropped, nothing was redacted", which is a stronger claim than "this was
+ * never measured" and happens to be the claim a reader most wants to trust.
+ * `namzu doctor`'s `logging.pipeline` check turns the absence into its own
+ * row rather than into a clean bill of health.
+ */
+export function getLogCounters(): LogSinkCounters | undefined {
+	return getProcessSink()?.counters
+}
+
+/**
  * Adapts the record pipeline back to the legacy `Logger` shape. `scope`
  * threads through recursive `child()` calls the same way `bound` does.
  * Previously fixed at `'namzu'` on every recursive call regardless of what
@@ -127,12 +145,19 @@ function fromSink(
 	bound: LogContext = {},
 	scope = 'namzu',
 ): Logger {
-	const created = createLogger({
-		sink,
-		level: { current: level },
-		resource: { 'service.name': 'namzu' },
-		scope,
-	})
+	// The process's counter set, not a fresh one. `getRootLogger` resolves
+	// PER CALL and lands here every time, so a logger built with its own
+	// counters would throw the totals away between one log line and the
+	// next -- which is what made `LogSinkCounters` unreadable by anything.
+	const created = createLogger(
+		{
+			sink,
+			level: { current: level },
+			resource: { 'service.name': 'namzu' },
+			scope,
+		},
+		getProcessSinkCounters(),
+	)
 	const write =
 		(severity: 'debug' | 'info' | 'warn' | 'error') => (message: string, data?: LogContext) => {
 			created[severity](message, { ...bound, ...data })

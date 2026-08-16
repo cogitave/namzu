@@ -4,6 +4,7 @@ import { capabilityCheckId } from '../../context/capabilities.js'
 import { providerChainCheck } from './chain.js'
 import { credentialSourcesCheck } from './credentials.js'
 import { invariantsCheck } from './invariants.js'
+import { loggingPipelineCheck } from './logging.js'
 import { providersRegisteredCheck } from './providers.js'
 import { cwdWritableCheck, tmpdirWritableCheck } from './runtime.js'
 import { sandboxPlatformCheck } from './sandbox.js'
@@ -54,6 +55,7 @@ export {
 	cwdWritableCheck,
 	tmpdirWritableCheck,
 	invariantsCheck,
+	loggingPipelineCheck,
 	sandboxPlatformCheck,
 	telemetryInstalledCheck,
 	vaultRegisteredCheck,
@@ -74,5 +76,9 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	filesInstalledCheck,
 	computerUseInstalledCheck,
 	telemetryInstalledCheck,
+	// Last, deliberately: it reports what the pipeline did to the records
+	// every check above it just produced, so running it first would report a
+	// process that had barely logged anything yet.
+	loggingPipelineCheck,
 	invariantsCheck,
 ]

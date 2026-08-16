@@ -62,7 +62,7 @@ export {
 // model list, so that check lives in the driver and needs this.
 export { normaliseModelId, resolveModelPricing, VENDOR_RATES } from './pricing/index.js'
 export { toErrorMessage } from './utils/error.js'
-export { configureLogger, getRootLogger, Logger } from './utils/logger.js'
+export { configureLogger, getLogCounters, getRootLogger, Logger } from './utils/logger.js'
 
 // The LogSink seam — additive. `Logger`/`getRootLogger`/`configureLogger`
 // above are unchanged; this is the new seam that replaces them going

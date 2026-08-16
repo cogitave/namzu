@@ -9,9 +9,16 @@
 // `getRootLogger()` call sites in one commit — they keep the old shape and
 // gain the new destination.
 
-import type { LevelFilter, LogSink } from './types.js'
+import { newCounters } from './create-logger.js'
+import type { LevelFilter, LogSink, LogSinkCounters, MutableLogSinkCounters } from './types.js'
 
-let _processSink: { readonly sink: LogSink; readonly level: LevelFilter } | undefined
+interface InstalledSink {
+	readonly sink: LogSink
+	readonly level: LevelFilter
+	readonly counters: MutableLogSinkCounters
+}
+
+let _processSink: InstalledSink | undefined
 
 export function installProcessSink(
 	sink: LogSink,
@@ -30,14 +37,31 @@ export function installProcessSink(
 				'— pass { replace: true } if this call is a deliberate replacement of an earlier one.',
 		)
 	}
-	_processSink = { sink, level }
+	// One counter set per installed destination, so every logger that
+	// routes through it adds to the same totals. A `replace: true` install
+	// starts fresh: the counts describe the destination that is live, and
+	// carrying the old one's forward would attribute its drops to a sink
+	// that never saw those records.
+	_processSink = { sink, level, counters: newCounters() }
 }
 
 /** The installed destination, or `undefined` when nobody claimed the process. */
 export function getProcessSink():
-	| { readonly sink: LogSink; readonly level: LevelFilter }
+	| { readonly sink: LogSink; readonly level: LevelFilter; readonly counters: LogSinkCounters }
 	| undefined {
 	return _processSink
+}
+
+/**
+ * The mutable counter set the installed destination writes through.
+ *
+ * Internal: a reader wants {@link getProcessSink}'s readonly view. This
+ * exists so `getRootLogger`'s bridge can hand the SAME object to every
+ * logger it builds, which is what makes the totals process-wide rather
+ * than per-call.
+ */
+export function getProcessSinkCounters(): MutableLogSinkCounters | undefined {
+	return _processSink?.counters
 }
 
 /**

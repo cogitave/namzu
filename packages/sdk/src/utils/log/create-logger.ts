@@ -7,8 +7,11 @@
 // property (`counters`) riding along on the same object. That is a
 // deliberate choice over a `{ logger, counters }` pair: the returned value
 // still satisfies `logger?: Logger` at every existing call site with no
-// unwrapping, while a caller that wants to observe the pipeline — a test,
-// `namzu doctor` later — reads `.counters` off the same reference.
+// unwrapping, while a caller that wants to observe the pipeline reads
+// `.counters` off the same reference. That caller is now real: LOG-06's
+// `logging.pipeline` doctor check. It could not have been while every
+// `getRootLogger()` built a logger with its own counters — see `shared`
+// below and `utils/__tests__/log-counters-are-process-wide.test.ts`.
 
 import { getActiveSpanContext } from '../../telemetry/runtime-accessors.js'
 import type { LogContext, Logger } from '../logger.js'
@@ -39,15 +42,26 @@ const SEVERITY_NUMBER: Record<Severity, 5 | 9 | 13 | 17> = {
 
 export type CreatedLogger = Logger & { readonly counters: LogSinkCounters }
 
-export function createLogger(options: LoggerOptions): CreatedLogger {
-	const counters: MutableLogSinkCounters = {
-		dropped: 0,
-		redacted: 0,
-		attributesDropped: 0,
-		valuesTruncated: 0,
-		recordsTruncated: 0,
-	}
-	return build(options, counters, {})
+export function newCounters(): MutableLogSinkCounters {
+	return { dropped: 0, redacted: 0, attributesDropped: 0, valuesTruncated: 0, recordsTruncated: 0 }
+}
+
+/**
+ * `shared` lets several loggers write through ONE counter set.
+ *
+ * Without it the counters answer a question nobody asks. `getRootLogger()`
+ * resolves per call and builds a fresh logger each time, so every count it
+ * accumulated died with the expression that read it -- the five fields were
+ * incremented on every record in the process and read by nothing, which is
+ * `declared-but-undriven` with a comment above it promising `namzu doctor`
+ * would read them. `installProcessSink` now owns one set for the process,
+ * and that promise is discharged rather than deleted.
+ */
+export function createLogger(
+	options: LoggerOptions,
+	shared?: MutableLogSinkCounters,
+): CreatedLogger {
+	return build(options, shared ?? newCounters(), {})
 }
 
 function build(

@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { NOOP_SINK, installProcessSink } from '@namzu/sdk'
+
 import { runDoctorCommand } from './doctor.js'
 
 describe('runDoctorCommand', () => {
@@ -11,6 +13,14 @@ describe('runDoctorCommand', () => {
 	let originalStderrWrite: typeof process.stderr.write
 
 	beforeEach(() => {
+		// `cli.ts` claims the process's log destination for EVERY invocation,
+		// before it dispatches to a subcommand — its own comment names
+		// `doctor` as the reason. These tests call `runDoctorCommand`
+		// directly, so without this line they run a doctor in a state no real
+		// invocation reaches, and `logging.pipeline` correctly reports it as
+		// unmeasured (exit 69). `fixture-must-match-production`: the harness
+		// installs a sink because production always has.
+		installProcessSink(NOOP_SINK, 'silent', { replace: true })
 		captured = ''
 		originalStdoutWrite = process.stdout.write.bind(process.stdout)
 		originalStderrWrite = process.stderr.write.bind(process.stderr)
