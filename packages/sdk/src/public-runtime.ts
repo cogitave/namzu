@@ -96,6 +96,12 @@ export { cancelCauseOf, RunCancelled } from './types/run/cancel-cause.js'
 export { createToolPresenter, genericLabel } from './registry/tool/presentation.js'
 export type { ToolPresenter } from './registry/tool/presentation.js'
 
+// A stalled stream trips no request timeout — the request succeeded and
+// the bytes stopped. Composes with withProviderRetry/withProviderFallback:
+// the failure is classified `network`, which both already act on.
+export { withStreamIdleTimeout } from './provider/idle-timeout.js'
+export type { WithStreamIdleTimeoutOptions } from './provider/idle-timeout.js'
+
 export { isTrustedReadOnly } from './tools/trusted-read-only.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
 export {
