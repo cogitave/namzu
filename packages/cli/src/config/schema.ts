@@ -46,7 +46,61 @@ export interface NamzuCliConfig {
 	 * ambiguous between "no sandbox" and "a sandbox that requires nothing".
 	 */
 	readonly sandbox?: SandboxConfig
+	/**
+	 * Observability this CLI turns on for itself.
+	 *
+	 * Absent means none, which is what it meant before this existed —
+	 * `sessionExport` in particular sends conversation content off the
+	 * machine, so it is a thing an operator asks for by name and never
+	 * something a default arranges.
+	 */
+	readonly telemetry?: TelemetryConfig
 }
+
+export interface TelemetryConfig {
+	/**
+	 * Write this session's run events somewhere.
+	 *
+	 * The disclosure `@namzu/telemetry`'s `describeSessionExport` builds
+	 * from this is printed at boot, because the operator configuring it and
+	 * the person whose conversation leaves the machine are frequently not
+	 * the same person.
+	 */
+	readonly sessionExport?: SessionExportConfig
+}
+
+export interface SessionExportConfig {
+	/**
+	 * Absolute or cwd-relative path to a JSONL file, one record per line.
+	 *
+	 * A file, not a URL, and that is a limit rather than an oversight: a
+	 * network destination needs retry, backpressure and a credential, and
+	 * a CLI that shipped a half-built one would be offering an export that
+	 * silently drops. A host that needs a collector builds a
+	 * `SessionExportSink` and attaches the listener itself — that seam is
+	 * the package's public surface.
+	 */
+	readonly destination: string
+	/**
+	 * Which run event types to export. Absent means all of them.
+	 *
+	 * Not validated against the event union here: a name that matches no
+	 * event exports nothing under it, and the boot disclosure prints the
+	 * list verbatim, so a typo is visible rather than silently widening.
+	 */
+	readonly eventTypes?: readonly string[]
+	/**
+	 * Redactors to install, in order. `secrets` is the shipped one.
+	 *
+	 * An empty array means NO redaction, and it is spelled that way on
+	 * purpose: omitting the key installs the default, so a config has to
+	 * say `[]` to turn redaction off rather than reach it by forgetting.
+	 */
+	readonly redactors?: readonly SessionExportRedactorName[]
+}
+
+/** The redactors this CLI can install by name. */
+export type SessionExportRedactorName = 'secrets'
 
 export interface SandboxConfig {
 	/**

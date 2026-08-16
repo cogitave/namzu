@@ -63,6 +63,9 @@ importers:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
+      '@namzu/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
       '@types/react':
         specifier: ^19.2.15
         version: 19.2.15

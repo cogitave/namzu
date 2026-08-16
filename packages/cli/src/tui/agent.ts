@@ -639,6 +639,15 @@ export interface AgentSessionOptions {
 	 * environment.
 	 */
 	readonly sandbox?: SandboxConfig
+	/**
+	 * Where this session's run events are recorded, if anywhere.
+	 *
+	 * A listener rather than a config: the CLI resolves `@namzu/telemetry`,
+	 * builds the sink and the redaction chain, and hands the result here
+	 * already assembled — so this file has no opinion about optional
+	 * packages, redactors, or what a destination is.
+	 */
+	readonly onRunEvent?: (event: RunEvent) => void
 }
 
 export async function createAgentSession(
@@ -1058,6 +1067,7 @@ export async function createAgentSession(
 				messages,
 				opts,
 				taskGateway: subagentGateway,
+				onRunEvent: options.onRunEvent,
 				childSteps,
 				...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 			})
@@ -1516,6 +1526,8 @@ interface RunTurnParams {
 	readonly messages: readonly Message[]
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskScheduler | undefined
+	/** See {@link AgentSessionOptions.onRunEvent}. */
+	readonly onRunEvent: ((event: RunEvent) => void) | undefined
 	readonly childSteps: string[]
 	/**
 	 * Where this turn's commands run. Absent means the host process, which
@@ -1544,6 +1556,7 @@ async function* runTurn({
 	taskGateway,
 	childSteps,
 	sandboxProvider,
+	onRunEvent,
 }: RunTurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
 	// One presenter for the whole stream, built from the registry this scope
@@ -1609,6 +1622,12 @@ async function* runTurn({
 			...scope,
 		})
 		for await (const event of events) {
+			// Before the abort check and before `toAgentEvent`: a session
+			// cancelled mid-turn still produced the events up to that point, and
+			// they are the interesting ones. Every event, not just the ones the
+			// TUI renders — an export that only saw what the screen showed would
+			// be a recording of the interface rather than of the session.
+			onRunEvent?.(event)
 			if (signal?.aborted) {
 				yield { kind: 'error', message: 'aborted' }
 				return

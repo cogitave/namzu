@@ -18,12 +18,21 @@
 
 import { relative } from 'node:path'
 
-import { installProcessSink } from '@namzu/sdk'
+import {
+	BOOT_EVENT_NAMES,
+	EVENT_NAME_ATTRIBUTE,
+	getRootLogger,
+	installProcessSink,
+} from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { openSessions } from '../integrations/sessions/store.js'
+import {
+	type AttachedSessionExport,
+	attachSessionExport,
+} from '../integrations/telemetry/session-export.js'
 import { contextLogging, createStderrSink } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
@@ -290,9 +299,32 @@ export const runCommand: CommandDef = {
 		}
 
 		const gate = buildGate(flags, resolved.cwd)
+		// Attached BEFORE the session, and its failure is fatal. An operator who
+		// configured `telemetry.sessionExport` asked for this run to be
+		// recorded; continuing without it means the run happens and the record
+		// they were counting on does not exist, which is a failure they only
+		// discover when they go looking for a session that was never written.
+		let sessionExport: AttachedSessionExport | undefined
+		if (ctx.config.telemetry?.sessionExport) {
+			try {
+				sessionExport = await attachSessionExport({ config: ctx.config.telemetry.sessionExport })
+				// Under the same event name the boot narrative used for the
+				// boolean. This is the half that names the destination and the
+				// redactors, and it is emitted HERE because it describes what
+				// actually resolved rather than what was configured.
+				getRootLogger().info(sessionExport.disclosure, {
+					[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.TELEMETRY_STATUS,
+					'namzu.telemetry.session_export': true,
+				})
+			} catch (err) {
+				ctx.formatter.error({ message: err instanceof Error ? err.message : String(err) })
+				return 1
+			}
+		}
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd: resolved.cwd,
 			rules: permissions.rules,
+			...(sessionExport ? { onRunEvent: sessionExport.listener } : {}),
 			// The operator's --gate commands, as a standing condition on the
 			// answer. Spread rather than passed as undefined so a run without
 			// gates is byte-identical to the one that shipped before them.
@@ -302,6 +334,7 @@ export const runCommand: CommandDef = {
 		})
 		if (!session.hasProvider) {
 			await session.close()
+			await sessionExport?.shutdown()
 			ctx.formatter.error({ message: session.errorHint ?? 'agent is not ready' })
 			return 1
 		}
@@ -315,6 +348,7 @@ export const runCommand: CommandDef = {
 				ctx.formatter.error({ message: `tool server "${f.name}" is not available: ${f.reason}` })
 			}
 			await session.close()
+			await sessionExport?.shutdown()
 			return 1
 		}
 		// "Printed on every launch" has to mean every launch, not every launch of
@@ -373,6 +407,7 @@ export const runCommand: CommandDef = {
 			// out several turns later, having already acted on it.
 			ctx.formatter.error({ message: resume.message })
 			await session.close()
+			await sessionExport?.shutdown()
 			return EXIT_USAGE
 		}
 		const prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
@@ -401,6 +436,10 @@ export const runCommand: CommandDef = {
 		// server is a child process, and a `run` that returns without closing
 		// leaves it behind.
 		await session.close()
+		// Drained with the session, not at process exit: a buffering sink that
+		// only flushed on `beforeExit` loses its tail whenever the CLI is
+		// interrupted, which is exactly the run somebody wanted the record of.
+		await sessionExport?.shutdown()
 
 		if (failed) {
 			ctx.formatter.error({ message: failed })

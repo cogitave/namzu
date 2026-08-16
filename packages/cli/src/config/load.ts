@@ -27,6 +27,7 @@ import { parse as yamlParse } from 'yaml'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { isFormatName } from '../output/index.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
+import type { SessionExportRedactorName } from './schema.js'
 import { DEFAULT_CONFIG, type NamzuCliConfig } from './schema.js'
 
 export interface LoadConfigOptions {
@@ -280,6 +281,48 @@ const CONFIG_READERS: ConfigReaders = {
 			...(requireIsolation !== undefined ? { requireIsolation } : {}),
 		}
 	},
+	// Field by field, for the same reason as `sandbox` and one stronger:
+	// this one decides whether conversation content leaves the machine. A
+	// misspelled `redacters` read shape-only would become "no redactors"
+	// while the export still ran — redaction silently off, which is the one
+	// outcome a config typo must not be able to produce. So a malformed
+	// `redactors` drops the WHOLE sessionExport rather than the key, and the
+	// boot disclosure then reads "off" instead of "on with nothing
+	// installed".
+	telemetry: (v) => {
+		if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined
+		const raw = v as { sessionExport?: unknown }
+		if (raw.sessionExport === undefined) return {}
+		const se = raw.sessionExport
+		if (typeof se !== 'object' || se === null || Array.isArray(se)) return undefined
+		const entry = se as { destination?: unknown; eventTypes?: unknown; redactors?: unknown }
+
+		// No destination, no export. There is nothing to fall back to and
+		// nothing safe to guess.
+		if (typeof entry.destination !== 'string' || entry.destination.length === 0) return undefined
+
+		let eventTypes: readonly string[] | undefined
+		if (entry.eventTypes !== undefined) {
+			if (!Array.isArray(entry.eventTypes)) return undefined
+			if (!entry.eventTypes.every((t) => typeof t === 'string')) return undefined
+			eventTypes = entry.eventTypes as readonly string[]
+		}
+
+		let redactors: readonly SessionExportRedactorName[] | undefined
+		if (entry.redactors !== undefined) {
+			if (!Array.isArray(entry.redactors)) return undefined
+			if (!entry.redactors.every((r) => r === 'secrets')) return undefined
+			redactors = entry.redactors as readonly SessionExportRedactorName[]
+		}
+
+		return {
+			sessionExport: {
+				destination: entry.destination,
+				...(eventTypes !== undefined ? { eventTypes } : {}),
+				...(redactors !== undefined ? { redactors } : {}),
+			},
+		}
+	},
 }
 
 /**
@@ -303,6 +346,11 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	permissions: undefined,
 	mcpServers: undefined,
 	sandbox: undefined,
+	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`
+	// in a shell profile would start exporting conversation content with
+	// nothing in the config file to show for it — the disclosure would be
+	// honest and the *reason* would be invisible.
+	telemetry: undefined,
 }
 
 /** Which `NAMZU_*` variable actually set each field `readEnv` found. */

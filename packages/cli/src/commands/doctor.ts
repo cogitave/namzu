@@ -1,6 +1,8 @@
 import type { DoctorCategory, DoctorCheckRecord, DoctorReport, DoctorStatus } from '@namzu/sdk'
 
+import type { NamzuCliConfig } from '../config/schema.js'
 import { builtInDoctorChecks } from '../doctor/checks/index.js'
+import { sessionExportCheck } from '../doctor/checks/session-export.js'
 import { type RunDoctorOptions, createDoctorRegistry, runDoctor } from '../doctor/registry.js'
 import { EXIT_USAGE } from '../exit-codes.js'
 import type { CommandDef } from './types.js'
@@ -228,7 +230,19 @@ function formatHumanReport(report: DoctorReport, verbose: boolean): string {
 	return lines.join('\n')
 }
 
-export async function runDoctorCommand(args: readonly string[]): Promise<number> {
+export async function runDoctorCommand(
+	args: readonly string[],
+	/**
+	 * The invocation's resolved config, for the checks that report on it.
+	 *
+	 * Optional so every existing caller and test keeps its one-argument
+	 * shape; absent means "no config was resolved", which
+	 * `sessionExportCheck` reads as export being off — the same answer an
+	 * empty config gives, and the true one for a `doctor` run that never
+	 * loaded a file.
+	 */
+	config: NamzuCliConfig = {},
+): Promise<number> {
 	const parsed = parseArgs(args)
 	if (parsed.error) {
 		process.stderr.write(`Error: ${parsed.error}\n\n${HELP}\n`)
@@ -244,6 +258,11 @@ export async function runDoctorCommand(args: readonly string[]): Promise<number>
 
 	const registry = createDoctorRegistry()
 	for (const check of builtInDoctorChecks) registry.register(check)
+	// Config-dependent, so it is constructed here rather than sitting in
+	// `builtInDoctorChecks`: what it reports is a property of THIS
+	// invocation's resolved config, and a check registered without one could
+	// only report "unknown", which is the answer nobody runs `doctor` for.
+	registry.register(sessionExportCheck(config))
 
 	const opts: RunDoctorOptions = {
 		registry,
@@ -271,5 +290,5 @@ export const doctorCommand: CommandDef = {
 	name: 'doctor',
 	description: 'Run health checks against the local Namzu environment',
 	passThrough: true,
-	handler: async ({ rawArgs }) => runDoctorCommand(rawArgs),
+	handler: async ({ rawArgs, ctx }) => runDoctorCommand(rawArgs, ctx.config),
 }

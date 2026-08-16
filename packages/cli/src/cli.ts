@@ -304,6 +304,19 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 		{
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.TELEMETRY_STATUS,
 			'namzu.telemetry.registered': false,
+			// Session CONTENT export, which is a different question from whether
+			// a tracer is registered and is the one an end user cares about: this
+			// is the flag that says whether their conversation leaves the machine.
+			// Always present, so "off" is a stated fact rather than the absence
+			// of a claim.
+			//
+			// The BOOLEAN only. The disclosure sentence is emitted by `run` at the
+			// moment export is actually attached, under this same event name,
+			// because that sentence describes what was BUILT — the destination
+			// that resolved, the redactors that loaded — and this function is
+			// synchronous by design: `doctor` and `login` call it before anything
+			// async has happened, and neither of them attaches an export at all.
+			'namzu.telemetry.session_export': config.telemetry?.sessionExport !== undefined,
 		},
 	)
 }
