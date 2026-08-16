@@ -328,6 +328,11 @@ export { claimRun, fencedOut, releaseRun, toClaimSummary } from './store/index.j
 // error. `resolveRunEventReplay` decides what a cursor is owed, and REFUSES
 // rather than delivering a partial catch-up a consumer would fold into its
 // state without knowing it had a hole in it.
+// Walking the actor chain — exported so the next cross-tree concern (an
+// audit over a subtree, a host asking whether one run is contained by
+// another) composes with the chain that is already persisted, rather than
+// building a second parent registry beside it.
+export { actorChain, isDescendantOfActor, MAX_ACTOR_CHAIN_DEPTH } from './session/actor-scope.js'
 export { readRunEventsIn } from './store/index.js'
 export { resolveRunEventReplay } from './types/run/event-cursor.js'
 

@@ -58,6 +58,23 @@ export interface AgentTaskContext {
 	 */
 	resumeHandler?: ResumeHandler
 
+	/**
+	 * The tool denies in force for the actor that owns this context — the
+	 * union of every `toolScope.deny` recorded along its actor chain.
+	 *
+	 * Threaded, not re-derived from the chain, because `ActorRef` identifies
+	 * an AGENT and not a spawn: two children of one parent running the same
+	 * agent id have identical chains, so a lookup keyed on one could not
+	 * tell their scopes apart.
+	 *
+	 * Absent means nothing was denied above here, which is what a top-level
+	 * run has. It is only ever added to. A spawn's own denies union with
+	 * this; nothing checks a spawn's denies AGAINST it, because a descendant
+	 * narrowing further is the whole point and a descendant widening is what
+	 * this exists to prevent.
+	 */
+	readonly toolDenies?: readonly string[]
+
 	/** Isolation boundary. Required per session-hierarchy.md §12.1. */
 	tenantId: TenantId
 

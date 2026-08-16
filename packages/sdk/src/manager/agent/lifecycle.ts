@@ -95,6 +95,14 @@ interface ChildSpawnRecord {
 	rootSessionId: SessionId
 	childDepth: number
 	workspaceRef?: WorkspaceRef
+	/**
+	 * What this child was actually granted, after the ancestor union.
+	 *
+	 * Recorded rather than left implicit so a test — and an operator reading
+	 * a spawn record — can ask what a child was allowed, instead of
+	 * inferring it from whether a call happened to be refused.
+	 */
+	resolvedToolDenies?: readonly string[]
 }
 
 /**
@@ -214,6 +222,29 @@ export class AgentManager {
 			parentActor: context.parentActor,
 		}
 
+		// The union of every deny along the chain, plus this spawn's own.
+		//
+		// Without it, NZ-GATE-09's scope stopped at one level: a child denied
+		// `bash` could spawn a grandchild naming no scope, and the grandchild
+		// got bash back. A restriction that a descendant can shed by
+		// delegating is not a restriction.
+		//
+		// No containment CHECK here, deliberately. The obvious shape is to
+		// confirm with `isDescendantOfActor` that the child really sits under
+		// the actor whose scope is being inherited — but `childParentActor`
+		// is built two statements up FROM `context.parentActor`, so the
+		// answer is yes by construction and the branch could never be taken.
+		// A check that cannot fail reads as a safeguard and is not one. The
+		// predicate is exported for the callers that do face an actor they
+		// did not construct: an audit walking a subtree, a host asking
+		// whether one run's actor is contained by another's.
+		//
+		// Union, not replace, and not "innermost wins": a descendant may
+		// narrow further and may never widen.
+		const inheritedDenies = context.toolDenies ?? []
+		const ownDenies = options.toolScope?.deny ?? []
+		const resolvedDenies = [...new Set([...inheritedDenies, ...ownDenies])]
+
 		const childContext: AgentTaskContext = {
 			parentRunId: context.parentRunId,
 			parentAgentId: context.parentAgentId,
@@ -226,6 +257,7 @@ export class AgentManager {
 			sessionId: spawnRecord.childSessionId,
 			projectId: context.projectId,
 			parentActor: childParentActor,
+			...(resolvedDenies.length > 0 ? { toolDenies: resolvedDenies } : {}),
 		}
 
 		const agentTask: AgentTask = {
@@ -242,6 +274,7 @@ export class AgentManager {
 		}
 
 		this.instances.set(taskId, agentTask)
+		if (resolvedDenies.length > 0) spawnRecord.resolvedToolDenies = resolvedDenies
 		this.spawnRecords.set(taskId, spawnRecord)
 		this.emit({
 			type: 'pending',
@@ -389,9 +422,10 @@ export class AgentManager {
 		// against the registry at the run rather than here — which `query()`
 		// does, and which is why this appends to `deniedTools` rather than
 		// synthesising an allow-list.
-		const deny = options.toolScope?.deny
-		if (deny && deny.length > 0) {
-			childConfig.deniedTools = [...(childConfig.deniedTools ?? []), ...deny]
+		if (resolvedDenies.length > 0) {
+			childConfig.deniedTools = [
+				...new Set([...(childConfig.deniedTools ?? []), ...resolvedDenies]),
+			]
 		}
 		if (options.personaOverride) childConfig.persona = options.personaOverride
 
