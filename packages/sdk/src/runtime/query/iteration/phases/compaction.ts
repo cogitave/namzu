@@ -72,6 +72,40 @@ function measureContentChars(content: unknown): number {
 	return total
 }
 
+/**
+ * The last index whose tail fits in `budgetTokens`, walking backwards.
+ *
+ * Replaces the naive count boundary and nothing else — the caller runs the
+ * existing `findSafeTrimIndex` search downward from whatever this returns,
+ * so the `tool_use` ↔ `tool_result` pairing guarantee is untouched by
+ * construction rather than by care.
+ *
+ * Floored at one message. A single final message larger than the whole
+ * budget still has to be kept: it is the live turn, and dropping it to
+ * satisfy a size preference would delete the thing the run is answering.
+ * The existing "did the pass reach reset threshold" report says so
+ * afterwards, which is the honest outcome rather than a silent one.
+ */
+export const __naiveKeepStartByTokensForTests = (
+	messages: readonly Message[],
+	budgetTokens: number,
+): number => naiveKeepStartByTokens(messages, budgetTokens)
+
+function naiveKeepStartByTokens(messages: readonly Message[], budgetTokens: number): number {
+	let tokens = 0
+	let start = messages.length
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const cost = Math.ceil(measureContentChars(messages[index]?.content) / CHARS_PER_TOKEN)
+		// Checked BEFORE adding, so the boundary never includes a message
+		// that pushes the tail over. Adding first and trimming after would
+		// admit one oversized message on every run.
+		if (start < messages.length && tokens + cost > budgetTokens) break
+		tokens += cost
+		start = index
+	}
+	return start
+}
+
 function estimateMessageTokens(messages: readonly Message[]): number {
 	let chars = 0
 	for (const msg of messages) {
@@ -554,7 +588,10 @@ export async function runCompactionCheck(
 	// only wired to the unused ConversationManager strategy classes) so no pair
 	// is split. Any message this moves out of the recent window is already
 	// represented in the extracted WorkingState the summary is built from.
-	const naiveKeepStart = messages.length - config.keepRecentMessages
+	const naiveKeepStart =
+		config.keepRecentTokens === undefined
+			? messages.length - config.keepRecentMessages
+			: naiveKeepStartByTokens(messages, config.keepRecentTokens)
 	let keepStart = -1
 	for (let candidate = naiveKeepStart; candidate > systemMessages.length; candidate--) {
 		if (findSafeTrimIndex(messages, candidate) === candidate) {

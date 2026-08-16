@@ -45,6 +45,21 @@ export const CompactionConfigSchema = z.object({
 	 */
 	resetThreshold: z.number().min(0).max(1).default(0.4),
 	keepRecentMessages: z.number().int().positive().default(4),
+	/**
+	 * Size the retained tail by TOKENS instead of by message count.
+	 *
+	 * A count cannot express what the tail costs. Four messages is four
+	 * short turns or three short turns and a 200 KB tool result, and in the
+	 * second case the tail alone can approach `resetThreshold` — the pass
+	 * completes, reports it did not reach the threshold, leaves the trigger
+	 * armed, and the next iteration pays another summarization call and
+	 * busts the prompt-cache prefix again.
+	 *
+	 * Absent means the count is used, exactly as before. Set, it replaces
+	 * only the NAIVE boundary; the safe-cut search that keeps a `tool_use`
+	 * with its `tool_result` runs from there unchanged.
+	 */
+	keepRecentTokens: z.number().int().positive().optional(),
 
 	/**
 	 * Before summarizing destructively, clear the OUTPUT of old, large tool
