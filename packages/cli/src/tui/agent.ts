@@ -52,10 +52,14 @@ import {
 	type TaskStore,
 	type TenantId,
 	type ToolCallSummary,
+	type ToolCallView,
+	type ToolPresenter,
 	ToolRegistry,
 	type TopicId,
 	buildMemoryTools,
 	createMemoryPromoter,
+	createToolPresenter,
+	genericLabel,
 	getBuiltinTools,
 	getRootLogger,
 	isTrustedReadOnly,
@@ -898,7 +902,7 @@ export async function createAgentSession(
 			verificationGate: gateFor(options.rules),
 			onEvent: (e) => {
 				if (e.type === 'tool_executing') {
-					childSteps.push(`${e.toolName}(${summarizeToolInput(e.input)})`)
+					childSteps.push(`${e.toolName}(${genericLabel(e.input)})`)
 				}
 			},
 		})
@@ -1080,6 +1084,10 @@ export async function createAgentSession(
 				// No `onPermission`: there is nobody at a drainer's terminal, so a
 				// prompt would block the pass forever on a run nobody is watching.
 				// The gate's deny rules still apply.
+				// One presenter for the whole stream, built from the registry this
+				// scope already holds. It was the absence of the registry HERE that
+				// forced presentation to be name matching: `toAgentEvent` was pure
+				// over a `RunEvent` and could not ask a tool anything.
 				resumeHandler: makeResumeHandler(approval, undefined, options.permissionMode, (n, i) =>
 					isPromptExempt(registry, n, i),
 				),
@@ -1510,6 +1518,11 @@ async function* runTurn({
 	sandboxProvider,
 }: RunTurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
+	// One presenter for the whole stream, built from the registry this scope
+	// already holds. Its absence HERE is what forced presentation to be name
+	// matching in the first place: `toAgentEvent` is pure over a `RunEvent`
+	// and could not ask a tool anything, so the host guessed from the name.
+	const presenter = createToolPresenter(tools)
 	try {
 		const events = query({
 			provider,
@@ -1562,6 +1575,7 @@ async function* runTurn({
 				opts?.onPermission,
 				permissionMode,
 				(name, input) => isPromptExempt(tools, name, input),
+				presenter,
 			),
 			signal,
 			...scope,
@@ -1571,7 +1585,7 @@ async function* runTurn({
 				yield { kind: 'error', message: 'aborted' }
 				return
 			}
-			const mapped = toAgentEvent(event)
+			const mapped = toAgentEvent(event, presenter)
 			if (!mapped) continue
 			// On an `Agent` delegation finishing, attach the sub-agent's tool
 			// steps (collected via the gateway while the call blocked) as a
@@ -1615,6 +1629,13 @@ export function makeResumeHandler(
 	 * the live roster at the moment of the call.
 	 */
 	exempt: (name: string, input: unknown) => boolean = () => false,
+	/**
+	 * How a prompted call is described. Injected for the same reason
+	 * `exempt` is — this handler is unit-tested without a registry — and
+	 * defaulted to the generic view so a caller that has no registry still
+	 * gets the label the tool's arguments imply, rather than nothing.
+	 */
+	presenter: ToolPresenter = GENERIC_PRESENTER,
 ): ResumeHandler {
 	return async (request): Promise<HITLResumeDecision> => {
 		if (request.type !== 'tool_review') {
@@ -1642,9 +1663,11 @@ export function makeResumeHandler(
 			toolCalls: request.toolCalls.map((tc) => ({
 				id: tc.id,
 				name: tc.name,
-				summary: summarizeToolInput(tc.input),
+				...(() => {
+					const view = presenter.presentCall(tc.name, tc.input)
+					return { summary: viewToSummary(view), preview: viewToPreview(view) }
+				})(),
 				isDestructive: tc.isDestructive,
-				preview: previewToolInput(tc.name, tc.input),
 			})),
 		})
 		switch (decision.kind) {
@@ -1749,7 +1772,7 @@ export function batchNeedsPrompt(
  * `null` for events the chat surface doesn't render (iteration markers,
  * token usage, checkpoints, plan/task lifecycle, …). Pure — unit-tested.
  */
-export function toAgentEvent(event: RunEvent): AgentEvent | null {
+export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEvent | null {
 	switch (event.type) {
 		case 'text_delta':
 			return { kind: 'delta', text: event.text }
@@ -1758,8 +1781,10 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 				kind: 'tool-start',
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
-				summary: summarizeToolInput(event.input),
-				detail: toolStartDetail(event.toolName, event.input),
+				...(() => {
+					const view = presenter.presentCall(event.toolName, event.input)
+					return { summary: viewToSummary(view), detail: viewToLines(view) }
+				})(),
 			}
 		case 'tool_completed':
 			return {
@@ -1768,7 +1793,22 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 				toolName: event.toolName,
 				isError: event.isError,
 				summary: firstLine(event.result),
-				detail: toolEndDetail(event.toolName, event.result),
+				// `tool_completed` carries no input, so the presenter gets an
+				// empty one. A tool whose result rendering depends on its
+				// arguments would need the executing event's input threaded
+				// through; none does yet, and inventing the plumbing for a
+				// caller that does not exist is the declaration this repo
+				// keeps deleting.
+				detail: viewToLines(
+					presenter.presentResult(
+						event.toolName,
+						{},
+						{
+							success: !event.isError,
+							output: event.result,
+						},
+					),
+				),
 			}
 		case 'token_usage_updated':
 			// The context figures are forwarded, not recomputed. They were
@@ -1954,59 +1994,95 @@ function asTree(steps: readonly string[]): string[] {
 }
 
 /** Short, human-readable one-liner for a tool call (e.g. `ls -la`, path). */
-function summarizeToolInput(input: unknown): string {
-	if (input && typeof input === 'object') {
-		const obj = input as Record<string, unknown>
-		const pick = (k: string) => (typeof obj[k] === 'string' ? (obj[k] as string) : undefined)
-		const primary =
-			pick('command') ??
-			pick('path') ??
-			pick('file_path') ??
-			pick('pattern') ??
-			pick('query') ??
-			// Last, so it only speaks for a tool none of the above describe.
-			// Those tools were falling through to a truncated `JSON.stringify`
-			// — which is how `Agent` came to show a blob of its own arguments
-			// while requiring the model to write a label nothing then read.
-			// Every input named `description` in this tree is a short
-			// human-facing label, so it is a summary by construction.
-			pick('description')
-		if (primary) return truncate(primary, 120)
+/**
+ * The presenter a caller with no registry gets.
+ *
+ * `makeResumeHandler` is unit-tested without one, and a handler that
+ * described every prompted call as an empty string would make those tests
+ * pass while telling a real user nothing. This is the same fallback the
+ * registry-backed presenter uses when a tool has no opinion, which is what
+ * the four deleted functions did for every tool.
+ */
+const GENERIC_PRESENTER: ToolPresenter = {
+	presentCall: (_name, input) => ({ kind: 'generic', label: genericLabel(input) }),
+	presentResult: (_name, _input, result) => ({ kind: 'terminal', output: result.output ?? '' }),
+}
+
+/**
+ * The one presentation function this host keeps.
+ *
+ * There used to be four, and each switched on a lowercased tool NAME:
+ * `name === 'write'` and `name === 'edit'` got a diff, everything else got
+ * a truncated string. So a tool this host had never heard of — an MCP
+ * server's, a plugin's — could not get a diff no matter what it did.
+ *
+ * The tool now says which of three shapes it wants, and this decides what
+ * that looks like in a terminal. Clamping and the `STDOUT:`/`STDERR:`
+ * cleanup stay here on purpose: how many rows fit and how a shell labels
+ * its streams are properties of this surface, not of the tool.
+ */
+export function viewToLines(view: ToolCallView): readonly string[] | undefined {
+	switch (view.kind) {
+		case 'generic':
+			// The label IS the summary row. Repeating it underneath adds a
+			// line that says what the line above it already said.
+			return undefined
+		case 'diff': {
+			// An empty `before` is a whole-file write, not a patch: there is
+			// nothing to contrast against, so the content reads plainly. `edit`
+			// never produces this — it returns no view at all for an insert,
+			// rather than claim the file was empty.
+			if (view.before === '') {
+				const lines = clampLines(view.after)
+				return lines.length > 0 ? lines : undefined
+			}
+			const lines: string[] = []
+			for (const line of clampLines(view.before)) lines.push(`- ${line}`)
+			for (const line of clampLines(view.after)) lines.push(`+ ${line}`)
+			return lines.length > 0 ? lines : undefined
+		}
+		case 'terminal': {
+			if (view.output.trim().length === 0) return undefined
+			const lines = resultToLines(view.output)
+			// A single short line is already the summary — no need to repeat it.
+			return lines.length <= 1 ? undefined : lines
+		}
 	}
-	if (typeof input === 'string') return truncate(input, 120)
-	return truncate(JSON.stringify(input ?? {}), 120)
+}
+
+/** The `⏺` row: one line naming what the call is about. */
+export function viewToSummary(view: ToolCallView): string {
+	switch (view.kind) {
+		case 'generic':
+			return truncate(view.label, 120)
+		case 'diff':
+			return truncate(view.path ?? view.after.split('\n')[0] ?? '', 120)
+		case 'terminal':
+			return truncate(view.command ?? view.output.split('\n')[0] ?? '', 120)
+	}
+}
+
+/**
+ * The permission overlay's preview: the same shapes, cut shorter.
+ *
+ * A user approving a call needs enough to recognise it, not the whole
+ * file — the transcript shows that once it has run.
+ */
+export function viewToPreview(view: ToolCallView): readonly string[] | undefined {
+	if (view.kind !== 'diff') return undefined
+	if (view.before === '') {
+		const lines = previewLines(view.after, 8)
+		return lines.length > 0 ? lines : undefined
+	}
+	const lines: string[] = []
+	for (const line of previewLines(view.before, 4)) lines.push(`- ${line}`)
+	for (const line of previewLines(view.after, 4)) lines.push(`+ ${line}`)
+	return lines.length > 0 ? lines : undefined
 }
 
 function truncate(value: string, max: number): string {
 	const oneLine = value.replace(/\s+/g, ' ')
 	return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
-}
-
-/**
- * Multi-line preview of a mutating tool's effect, shown in the permission
- * overlay so the user approves with sight of what changes. `write` shows
- * the leading content lines; `edit` shows a minimal -old / +new diff;
- * everything else has no preview (the one-line summary suffices). Pure —
- * unit-tested.
- */
-export function previewToolInput(toolName: string, input: unknown): readonly string[] | undefined {
-	if (!input || typeof input !== 'object') return undefined
-	const obj = input as Record<string, unknown>
-	const str = (k: string) => (typeof obj[k] === 'string' ? (obj[k] as string) : undefined)
-	const name = toolName.toLowerCase()
-	if (name === 'write') {
-		const content = str('content')
-		if (content !== undefined) return previewLines(content, 8)
-	}
-	if (name === 'edit') {
-		const oldString = str('old_string')
-		const newString = str('new_string')
-		const lines: string[] = []
-		if (oldString) for (const line of previewLines(oldString, 4)) lines.push(`- ${line}`)
-		if (newString) for (const line of previewLines(newString, 4)) lines.push(`+ ${line}`)
-		if (lines.length > 0) return lines
-	}
-	return undefined
 }
 
 function previewLines(value: string, max: number): string[] {
@@ -2021,31 +2097,6 @@ const MAX_DETAIL_LINES = 200
 function clampLines(value: string): string[] {
 	const lines = value.replace(/\s+$/, '').split('\n')
 	return lines.length > MAX_DETAIL_LINES ? lines.slice(0, MAX_DETAIL_LINES) : lines
-}
-
-/**
- * Diff / content shown under a tool CALL (`⏺`): an `edit` renders a
- * `- old` / `+ new` diff, a `write` renders the content. Other tools show
- * nothing at call time (their output appears under the result instead).
- */
-export function toolStartDetail(toolName: string, input: unknown): readonly string[] | undefined {
-	if (!input || typeof input !== 'object') return undefined
-	const obj = input as Record<string, unknown>
-	const str = (k: string) => (typeof obj[k] === 'string' ? (obj[k] as string) : undefined)
-	const name = toolName.toLowerCase()
-	if (name === 'write') {
-		const content = str('content')
-		return content !== undefined ? clampLines(content) : undefined
-	}
-	if (name === 'edit') {
-		const oldString = str('old_string')
-		const newString = str('new_string')
-		const lines: string[] = []
-		if (oldString) for (const line of clampLines(oldString)) lines.push(`- ${line}`)
-		if (newString) for (const line of clampLines(newString)) lines.push(`+ ${line}`)
-		return lines.length > 0 ? lines : undefined
-	}
-	return undefined
 }
 
 /** Parse a string as a JSON object, or null. Connector tools return JSON. */
@@ -2089,21 +2140,6 @@ function resultToLines(result: string): string[] {
 	const obj = parseJsonObject(result)
 	if (obj) return clampLines(JSON.stringify(obj, null, 2))
 	return clampLines(cleanToolText(result.trim()))
-}
-
-/**
- * Output shown under a tool RESULT (`⎿`). For `edit`/`write` the diff was
- * already shown at call time, so the result stays a one-line confirmation;
- * every other tool (read/bash/grep/…) shows its captured output here — JSON
- * results are pretty-printed / unwrapped so they don't read as a raw blob.
- */
-export function toolEndDetail(toolName: string, result: string): readonly string[] | undefined {
-	const name = toolName.toLowerCase()
-	if (name === 'edit' || name === 'write') return undefined
-	if (result.trim().length === 0) return undefined
-	const lines = resultToLines(result)
-	// A single short line is already the summary — no need to repeat it.
-	return lines.length <= 1 ? undefined : lines
 }
 
 /** Concise one-line summary of a tool result for the `⎿` line. */

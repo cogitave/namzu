@@ -10,7 +10,13 @@ import type {
 	ToolCallSummary,
 	ToolUseId,
 } from '@namzu/sdk'
-import { DiskMemoryStore, ToolRegistry, buildMemoryTools, getBuiltinTools } from '@namzu/sdk'
+import {
+	DiskMemoryStore,
+	ToolRegistry,
+	buildMemoryTools,
+	createToolPresenter,
+	getBuiltinTools,
+} from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -19,10 +25,9 @@ import {
 	batchNeedsPrompt,
 	isPromptExempt,
 	makeResumeHandler,
-	previewToolInput,
 	toAgentEvent,
-	toolEndDetail,
-	toolStartDetail,
+	viewToLines,
+	viewToPreview,
 } from './agent.js'
 
 const runId = 'run_x' as RunId
@@ -33,6 +38,23 @@ const toolUseId = 'toolu_x' as ToolUseId
 // Minimal envelope fields the RunEvent union carries beyond the discriminant.
 const env = { schemaVersion: 1 as const, runId, sessionId, projectId }
 
+/**
+ * A presenter over the REAL builtins, which is the whole point of the
+ * change these tests cover: the rows used to come from this host matching
+ * `name === 'edit'`, and now they come from the tools themselves. Asserting
+ * against a stub registry would prove the host can render a view and say
+ * nothing about whether the tools produce one.
+ */
+const presenterRegistry = new ToolRegistry()
+presenterRegistry.register(getBuiltinTools())
+const presenter = createToolPresenter(presenterRegistry)
+
+/** The rows a tool's own `presentCall` produces, as the transcript shows them. */
+const callRows = (name: string, input: unknown) => viewToLines(presenter.presentCall(name, input))
+/** The rows a result produces. */
+const resultRows = (name: string, output: string) =>
+	viewToLines(presenter.presentResult(name, {}, { success: true, output }))
+
 describe('toAgentEvent', () => {
 	it('maps text_delta to a delta', () => {
 		const ev = {
@@ -42,7 +64,7 @@ describe('toAgentEvent', () => {
 			text: 'hello',
 			...env,
 		} as unknown as RunEvent
-		expect(toAgentEvent(ev)).toEqual({ kind: 'delta', text: 'hello' })
+		expect(toAgentEvent(ev, presenter)).toEqual({ kind: 'delta', text: 'hello' })
 	})
 
 	it('maps tool_executing to tool-start with a command summary', () => {
@@ -53,7 +75,7 @@ describe('toAgentEvent', () => {
 			input: { command: 'ls -la /tmp' },
 			...env,
 		} as unknown as RunEvent
-		expect(toAgentEvent(ev)).toEqual({
+		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-start',
 			toolUseId,
 			toolName: 'bash',
@@ -69,7 +91,7 @@ describe('toAgentEvent', () => {
 			input: { file_path: '/etc/hosts' },
 			...env,
 		} as unknown as RunEvent
-		expect(toAgentEvent(ev)).toEqual({
+		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-start',
 			toolUseId,
 			toolName: 'read',
@@ -86,7 +108,7 @@ describe('toAgentEvent', () => {
 			isError: false,
 			...env,
 		} as unknown as RunEvent
-		expect(toAgentEvent(ev)).toEqual({
+		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-end',
 			toolUseId,
 			toolName: 'bash',
@@ -98,29 +120,38 @@ describe('toAgentEvent', () => {
 
 	it('maps run_completed to done and run_failed to error', () => {
 		expect(
-			toAgentEvent({
-				type: 'run_completed',
-				result: 'ok',
-				...env,
-			} as unknown as RunEvent),
+			toAgentEvent(
+				{
+					type: 'run_completed',
+					result: 'ok',
+					...env,
+				} as unknown as RunEvent,
+				presenter,
+			),
 		).toEqual({ kind: 'done' })
 		expect(
-			toAgentEvent({
-				type: 'run_failed',
-				error: 'boom',
-				...env,
-			} as unknown as RunEvent),
+			toAgentEvent(
+				{
+					type: 'run_failed',
+					error: 'boom',
+					...env,
+				} as unknown as RunEvent,
+				presenter,
+			),
 		).toEqual({ kind: 'error', message: 'boom' })
 	})
 
 	it('maps token_usage_updated to a usage event', () => {
 		expect(
-			toAgentEvent({
-				type: 'token_usage_updated',
-				usage: { totalTokens: 1234 },
-				cost: { totalCost: 0.0456, cacheDiscount: 0, unpricedTokens: 0 },
-				...env,
-			} as unknown as RunEvent),
+			toAgentEvent(
+				{
+					type: 'token_usage_updated',
+					usage: { totalTokens: 1234 },
+					cost: { totalCost: 0.0456, cacheDiscount: 0, unpricedTokens: 0 },
+					...env,
+				} as unknown as RunEvent,
+				presenter,
+			),
 			// The cost record travels whole. Narrowing it to a single number
 			// here is what left every surface downstream unable to tell a run
 			// that cost nothing from one nobody could price.
@@ -137,28 +168,37 @@ describe('toAgentEvent', () => {
 		// only field on the record whose loss is silent — every surface
 		// downstream would keep rendering, and would render "free".
 		expect(
-			toAgentEvent({
-				type: 'token_usage_updated',
-				usage: { totalTokens: 4210 },
-				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 4210 },
-				...env,
-			} as unknown as RunEvent),
+			toAgentEvent(
+				{
+					type: 'token_usage_updated',
+					usage: { totalTokens: 4210 },
+					cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 4210 },
+					...env,
+				} as unknown as RunEvent,
+				presenter,
+			),
 		).toMatchObject({ cost: { unpricedTokens: 4210 } })
 	})
 
 	it('returns null for events the chat surface ignores', () => {
 		expect(
-			toAgentEvent({
-				type: 'iteration_started',
-				iteration: 1,
-				...env,
-			} as unknown as RunEvent),
+			toAgentEvent(
+				{
+					type: 'iteration_started',
+					iteration: 1,
+					...env,
+				} as unknown as RunEvent,
+				presenter,
+			),
 		).toBeNull()
 		expect(
-			toAgentEvent({
-				type: 'checkpoint_created',
-				...env,
-			} as unknown as RunEvent),
+			toAgentEvent(
+				{
+					type: 'checkpoint_created',
+					...env,
+				} as unknown as RunEvent,
+				presenter,
+			),
 		).toBeNull()
 	})
 })
@@ -258,26 +298,25 @@ describe('isPromptExempt', () => {
 	})
 })
 
-describe('previewToolInput', () => {
+describe('the permission overlay preview', () => {
+	const preview = (name: string, input: unknown) =>
+		viewToPreview(presenter.presentCall(name, input))
+
 	it('previews write content with a head + overflow note', () => {
 		const content = Array.from({ length: 12 }, (_, i) => `line${i}`).join('\n')
-		const preview = previewToolInput('write', { path: '/x', content })
-		expect(preview?.[0]).toBe('line0')
-		expect(preview?.at(-1)).toContain('+4 more lines')
+		const rows = preview('write', { path: '/x', content })
+		expect(rows?.[0]).toBe('line0')
+		expect(rows?.at(-1)).toContain('+4 more lines')
 	})
 
 	it('previews edit as -old / +new diff lines', () => {
-		const preview = previewToolInput('edit', {
-			path: '/x',
-			old_string: 'foo',
-			new_string: 'bar',
-		})
-		expect(preview).toEqual(['- foo', '+ bar'])
+		const rows = preview('edit', { path: '/x', old_string: 'foo', new_string: 'bar' })
+		expect(rows).toEqual(['- foo', '+ bar'])
 	})
 
 	it('returns undefined for non-previewable tools', () => {
-		expect(previewToolInput('bash', { command: 'ls' })).toBeUndefined()
-		expect(previewToolInput('read', { path: '/x' })).toBeUndefined()
+		expect(preview('bash', { command: 'ls' })).toBeUndefined()
+		expect(preview('read', { path: '/x' })).toBeUndefined()
 	})
 })
 
@@ -355,35 +394,121 @@ describe('makeResumeHandler', () => {
 	})
 })
 
-describe('toolStartDetail', () => {
-	it('builds a -old/+new diff for edit', () => {
-		expect(toolStartDetail('edit', { path: '/x', old_string: 'a\nb', new_string: 'a\nc' })).toEqual(
-			['- a', '- b', '+ a', '+ c'],
+describe('the permission overlay asks the tool', () => {
+	it('gets its preview from the tool, once per prompted call', async () => {
+		// Criterion the rename exists for: the overlay used to call
+		// `previewToolInput(name, input)` and match `edit` by name. Now the
+		// tool is asked, and a spy on ITS hook is the only assertion that can
+		// tell the two apart — the rendered rows are identical either way,
+		// which is exactly why the old code survived so long.
+		const registry = new ToolRegistry()
+		registry.register(getBuiltinTools())
+		const edit = registry.get('edit') as unknown as { presentCall: (i: unknown) => unknown }
+		const spy = vi.spyOn(edit, 'presentCall')
+
+		const onPermission = vi.fn<(r: PermissionRequest) => Promise<PermissionDecision>>(
+			async () => ({ kind: 'approve' }) as PermissionDecision,
 		)
+		const handler = makeResumeHandler(
+			{ all: false },
+			onPermission,
+			'prompt',
+			() => false,
+			createToolPresenter(registry),
+		)
+
+		await handler(
+			toolReview([tc({ name: 'edit', input: { path: '/x', old_string: 'a', new_string: 'b' } })]),
+		)
+
+		expect(spy).toHaveBeenCalledOnce()
+		expect(onPermission.mock.calls[0]?.[0].toolCalls[0]?.preview).toEqual(['- a', '+ b'])
+		spy.mockRestore()
 	})
 
-	it('returns the content lines for write', () => {
-		expect(toolStartDetail('write', { path: '/x', content: 'one\ntwo' })).toEqual(['one', 'two'])
-	})
+	it('falls back to a label when the caller has no registry', async () => {
+		// `makeResumeHandler` is unit-tested without one, and the default
+		// presenter has to describe the call rather than hand back an empty
+		// string — otherwise those tests pass while a real user is prompted
+		// to approve nothing in particular.
+		const onPermission = vi.fn<(r: PermissionRequest) => Promise<PermissionDecision>>(
+			async () => ({ kind: 'approve' }) as PermissionDecision,
+		)
+		const handler = makeResumeHandler({ all: false }, onPermission)
 
-	it('returns undefined for non-mutating tools', () => {
-		expect(toolStartDetail('bash', { command: 'ls' })).toBeUndefined()
-		expect(toolStartDetail('read', { file_path: '/x' })).toBeUndefined()
+		await handler(toolReview([tc({ name: 'bash', input: { command: 'rm -rf /tmp/x' } })]))
+
+		expect(onPermission.mock.calls[0]?.[0].toolCalls[0]?.summary).toBe('rm -rf /tmp/x')
 	})
 })
 
-describe('toolEndDetail', () => {
+describe('the rows under a tool call', () => {
+	it('builds a -old/+new diff for edit', () => {
+		expect(callRows('edit', { path: '/x', old_string: 'a\nb', new_string: 'a\nc' })).toEqual([
+			'- a',
+			'- b',
+			'+ a',
+			'+ c',
+		])
+	})
+
+	it('returns the content lines for write', () => {
+		expect(callRows('write', { path: '/x', content: 'one\ntwo' })).toEqual(['one', 'two'])
+	})
+
+	it('returns undefined for non-mutating tools', () => {
+		expect(callRows('bash', { command: 'ls' })).toBeUndefined()
+		expect(callRows('read', { file_path: '/x' })).toBeUndefined()
+	})
+
+	it('gives a diff to a tool this host has never heard of', () => {
+		// The reason for the whole change. `remote_patch` could not have been
+		// matched by name — it is not `edit` and not `write` — and on the old
+		// code it rendered as a truncated JSON blob of its own arguments.
+		const registry = new ToolRegistry()
+		registry.register({
+			name: 'remote_patch',
+			description: 'patches a remote record',
+			inputSchema: { type: 'object' },
+			category: 'analysis',
+			permissions: [],
+			readOnly: false,
+			destructive: true,
+			concurrencySafe: false,
+			presentCall: (input: { before: string; after: string }) => ({
+				kind: 'diff' as const,
+				before: input.before,
+				after: input.after,
+			}),
+			execute: async () => ({ success: true, output: 'ok' }),
+		} as never)
+
+		const rows = viewToLines(
+			createToolPresenter(registry).presentCall('remote_patch', { before: 'old', after: 'new' }),
+		)
+
+		expect(rows).toEqual(['- old', '+ new'])
+	})
+})
+
+describe('the rows under a tool result', () => {
 	it('returns output lines for read/bash', () => {
-		expect(toolEndDetail('bash', 'line1\nline2')).toEqual(['line1', 'line2'])
+		expect(resultRows('bash', 'line1\nline2')).toEqual(['line1', 'line2'])
 	})
 
 	it('returns undefined for edit/write (diff already shown at call time)', () => {
-		expect(toolEndDetail('edit', 'Updated /x')).toBeUndefined()
-		expect(toolEndDetail('write', 'Wrote /x')).toBeUndefined()
+		// MULTI-line results, deliberately. `Updated /x` on its own is
+		// suppressed by the single-line rule below whether or not the tool
+		// says anything, so the obvious one-line fixture passes with
+		// `edit.presentResult` deleted — it answers correctly for the wrong
+		// reason. Only output that WOULD have produced rows can tell "the
+		// tool declined to show it" apart from "there was nothing to show".
+		expect(resultRows('edit', 'Updated /x\n  3 insertions\n  1 deletion')).toBeUndefined()
+		expect(resultRows('write', 'Wrote /x\n  120 lines\n  4.2 KB')).toBeUndefined()
 	})
 
 	it('returns undefined for single-line or empty results', () => {
-		expect(toolEndDetail('bash', 'ok')).toBeUndefined()
-		expect(toolEndDetail('bash', '   ')).toBeUndefined()
+		expect(resultRows('bash', 'ok')).toBeUndefined()
+		expect(resultRows('bash', '   ')).toBeUndefined()
 	})
 })

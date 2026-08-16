@@ -173,6 +173,21 @@ describe('presenting a result', () => {
 			{ success: true, output: 'patched 3 records' },
 		)
 
-		expect(view).toEqual({ kind: 'generic', label: 'patched 3 records' })
+		expect(view).toEqual({ kind: 'terminal', output: 'patched 3 records' })
+	})
+
+	it('hands the fallback the WHOLE output, however long', async () => {
+		// This used to truncate to 120 characters on one line, which reads
+		// as a reasonable default and is not: a host renders a result across
+		// many rows, decides for itself how many fit — that is a property of
+		// its terminal, not of the tool — and cannot recover text the kernel
+		// already threw away. A tool that wants the one-line form returns a
+		// `generic` view itself.
+		const presenter = createToolPresenter(registryWith(remotePatch))
+		const long = Array.from({ length: 40 }, (_, i) => `line ${i} of output`).join('\n')
+
+		const view = presenter.presentResult('remote_patch', {}, { success: true, output: long })
+
+		expect(view).toEqual({ kind: 'terminal', output: long })
 	})
 })

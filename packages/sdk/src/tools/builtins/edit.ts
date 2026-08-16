@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
 import { z } from 'zod'
+import type { ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinReal } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
@@ -207,6 +208,16 @@ export const EditTool = defineTool({
 			before,
 			after,
 		}
+	},
+
+	/**
+	 * A label, for the same reason `write` gives one: the diff was already
+	 * shown under the call, and repeating it under the result doubles the
+	 * longest rows in a transcript to say nothing new. The host used to
+	 * decide this by matching two names.
+	 */
+	presentResult(_input: EditInput, result: ToolResult) {
+		return { kind: 'generic' as const, label: result.output?.split('\n')[0] ?? '' }
 	},
 
 	async execute(input: EditInput, context) {

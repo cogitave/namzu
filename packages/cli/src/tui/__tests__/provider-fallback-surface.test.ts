@@ -17,10 +17,16 @@ import {
 	type LLMProvider,
 	LocalTaskScheduler,
 	type RunEvent,
+	ToolRegistry,
+	createToolPresenter,
 } from '@namzu/sdk'
 
 import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
 import { toAgentEvent } from '../agent.js'
+
+/** No tool is involved in any event here; the registry-backed presenter with an
+ * empty registry gives exactly the generic fallback these assertions expect. */
+const presenter = createToolPresenter(new ToolRegistry())
 
 function fallbackEvent(over: Partial<Record<string, unknown>> = {}): RunEvent {
 	return {
@@ -41,7 +47,7 @@ function fallbackEvent(over: Partial<Record<string, unknown>> = {}): RunEvent {
 
 describe('the operator is told, every time', () => {
 	it('names the member that failed, why, and the member now serving', () => {
-		const mapped = toAgentEvent(fallbackEvent())
+		const mapped = toAgentEvent(fallbackEvent(), presenter)
 
 		expect(mapped?.kind).toBe('provider-fallback')
 		const text = (mapped as { text: string }).text
@@ -64,7 +70,9 @@ describe('the operator is told, every time', () => {
 	})
 
 	it('still says something useful for a code it has no sentence for', () => {
-		const text = (toAgentEvent(fallbackEvent({ code: 'some_new_code' })) as { text: string }).text
+		const text = (
+			toAgentEvent(fallbackEvent({ code: 'some_new_code' }), presenter) as { text: string }
+		).text
 		expect(text).toContain('some_new_code')
 		expect(text).toContain('fallback #1')
 	})
@@ -72,7 +80,7 @@ describe('the operator is told, every time', () => {
 	// A swap is not an error and must not close the assistant message or be
 	// rendered as a failure — the run continues.
 	it('is not an error event', () => {
-		expect(toAgentEvent(fallbackEvent())?.kind).not.toBe('error')
+		expect(toAgentEvent(fallbackEvent(), presenter)?.kind).not.toBe('error')
 	})
 })
 

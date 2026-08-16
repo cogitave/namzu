@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunEvent, RunId } from '@namzu/sdk'
+import { type RunEvent, type RunId, ToolRegistry, createToolPresenter } from '@namzu/sdk'
 
 import { toAgentEvent } from '../agent.js'
+
+/** No tool is involved in any event here; the registry-backed presenter with an
+ * empty registry gives exactly the generic fallback these assertions expect. */
+const presenter = createToolPresenter(new ToolRegistry())
 
 /**
  * The seam between the kernel and the command.
@@ -19,12 +23,15 @@ const runId = 'run_test' as RunId
 
 describe('toAgentEvent carries the stop reason across', () => {
 	it('passes a non-normal stop through to the done event', () => {
-		const mapped = toAgentEvent({
-			type: 'run_completed',
-			runId,
-			result: '',
-			stopReason: 'output_guardrail',
-		} as RunEvent)
+		const mapped = toAgentEvent(
+			{
+				type: 'run_completed',
+				runId,
+				result: '',
+				stopReason: 'output_guardrail',
+			} as RunEvent,
+			presenter,
+		)
 
 		expect(mapped).toEqual({ kind: 'done', stopReason: 'output_guardrail' })
 	})
@@ -33,28 +40,37 @@ describe('toAgentEvent carries the stop reason across', () => {
 		// The command treats a MISSING reason as success, so the difference
 		// between "finished normally" and "we did not say" must be preserved
 		// here rather than reconstructed by whoever reads it.
-		const mapped = toAgentEvent({
-			type: 'run_completed',
-			runId,
-			result: 'hi',
-			stopReason: 'end_turn',
-		} as RunEvent)
+		const mapped = toAgentEvent(
+			{
+				type: 'run_completed',
+				runId,
+				result: 'hi',
+				stopReason: 'end_turn',
+			} as RunEvent,
+			presenter,
+		)
 
 		expect(mapped).toEqual({ kind: 'done', stopReason: 'end_turn' })
 	})
 
 	it('still maps a completion that carries no reason', () => {
-		const mapped = toAgentEvent({ type: 'run_completed', runId, result: 'hi' } as RunEvent)
+		const mapped = toAgentEvent(
+			{ type: 'run_completed', runId, result: 'hi' } as RunEvent,
+			presenter,
+		)
 
 		expect(mapped).toEqual({ kind: 'done' })
 	})
 
 	it('maps a failure to an error, not to done', () => {
-		const mapped = toAgentEvent({
-			type: 'run_failed',
-			runId,
-			error: 'boom',
-		} as RunEvent)
+		const mapped = toAgentEvent(
+			{
+				type: 'run_failed',
+				runId,
+				error: 'boom',
+			} as RunEvent,
+			presenter,
+		)
 
 		expect(mapped).toEqual({ kind: 'error', message: 'boom' })
 	})
@@ -65,19 +81,22 @@ describe('compaction is reported, not silent', () => {
 	// specifically so a host can surface the loss; this host used to drop them
 	// at `default: return null`, one function from the screen.
 	it('says which counts became which, and nothing it cannot substantiate', () => {
-		const mapped = toAgentEvent({
-			type: 'compaction_completed',
-			runId: 'run_1',
-			iteration: 3,
-			messagesBefore: 42,
-			messagesAfter: 9,
-			tokensBefore: 120_000,
-			tokensAfter: 38_000,
-			measuredBy: 'provider',
-			contextWindowTokens: 200_000,
-			windowSource: 'model-table',
-			reachedResetThreshold: true,
-		} as never)
+		const mapped = toAgentEvent(
+			{
+				type: 'compaction_completed',
+				runId: 'run_1',
+				iteration: 3,
+				messagesBefore: 42,
+				messagesAfter: 9,
+				tokensBefore: 120_000,
+				tokensAfter: 38_000,
+				measuredBy: 'provider',
+				contextWindowTokens: 200_000,
+				windowSource: 'model-table',
+				reachedResetThreshold: true,
+			} as never,
+			presenter,
+		)
 
 		expect(mapped).toMatchObject({ kind: 'context', shed: true })
 		const text = (mapped as { text: string }).text
@@ -91,19 +110,22 @@ describe('compaction is reported, not silent', () => {
 	it('marks an estimate as an estimate', () => {
 		// Quoting an estimate as a measurement is the same lie as quoting a
 		// summary as an enumeration, in miniature.
-		const mapped = toAgentEvent({
-			type: 'compaction_completed',
-			runId: 'run_1',
-			iteration: 3,
-			messagesBefore: 10,
-			messagesAfter: 4,
-			tokensBefore: 9000,
-			tokensAfter: 3000,
-			measuredBy: 'estimate',
-			contextWindowTokens: 200_000,
-			windowSource: 'default',
-			reachedResetThreshold: false,
-		} as never)
+		const mapped = toAgentEvent(
+			{
+				type: 'compaction_completed',
+				runId: 'run_1',
+				iteration: 3,
+				messagesBefore: 10,
+				messagesAfter: 4,
+				tokensBefore: 9000,
+				tokensAfter: 3000,
+				measuredBy: 'estimate',
+				contextWindowTokens: 200_000,
+				windowSource: 'default',
+				reachedResetThreshold: false,
+			} as never,
+			presenter,
+		)
 
 		expect((mapped as { text: string }).text).toContain('estimated')
 	})
@@ -113,14 +135,17 @@ describe('the three decline causes get three sentences', () => {
 	// Collapsing them into "compaction failed" puts the reader back where the
 	// silence did — the same reason a rule denial had to quote the rule.
 	function failure(cause: string, error?: string): string {
-		const mapped = toAgentEvent({
-			type: 'compaction_failed',
-			runId: 'run_1',
-			iteration: 2,
-			cause,
-			messages: 31,
-			...(error ? { error } : {}),
-		} as never)
+		const mapped = toAgentEvent(
+			{
+				type: 'compaction_failed',
+				runId: 'run_1',
+				iteration: 2,
+				cause,
+				messages: 31,
+				...(error ? { error } : {}),
+			} as never,
+			presenter,
+		)
 		expect(mapped).toMatchObject({ kind: 'context', shed: false })
 		return (mapped as { text: string }).text
 	}
@@ -176,7 +201,10 @@ describe('the three decline causes get three sentences', () => {
  */
 describe('toAgentEvent labels a delegation with the label it required', () => {
 	const executing = (toolName: string, input: unknown) =>
-		toAgentEvent({ type: 'tool_executing', toolName, toolUseId: 'tu_1', input } as RunEvent)
+		toAgentEvent(
+			{ type: 'tool_executing', toolName, toolUseId: 'tu_1', input } as RunEvent,
+			presenter,
+		)
 
 	it('summarises an Agent call with its description', () => {
 		const mapped = executing('Agent', {
@@ -218,13 +246,16 @@ describe('toAgentEvent labels a delegation with the label it required', () => {
 describe('toAgentEvent carries the context figures across', () => {
 	const COST = { totalCost: 0.5, cacheDiscount: 0, unpricedTokens: 0 }
 	const usageEvent = (extra: Record<string, unknown>) =>
-		toAgentEvent({
-			type: 'token_usage_updated',
-			runId,
-			usage: { totalTokens: 90 },
-			cost: COST,
-			...extra,
-		} as unknown as RunEvent)
+		toAgentEvent(
+			{
+				type: 'token_usage_updated',
+				runId,
+				usage: { totalTokens: 90 },
+				cost: COST,
+				...extra,
+			} as unknown as RunEvent,
+			presenter,
+		)
 
 	it('carries both terms and both provenances', () => {
 		expect(

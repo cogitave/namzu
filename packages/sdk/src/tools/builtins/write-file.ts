@@ -1,7 +1,7 @@
 import { access, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
-import type { ToolContext } from '../../types/tool/index.js'
+import type { ToolContext, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinReal } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
@@ -79,6 +79,42 @@ export const WriteFileTool = defineTool({
 	readOnly: false,
 	destructive: true,
 	concurrencySafe: false,
+
+	/**
+	 * The whole file body, described by the tool.
+	 *
+	 * A `diff` with an EMPTY `before`, which is what a write actually is:
+	 * whatever was there is gone and this is what replaces it. `edit`
+	 * declines to do that for an insert — there, an empty `before` would
+	 * claim the whole file was added and it was not. Here it is true.
+	 *
+	 * A host with nothing to contrast against renders the `after` plainly
+	 * rather than as `+` lines, which is the row a reader wants: they are
+	 * approving a file, not reviewing a patch.
+	 */
+	presentCall(input: WriteInput) {
+		const content = input.content ?? input.newStr
+		if (typeof content !== 'string') return undefined
+		return {
+			kind: 'diff' as const,
+			...(input.path ? { path: input.path } : {}),
+			before: '',
+			after: content,
+		}
+	},
+
+	/**
+	 * A label, deliberately — which is what suppresses the detail block.
+	 *
+	 * The content was already shown under the CALL, where the user could
+	 * act on it. Repeating it under the result doubles the longest rows in
+	 * the transcript to say nothing new. A host used to decide this by
+	 * matching `name === 'write' || name === 'edit'`; it is the tool's to
+	 * say, and now it says it.
+	 */
+	presentResult(_input: WriteInput, result: ToolResult) {
+		return { kind: 'generic' as const, label: result.output?.split('\n')[0] ?? '' }
+	},
 
 	async execute(input: WriteInput, context) {
 		// `execute` is reachable without going through the registry, so the

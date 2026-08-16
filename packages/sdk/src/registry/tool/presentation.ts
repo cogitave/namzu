@@ -102,7 +102,15 @@ export function createToolPresenter(
 			// Falls back to the RESULT's own text, not the input's label: a
 			// caller asking how to show what came back and getting a
 			// description of what went in is worse than a plain string.
-			return view ?? { kind: 'generic', label: truncate(result.output ?? '') }
+			//
+			// `terminal` rather than a truncated `generic`, and the whole
+			// output rather than its first 120 characters. A host renders a
+			// result across many rows and does its own clamping — how many
+			// lines fit is a property of a terminal, not of a tool — and
+			// truncating here destroys text no host can then recover. A tool
+			// that wants the one-line form says so by returning a `generic`
+			// view itself, which `edit` and `write` both do.
+			return view ?? { kind: 'terminal', output: result.output ?? '' }
 		},
 	}
 }
