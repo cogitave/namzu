@@ -303,6 +303,24 @@ type CoreRunEvent =
 			toolUseId: ToolUseId
 			toolName: string
 			input: unknown
+			/**
+			 * Present when another TOOL dispatched this call, rather than the
+			 * model.
+			 *
+			 * `run_code` is the reason: a program it runs calls tools in a
+			 * loop, and those calls went through `registry.execute` directly —
+			 * so they reached the permission gate and reached the event stream
+			 * not at all. A run whose transcript showed one `run_code` call and
+			 * nothing about the eleven writes it performed is a transcript
+			 * that cannot be audited.
+			 *
+			 * Named rather than merely present, and this is the load-bearing
+			 * part: without it a consumer counting tool calls double-counts —
+			 * the parent AND each child — and a consumer rendering a timeline
+			 * draws eleven siblings where there is one call with eleven
+			 * children.
+			 */
+			via?: { readonly tool: string; readonly toolUseId: ToolUseId }
 	  }
 	/**
 	 * A tool saying how far along it is.
@@ -392,6 +410,9 @@ type CoreRunEvent =
 			toolName: string
 			result: string
 			isError: boolean
+			/** See {@link tool_executing}'s `via`. Carried on both, so a
+			 * consumer can pair them without holding the start event. */
+			via?: { readonly tool: string; readonly toolUseId: ToolUseId }
 			/**
 			 * Wall-clock the tool took. Computed since the first version of
 			 * the executor but only ever logged; a host asking "which tool

@@ -39,6 +39,7 @@ import type {
 import { abortReasonText } from '../../utils/abort.js'
 import { type BackoffPolicy, backoffWithJitter, sleep } from '../../utils/backoff.js'
 import { toErrorMessage } from '../../utils/error.js'
+import { generateToolCallId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { type BackgroundJobRegistry, bindOwner } from '../jobs/registry.js'
@@ -538,6 +539,11 @@ export class ToolExecutor {
 			const ctx: ToolContext = {
 				...baseContext,
 				toolUseId: toolCall.id,
+				// Overridden per call, so a nested dispatch can name the call
+				// that made it. The base context has no `toolUseId`, and a
+				// closure built there would report every nested call as
+				// parentless.
+				dispatchTool: (name, input) => this.dispatchNested(name, input, ctx),
 				// Per-call for the same reason: a pause has to be routed back
 				// to the call that raised it, and a batch can raise several.
 				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
@@ -609,6 +615,59 @@ export class ToolExecutor {
 		return { messages, results }
 	}
 
+	/**
+	 * Run a tool on behalf of another tool, and put it on the record.
+	 *
+	 * These used to go straight to `registry.execute`, so they reached the
+	 * permission gate and reached the event stream not at all — a run whose
+	 * transcript showed one `run_code` call and nothing about the eleven
+	 * writes it performed is a transcript nobody can audit.
+	 *
+	 * `via` names the dispatching call rather than merely marking this one
+	 * nested, and that is the load-bearing part: without it a consumer
+	 * counting tool calls double-counts the parent AND each child, and one
+	 * rendering a timeline draws eleven siblings where there is one call with
+	 * eleven children.
+	 */
+	private async dispatchNested(
+		name: string,
+		input: unknown,
+		context: ToolContext,
+	): Promise<ToolResult> {
+		const parent = context.toolUseId
+		const via = parent ? { tool: name, toolUseId: parent as ToolUseId } : undefined
+		// Its own id, minted here. Reusing the parent's would make two
+		// different calls indistinguishable in any log keyed by it, which is
+		// exactly how a nested write gets attributed to the program that ran
+		// it rather than to itself.
+		const nestedId = generateToolCallId() as unknown as ToolUseId
+		const startedAt = Date.now()
+
+		await this.emitEvent({
+			type: 'tool_executing',
+			runId: this.config.runId,
+			toolUseId: nestedId,
+			toolName: name,
+			input,
+			...(via ? { via } : {}),
+		})
+
+		const result = await this.config.tools.execute(name, input, context)
+
+		await this.emitEvent({
+			type: 'tool_completed',
+			runId: this.config.runId,
+			toolUseId: nestedId,
+			toolName: name,
+			result: result.success ? result.output : (result.error ?? 'failed'),
+			isError: !result.success,
+			durationMs: Date.now() - startedAt,
+			...(via ? { via } : {}),
+		})
+
+		return result
+	}
+
 	private buildToolContext(): ToolContext {
 		const context: ToolContext = {
 			runId: this.config.runId,
@@ -638,7 +697,11 @@ export class ToolExecutor {
 			// takes. Not a parallel path: a second dispatch is a second place
 			// for the permission gate to be forgotten, and the one that forgot
 			// it would be the one a model reached through a program.
-			dispatchTool: (name, input) => this.config.tools.execute(name, input, context),
+			// Bound to the BASE context, which has no `toolUseId` — a caller
+			// dispatching outside a batch has no parent call to name. The
+			// per-call context below overrides it with one that does; see
+			// `dispatchNested`.
+			dispatchTool: (name, input) => this.dispatchNested(name, input, context),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			// Bound to this run, once. Binding here rather than passing the
