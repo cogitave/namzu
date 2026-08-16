@@ -88,10 +88,44 @@ function declaredExports() {
 		// ship with the tag omitted and every gate would report the surface
 		// intact. The gate would be true about the names and silent about the
 		// only property the rule is written around.
+		//
+		// Resolved THROUGH the alias. `index.d.ts` is a barrel over barrels, so
+		// almost every name here is an alias symbol, and an alias carries only
+		// the tags written on the re-export specifier itself -- not the ones on
+		// the declaration it points at. Reading `getJsDocTags()` off the alias
+		// alone therefore saw a deprecation only when it happened to be marked
+		// at the LAST hop, and missed every one marked where the thing is
+		// actually declared. `mapSessionToStreamEvent` is the case that showed
+		// it: `bridge/sse/mapper.ts` marks it correctly, the tag survives into
+		// `mapper.d.ts`, and the gate reported the surface intact.
 		deprecated: exported
-			.filter((symbol) => symbol.getJsDocTags().some((tag) => tag.name === 'deprecated'))
+			.filter((symbol) => isDeprecated(symbol, checker))
 			.map((symbol) => symbol.getName())
 			.sort(),
+	}
+}
+
+/**
+ * Does this exported name carry `@deprecated`, at the alias or at the
+ * declaration it resolves to?
+ *
+ * Either counts. A name deprecated at its declaration is deprecated for
+ * every consumer that reaches it through a barrel, and a name deprecated
+ * only on one re-export specifier is deprecated for consumers of THAT
+ * entry point -- which is the public one. Requiring both would let a
+ * correct deprecation go unrecorded; requiring the alias only did.
+ */
+function isDeprecated(symbol, checker) {
+	if (symbol.getJsDocTags().some((tag) => tag.name === 'deprecated')) return true
+	if ((symbol.flags & ts.SymbolFlags.Alias) === 0) return false
+	// `getAliasedSymbol` throws rather than returning undefined when the
+	// symbol is not an alias, which the guard above already excludes; it can
+	// still fail on a broken resolution, and a gate that dies on one symbol
+	// reports nothing about the other 1300.
+	try {
+		return checker.getAliasedSymbol(symbol).getJsDocTags().some((tag) => tag.name === 'deprecated')
+	} catch {
+		return false
 	}
 }
 

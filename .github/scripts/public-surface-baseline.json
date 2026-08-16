@@ -1934,13 +1934,22 @@
   "deprecated": [
     "AgentRun",
     "AgentSession",
+    "ConversationManager",
     "HOOK_MAX_CONCURRENT",
     "InMemoryThreadStore",
     "MAX_RECENT_ACTIVITIES",
+    "NullManager",
+    "SlidingWindowManager",
+    "StructuredCompactionManager",
     "ThreadId",
     "ThreadManager",
     "acceptLegacyThreadId",
+    "configureLogger",
+    "createConversationManager",
     "generateThreadId",
+    "getRootLogger",
+    "mapSessionToA2AEvent",
+    "mapSessionToStreamEvent",
     "rejectLegacyPrefix"
   ]
 }
