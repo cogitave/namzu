@@ -10,3 +10,14 @@
 
 export type { TopicStore, CreateTopicParams } from './store.js'
 export type { Topic, TopicStatus } from './entity.js'
+
+export { StaleObjectiveError } from './objective.js'
+export type {
+	ObjectiveAdvance,
+	ObjectiveAdvanceResult,
+	ObjectiveBlock,
+	ObjectivePhase,
+	ObjectiveRefusal,
+	ObjectiveRoundVerdict,
+	TopicObjective,
+} from './objective.js'

@@ -17,3 +17,17 @@ export { InMemoryTopicStore } from './memory.js'
 // that changes several times inside one conversation.
 export { DiskTopicStateStore, InMemoryTopicStateStore } from './state.js'
 export type { DiskTopicStateStoreConfig, TopicStateStore } from './state.js'
+
+// Work that outlives one run: the objective, its round cap and the
+// compare-and-set that makes the cap durable.
+export {
+	DiskTopicObjectiveStore,
+	InMemoryTopicObjectiveStore,
+	ObjectiveExhaustedError,
+	ObjectiveExistsError,
+} from './objective.js'
+export type {
+	CreateObjectiveParams,
+	DiskTopicObjectiveStoreConfig,
+	TopicObjectiveStore,
+} from './objective.js'

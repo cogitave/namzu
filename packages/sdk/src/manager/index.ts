@@ -27,3 +27,13 @@ export { AgentManager } from './agent/lifecycle.js'
 
 export { ProjectManager, requireOpenProject } from './project/lifecycle.js'
 export type { ProjectManagerDeps } from './project/lifecycle.js'
+
+// One round of an objective, from debit to verdict. The store holds the
+// rules; these hold the sequence, so a host writes the work and not the
+// bookkeeping.
+export {
+	ObjectiveNotProgressingError,
+	advanceObjective,
+	driveObjective,
+} from './topic/objective.js'
+export type { AdvanceObjectiveParams, DriveObjectiveParams } from './topic/objective.js'
