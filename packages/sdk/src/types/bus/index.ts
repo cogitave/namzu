@@ -25,7 +25,13 @@ export interface FileLock {
 
 export type LockAcquireResult =
 	| { acquired: true; lock: FileLock }
-	| { acquired: false; holder: RunId; filePath: string }
+	// `holder` is OPTIONAL, and its absence is the honest answer to "who holds
+	// it". The failure branch is also reached when the lock was released
+	// between the attempt and the read, and this used to report `'' as RunId`
+	// for that — an empty string wearing an id type, which the nominal ids of
+	// NZ-SURF-11 will not express and which no caller could have distinguished
+	// from a real holder anyway.
+	| { acquired: false; holder?: RunId; filePath: string }
 
 export interface FileOwnership {
 	readonly filePath: string

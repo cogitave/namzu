@@ -2339,6 +2339,7 @@
     "zodToMCPJsonSchema"
   ],
   "deprecated": [
+    "AgentId",
     "AgentRun",
     "AgentSession",
     "AgentStatus",
@@ -2366,6 +2367,7 @@
     "VerificationRule",
     "VerificationRuleSchema",
     "acceptLegacyThreadId",
+    "asAgentId",
     "collect",
     "configureLogger",
     "createConversationManager",

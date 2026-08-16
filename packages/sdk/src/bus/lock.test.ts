@@ -140,7 +140,7 @@ describe('FileLockManager', () => {
 	})
 
 	describe('maxLocksPerAgent cap', () => {
-		it('denies a new acquisition when the owner is at cap — acquire polls to deadline then returns empty holder', async () => {
+		it('denies a new acquisition when the owner is at cap — polls to deadline, then names no holder', async () => {
 			const { mgr } = makeManager({ maxLocksPerAgent: 2, acquireTimeoutMs: 60 })
 			await mgr.acquire('/tmp/a.txt', runId(1))
 			await mgr.acquire('/tmp/b.txt', runId(1))
@@ -148,8 +148,13 @@ describe('FileLockManager', () => {
 			const over = await mgr.acquire('/tmp/c.txt', runId(1))
 			expect(over.acquired).toBe(false)
 			if (!over.acquired) {
-				// No lock exists on /tmp/c.txt, so the fallback holder is ''.
-				expect(over.holder).toBe('' as RunId)
+				// ABSENT, not `''`. Nothing holds /tmp/c.txt — the refusal is the
+				// per-owner cap, not contention — and this used to report an empty
+				// string wearing a `RunId`, which no caller could tell apart from a
+				// real holder. `holder?: RunId` says what is true: there is nobody
+				// to name. (NZ-SURF-11; the nominal ids will not express `''`.)
+				expect(over.holder).toBeUndefined()
+				expect('holder' in over).toBe(false)
 				expect(over.filePath).toBe('/tmp/c.txt')
 			}
 		})

@@ -35,3 +35,24 @@ declare const ID_BRAND: unique symbol
 export type Id<Prefix extends string, B extends string> = `${Prefix}_${string}` & {
 	readonly [ID_BRAND]: B
 }
+
+/**
+ * The one way to produce a branded id without a runtime check.
+ *
+ * A brand cannot be constructed by writing it — `{ [ID_BRAND]: 'RunId' }` is
+ * not something a caller can type, since the symbol is not exported. So
+ * every id has to come from somewhere, and there are exactly three places:
+ * `generate*Id()` mints one, `as*Id()` checks a string into one, and this.
+ *
+ * Named `unsafeId` rather than `toId` because the name is the warning, and
+ * kept HERE rather than in `utils/id.ts` because this file has no imports —
+ * `types/ids/index.ts` needs it for `UNKNOWN_TENANT_ID` and cannot import
+ * from `utils/id.ts` without closing a cycle.
+ *
+ * Not exported from the package barrel. A consumer that needs an id from a
+ * string wants the checked constructor; one that wants to skip the check is
+ * asking for the thing the brand exists to prevent.
+ */
+export function unsafeId<T extends string>(value: string): T {
+	return value as unknown as T
+}

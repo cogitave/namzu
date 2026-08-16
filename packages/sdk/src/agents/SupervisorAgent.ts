@@ -14,7 +14,7 @@ import type {
 } from '../types/agent/index.js'
 import type { TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
-import type { AgentId, RunId } from '../types/ids/index.js'
+import type { RunId } from '../types/ids/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import type { ActorRef } from '../types/session/actor.js'
@@ -123,10 +123,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 
 		const parentActor: ActorRef = {
 			kind: 'agent',
-			// See `manager/agent/lifecycle.ts` for why this is a cast and not
-			// `asAgentId`: `metadata.id` is a registry key, not a minted id, and
-			// `ActorRef.agentId: AgentId` is a claim the tree does not meet.
-			agentId: this.metadata.id as AgentId,
+			agentId: this.metadata.id,
 			tenantId,
 		}
 
