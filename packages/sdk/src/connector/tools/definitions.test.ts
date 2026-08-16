@@ -22,10 +22,10 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
-import type { ConnectorExecuteResult, ConnectorInstance } from '../../../types/connector/index.js'
-import type { ConnectorId, ConnectorInstanceId } from '../../../types/ids/index.js'
-import type { ToolContext } from '../../../types/tool/index.js'
+import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
+import type { ConnectorExecuteResult, ConnectorInstance } from '../../types/connector/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
+import type { ToolContext } from '../../types/tool/index.js'
 
 import {
 	createConnectorExecuteTool,

@@ -1,7 +1,7 @@
-import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
-import type { ToolDefinition, ToolRegistryContract } from '../../../types/tool/index.js'
-import { toErrorMessage } from '../../../utils/error.js'
-import { type Logger, resolveLogger } from '../../../utils/logger.js'
+import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
+import type { ToolDefinition, ToolRegistryContract } from '../../types/tool/index.js'
+import { toErrorMessage } from '../../utils/error.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { connectorInstanceToTools, createConnectorRouterTool } from './adapter.js'
 
 export type ConnectorToolStrategy = 'per-method' | 'router'

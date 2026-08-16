@@ -70,4 +70,4 @@ export {
 	createConnectorListTool,
 	createConnectorRouterTool,
 	createConnectorTools,
-} from './bridge/tools/connector/index.js'
+} from './connector/tools/index.js'

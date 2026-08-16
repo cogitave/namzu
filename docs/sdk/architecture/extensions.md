@@ -62,7 +62,7 @@ The SDK also exposes MCP translation in `bridge/mcp/connector/adapter.ts`, which
 | `bridge/a2a/` | Agent-to-agent protocol translation |
 | `bridge/mcp/` | MCP-facing translation |
 | `bridge/sse/` | Mapping `RunEvent`s to SSE wire events |
-| `bridge/tools/` | Tool-facing bridge helpers |
+| `connector/tools/` | The connector tool surface: the adapter, the router and the tool definitions a connector contributes |
 
 These modules are adapters. They should translate and map, not become a second ownership layer for business rules.
 

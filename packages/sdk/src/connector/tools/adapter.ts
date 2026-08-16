@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
-import type { ConnectorMethod } from '../../../types/connector/index.js'
-import type { ConnectorId, ConnectorInstanceId } from '../../../types/ids/index.js'
-import type { ToolContext, ToolDefinition, ToolResult } from '../../../types/tool/index.js'
-import { parseConnectorInstanceId } from '../../../utils/id.js'
+import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
+import type { ConnectorMethod } from '../../types/connector/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
+import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
+import { parseConnectorInstanceId } from '../../utils/id.js'
 
 export function connectorMethodToTool(
 	connectorId: ConnectorId,

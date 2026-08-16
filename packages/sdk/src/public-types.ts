@@ -170,7 +170,7 @@ export type {
 	ConnectorToolConfig,
 	ConnectorToolRouterConfig,
 	ConnectorToolStrategy,
-} from './bridge/tools/connector/index.js'
+} from './connector/tools/index.js'
 
 export type { CreateRunFromA2A } from './bridge/a2a/index.js'
 

@@ -21,11 +21,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
-import type { ConnectorRegistry } from '../../../registry/connector/definitions.js'
-import type { ConnectorDefinition, ConnectorInstance } from '../../../types/connector/index.js'
-import type { ConnectorId, ConnectorInstanceId } from '../../../types/ids/index.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
+import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
+import type { ConnectorDefinition, ConnectorInstance } from '../../types/connector/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
+import type { ToolRegistryContract } from '../../types/tool/index.js'
 
 import { ConnectorToolRouter } from './router.js'
 

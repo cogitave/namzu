@@ -28,15 +28,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
-import type { ConnectorRegistry } from '../../../registry/connector/definitions.js'
+import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
+import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
 import type {
 	ConnectorDefinition,
 	ConnectorExecuteResult,
 	ConnectorInstance,
-} from '../../../types/connector/index.js'
-import type { ConnectorId, ConnectorInstanceId } from '../../../types/ids/index.js'
-import type { ToolContext } from '../../../types/tool/index.js'
+} from '../../types/connector/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
+import type { ToolContext } from '../../types/tool/index.js'
 
 import {
 	allConnectorTools,

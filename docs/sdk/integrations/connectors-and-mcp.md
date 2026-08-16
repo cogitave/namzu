@@ -460,4 +460,4 @@ That keeps lifecycle ownership explicit instead of mixing definitions, connectio
 - [SDK Runtime](../runtime/README.md)
 - [Integration Folders](../architecture/integration-folders.md)
 - [Connector Barrel](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/connector/index.ts)
-- [Connector Tool Bridge Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/bridge/tools/connector/index.ts)
+- [Connector Tool Bridge Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/connector/tools/index.ts)

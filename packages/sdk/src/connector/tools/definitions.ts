@@ -1,8 +1,8 @@
 import { z } from 'zod'
-import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
-import { defineTool } from '../../../tools/defineTool.js'
-import type { ToolDefinition } from '../../../types/tool/index.js'
-import { parseConnectorInstanceId } from '../../../utils/id.js'
+import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
+import { defineTool } from '../../tools/defineTool.js'
+import type { ToolDefinition } from '../../types/tool/index.js'
+import { parseConnectorInstanceId } from '../../utils/id.js'
 
 export interface ConnectorToolConfig {
 	manager: ConnectorManager
