@@ -10,8 +10,11 @@
 			"bridge",
 			"bus",
 			"compaction",
+			"config",
 			"connector",
 			"directory",
+			"eval",
+			"execution",
 			"invariants",
 			"manager",
 			"plugin",
@@ -20,29 +23,26 @@
 			"process",
 			"prompt",
 			"provider",
-			"read-model",
-			"run-query",
 			"rag",
+			"read-model",
 			"registry",
+			"run",
+			"run-query",
 			"runtime",
+			"sandbox",
 			"scheduler",
 			"session",
+			"skills",
 			"store",
 			"streaming",
+			"telemetry",
 			"tools",
+			"utils",
 			"vault"
 		],
 		"baselineExempt": [
-			"config",
-			"eval",
-			"execution",
 			"model-router",
-			"persona",
-			"run",
-			"sandbox",
-			"skills",
-			"telemetry",
-			"utils"
+			"persona"
 		],
 		"exempt": [
 			"__tests__",
@@ -85,5 +85,6 @@
 			"line": 93,
 			"branch": 90
 		}
-	}
+	},
+	"$comment_baseline_exempt": "`baselineExempt` means ZERO-TESTED, per check-sdk-test-presence.mjs's own docblock. It had drifted badly: seven of its nine entries carried tests -- `utils` had 25 files -- so the list said 'these have no tests' about modules that did. A routing document that is false is worse than none, because the next person picks the wrong module to work on. Audited and corrected in ses_020; `model-router` and `persona` are the two that genuinely have none. Moving a module here into `required` asserts only that it HAS a test, which is what this gate checks -- coverage is the separate, opt-in `coverageFloors` claim, and none of the seven carries one yet."
 }
