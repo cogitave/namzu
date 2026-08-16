@@ -275,7 +275,6 @@ changeset for the migration.
 
 ## Related
 
-- [Telemetry](./README.md)
 - `packages/sdk/src/utils/log/attributes.ts` — the type
 - `packages/sdk/src/utils/log/redact.ts` — the value-level scan
 - `packages/sdk/src/utils/log/sinks.ts` — `jsonLinesSink` and `prettySink`

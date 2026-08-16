@@ -128,5 +128,3 @@ export. That is why the version exists and why tightening the suite is a
 ## Related
 
 - [Testing agents](testing.md) — scripting the model rather than the store.
-- [State and persistence](../architecture/state-and-persistence.md) — where the
-  checkpoint store sits in the runtime.

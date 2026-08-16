@@ -152,8 +152,8 @@ A folder's `instructions.md` is used **verbatim** as the system prompt.
 `deriveRunOptions` passes it to `runAgent` as `instructions`, which the kernel
 maps to `systemPrompt`.
 
-The SDK also ships a structured alternative, the persona assembler
-([prompting](../prompting/README.md)). The two are not rival subsystems — they
+The SDK also ships a structured alternative, the persona assembler. The two
+are not rival subsystems — they
 fill **one slot**, and the prompt builder gives `systemPrompt` precedence over
 `persona`. `assembleSystemPrompt(persona)` returns a **string**, so anything it
 produces can be the contents of `instructions.md`.

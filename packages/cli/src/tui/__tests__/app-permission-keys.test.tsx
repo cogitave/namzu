@@ -301,7 +301,7 @@ describe('the permission prompt', () => {
 		// first was on the screen — so an operator who wanted namzu to stop
 		// pressed `n`, watched it continue, and had no way to learn otherwise
 		// from the box they were reading. The distinction was written down only
-		// in `docs/cli/tools.md`.
+		// nowhere else.
 		const { lastFrame } = await promptOpenWithDraftInFlight()
 		const frame = lastFrame() ?? ''
 

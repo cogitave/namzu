@@ -506,11 +506,10 @@ to name it too.
 
 ## Next
 
-- [`docs/`](./docs/) — the longer-form documentation, including
-  [getting started](./docs/getting-started.md), the
-  [SDK guide](./docs/sdk/), the [CLI guide](./docs/cli/) and
-  [driver notes](./docs/providers/). Read it here in the repository: there is
-  no documentation site yet.
+- [`docs/`](./docs/) — the longer-form documentation: the
+  [conventions](./docs/conventions/) this repository is written to, and
+  reference pages for the [SDK](./docs/sdk/). Read it here in the repository:
+  there is no documentation site yet.
 - [`packages/sdk/README.md`](./packages/sdk/README.md) — the kernel's
   subsystem map.
 - `AGENTS.md` — the working contract any coding agent in this repository

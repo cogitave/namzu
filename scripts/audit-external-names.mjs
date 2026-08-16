@@ -411,10 +411,6 @@ async function* walk(dir) {
 const WIRE_VALUE_DOCS = [
 	'packages/providers/',
 	'docs/providers/',
-	// Credential discovery: the page's subject IS which stored credentials
-	// namzu can read, and a keychain item has the name it has. Same
-	// rationale as the CLI integration source, already exempt above.
-	'docs/cli/providers.md',
 ]
 
 const isWireValueDoc = (path) =>

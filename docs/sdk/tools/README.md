@@ -480,12 +480,11 @@ the budget on it just delays the error the model needs to see.
 Attempts are spaced by an exponential backoff with full jitter, defaulting to
 500ms doubling to a 16s ceiling. Tune it per run with
 `query({ toolRetryBackoff })`, or set `initialDelayMs: 0` to retry
-immediately. See [Loop Control §9](../runtime/loop-control.md#per-tool-retry-budget).
+immediately.
 
 **Repairing a malformed call.** `query({ repairToolCall })` gets a last
 look before the error reaches the model, and may rewrite the arguments and
-the tool name. See
-[Loop Control §9](../runtime/loop-control.md#9-repairing-a-bad-tool-call).
+the tool name.
 
 ## 7c-bis. Making a Malformed Call Impossible
 
@@ -601,11 +600,8 @@ Read [Tool Safety](./safety.md) for the full decision path.
 
 ## Related
 
-- [SDK Quickstart](../quickstart.md)
 - [Built-In Tools](./built-in.md)
 - [Connectors and MCP](../integrations/connectors-and-mcp.md)
 - [Tool Safety](./safety.md)
-- [SDK Runtime](../runtime/README.md)
-- [Computer Use](../../computer-use/README.md)
 - [defineTool Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/tools/defineTool.ts)
 - [ToolRegistry Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/registry/tool/execute.ts)

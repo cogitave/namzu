@@ -1,14 +1,6 @@
 {
   "title": "CLI",
   "pages": [
-    "index",
-    "tui",
-    "headless",
-    "providers",
-    "tools",
-    "tool-servers",
-    "project-instructions",
-    "memory",
-    "skills"
+    "doctor"
   ]
 }

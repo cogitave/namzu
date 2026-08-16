@@ -1,14 +1,6 @@
 {
   "title": "Runtime",
   "pages": [
-    "index",
-    "configuration",
-    "loop-control",
-    "duplex",
-    "testing",
-    "checkpoint-store-conformance",
-    "identities",
-    "low-level",
-    "replay"
+    "checkpoint-store-conformance"
   ]
 }

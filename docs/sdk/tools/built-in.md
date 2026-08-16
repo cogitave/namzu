@@ -276,6 +276,5 @@ They do not throw raw errors across the tool boundary in normal use. This is imp
 
 - [SDK Tools](./README.md)
 - [Tool Safety](./safety.md)
-- [Computer Use](../../computer-use/README.md)
 - [Built-In Tools Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/tools/builtins/index.ts)
 - [ToolRegistry Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/registry/tool/execute.ts)

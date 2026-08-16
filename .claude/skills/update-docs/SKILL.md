@@ -69,7 +69,7 @@ Agents discover affected pages by matching `related_packages` against the code c
 grep -rl '"@namzu/anthropic"' docs/
 ```
 
-There is no `surface` field. Page topic is implied by directory placement (`docs/sdk/runtime/`, `docs/providers/anthropic.md`, etc.) and by `related_packages` scope.
+There is no `surface` field. Page topic is implied by directory placement (`docs/sdk/tools/`, `docs/conventions/`, etc.) and by `related_packages` scope.
 </frontmatter>
 
 ## Steps

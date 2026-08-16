@@ -71,7 +71,7 @@ describe('parseSkillMarkdown', () => {
 	})
 
 	it('still treats a file with no fence as all body, which is documented', () => {
-		// `docs/cli/skills.md` promises this, and the refusal above must not
+		// The supported shape promises this, and the refusal above must not
 		// have taken it with it.
 		const parsed = parseSkillMarkdown('# Just a heading\n\nand prose.')
 		expect(parsed.name).toBeUndefined()

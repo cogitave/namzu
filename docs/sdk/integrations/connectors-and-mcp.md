@@ -60,6 +60,10 @@ This is application bootstrap work. Do it once, then create live instances from 
 
 ```ts
 import { ConnectorManager } from '@namzu/sdk'
+import type { ConnectorRegistry, HttpConnector } from '@namzu/sdk'
+
+declare const connectorRegistry: ConnectorRegistry
+declare const httpConnector: HttpConnector
 
 const manager = new ConnectorManager({ registry: connectorRegistry })
 
@@ -98,6 +102,11 @@ Important boundaries:
 You can call connected instances without going through the tool system:
 
 ```ts
+import type { ConnectorInstance, ConnectorManager } from '@namzu/sdk'
+
+declare const manager: ConnectorManager
+declare const docsApi: ConnectorInstance
+
 const result = await manager.execute({
   instanceId: docsApi.id,
   method: 'request',
@@ -128,6 +137,9 @@ import {
   createConnectorTools,
   allConnectorTools,
 } from '@namzu/sdk'
+import type { ConnectorManager } from '@namzu/sdk'
+
+declare const manager: ConnectorManager
 
 const tools = new ToolRegistry()
 
@@ -191,6 +203,12 @@ inversion of least privilege. A server can add a tool between two runs and
 it becomes callable with nobody having agreed to it.
 
 ```ts
+import { MCPToolDiscovery } from '@namzu/sdk'
+import type { Logger, MCPClient } from '@namzu/sdk'
+
+declare const client: MCPClient
+declare const logger: Logger
+
 const discovery = new MCPToolDiscovery([client], {
   policies: {
     filesystem: { allow: ['read_file', 'list_directory'] },
@@ -336,6 +354,10 @@ truncated silently, since silent truncation is the failure being fixed.
 The MCP client surface is broader than tools:
 
 ```ts
+import type { MCPClient } from '@namzu/sdk'
+
+declare const client: MCPClient
+
 const resources = await client.listResources()
 const templates = await client.listResourceTemplates()
 
@@ -364,6 +386,8 @@ The current SDK exports these client transport shapes:
 Every JSON-RPC round trip is bounded by `requestTimeoutMs` (default 30s):
 
 ```ts
+import { MCPClient } from '@namzu/sdk'
+
 const client = new MCPClient({
   serverName: 'docs-server',
   transport: { type: 'stdio', command: 'my-mcp-server' },
@@ -385,6 +409,8 @@ not wait on a reply that will never come.
 Typical `http-sse` config shape:
 
 ```ts
+import { MCPClient } from '@namzu/sdk'
+
 const client = new MCPClient({
   serverName: 'remote-server',
   transport: {
@@ -402,7 +428,14 @@ const client = new MCPClient({
 `MCPConnectorBridge` turns connected connector methods into MCP tool definitions:
 
 ```ts
-import { MCPConnectorBridge, MCPServer } from '@namzu/sdk'
+import {
+  MCPConnectorBridge,
+  MCPServer,
+  ServerStdioTransport,
+} from '@namzu/sdk'
+import type { ConnectorManager } from '@namzu/sdk'
+
+declare const manager: ConnectorManager
 
 const bridge = new MCPConnectorBridge({
   manager,
@@ -419,15 +452,19 @@ const server = new MCPServer(
     callTool: (name, args) => bridge.callTool(name, args),
   },
 )
+
+await server.start(new ServerStdioTransport())
 ```
 
-Important limitation to understand clearly:
+Which transport you can hand `start()` is the thing to understand clearly:
 
-- `MCPServer` needs an `MCPTransport` implementation that accepts inbound MCP traffic
-- the SDK currently ships outbound client transports (`StdioTransport` and `HttpSseTransport`)
-- in practice, server hosting usually happens inside an app shell, framework adapter, or plugin runtime that already owns the transport layer
+- `MCPServer` runs on any `MCPTransport` that accepts **inbound** MCP traffic
+- the SDK ships one: `ServerStdioTransport`. It reads the streams *this* process was given, where the client-side `StdioTransport` spawns a child and talks to that child's streams — same interface, opposite end of the pipe
+- on that transport **stdout belongs to the protocol**. One stray `console.log` anywhere in the process corrupts the message stream, and the client reports malformed JSON rather than anything naming the culprit. The SDK's own logger writes to stderr; keep yours there too
+- the outbound client transports are separate objects: `StdioTransport`, `HttpSseTransport` and `StreamableHttpTransport`
+- there is no inbound HTTP transport, so an HTTP-hosted MCP server still has to be plumbed by an app shell, framework adapter, or plugin runtime that owns that layer
 
-So the bridge and server are publishable building blocks, but your host process still decides how inbound MCP traffic reaches them.
+So over stdio the bridge and server run as they ship; over HTTP they stay building blocks and your host process decides how inbound traffic reaches them.
 
 ## 10. Conversion Helpers
 
@@ -459,10 +496,7 @@ That keeps lifecycle ownership explicit instead of mixing definitions, connectio
 ## Related
 
 - [SDK Tools](../tools/README.md)
-- [Low-Level Runtime](../runtime/low-level.md)
 - [Plugins and MCP Servers](./plugins.md)
 - [Event Bridges](./event-bridges.md)
-- [SDK Runtime](../runtime/README.md)
-- [Integration Folders](../architecture/integration-folders.md)
 - [Connector Barrel](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/connector/index.ts)
 - [Connector Tool Bridge Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/connector/tools/index.ts)

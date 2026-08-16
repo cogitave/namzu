@@ -63,7 +63,7 @@ interface ParsedSkill {
  * ## Absent frontmatter is fine; broken frontmatter is not
  *
  * These were the same case here and are not the same thing. A file with no
- * frontmatter is a documented, supported shape (`docs/cli/skills.md`): the body
+ * frontmatter is a documented, supported shape: the body
  * is the skill. A file that opens a fence and then fails to parse is an author
  * who tried to write metadata and got it wrong, and answering that with "no
  * metadata, carry on" put the broken YAML into the body — and from there

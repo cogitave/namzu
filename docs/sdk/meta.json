@@ -1,23 +1,10 @@
 {
   "title": "SDK",
   "pages": [
-    "index",
-    "quickstart",
-    "---Core---",
     "runtime",
-    "agents",
     "directory",
-    "sessions",
     "tools",
-    "---Context & Knowledge---",
-    "prompting",
-    "retrieval",
     "observability",
-    "evaluation",
-    "---Integrations---",
-    "integrations",
-    "provider-integration",
-    "---Reference---",
-    "architecture"
+    "integrations"
   ]
 }

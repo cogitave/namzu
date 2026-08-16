@@ -276,7 +276,4 @@ That pattern gives the model useful autonomy without treating every tool equally
 
 - [SDK Tools](./README.md)
 - [Built-In Tools](./built-in.md)
-- [Run Configuration](../runtime/configuration.md)
-- [Low-Level Runtime](../runtime/low-level.md)
-- [Safety and Operations](../architecture/safety.md)
 - [AuthorizationGate Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/authorization/gate.ts)

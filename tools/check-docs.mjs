@@ -59,15 +59,19 @@ import { join, relative, resolve } from 'node:path'
  * everyone, and an entry added "ready for later" is a check that cannot fail.
  */
 const CONFORMING = [
-	'docs/conventions',
-	'docs/sdk/directory',
-	'docs/sdk/observability',
-	// Added with the change that migrated their pages, never before. Both
-	// gained a page for a surface that shipped in this session, and a new
-	// page written to the standard in a directory the gate is silent about
-	// gets none of what the standard is for.
-	'docs/sdk/integrations',
-	'docs/sdk/tools',
+	// The whole tree, which it could not be until the tree was the whole
+	// tree. `docs/` carried 58 pages on an older front-matter shape
+	// (`last_updated`, `related_packages`) seeded by
+	// `a9c0f472 docs(public): seed user-facing docs site with frontmatter
+	// contract`, and this list existed to name the migrated remainder. Those
+	// pages were removed rather than migrated, so there is no remainder left
+	// to be silent about, and the "N file(s) not yet migrated" line this gate
+	// printed on every run now reads zero.
+	//
+	// It stays a LIST rather than becoming an unconditional walk: the next
+	// unmigrated directory to arrive should have to be added deliberately,
+	// the same way these were.
+	'docs',
 ]
 
 /**

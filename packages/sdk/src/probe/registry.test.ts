@@ -1,7 +1,7 @@
 /**
  * These tests pin the probe CONTRACT, not an internal implementation
  * detail. If the semantics change, change the published documentation
- * first: `docs/sdk/architecture/safety.md`, "Which Way a Gate Fails".
+ * first: `docs/conventions/refuse-do-not-degrade.md`.
  *
  * They used to point at a session design document that has since been
  * frozen and removed, so the instruction to update it first could not be

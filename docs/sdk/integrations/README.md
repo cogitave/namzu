@@ -36,5 +36,3 @@ Use these pages in this order:
 - [Connectors and MCP](./connectors-and-mcp.md)
 - [Plugins and MCP Servers](./plugins.md)
 - [Event Bridges](./event-bridges.md)
-- [SDK Runtime](../runtime/README.md)
-- [SDK Overview](../README.md)

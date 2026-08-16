@@ -1,4 +1,8 @@
 {
   "title": "Namzu",
-  "pages": ["index", "getting-started", "cli", "sdk", "providers", "computer-use", "conventions"]
+  "pages": [
+    "cli",
+    "sdk",
+    "conventions"
+  ]
 }

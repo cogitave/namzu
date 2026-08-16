@@ -62,7 +62,7 @@ export function PermissionOverlay({ toolCalls }: PermissionOverlayProps) {
 			    trying something else, while `Ctrl+C` ends the turn. So someone
 			    who wanted namzu to stop pressed `n`, watched it continue, and had
 			    no way to learn otherwise from this screen — the distinction was
-			    written down only in `docs/cli/tools.md`.
+			    written down nowhere else.
 
 			    Two rows rather than one: at four keys the line wraps on a narrow
 			    terminal and wraps mid-key, and this is the box an operator reads
