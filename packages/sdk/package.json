@@ -22,9 +22,9 @@
 			"default": "./dist/index.js"
 		},
 		"./testing": {
-			"types": "./dist/store/run/conformance.d.ts",
-			"import": "./dist/store/run/conformance.js",
-			"default": "./dist/store/run/conformance.js"
+			"types": "./dist/testing.d.ts",
+			"import": "./dist/testing.js",
+			"default": "./dist/testing.js"
 		}
 	},
 	"files": [
