@@ -4,6 +4,7 @@ import {
 	SANDBOX_DEFAULT_MEMORY_LIMIT_MB,
 	SANDBOX_DEFAULT_TIMEOUT_MS,
 } from '../../constants/sandbox/index.js'
+import type { OpenTerminalOptions, TerminalSession } from '../../sandbox/terminal.js'
 import type { SandboxId } from '../ids/index.js'
 
 // ---------------------------------------------------------------------------
@@ -204,6 +205,21 @@ export interface Sandbox {
 	 * same rule the tiered sandbox provider follows, for the same reason.
 	 */
 	setNetworkPolicy?(policy: SandboxNetworkPolicy): Promise<void>
+
+	/**
+	 * Open a real pseudo-terminal inside this sandbox.
+	 *
+	 * Optional, and a backend that cannot provide one must **throw** rather
+	 * than hand back a pipe — the same rule {@link Sandbox.setNetworkPolicy}
+	 * states one line up, and for a sharper reason. A pipe would appear to
+	 * work: bytes would flow, and every program that calls `isatty` would
+	 * take its non-interactive branch. The prompt never appears, the REPL
+	 * exits immediately, the progress bar prints ten thousand lines, and
+	 * nothing says why.
+	 *
+	 * See `sandbox/terminal.ts` for why the backing binding is optional.
+	 */
+	openTerminal?(options: OpenTerminalOptions): Promise<TerminalSession>
 	writeFile(path: string, content: string | Buffer): Promise<void>
 	readFile(path: string): Promise<Buffer>
 	/**

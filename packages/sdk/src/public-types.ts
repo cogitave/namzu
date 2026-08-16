@@ -278,3 +278,12 @@ export type {
 } from './read-model/index.js'
 
 export type { RunQueryOptions, ShedPass } from './run-query/index.js'
+
+export type {
+	OpenTerminalOptions,
+	PtyLoader,
+	PtyModule,
+	PtyProcess,
+	TerminalSession,
+	TerminalSize,
+} from './sandbox/terminal.js'
