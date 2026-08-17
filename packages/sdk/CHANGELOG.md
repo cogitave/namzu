@@ -1,5 +1,98 @@
 # Changelog
 
+## 29.0.0
+
+### Major Changes
+
+- e114fd5: Three deprecation windows opened by NZ-RUNREC-10, -11 and -13 close here. 28.0.0
+  carried all three; this release acts on them.
+
+  **`AgentStatus` is removed.** Use `RunExecutionStatus`. It was an alias with an
+  identical union — the rename existed because the name described the wrong
+  subject: every use was a run's status, and an agent has none of its own. Rename
+  the import and nothing else changes.
+
+  **`SubSessionStatus` narrows to the five driven variants** and is now an alias
+  of `SubSessionDelegationStatus`: `pending`, `active`, `idle`, `failed`,
+  `archived`. The six merge variants (`awaiting_merge`, `pending_merge`,
+  `merging`, `merged`, `merge_conflict`, `merge_rejected`) had no producer
+  anywhere and are gone. Drop any switch case for them; a `default` that handled
+  them still compiles.
+
+  `ARCHIVABLE_STATUSES` loses `merged` and `merge_rejected` with them. They were
+  kept one release because a host could have persisted one while the union was
+  wide; if you have such a record, migrate it to `idle` or `failed` before
+  upgrading, or it becomes un-archivable.
+
+  **`SingleHandoffDeps.runStatus` and `BroadcastHandoffDeps.runStatus` are
+  required, and `NOOP_RUN_STATUS_RESOLVER` is removed.** The default it supplied
+  answered `null` for every session, so the non-terminal-run fan-in check on
+  handoff could not fail — a lock was allowed while a run was still going, and
+  nothing said so. Pass `createRunStatusResolver(store)`, or, if you genuinely
+  want no fan-in check, your own always-null resolver — deliberately, and visibly
+  at the call site.
+
+- 0ef3e40: The six `Thread*` aliases are removed. 28.0.0 carried them deprecated; this is
+  the release that drops them.
+
+  | Removed                  | Use                             |
+  | ------------------------ | ------------------------------- |
+  | `ThreadId`               | `TopicId`                       |
+  | `ThreadManager`          | `TopicManager`                  |
+  | `InMemoryThreadStore`    | `InMemoryTopicStore`            |
+  | `generateThreadId()`     | `generateTopicId()`             |
+  | `acceptLegacyThreadId()` | `acceptLegacyContainerId()`     |
+  | `rejectLegacyPrefix()`   | `rejectLegacyContainerPrefix()` |
+
+  Each was an identity binding to the name on the right, so the migration is a
+  rename and nothing else — no behaviour changes with it, and `instanceof` and
+  `===` held across the alias while it existed.
+
+  The two `Legacy` helpers are worth a sentence, because their names described
+  the wrong thing. They decide whether an id belongs to the pre-0.2.0 top-level
+  CONTAINER, which is what `thd_` means now; they were never about a Topic. The
+  replacements say container.
+
+  Nothing on disk changes. A `thd_`-prefixed id already migrates to
+  `prj_legacy_*` at read time and continues to.
+
+- e92b530: The NZ-SURF-05..08 deprecation wave closes. 28.0.0 carried every name below;
+  this release removes them.
+
+  | Removed                                                                            | Use                                        |
+  | ---------------------------------------------------------------------------------- | ------------------------------------------ |
+  | `collect`                                                                          | `collectChatCompletion`                    |
+  | `Registry`                                                                         | `BaseRegistry`                             |
+  | `ContextCache`, `ContextCacheConfig`                                               | `PromptCache`, `PromptCacheConfig`         |
+  | `RunClaim`, `ClaimFence`, `ClaimSummary`                                           | `RunLease`, `FencingToken`, `LeaseSummary` |
+  | `TaskGateway`, `LocalTaskGateway`                                                  | `TaskScheduler`, `LocalTaskScheduler`      |
+  | `VerificationGate`, `VerificationRule`                                             | `AuthorizationGate`, `AuthorizationRule`   |
+  | `VerificationGateConfig`, `VerificationGateConfigSchema`, `VerificationRuleSchema` | the `Authorization*` spellings             |
+
+  Four configuration fields go with them, each an old spelling of a field that
+  still exists:
+
+  | Removed field      | On                                                            | Use                 |
+  | ------------------ | ------------------------------------------------------------- | ------------------- |
+  | `contextCache`     | `QueryParams`                                                 | `promptCache`       |
+  | `taskGateway`      | `QueryParams`                                                 | `taskScheduler`     |
+  | `verificationGate` | `QueryParams`, `ReactiveAgentConfig`, `SupervisorAgentConfig` | `authorizationGate` |
+  | `gateway`          | `SupervisorAgentConfig`                                       | `scheduler`         |
+
+  Every removal is a rename. The values, the shapes and the behaviour are
+  unchanged — `Registry` and `BaseRegistry` were the same class object, and
+  `instanceof` held across both spellings while the aliases existed.
+
+  Setting both spellings of one field used to be refused at the top of the run
+  with a message naming both. That check goes with the old names, and so does
+  `pickRenamed`'s last caller; the helper stays for the next wave.
+
+  If you are still on an old spelling, the compiler will name every site. There
+  is no runtime failure mode here — a removed type is a build error, and a
+  removed config field is silently ignored by `exactOptionalPropertyTypes` only
+  if your own type declares it, which is why these are listed field by field
+  above.
+
 ## 28.0.0
 
 ### Major Changes
