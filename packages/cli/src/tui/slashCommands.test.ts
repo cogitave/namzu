@@ -49,6 +49,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
 		availableTools: () => [],
 		sandbox: null,
+		mcp: null,
 		lastAssistantMessageId: () => null,
 		providerSummary: null,
 		modelSummary: null,

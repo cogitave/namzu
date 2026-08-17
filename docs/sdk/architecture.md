@@ -195,6 +195,8 @@ Memory in the kernel is two systems cooperating.
 
 A pass also runs **when a host asks for one**, not only when a threshold fires: `compactNow` summarises a whole conversation and `compactRegion` collapses a span the caller chose, both returning a replacement history rather than editing the input. `CompactNowInput` and `CompactionResult` are exported alongside them — a function on the public surface whose parameter and return types are not on it forces its first caller to inline both shapes, which is exactly what happened before they were.
 
+That rule is now a CI step rather than a habit. `check-signature-types-exported.mjs` resolves every exported signature and fails when a type it names is declared in the package and not exported; its first run found twenty-eight, each the parameter or the result of a function that was already public.
+
 **Long-term memory** is `store/memory/`. The `MemoryIndex` (with `InMemoryMemoryIndex` as the default and a disk-backed variant) stores typed `MemoryIndexEntry` records, searchable by free-text query, tag set, and status filter. It persists to disk atomically. There is no required vector database — the default is good-old tag and text search. You can layer an embedding-backed index on top if you want, but the kernel does not assume it.
 
 Alongside memory, `store/` has sibling stores for every kernel concept: `store/run/` (runs, iterations, checkpoints), `store/conversation/` (threads and messages), `store/activity/` (activity log), `store/task/` (task registry), and an in-memory generic `InMemoryStore` for tests and ephemeral workloads.

@@ -89,6 +89,15 @@ export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
 export interface ConnectedMcpServer {
 	readonly name: string
 	readonly toolCount: number
+	/**
+	 * What this server actually contributes, by tool name.
+	 *
+	 * Carried from the listing rather than recovered later. The names arrive
+	 * prefixed with the server's own (`mcp_tickets_create`), so a caller COULD
+	 * split them back apart — but that turns an encoding this file owns into a
+	 * format two places have to agree about, and the list is free right here.
+	 */
+	readonly tools: readonly string[]
 }
 
 export interface FailedMcpServer {
@@ -190,10 +199,17 @@ export async function connectMcpServers(
 				CONNECT_TIMEOUT_MS,
 				`server "${name}" listing its tools`,
 			)
-			for (const tool of listed) {
-				tools.push(mcpToolToToolDefinition(tool, client, name))
-			}
-			connected.push({ name, toolCount: listed.length })
+			// Adapted once, then read twice. Adapting a second time to collect
+			// the names would build a parallel set of definitions bound to the
+			// same client — cheap today and exactly the kind of duplicate a
+			// future adapter with a side effect turns into a bug.
+			const adapted = listed.map((tool) => mcpToolToToolDefinition(tool, client, name))
+			tools.push(...adapted)
+			connected.push({
+				name,
+				toolCount: adapted.length,
+				tools: adapted.map((tool) => tool.name),
+			})
 			clients.push(client)
 		} catch (err) {
 			failed.push({ name, reason: reasonOf(err) })

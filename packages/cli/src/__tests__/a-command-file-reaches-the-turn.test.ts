@@ -61,6 +61,7 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 	return {
 		availableTools: () => [],
 		sandbox: null,
+		mcp: null,
 		lastAssistantMessageId: () => null,
 		providerSummary: 'mock (mock)',
 		modelSummary: 'mock-model',

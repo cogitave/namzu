@@ -717,6 +717,7 @@ export function App({ ctx }: AppProps) {
 		// From the session, not re-resolved: resolving builds a provider, and a
 		// second one would describe a different sandbox than the run is using.
 		sandbox: session?.sandbox ?? null,
+		mcp: session ? { connected: session.mcpConnected, failed: session.mcpFailed } : null,
 		providerSummary: session?.providerSummary ?? null,
 		modelSummary: session?.modelSummary ?? null,
 		// The same state the status bar reads, unformatted. `/cost` prints exact

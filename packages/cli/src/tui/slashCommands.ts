@@ -133,6 +133,17 @@ export interface SlashContext {
 	 * operator who read one had no reason to think the other mattered.
 	 */
 	readonly sandbox: SandboxSummary | null
+	/**
+	 * Tool servers, as they stood when this session connected.
+	 *
+	 * `null` before a session exists. Reported at connect time as transcript
+	 * rows that scroll away, and nowhere else — so an operator ten minutes into
+	 * a session had no way to ask which servers answered and which did not.
+	 */
+	readonly mcp: {
+		readonly connected: readonly { readonly name: string; readonly tools: readonly string[] }[]
+		readonly failed: readonly { readonly name: string; readonly reason: string }[]
+	} | null
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	/**
@@ -586,6 +597,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (ctx) => ({ kind: 'message', role: 'system', content: renderCost(ctx.usage) }),
 	},
 	{
+		name: 'mcp',
+		description: 'Show which tool servers connected, what they expose, and which failed.',
+		action: (ctx) => ({ kind: 'message', role: 'system', content: renderMcp(ctx.mcp) }),
+	},
+	{
 		name: 'diff',
 		description: 'Show what is uncommitted in this working tree.',
 		action: () => ({ kind: 'diff' }),
@@ -755,6 +771,39 @@ export function renderCost(usage: SlashContext['usage']): string {
  * So they are printed adjacently and each is labelled with the question it
  * answers, rather than with its mechanism's name.
  */
+/**
+ * Which tool servers answered, and what they brought.
+ *
+ * A failure is listed as prominently as a success and never omitted. The
+ * transcript said so once at connect time and scrolled it away, and a server
+ * that failed silently is indistinguishable from one nobody configured — which
+ * is the state an operator is in when a tool they expect is simply not there.
+ */
+export function renderMcp(mcp: SlashContext['mcp']): string {
+	if (mcp === null) return 'No session yet — no tool servers have been contacted.'
+
+	const lines: string[] = []
+	if (mcp.connected.length === 0 && mcp.failed.length === 0) {
+		return 'No tool servers configured. Add an `mcpServers` block to namzu.config.json.'
+	}
+
+	for (const server of mcp.connected) {
+		lines.push(`${server.name} — connected, ${server.tools.length} tool(s)`)
+		// Named, not counted. A count answers "did it work"; the operator's
+		// actual question is whether the tool they wanted is among them.
+		for (const tool of server.tools) lines.push(`  ${tool}`)
+	}
+
+	if (mcp.failed.length > 0) {
+		if (lines.length > 0) lines.push('')
+		for (const server of mcp.failed) {
+			lines.push(`${server.name} — NOT available: ${server.reason}`)
+		}
+	}
+
+	return lines.join('\n')
+}
+
 export function renderStatus(ctx: SlashContext): string {
 	const lines: string[] = []
 

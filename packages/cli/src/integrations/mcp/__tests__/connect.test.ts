@@ -129,7 +129,17 @@ describe('a declared server', () => {
 		)
 		try {
 			expect(mcp.failed).toEqual([])
-			expect(mcp.connected).toEqual([{ name: 'tickets', toolCount: 2 }])
+			// The names travel with the server, not only the count. `/mcp` lists
+			// them, and recovering them later by splitting the `mcp_<server>_`
+			// prefix back apart would turn an encoding this module owns into a
+			// format two places have to agree about.
+			expect(mcp.connected).toEqual([
+				{
+					name: 'tickets',
+					toolCount: 2,
+					tools: ['mcp_tickets_create', 'mcp_tickets_close'],
+				},
+			])
 			// Prefixed with the server name so two servers offering `create` do
 			// not collide and the transcript says where a call went.
 			expect(mcp.tools.map((t) => t.name)).toEqual(['mcp_tickets_create', 'mcp_tickets_close'])

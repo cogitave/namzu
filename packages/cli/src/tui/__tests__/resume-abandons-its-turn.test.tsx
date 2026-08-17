@@ -249,7 +249,19 @@ afterEach(() => {
  * plainly present in the dump. Matching words rather than layout is the fix.
  */
 function said(harness: { frames: readonly string[] }): string {
-	return harness.frames.join('\n').replace(/\s+/g, ' ')
+	return (
+		harness.frames
+			.join('\n')
+			// Colour codes FIRST, then whitespace. Collapsing whitespace alone
+			// leaves an escape sequence sitting where a line happened to wrap, so
+			// `…conversation it started in` survives as `it <esc>started` and a
+			// `toContain` for the sentence fails — on the renderer's width rather
+			// than on anything the code did. It passed at one terminal width and
+			// not another, which is the tell.
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes is the point
+			.replace(/\u001b\[[0-9;]*m/g, '')
+			.replace(/\s+/g, ' ')
+	)
 }
 
 /** Wait for a frame to say something, rather than sleeping a fixed interval. */
