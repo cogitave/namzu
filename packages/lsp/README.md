@@ -263,9 +263,17 @@ import type {
 Every path the `lsp` builtin is given is resolved inside the run's working
 directory *before* it reaches the server, through the same containment helper
 `read` and `edit` use. A language server indexes a workspace and will happily
-answer about `../../etc/passwd` if asked; the boundary belongs to the tool,
-not to the process it drives. Calling a provider directly bypasses that, so a host
-that does its own dispatch owns the check.
+answer about a path that climbs out of it and lands on a system file; the
+boundary belongs to the tool, not to the process it drives. Calling a provider
+directly bypasses that, so a host that does its own dispatch owns the check.
+
+> The sentence above used to name such a path literally. Do not put one back.
+> npm's registry sits behind a WAF whose managed rules match path-traversal
+> strings in a request body, and `npm publish` sends the README as part of that
+> body — so the literal made every publish of this package fail with a generic
+> `403 Forbidden` that names permissions and mentions nothing about content.
+> That cost a morning of chasing tokens, scopes and 2FA. The prose is the
+> payload here; write about traversal without spelling one.
 
 ## Disposal
 
