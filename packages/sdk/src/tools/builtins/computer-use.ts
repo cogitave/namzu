@@ -42,7 +42,15 @@ const actionSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('key'), keys: z.string() }),
 ])
 
-type ActionInput = z.infer<typeof actionSchema>
+/**
+ * The tool's input, inferred from its schema.
+ *
+ * Exported because `createComputerUseTool` returns a `ToolDefinition<ActionInput>`
+ * and a consumer typing that variable, or writing a wrapper around it, had no
+ * name for the parameter — the type was module-private while the function
+ * carrying it was public.
+ */
+export type ActionInput = z.infer<typeof actionSchema>
 
 const DESTRUCTIVE_ACTION_TYPES = new Set<ComputerUseAction['type']>([
 	'mouse_click',

@@ -41,7 +41,7 @@ pnpm build        # Build all packages
 Use `pnpm --filter <pkg>` to scope commands to a single package.
 
 <ci_gates>
-Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs eighteen steps, in this order, and the branch is not green until every one passes.
+Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs nineteen steps, in this order, and the branch is not green until every one passes.
 
 | CI step | Run it locally |
 |---|---|
@@ -61,10 +61,11 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | SDK test-presence gate | `node .github/scripts/check-sdk-test-presence.mjs` |
 | Publish-metadata gate | `node .github/scripts/check-publish-metadata.mjs` |
 | Pre-publish consumer install check | `bash .github/scripts/verify-consumer-install.sh` |
+| Signature types are exported | `node .github/scripts/check-signature-types-exported.mjs` |
 | Public-surface regression check | `node .github/scripts/verify-public-surface.mjs` |
 | publint (package.json shape) | `npx -y publint@latest packages/<pkg>` |
 
-Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all eighteen.
+Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all nineteen.
 
 A **second job**, `Docs`, runs **two** gates on a full-history checkout:
 

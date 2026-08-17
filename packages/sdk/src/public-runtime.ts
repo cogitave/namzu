@@ -1134,3 +1134,39 @@ export {
 	loadPty,
 	openTerminalWith,
 } from './sandbox/terminal.js'
+
+// ─── types named by exported signatures ──────────────────────────────────
+//
+// Completing a surface that was already half-exposed. Each of these is the
+// parameter or the result of a function exported above, and none of them was
+// reachable — so a consumer could CALL the function and could not name what
+// they passed or what came back. They inlined the shape or reached for `any`,
+// and the package's vocabulary stopped at the function name.
+//
+// Found by `check-signature-types-exported.mjs`, which exists because the same
+// defect was hit three times in two days by whoever happened to write the first
+// consumer (`SpanProcessorLike`, then `CompactNowInput` and `CompactionResult`).
+// The gate is the reason this is a list rather than a fourth accident.
+export type { ResolvedContextWindow } from './compaction/context-window.js'
+export type { CompactRegionInput } from './compaction/manual.js'
+export type { UsageSink } from './compaction/verifier.js'
+export type { PluginDiscoveryOptions } from './plugin/loader.js'
+export type { ProbeContextInput } from './probe/context.js'
+export type { KernelCommandOptions } from './registry/command/kernel-commands.js'
+export type { ToolCatalogFromRegistryOptions } from './registry/toolset/catalog.js'
+export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
+export type { BidiRun, BidiRunParams } from './runtime/bidi/session.js'
+export type { SecretRedactionOptions } from './runtime/query/guardrail-presets.js'
+export type { ListCheckpointsInput } from './runtime/query/replay/list.js'
+export type { PrepareReplayInput, PreparedReplayState } from './runtime/query/replay/prepare.js'
+export type { HandoffAssignment, HandoffOutcome } from './session/handoff/assignment.js'
+export type { BroadcastHandoffDeps } from './session/handoff/broadcast.js'
+export type { SingleHandoffDeps } from './session/handoff/single.js'
+export type { InterventionChainLoader } from './session/intervention/prev-artifact.js'
+export type { FilesystemMigrationSink } from './session/migration/filesystem.js'
+export type { MigrationWarningSink } from './session/migration/id-prefix.js'
+export type { MigrationMarker } from './session/migration/marker.js'
+export type { ActionInput } from './tools/builtins/computer-use.js'
+export type { Project } from './types/project/entity.js'
+export type { CreatedLogger } from './utils/log/create-logger.js'
+export type { LoggerOptions, MutableLogSinkCounters } from './utils/log/types.js'

@@ -288,6 +288,9 @@ jobs:
       # classes, zod schemas). Intentional widenings update the baseline in
       # the same commit. Reads the BUILT output, so the Build step above is a
       # prerequisite, not an ordering coincidence.
+      - name: Signature types are exported
+        run: node .github/scripts/check-signature-types-exported.mjs
+
       - name: Public-surface regression check
         if: matrix.gates
         run: node .github/scripts/verify-public-surface.mjs
