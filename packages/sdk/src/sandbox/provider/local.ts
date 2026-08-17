@@ -1,5 +1,5 @@
 import { execSync, spawn } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import {
 	readFile as fsReadFile,
 	writeFile as fsWriteFile,
@@ -153,6 +153,12 @@ export function buildLimitedSpawn(request: LimitedSpawnRequest): {
 			: [command, ...args]
 
 	switch (environment) {
+		case 'linux-bwrap':
+			return {
+				spawnCommand: 'bwrap',
+				spawnArgs: [...buildBwrapArgs(rootDir), '--', ...inner],
+			}
+
 		case 'linux-namespace':
 			return {
 				spawnCommand: 'unshare',
@@ -181,6 +187,27 @@ function detectEnvironment(): SandboxEnvironment {
 	const { platform } = process
 
 	if (platform === 'linux') {
+		try {
+			// Probed the same way and for the same reason as the tier below:
+			// by running the real confinement, not by asking the binary its
+			// version. `bwrap` is present on hosts where unprivileged user
+			// namespaces are disabled, and there every spawn fails — the tier
+			// would be detected, claimed, and never delivered.
+			//
+			// The probe binds a directory that certainly exists and asks for
+			// the same flags a real spawn uses, so a kernel that refuses one of
+			// them is discovered here rather than on the caller's first
+			// command.
+			execSync(`bwrap ${buildBwrapArgs(tmpdir()).join(' ')} -- /bin/true`, {
+				stdio: 'ignore',
+			})
+			return 'linux-bwrap'
+		} catch {
+			// bwrap missing, or the host refuses the namespaces it needs. Fall
+			// through to the weaker tier, which reports `filesystem: false` and
+			// so cannot be mistaken for this one.
+		}
+
 		try {
 			// Probe the real flags, not just the binary. `unshare --version`
 			// succeeds on a host where unprivileged user namespaces are
@@ -233,6 +260,103 @@ function canonicalizePath(p: string): string {
  *
  * Key principle: (deny default) + explicit allows. Network always denied.
  */
+/**
+ * A mount table containing the sandbox and the system paths a binary needs,
+ * and nothing else.
+ *
+ * The difference from the namespace tier is the whole point: that one unshares
+ * a mount table and keeps the host's contents in it, so the child sees
+ * everything and this file reports `filesystem: false` for it. Here each path
+ * is bound in deliberately, so a path nobody listed is not unreadable — it is
+ * absent. `ls /home` fails with ENOENT rather than EACCES, which is the
+ * behaviour a caller relying on `filesystem` isolation is entitled to.
+ *
+ * `--unshare-all` covers the network and process controls in the same call, so
+ * all three rows of this tier's isolation report come from one spawn rather
+ * than from three mechanisms that could drift apart.
+ *
+ * The system paths are bound READ-ONLY and only when present: a distribution
+ * with a merged `/usr` has no real `/lib`, and binding a path that does not
+ * exist is a hard failure rather than a no-op. `/proc` and `/dev` get their
+ * own fresh instances instead of a bind, so the child cannot read the host's
+ * process table through them — a bound `/proc` would hand back the process
+ * isolation the same flag just removed.
+ */
+export function buildBwrapArgs(sandboxRoot: string): string[] {
+	const root = canonicalizePath(sandboxRoot)
+
+	const args = [
+		'--unshare-all',
+		// The child dies with the parent rather than outliving a killed run.
+		// Without it an escaped grandchild keeps the mount namespace alive and
+		// the sandbox's temporary root cannot be removed.
+		'--die-with-parent',
+		'--new-session',
+	]
+
+	for (const path of BWRAP_SYSTEM_PATHS) {
+		if (existsSync(path)) args.push('--ro-bind', path, path)
+	}
+
+	// The runtime this process is running under, when it lives outside those.
+	//
+	// Found by the tier breaking four existing tests the moment it worked: they
+	// spawn `node` inside the sandbox, and a Node installed under a home
+	// directory — a tarball, a version manager, anything but the distribution's
+	// package — is simply not there once the host filesystem is gone. The
+	// failure reads as `execvp: No such file or directory`, which sounds like a
+	// broken test rather than a sandbox doing its job.
+	//
+	// The PREFIX rather than the `bin` directory: `bin` alone is enough to run
+	// `node`, but `npm` and `npx` resolve their own code through `../lib`, and a
+	// model that runs one of those is not doing anything unusual.
+	//
+	// Read-only, and skipped when a system path already covers it, so a
+	// distribution-packaged runtime adds no second bind.
+	const interpreterPrefix = dirname(dirname(canonicalizePath(process.execPath)))
+	const alreadyCovered = BWRAP_SYSTEM_PATHS.some(
+		(path) => interpreterPrefix === path || interpreterPrefix.startsWith(`${path}/`),
+	)
+	if (!alreadyCovered && existsSync(interpreterPrefix)) {
+		args.push('--ro-bind', interpreterPrefix, interpreterPrefix)
+	}
+
+	args.push(
+		'--proc',
+		'/proc',
+		'--dev',
+		'/dev',
+		// A private /tmp, because the sandbox root is where writes belong and a
+		// shared /tmp is a channel between runs.
+		'--tmpfs',
+		'/tmp',
+		'--bind',
+		root,
+		root,
+		'--chdir',
+		root,
+	)
+
+	return args
+}
+
+/**
+ * Read-only host paths a spawned binary needs to run at all.
+ *
+ * Bound rather than assumed: `/etc` carries the resolver and user database a
+ * shell reads on startup, and omitting it produces failures that look like the
+ * command is broken rather than like the sandbox is doing its job.
+ */
+const BWRAP_SYSTEM_PATHS: readonly string[] = [
+	'/usr',
+	'/bin',
+	'/sbin',
+	'/lib',
+	'/lib64',
+	'/etc',
+	'/opt',
+]
+
 function buildSeatbeltProfile(sandboxRoot: string): string {
 	const root = canonicalizePath(sandboxRoot)
 

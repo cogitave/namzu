@@ -1,6 +1,7 @@
 import type { SandboxEnvironment } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
+import { SANDBOX_ENVIRONMENTS } from '@namzu/sdk'
 import { describeIsolationHealth, sandboxPlatformCheck } from './sandbox.js'
 
 /**
@@ -68,6 +69,11 @@ describe('the check itself', () => {
 		const result = await sandboxPlatformCheck.run({} as never)
 
 		expect(['pass', 'warn', 'fail']).toContain(result.status)
-		expect(result.message).toMatch(/^(basic|linux-namespace|macos-seatbelt|sandbox probe failed)/)
+		// Derived from the SDK's own list rather than spelled out here: a
+		// hand-written alternation is a copy of the tier set that nobody
+		// updates, and this one broke on the first tier added after it.
+		expect(result.message).toMatch(
+			new RegExp(`^(${[...SANDBOX_ENVIRONMENTS, 'sandbox probe failed'].join('|')})`),
+		)
 	})
 })

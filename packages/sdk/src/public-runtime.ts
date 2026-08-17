@@ -946,6 +946,7 @@ export {
 	// anything reporting which controls a host enforces. `export type *`
 	// carried it far enough to type-check and left the import to fail on
 	// the first line of the built binary.
+	SANDBOX_ENVIRONMENTS,
 	SANDBOX_ISOLATION_CONTROLS,
 } from './types/sandbox/index.js'
 // `SandboxConfigSchema` is already re-exported above from `./config/runtime.js`

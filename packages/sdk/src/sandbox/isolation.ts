@@ -19,8 +19,17 @@ import { SANDBOX_ISOLATION_CONTROLS } from '../types/sandbox/index.js'
  * still sees the whole host filesystem — a private mount table is not
  * confinement. Claiming otherwise here would reintroduce the exact defect
  * this table exists to end.
+ *
+ * `linux-bwrap` is the tier that does remount, and so is the first on this
+ * platform that may claim `filesystem`. It builds a fresh mount table
+ * containing the sandbox root read-write, the system paths a binary needs
+ * read-only, and nothing else — the host filesystem is not merely
+ * unwritable, it is not present. Verified by `spawn-confinement.proc-test.ts`
+ * against a real spawn rather than asserted here, because this table is a
+ * claim and that test is what makes it one worth reading.
  */
 const ISOLATION_BY_ENVIRONMENT: Readonly<Record<SandboxEnvironment, SandboxIsolationReport>> = {
+	'linux-bwrap': { filesystem: true, network: true, process: true },
 	'macos-seatbelt': { filesystem: true, network: true, process: true },
 	'linux-namespace': { filesystem: false, network: true, process: true },
 	basic: { filesystem: false, network: false, process: false },

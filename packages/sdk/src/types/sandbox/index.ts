@@ -31,7 +31,25 @@ export function assertSandboxStatus(status: SandboxStatus): void {
 // Sandbox environment — detected platform capability
 // ---------------------------------------------------------------------------
 
-export type SandboxEnvironment = 'linux-namespace' | 'macos-seatbelt' | 'basic'
+export type SandboxEnvironment = 'linux-bwrap' | 'linux-namespace' | 'macos-seatbelt' | 'basic'
+
+/**
+ * Every tier, in the order a detector prefers them: strongest first.
+ *
+ * Exported because the alternative is what was there — a hand-written
+ * alternation in a doctor test that had to be edited by whoever added a tier,
+ * and was not, so the first new tier in a year failed a test that was
+ * describing the tier list rather than checking anything about it.
+ *
+ * `assertSandboxEnvironment` reads this too, so the union, the runtime list and
+ * the exhaustive check cannot drift apart.
+ */
+export const SANDBOX_ENVIRONMENTS: readonly SandboxEnvironment[] = [
+	'linux-bwrap',
+	'macos-seatbelt',
+	'linux-namespace',
+	'basic',
+]
 
 /**
  * A security control a sandbox tier either provides or does not.
@@ -60,16 +78,11 @@ export const SANDBOX_ISOLATION_CONTROLS: readonly SandboxIsolationControl[] = [
 export type SandboxIsolationReport = Readonly<Record<SandboxIsolationControl, boolean>>
 
 export function assertSandboxEnvironment(env: SandboxEnvironment): void {
-	switch (env) {
-		case 'linux-namespace':
-		case 'macos-seatbelt':
-		case 'basic':
-			return
-		default: {
-			const _exhaustive: never = env
-			throw new Error(`Unknown SandboxEnvironment: ${_exhaustive}`)
-		}
-	}
+	// Membership, not a switch. A `case` per tier is a second list to keep in
+	// step with the union, and the switch's `never` arm only catches a tier
+	// ADDED to the union — never one added here and forgotten there.
+	if (SANDBOX_ENVIRONMENTS.includes(env)) return
+	throw new Error(`Unknown SandboxEnvironment: ${env}`)
 }
 
 // ---------------------------------------------------------------------------
