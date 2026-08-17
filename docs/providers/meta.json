@@ -3,6 +3,7 @@
   "pages": [
     "anthropic",
     "bedrock",
+    "deepseek",
     "http",
     "lmstudio",
     "ollama",

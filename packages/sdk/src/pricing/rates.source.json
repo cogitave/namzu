@@ -1,206 +1,317 @@
 {
-  "about": [
-    "The reviewed input to scripts/generate-model-prices.mjs. Edit THIS file, never",
-    "catalogue.generated.ts — the generator overwrites that file and a CI gate",
-    "re-derives it from this one and fails on any difference.",
-    "",
-    "A rate here is a commercial fact about a vendor's published list price. It is",
-    "entered by a human who read that vendor's own pricing page, and `verified` is",
-    "the date they read it. It is NOT fetched at build time: an auto-refreshing",
-    "generator would change every consumer's reported cost AND every consumer's",
-    "costLimitUsd behaviour on an unrelated commit, with no review and no diff.",
-    "",
-    "Absent is a real answer. A model with no row here reports UNKNOWN cost, not",
-    "zero, and a run that sets runConfig.costLimitUsd against it is refused rather",
-    "than run without a budget. So the correct move when a rate cannot be",
-    "established is to leave the row out, never to approximate it.",
-    "",
-    "unmetered: true means this driver bills nothing by construction — local",
-    "inference. Its runs are priced at zero, which is KNOWN-free and therefore",
-    "distinct from unknown. Such a vendor needs no model rows.",
-    "",
-    "Matching is EXACT on a normalised id (lowercased, one trailing -YYYYMMDD or",
-    "@YYYYMMDD snapshot suffix removed). Deliberately not prefix or substring:",
-    "within one vendor here, ids one character apart differ in price by 4x, so a",
-    "near-miss would misprice silently. A miss reports unknown, which is safe."
-  ],
-  "cacheTokensAre": [
-    "Two of the four rates only mean anything alongside a fact about the DRIVER,",
-    "not about the model: whether the prompt-token count it reports already",
-    "contains the tokens it read from cache.",
-    "",
-    "The drivers in this repository disagree, and it is measured, not assumed:",
-    "  packages/providers/anthropic/src/client.ts parseUsage — promptTokens is",
-    "    input_tokens, which EXCLUDES cache reads and cache writes.",
-    "  packages/providers/bedrock/src/client.ts parseBedrockUsage — same.",
-    "  packages/providers/openai/src/client.ts parseUsage — promptTokens is",
-    "    prompt_tokens, which INCLUDES cached_tokens.",
-    "",
-    "So the same TokenUsage shape carries two incompatible meanings, and a rate",
-    "applied without knowing which one is off by the whole cache-read volume. The",
-    "fact is a property of the driver, and the driver's identity is in hand at the",
-    "moment cost is accumulated — so it is declared here, per vendor, once.",
-    "",
-    "promptIncludesCacheReads   true  => billable input is promptTokens minus",
-    "                                    cachedTokens.",
-    "                           false => billable input is promptTokens, and",
-    "                                    cachedTokens are charged on top.",
-    "",
-    "reportsCacheWrites declares whether the driver ever produces a non-zero",
-    "cacheWriteTokens. When false, model rows carry no write rate — a rate for a",
-    "quantity nothing produces is a declaration nothing drives. If such a driver",
-    "later does report writes, those tokens are counted as unpriced rather than",
-    "quietly charged at some other rate, so the contradiction surfaces."
-  ],
-  "vendors": [
-    {
-      "providerId": "anthropic",
-      "unmetered": false,
-      "verified": "2026-08-10",
-      "promptIncludesCacheReads": false,
-      "reportsCacheWrites": true,
-      "note": "The last two rows exist because the driver's own offline catalogue offers those models and this table did not price them — a lookup-key gap that reads as `cost unknown` and is invisible to the generator's own check, which only proves the module matches this file. `providers/anthropic` asserts the two lists agree. Vendor list prices. Cache read is the vendor's published 0.1x of the input rate; cache write is its published 1.25x for the five-minute entry, which is the default TTL and the one the driver's `cacheControl: { type: 'auto' }` asks for. A time-limited introductory rate applied to one model at the time of entry; this table has no time dimension and records the list rate, so a run inside a promotional window is over-reported rather than mis-modelled.",
-      "models": [
-        {
-          "id": "claude-fable-5",
-          "inputPer1M": 10,
-          "outputPer1M": 50,
-          "cacheReadPer1M": 1,
-          "cacheWritePer1M": 12.5
-        },
-        {
-          "id": "claude-mythos-5",
-          "inputPer1M": 10,
-          "outputPer1M": 50,
-          "cacheReadPer1M": 1,
-          "cacheWritePer1M": 12.5
-        },
-        {
-          "id": "claude-opus-5",
-          "inputPer1M": 5,
-          "outputPer1M": 25,
-          "cacheReadPer1M": 0.5,
-          "cacheWritePer1M": 6.25
-        },
-        {
-          "id": "claude-opus-4-8",
-          "inputPer1M": 5,
-          "outputPer1M": 25,
-          "cacheReadPer1M": 0.5,
-          "cacheWritePer1M": 6.25
-        },
-        {
-          "id": "claude-opus-4-7",
-          "inputPer1M": 5,
-          "outputPer1M": 25,
-          "cacheReadPer1M": 0.5,
-          "cacheWritePer1M": 6.25
-        },
-        {
-          "id": "claude-opus-4-6",
-          "inputPer1M": 5,
-          "outputPer1M": 25,
-          "cacheReadPer1M": 0.5,
-          "cacheWritePer1M": 6.25
-        },
-        {
-          "id": "claude-sonnet-5",
-          "inputPer1M": 3,
-          "outputPer1M": 15,
-          "cacheReadPer1M": 0.3,
-          "cacheWritePer1M": 3.75
-        },
-        {
-          "id": "claude-sonnet-4-6",
-          "inputPer1M": 3,
-          "outputPer1M": 15,
-          "cacheReadPer1M": 0.3,
-          "cacheWritePer1M": 3.75
-        },
-        {
-          "id": "claude-haiku-4-5",
-          "inputPer1M": 1,
-          "outputPer1M": 5,
-          "cacheReadPer1M": 0.1,
-          "cacheWritePer1M": 1.25
-        },
-        {
-          "id": "claude-sonnet-4-5",
-          "inputPer1M": 3,
-          "outputPer1M": 15,
-          "cacheReadPer1M": 0.3,
-          "cacheWritePer1M": 3.75
-        },
-        {
-          "id": "claude-opus-4-1",
-          "inputPer1M": 15,
-          "outputPer1M": 75,
-          "cacheReadPer1M": 1.5,
-          "cacheWritePer1M": 18.75
-        }
-      ]
-    },
-    {
-      "providerId": "openai",
-      "unmetered": false,
-      "verified": "2026-08-10",
-      "promptIncludesCacheReads": true,
-      "reportsCacheWrites": false,
-      "note": "Vendor list prices for text models, cached-input rate included. The driver hard-codes cacheWriteTokens to zero, so no write rate is carried. Embedding models are omitted (no output rate, and a chat run never reaches one), as are models whose cached-input rate was not published alongside the others — an unestablished rate is left out rather than approximated, which is the rule this whole file follows.",
-      "models": [
-        { "id": "gpt-5.6-sol", "inputPer1M": 5, "outputPer1M": 30, "cacheReadPer1M": 0.5 },
-        { "id": "gpt-5.6-terra", "inputPer1M": 2, "outputPer1M": 12, "cacheReadPer1M": 0.2 },
-        { "id": "gpt-5.6-luna", "inputPer1M": 0.2, "outputPer1M": 1.2, "cacheReadPer1M": 0.02 },
-        { "id": "gpt-5.5", "inputPer1M": 5, "outputPer1M": 30, "cacheReadPer1M": 0.5 },
-        { "id": "gpt-5.4", "inputPer1M": 2.5, "outputPer1M": 15, "cacheReadPer1M": 0.25 },
-        { "id": "gpt-5.4-mini", "inputPer1M": 0.75, "outputPer1M": 4.5, "cacheReadPer1M": 0.075 },
-        { "id": "gpt-5.4-nano", "inputPer1M": 0.2, "outputPer1M": 1.25, "cacheReadPer1M": 0.02 },
-        { "id": "gpt-5.2", "inputPer1M": 1.75, "outputPer1M": 14, "cacheReadPer1M": 0.175 },
-        { "id": "gpt-5.1", "inputPer1M": 1.25, "outputPer1M": 10, "cacheReadPer1M": 0.125 },
-        { "id": "gpt-5", "inputPer1M": 1.25, "outputPer1M": 10, "cacheReadPer1M": 0.125 },
-        { "id": "gpt-5-mini", "inputPer1M": 0.25, "outputPer1M": 2, "cacheReadPer1M": 0.025 },
-        { "id": "gpt-5-nano", "inputPer1M": 0.05, "outputPer1M": 0.4, "cacheReadPer1M": 0.005 },
-        { "id": "gpt-4.1", "inputPer1M": 2, "outputPer1M": 8, "cacheReadPer1M": 0.5 },
-        { "id": "gpt-4.1-mini", "inputPer1M": 0.4, "outputPer1M": 1.6, "cacheReadPer1M": 0.1 },
-        { "id": "gpt-4.1-nano", "inputPer1M": 0.1, "outputPer1M": 0.4, "cacheReadPer1M": 0.025 },
-        { "id": "gpt-4o", "inputPer1M": 2.5, "outputPer1M": 10, "cacheReadPer1M": 1.25 },
-        { "id": "gpt-4o-mini", "inputPer1M": 0.15, "outputPer1M": 0.6, "cacheReadPer1M": 0.075 },
-        { "id": "o1", "inputPer1M": 15, "outputPer1M": 60, "cacheReadPer1M": 7.5 },
-        { "id": "o3", "inputPer1M": 2, "outputPer1M": 8, "cacheReadPer1M": 0.5 },
-        { "id": "o3-mini", "inputPer1M": 1.1, "outputPer1M": 4.4, "cacheReadPer1M": 0.55 },
-        { "id": "o4-mini", "inputPer1M": 1.1, "outputPer1M": 4.4, "cacheReadPer1M": 0.275 }
-      ]
-    },
-    {
-      "providerId": "ollama",
-      "unmetered": true,
-      "verified": "2026-08-10",
-      "note": "Local inference. Nothing is billed for a token, whatever the model, so there is no model list to keep current.",
-      "models": []
-    },
-    {
-      "providerId": "lmstudio",
-      "unmetered": true,
-      "verified": "2026-08-10",
-      "note": "Local inference. Same as above.",
-      "models": []
-    }
-  ],
-  "absent": [
-    "Drivers deliberately carrying no rows, so that a run through them reports",
-    "unknown rather than a number nobody checked:",
-    "",
-    "  bedrock    — partner-operated, on a separate rate card from the vendor whose",
-    "               models it serves. Entering the vendor's own rates against it",
-    "               would be the exact class of quiet wrongness this file exists to",
-    "               stop.",
-    "  openrouter — routes to arbitrary upstreams and publishes per-model rates from",
-    "               its own catalogue endpoint at run time. That is a live source",
-    "               and a static table cannot be one.",
-    "  http       — a driver for whatever endpoint the host points it at. There is",
-    "               no vendor to have a price.",
-    "",
-    "Adding one is a normal change: add the vendor here with the rows and the date",
-    "they were read, run the generator, commit both files."
-  ]
+	"about": [
+		"The reviewed input to scripts/generate-model-prices.mjs. Edit THIS file, never",
+		"catalogue.generated.ts — the generator overwrites that file and a CI gate",
+		"re-derives it from this one and fails on any difference.",
+		"",
+		"A rate here is a commercial fact about a vendor's published list price. It is",
+		"entered by a human who read that vendor's own pricing page, and `verified` is",
+		"the date they read it. It is NOT fetched at build time: an auto-refreshing",
+		"generator would change every consumer's reported cost AND every consumer's",
+		"costLimitUsd behaviour on an unrelated commit, with no review and no diff.",
+		"",
+		"Absent is a real answer. A model with no row here reports UNKNOWN cost, not",
+		"zero, and a run that sets runConfig.costLimitUsd against it is refused rather",
+		"than run without a budget. So the correct move when a rate cannot be",
+		"established is to leave the row out, never to approximate it.",
+		"",
+		"unmetered: true means this driver bills nothing by construction — local",
+		"inference. Its runs are priced at zero, which is KNOWN-free and therefore",
+		"distinct from unknown. Such a vendor needs no model rows.",
+		"",
+		"Matching is EXACT on a normalised id (lowercased, one trailing -YYYYMMDD or",
+		"@YYYYMMDD snapshot suffix removed). Deliberately not prefix or substring:",
+		"within one vendor here, ids one character apart differ in price by 4x, so a",
+		"near-miss would misprice silently. A miss reports unknown, which is safe."
+	],
+	"cacheTokensAre": [
+		"Two of the four rates only mean anything alongside a fact about the DRIVER,",
+		"not about the model: whether the prompt-token count it reports already",
+		"contains the tokens it read from cache.",
+		"",
+		"The drivers in this repository disagree, and it is measured, not assumed:",
+		"  packages/providers/anthropic/src/client.ts parseUsage — promptTokens is",
+		"    input_tokens, which EXCLUDES cache reads and cache writes.",
+		"  packages/providers/bedrock/src/client.ts parseBedrockUsage — same.",
+		"  packages/providers/openai/src/client.ts parseUsage — promptTokens is",
+		"    prompt_tokens, which INCLUDES cached_tokens.",
+		"",
+		"So the same TokenUsage shape carries two incompatible meanings, and a rate",
+		"applied without knowing which one is off by the whole cache-read volume. The",
+		"fact is a property of the driver, and the driver's identity is in hand at the",
+		"moment cost is accumulated — so it is declared here, per vendor, once.",
+		"",
+		"promptIncludesCacheReads   true  => billable input is promptTokens minus",
+		"                                    cachedTokens.",
+		"                           false => billable input is promptTokens, and",
+		"                                    cachedTokens are charged on top.",
+		"",
+		"reportsCacheWrites declares whether the driver ever produces a non-zero",
+		"cacheWriteTokens. When false, model rows carry no write rate — a rate for a",
+		"quantity nothing produces is a declaration nothing drives. If such a driver",
+		"later does report writes, those tokens are counted as unpriced rather than",
+		"quietly charged at some other rate, so the contradiction surfaces."
+	],
+	"vendors": [
+		{
+			"providerId": "anthropic",
+			"unmetered": false,
+			"verified": "2026-08-10",
+			"promptIncludesCacheReads": false,
+			"reportsCacheWrites": true,
+			"note": "The last two rows exist because the driver's own offline catalogue offers those models and this table did not price them — a lookup-key gap that reads as `cost unknown` and is invisible to the generator's own check, which only proves the module matches this file. `providers/anthropic` asserts the two lists agree. Vendor list prices. Cache read is the vendor's published 0.1x of the input rate; cache write is its published 1.25x for the five-minute entry, which is the default TTL and the one the driver's `cacheControl: { type: 'auto' }` asks for. A time-limited introductory rate applied to one model at the time of entry; this table has no time dimension and records the list rate, so a run inside a promotional window is over-reported rather than mis-modelled.",
+			"models": [
+				{
+					"id": "claude-fable-5",
+					"inputPer1M": 10,
+					"outputPer1M": 50,
+					"cacheReadPer1M": 1,
+					"cacheWritePer1M": 12.5
+				},
+				{
+					"id": "claude-mythos-5",
+					"inputPer1M": 10,
+					"outputPer1M": 50,
+					"cacheReadPer1M": 1,
+					"cacheWritePer1M": 12.5
+				},
+				{
+					"id": "claude-opus-5",
+					"inputPer1M": 5,
+					"outputPer1M": 25,
+					"cacheReadPer1M": 0.5,
+					"cacheWritePer1M": 6.25
+				},
+				{
+					"id": "claude-opus-4-8",
+					"inputPer1M": 5,
+					"outputPer1M": 25,
+					"cacheReadPer1M": 0.5,
+					"cacheWritePer1M": 6.25
+				},
+				{
+					"id": "claude-opus-4-7",
+					"inputPer1M": 5,
+					"outputPer1M": 25,
+					"cacheReadPer1M": 0.5,
+					"cacheWritePer1M": 6.25
+				},
+				{
+					"id": "claude-opus-4-6",
+					"inputPer1M": 5,
+					"outputPer1M": 25,
+					"cacheReadPer1M": 0.5,
+					"cacheWritePer1M": 6.25
+				},
+				{
+					"id": "claude-sonnet-5",
+					"inputPer1M": 3,
+					"outputPer1M": 15,
+					"cacheReadPer1M": 0.3,
+					"cacheWritePer1M": 3.75
+				},
+				{
+					"id": "claude-sonnet-4-6",
+					"inputPer1M": 3,
+					"outputPer1M": 15,
+					"cacheReadPer1M": 0.3,
+					"cacheWritePer1M": 3.75
+				},
+				{
+					"id": "claude-haiku-4-5",
+					"inputPer1M": 1,
+					"outputPer1M": 5,
+					"cacheReadPer1M": 0.1,
+					"cacheWritePer1M": 1.25
+				},
+				{
+					"id": "claude-sonnet-4-5",
+					"inputPer1M": 3,
+					"outputPer1M": 15,
+					"cacheReadPer1M": 0.3,
+					"cacheWritePer1M": 3.75
+				},
+				{
+					"id": "claude-opus-4-1",
+					"inputPer1M": 15,
+					"outputPer1M": 75,
+					"cacheReadPer1M": 1.5,
+					"cacheWritePer1M": 18.75
+				}
+			]
+		},
+		{
+			"providerId": "openai",
+			"unmetered": false,
+			"verified": "2026-08-10",
+			"promptIncludesCacheReads": true,
+			"reportsCacheWrites": false,
+			"note": "Vendor list prices for text models, cached-input rate included. The driver hard-codes cacheWriteTokens to zero, so no write rate is carried. Embedding models are omitted (no output rate, and a chat run never reaches one), as are models whose cached-input rate was not published alongside the others — an unestablished rate is left out rather than approximated, which is the rule this whole file follows.",
+			"models": [
+				{
+					"id": "gpt-5.6-sol",
+					"inputPer1M": 5,
+					"outputPer1M": 30,
+					"cacheReadPer1M": 0.5
+				},
+				{
+					"id": "gpt-5.6-terra",
+					"inputPer1M": 2,
+					"outputPer1M": 12,
+					"cacheReadPer1M": 0.2
+				},
+				{
+					"id": "gpt-5.6-luna",
+					"inputPer1M": 0.2,
+					"outputPer1M": 1.2,
+					"cacheReadPer1M": 0.02
+				},
+				{
+					"id": "gpt-5.5",
+					"inputPer1M": 5,
+					"outputPer1M": 30,
+					"cacheReadPer1M": 0.5
+				},
+				{
+					"id": "gpt-5.4",
+					"inputPer1M": 2.5,
+					"outputPer1M": 15,
+					"cacheReadPer1M": 0.25
+				},
+				{
+					"id": "gpt-5.4-mini",
+					"inputPer1M": 0.75,
+					"outputPer1M": 4.5,
+					"cacheReadPer1M": 0.075
+				},
+				{
+					"id": "gpt-5.4-nano",
+					"inputPer1M": 0.2,
+					"outputPer1M": 1.25,
+					"cacheReadPer1M": 0.02
+				},
+				{
+					"id": "gpt-5.2",
+					"inputPer1M": 1.75,
+					"outputPer1M": 14,
+					"cacheReadPer1M": 0.175
+				},
+				{
+					"id": "gpt-5.1",
+					"inputPer1M": 1.25,
+					"outputPer1M": 10,
+					"cacheReadPer1M": 0.125
+				},
+				{
+					"id": "gpt-5",
+					"inputPer1M": 1.25,
+					"outputPer1M": 10,
+					"cacheReadPer1M": 0.125
+				},
+				{
+					"id": "gpt-5-mini",
+					"inputPer1M": 0.25,
+					"outputPer1M": 2,
+					"cacheReadPer1M": 0.025
+				},
+				{
+					"id": "gpt-5-nano",
+					"inputPer1M": 0.05,
+					"outputPer1M": 0.4,
+					"cacheReadPer1M": 0.005
+				},
+				{
+					"id": "gpt-4.1",
+					"inputPer1M": 2,
+					"outputPer1M": 8,
+					"cacheReadPer1M": 0.5
+				},
+				{
+					"id": "gpt-4.1-mini",
+					"inputPer1M": 0.4,
+					"outputPer1M": 1.6,
+					"cacheReadPer1M": 0.1
+				},
+				{
+					"id": "gpt-4.1-nano",
+					"inputPer1M": 0.1,
+					"outputPer1M": 0.4,
+					"cacheReadPer1M": 0.025
+				},
+				{
+					"id": "gpt-4o",
+					"inputPer1M": 2.5,
+					"outputPer1M": 10,
+					"cacheReadPer1M": 1.25
+				},
+				{
+					"id": "gpt-4o-mini",
+					"inputPer1M": 0.15,
+					"outputPer1M": 0.6,
+					"cacheReadPer1M": 0.075
+				},
+				{
+					"id": "o1",
+					"inputPer1M": 15,
+					"outputPer1M": 60,
+					"cacheReadPer1M": 7.5
+				},
+				{
+					"id": "o3",
+					"inputPer1M": 2,
+					"outputPer1M": 8,
+					"cacheReadPer1M": 0.5
+				},
+				{
+					"id": "o3-mini",
+					"inputPer1M": 1.1,
+					"outputPer1M": 4.4,
+					"cacheReadPer1M": 0.55
+				},
+				{
+					"id": "o4-mini",
+					"inputPer1M": 1.1,
+					"outputPer1M": 4.4,
+					"cacheReadPer1M": 0.275
+				}
+			]
+		},
+		{
+			"providerId": "ollama",
+			"unmetered": true,
+			"verified": "2026-08-10",
+			"note": "Local inference. Nothing is billed for a token, whatever the model, so there is no model list to keep current.",
+			"models": []
+		},
+		{
+			"providerId": "lmstudio",
+			"unmetered": true,
+			"verified": "2026-08-10",
+			"note": "Local inference. Same as above.",
+			"models": []
+		}
+	],
+	"absent": [
+		"Drivers deliberately carrying no rows, so that a run through them reports",
+		"unknown rather than a number nobody checked:",
+		"",
+		"  bedrock    — partner-operated, on a separate rate card from the vendor whose",
+		"               models it serves. Entering the vendor's own rates against it",
+		"               would be the exact class of quiet wrongness this file exists to",
+		"               stop.",
+		"  openrouter — routes to arbitrary upstreams and publishes per-model rates from",
+		"               its own catalogue endpoint at run time. That is a live source",
+		"               and a static table cannot be one.",
+		"  http       — a driver for whatever endpoint the host points it at. There is",
+		"               no vendor to have a price.",
+		"",
+		"  deepseek   — publishes two list prices per model and picks between them by the",
+		"               CLOCK: peak (01:00-04:00 and 06:00-10:00 UTC) costs exactly twice",
+		"               off-peak, on both input and output. A static table has no hour, so",
+		"               whichever of the two numbers were entered here would be wrong for",
+		"               half of every day — and wrong in the direction that reads as a",
+		"               correct, verified figure. Read 2026-08-17.",
+		"Adding one is a normal change: add the vendor here with the rows and the date",
+		"they were read, run the generator, commit both files."
+	]
 }

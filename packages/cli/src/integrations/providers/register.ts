@@ -67,6 +67,11 @@ export async function ensureRegistered(id: ProviderId): Promise<void> {
 			mod.registerOpenAI()
 			break
 		}
+		case 'deepseek': {
+			const mod = await import('@namzu/deepseek')
+			mod.registerDeepSeek()
+			break
+		}
 		case 'openrouter': {
 			const mod = await import('@namzu/openrouter')
 			mod.registerOpenRouter()

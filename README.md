@@ -461,6 +461,7 @@ Model drivers, one per service, each installed only if you use it:
 |---|---|
 | `@namzu/anthropic` | Streaming, tool use, extended thinking |
 | `@namzu/openai` | Chat Completions, streaming, tool use |
+| `@namzu/deepseek` | Chat Completions, streaming, tool use, thinking mode |
 | `@namzu/bedrock` | Converse API, streaming, tool use |
 | `@namzu/openrouter` | Aggregated model access |
 | `@namzu/ollama` | Local models |

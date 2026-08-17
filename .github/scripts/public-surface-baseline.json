@@ -149,6 +149,33 @@
       "deprecated": []
     }
   },
+  "@namzu/deepseek": {
+    ".": {
+      "runtime": [
+        "DEEPSEEK_CAPABILITIES",
+        "DeepSeekProvider",
+        "assertEffortUnsupported",
+        "assertSamplingUsable",
+        "registerDeepSeek",
+        "thinkingEnabled",
+        "toDeepSeekMessages",
+        "toDeepSeekTools"
+      ],
+      "declared": [
+        "DEEPSEEK_CAPABILITIES",
+        "DeepSeekConfig",
+        "DeepSeekProvider",
+        "DeepSeekProviderConfig",
+        "assertEffortUnsupported",
+        "assertSamplingUsable",
+        "registerDeepSeek",
+        "thinkingEnabled",
+        "toDeepSeekMessages",
+        "toDeepSeekTools"
+      ],
+      "deprecated": []
+    }
+  },
   "@namzu/evals": {},
   "@namzu/files": {
     ".": {

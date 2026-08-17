@@ -1,4 +1,5 @@
 import { mergeTokenUsage } from '../types/common/index.js'
+import type { ReasoningBlock } from '../types/message/index.js'
 import type { ChatCompletionResponse } from '../types/provider/chat.js'
 import type { StreamChunk } from '../types/provider/stream.js'
 
@@ -16,6 +17,13 @@ import type { StreamChunk } from '../types/provider/stream.js'
  * - text content is concatenated in delta order;
  * - tool calls are bucketed by `index` into the existing
  *   `Array<{ id, function: { name, arguments } }>` shape;
+ * - reasoning blocks are bucketed by `index` the same way, because the
+ *   assembled message is the thing a caller replays and
+ *   {@link ReasoningBlock} is documented as replayed verbatim. This was
+ *   missing: `delta.reasoning` was dropped on the floor, so a run collected
+ *   through this helper came back with no reasoning even when the driver had
+ *   streamed it — and a vendor that requires the blocks back on the next turn
+ *   would then be sent a message that had lost them;
  * - usage and finishReason fall back to safe defaults when the provider
  *   omits them (defensive — a known vendor-SDK failure mode
  *   where `message_stop` is occasionally dropped on connection close).
@@ -39,6 +47,13 @@ export async function collectChatCompletion(
 	}
 
 	const toolBuckets = new Map<number, { id: string; name: string; argsBuf: string }>()
+	// Same bucketing rule the run loop uses (`runtime/query/iteration/
+	// stream-turn.ts`), so a message assembled here and a message assembled
+	// there carry the same blocks in the same order.
+	const reasoningBuckets = new Map<
+		number,
+		{ -readonly [K in keyof ReasoningBlock]: ReasoningBlock[K] } & { text: string }
+	>()
 
 	for await (const chunk of stream) {
 		if (chunk.error) {
@@ -48,6 +63,19 @@ export async function collectChatCompletion(
 
 		if (chunk.delta.content) {
 			content += chunk.delta.content
+		}
+
+		const reasoning = chunk.delta.reasoning
+		if (reasoning) {
+			const bucket = reasoningBuckets.get(reasoning.index) ?? {
+				type: reasoning.type ?? 'thinking',
+				text: '',
+			}
+			if (reasoning.type) bucket.type = reasoning.type
+			if (reasoning.text) bucket.text += reasoning.text
+			if (reasoning.signature) bucket.signature = reasoning.signature
+			if (reasoning.encrypted) bucket.encrypted = reasoning.encrypted
+			reasoningBuckets.set(reasoning.index, bucket)
 		}
 
 		for (const tc of chunk.delta.toolCalls ?? []) {
@@ -76,6 +104,10 @@ export async function collectChatCompletion(
 			function: { name: b.name, arguments: b.argsBuf },
 		}))
 
+	const reasoningBlocks: ReasoningBlock[] = [...reasoningBuckets.entries()]
+		.sort(([a], [b]) => a - b)
+		.map(([, b]) => b)
+
 	return {
 		id,
 		model,
@@ -83,6 +115,7 @@ export async function collectChatCompletion(
 			role: 'assistant',
 			content: content.length > 0 ? content : null,
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+			...(reasoningBlocks.length > 0 ? { reasoning: reasoningBlocks } : {}),
 		},
 		finishReason,
 		usage,

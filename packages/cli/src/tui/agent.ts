@@ -1230,7 +1230,7 @@ function planFallbacks(
 	}
 }
 
-function constructProvider(
+export function constructProvider(
 	id: ProviderId,
 	det: DetectedProvider | null,
 	model: string,
@@ -1250,6 +1250,15 @@ function constructProvider(
 		case 'openai': {
 			const { provider } = ProviderRegistry.create({
 				type: 'openai',
+				apiKey: det?.apiKey ?? '',
+				baseURL: det?.baseUrl,
+				model,
+			})
+			return provider
+		}
+		case 'deepseek': {
+			const { provider } = ProviderRegistry.create({
+				type: 'deepseek',
 				apiKey: det?.apiKey ?? '',
 				baseURL: det?.baseUrl,
 				model,

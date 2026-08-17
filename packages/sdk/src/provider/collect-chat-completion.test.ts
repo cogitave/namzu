@@ -142,3 +142,81 @@ describe('collectChatCompletion()', () => {
 		).rejects.toThrow('rate limited')
 	})
 })
+
+/**
+ * Reasoning was dropped here, and the drop was invisible.
+ *
+ * `StreamChunk.delta.reasoning` has existed since the thinking work landed,
+ * `AssistantMessage.reasoning` is documented as "replayed verbatim and ahead
+ * of the text/tool blocks", and the run loop
+ * (`runtime/query/iteration/stream-turn.ts`) assembles it correctly. This
+ * helper — the path every non-streaming caller takes — threw it away, so the
+ * same stream produced a message with reasoning through one route and without
+ * it through the other.
+ *
+ * That is not cosmetic for every vendor. DeepSeek requires an assistant turn's
+ * reasoning back on the next request whenever tool calls are in play; a
+ * message assembled here had already lost it.
+ */
+describe('collectChatCompletion() — reasoning blocks', () => {
+	it('buckets reasoning fragments by index and concatenates in arrival order', async () => {
+		const result = await collectChatCompletion(
+			fromArray([
+				{ id: 'm', delta: { reasoning: { index: 0, type: 'thinking', text: 'first ' } } },
+				{ id: 'm', delta: { reasoning: { index: 0, text: 'second' } } },
+				{ id: 'm', delta: { content: 'answer' }, finishReason: 'stop' },
+			]),
+		)
+		expect(result.message.reasoning).toEqual([{ type: 'thinking', text: 'first second' }])
+		expect(result.message.content).toBe('answer')
+	})
+
+	it('keeps two blocks apart and emits them in index order', async () => {
+		// Arrive interleaved and out of order on purpose: a `push`-based
+		// implementation would concatenate them into one block, and a
+		// last-write-wins one would lose the first.
+		const result = await collectChatCompletion(
+			fromArray([
+				{ id: 'm', delta: { reasoning: { index: 1, text: 'B1' } } },
+				{ id: 'm', delta: { reasoning: { index: 0, text: 'A1' } } },
+				{ id: 'm', delta: { reasoning: { index: 1, text: 'B2' } } },
+				{ id: 'm', delta: {}, finishReason: 'stop' },
+			]),
+		)
+		expect(result.message.reasoning?.map((b) => b.text)).toEqual(['A1', 'B1B2'])
+	})
+
+	it('carries a signature and a redacted block’s payload through', async () => {
+		// The signature is what makes a replayed block acceptable to the
+		// vendors that sign them; dropping it turns a valid replay into a
+		// rejected one.
+		const result = await collectChatCompletion(
+			fromArray([
+				{ id: 'm', delta: { reasoning: { index: 0, text: 'thought' } } },
+				{ id: 'm', delta: { reasoning: { index: 0, signature: 'sig-1' } } },
+				{ id: 'm', delta: { reasoning: { index: 1, type: 'redacted_thinking', encrypted: 'op' } } },
+				{ id: 'm', delta: {}, finishReason: 'stop' },
+			]),
+		)
+		expect(result.message.reasoning?.[0]).toEqual({
+			type: 'thinking',
+			text: 'thought',
+			signature: 'sig-1',
+		})
+		expect(result.message.reasoning?.[1]).toEqual({
+			type: 'redacted_thinking',
+			text: '',
+			encrypted: 'op',
+		})
+	})
+
+	it('omits the key entirely when no reasoning arrived', async () => {
+		// An empty array reads as "the model did not reason"; absence reads as
+		// "nobody asked". They are different claims and the second is the true
+		// one for every non-thinking turn.
+		const result = await collectChatCompletion(
+			fromArray([{ id: 'm', delta: { content: 'hi' }, finishReason: 'stop' }]),
+		)
+		expect('reasoning' in result.message).toBe(false)
+	})
+})

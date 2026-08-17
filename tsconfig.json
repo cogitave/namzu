@@ -52,6 +52,9 @@
 			"path": "./packages/providers/http"
 		},
 		{
+			"path": "./packages/providers/deepseek"
+		},
+		{
 			"path": "./packages/providers/openai"
 		},
 		{

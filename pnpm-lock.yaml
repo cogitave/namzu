@@ -32,6 +32,9 @@ importers:
       '@namzu/anthropic':
         specifier: workspace:*
         version: link:../providers/anthropic
+      '@namzu/deepseek':
+        specifier: workspace:^
+        version: link:../providers/deepseek
       '@namzu/files':
         specifier: workspace:*
         version: link:../files
@@ -174,6 +177,28 @@ importers:
       '@aws-sdk/client-bedrock-runtime':
         specifier: ^3.1101.0
         version: 3.1101.0
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^1.9.4
+        version: 1.9.4
+      '@namzu/sdk':
+        specifier: workspace:^
+        version: link:../../sdk
+      '@types/node':
+        specifier: ^22.19.17
+        version: 22.19.17
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/node@22.19.17)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0)
+
+  packages/providers/deepseek:
+    dependencies:
+      openai:
+        specifier: ^6.0.0
+        version: 6.34.0(ws@8.21.3)(zod@4.3.6)
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4

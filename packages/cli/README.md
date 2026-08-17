@@ -52,9 +52,9 @@ curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
 irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
 ```
 
-Installing brings the kernel and four model drivers — Anthropic, OpenAI,
-OpenRouter and Ollama — plus `@namzu/files`, as ordinary dependencies rather
-than peers. So a fresh install can already reach any of those services, given a
+Installing brings the kernel and five model drivers — Anthropic, OpenAI,
+DeepSeek, OpenRouter and Ollama — plus `@namzu/files`, as ordinary dependencies
+rather than peers. So a fresh install can already reach any of those services, given a
 credential. `@namzu/telemetry`, `@namzu/sandbox` and `@namzu/computer-use` are
 **not** installed with it; they are the optional capabilities `namzu doctor`
 probes for.

@@ -10,6 +10,7 @@ export type ProviderId =
 	| 'anthropic'
 	| 'openai'
 	| 'openrouter'
+	| 'deepseek'
 	| 'ollama'
 	| 'lmstudio'
 	| 'bedrock'
@@ -92,6 +93,18 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			requiresApiKey: true,
 			constructible: true,
 		},
+		deepseek: {
+			id: 'deepseek',
+			label: 'DeepSeek',
+			envVars: ['DEEPSEEK_API_KEY'],
+			defaultBaseUrl: 'https://api.deepseek.com',
+			// The smaller of the two models the vendor serves. `deepseek-chat`
+			// and `deepseek-reasoner` are NOT alternatives to name here: both
+			// were discontinued on 2026-07-24 and resolve to nothing.
+			defaultModel: 'deepseek-v4-flash',
+			requiresApiKey: true,
+			constructible: true,
+		},
 		openrouter: {
 			id: 'openrouter',
 			label: 'OpenRouter',
@@ -151,15 +164,26 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 	},
 )
 
-export const ALL_PROVIDER_IDS: readonly ProviderId[] = Object.freeze([
-	'anthropic',
-	'openai',
-	'openrouter',
-	'ollama',
-	'lmstudio',
-	'bedrock',
-	'http',
-] as const)
+/**
+ * Every provider this build knows about, in registry order.
+ *
+ * DERIVED from `PROVIDER_REGISTRY` rather than listed beside it. It was a
+ * hand-written array typed `readonly ProviderId[]`, and that type accepts a
+ * SUBSET — so adding a provider to the union and to the registry while
+ * forgetting this line compiled, ran, and left the new provider invisible to
+ * every consumer that iterates: the picker, the chain validator, and the test
+ * that holds `ensureRegistered` in agreement with `constructible`. Which is
+ * exactly what happened when `deepseek` was added, and the test written to
+ * catch that class of mistake was itself vacuous for the one provider it was
+ * written alongside.
+ *
+ * `PROVIDER_REGISTRY` is a `Record<ProviderId, …>`, so its keys are exhaustive
+ * by construction and a missing entry is a compile error rather than a silent
+ * omission.
+ */
+export const ALL_PROVIDER_IDS: readonly ProviderId[] = Object.freeze(
+	Object.keys(PROVIDER_REGISTRY) as ProviderId[],
+)
 
 /**
  * The one sentence every refusal of an unbuildable provider uses.
