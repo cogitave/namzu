@@ -132,6 +132,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 		probeAgentSession: async () => ({ preferences: PREFS, needsRepickReason: null, detected: [] }),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
+				sandbox: { unconfined: true, enforced: [], required: [] },
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],

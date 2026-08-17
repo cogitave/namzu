@@ -37,6 +37,10 @@ import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSession {
 	return {
 		hasProvider: true,
+		// Unconfined, because that is what a fake session is: no provider was
+		// built, so claiming enforcement here would make every test that reads
+		// it believe in a sandbox that does not exist.
+		sandbox: { unconfined: true, enforced: [], required: [] },
 		providerSummary: 'mock',
 		modelSummary: 'mock-model',
 		toolNames: () => [],

@@ -2,6 +2,7 @@ import {
 	LocalSandboxProvider,
 	type Logger,
 	SANDBOX_ISOLATION_CONTROLS,
+	type SandboxEnvironment,
 	type SandboxIsolationControl,
 	type SandboxProvider,
 	isolationOf,
@@ -23,19 +24,40 @@ import type { SandboxConfig } from '../config/schema.js'
  * this module's other job is to make sure nobody has to guess which.
  */
 
-export interface ResolvedSandbox {
+/**
+ * What a reader needs to know about the sandbox, without the live provider.
+ *
+ * Split out so `/status` can be handed the facts rather than the object: the
+ * provider is a running thing with a filesystem under it, and a render
+ * function has no business holding one.
+ */
+export interface SandboxSummary {
+	/**
+	 * True when commands run on the host with no confinement.
+	 *
+	 * Either because the sandbox is off, or because this platform's environment
+	 * enforces nothing. A caller that wants to warn louder in that case does not
+	 * have to re-derive it from the notice text.
+	 */
+	readonly unconfined: boolean
+	/** Absent when the operator turned the sandbox off. */
+	readonly environment?: SandboxEnvironment
+	/** Controls this machine actually applies to a spawned command. */
+	readonly enforced: readonly SandboxIsolationControl[]
+	/**
+	 * Controls the operator DEMANDED, which is not recoverable from the line
+	 * above: a host that supplies `filesystem` anyway looks identical to one
+	 * where it was insisted on, and only the second is a guarantee that
+	 * survives moving machines.
+	 */
+	readonly required: readonly SandboxIsolationControl[]
+}
+
+export interface ResolvedSandbox extends SandboxSummary {
 	/** Absent when the operator turned it off. */
 	readonly provider?: SandboxProvider
 	/** One line for the operator, always — including when it is off. */
 	readonly notice: string
-	/**
-	 * True when commands run on the host with no confinement.
-	 *
-	 * Either because the sandbox is off, or because this platform's
-	 * environment enforces nothing. A caller that wants to warn louder in
-	 * that case does not have to re-derive it from the notice text.
-	 */
-	readonly unconfined: boolean
 }
 
 /**
@@ -54,6 +76,8 @@ export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): 
 			notice:
 				"Sandbox off by configuration: commands run in this process, with this shell's environment. Remove `sandbox.enabled: false` to turn it back on.",
 			unconfined: true,
+			enforced: [],
+			required: (config?.requireIsolation ?? []) as readonly SandboxIsolationControl[],
 		}
 	}
 
@@ -76,6 +100,9 @@ export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): 
 			provider,
 			notice: `Sandbox on (${provider.environment}), but this platform enforces none of ${SANDBOX_ISOLATION_CONTROLS.join(', ')} — commands are not confined. Name what you need under \`sandbox.requireIsolation\` to be refused instead of surprised.`,
 			unconfined: true,
+			environment: provider.environment,
+			enforced: [],
+			required,
 		}
 	}
 
@@ -86,6 +113,9 @@ export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): 
 				? `Sandbox on (${provider.environment}): enforcing ${enforced.join(', ')}.`
 				: `Sandbox on (${provider.environment}): enforcing ${enforced.join(', ')}; NOT enforcing ${missing.join(', ')}.`,
 		unconfined: false,
+		environment: provider.environment,
+		enforced,
+		required,
 	}
 }
 

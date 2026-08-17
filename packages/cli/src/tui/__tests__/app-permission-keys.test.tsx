@@ -88,6 +88,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			let latched = false
 			return {
 				hasProvider: true,
+				sandbox: { unconfined: true, enforced: [], required: [] },
 				providerSummary: 'a-provider',
 				modelSummary: 'a-model',
 				toolNames: () => ['bash'],

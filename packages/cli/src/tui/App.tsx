@@ -712,6 +712,9 @@ export function App({ ctx }: AppProps) {
 		// Called when `/tools` renders, not read here — the same shape, and the
 		// same reason, as `neverPrompted` below.
 		availableTools: () => session?.toolNames() ?? [],
+		// From the session, not re-resolved: resolving builds a provider, and a
+		// second one would describe a different sandbox than the run is using.
+		sandbox: session?.sandbox ?? null,
 		providerSummary: session?.providerSummary ?? null,
 		modelSummary: session?.modelSummary ?? null,
 		// The same state the status bar reads, unformatted. `/cost` prints exact

@@ -48,6 +48,7 @@ function permissions(over: Partial<SlashContext['permissions']> = {}): SlashCont
 function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
 		availableTools: () => [],
+		sandbox: null,
 		lastAssistantMessageId: () => null,
 		providerSummary: null,
 		modelSummary: null,

@@ -77,6 +77,7 @@ import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/envir
 import { loadProjectInstructions } from '../context/project.js'
 import {
 	type ResolvedSandbox,
+	type SandboxSummary,
 	resolveSandbox,
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
@@ -290,6 +291,14 @@ export interface ResumeDurableParams {
 
 export interface AgentSession {
 	readonly hasProvider: boolean
+	/**
+	 * What the sandbox enforces for this session.
+	 *
+	 * Carried on the session rather than re-resolved by whoever asks, because
+	 * resolving builds a provider — and a second one would answer about a
+	 * different sandbox than the one the run is using.
+	 */
+	readonly sandbox: SandboxSummary
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	/**
@@ -987,6 +996,12 @@ export async function createAgentSession(
 	})
 	return {
 		hasProvider: true,
+		sandbox: {
+			unconfined: sandbox.unconfined,
+			...(sandbox.environment ? { environment: sandbox.environment } : {}),
+			enforced: sandbox.enforced,
+			required: sandbox.required,
+		},
 		providerSummary: entry.label,
 		modelSummary: model,
 		// Reads the same registry object the deferred registration mutates, at
@@ -2280,6 +2295,10 @@ function emptySession(
 	})
 	return {
 		hasProvider: false,
+		// A refused session ran nothing, so there is nothing confining anything.
+		// Reporting an enforced control here would be a claim about a sandbox
+		// this path never built.
+		sandbox: { unconfined: true, enforced: [], required: [] },
 		errorKind,
 		providerSummary: null,
 		modelSummary: null,

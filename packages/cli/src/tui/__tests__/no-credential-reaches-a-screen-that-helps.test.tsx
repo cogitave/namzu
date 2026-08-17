@@ -113,6 +113,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			world.credentials = det.filter((d) => d.source.kind === 'session')
 			return {
 				hasProvider: true,
+				sandbox: { unconfined: true, enforced: [], required: [] },
 				providerSummary: 'a-provider',
 				modelSummary: prefs.providers[0]?.model ?? 'a-model',
 				toolNames: () => [],

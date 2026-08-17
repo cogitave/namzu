@@ -98,11 +98,25 @@ describe('the sandbox-resolved boot record', () => {
 	// machine, matching this file's own stated philosophy above.
 
 	it('is warn when the platform confines nothing', () => {
-		expect(sandboxResolvedSeverity({ unconfined: true, notice: 'sandbox off' })).toBe('warn')
+		expect(
+			sandboxResolvedSeverity({
+				unconfined: true,
+				enforced: [],
+				required: [],
+				notice: 'sandbox off',
+			}),
+		).toBe('warn')
 	})
 
 	it('is info when the platform confines something', () => {
-		expect(sandboxResolvedSeverity({ unconfined: false, notice: 'sandbox on' })).toBe('info')
+		expect(
+			sandboxResolvedSeverity({
+				unconfined: false,
+				enforced: [],
+				required: [],
+				notice: 'sandbox on',
+			}),
+		).toBe('info')
 	})
 
 	it('agrees with a fully-enforcing ResolvedSandbox, not only a hand-built stub', () => {

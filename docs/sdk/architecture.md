@@ -114,11 +114,18 @@ Tools do not execute in the host process. What that buys you **depends on the ti
 
 | Environment | Filesystem | Network | Process |
 |---|---|---|---|
+| `linux-bwrap` | yes | yes | yes |
 | `macos-seatbelt` | yes | yes | yes |
 | `linux-namespace` | **no** | yes | yes |
 | `basic` | no | no | no |
 
+`SANDBOX_ENVIRONMENTS` holds that order — strongest first — and detection walks it. It is exported because the list had been spelled out by hand wherever it was needed, and the first tier added after those copies were written broke one of them.
+
 `linux-namespace` reports `filesystem: false` deliberately. It unshares the mount namespace but never remounts anything, so the child still sees the whole host filesystem — a private mount table is not confinement, and saying otherwise here would be the exact defect the table exists to prevent.
+
+`linux-bwrap` is the tier that does remount, and so is the first on that platform entitled to claim the control. It builds a mount table holding the sandbox root read-write, the system paths a binary needs read-only, private `/proc`, `/dev` and `/tmp`, and nothing else — a host path is **absent** rather than unreadable, which is the difference between a boundary and a permission bit. The interpreter's own prefix is bound read-only, because a runtime installed outside the distribution's packages is otherwise not there at all and the failure reads as a broken command rather than as the sandbox working.
+
+Detection runs the real confinement rather than asking a binary its version: a host with the tooling present and unprivileged user namespaces disabled falls through to the weaker tier instead of claiming a control it cannot deliver.
 
 This matters because the failure it guards against is silent. If a run requires a control the host cannot enforce, `assertIsolation` **refuses to start it** rather than proceeding at a weaker tier: a security control that is accepted and then quietly not applied is worse than one that was never offered, because the caller stops looking. Use `isolationOf`, `missingIsolation` and `describeIsolation` to ask what you are actually getting before you rely on it.
 

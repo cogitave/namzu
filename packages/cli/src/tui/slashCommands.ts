@@ -31,6 +31,7 @@ import {
 	kernelHostCommands,
 } from '@namzu/sdk'
 
+import type { SandboxSummary } from '../context/sandbox.js'
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
 
@@ -106,6 +107,16 @@ export interface SlashContext {
 	 * never-prompted that `/tools` did not list at all.
 	 */
 	readonly availableTools: () => readonly string[]
+	/**
+	 * Where writes may land, for the one command that shows it beside the
+	 * approval settings.
+	 *
+	 * `null` before a session exists. These two facts were reachable only from
+	 * two different places at two different times — the sandbox as a boot
+	 * notice that scrolls away, the approvals from `/permissions` — and an
+	 * operator who read one had no reason to think the other mattered.
+	 */
+	readonly sandbox: SandboxSummary | null
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	/**
@@ -559,6 +570,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (ctx) => ({ kind: 'message', role: 'system', content: renderCost(ctx.usage) }),
 	},
 	{
+		name: 'status',
+		description: 'Show what this session is, where it may write, and when it stops to ask.',
+		action: (ctx) => ({ kind: 'message', role: 'system', content: renderStatus(ctx) }),
+	},
+	{
 		name: 'permissions',
 		description: 'Show how tool calls get approved, and any rules in force.',
 		action: (ctx) => ({
@@ -700,6 +716,67 @@ export function renderCost(usage: SlashContext['usage']): string {
 }
 
 /** What decides a tool call, in the order it actually decides it. */
+/**
+ * One page holding both halves of what a run may do.
+ *
+ * They are separate mechanisms and they answer separate questions — where a
+ * write may land, and whether anyone is asked first — and neither implies the
+ * other. An operator who turns approvals off has not widened the sandbox, and
+ * one who confines the filesystem has not stopped the prompts. Read apart, each
+ * looks like the whole answer; the failure is believing you configured
+ * something you did not.
+ *
+ * So they are printed adjacently and each is labelled with the question it
+ * answers, rather than with its mechanism's name.
+ */
+export function renderStatus(ctx: SlashContext): string {
+	const lines: string[] = []
+
+	lines.push(`Provider: ${ctx.providerSummary ?? 'none — run /model to pick one'}`)
+	lines.push(`Model:    ${ctx.modelSummary ?? '—'}`)
+	lines.push('')
+
+	lines.push('Where it may write')
+	const sandbox = ctx.sandbox
+	if (!sandbox) {
+		lines.push('  Not resolved yet — no session has started.')
+	} else if (sandbox.unconfined) {
+		// The loudest line on the page, and deliberately not softened by the
+		// environment name: a tier that enforces nothing is not a weaker
+		// sandbox, it is the absence of one.
+		lines.push('  Anywhere this shell can. Commands are NOT confined.')
+		if (sandbox.environment) {
+			lines.push(`  The sandbox is attached (${sandbox.environment}) and enforces nothing here.`)
+		}
+		lines.push('  Name what you need under `sandbox.requireIsolation` to be refused instead.')
+	} else {
+		lines.push(`  Confined to this session's sandbox (${sandbox.environment ?? 'unknown'}).`)
+		lines.push(`  Enforced here: ${sandbox.enforced.join(', ')}.`)
+	}
+	if (sandbox && sandbox.required.length > 0) {
+		// Worth its own line even when it matches what is enforced: a demand
+		// travels to the next machine and a coincidence does not.
+		lines.push(
+			`  Required by config: ${sandbox.required.join(', ')} — a host without them refuses to run.`,
+		)
+	} else if (sandbox) {
+		lines.push('  Required by config: nothing — this host decides what you get.')
+	}
+	lines.push('')
+
+	lines.push('When it stops to ask')
+	for (const line of renderPermissions(ctx.permissions).split('\n')) {
+		lines.push(line.length > 0 ? `  ${line}` : '')
+	}
+
+	if (ctx.usage) {
+		lines.push('')
+		lines.push(`Spend: ${renderCost(ctx.usage).split('\n')[0] ?? ''}`)
+	}
+
+	return lines.join('\n').trimEnd()
+}
+
 export function renderPermissions(permissions: SlashContext['permissions']): string {
 	const lines: string[] = []
 

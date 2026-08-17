@@ -71,6 +71,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 		describeProviderModels: async () => ({ kind: 'ok' as const, models: [] }),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
+				sandbox: { unconfined: true, enforced: [], required: [] },
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => [],
