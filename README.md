@@ -452,7 +452,7 @@ back.
 | `@namzu/sandbox` | Sandbox providers beyond the in-kernel one |
 | `@namzu/telemetry` | The exporter pipeline, kept separate so consumers who emit nothing install nothing |
 | `@namzu/computer-use` | Screenshot, mouse and keyboard control through platform-native tools |
-| `@namzu/files` | File registry contracts, with in-memory, local-disk and HTTP backends working today. Pre-1.0, and some declared storage backends are not implemented yet |
+| `@namzu/files` | File registry contracts, with in-memory, local-disk, Azure Blob and HTTP backends. Pre-1.0 |
 | `@namzu/evals` | The kernel's own behaviour suites, runnable against an installed kernel |
 
 Model drivers, one per service, each installed only if you use it:

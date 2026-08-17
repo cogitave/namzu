@@ -131,10 +131,18 @@
   "@namzu/computer-use": {
     ".": {
       "runtime": [
+        "ActionCapabilityError",
+        "AdapterUnavailableError",
+        "SpawnError",
         "SubprocessComputerUseHost",
         "detectDisplayServer"
       ],
       "declared": [
+        "ActionCapabilityError",
+        "AdapterUnavailableError",
+        "SpawnError",
+        "SpawnOptions",
+        "SpawnResult",
         "SubprocessComputerUseHost",
         "detectDisplayServer"
       ],

@@ -1,6 +1,66 @@
-# @namzu/lmstudio
+<!-- okf
+type: Reference
+title: "@namzu/lmstudio"
+description: >-
+  The LM Studio driver for @namzu/sdk. Streams from a model already loaded in
+  the local LM Studio server through the official @lmstudio/sdk websocket, and
+  declares only the capabilities it implements. Separate from the kernel so
+  only a consumer who runs models locally installs the vendor client.
+tags: [readme, package, provider, lmstudio, local-models]
+timestamp: 2026-08-17T00:00:00Z
+status: active
+diataxis: reference
+-->
 
-[LM Studio](https://lmstudio.ai) LLM provider for [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk). Thin wrapper around the official [`@lmstudio/sdk`](https://www.npmjs.com/package/@lmstudio/sdk) that conforms to the `LLMProvider` contract (chat + streaming). Run any open-weights model locally through LM Studio's GUI-managed server.
+<div align="center">
+
+<h1>@namzu/lmstudio</h1>
+
+**The LM Studio driver for [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk).**
+
+[![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
+[![npm](https://img.shields.io/npm/v/@namzu/lmstudio.svg?label=%40namzu%2Flmstudio)](https://www.npmjs.com/package/@namzu/lmstudio)
+
+[Install](#install) · [The server](#the-server) · [Use it](#use-it) · [Configuration](#configuration) · [Capabilities](#capabilities) · [Models and cost](#models-and-cost) · [Errors](#errors)
+
+</div>
+
+---
+
+## What this is
+
+One driver, one wire. `LMStudioProvider` implements the kernel's `LLMProvider`
+contract on top of the official [`@lmstudio/sdk`](https://www.npmjs.com/package/@lmstudio/sdk),
+which reaches the local LM Studio server over a websocket rather than over its
+HTTP endpoint. There is no non-streaming path, because the contract has no
+non-streaming method — `chatStream` is the single model entry point, and a
+caller who wants the whole answer collects the stream.
+
+It is a separate package so a consumer who never runs a model on their own
+machine does not carry the vendor client to use none of it. `@namzu/sdk` is a
+peer dependency (`>=1.3.0`), so your lockfile owns the kernel version rather
+than this package.
+
+If you would rather not add a vendor client at all,
+[`@namzu/http`](https://www.npmjs.com/package/@namzu/http) reaches the same
+server over its compatibility endpoint with zero runtime dependencies:
+
+```ts
+import { ProviderRegistry } from '@namzu/sdk'
+import { registerHttp } from '@namzu/http'
+
+registerHttp()
+
+const { provider } = ProviderRegistry.create({
+  type: 'http',
+  baseURL: 'http://localhost:1234/v1',
+  dialect: 'openai',
+})
+```
+
+This package exists for the other direction: it speaks the vendor client's own
+websocket protocol rather than the compatibility endpoint, and pays one
+dependency for it.
 
 ## Install
 
@@ -8,64 +68,102 @@
 pnpm add @namzu/sdk @namzu/lmstudio
 ```
 
-`@namzu/lmstudio` declares `@namzu/sdk` as a peer dependency. Install both.
+## The server
 
-## Prerequisites
-
-Requires [LM Studio](https://lmstudio.ai) running as a local server (default `http://localhost:1234`, transported over WebSocket by the official SDK). Load a model via LM Studio's UI or the CLI:
+This driver drives a server it does not start. LM Studio has to be running and
+the model has to be **loaded**, not merely downloaded — start the local server
+from the application's Developer tab, or from its command line:
 
 ```bash
+lms server start
 lms load <model>
 ```
 
-Start the local server from LM Studio's **Developer** tab (or `lms server start`).
+Resolving the model is the slow step, and it is the reason the deadline below
+covers more than generation. The websocket connects at once while the model is
+still being read into memory, and not a single token is produced until it is.
 
-## Usage
+## Use it
 
 ```ts
 import { ProviderRegistry } from '@namzu/sdk'
 import { registerLMStudio } from '@namzu/lmstudio'
 
-// Register once at app startup.
-registerLMStudio()
+registerLMStudio() // once, at startup
 
-// Fully typed via module augmentation: ProviderConfigRegistry['lmstudio'].
-const { provider, capabilities } = ProviderRegistry.create({
+const { provider } = ProviderRegistry.create({
   type: 'lmstudio',
-  host: 'http://localhost:1234', // optional — defaults to LM Studio's auto-detection or LMSTUDIO_HOST env var. Accepts http(s) (auto-converted to ws(s) for the SDK).
-  model: 'llama-3.2-1b-instruct', // optional default — can also be passed per-call
+  model: 'qwen3-8b',
 })
 
-const response = await provider.chat({
-  model: 'llama-3.2-1b-instruct',
-  messages: [{ role: 'user', content: 'Hello' }],
-})
-```
-
-Streaming:
-
-```ts
 for await (const chunk of provider.chatStream({
-  model: 'llama-3.2-1b-instruct',
-  messages: [{ role: 'user', content: 'Tell me a story' }],
+  model: 'qwen3-8b',
+  messages: [{ role: 'user', content: 'Hello' }],
 })) {
   if (chunk.delta.content) process.stdout.write(chunk.delta.content)
 }
 ```
 
+`registerLMStudio()` also carries the module augmentation that adds
+`'lmstudio'` to the kernel's config union, so `ProviderRegistry.create({ type:
+'lmstudio', … })` narrows to `LMStudioProviderConfig` and a typo in the config
+is a compile error. Call it twice and it throws `DuplicateProviderError`; pass
+`{ replace: true }` when you mean to take the slot over.
+
+When you want the aggregated response rather than the deltas, collect the same
+stream:
+
+```ts
+import { collectChatCompletion } from '@namzu/sdk'
+
+const response = await collectChatCompletion(
+  provider.chatStream({
+    model: 'qwen3-8b',
+    messages: [{ role: 'user', content: 'Hello' }],
+  }),
+)
+
+console.log(response.message.content)
+console.log(response.usage.totalTokens)
+```
+
+Constructing the provider opens nothing. The websocket is built on first use,
+because the registry constructs every configured provider whether or not
+anything asks it for a completion — and dialling a local server that is usually
+not running turned an unused config entry into a connection failure nobody
+owned.
+
+This driver is constructed by your own code, not by the terminal agent:
+`@namzu/cli` does not depend on this package, and its provider table records
+`lmstudio` as one that build cannot construct.
+
 ## Configuration
 
-| Field     | Description                                                                 | Default                      |
-|-----------|-----------------------------------------------------------------------------|------------------------------|
-| `host`    | LM Studio server URL (`http://…` accepted, converted to `ws://…`)           | Auto-detected by `@lmstudio/sdk` or `LMSTUDIO_HOST` |
-| `model`   | Default model identifier (overridable per-call via `ChatCompletionParams.model`) | — |
-| `timeout` | Request timeout in ms                                                       | SDK default                  |
+| Option | Default | Notes |
+|---|---|---|
+| `host` | `LMSTUDIO_HOST`, else the vendor client's own local discovery | `http(s)://` is accepted and rewritten to `ws(s)://` |
+| `model` | — | the default model; `params.model` overrides it per call |
+| `timeout` | none | deadline in ms, composed with the caller's signal |
 
-The model identifier must match a model **already loaded** in LM Studio. Use `lms ls` or the LM Studio UI to discover loaded models; `provider.listModels()` returns loaded models via the SDK's `listLoaded()`.
+That is the whole of `LMStudioConfig`. There is deliberately no transport seam:
+the vendor client owns the websocket, which is also why the tests here
+substitute that client rather than an HTTP layer.
 
-## Transport
+`host` is normalised rather than validated. The vendor client requires a
+websocket URL, so `http://localhost:1234` is accepted and rewritten for you.
+With neither `host` nor `LMSTUDIO_HOST` set, nothing is passed and the vendor
+client discovers the local server itself.
 
-Uses the official `@lmstudio/sdk` (WebSocket). This unlocks richer local-model features than the OpenAI-compat HTTP endpoint — the SDK is built for local-LLM workflows (loading/unloading, configuration, speculative decoding). If you prefer zero-dep HTTP instead, use [`@namzu/http`](https://www.npmjs.com/package/@namzu/http) with `baseURL: 'http://<host>/v1'` and `dialect: 'openai'`.
+`model` may come from the config, from the call, or from both — the call wins.
+With neither, the request fails naming both places it could have come from,
+rather than reaching the server without one.
+
+`timeout` covers resolving the model as well as generating with it, which is
+the wait it exists for. It is composed with `params.signal` rather than
+replacing it: dropping the caller's cancellation for a deadline would leave a
+local model generating after the run that asked for it has stopped. Leave it
+out and there is no deadline at all. Zero or negative is refused rather than
+applied, because such a deadline would abort every request before it was sent.
 
 ## Capabilities
 
@@ -73,18 +171,90 @@ Uses the official `@lmstudio/sdk` (WebSocket). This unlocks richer local-model f
 import { LMSTUDIO_CAPABILITIES } from '@namzu/lmstudio'
 
 // {
-//   supportsTools: true,
+//   supportsTools: false,
 //   supportsStreaming: true,
-//   supportsFunctionCalling: true,
+//   supportsFunctionCalling: false,
+//   supportsVision: false,
+//   supportsDocuments: false,
 // }
 ```
 
-Tool-use support depends on the loaded model — not every open-weights model has been tuned for function calling. Refer to the model's card in LM Studio.
+These describe what this **driver** does, not what LM Studio could do, and the
+runtime reads them before the request is built. So the four `false` entries are
+load-bearing rather than pessimistic.
 
-## Observability
+**Tools are not sent.** `chatStream` never reads `params.tools`, so no schema
+reaches the model. Register tools against this driver and the runtime strips
+every tool surface from the prompt and the request — with a warning that says
+so, or an outright failure under `strictCapabilities: true` — which is better
+than telling a model about tools it will never be able to call. A tool message
+already in the history is folded onto a `user` turn behind a `[tool-result]`
+marker, so it reads as a result rather than as a person speaking. Its content
+goes through the kernel's `toolResultToText`, so a result carrying an image
+arrives as a named placeholder rather than a wall of base64 the model spends
+context on and cannot read.
 
-This package ships without observability hooks in `0.1.x`. OpenTelemetry span emission and structured logging are roadmapped for the forthcoming `@namzu/telemetry` package — a separate opt-in dependency that wraps any `LLMProvider` to emit GenAI semantic-convention spans. Track progress in the [Namzu roadmap](https://github.com/cogitave/namzu).
+**Message mapping is text only**, onto the three roles this chat API has:
+`system` and `assistant` stay themselves, and everything else folds onto
+`user`. Image `attachments` on a user message are not mapped and never reach
+the model, which is exactly what `supportsVision: false` tells the negotiation
+before the request is built.
+
+**Thinking and `effort` are refused, not dropped.** Setting either throws
+before anything is sent, naming this driver. Ignoring them would return an
+ordinary completion — indistinguishable from a model that simply chose not to
+reason, and from a run someone believed they had requested at a higher effort.
+`thinking: { type: 'disabled' }` stays a no-op, because that is the state a
+driver without thinking is already in, and a config shared across providers
+should not fail on the ones that were never going to think.
+
+## Models and cost
+
+```ts
+await provider.listModels()   // the models LM Studio currently has loaded
+await provider.healthCheck()  // the same call, reduced to one bit
+```
+
+Both answer from the vendor client's loaded-model list, and both degrade
+quietly on purpose: an unreachable server yields an empty array and `false`
+rather than a throw, because these are the calls a picker and a health screen
+make before anyone has decided anything.
+
+The prices on those entries are zero, and zero is the true number here rather
+than a placeholder. The kernel's price catalogue records `lmstudio` as an
+unmetered vendor, so `resolveModelPricing('lmstudio', …)` resolves to a rate of
+zero for any model id — distinct from `undefined`, which would mean the total
+is unknowable. One consequence is worth stating plainly: a `costLimitUsd` is
+measurable against this driver and will therefore never fire, since the
+accumulated cost of a local run is always zero. Bound a run here with
+`tokenBudget` or `maxIterations` instead.
+
+## Errors
+
+Every failure this driver raises is a `ProviderRequestError` from `@namzu/sdk`,
+classified into the kernel's own kinds — `network`, `throttle`, `auth`,
+`bad_request`, `context_overflow`, `server` — so a caller can decide whether to
+retry, compact or give up without importing the vendor client. The vendor's own
+sentence is kept, because "websocket failed" is the half an operator needs, and
+credential-shaped substrings inside it are replaced by a `[REDACTED:…]` marker.
+The original error is never attached as `cause`: that is the channel a logger
+would serialize a raw body through no matter what the message says.
+
+**A context overflow is a failure, not a finish reason.** The vendor reports
+`contextLengthReached` for two different events. After content, it is a genuine
+truncation and stays `finishReason: 'length'` — the runtime's auto-continuation
+depends on that. With no content at all, the *prompt* did not fit and the turn
+failed; folding that into `'length'` presented an empty string as a successful
+turn, so it is raised as `kind: 'context_overflow'` instead.
+
+`params.signal` is handed to the vendor prediction, so a stop sends the real
+server-side cancel and the local model stops generating — leaving the
+`for await` loop alone does not. The same signal also races model resolution,
+which the vendor client accepts no signal for; without that race, a stop
+pressed while the model was still loading would not return until the vendor
+did. Either way the caller's own abort reason is what surfaces, unchanged.
 
 ## License
 
-FSL-1.1-MIT. Same as `@namzu/sdk`.
+FSL-1.1-MIT, converting to MIT two years after each release. Same as
+`@namzu/sdk`.

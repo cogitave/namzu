@@ -1,5 +1,30 @@
-# @namzu/computer-use
+<!-- okf
+type: Reference
+title: "@namzu/computer-use"
+description: >-
+  Desktop control for Namzu agents — screenshots, mouse, keyboard — driven
+  through the CLIs already on the machine. No native addon, no prebuild matrix,
+  and a capability set probed at startup rather than assumed.
+tags: [readme, package, computer-use, desktop]
+timestamp: 2026-08-17T00:00:00Z
+status: active
+diataxis: reference
+-->
 
+<div align="center">
+
+<h1>@namzu/computer-use</h1>
+
+**Desktop control for [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk).**
+
+[![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
+[![npm](https://img.shields.io/npm/v/@namzu/computer-use.svg?label=%40namzu%2Fcomputer-use)](https://www.npmjs.com/package/@namzu/computer-use)
+
+[Install](#install) · [Usage](#usage) · [Platform matrix](#platform-matrix) · [Capabilities](#capability-flags) · [Errors](#error-surface)
+
+</div>
+
+---
 Subprocess-based computer-use host for [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk). Lets namzu agents control a desktop — screenshots, mouse, keyboard — via platform-native CLIs.
 
 > No native addons. No Rust toolchain. No per-platform prebuild packages. No CFRunLoop pump. Just `spawn()` and the CLIs already on your OS.
@@ -88,18 +113,35 @@ If the user installs a missing CLI mid-session, reconstruct the host (capabiliti
 
 ## Error Surface
 
+```ts
+import {
+  ActionCapabilityError,
+  AdapterUnavailableError,
+  SpawnError,
+} from '@namzu/computer-use'
+```
+
 | Error | Meaning |
 |---|---|
-| `AdapterUnavailableError` | Mandatory binaries missing at construction (e.g. `xdotool` on Linux X11). `err.missing` lists them. |
-| `ActionCapabilityError` | Action requires a capability that's `false` (e.g. macOS `mouse_move` without `cliclick`). |
-| `SpawnError` | A spawned CLI returned non-zero, timed out, or the stderr holds a TCC / permission rejection. |
+| `AdapterUnavailableError` | Mandatory binaries missing at construction (e.g. `xdotool` on Linux X11). `err.missing` lists them, which is the actionable half. |
+| `ActionCapabilityError` | The action requires a capability that is `false` (e.g. macOS `mouse_move` without `cliclick`). |
+| `SpawnError` | A spawned CLI returned non-zero or timed out. `err.result.stderr` carries the reason, including a TCC or permission rejection verbatim. |
+
+All three are exported, so a host can branch on the type rather than matching
+on a message this package is free to reword.
 
 ## Design
 
-The adapter contract, the capability protocol and the platform command matrix are declared in this package's own types and enforced by its tests.
+The adapter contract, the capability protocol and the platform command matrix
+are declared in this package's own types and enforced by its tests.
 
-ADR: [`docs/architecture/decisions/adr-computer-use-subprocess.md`](../../docs/architecture/decisions/adr-computer-use-subprocess.md) explains why subprocess over Rust+napi-rs.
+Subprocess rather than a native addon, deliberately. A Rust + napi-rs host
+would mean a prebuild for every platform and architecture, a toolchain for
+anyone building from source, and a native crash taking the agent's process
+with it. Every capability here is a program the operating system already
+ships or the user can install with one command, and a failure is an exit code.
 
 ## License
 
-FSL-1.1-MIT. Same as `@namzu/sdk`.
+FSL-1.1-MIT, converting to MIT two years after each release. Same as
+`@namzu/sdk`.

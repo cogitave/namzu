@@ -1,12 +1,31 @@
-# Namzu — An Operating System for AI Agents
+<!-- okf
+type: Reference
+title: "@namzu/sdk"
+description: >-
+  The Namzu kernel. Runs an agent the way an operating system runs a process:
+  an identity, a budget, a permission boundary, a sandbox, checkpoints and a
+  durable record. Renders no UI, picks no database, favours no model vendor.
+tags: [readme, package, sdk, kernel, typescript]
+timestamp: 2026-08-17T00:00:00Z
+status: active
+diataxis: reference
+-->
 
-**A dependency-free, fully controllable kernel that runs, isolates, schedules, remembers, and coordinates AI agents.** Your UI, chat interface, voice surface, CLI, or automation pipeline sits on top of a stable kernel instead of reinventing the hard parts: sandbox isolation, process lifecycle, signals, checkpoints, memory, protocol interop, and audit.
+<div align="center">
 
-[![npm](https://img.shields.io/npm/v/@namzu/sdk?color=blue)](https://www.npmjs.com/package/@namzu/sdk)
+<h1>@namzu/sdk</h1>
+
+**The agent kernel. Everything else in this repository is built on it.**
+
+[![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
+[![npm](https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk)](https://www.npmjs.com/package/@namzu/sdk)
 [![CI](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-FSL--1.1--MIT-green)](./LICENSE.md)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org/)
+
+[The thesis](#the-thesis) · [What it provides](#what-the-kernel-provides) · [Architecture](#architecture-in-depth--every-subsystem) · [Install](#install) · [Quick start](#quick-start)
+
+</div>
 
 ---
 
@@ -450,45 +469,28 @@ deserves. Closing that gap is the highest-leverage contribution today.
 
 ---
 
-## Roadmap
+## Where this is going
 
-Honest view. The kernel is already deep. The next three releases tighten the consumer surface, add the subsystems that are genuinely missing, and extend the driver model to new I/O shapes.
+The kernel is deep and the surface is deliberately small. What moves next is
+the surface: fewer names, better names, and a deprecation window on every one
+that changes.
 
-### v0.2 — Surface Polish (short, mostly wiring + docs)
+This section used to carry a version-numbered roadmap. It was written at 0.x
+and the package is well past it — several of its items shipped under different
+names, one of them (`ContextCache`) is now deprecated, and a plan a reader
+cannot trust is worse than no plan. The changelog is the record of what
+actually landed; the repository's issues are where what is next gets argued.
 
-- `Run.replay(runId, { fromCheckpoint })` API on top of the existing checkpoint store
-- **AEP v1 spec** — version and document the event shapes in `bridge/sse/mapper.ts`
-- Public pattern docs for lifecycle, checkpoints, emergency save, budget / quota, verification gate, context cache, file ownership, and circuit breaker
-- `ContextCache` generalized across providers (OpenRouter today → Anthropic, Bedrock next)
-
-### v0.3 — New Subsystems (the four genuinely missing pieces)
-
-- **Workflow / process-graph DSL** — typed `step / branch / parallel / loop / hitl` builder, durable on top of the existing checkpoint and lifecycle
-- **Evaluation subsystem** — `Dataset` + `Scorer` + `Experiment` primitives with a `namzu eval run` CLI, model-graded / rule-based / statistical scorers, SCD-2 versioning
-- **Content-level guardrails** — a second policy layer next to the verification gate, covering LLM I/O (PII, prompt injection, output schema, toxicity) with per-tenant and per-tool attachment
-- **Semantic cache** and **prompt compression** as opt-in additions next to the existing `ContextCache`
-
-### v0.4 — Drivers and I/O (extending the driver model)
-
-- **Voice driver** — unified STT / TTS provider abstraction, duplex streaming, real-time speech-to-speech
-- **Multimodal tool I/O** — MIME-typed binary handles for image, audio, and video inputs and outputs
-- **Computer-use driver** — reference implementation with its own sandbox profile
-- **Deterministic provider replay** — cassette pattern for eval and CI, separate from run-level checkpoints
-
-### Explicitly out of scope (community or separate packages)
-
-- `@namzu/react`, `@namzu/svelte`, `@namzu/vue` chat hooks
-- Next.js / Hono / Cloudflare Workers adapters
-- A dev studio playground (would consume AEP, lives in its own repo)
-- A visual observability dashboard in the style of VoltOps or LangSmith
-
-These are valuable — they belong on top of the kernel, not in it. Keeping the kernel's interface surface small is why the kernel can move fast.
+Explicitly out of scope, and staying that way: framework chat hooks, hosting
+adapters, a studio playground, a dashboard. They belong on top of a kernel with
+a small stable interface, which is the only reason that interface can stay
+small.
 
 ---
 
 ## License and Vision
 
-[FSL-1.1-MIT](./LICENSE.md). Every version becomes fully MIT two years after release.
+[FSL-1.1-MIT](https://github.com/cogitave/namzu/blob/main/LICENSE.md). Every version becomes fully MIT two years after release.
 
 The vision: an open, community-driven agent kernel that reduces systemic dependencies on proprietary platforms — so everyone can build, own, and run AI agents freely. Namzu works with any LLM provider through BYOK, runs in isolation without container orchestration, and surfaces a stable protocol so the application layer stays yours.
 

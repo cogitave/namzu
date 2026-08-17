@@ -1,6 +1,40 @@
-# @namzu/anthropic
+<!-- okf
+type: Reference
+title: "@namzu/anthropic"
+description: >-
+  The Anthropic driver for @namzu/sdk. Streaming, tool use, extended thinking
+  and constrained tool inputs over the Messages API, behind the same
+  LLMProvider contract every other driver implements.
+tags: [readme, package, provider, anthropic]
+timestamp: 2026-08-17T00:00:00Z
+status: active
+diataxis: reference
+-->
 
-Anthropic LLM provider for [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk). Thin wrapper around the official [`@anthropic-ai/sdk`](https://www.npmjs.com/package/@anthropic-ai/sdk) exposing Anthropic's **Messages API** (chat + streaming) with full tool-use support, conformant to the `LLMProvider` contract.
+<div align="center">
+
+<h1>@namzu/anthropic</h1>
+
+**The Anthropic driver for [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk).**
+
+[![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
+[![npm](https://img.shields.io/npm/v/@namzu/anthropic.svg?label=%40namzu%2Fanthropic)](https://www.npmjs.com/package/@namzu/anthropic)
+
+[Install](#install) · [Use it](#use-it) · [Configuration](#configuration) · [Thinking](#extended-thinking) · [Strict tool inputs](#strict-tool-inputs)
+
+</div>
+
+---
+
+## What this is
+
+One of the model drivers for the Namzu kernel. It wraps the official
+`@anthropic-ai/sdk` and implements `LLMProvider`, so the kernel drives it
+through the same interface as every other driver and nothing above the driver
+layer knows which vendor is answering.
+
+Installed only if you use it. The kernel has no preferred vendor and no driver
+is a dependency of it.
 
 ## Install
 
@@ -8,92 +42,102 @@ Anthropic LLM provider for [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/s
 pnpm add @namzu/sdk @namzu/anthropic
 ```
 
-`@namzu/anthropic` declares `@namzu/sdk` as a peer dependency. Install both.
+`@namzu/sdk` is a peer dependency. Install both.
 
-## Usage
+## Use it
 
 ```ts
-import { ProviderRegistry } from '@namzu/sdk'
+import { ProviderRegistry, collectChatCompletion } from '@namzu/sdk'
 import { registerAnthropic } from '@namzu/anthropic'
 
-// Register once at app startup.
+// Once, at startup. Module augmentation extends the config union, so the
+// call below is fully type-narrowed on `type: 'anthropic'`.
 registerAnthropic()
 
-// Fully typed via module augmentation: ProviderConfigRegistry['anthropic'].
-const { provider, capabilities } = ProviderRegistry.create({
+const { provider } = ProviderRegistry.create({
   type: 'anthropic',
-  apiKey: process.env.ANTHROPIC_API_KEY!,
+  apiKey: process.env.ANTHROPIC_API_KEY,
   model: 'claude-sonnet-4-5-20250929',
-})
-
-const response = await provider.chat({
-  model: 'claude-sonnet-4-5-20250929',
-  messages: [{ role: 'user', content: 'Hello' }],
-  maxTokens: 1024,
 })
 ```
 
-Streaming:
+`LLMProvider` has **one** model entry point, `chatStream`. A non-streaming
+call is that stream collected:
+
+```ts
+const response = await collectChatCompletion(
+  provider.chatStream({
+    model: 'claude-sonnet-4-5-20250929',
+    messages: [{ role: 'user', content: 'Hello' }],
+  }),
+)
+```
+
+Or consume it as it arrives:
 
 ```ts
 for await (const chunk of provider.chatStream({
   model: 'claude-sonnet-4-5-20250929',
   messages: [{ role: 'user', content: 'Tell me a story' }],
-  maxTokens: 1024,
 })) {
   if (chunk.delta.content) process.stdout.write(chunk.delta.content)
 }
 ```
 
+In practice you rarely call the driver directly — the kernel's run loop does,
+and hands you events. This is the shape when you do.
+
 ## Authentication
 
-Pass your Anthropic API key via the config object:
+Exactly one of `apiKey` or `authToken` must be set.
 
-```ts
-registerAnthropic()
-ProviderRegistry.create({
-  type: 'anthropic',
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-})
-```
+| Field | For |
+|---|---|
+| `apiKey` | a console key (`sk-ant-api-*`), sent as `x-api-key` |
+| `authToken` | an OAuth access token, sent as `Authorization: Bearer …` |
 
-Get a key at <https://console.anthropic.com/settings/keys>. Conventionally set it as the `ANTHROPIC_API_KEY` environment variable.
+Conventionally the key comes from `ANTHROPIC_API_KEY`. The kernel's credential
+vault can hold it instead, so it never has to reach the driver's config as a
+plain string.
 
-### Custom endpoints
+## Configuration
 
-Override `baseURL` to route through a proxy, a self-hosted gateway, or an Anthropic-compatible endpoint. For AWS Bedrock or Google Vertex access, prefer the dedicated `@namzu/bedrock` / Vertex provider over `baseURL` overrides — they handle auth and region semantics natively.
+| Option | Default | Notes |
+|---|---|---|
+| `apiKey` | — | mutually exclusive with `authToken` |
+| `authToken` | — | OAuth bearer token |
+| `model` | — | default model when a call omits one |
+| `maxTokens` | `64000` | the Messages API requires the field; this is the fallback |
+| `baseURL` | vendor default | a proxy or a compatible gateway |
+| `timeout` | SDK default | request timeout, ms |
+| `streamIdleTimeoutMs` | disabled | per-event idle watchdog, for failing a stalled stream independently of the request timeout |
+| `defaultHeaders` | — | appended to every request |
+| `strictToolUse` | `'auto'` | see below |
 
-```ts
-ProviderRegistry.create({
-  type: 'anthropic',
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-  baseURL: 'https://anthropic-proxy.example.com',
-  // Use 'on' only when a proxy alias supports Anthropic strict tool use.
-  strictToolUse: 'auto',
-  defaultHeaders: { 'x-team': 'platform' },
-  timeout: 120_000,
-})
-```
+For AWS Bedrock or Vertex access prefer the dedicated driver over a `baseURL`
+override — they carry the auth and region semantics natively.
 
-### Strict tool inputs
+## Extended thinking
 
-Tools declared with both `modelInputSchema` and `enforceModelInput: true` are
-sent with Anthropic `strict: true` on recognized Claude 4.5+ models.
-`strictToolUse` defaults to `auto`; set it to `on` for a compatible proxy model
-alias or `off` to disable constrained input generation. Runtime Zod validation
-still runs for every tool call.
+`resolveEffort`, `resolveThinkingBody` and `resolveThinkingCapability` are
+exported so a host can see how a requested reasoning effort maps onto the
+vendor's thinking parameters before a call is made, rather than inferring it
+from the response.
 
-### Max tokens
+## Strict tool inputs
 
-Anthropic's Messages API **requires** `max_tokens`. This provider defaults to `4096` when neither `params.maxTokens` nor `config.maxTokens` is set. Configure a default at registration time:
+A tool that declares `modelInputSchema` **and** `enforceModelInput: true` is
+sent with `strict: true` on recognised Claude 4.5+ models, which constrains
+generation to the schema instead of validating after the fact.
 
-```ts
-ProviderRegistry.create({
-  type: 'anthropic',
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-  maxTokens: 8192,
-})
-```
+`strictToolUse` decides when that happens: `'auto'` (the default) enables it
+for known model identifiers, `'on'` opts a compatible proxy alias in, `'off'`
+disables it. Zod validation still runs on every tool call either way — strict
+generation narrows what the model can emit; it does not replace the check.
+
+The kernel refuses a schema outside the strict subset at registration rather
+than sending it, because the vendor rejects the whole request when one keyword
+is unexpressible and the turn dies before a token is produced.
 
 ## Capabilities
 
@@ -104,13 +148,20 @@ import { ANTHROPIC_CAPABILITIES } from '@namzu/anthropic'
 //   supportsTools: true,
 //   supportsStreaming: true,
 //   supportsFunctionCalling: true,
+//   supportsVision: true,
+//   supportsDocuments: true,
 // }
 ```
 
 ## Observability
 
-This package ships without observability hooks in `0.1.x`. OpenTelemetry span emission and structured logging are roadmapped for the forthcoming `@namzu/telemetry` package — a separate opt-in dependency that wraps any `LLMProvider` to emit GenAI semantic-convention spans. Track progress in the [Namzu roadmap](https://github.com/cogitave/namzu).
+Spans and metrics come from the kernel, not from this package — it is a driver,
+and instrumenting each one separately would report the same call under as many
+names as there are vendors. Install
+[`@namzu/telemetry`](https://www.npmjs.com/package/@namzu/telemetry) to export
+them.
 
 ## License
 
-FSL-1.1-MIT. Same as `@namzu/sdk`.
+FSL-1.1-MIT, converting to MIT two years after each release. Same as
+`@namzu/sdk`.

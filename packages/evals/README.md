@@ -1,5 +1,31 @@
-# @namzu/evals
+<!-- okf
+type: Reference
+title: "@namzu/evals"
+description: >-
+  Namzu's own behaviour and security suites, runnable with `namzu eval` against
+  an installed kernel. Nothing here measures a model: the kernel suites run a
+  scripted provider and the security suites touch none, so a score that moves
+  means the code changed.
+tags: [readme, package, evals, testing]
+timestamp: 2026-08-17T00:00:00Z
+status: active
+diataxis: reference
+-->
 
+<div align="center">
+
+<h1>@namzu/evals</h1>
+
+**Behaviour and security suites for [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk).**
+
+[![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
+[![npm](https://img.shields.io/npm/v/@namzu/evals.svg?label=%40namzu%2Fevals)](https://www.npmjs.com/package/@namzu/evals)
+
+[The two kinds](#the-two-kinds) · [What it is for](#what-it-is-for) · [Running them](#running-them) · [What a suite is](#what-a-suite-is)
+
+</div>
+
+---
 Namzu's own behaviour and security suites.
 
 Nothing here measures a model. The kernel suites run against a **scripted
