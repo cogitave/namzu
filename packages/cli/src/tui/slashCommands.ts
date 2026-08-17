@@ -46,6 +46,15 @@ export type SlashAction =
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
 	/**
+	 * Shrink the conversation now, rather than when a threshold decides.
+	 *
+	 * Its own kind, and asynchronous where this union is not, for the reason
+	 * `host-command` gives one line down: the work is a model call, and making
+	 * the action itself async would push that through every command. The
+	 * command decides; `App` performs and reports.
+	 */
+	| { kind: 'compact' }
+	/**
 	 * A command the KERNEL registered, to be dispatched and rendered.
 	 *
 	 * Its own action kind because the registry's handlers are async — a
@@ -568,6 +577,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'cost',
 		description: 'Show tokens and spend for this run.',
 		action: (ctx) => ({ kind: 'message', role: 'system', content: renderCost(ctx.usage) }),
+	},
+	{
+		name: 'compact',
+		description: 'Summarise the older half of this conversation to free up context.',
+		action: () => ({ kind: 'compact' }),
 	},
 	{
 		name: 'status',

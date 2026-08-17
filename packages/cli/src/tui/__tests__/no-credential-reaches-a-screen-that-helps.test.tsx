@@ -114,6 +114,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			return {
 				hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
+				compact: async () => null,
 				providerSummary: 'a-provider',
 				modelSummary: prefs.providers[0]?.model ?? 'a-model',
 				toolNames: () => [],

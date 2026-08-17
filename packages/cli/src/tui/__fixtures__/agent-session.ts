@@ -41,6 +41,10 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 		// built, so claiming enforcement here would make every test that reads
 		// it believe in a sandbox that does not exist.
 		sandbox: { unconfined: true, enforced: [], required: [] },
+		// Nothing to shed, which is a real answer and the one a fake session can
+		// honestly give. Returning a fabricated result would let a test assert a
+		// compaction that never ran.
+		compact: async () => null,
 		providerSummary: 'mock',
 		modelSummary: 'mock-model',
 		toolNames: () => [],

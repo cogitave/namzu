@@ -964,6 +964,11 @@ export { assertTaskStatus, isTerminalTaskStatus } from './types/task/index.js'
 // offer "compact this conversation", could not shrink an idle session
 // between turns, and could not collapse a span it had chosen.
 export { compactNow, compactRegion } from './compaction/manual.js'
+// Their input and result types, because a function on the public surface whose
+// return type is not on it forces every caller to inline the shape or reach for
+// `any` — and the first host to try (`@namzu/cli`'s `/compact`) did exactly
+// that before this line existed.
+export type { CompactNowInput, CompactionResult } from './compaction/manual.js'
 
 export {
 	buildVerifiedSummary,

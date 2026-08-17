@@ -25,6 +25,7 @@ import {
 	type AuthorizationRule,
 	BOOT_EVENT_NAMES,
 	type CheckpointStore,
+	type CompactionResult,
 	type CostInfo,
 	DiskMemoryStore,
 	DiskTaskStore,
@@ -61,6 +62,7 @@ import {
 	asTenantId,
 	asTopicId,
 	buildMemoryTools,
+	compactNow,
 	createMemoryPromoter,
 	createToolPresenter,
 	genericLabel,
@@ -319,6 +321,19 @@ export interface AgentSession {
 	 * moment, and a line about what just happened should say what was true then.
 	 */
 	readonly toolNames: () => readonly string[]
+	/**
+	 * Shrink a conversation on request, returning the replacement history.
+	 *
+	 * On the session because the session owns the provider and the compaction
+	 * settings; a caller that held those to do this itself would be describing
+	 * a second configuration and calling a second model.
+	 *
+	 * `null` when there is nothing to shed — a conversation short enough that a
+	 * summary would cost a model call and save nothing. That is a real answer
+	 * and the caller says so, rather than reporting a compaction that did not
+	 * happen.
+	 */
+	readonly compact: (messages: readonly Message[]) => Promise<CompactionResult | null>
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -1004,6 +1019,13 @@ export async function createAgentSession(
 		},
 		providerSummary: entry.label,
 		modelSummary: model,
+		compact: (messages) =>
+			compactNow({
+				messages,
+				config: COMPACTION_CONFIG,
+				provider,
+				model,
+			}),
 		// Reads the same registry object the deferred registration mutates, at
 		// call time — the pair of `promptExemptTools` below, and for the same
 		// reason.
@@ -2299,6 +2321,11 @@ function emptySession(
 		// Reporting an enforced control here would be a claim about a sandbox
 		// this path never built.
 		sandbox: { unconfined: true, enforced: [], required: [] },
+		// No provider, so no summary can be built. Refusing is the honest
+		// answer; returning `null` would say "nothing to shed".
+		compact: async () => {
+			throw new Error('No provider: pick one with /model before compacting.')
+		},
 		errorKind,
 		providerSummary: null,
 		modelSummary: null,

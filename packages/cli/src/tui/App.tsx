@@ -93,6 +93,7 @@ import {
 import { splitCompleteBlocks } from './stream-blocks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
+import { keepRecentRows } from './compact-transcript.js'
 
 export interface AppProps {
 	readonly ctx: TuiContext
@@ -1457,6 +1458,64 @@ export function App({ ctx }: AppProps) {
 						})()
 						return
 					}
+					case 'compact': {
+						if (!session) {
+							pushMessage('system', 'No session yet — nothing to compact.')
+							return
+						}
+						// Fire-and-forget, the same shape `feedback` above uses and for
+						// the same reason: this switch is synchronous and the work is a
+						// model call. The transcript reports the outcome either way.
+						void (async () => {
+							try {
+								// Derived exactly as a turn derives it, so the thing
+								// summarised is the thing the model would have been sent.
+								// A second derivation here that drifted would compact a
+								// conversation nobody was having.
+								const sendable: Message[] = messages
+									.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.pending)
+									.map((m) => ({
+										role: m.role as 'user' | 'assistant',
+										content: m.content,
+										timestamp: Date.now(),
+									}))
+								const result = await session.compact(sendable)
+								if (!result) {
+									// Not an error, and not silence: a conversation too short
+									// to shed anything is a real answer to a question the
+									// operator asked on purpose.
+									pushMessage(
+										'system',
+										'Nothing to compact yet — this conversation is short enough that a summary would cost a model call and save nothing.',
+									)
+									return
+								}
+
+								// How many user/assistant turns survived the pass.
+								// `keepRecentRows` explains why the transcript is trimmed
+								// to match rather than rebuilt from `result.messages`.
+								const keptTurns = result.messages.filter(
+									(m) => m.role === 'user' || m.role === 'assistant',
+								).length
+
+								setMessages((prev) => {
+									const summaryRow: TranscriptMessage = {
+										id: `compact-${Date.now()}`,
+										role: 'system',
+										content: `Compacted ${result.shed} earlier message(s) into a summary.`,
+										detail: summaryDetail(result.summary),
+									}
+									return [summaryRow, ...keepRecentRows(prev, keptTurns)]
+								})
+							} catch (err) {
+								pushMessage(
+									'system',
+									`Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+								)
+							}
+						})()
+						return
+					}
 					default: {
 						// Exhaustive on purpose. Without it a `SlashAction` kind added
 						// and not handled here falls out of the switch into the send
@@ -2012,4 +2071,18 @@ function hintForPhase(
 	if (state === 'awaiting-permission') return 'y approve · n / esc reject · a approve all'
 	if (state !== 'idle') return 'agent is working — esc to interrupt'
 	return '/help · @file / Ctrl+V to attach · Ctrl+C ×2 to exit'
+}
+
+/**
+ * The summary text, as collapsible detail under the compaction row.
+ *
+ * Collapsed rather than printed: a structured summary is long by design, and a
+ * transcript that dumps it in full turns "I freed up context" into a wall taller
+ * than the thing it replaced. Kept ON the row rather than dropped, because the
+ * summary IS what the model will read from here on — an operator who wants to
+ * check what survived has to be able to.
+ */
+function summaryDetail(summary: Message): readonly string[] {
+	const text = typeof summary.content === 'string' ? summary.content : ''
+	return text.length > 0 ? text.split('\n') : ['(the summary was empty)']
 }
