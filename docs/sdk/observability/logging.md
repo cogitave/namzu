@@ -6,8 +6,8 @@ type: Guide
 diataxis: explanation
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-16T00:00:00Z
-lastReviewed: 2026-08-16
+timestamp: 2026-08-17T00:00:00Z
+lastReviewed: 2026-08-17
 resource: packages/sdk/src/utils/logger.ts
 tags: [logging, observability, sdk]
 ---
@@ -33,11 +33,18 @@ import { installProcessSink, prettySink } from '@namzu/sdk'
 installProcessSink(prettySink(process.stderr), 'info')
 ```
 
+**Installing a sink sets a destination. It does not route anything.** This
+is the part most hosts get wrong on the first read: a sink owns *where*
+records go and owns the counter set, and what actually routes through it is
+a logger you build and pass in. See "Who routes" below — a host that
+installs a sink and passes no logger gets silence, and that is working as
+designed.
+
 Three properties are worth knowing before you write your own sink:
 
 - **The level is read per record**, off a mutable holder, never resolved
-  once at construction. A logger built before your sink was installed
-  still routes through it.
+  once at construction. Assigning `level.current` retunes a logger you have
+  already handed out, rather than requiring you to rebuild it.
 - **Your `emit` is arbitrary code the kernel does not control**, so a
   throw from it is caught. One bad record cannot fail a run — which means
   a sink that throws on every record is invisible except in the counters.
@@ -47,6 +54,59 @@ Three properties are worth knowing before you write your own sink:
   the caps. It returns `undefined` when no sink is installed — not five
   zeros, which would read as "nothing was dropped" about a process where
   nothing was measured. `namzu doctor` reports that row.
+
+## Who routes
+
+A component builds nothing on your behalf. Every constructor that logs
+takes an optional logger, and **the default is silence, not your stderr**:
+
+```ts
+import {
+  createLogger,
+  getProcessSinkCounters,
+  installProcessSink,
+  prettySink,
+} from '@namzu/sdk'
+import type { AgentRunConfig } from '@namzu/sdk'
+
+const sink = prettySink(process.stderr)
+installProcessSink(sink, 'info')
+
+const log = createLogger(
+  {
+    sink,
+    level: { current: 'info' },
+    resource: { 'service.name': 'my-app' },
+    scope: 'my-app',
+  },
+  // The PROCESS's counters, not a private set. Omit this and your logger
+  // counts into its own totals, leaving `getLogCounters()` and `namzu
+  // doctor` reporting zeros while records flow.
+  getProcessSinkCounters(),
+)
+
+// `logger` is a field on the run config you already build. Same key on a
+// tool's config, and on every component constructor that logs.
+const runConfig: AgentRunConfig = {
+  model: 'claude-opus-5',
+  tokenBudget: 200_000,
+  timeoutMs: 600_000,
+  logger: log,
+}
+```
+
+There used to be a process-wide logger a component could reach for when it
+was given none, and passing nothing meant the kernel wrote to your stderr —
+from inside a library, on a stream your program may be using for its own
+protocol. That is gone. A component with no logger now resolves to
+`NOOP_LOGGER`: nothing is emitted, and **the discard is counted**, so
+`getLogCounters()` still distinguishes *N calls were thrown away* from
+*nothing happened*.
+
+No type will tell you that you forgot. `logger?:` was always optional, on
+`RunConfig` and on tool and component configs alike, and the field names
+have not changed — so the compiler is as happy with silence as it is with a
+logger. If your diagnostics disappear, this is why.
 
 ## Correlation
 
