@@ -131,6 +131,11 @@ jobs:
       # failure — one whose error names a missing module rather than the
       # missing reference, and which never reproduces on a machine that has
       # a stale `node_modules` from an earlier install.
+      # Cheap, and it guards the thing that made the rest of this list a
+      # branch-only standard for as long as anyone had been pushing to `main`.
+      - name: The two paths onto main run the same gates
+        run: node .github/scripts/check-workflow-gate-parity.mjs
+
       - name: Project references match workspace dependencies
         run: node .github/scripts/check-project-references.mjs
 

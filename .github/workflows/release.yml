@@ -55,6 +55,54 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      # The gates a direct-to-main push would otherwise skip.
+      #
+      # This job is what validates a push that never saw a pull request, and it
+      # ran five of the checks `ci.yml` runs — so fifteen of them applied to
+      # branches and to nothing else. A docs page went stale on `main` inside a
+      # commit that reported green, which is how the gap was found.
+      #
+      # The genuinely slow ones stay out on purpose and are named in
+      # `check-workflow-gate-parity.mjs`: evals, SDK coverage and the
+      # process-level suite cost minutes rather than seconds, and this job runs
+      # on every push. That exemption is written down where a check reads it,
+      # not left as a difference nobody is comparing.
+      - name: The two paths onto main run the same gates
+        run: node .github/scripts/check-workflow-gate-parity.mjs
+
+      - name: Project references match workspace dependencies
+        run: node .github/scripts/check-project-references.mjs
+
+      - name: External-name audit
+        run: node scripts/audit-external-names.mjs
+
+      - name: Log standard gate
+        run: node scripts/check-log-standard.mjs
+
+      - name: Model price catalogue matches its source
+        run: node scripts/generate-model-prices.mjs --check
+
+      - name: Installer parses as POSIX sh
+        run: sh -n install.sh && dash -n install.sh
+
+      - name: SDK test-presence gate
+        run: node .github/scripts/check-sdk-test-presence.mjs
+
+      - name: Publish-metadata gate
+        run: node .github/scripts/check-publish-metadata.mjs
+
+      - name: Signature types are exported
+        run: node .github/scripts/check-signature-types-exported.mjs
+
+      - name: Public-surface regression check
+        run: node .github/scripts/verify-public-surface.mjs
+
+      - name: Docs standard gate
+        run: node tools/check-docs.mjs
+
+      - name: Docs fence gate
+        run: node tools/check-doc-fences.mjs
+
       - name: publint (package.json shape)
         run: |
           for pkg in sdk telemetry computer-use providers/anthropic providers/bedrock providers/http providers/lmstudio providers/ollama providers/openai providers/openrouter; do

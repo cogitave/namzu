@@ -41,11 +41,12 @@ pnpm build        # Build all packages
 Use `pnpm --filter <pkg>` to scope commands to a single package.
 
 <ci_gates>
-Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs nineteen steps, in this order, and the branch is not green until every one passes.
+Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs twenty steps, in this order, and the branch is not green until every one passes.
 
 | CI step | Run it locally |
 |---|---|
 | Lint | `pnpm lint` |
+| The two paths onto main run the same gates | `node .github/scripts/check-workflow-gate-parity.mjs` |
 | Project references match workspace dependencies | `node .github/scripts/check-project-references.mjs` |
 | Type check | `pnpm typecheck` |
 | Build | `pnpm -r build` |
@@ -65,7 +66,16 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Public-surface regression check | `node .github/scripts/verify-public-surface.mjs` |
 | publint (package.json shape) | `npx -y publint@latest packages/<pkg>` |
 
-Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all nineteen.
+Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all twenty.
+
+**A direct push to `main` runs a different job.** `ci.yml`'s `Build & Test` is a
+pull-request gate; a push straight to `main` is validated inline by
+`release.yml` before it publishes. Those two lists had drifted to the point
+where fifteen of the gates above applied to branches only, and a documentation
+page went stale on `main` inside a commit that reported green. They are now
+compared by `check-workflow-gate-parity.mjs`, which fails on any gate present in
+one path and not the other unless it is exempted BY NAME with a reason — five
+are, all on cost.
 
 A **second job**, `Docs`, runs **two** gates on a full-history checkout:
 
