@@ -1,5 +1,628 @@
 # @namzu/cli
 
+## 12.0.0
+
+### Major Changes
+
+- a093e22: Topic ids now begin `top_` instead of `thd_`. From this release `thd_` means only the pre-0.2.0 top-level container that `session/migration/id-prefix.ts` and `session/migration/filesystem.ts` already coerce to `prj_legacy_*` — the Topic layer's own id no longer shares that prefix, closing the ambiguity where two unrelated things wore one prefix and only a path depth told them apart.
+
+  **What breaks, and what to do:**
+
+  - **A minted topic id is now `top_*`.** `generateTopicId()` returns `top_…`; the `TopicId` type is `` `top_${string}` ``. Code that pattern-matches `thd_` on a live topic id, or that pins a literal, needs updating. Code that pattern-matches `thd_` on the _legacy container_ is unaffected and should stay.
+  - **`acceptLegacyThreadId` → `acceptLegacyContainerId`** and **`rejectLegacyPrefix` → `rejectLegacyContainerPrefix`.** Behaviour is identical (`acceptLegacyContainerId` also takes a new optional third `windowOpen` argument, defaulting to the existing `WINDOW_OPEN`). The old names remain as `@deprecated` aliases — your code still compiles and warns. Renamed because "Thread" stopped describing what these accept: the pre-0.2.0 container, not the Topic layer.
+
+  **Nothing is removed in this release.** `ThreadId`, `ThreadManager`, `InMemoryThreadStore`, `generateThreadId`, `acceptLegacyThreadId` and `rejectLegacyPrefix` are all still exported and all now carry `@deprecated`. Removal is a later major.
+
+  That is deliberate, and it corrects a mistake this change was originally planned to make. The rename of Thread→Topic marked those names deprecated in source, but that work has never been published: the registry is still on 27.1.0, and its changeset is still unconsumed. So on every version a consumer can actually install, `ThreadManager` is not a deprecated alias — it is the _only_ name, and ordinary code uses it. Deleting it here would have moved a consumer from "works, no warning" straight to "gone", which is a rename with no alias wearing a major's clothes. This release is the first one that can carry the warning; the next major may remove them.
+
+  Note that `ThreadId` now resolves to `` `top_${string}` `` rather than `` `thd_${string}` ``, and `generateThreadId` mints `top_`. An alias that kept the old prefix would hand two different id spaces to one program depending on which name a file happened to import.
+
+  **Existing records migrate on first read; no operator action.** A `session.json` written with `topicId: "thd_x"` is rewritten to `topicId: "top_x"` when `DiskSessionStore` reads it, and durably on the next write-back, via a new `session-store` schema step (2→3) chained after the existing `threadId`→`topicId` field-rename step for any record still at v1. A serialized `RunState` snapshot migrates the same way through `parseRunState` (`RUN_STATE_VERSION` 2→3).
+
+  **No topic-directory rewriter is included, and none is owed.** There is no disk-backed `TopicStore` — `store/topic/memory.ts` is the only implementation — so no `.namzu/…/threads/<thd_x>/` directory has ever been written by a shipped build. The only on-disk artifact naming a topic is the denormalized `topicId` field covered above.
+
+- 9bce045: The denormalized `threadId` field is renamed to `topicId` everywhere it appears
+  on an exported shape, and `SessionStore.listSessions` is renamed to
+  `listSessionsByTopic`. NZ-TOPIC-01 (a previous minor) renamed the _layer_ to
+  Topic and left this field as the one place the retired word still surfaced on
+  every shape a consumer types against; this is that rename landing.
+
+  Mechanical edits for every consumer:
+
+  - `session.threadId` → `session.topicId` (same rename on `RunState`,
+    `AgentTaskContext`, `BaseAgentConfig`, `CreateSessionParams`,
+    `HandoffAssignment`, `RunPersistenceConfig`, `RunContextConfig`/`RunContext`,
+    `QueryParams`, `RunStateScope`, `AgentIdentity`, and the CLI's
+    `CliSessions`/`RunScope`)
+  - `store.createSession({ threadId, ... })` → `store.createSession({ topicId, ... })`
+  - `store.listSessions(id, tenantId)` → `store.listSessionsByTopic(id, tenantId)`
+
+  Not touched: the `thd_` id prefix, `ThreadId`/`generateThreadId`/
+  `ThreadManager`/`InMemoryThreadStore` (still `@deprecated` aliases from
+  NZ-TOPIC-01), and the `Thread*`-named error classes in `session/errors.ts`
+  (`ThreadClosedError`, `ThreadNotEmptyError`, `StaleThreadError`) — their
+  `details.threadId` field keeps its name too. Renaming those is a separate,
+  later change with its own deprecation window; this one is the FK field only.
+
+  No alias ships alongside `topicId` — `SessionStore` is an interface hosts
+  implement, and a required method or field cannot be added behind a deprecated
+  twin without every implementor already supplying it. NZ-TOPIC-01 already
+  carried one minor of warning for the vocabulary; this is the field itself
+  moving, and it has to move all at once.
+
+  **Records already on disk migrate on first read, no operator action.**
+  `session.json` bumps the shared `session-store` schema from v1 to v2; a
+  record written by any older release loads exactly as it did before and comes
+  back with `topicId` set from its `threadId`, both in-memory immediately and
+  (after the next write to that record) on disk. `project.json`,
+  `subsession.json`, `summary.json`, and `messages.jsonl` lines never carried
+  the field and the migration step leaves them untouched — verified directly,
+  not just by inspection: a naive unconditional version of this migration would
+  stamp a stray `topicId: undefined` onto every one of them, and that is
+  exactly what the new migration unit test rejects.
+
+  A `RunState` snapshot a host serialized under `RUN_STATE_VERSION: 1` is
+  coerced the same way by `parseRunState`. A snapshot written under the new
+  `RUN_STATE_VERSION: 2` and read by an SDK still on version 1 is refused with
+  `RunStateVersionError`, not partially restored — unchanged behavior, now
+  exercised against this specific case.
+
+### Minor Changes
+
+- 5136fbd: The agent-client bridge can now ask a human, read the editor's unsaved buffers, and resume a session. NZ-PEER-07 refused any session whose client could not answer a permission request, which was honest and left the bridge unusable for the case it exists for.
+
+  **The direction the bridge did not have.** A notification is fire-and-forget; a permission prompt is a question the run cannot proceed past. The server now issues JSON-RPC _requests_ — `session/request_permission`, `fs/read_text_file`, `fs/write_text_file` — parks the promise by id, and resolves it when the client's response frame arrives. A response frame used to be ignored, which was right when nothing was ever out on the wire and would now leave a run parked with nobody coming.
+
+  **Three ways the permission exchange fails silently, each closed and each mutation-checked:**
+
+  - Auto-approving instead of asking. `toResumeDecision` maps the outcome to the kernel's own `HITLResumeDecision`, and a denial becomes `reject_tools` with the client's feedback — a `continue` there would run the calls the human just refused. A bare denial gets a default sentence, because an empty `reject_tools` feedback reads to the model as a tool that failed for no reason and it retries.
+  - An "approve all" that never takes. `approve_tools` with nothing remembered is indistinguishable from a plain approve, so `approve_all` carries the grant keys and a plain approve carries none — consent is not transferable.
+  - An "approve all" that leaks. The latch lives on the SESSION record: a second session from the same process asks again. Hoisting it to the server, or to a module-level variable, would make one person's "stop asking me" cover the next session this process serves — possibly a different repository, editor window, or human.
+
+  An answer the agent cannot parse is treated as a refusal, never as consent.
+
+  **`clientBackedSandbox` makes the editor's buffers the filesystem.** A user with unsaved changes had the agent read disk, see a version nobody is looking at, and patch _that_. A client declaring the `fs` capability answers reads and writes instead. It is a decorator over the existing `Sandbox` — a client-backed object implementing only the file methods would take `bash` away from a session that had it — and it is a `Proxy` rather than a spread, so a member added to `Sandbox` later still reaches the real one. A failed client read rejects rather than falling back to disk: stale text is the exact thing the capability exists to stop.
+
+  **`session/load` resumes.** The prior turns come from the gateway's session store, never from the bridge, and the resumed session answers with the SAME id — a client that asked to resume `ses_x` and got `ses_y` back has to rewrite everything keyed by the old one. A gateway with no store refuses rather than returning an empty history, which a client cannot tell apart from a session that really had no turns. Resuming carries the same permission requirement as creating, because a refusal on `session/new` that `session/load` walks around is not a refusal.
+
+- 70f8d75: An agent-client protocol bridge over stdio, and `namzu acp` to drive it. An editor extension or a CI orchestrator could previously do two things: shell out to the CLI and scrape stdout, or embed this SDK in its own process. This is the third.
+
+  **The command ships in the same change as the bridge, and that is the point.** `MCPServer` and `ServerStdioTransport` are both exported from this package, and nothing in the tree has ever constructed an `MCPServer` — a complete protocol server with no driver, which reads as a supported feature and is not one. A subprocess test spawns the real binary and completes a handshake over a real pipe, so removing the registration fails a test rather than quietly repeating that shape.
+
+  New: `ACPServer`, `toAcpSessionUpdate`, `toAcpStopReason`, the `Acp*` wire types, and `ACP_METHODS` / `ACP_PROTOCOL_VERSION` / `ACP_ERROR_CODES` / `ACP_PERMISSION_CAPABILITY`. Scope is the session core — initialize and capability exchange, session creation, prompting with streamed updates, and cancellation. No new dependency: it runs on the `ServerStdioTransport` this package already had.
+
+  **The method set cannot drift from the pinned version.** `ACP_METHODS` and the server's handler map are authored independently and compared in both directions by a test: a handler nobody advertises fails, and an advertised method with no handler fails. Deriving one from the other would have made that test a tautology.
+
+  **A session is REFUSED when the client declared no permission capability**, naming the capability. Approval routing lands separately; until it does, a session that cannot ask a human anything and runs every tool regardless is not a degraded version of asking — it is the opposite of it, arrived at by omission.
+
+  **Tool calls are rendered by the tool, never by the bridge.** Updates carry a `ToolCallView` from `createToolPresenter`, and a test asserts no module here contains a tool-name comparison — a front end that switched on `'edit'` could never give a diff to a tool it had not heard of. The client-visible command list is `HostCommandRegistry.describe()` verbatim, asserted by registering a command the bridge has never heard of and expecting it to appear.
+
+  An unknown method answers `-32601` and the connection stays open; a malformed frame is survived. Both are asserted against the spawned binary, as is the one that matters most for stdio: **nothing but protocol reaches stdout**, with info-level logging on.
+
+  `namzu acp` builds its session lazily, at the first prompt. `initialize` and `session/new` are how a client discovers what this agent is and what it requires, and neither needs a model — building the session up front made a namzu with no configured credential answer a connection attempt by exiting, so an editor saw a pipe that closed with the reason on a stderr nobody was reading.
+
+- dbd9d3b: `@namzu/telemetry` gains a session export seam: a run's own events, through an ordered redaction chain, to a sink you supply — with one sentence a host can show a user before any of it leaves the machine.
+
+  Spans and metrics describe the agent's execution. They are deliberately not a mirror of the conversation, so an operator who wanted to hand a session to support had no seam at all: they would instrument the store by hand, with no redaction extension point and nothing to disclose.
+
+  New exports: `createSessionExportListener`, `describeSessionExport`, `secretRedactor`, `CONTENT_BEARING_EVENT_TYPES`, and the `SessionExportSink` / `SessionExportRedactor` / `SessionExportRecord` / `SessionExportConfig` / `SessionExportListener` types. The listener is assignable to the SDK's `RunEventListener`, so it attaches to `query({ onEvent })` with no new hook. The record wraps `RunEvent` verbatim rather than flattening it into an export-shaped copy — a second definition of every event in the kernel is one that can drift, and the drifted one would be what an operator reads during an incident.
+
+  **A redactor may refuse, and a refusal never falls open.** Returning `null` drops the record and stops the chain; a redactor that THROWS also drops it, and the un-redacted record is never emitted as a fallback. The exception does not escape into the run either. `emit` is fire-and-forget, so a slow destination cannot stall a turn, and a throwing sink is counted apart from a refusing redactor — "the redactor refused" and "the collector is down" send an operator to different places.
+
+  **The disclosure cannot disagree with the filter.** `describeSessionExport` names the destination, the event types, the redactor count, and whether conversation text is included — and that last one is derived from `eventTypes` rather than declared beside them. It returns a distinct sentence when export is off, because one that read the same in both states would tell a user nothing.
+
+  In `@namzu/cli`: a `telemetry.sessionExport` config block (`destination`, `eventTypes`, `redactors`), the disclosure emitted at boot under `namzu.telemetry.status`, and a `telemetry.session-export` doctor row that names the destination and the redactor count.
+
+  Two refusals rather than degradations. If `sessionExport` is configured and `@namzu/telemetry` is not installed, the run does not start — continuing would mean the session happens and the record the operator was counting on does not exist. And a malformed `sessionExport` block is dropped whole rather than field by field, because a mistyped `redactors` read leniently would leave export ON with redaction silently OFF; dropping it makes the boot line read "off", which is visible.
+
+  Omitting `redactors` installs the shipped `secrets` redactor. Turning redaction off takes an explicit `[]`.
+
+- 9b053ba: New run event `compaction_tool_results_cleared`, carrying `clearedCount`, `charsReclaimed`, `reclaimedTokens` and `reliefWasEnough`. It reaches the SSE stream as `compaction.tool_results_cleared`, the run reporter, `transcript.jsonl`, and the CLI's context line. A2A maps it to `null` alongside the other two compaction events: which of this runtime's context-relief strategies fired is a property of how it manages its own window, and a peer modelling a task lifecycle can act on none of them.
+
+  Clearing oversized tool results is the cheapest and most common context-relief path, and it was the only one that emitted nothing. It edits the conversation irrecoverably — `tool_result` bodies are replaced in place — so a host reading a transcript saw results it no longer had and no record of why, while both summarization outcomes were already on the wire.
+
+  It fires on **both** branches. `reliefWasEnough: false` means the clear happened, was insufficient, and a summarization followed: the history took two edits in one pass, and a reader who saw only the `compaction_completed` would attribute the whole loss to it.
+
+- c844507: Attachments persist content-addressed, over a real `@namzu/files` driver.
+
+  `@namzu/files` shipped six drivers and had no consumer in this repo — a package the estate could import and nothing here could point at. This is the pointing: the local driver, wired to the attachment seam the SDK added, in the one host that actually attaches things.
+
+  Addressed by content **and media type**, not by content alone. The same bytes declared `image/png` once and `application/pdf` later are two different claims about what they are, and the SDK's resolver refuses a ref whose stored media type disagrees with the message. Keying on bytes alone would make the second `put` return the first ref, and every message using it would then be refused — a dedup that manufactures the exact mismatch the check exists to catch.
+
+  The media type is stored in a sibling file rather than inferred, because the resolver's check needs the store to be able to _report_ what it holds: a store that could only echo back what a caller claimed could never catch a mismatch. A ref with bytes and no media type resolves to nothing rather than to a guess.
+
+  `/skills` is now declined from the kernel rather than colliding with it. The kernel's version lists what a registry holds; this host's discovers skills from disk, marks which are active, and shows a refused one with its reason. Both are correct for their audience. `HOST_OWNED_COMMAND_NAMES` names each such case in writing — deliberately a list of exceptions rather than a precedence rule, since first-wins or last-wins would make an _accidental_ collision silent, which is what the collision error exists to prevent.
+
+- 8e5d3f6: Add `loadConfigWithProvenance` so the config cascade records which source won each key
+
+  `mergeConfigs` used to be `Object.assign` across `DEFAULT_CONFIG`, `~/.namzu/config.yaml`, `namzu.config.json` and the `NAMZU_*` environment scan — the last writer won and nothing recorded who it was. `loadConfigWithProvenance(opts?)` now returns `{ config, provenance }`, where `provenance` maps each key of the resolved config to a `ConfigSource`:
+
+  - `{ kind: 'default' }`
+  - `{ kind: 'user-file', path }`
+  - `{ kind: 'project-file', path }`
+  - `{ kind: 'env', variable }` — names the exact `NAMZU_*` variable, not just "env"
+
+  A key that no source set is absent from `provenance` entirely — it is never fabricated as `{ kind: 'default' }`, since `DEFAULT_CONFIG` does not carry every field (`sandbox` has none today).
+
+  `loadConfig` keeps its exact existing signature, `(opts?: LoadConfigOptions) => NamzuCliConfig` — it is now implemented as `loadConfigWithProvenance(opts).config`, so the two cannot drift apart, and no existing consumer of `loadConfig` sees any behavior change.
+
+  New exports from `@namzu/cli`: `loadConfigWithProvenance`, `ConfigProvenance`, `ConfigSource`.
+
+  This is groundwork for the CLI's boot narrative (`namzu.config.resolved`), which will use `provenance` to summarize where each setting came from at startup — that rendering is not part of this change.
+
+- 6001cac: The command list is what this host owns plus whatever the kernel's registry
+  reports, instead of one hardcoded array.
+
+  `SLASH_COMMANDS` was a literal, and nothing a capability added could reach
+  the operator without editing that file. The coupling had already escaped
+  the TUI: two headless commands imported the array for a name list, so a
+  name they did not know went to the MODEL as prose — both a wrong answer and
+  a tool call nobody asked for.
+
+  `CLI_LOCAL_COMMANDS` now holds only what this host genuinely owns — a
+  transcript, a picker, a login, an expand — and `mergeHostCommands` appends
+  the registry's. `/agents` and `/tasks` are the kernel's now, and
+  `SlashContext.agentIds` is gone: the roster is the kernel's fact, and the
+  CLI carrying a second copy meant two answers to one question that could
+  disagree.
+
+  A name claimed by both throws at merge time naming it, rather than letting
+  local win quietly. One of the two would never run, which one depends on
+  merge order, and neither the kernel nor the host author would ever see it.
+
+  Dispatch is a new `SlashAction` kind rather than an async action, because
+  the registry's handlers read stores and this union is synchronous — naming
+  the dispatch as a result keeps that boundary where it is, and the App's
+  exhaustive `never` default still fails the build for an unhandled kind.
+
+- 4b4e039: Add a `runtime.invariants` row to `namzu doctor`
+
+  Reads `@namzu/sdk`'s new module-attributed invariant registry (`InvariantRegistry`, NZ-BOOT-03) and reports what this build claims about its own live state: the registered set, each invariant's outcome right now, and its accumulated violation counter.
+
+  `unknown` — a check that could not be evaluated, which is what both of the SDK's shipped invariants correctly answer outside a live run, since `namzu doctor` has no compaction pass or run claim to point them at — is reported as `inconclusive`, never `pass`. Any `violated` invariant fails the row, and a failed row fails the whole report (`exit 1`, same as any other doctor check).
+
+  **What this means for a script that runs `namzu doctor` and checks its exit code:** on a normal machine, with no run in flight, the new row will read `inconclusive` rather than `pass`, which — per this command's existing exit-code table — moves the report's exit code to `69` unless something else already failed it to `1`. This is new for any caller that previously got `0` from a clean `namzu doctor` run outside of an active session.
+
+  New doctor check: `invariantsCheck` (id `runtime.invariants`), added to `builtInDoctorChecks`. New export: `describeInvariants(registry)`, so a host can drive its own `InvariantRegistry` rather than the process-wide singleton.
+
+- a660710: Extract the tri-state optional-package probe, and probe all four optional capabilities in `namzu doctor`
+
+  `doctor/checks/telemetry.ts`'s resolve-then-import probe — the one that tells a genuinely absent `@namzu/telemetry` apart from one that is installed and throws on load — only ever covered telemetry. `@namzu/sandbox`, `@namzu/files` and `@namzu/computer-use` had no equivalent check, so a sandbox whose native binding failed to load in a container image was invisible to `namzu doctor`: nothing probed it, so nothing could report `fail`.
+
+  New in `@namzu/cli`:
+
+  - `probeOptionalPackage(specifier): Promise<CapabilityProbe>` — the extracted probe, at `context/capabilities.ts`. Never throws; every resolve/import failure becomes a `CapabilityProbe` value.
+  - `CapabilityProbe` — `{ state: 'present', specifier, version }` (version read from the nearest `package.json` above the resolved entry file, not through a possibly-restrictive `exports` map), `{ state: 'absent', specifier }`, or `{ state: 'broken', specifier, error }`.
+  - `NAMZU_OPTIONAL_CAPABILITIES` — the four optional packages namzu runs without: `@namzu/sandbox`, `@namzu/files`, `@namzu/computer-use`, `@namzu/telemetry`.
+  - `probeCapabilities(): Promise<readonly CapabilityProbe[]>` — probes all four in parallel; never rejects.
+  - Three new doctor checks — `sandboxInstalledCheck`, `filesInstalledCheck`, `computerUseInstalledCheck` — registered in `builtInDoctorChecks` alongside the existing `telemetryInstalledCheck`, all now built over the same probe.
+
+  `describeInstalledPackage` and `telemetryInstalledCheck` keep their exact exported signatures and status mapping; every existing test in `doctor/checks/__tests__/telemetry.test.ts` passes unmodified. A broken optional package still reports doctor status `fail`; an absent one still reports `skipped` and leaves the doctor's exit code at `0` — `builtInDoctorChecks` gaining three checks changes no existing row and cannot move a healthy machine off exit `0`.
+
+  One wording change, needed because `describeInstalledPackage` now backs four packages instead of one: a `broken` package's remediation text used to read "...or remove it if you are not using **telemetry**...", regardless of which specifier was actually broken. It now reads "...or remove it if you are not using **it**...". No test asserted the old literal string; a caller matching on it should switch to matching the surrounding sentence instead.
+
+  No boot-path emission yet — the boot narrative's `capability` line consumes this probe in a follow-up change.
+
+- f2a7375: `namzu doctor` now reports what the log pipeline did to this process's records: how many never reached the sink, how many had a credential redacted, and how many were shed or truncated by the size caps. It fails — non-zero exit — when records were dropped, and reports `inconclusive` rather than a green row when no sink was installed at all.
+
+  New SDK export `getLogCounters(): LogSinkCounters | undefined`. `undefined` means no host claimed the process's log destination, so nothing measured those records; it is deliberately not a zeroed set, which would read as "nothing was dropped, nothing was redacted" about a process where neither was ever checked.
+
+  `LogSinkCounters` had five fields incremented on every record and no reader anywhere. It could not have had one: the counters lived on whatever logger `createLogger` built, and `getRootLogger()` resolves per call and built a fresh one each time, so every total died with the expression that produced it. `installProcessSink` now owns one counter set per installed destination and every logger routed through it adds to those totals. A replacement install (`{ replace: true }`) starts at zero rather than carrying the previous destination's counts forward — the numbers describe the sink that is live.
+
+  `createLogger` takes an optional second argument, a counter set to share. Omitting it is unchanged behaviour: a host that builds its own logger for one subsystem keeps its own counts unless it asks otherwise.
+
+- b1bb2e0: Nothing stored a per-message judgment, so every consumer had to invent its
+  own side table to answer the most basic question there is — was that answer
+  any good.
+
+  `MessageFeedbackStore` records a `'good' | 'bad'` rating and an optional
+  note per `{ runId, messageId }`, in memory or on disk. `rating` is a closed
+  union rather than a number or a free string: a 1–5 scale invites a mean
+  nobody can interpret across raters, and widening the union later is now a
+  deliberate major rather than an accident.
+
+  Writes are compare-and-set on a per-record `ownerVersion`, throwing
+  `StaleFeedbackError` with both the expected and the actual version. The
+  disk store's first write uses an exclusive create, so two raters who each
+  read "no feedback yet" cannot both land — a read-then-write is not atomic,
+  and a rating is exactly the kind of value where last-write-wins loses
+  information nobody notices is gone.
+
+  A rating aimed at a `messageId` that appears in no event of the named run
+  is refused with `UnknownMessageError` and nothing is written. A row
+  pointing at a message nobody can find is unreviewable and
+  indistinguishable from a real one. A disk store built without a run
+  directory to validate against refuses every write rather than accepting
+  everything it cannot check.
+
+  Both implementations run one conformance suite, which found a real
+  divergence between them the day it was written.
+
+  In the CLI, `/feedback good|bad [note]` rates the last answer. With no
+  answer yet it refuses rather than writing against a synthesized id. The
+  kernel's `messageId` and `runId` now travel across the CLI's event seam,
+  which previously dropped both.
+
+- be95e43: Emit the CLI boot narrative — sandbox notice, provider chain, capability probe, config provenance and a terminal ready/refused event
+
+  **`@namzu/sdk`**: `EVENT_NAME_ATTRIBUTE` is now re-exported from the root barrel (`packages/sdk/src/utils/log/index.ts` was missing the value re-export that let it reach a host package). This is what lets a package outside the SDK — `@namzu/cli`, here — name a boot event without duplicating the reserved key `createLogger` promotes onto `LogRecord.eventName`.
+
+  **`@namzu/cli`**'s default stderr output changes from nothing to an info-level boot narrative on every invocation, not only `run`/`drain`/`run-stream`/the TUI — `namzu doctor`/`namzu login` now also print `namzu.boot.start` and `namzu.config.resolved` ahead of their own output, because `getContext()` is the one place any subcommand resolves logging + config. Use `--quiet` (LOG-05) to go back to warn-and-above; `NAMZU_LOG_LEVEL=silent` remains a full return to today's silence.
+
+  The highest-value line: `ResolvedSandbox.notice`/`.unconfined` (computed on every boot, discarded until now) are emitted as `namzu.sandbox.resolved`, at `warn` specifically when nothing is confined and `info` otherwise — an operator reading default output now sees "this platform enforces none of filesystem, network, process" instead of it existing only in a field nothing read.
+
+  Also new: `namzu.provider.resolved` (the constructed chain and each skipped fallback's reason), `namzu.capability.detected`/`.broken` (via `probeCapabilities`, gaining its first consumer and joining `@namzu/cli`'s public exports alongside the existing `probeOptionalPackage`/`CapabilityProbe`/`NAMZU_OPTIONAL_CAPABILITIES`), `namzu.discovery.completed` (MCP connectors — plugin/skill discovery is not yet wired to the boot path and is not claimed here), `namzu.telemetry.status` (states plainly that no `TracerProvider`/`LoggerProvider` is registered, since the CLI does not call `registerTelemetry()` on any path today), and the terminal `namzu.boot.ready` / `namzu.boot.refused` pair — `ready` fires exactly once on success with no boolean readiness field, `refused` fires at `error` on every early return out of `createAgentSession` including a `sandbox.requireIsolation` control this host cannot meet, which now also logs before the process exits non-zero (the exit code itself is unchanged — the existing top-level catch in `runCli` already produced it).
+
+  The two previously-silent `catch {}` blocks in `packages/cli/src/tui/agent.ts` (a failed provider-client rebuild after an OAuth token refresh; a sub-agent runtime that failed to start) now each emit one `warn` record with `exception.type`/`exception.message`. Neither's behavior changed — both remain non-fatal.
+
+  No exported signature changed and no default changed; every addition is either a new export or new stderr output governed by the existing `--quiet`/`--verbose`/`NAMZU_LOG_LEVEL`/`NAMZU_LOG_FORMAT` controls.
+
+- 71ed5df: A credential turning over is now observable, and the doctor's vault check
+  can answer.
+
+  Rotation was invisible: a lapsed OAuth token was refreshed straight into
+  the CLI's file store, and the bus carried `vault_lookup` with no change
+  event — so no probe subscriber could see a credential replaced, and nothing
+  could answer "when did this last rotate".
+
+  `vault_credential_changed` joins the bus, dispatched through the same probe
+  registry `vault_lookup` already uses rather than a second one, which would
+  mean a subscriber that saw lookups and not rotations depending on which it
+  found. `kind` separates `set` from `rotated`, which is the distinction a
+  reader wants: a first write is configuration, a replacement is a credential
+  turning over. The event carries the credential's NAME and never its value —
+  a change event exists to be logged, forwarded and retained, which is
+  exactly what a secret must not be.
+
+  `FileCredentialProvider` makes the CLI's hardened store writable through
+  the seam. It adds no file logic of its own: the store already owns the `wx`
+  open, the `0600`, and the read-back that proves the mode landed, and a
+  second copy of that guarantee is the one that would drift.
+
+  The doctor's vault check answered `skipped` unconditionally with "no vault
+  auto-discovery in v1" — the same answer on every machine, forever, which is
+  the shape `a-check-that-cannot-fail` warns about. It now reports what the
+  registered providers describe, and returns `skipped` only when none is
+  registered. It calls `describe`, never `resolve`: this output is what an
+  operator pastes into an issue.
+
+- fec1e27: Stop silencing the CLI's own logger
+
+  Every one of `namzu run`, `namzu drain`, `namzu run-stream` (including its `providers-json` sibling) and the interactive TUI forced the SDK logger's level to `silent` on its way into a session, and nothing anywhere in the tree ever turned it back on. That is the whole, literal reason a boot problem, a skipped provider, or a discovery failure never showed up anywhere: not a missing feature, a standing instruction to throw every diagnostic away.
+
+  Each entry point now installs a real sink instead:
+
+  - `run`/`drain` write pretty-printed records to stderr by default; pass `--log-format json` (or set `NAMZU_LOG_FORMAT=json`) for NDJSON.
+  - `run-stream` (and `providers-json`) always write NDJSON to **stderr** — a machine-read channel distinct from stdout's own event protocol, which is untouched by any of this.
+  - The interactive TUI buffers into a ring buffer instead of writing at all (Ink owns the terminal), and flushes it to stderr on a clean exit or a crash.
+
+  New flags: `--verbose` (debug level) and `--log-format <pretty|json>`. The existing `-q`/`--quiet` now also raises the log floor to warn. New env vars: `NAMZU_LOG_LEVEL`, `NAMZU_LOG_FORMAT`. An explicit `--verbose`/`--quiet`/`--log-format` always wins over its environment-variable counterpart.
+
+  **Default stderr output changes from nothing to info-level records.** Anyone parsing a namzu subprocess's stderr and relying on it being empty should pass `--quiet` (or set `NAMZU_LOG_LEVEL=warn`) to restore the old behaviour; stdout — every command's actual protocol — is unaffected.
+
+### Patch Changes
+
+- ff132b3: Running `.github/scripts/verify-consumer-install.sh` deleted every uncommitted changeset in the working tree.
+
+  The script rewrites each package manifest to check what would PUBLISH rather than what sits in the tree, so it snapshots the version-carrying files on entry and restores them on exit. The restore does `rm -rf .changeset` and untars the snapshot back.
+
+  The snapshot was taken with `git ls-files`, which lists TRACKED files. A changeset you have just written is by definition untracked, so it was never in the snapshot and the `rm -rf` was the last thing that happened to it — silently, by a gate `AGENTS.md` tells every contributor to run before pushing, on the one file that declares what the push is supposed to release. The comment above the restore already stated the rule this broke: a developer's uncommitted edit is not this script's to discard.
+
+  `.changeset/` is now snapshotted from disk. The manifests keep `git ls-files`, which is the right tool for them: it finds every tracked manifest wherever a package lives, so a new package directory cannot fall outside the snapshot.
+
+  A regression test in `scripts/__tests__/` drives the round trip with one committed and one uncommitted changeset — the distinction the defect turned on — and asserts the script no longer reaches for `git ls-files` on that path. `pnpm test:scripts` now runs every file in that directory rather than one named file, so the next test added there is not silently unrun.
+
+- dd170fe: A default-level start is readable again, and a misplaced global flag says where
+  it goes.
+
+  `ManagedRegistry.register` logged at `info`, once per item, and a CLI run
+  registers dozens — every builtin tool, every agent, every task tool. Turning
+  the logger back on therefore replaced silence with twenty lines of
+  `Registered: read`, `Registered: write` ahead of anything an operator could act
+  on. Registration is the startup path working; it belongs at `debug`. The
+  overwrite case stays at `warn`, because a second registration under a live id
+  is news.
+
+  `namzu run "…" --verbose` was answered with "pass `--` before a prompt that
+  starts with a dash" — advice about a prompt beginning with `-`, which sends the
+  reader to the wrong half of their command line. `--verbose`, `--quiet`,
+  `--log-format` and `--format` are program options, accepted before the command
+  name, and the refusal now says exactly that and shows the position.
+
+  Both were found by running the CLI against a real provider. Every unit test in
+  these paths asserts against a logger stub or passes flags in the position that
+  already worked, so neither was visible to any of them.
+
+- 7aaa35d: Strings that were asserted into ids now go through the checked constructors, and three defects the assertions were hiding are fixed.
+
+  **A docker sandbox's id had the wrong prefix.** `SandboxId` is `` `sbx_${string}` ``; `@namzu/sandbox`'s docker backend minted `sandbox_...` and an `as SandboxId` was the only reason that compiled. Every docker sandbox in the tree carried an id its own type says is impossible — the ACI backend already minted `sbx_`. Both now mint through `asSandboxId`, which is the call that would have caught it. **The container name derives from this** (`namzu-sandbox-${id}`), so a container started by this release is named differently from one an older build started. Nothing matches on the old spelling — teardown computes the name from the id it just minted, in the same process — but it is visible in `docker ps`, and any external tooling that pattern-matched `namzu-sandbox-sandbox_` needs updating.
+
+  **A corrupt migration marker was honoured instead of refused.** `readMarker`'s shape check validated the envelope — `version`, `at`, and that `migratedThreads` is an array — and never looked inside the array. `{"migratedThreads":[null]}` therefore parsed cleanly and produced an entry whose `newProjectId` was `undefined` wearing a `ProjectId` annotation, which then reached a path join. Each element is now checked, and a bad one returns `null` — which is exactly what this function already promised to do about corruption, so the caller re-runs the migration rather than trusting it.
+
+  **`namzu drain` accepted a mistyped scope flag.** `--tenant`, `--project` and `--session` were asserted straight into their id types, so `--tenant prj_a` reached the store and listed nothing — and "no runs" is the same output as a scope that really is empty, which made the typo invisible. Each flag is now prefix-checked, and the refusal names the prefix it wanted, in the same operator-readable shape the command's other refusals use.
+
+  **Model-authored ids are checked before they become store keys.** `read_memory`, `task_update` and the RAG tool took an id straight from the model's tool input and asserted it. A malformed one read back as "not found", telling the model its record had disappeared rather than that it named the wrong thing. All three now refuse with `InvalidIdError`, whose message says which prefix was expected.
+
+  Nothing here changes an exported type, a signature or a default. Sites where a cast is still correct — a value already guarded by an explicit prefix check, an id minted by a service outside this repo, a sentinel the type cannot express — keep the cast and now carry the reason next to it.
+
+- ab80de5: `namzu doctor` reported installed optional packages as missing. `@namzu/files` and `@namzu/telemetry` both read "not installed (optional package)" on machines where they were installed and working, and the boot narrative's capability line said the same.
+
+  `probeOptionalPackage` asked `require.resolve` whether a package was on disk. That is not the question it answers: it answers whether CJS may load the package's entry point, and every optional package here is ESM-only with an `exports` map that declares `import` and no `default`, so the resolver correctly throws `ERR_PACKAGE_PATH_NOT_EXPORTED`. The probe read that throw as `absent`.
+
+  `@namzu/sdk` is what hid it. Its exports map carries a `default` condition, so it was the one specifier in the tree that resolved — anybody spot-checking the probe against it saw the right answer.
+
+  The probe now walks `node_modules` upward for `<specifier>/package.json`, which is resolver-agnostic and is what "installed" means. `import.meta.resolve` would also have been correct and is not available under the test runner's module transform, so a probe built on it could not have been held by the tests that are supposed to hold it.
+
+  The existing tests all drove an absolute fixture path, because there is no way to uninstall a real package inside a test run — so none of them reached the bare-specifier branch where the defect lived. Two regression tests now do, one in each direction.
+
+  `telemetry.sessionExport` resolves `@namzu/telemetry` through this same probe rather than a second copy, so it inherits the fix and cannot drift from what the doctor reports.
+
+- 940f52b: `CredentialProvider` is a seam a host can implement to say where a
+  credential comes from, with `EnvCredentialProvider` shipped in the box.
+
+  Every LLM-provider credential lookup lived in `@namzu/cli`, which walks its
+  own provider registry and reads `process.env` directly. A host embedding the
+  SDK alone had no way to plug in an env- or file-backed source short of
+  reimplementing `CredentialVault` — a connector-scoped interface that asks a
+  different question, holds a whole `AuthConfig` per connector, and has one
+  in-process implementation with no notion of writability.
+
+  `describe()` never carries the value. "Does this exist" is asked in places a
+  secret must not travel to — a doctor readout, a picker, a log line — and a
+  description that carried one would leak on every one of them while looking
+  like metadata.
+
+  `EnvCredentialProvider` is read-only and says so: `set` and `unset` throw a
+  named error pointing at a writable alternative, rather than accepting a
+  write and dropping it. A `set` on `process.env` changes one map in one
+  process and vanishes with it, while the caller is told it worked.
+
+  The credential key-name vocabulary moves to `constants/credential-env-keys.ts`,
+  a leaf with no imports beside `secret-patterns.ts` — that file matches
+  credential VALUES, this one the names they are carried under. The host-bash
+  environment scrub and the credential seam now read the same table, and
+  `isCredentialEnvKey` is exported so a host with its own provider registry can
+  assert its variables are ones the scrub will withhold. A name in one table
+  and not the other means a variable the CLI reads an API key from and the
+  scrub hands to a shell command.
+
+  CLI discovery goes through the seam with identical results.
+
+- 982f0dd: The TUI's local `exceptionAttributes` helper (`packages/cli/src/tui/agent.ts`) is now typed to return `LogAttributes` instead of a bare `Record<string, string>`. The two keys it has always produced (`exception.type`, `exception.message`) already match the namespace pattern, so this is a type-level narrowing with no behavior change — it exists so `scripts/check-log-standard.mjs`'s new namespaced-attribute-key rule can prove the call sites that pass this helper's result to a `Logger` are compliant by type, rather than leaving them as three more entries in that rule's ratchet count.
+
+  No public API change: `exceptionAttributes` is a module-private function, never exported.
+
+- 6e11fd7: Every diagnostic these two packages emit now has a constant message body, and the identifiers that used to be interpolated into it are attributes beside it.
+
+  87 `Logger` call sites across 29 files were rewritten. `` `Tool execution error: ${toolName}` `` is now `'Tool execution error'` with `namzu.tool.name` in the attribute bag; `` `Tenant registered: ${id} (${name})` `` is now `'Tenant registered'` with `namzu.tenant.id` and `namzu.tenant.name`. Where the neighbouring bag already carried the value, only the message changed; where it did not, the value moved into a new `namzu.*` key in the same edit — a constant body that costs an operator the identifier would be a worse record, not a compliant one.
+
+  **If you grep, alert on, or group by these message bodies, your queries need updating.** No exported type, signature or default changed, and nothing fails to compile — this is diagnostic output, not API — but a log pipeline matching the old interpolated text will stop matching. The upside is the reason for the change: an operator can now grep one literal for every occurrence of an event, and a dashboard can group by it, neither of which was possible when each occurrence rendered a different string.
+
+  `scripts/check-log-standard.mjs`'s rule-3 ratchet (`constantBodyViolationCount`) goes 87 → 0. At zero it stops being a budget and becomes a floor: the _first_ new template literal in a `Logger` call fails CI, not the hundredth. Rule 4 (`namespacedAttributeKeyViolationCount`) is unchanged at 794 and still being worked down.
+
+- 62773b8: `TaskGateway` becomes `TaskScheduler` and `LocalTaskGateway` becomes
+  `LocalTaskScheduler`. Old names still work and are marked `@deprecated`;
+  they go in the next major.
+
+  "Gateway" names an object that sits at a system boundary and faces outward
+  — Fowler's POEAA Gateway, an API gateway, a payment gateway. This one faces
+  inward: it creates, waits on, continues, cancels and lists in-process agent
+  tasks. A reader who trusted the name expected a facade over something
+  external and found a scheduler.
+
+  Two config fields move with the types, because the field name is what a
+  host actually types and leaving one spelled `gateway` would retire the type
+  while keeping its vocabulary:
+
+  - `QueryParams.taskGateway` → `QueryParams.taskScheduler`
+  - `SupervisorAgentConfig.gateway` → `SupervisorAgentConfig.scheduler`
+
+  Both accept either spelling for the window. Setting both to different
+  instances throws and names both fields; setting both to the same instance
+  is fine. The supervisor resolves the pair once rather than at each read, so
+  a host that sets only the new name cannot get a working scheduler on one
+  path and `undefined` on another.
+
+  `SupervisorAgentConfig` with neither a scheduler nor an `agentManager` is
+  still an error, and the message now names `scheduler`.
+
+- 6f4cd04: The verification gate is an authorization gate, and is named one. Old names
+  still work and are marked `@deprecated`; they go in the next major.
+
+  | Old                               | New                       |
+  | --------------------------------- | ------------------------- |
+  | `VerificationGate`                | `AuthorizationGate`       |
+  | `VerificationRule`                | `AuthorizationRule`       |
+  | `VerificationGateConfig`          | `AuthorizationGateConfig` |
+  | `verificationGate` (config field) | `authorizationGate`       |
+
+  A reader who saw `VerificationGate` expected something that verifies a claim
+  — checks a signature, confirms an output matches a schema. It is a rule
+  engine that decides, before a tool runs, whether the call is permitted:
+  allow, deny or review, by name, category, tier, or a pattern over the
+  arguments. Every rule variant already said so. The misreading was not
+  academic: the module sat beside real guardrail and HITL neighbours, where
+  "verification" suggests exactly the post-hoc double-check the guardrails do.
+
+  The config field is on `ReactiveAgentConfig`, `SupervisorAgentConfig`,
+  `runAgent`'s options and `QueryParams`. Both spellings are accepted for the
+  window and resolved at one site; setting both to different configs throws
+  and names both fields. One resolve rather than four matters more here than
+  for an ordinary rename — a gate present on one path and absent on another
+  means a tool call permitted where it should have been refused.
+
+  Also renamed, and reachable only in type position: `VerificationRuleSchema`
+  and `VerificationGateConfigSchema`. They are not exported as values, but
+  `import type` and `typeof` both worked, so they carry aliases rather than
+  disappearing.
+
+  Deliberately unchanged, because each is already correct about what it is:
+  `GateDecision`, `GateEvaluationResult`, `ToolCallContext`, `describeRule`,
+  `evaluateRule`, `defaultSandboxedGateConfig`,
+  `defaultSandboxedShellGateConfig`.
+
+  The module-invariant registry — `createInvariantRegistry`, `invariants`,
+  `InvariantRegistry` and friends — moved to its own directory rather than
+  into `authorization/`. It is the one thing in the old `verification/` that
+  genuinely verifies a claim: what a module says about its own live state. No
+  import path changes for consumers; it is exported from the same barrel.
+
+- ad98269: Tools now decide how their calls and results are shown, and the CLI stopped
+  matching on tool names.
+
+  `write` gains `presentCall`, returning a diff with an empty `before` —
+  which is what a write is: whatever was there is gone and this replaces it.
+  `edit` and `write` both gain `presentResult` returning a plain label, which
+  is what suppresses the detail block: the content was already shown under
+  the call, and repeating it doubles the longest rows in a transcript to say
+  nothing new. That decision used to be a host matching two names.
+
+  `createToolPresenter`'s result fallback changed from a `generic` view
+  truncated to 120 characters to a `terminal` view carrying the whole output.
+  A host renders a result across many rows and decides for itself how many
+  fit — that is a property of its terminal, not of the tool — and truncating
+  in the kernel destroyed text no host could then recover. A tool that wants
+  the one-line form returns a `generic` view itself.
+
+  In the CLI this deletes `summarizeToolInput`, `previewToolInput`,
+  `toolStartDetail` and `toolEndDetail`, replacing four name-matching
+  functions with one `viewToLines`. A tool the CLI has never heard of — an
+  MCP server's, a plugin's — now gets a diff if it asks for one, where before
+  it got a truncated JSON blob no matter what it did.
+
+- 50c0f29: `Topic` becomes the primary name for the container between Project and Session.
+  Every exported `Thread*` name keeps working as a `@deprecated` alias.
+
+  The layer has always been a topic — its own docstring calls it a "Topic-level
+  container" — and `Thread` is the one word in this kernel's OS vocabulary that
+  already means something specific and different, for a thing that has no
+  execution and no state machine of its own.
+
+  Renamed, with identity aliases on the public surface: `TopicManager` /
+  `ThreadManager`, `InMemoryTopicStore` / `InMemoryThreadStore`,
+  `generateTopicId` / `generateThreadId`. `TopicId` is a type alias to the
+  unchanged `ThreadId`; both are still `` `thd_${string}` `` this release.
+
+  **Not in this release**, and deliberately: the `thd_` prefix itself, the
+  `threadId` field on persisted records, and `acceptLegacyThreadId` /
+  `rejectLegacyPrefix`. The last two belong to a DIFFERENT `thd_` — the
+  pre-0.2.0 top-level container the migration coerces to `prj_legacy_*` — and
+  merging the two meanings is the confusion this chain exists to end. The prefix
+  and the field each carry a data migration and land separately.
+
+- Updated dependencies [9914794]
+- Updated dependencies [3939dc9]
+- Updated dependencies [f05a0f1]
+- Updated dependencies [d7d38a3]
+- Updated dependencies [f12284a]
+- Updated dependencies [19a72ff]
+- Updated dependencies [5136fbd]
+- Updated dependencies [966c6de]
+- Updated dependencies [eff96ac]
+- Updated dependencies [70f8d75]
+- Updated dependencies [dd170fe]
+- Updated dependencies [b947794]
+- Updated dependencies [5d23bf4]
+- Updated dependencies [5f5becd]
+- Updated dependencies [94842e4]
+- Updated dependencies [9b15964]
+- Updated dependencies [d54fe08]
+- Updated dependencies [655cc9d]
+- Updated dependencies [1e996bc]
+- Updated dependencies [13b2682]
+- Updated dependencies [be7152b]
+- Updated dependencies [2928057]
+- Updated dependencies [c2663c2]
+- Updated dependencies [014da58]
+- Updated dependencies [4edf2c6]
+- Updated dependencies [7aaa35d]
+- Updated dependencies [cb1a487]
+- Updated dependencies [af47721]
+- Updated dependencies [ee7856e]
+- Updated dependencies [3331493]
+- Updated dependencies [7015eee]
+- Updated dependencies [83b5f83]
+- Updated dependencies [30029bd]
+- Updated dependencies [9b053ba]
+- Updated dependencies [44b5c76]
+- Updated dependencies [ae09a42]
+- Updated dependencies [bab1e02]
+- Updated dependencies [47437f6]
+- Updated dependencies [b01068a]
+- Updated dependencies [940f52b]
+- Updated dependencies [ead7703]
+- Updated dependencies [e45699e]
+- Updated dependencies [17ba31f]
+- Updated dependencies [c968b58]
+- Updated dependencies [40932a1]
+- Updated dependencies [320322d]
+- Updated dependencies [7507e33]
+- Updated dependencies [779d62a]
+- Updated dependencies [75c5b4a]
+- Updated dependencies [0dbf62f]
+- Updated dependencies [28cbe6d]
+- Updated dependencies [f8f0004]
+- Updated dependencies [f2a7375]
+- Updated dependencies [7015eee]
+- Updated dependencies [b395a1e]
+- Updated dependencies [43358a1]
+- Updated dependencies [6e11fd7]
+- Updated dependencies [ca97021]
+- Updated dependencies [9947662]
+- Updated dependencies [89dfe84]
+- Updated dependencies [8a4986f]
+- Updated dependencies [b1bb2e0]
+- Updated dependencies [79ed788]
+- Updated dependencies [da66613]
+- Updated dependencies [ec15971]
+- Updated dependencies [be95e43]
+- Updated dependencies [c166029]
+- Updated dependencies [a093e22]
+- Updated dependencies [01684bf]
+- Updated dependencies [71939c1]
+- Updated dependencies [e010634]
+- Updated dependencies [9aba59a]
+- Updated dependencies [5a4f7b4]
+- Updated dependencies [7adf919]
+- Updated dependencies [70f23bb]
+- Updated dependencies [413d939]
+- Updated dependencies [1d428e6]
+- Updated dependencies [f9c1589]
+- Updated dependencies [fad5da4]
+- Updated dependencies [4992819]
+- Updated dependencies [215f7b5]
+- Updated dependencies [62773b8]
+- Updated dependencies [6f4cd04]
+- Updated dependencies [71ed5df]
+- Updated dependencies [b7f7897]
+- Updated dependencies [dec1964]
+- Updated dependencies [e5dde44]
+- Updated dependencies [8053dc1]
+- Updated dependencies [9142405]
+- Updated dependencies [4ccf9e3]
+- Updated dependencies [f94ca7d]
+- Updated dependencies [2df8cd2]
+- Updated dependencies [f9833ab]
+- Updated dependencies [4abc5ee]
+- Updated dependencies [cf48cef]
+- Updated dependencies [9bce045]
+- Updated dependencies [2ccbd7b]
+- Updated dependencies [f2a1dd9]
+- Updated dependencies [1460a02]
+- Updated dependencies [ad98269]
+- Updated dependencies [50c0f29]
+- Updated dependencies [c665956]
+- Updated dependencies [70e3163]
+- Updated dependencies [5f8a8c5]
+- Updated dependencies [5ed3b03]
+- Updated dependencies [9d6c482]
+  - @namzu/sdk@28.0.0
+  - @namzu/openai@1.2.1
+  - @namzu/anthropic@3.3.1
+  - @namzu/openrouter@2.2.0
+  - @namzu/files@1.0.0
+  - @namzu/ollama@2.1.0
+
 ## 11.0.0
 
 ### Major Changes
