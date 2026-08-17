@@ -12,7 +12,7 @@ import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/inde
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { resumeRun } from '../resume-run.js'
 import type { RunStateScope } from '../run-state.js'
 
@@ -35,7 +35,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_resume' as ProjectId,
 	sessionId: 'ses_resume' as SessionId,
 	runId: 'run_resume' as RunId,
-	topicId: 'top_resume' as ThreadId,
+	topicId: 'top_resume' as TopicId,
 }
 
 const ZERO_USAGE = {

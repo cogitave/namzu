@@ -18,7 +18,7 @@ import type {
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolPauseOutcome } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { drainQuery } from '../index.js'
@@ -61,7 +61,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_pause' as ProjectId,
 	sessionId: 'ses_pause' as SessionId,
 	runId: 'run_pause' as RunId,
-	topicId: 'top_pause' as ThreadId,
+	topicId: 'top_pause' as TopicId,
 }
 
 const PAUSE = {

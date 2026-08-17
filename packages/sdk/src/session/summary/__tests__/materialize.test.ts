@@ -3,13 +3,13 @@ import { TenantIsolationError } from '../../../session/errors.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
+import type { SummaryId, TopicId } from '../../../types/session/ids.js'
 import type { DeliverableRef } from '../../../types/summary/deliverable.js'
 import { AGENT_SUMMARY_MAX_CHARS } from '../../../types/summary/ref.js'
 import { AgentSummaryTooLongError, SessionAlreadySummarizedError } from '../errors.js'
 import { SessionSummaryMaterializer } from '../materialize.js'
 
-const TEST_THREAD_ID = 'top_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as TopicId
 
 const tenantA = 'tnt_alpha' as TenantId
 const tenantB = 'tnt_beta' as TenantId

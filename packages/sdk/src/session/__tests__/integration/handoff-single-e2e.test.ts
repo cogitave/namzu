@@ -13,9 +13,9 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
+import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { TenantId } from '../../../types/ids/index.js'
 import type { Session } from '../../../types/session/entity.js'
 import { generateHandoffId } from '../../../utils/id.js'
@@ -30,7 +30,7 @@ import { DEFAULT_TENANT, OTHER_TENANT, okExec, stubLogger, userActor } from './_
 
 function buildHandoffDeps(
 	store: InMemorySessionStore,
-	threadStore: InMemoryThreadStore,
+	threadStore: InMemoryTopicStore,
 ): {
 	deps: SingleHandoffDeps
 	updateCalls: Array<{ status?: string; ownerVersion?: number }>
@@ -57,7 +57,7 @@ function buildHandoffDeps(
 		return originalUpdate(session, tenantId)
 	}
 
-	const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
+	const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
 	return {
 		deps: {
 			store,
@@ -73,7 +73,7 @@ function buildHandoffDeps(
 describe('Integration — single-recipient handoff E2E', () => {
 	it('idle → locked → commit: source previousActors grew + ownerVersion bumped atomically', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'ho' },
 			DEFAULT_TENANT,
@@ -137,7 +137,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 
 	it('cross-tenant assignment rejects at entry (TenantIsolationError)', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'ct' },
 			DEFAULT_TENANT,
@@ -172,7 +172,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 
 	it('source-owned workspace provisioned for recipient', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'wsp' },
 			DEFAULT_TENANT,
@@ -224,7 +224,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 	it('denormalized tenantId stamped on Session + SubSession records', async () => {
 		const _tenantType: TenantId = DEFAULT_TENANT
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'denorm' },
 			DEFAULT_TENANT,

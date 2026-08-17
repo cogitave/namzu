@@ -9,7 +9,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -64,7 +64,7 @@ async function baseParams(provider: MockLLMProvider, tools: ToolRegistry) {
 		agentName: 'Tool Choice Agent',
 		workingDirectory: await mkWorkdir(),
 		sessionId: 'ses_tc' as SessionId,
-		topicId: 'top_tc' as ThreadId,
+		topicId: 'top_tc' as TopicId,
 		projectId: 'prj_tc' as ProjectId,
 		tenantId: 'tnt_tc' as TenantId,
 		messages: [createUserMessage('go')],

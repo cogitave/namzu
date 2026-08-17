@@ -10,12 +10,12 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
+import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { SessionId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../../handoff/assignment.js'
 import { type BroadcastHandoffDeps, executeBroadcastHandoff } from '../../handoff/broadcast.js'
@@ -28,7 +28,7 @@ import { DEFAULT_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
 
 function buildDeps(
 	store: InMemorySessionStore,
-	threadStore: InMemoryThreadStore,
+	threadStore: InMemoryTopicStore,
 	execOverride?: ExecFile,
 ): {
 	deps: BroadcastHandoffDeps
@@ -57,7 +57,7 @@ function buildDeps(
 			workspaceRegistry,
 			capacity: new DefaultCapacityValidator(store),
 			events: sink,
-			threadManager: new ThreadManager({ topicStore: threadStore, sessionStore: store }),
+			threadManager: new TopicManager({ topicStore: threadStore, sessionStore: store }),
 		},
 		events: { ...sink, onBroadcastRollback },
 	}
@@ -66,7 +66,7 @@ function buildDeps(
 function buildAssignments(
 	sourceSessionId: SessionId,
 	projectId: ProjectId,
-	topicId: ThreadId,
+	topicId: TopicId,
 	recipients: ActorRef[],
 	broadcastId = 'bc_integration',
 	expectedOwnerVersion = 0,
@@ -89,7 +89,7 @@ function buildAssignments(
 describe('Integration — broadcast handoff E2E', () => {
 	it('happy: 3-recipient fan-out → each recipient has isolated worktree + source reaches awaiting_merge', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'bc-happy' },
 			DEFAULT_TENANT,
@@ -139,7 +139,7 @@ describe('Integration — broadcast handoff E2E', () => {
 
 	it('rollback on 2nd-recipient provisioning failure: zero orphan records, partialState accurate', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'bc-rb' },
 			DEFAULT_TENANT,
@@ -202,7 +202,7 @@ describe('Integration — broadcast handoff E2E', () => {
 
 	it('source transitions to awaiting_merge + retains currentActor as coordinator (§5.4)', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'coord' },
 			DEFAULT_TENANT,
@@ -234,7 +234,7 @@ describe('Integration — broadcast handoff E2E', () => {
 
 	it('all recipients get isolated worktrees — zero path collisions even under N=8', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'iso' },
 			DEFAULT_TENANT,

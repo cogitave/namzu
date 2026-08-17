@@ -26,7 +26,7 @@ import type {
 	StreamChunk,
 } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /** A provider that always fails the way `status` says. */
@@ -60,7 +60,7 @@ function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory
 		agentName: 'Test Agent',
 		workingDirectory,
 		sessionId: 'ses_chain' as SessionId,
-		topicId: 'top_chain' as ThreadId,
+		topicId: 'top_chain' as TopicId,
 		projectId: 'prj_chain' as ProjectId,
 		tenantId: 'tnt_chain' as TenantId,
 		// No sleeping in a unit test: every fallover here is on a code the retry

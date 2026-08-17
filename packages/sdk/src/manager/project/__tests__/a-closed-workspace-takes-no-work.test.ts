@@ -16,7 +16,7 @@ import { SessionSummaryMaterializer } from '../../../session/summary/materialize
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { DiskSessionStore } from '../../../store/session/disk.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
@@ -27,7 +27,7 @@ import type { SummaryId } from '../../../types/session/ids.js'
 import type { SessionStore } from '../../../types/session/store.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { AgentManager } from '../../agent/lifecycle.js'
-import { TopicManager as ThreadManager } from '../../topic/lifecycle.js'
+import { TopicManager } from '../../topic/lifecycle.js'
 import { ProjectManager } from '../lifecycle.js'
 
 /**
@@ -95,7 +95,7 @@ function definition(): AgentDefinition {
 /** A parent session in a real workspace, plus the manager that spawns into it. */
 async function harness() {
 	const store = new InMemorySessionStore()
-	const threadStore = new InMemoryThreadStore()
+	const threadStore = new InMemoryTopicStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'w' }, TENANT)
 	const thread = await threadStore.createTopic({ projectId: project.id, title: 't' }, TENANT)
 	const parentActor = { kind: 'agent', agentId: 'sup' as AgentId, tenantId: TENANT } as const
@@ -110,7 +110,7 @@ async function harness() {
 	let n = 0
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
-		threadManager: new ThreadManager({ topicStore: threadStore, sessionStore: store }),
+		threadManager: new TopicManager({ topicStore: threadStore, sessionStore: store }),
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
 		summaryMaterializer: new SessionSummaryMaterializer({

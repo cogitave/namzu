@@ -15,7 +15,7 @@ import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, ProviderCapabilities } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -89,7 +89,7 @@ function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory
 		agentName: 'Test Agent',
 		workingDirectory,
 		sessionId: 'ses_capability' as SessionId,
-		topicId: 'top_capability' as ThreadId,
+		topicId: 'top_capability' as TopicId,
 		projectId: 'prj_capability' as ProjectId,
 		tenantId: 'tnt_capability' as TenantId,
 	}

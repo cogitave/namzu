@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { DefaultCapacityValidator, DelegationCapacityExceeded } from '../capacity.js'
 
 const tenant = 'tnt_alpha' as TenantId
@@ -18,7 +18,7 @@ function agent(): ActorRef {
 
 async function seedProject(store: InMemorySessionStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
-	const threadStore = new InMemoryThreadStore()
+	const threadStore = new InMemoryTopicStore()
 	const thread = await threadStore.createTopic({ projectId: project.id, title: 'default' }, tenant)
 	const root = await store.createSession(
 		{ topicId: thread.id, projectId: project.id, currentActor: user() },
@@ -31,7 +31,7 @@ async function spawnChild(
 	store: InMemorySessionStore,
 	parentId: SessionId,
 	projectId: ProjectId,
-	topicId: ThreadId,
+	topicId: TopicId,
 ): Promise<{ childId: SessionId }> {
 	const child = await store.createSession({ topicId, projectId, currentActor: user() }, tenant)
 	await store.createSubSession(

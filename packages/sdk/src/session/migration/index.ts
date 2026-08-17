@@ -5,10 +5,8 @@
 export {
 	acceptLegacyContainerId,
 	/** @deprecated Use `acceptLegacyContainerId`. */
-	acceptLegacyThreadId,
 	rejectLegacyContainerPrefix,
 	/** @deprecated Use `rejectLegacyContainerPrefix`. */
-	rejectLegacyPrefix,
 	NOOP_MIGRATION_WARNING_SINK,
 	StalePrefixError,
 	WINDOW_OPEN,

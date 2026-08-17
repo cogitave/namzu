@@ -11,7 +11,7 @@ import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { isEphemeralEvent } from '../../../types/run/events.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
@@ -66,7 +66,7 @@ async function run(tool: ToolDefinition) {
 			messages: [createUserMessage('build it')],
 			workingDirectory,
 			sessionId: 'ses_p' as SessionId,
-			topicId: 'top_p' as ThreadId,
+			topicId: 'top_p' as TopicId,
 			projectId: 'prj_p' as ProjectId,
 			tenantId: 'tnt_p' as TenantId,
 		},

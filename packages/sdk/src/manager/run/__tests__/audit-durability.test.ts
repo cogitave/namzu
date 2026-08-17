@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { RunStore } from '../../../types/run/store.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { NOOP_LOGGER, NOOP_SINK, createLogger } from '../../../utils/log/index.js'
 import type { LogRecord, LogSink } from '../../../utils/log/types.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -39,7 +39,7 @@ function makeRunMgr(opts: { runStore: RunStore; log?: Logger }): RunPersistence 
 		outputDir: '/tmp/namzu-audit-durability-test',
 		log: opts.log ?? NOOP_LOGGER,
 		sessionId: 'ses_audit_durability' as SessionId,
-		topicId: 'top_audit_durability' as ThreadId,
+		topicId: 'top_audit_durability' as TopicId,
 		tenantId: 'tnt_audit_durability' as TenantId,
 		projectId: 'prj_audit_durability' as ProjectId,
 		runStore: opts.runStore,

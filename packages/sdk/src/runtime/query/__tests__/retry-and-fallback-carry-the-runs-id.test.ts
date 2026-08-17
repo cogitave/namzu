@@ -31,7 +31,7 @@ import type {
 	StreamChunk,
 } from '../../../types/provider/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { type LogRecord, type LogSink, createLogger } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { drainQuery } from '../index.js'
@@ -70,7 +70,7 @@ function baseParams(workingDirectory: string) {
 		agentName: 'Correlated Agent',
 		workingDirectory,
 		sessionId: 'ses_correlated' as SessionId,
-		topicId: 'top_correlated' as ThreadId,
+		topicId: 'top_correlated' as TopicId,
 		projectId: 'prj_correlated' as ProjectId,
 		tenantId: 'tnt_correlated' as TenantId,
 		retry: { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 1 },

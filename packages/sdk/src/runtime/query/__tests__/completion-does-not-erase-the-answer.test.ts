@@ -14,7 +14,7 @@ import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -149,7 +149,7 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_answer' as SessionId,
-			topicId: 'top_answer' as ThreadId,
+			topicId: 'top_answer' as TopicId,
 			projectId: 'prj_answer' as ProjectId,
 			tenantId: 'tnt_answer' as TenantId,
 		})

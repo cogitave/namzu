@@ -9,7 +9,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -120,7 +120,7 @@ async function run(reported: 'stop' | 'tool_calls') {
 		agentName: 'Test Agent',
 		workingDirectory: await mkWorkdir(),
 		sessionId: 'ses_finish' as SessionId,
-		topicId: 'top_finish' as ThreadId,
+		topicId: 'top_finish' as TopicId,
 		projectId: 'prj_finish' as ProjectId,
 		tenantId: 'tnt_finish' as TenantId,
 	})
@@ -195,7 +195,7 @@ describe('a provider that says stop while asking for a tool', () => {
 			agentName: 'Test Agent',
 			workingDirectory: await mkWorkdir(),
 			sessionId: 'ses_plain' as SessionId,
-			topicId: 'top_plain' as ThreadId,
+			topicId: 'top_plain' as TopicId,
 			projectId: 'prj_plain' as ProjectId,
 			tenantId: 'tnt_plain' as TenantId,
 		})

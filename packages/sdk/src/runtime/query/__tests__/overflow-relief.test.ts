@@ -9,7 +9,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -77,7 +77,7 @@ async function run(provider: MockLLMProvider, compaction: boolean) {
 		messages,
 		workingDirectory,
 		sessionId: 'ses_o' as SessionId,
-		topicId: 'top_o' as ThreadId,
+		topicId: 'top_o' as TopicId,
 		projectId: 'prj_o' as ProjectId,
 		tenantId: 'tnt_o' as TenantId,
 		retry: false,

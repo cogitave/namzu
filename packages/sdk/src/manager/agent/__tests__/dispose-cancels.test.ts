@@ -7,10 +7,10 @@ import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { RunId, TaskId } from '../../../types/ids/index.js'
 import type { SummaryId } from '../../../types/session/ids.js'
-import { TopicManager as ThreadManager } from '../../topic/lifecycle.js'
+import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
 /**
@@ -37,8 +37,8 @@ function makeManager(): AgentManager {
 		}),
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
-		threadManager: new ThreadManager({
-			topicStore: new InMemoryThreadStore(),
+		threadManager: new TopicManager({
+			topicStore: new InMemoryTopicStore(),
 			sessionStore: store,
 		}),
 	})

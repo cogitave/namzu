@@ -12,7 +12,7 @@ import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/inde
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import type { RepairToolCall } from '../../../types/tool/repair.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
@@ -75,7 +75,7 @@ function baseParams(opts: {
 		agentName: 'Seam',
 		workingDirectory: opts.dir,
 		sessionId: 'ses_seam' as SessionId,
-		topicId: 'top_seam' as ThreadId,
+		topicId: 'top_seam' as TopicId,
 		projectId: 'prj_seam' as ProjectId,
 		tenantId: 'tnt_seam' as TenantId,
 	}

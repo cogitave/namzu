@@ -10,7 +10,7 @@ import { InMemoryRunStore } from '../../../store/run/memory.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { secretRedactionGuardrail } from '../guardrail-presets.js'
 import { drainQuery } from '../index.js'
 
@@ -62,7 +62,7 @@ async function run(opts: {
 			messages: [createUserMessage('what is the deploy key?')],
 			workingDirectory,
 			sessionId: 'ses_guardrail' as SessionId,
-			topicId: 'top_guardrail' as ThreadId,
+			topicId: 'top_guardrail' as TopicId,
 			projectId: 'prj_guardrail' as ProjectId,
 			tenantId: 'tnt_guardrail' as TenantId,
 			...(opts.inputGuardrails ? { inputGuardrails: opts.inputGuardrails } : {}),

@@ -458,13 +458,11 @@ export {
 	 * that release never reached npm, so this major is the first one a consumer
 	 * can actually see the warning in.
 	 */
-	ThreadManager,
 } from './manager/index.js'
 
 export {
 	InMemoryTopicStore,
 	/** @deprecated Use {@link InMemoryTopicStore}. Removal is NZ-TOPIC-05. */
-	InMemoryTopicStore as InMemoryThreadStore,
 } from './store/topic/memory.js'
 
 export { LocalTaskScheduler } from './scheduler/local.js'
@@ -819,7 +817,6 @@ export {
 export {
 	acceptLegacyContainerId,
 	/** @deprecated Use {@link acceptLegacyContainerId}. Removal is NZ-TOPIC-05. */
-	acceptLegacyThreadId,
 	acquireMigrationLock,
 	DefaultFilesystemMigrator,
 	FilesystemMigrationError,
@@ -834,7 +831,6 @@ export {
 	readMarker,
 	rejectLegacyContainerPrefix,
 	/** @deprecated Use {@link rejectLegacyContainerPrefix}. Removal is NZ-TOPIC-05. */
-	rejectLegacyPrefix,
 	releaseMigrationLock,
 	StalePrefixError,
 	WINDOW_OPEN,

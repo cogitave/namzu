@@ -13,7 +13,7 @@ import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { CheckpointManager } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
 import { runIterationCheckpoint } from '../iteration/phases/checkpoint.js'
@@ -269,7 +269,7 @@ describe('query() with an injected checkpointStore', () => {
 			messages: [createUserMessage('use the echo tool')],
 			workingDirectory,
 			sessionId: 'ses_cp_inject' as SessionId,
-			topicId: 'top_cp_inject' as ThreadId,
+			topicId: 'top_cp_inject' as TopicId,
 			projectId: 'prj_cp_inject' as ProjectId,
 			tenantId: 'tnt_cp_inject' as TenantId,
 		})

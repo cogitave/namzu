@@ -11,7 +11,7 @@ import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
@@ -77,7 +77,7 @@ async function harness(): Promise<Harness> {
 			tenantId: 'tnt_r' as TenantId,
 			projectId: 'prj_r' as ProjectId,
 			sessionId: 'ses_r' as SessionId,
-			topicId: 'top_r' as ThreadId,
+			topicId: 'top_r' as TopicId,
 			runId: 'run_r' as RunId,
 		},
 	}

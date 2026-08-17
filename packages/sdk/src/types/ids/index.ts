@@ -102,21 +102,6 @@ export type ProjectId = Id<'prj', 'ProjectId'>
  * gone (Convention #0, no silent long-lived compat).
  */
 export type TopicId = Id<'top', 'TopicId'>
-/**
- * @deprecated Use {@link TopicId}. Removal is NZ-TOPIC-05.
- *
- * NZ-TOPIC-01 introduced `TopicId` as an alias OF this name; NZ-TOPIC-04
- * reverses the direction. So this alias now follows `TopicId` to the `top_`
- * prefix instead of keeping `thd_` — a consumer still compiling against the
- * old name gets the new prefix, which is exactly what the major announces.
- *
- * It is kept rather than deleted because the deprecation NZ-TOPIC-01 wrote
- * has never reached a registry: `@namzu/sdk` on npm is 27.1.0, and the
- * changeset that would publish it is still unconsumed in `.changeset/`. A
- * removal here would be a rename with no alias wearing a major's clothes.
- * This release is the one that carries the warning; the next may remove it.
- */
-export type ThreadId = TopicId
 export type SubSessionId = Id<'sub', 'SubSessionId'>
 export type HandoffId = Id<'hof', 'HandoffId'>
 export type WorkspaceId = Id<'wsp', 'WorkspaceId'>

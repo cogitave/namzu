@@ -35,7 +35,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { Logger } from '../../../utils/logger.js'
 
 /** Every `log` a `withProviderRetry` construction received — one per chain member. */
@@ -151,7 +151,7 @@ describe('the run logger reaches withProviderRetry, withProviderFallback and bui
 			agentName: 'Shared Logger Agent',
 			workingDirectory: await mkWorkdir(),
 			sessionId: 'ses_shared' as SessionId,
-			topicId: 'top_shared' as ThreadId,
+			topicId: 'top_shared' as TopicId,
 			projectId: 'prj_shared' as ProjectId,
 			tenantId: 'tnt_shared' as TenantId,
 			messages: [createUserMessage('hello')],

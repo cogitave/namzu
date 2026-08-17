@@ -26,7 +26,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import type { ToolExecutorConfig } from '../executor.js'
 
@@ -89,7 +89,7 @@ describe('the tool-retry backoff a caller sets reaches the executor', () => {
 			agentName: 'Reach Agent',
 			workingDirectory: dir,
 			sessionId: 'ses_reach' as SessionId,
-			topicId: 'top_reach' as ThreadId,
+			topicId: 'top_reach' as TopicId,
 			projectId: 'prj_reach' as ProjectId,
 			tenantId: 'tnt_reach' as TenantId,
 			retry: false as const,

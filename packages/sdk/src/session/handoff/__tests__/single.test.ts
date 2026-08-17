@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
+import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import { TenantIsolationError } from '../../../session/errors.js'
 import {
 	type ExecFile,
@@ -8,7 +8,7 @@ import {
 } from '../../../session/workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import { generateHandoffId } from '../../../utils/id.js'
@@ -61,7 +61,7 @@ interface MockedHandoffEventSink extends HandoffEventSink {
 
 function buildDeps(
 	store: InMemorySessionStore,
-	threadStore: InMemoryThreadStore,
+	threadStore: InMemoryTopicStore,
 	execOverride?: ExecFile,
 	runResolver?: RunStatusResolver,
 ): { deps: SingleHandoffDeps; events: MockedHandoffEventSink; execCalls: string[] } {
@@ -87,7 +87,7 @@ function buildDeps(
 		onBroadcastRollback: vi.fn<(ev: HandoffBroadcastRollbackEvent) => void>(),
 	}
 
-	const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
+	const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
 	const deps: SingleHandoffDeps = {
 		store,
 		workspaceRegistry: registry,
@@ -100,7 +100,7 @@ function buildDeps(
 	return { deps, events, execCalls }
 }
 
-async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThreadStore) {
+async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryTopicStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
 	const thread = await threadStore.createTopic(
 		{ projectId: project.id, title: 'handoff-single-test' },
@@ -116,7 +116,7 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThread
 function buildAssignment(
 	sourceSessionId: SessionId,
 	projectId: Awaited<ReturnType<InMemorySessionStore['createProject']>>['id'],
-	topicId: Awaited<ReturnType<InMemoryThreadStore['createTopic']>>['id'],
+	topicId: Awaited<ReturnType<InMemoryTopicStore['createTopic']>>['id'],
 	expectedOwnerVersion: number,
 	recipient: ActorRef = user('usr_target'),
 ): HandoffAssignment {
@@ -136,11 +136,11 @@ function buildAssignment(
 
 describe('executeSingleHandoff', () => {
 	let store: InMemorySessionStore
-	let threadStore: InMemoryThreadStore
+	let threadStore: InMemoryTopicStore
 
 	beforeEach(() => {
 		store = new InMemorySessionStore()
-		threadStore = new InMemoryThreadStore()
+		threadStore = new InMemoryTopicStore()
 	})
 
 	it('happy path: idle source → lock → commit → outcome populated + source mutated', async () => {

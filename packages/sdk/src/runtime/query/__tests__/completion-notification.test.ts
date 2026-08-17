@@ -19,7 +19,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -183,7 +183,7 @@ async function runWith(
 			maxResponseTokens: 256,
 		},
 		sessionId: 'ses_completion' as SessionId,
-		topicId: 'top_completion' as ThreadId,
+		topicId: 'top_completion' as TopicId,
 		projectId: 'prj_completion' as ProjectId,
 		tenantId: 'tnt_completion' as TenantId,
 	})
@@ -357,7 +357,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_completion' as SessionId,
-			topicId: 'top_completion' as ThreadId,
+			topicId: 'top_completion' as TopicId,
 			projectId: 'prj_completion' as ProjectId,
 			tenantId: 'tnt_completion' as TenantId,
 		})
@@ -452,7 +452,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_completion' as SessionId,
-			topicId: 'top_completion' as ThreadId,
+			topicId: 'top_completion' as TopicId,
 			projectId: 'prj_completion' as ProjectId,
 			tenantId: 'tnt_completion' as TenantId,
 		})
@@ -569,7 +569,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_completion' as SessionId,
-			topicId: 'top_completion' as ThreadId,
+			topicId: 'top_completion' as TopicId,
 			projectId: 'prj_completion' as ProjectId,
 			tenantId: 'tnt_completion' as TenantId,
 		})
@@ -627,7 +627,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_completion' as SessionId,
-			topicId: 'top_completion' as ThreadId,
+			topicId: 'top_completion' as TopicId,
 			projectId: 'prj_completion' as ProjectId,
 			tenantId: 'tnt_completion' as TenantId,
 		})

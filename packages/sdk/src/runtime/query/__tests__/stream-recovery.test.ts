@@ -11,7 +11,7 @@ import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 const ZERO_USAGE = {
@@ -135,7 +135,7 @@ describe('query stream recovery', () => {
 				messages: [createUserMessage('write the file')],
 				workingDirectory,
 				sessionId: 'ses_stream_recovery' as SessionId,
-				topicId: 'top_stream_recovery' as ThreadId,
+				topicId: 'top_stream_recovery' as TopicId,
 				projectId: 'prj_stream_recovery' as ProjectId,
 				tenantId: 'tnt_stream_recovery' as TenantId,
 			},
@@ -202,7 +202,7 @@ describe('query stream recovery', () => {
 				messages: [createUserMessage('fail with classified metadata')],
 				workingDirectory,
 				sessionId: 'ses_provider_error' as SessionId,
-				topicId: 'top_provider_error' as ThreadId,
+				topicId: 'top_provider_error' as TopicId,
 				projectId: 'prj_provider_error' as ProjectId,
 				tenantId: 'tnt_provider_error' as TenantId,
 			},

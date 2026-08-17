@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
+import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import {
 	type ExecFile,
 	type ExecFileResult,
@@ -7,7 +7,7 @@ import {
 } from '../../../session/workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { ProjectId } from '../../../types/session/ids.js'
@@ -60,7 +60,7 @@ interface DepsBundle {
 
 function buildDeps(
 	store: InMemorySessionStore,
-	threadStore: InMemoryThreadStore,
+	threadStore: InMemoryTopicStore,
 	execOverride?: ExecFile,
 ): DepsBundle {
 	const exec: ExecFile = execOverride ? execOverride : async (_file, _args) => okExec()
@@ -79,7 +79,7 @@ function buildDeps(
 		onBroadcastRollback: vi.fn<(ev: HandoffBroadcastRollbackEvent) => void>(),
 	}
 
-	const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
+	const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
 	return {
 		deps: {
 			store,
@@ -92,7 +92,7 @@ function buildDeps(
 	}
 }
 
-async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThreadStore) {
+async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryTopicStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
 	const thread = await threadStore.createTopic(
 		{ projectId: project.id, title: 'handoff-broadcast-test' },
@@ -108,7 +108,7 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThread
 function buildAssignments(
 	sourceSessionId: SessionId,
 	projectId: ProjectId,
-	topicId: Awaited<ReturnType<InMemoryThreadStore['createTopic']>>['id'],
+	topicId: Awaited<ReturnType<InMemoryTopicStore['createTopic']>>['id'],
 	expectedOwnerVersion: number,
 	recipients: ActorRef[],
 	broadcastId = 'bc_1',
@@ -130,11 +130,11 @@ function buildAssignments(
 
 describe('executeBroadcastHandoff', () => {
 	let store: InMemorySessionStore
-	let threadStore: InMemoryThreadStore
+	let threadStore: InMemoryTopicStore
 
 	beforeEach(() => {
 		store = new InMemorySessionStore()
-		threadStore = new InMemoryThreadStore()
+		threadStore = new InMemoryTopicStore()
 	})
 
 	it('happy path: 3 recipients → source ends in awaiting_merge with 3 new children', async () => {

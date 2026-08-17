@@ -26,7 +26,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 function registerEcho(tools: ToolRegistry): void {
@@ -58,7 +58,7 @@ function baseParams(
 		agentName: 'Step Agent',
 		workingDirectory,
 		sessionId: 'ses_step' as SessionId,
-		topicId: 'top_step' as ThreadId,
+		topicId: 'top_step' as TopicId,
 		projectId: 'prj_step' as ProjectId,
 		tenantId: 'tnt_step' as TenantId,
 		retry: false as const,

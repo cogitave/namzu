@@ -9,7 +9,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -88,7 +88,7 @@ async function runOnce(parentSpan?: Span) {
 		messages: [createUserMessage('go')],
 		workingDirectory,
 		sessionId: 'ses_t' as SessionId,
-		topicId: 'top_t' as ThreadId,
+		topicId: 'top_t' as TopicId,
 		projectId: 'prj_t' as ProjectId,
 		tenantId: 'tnt_t' as TenantId,
 		...(parentSpan ? { parentSpan } : {}),

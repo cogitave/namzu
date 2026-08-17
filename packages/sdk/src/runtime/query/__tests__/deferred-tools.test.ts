@@ -10,7 +10,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SearchToolsTool } from '../../../tools/builtins/search-tools.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -68,7 +68,7 @@ describe('query deferred tool discovery', () => {
 			messages: [createUserMessage('what tools can you use?')],
 			workingDirectory,
 			sessionId: 'ses_deferred_tools' as SessionId,
-			topicId: 'top_deferred_tools' as ThreadId,
+			topicId: 'top_deferred_tools' as TopicId,
 			projectId: 'prj_deferred_tools' as ProjectId,
 			tenantId: 'tnt_deferred_tools' as TenantId,
 		})
@@ -120,7 +120,7 @@ describe('query deferred tool discovery', () => {
 			messages: [createUserMessage('generate D-01')],
 			workingDirectory,
 			sessionId: 'ses_deferred_allowed_tools' as SessionId,
-			topicId: 'top_deferred_allowed_tools' as ThreadId,
+			topicId: 'top_deferred_allowed_tools' as TopicId,
 			projectId: 'prj_deferred_allowed_tools' as ProjectId,
 			tenantId: 'tnt_deferred_allowed_tools' as TenantId,
 		})

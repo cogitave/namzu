@@ -7,7 +7,7 @@
  * mutation block, a failure after createSession leaves an `active` child
  * session with no subsession edge — invisible to the parent, but counted
  * against `maxDelegationWidth` and visible to SessionStore.listSessions
- * consumers (archive/delete flows in ThreadManager).
+ * consumers (archive/delete flows in TopicManager).
  *
  * Failure modes exercised:
  *   A. Workspace driver throws on create. Subsession exists; must flip to
@@ -26,10 +26,10 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
-import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
+import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -131,7 +131,7 @@ class FailingWorkspaceDriver implements WorkspaceBackendDriver {
 describe('provisionSpawn compensating rollback', () => {
 	it('workspace driver failure — deletes child session, marks subsession failed, leaves no orphan', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: tenant, name: 'rollback-project' },
 			tenant,
@@ -166,7 +166,7 @@ describe('provisionSpawn compensating rollback', () => {
 		const failingDriver = new FailingWorkspaceDriver()
 		workspaceRegistry.register(failingDriver)
 
-		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
+		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
@@ -223,7 +223,7 @@ describe('provisionSpawn compensating rollback', () => {
 
 	it('repeated rollback does not accumulate orphan sessions or subsessions', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{
 				tenantId: tenant,
@@ -260,7 +260,7 @@ describe('provisionSpawn compensating rollback', () => {
 		const workspaceRegistry = new WorkspaceBackendRegistry()
 		workspaceRegistry.register(new FailingWorkspaceDriver())
 
-		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
+		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,

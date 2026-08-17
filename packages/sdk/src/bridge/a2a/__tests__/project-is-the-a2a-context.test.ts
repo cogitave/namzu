@@ -12,7 +12,7 @@ import { a2aMessageToCreateRun, runToA2ATask } from '../task.js'
  * level" and called that the reason the Thread layer is first-class. The code
  * never did it. `runToA2ATask` has always bound `contextId` to `project_id`,
  * `a2aParamsToRunRequest` has always read it back as `projectId`, and
- * `ThreadId` appears nowhere in this bridge.
+ * `TopicId` appears nowhere in this bridge.
  *
  * That gap is why this test exists rather than a comment. The claim was load-
  * bearing — it was the single justification for a whole hierarchy level — and

@@ -11,7 +11,7 @@ import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js
 import { RunDiskStore, readRunEventsIn } from '../../../store/run/disk.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { QueryParams } from '../index.js'
 import { query } from '../index.js'
 import { resumeRun } from '../resume-run.js'
@@ -43,7 +43,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_sub' as ProjectId,
 	sessionId: 'ses_sub' as SessionId,
 	runId: 'run_child' as RunId,
-	topicId: 'top_sub' as ThreadId,
+	topicId: 'top_sub' as TopicId,
 	parentRunId: PARENT,
 }
 

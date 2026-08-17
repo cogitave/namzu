@@ -10,7 +10,7 @@ import {
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -25,10 +25,10 @@ import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/in
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
+import type { SummaryId, TopicId } from '../../../types/session/ids.js'
 import type { DeliverableRef } from '../../../types/summary/deliverable.js'
 import { ZERO_COST } from '../../../utils/cost.js'
-import { TopicManager as ThreadManager } from '../../topic/lifecycle.js'
+import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
 const tenant = 'tnt_alpha' as TenantId
@@ -117,13 +117,13 @@ function agentActor(id: string, tid: TenantId = tenant): ActorRef {
 
 interface Harness {
 	store: InMemorySessionStore
-	threadStore: InMemoryThreadStore
-	threadManager: ThreadManager
+	threadStore: InMemoryTopicStore
+	threadManager: TopicManager
 	materializer: SessionSummaryMaterializer
 	manager: AgentManager
 	parentSession: Awaited<ReturnType<InMemorySessionStore['createSession']>>
 	projectId: import('../../../types/session/ids.js').ProjectId
-	topicId: ThreadId
+	topicId: TopicId
 	registry: AgentRegistry
 }
 
@@ -132,8 +132,8 @@ async function buildHarness(
 	tenantId: TenantId = tenant,
 ): Promise<Harness> {
 	const store = new InMemorySessionStore()
-	const threadStore = new InMemoryThreadStore()
-	const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
+	const threadStore = new InMemoryTopicStore()
+	const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const thread = await threadStore.createTopic(
 		{ projectId: project.id, title: 'lifecycle-test' },
@@ -180,7 +180,7 @@ async function buildHarness(
 function buildContext(
 	parentSessionId: SessionId,
 	projectId: import('../../../types/session/ids.js').ProjectId,
-	topicId: ThreadId,
+	topicId: TopicId,
 	tenantId: TenantId = tenant,
 	depth = 0,
 ): AgentTaskContext {

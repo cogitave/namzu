@@ -9,10 +9,10 @@
  * cross-tenant access throws `TenantIsolationError` with no fallback.
  *
  * NZ-TOPIC-01 renamed this from `InMemoryThreadStore` (moved from
- * `store/thread/memory.ts`). `InMemoryThreadStore` keeps working, unaliased
- * — `public-runtime.ts` re-exports it as a literal identity binding to this
- * class, so `instanceof`/`===` both still hold for a caller who has not
- * migrated.
+ * `store/thread/memory.ts`) and re-exported the old name as an identity
+ * binding. NZ-TOPIC-05 removed that re-export, once 28.0.0 had carried the
+ * deprecation to the registry — the class is reachable only as
+ * `InMemoryTopicStore` now.
  */
 
 import { StaleThreadError, TenantIsolationError } from '../../session/errors.js'

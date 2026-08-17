@@ -10,7 +10,7 @@ import { ToolRegistry } from '../../registry/tool/execute.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { ReactiveAgent } from '../ReactiveAgent.js'
 
@@ -66,7 +66,7 @@ async function baseConfig(provider: MockLLMProvider, tools: ToolRegistry) {
 			provider,
 			tools,
 			sessionId: 'ses_r' as SessionId,
-			topicId: 'top_r' as ThreadId,
+			topicId: 'top_r' as TopicId,
 			projectId: 'prj_r' as ProjectId,
 			tenantId: 'tnt_r' as TenantId,
 		} satisfies ReactiveAgentConfig,

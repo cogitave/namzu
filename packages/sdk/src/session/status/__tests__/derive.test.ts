@@ -2,18 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { RunStatus } from '../../../types/run/status.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { Session, SessionStatus } from '../../../types/session/entity.js'
-import type {
-	ProjectId,
-	SessionId,
-	TenantId,
-	ThreadId,
-	UserId,
-} from '../../../types/session/ids.js'
+import type { ProjectId, SessionId, TenantId, TopicId, UserId } from '../../../types/session/ids.js'
 import { deriveStatus } from '../derive.js'
 
 const tenant = 'tnt_a' as TenantId
 const project = 'prj_a' as ProjectId
-const thread = 'top_a' as ThreadId
+const thread = 'top_a' as TopicId
 
 function user(): ActorRef {
 	return { kind: 'user', userId: 'usr_a' as UserId, tenantId: tenant }

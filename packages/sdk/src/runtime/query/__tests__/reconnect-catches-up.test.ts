@@ -13,7 +13,7 @@ import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEventReplay } from '../../../types/run/event-cursor.js'
 import type { RunEvent } from '../../../types/run/events.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { QueryParams } from '../index.js'
 import { query } from '../index.js'
 import { resumeRun } from '../resume-run.js'
@@ -47,7 +47,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_re' as ProjectId,
 	sessionId: 'ses_re' as SessionId,
 	runId: 'run_re' as RunId,
-	topicId: 'top_re' as ThreadId,
+	topicId: 'top_re' as TopicId,
 }
 
 const dirs: string[] = []

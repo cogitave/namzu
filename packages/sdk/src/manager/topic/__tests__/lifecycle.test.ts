@@ -4,10 +4,10 @@ import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import type { ThreadId } from '../../../types/session/ids.js'
+import type { TopicId } from '../../../types/session/ids.js'
 import { TopicManager } from '../lifecycle.js'
 
-const MISSING_TOPIC_ID = 'top_missing' as ThreadId
+const MISSING_TOPIC_ID = 'top_missing' as TopicId
 
 const tenantA = 'tnt_alpha' as TenantId
 const tenantB = 'tnt_beta' as TenantId

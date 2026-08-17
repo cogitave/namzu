@@ -9,7 +9,7 @@ import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import type { ThreadId, WorkspaceId } from '../../../types/session/ids.js'
+import type { TopicId, WorkspaceId } from '../../../types/session/ids.js'
 import type { SubSession } from '../../../types/session/sub-session.js'
 import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import {
@@ -19,7 +19,7 @@ import {
 } from '../archive.js'
 import { DiskArchiveBackend } from '../disk-backend.js'
 
-const TEST_THREAD_ID = 'top_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as TopicId
 
 const tenantA = 'tnt_alpha' as TenantId
 

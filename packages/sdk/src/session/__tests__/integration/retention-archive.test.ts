@@ -16,14 +16,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ThreadId, WorkspaceId } from '../../../types/session/ids.js'
+import type { TopicId, WorkspaceId } from '../../../types/session/ids.js'
 import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import { ArchivalManager, ArchiveNotConfiguredError } from '../../retention/archive.js'
 import { DiskArchiveBackend } from '../../retention/disk-backend.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, agentActor, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'top_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as TopicId
 
 async function seedIdleSubSession(store: InMemorySessionStore) {
 	const project = await store.createProject(

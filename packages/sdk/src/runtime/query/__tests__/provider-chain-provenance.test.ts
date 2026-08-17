@@ -40,7 +40,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /** A provider that always fails the way `status` says, before any chunk. */
@@ -103,7 +103,7 @@ function baseParams(
 		agentName: 'Test Agent',
 		workingDirectory,
 		sessionId: 'ses_prov' as SessionId,
-		topicId: 'top_prov' as ThreadId,
+		topicId: 'top_prov' as TopicId,
 		projectId: 'prj_prov' as ProjectId,
 		tenantId: 'tnt_prov' as TenantId,
 		// Every failure below is on a code the retry decorator declines, so this

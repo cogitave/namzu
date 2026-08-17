@@ -16,10 +16,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
+import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
-import type { ThreadId } from '../../../types/session/ids.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
+import type { TopicId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../../handoff/assignment.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
@@ -36,7 +36,7 @@ import { DEFAULT_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
 
 function buildDeps(
 	store: InMemorySessionStore,
-	threadStore: InMemoryThreadStore,
+	threadStore: InMemoryTopicStore,
 	runStatus?: RunStatusResolver,
 ): SingleHandoffDeps {
 	const driver = new GitWorktreeDriver({
@@ -54,12 +54,12 @@ function buildDeps(
 		workspaceRegistry,
 		capacity: new DefaultCapacityValidator(store),
 		events,
-		threadManager: new ThreadManager({ topicStore: threadStore, sessionStore: store }),
+		threadManager: new TopicManager({ topicStore: threadStore, sessionStore: store }),
 		...(runStatus !== undefined && { runStatus }),
 	}
 }
 
-async function seedIdleSession(store: InMemorySessionStore, threadStore: InMemoryThreadStore) {
+async function seedIdleSession(store: InMemorySessionStore, threadStore: InMemoryTopicStore) {
 	const project = await store.createProject(
 		{ tenantId: DEFAULT_TENANT, name: 'illegal' },
 		DEFAULT_TENANT,
@@ -78,7 +78,7 @@ async function seedIdleSession(store: InMemorySessionStore, threadStore: InMemor
 function buildAssignment(
 	sourceSessionId: Awaited<ReturnType<InMemorySessionStore['createSession']>>['id'],
 	projectId: Awaited<ReturnType<InMemorySessionStore['createProject']>>['id'],
-	topicId: ThreadId,
+	topicId: TopicId,
 ): HandoffAssignment {
 	return {
 		id: generateHandoffId(),
@@ -97,7 +97,7 @@ function buildAssignment(
 describe('Integration — illegal handoff transitions (§5.1)', () => {
 	it('running Run → HandoffLockRejected { reason: active_run }', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		const deps = buildDeps(store, threadStore, {
 			async blockingRun() {
@@ -122,7 +122,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 
 	it('awaiting_hitl → HandoffLockRejected { reason: pending_hitl }', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		const deps = buildDeps(store, threadStore, {
 			async blockingRun() {
@@ -149,7 +149,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 		// `pending_hitl` for both. This keeps the lock-rejection enum
 		// conservative (no new reason variant for a sub-state).
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		const deps = buildDeps(store, threadStore, {
 			async blockingRun() {
@@ -168,7 +168,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 
 	it('awaiting_subsession → HandoffLockRejected { reason: pending_subsession }', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		const deps = buildDeps(store, threadStore, {
 			async blockingRun() {
@@ -193,7 +193,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 		// When the session itself is already non-idle (e.g. `active`), the lock
 		// rejection fires from the status check — no RunStatusResolver invoked.
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		await store.updateSession({ ...session, status: 'active' }, DEFAULT_TENANT)
 

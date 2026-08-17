@@ -11,7 +11,7 @@ import type { TaskHandle } from '../../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../../types/ids/index.js'
 import { createUserMessage } from '../../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../../types/provider/index.js'
-import type { ProjectId, ThreadId } from '../../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../../types/session/ids.js'
 import { GuardCoordinator } from '../../guard.js'
 import { drainQuery } from '../../index.js'
 import { settleGraceMs } from '../index.js'
@@ -183,7 +183,7 @@ describe('the hold a run pays is the one its own budget allows', () => {
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_grace' as SessionId,
-			topicId: 'top_grace' as ThreadId,
+			topicId: 'top_grace' as TopicId,
 			projectId: 'prj_grace' as ProjectId,
 			tenantId: 'tnt_grace' as TenantId,
 		} as never)
@@ -252,7 +252,7 @@ describe('the hold a run pays is the one its own budget allows', () => {
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_grace' as SessionId,
-			topicId: 'top_grace' as ThreadId,
+			topicId: 'top_grace' as TopicId,
 			projectId: 'prj_grace' as ProjectId,
 			tenantId: 'tnt_grace' as TenantId,
 		} as never)

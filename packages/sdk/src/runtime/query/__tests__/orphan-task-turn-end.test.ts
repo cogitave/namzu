@@ -10,7 +10,7 @@ import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.j
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /** Ends its turn with plain text on the first (and only) call. */
@@ -81,7 +81,7 @@ describe('end of turn with running agent tasks', () => {
 				workingDirectory,
 				taskGateway: orphanTaskGateway(),
 				sessionId: 'ses_orphan_task' as SessionId,
-				topicId: 'top_orphan_task' as ThreadId,
+				topicId: 'top_orphan_task' as TopicId,
 				projectId: 'prj_orphan_task' as ProjectId,
 				tenantId: 'tnt_orphan_task' as TenantId,
 			},

@@ -8,8 +8,6 @@
 
 export type {
 	ProjectId,
-	/** @deprecated Use `TopicId`. */
-	ThreadId,
 	TopicId,
 	SubSessionId,
 	HandoffId,

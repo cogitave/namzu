@@ -10,7 +10,7 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -148,7 +148,7 @@ async function run(opts: {
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_allow' as SessionId,
-			topicId: 'top_allow' as ThreadId,
+			topicId: 'top_allow' as TopicId,
 			projectId: 'prj_allow' as ProjectId,
 			tenantId: 'tnt_allow' as TenantId,
 		},

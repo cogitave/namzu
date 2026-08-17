@@ -8,7 +8,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { Skill } from '../../../types/skills/index.js'
 import { drainQuery } from '../index.js'
 
@@ -54,7 +54,7 @@ async function run(provider: MockLLMProvider, over: Record<string, unknown> = {}
 		agentName: 'Skill Agent',
 		workingDirectory: dir,
 		sessionId: 'ses_sk' as SessionId,
-		topicId: 'top_sk' as ThreadId,
+		topicId: 'top_sk' as TopicId,
 		projectId: 'prj_sk' as ProjectId,
 		tenantId: 'tnt_sk' as TenantId,
 		messages: [createUserMessage('go')],

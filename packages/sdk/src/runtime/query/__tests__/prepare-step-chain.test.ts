@@ -9,7 +9,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { PrepareStepChain } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -47,7 +47,7 @@ async function run(prepareStep: PrepareStepChain) {
 		messages: [createUserMessage('do the work')],
 		workingDirectory,
 		sessionId: 'ses_c' as SessionId,
-		topicId: 'top_c' as ThreadId,
+		topicId: 'top_c' as TopicId,
 		projectId: 'prj_c' as ProjectId,
 		tenantId: 'tnt_c' as TenantId,
 		prepareStep,

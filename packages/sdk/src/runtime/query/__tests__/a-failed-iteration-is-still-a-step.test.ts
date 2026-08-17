@@ -29,7 +29,7 @@ import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { PluginHookEvent } from '../../../types/plugin/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 function registerEcho(tools: ToolRegistry): void {
@@ -71,7 +71,7 @@ function baseParams(provider: MockLLMProvider, tools: ToolRegistry, workingDirec
 		agentName: 'Fail Agent',
 		workingDirectory,
 		sessionId: 'ses_fail' as SessionId,
-		topicId: 'top_fail' as ThreadId,
+		topicId: 'top_fail' as TopicId,
 		projectId: 'prj_fail' as ProjectId,
 		tenantId: 'tnt_fail' as TenantId,
 		retry: false as const,

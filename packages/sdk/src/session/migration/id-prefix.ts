@@ -161,19 +161,6 @@ export function rejectLegacyContainerPrefix(id: string): void {
  * must never call this — the whole point is one warning per distinct
  * legacy id per process.
  */
-/**
- * @deprecated Use {@link acceptLegacyContainerId}. Removal is NZ-TOPIC-05.
- *
- * The rename is the whole point of NZ-TOPIC-04 — `thd_` meant both the
- * pre-0.2.0 top-level container this coerces and the live Topic layer, and
- * only this function's NAME said which. The alias exists so the rename
- * reaches a consumer as a warning first.
- */
-export const acceptLegacyThreadId = acceptLegacyContainerId
-
-/** @deprecated Use {@link rejectLegacyContainerPrefix}. Removal is NZ-TOPIC-05. */
-export const rejectLegacyPrefix = rejectLegacyContainerPrefix
-
 export function __resetSeenLegacyForTests(): void {
 	seenLegacy.clear()
 }

@@ -11,7 +11,7 @@ import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 const ZERO_USAGE = {
@@ -158,7 +158,7 @@ describe('query long-document tool flow', () => {
 				messages: [createUserMessage('create a long document')],
 				workingDirectory,
 				sessionId: 'ses_long_document_flow' as SessionId,
-				topicId: 'top_long_document_flow' as ThreadId,
+				topicId: 'top_long_document_flow' as TopicId,
 				projectId: 'prj_long_document_flow' as ProjectId,
 				tenantId: 'tnt_long_document_flow' as TenantId,
 			},

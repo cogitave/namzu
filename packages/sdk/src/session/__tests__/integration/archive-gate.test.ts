@@ -3,7 +3,7 @@
  * sites (Phase 2.6).
  *
  * The Phase 2.5 commit flagged this as a known gap:
- *   > spawn and handoff paths do not yet invoke `ThreadManager.requireOpen`
+ *   > spawn and handoff paths do not yet invoke `TopicManager.requireOpen`
  *   > before creating a child session. Until they do, the archive invariant
  *   > is best-effort.
  *
@@ -13,9 +13,9 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
+import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { AgentId, RunId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import { generateHandoffId } from '../../../utils/id.js'
@@ -82,7 +82,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 
 	it('Single handoff: rejects with ThreadClosedError when thread is archived (before CAS lock)', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'archive-single' },
 			DEFAULT_TENANT,
@@ -103,7 +103,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 
 		// Archive the thread directly — session is idle, so archive precondition
 		// holds via listSessions.
-		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
+		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
 		await threadManager.archive(thread.id, DEFAULT_TENANT)
 
 		const driver = new GitWorktreeDriver({
@@ -154,7 +154,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 
 	it('Broadcast handoff: rejects with ThreadClosedError when thread is archived (no CAS, no worktrees)', async () => {
 		const store = new InMemorySessionStore()
-		const threadStore = new InMemoryThreadStore()
+		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'archive-bc' },
 			DEFAULT_TENANT,
@@ -168,7 +168,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			DEFAULT_TENANT,
 		)
 
-		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
+		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
 		await threadManager.archive(thread.id, DEFAULT_TENANT)
 
 		let worktreeAdds = 0

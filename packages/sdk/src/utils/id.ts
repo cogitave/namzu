@@ -89,15 +89,6 @@ export function generateTopicId(): TopicId {
 	return generateId('top_')
 }
 
-/**
- * @deprecated Use {@link generateTopicId}. Removal is NZ-TOPIC-05.
- *
- * Mints `top_` from NZ-TOPIC-04 on — an alias that kept minting `thd_`
- * would hand two different id spaces to one program depending on which
- * name the caller happened to import.
- */
-export const generateThreadId = generateTopicId
-
 export function generateRunId(): RunId {
 	return generateId('run_')
 }

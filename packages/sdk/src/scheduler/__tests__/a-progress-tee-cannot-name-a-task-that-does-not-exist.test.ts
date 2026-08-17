@@ -11,7 +11,7 @@ import type {
 } from '../../types/agent/task.js'
 import type { AgentId, RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type { RunEventListener } from '../../types/run/events.js'
-import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import { LocalTaskScheduler } from '../local.js'
 
 /**
@@ -101,7 +101,7 @@ function context(): AgentTaskContext {
 		depth: 0,
 		budgetTracker: { total: 100_000, remaining: 100_000 },
 		tenantId: 'tnt_t' as TenantId,
-		topicId: 'top_t' as ThreadId,
+		topicId: 'top_t' as TopicId,
 		sessionId: 'ses_t' as SessionId,
 		projectId: 'prj_t' as ProjectId,
 		parentActor: { kind: 'agent', agentId: 'supervisor' as AgentId, tenantId: 'tnt_t' as TenantId },

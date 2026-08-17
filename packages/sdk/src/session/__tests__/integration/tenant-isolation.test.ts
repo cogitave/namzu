@@ -14,11 +14,11 @@
 import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../../../types/session/ids.js'
 import { TenantIsolationError } from '../../errors.js'
 import { DEFAULT_TENANT, OTHER_TENANT, agentActor, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'top_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as TopicId
 
 async function seedTenantAResources() {
 	const store = new InMemorySessionStore()
