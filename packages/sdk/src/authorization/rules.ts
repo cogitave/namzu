@@ -2,6 +2,7 @@ import { DANGEROUS_PATTERNS } from '../constants/tools/index.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
+import { decomposeCommandLine } from './command-line.js'
 
 export function evaluateRule(
 	rule: AuthorizationRule,
@@ -105,7 +106,27 @@ export function evaluateRule(
 						: undefined
 			if (subject === undefined) return null
 
-			return compiledPattern.test(subject) ? rule.decision : null
+			// A command line is not one string, and testing it as one is how a
+			// prohibition gets bypassed: `^git push` sees `git push origin main`
+			// and does not see `true; git push origin main`. See
+			// `decomposeCommandLine` for the measurement and for why the two
+			// decisions must read the result differently.
+			const { segments, opaque } = decomposeCommandLine(subject)
+
+			if (rule.decision === 'deny') {
+				// ANY segment. The whole subject is tested first so an
+				// unanchored deny keeps matching across a boundary, which
+				// splitting alone would have taken away.
+				if (compiledPattern.test(subject)) return 'deny'
+				return segments.some((segment) => compiledPattern.test(segment)) ? 'deny' : null
+			}
+
+			// EVERY segment, and nothing that hides one. Permission is a claim
+			// about the whole line; granting it from one matching part is what
+			// let `git status && rm -rf ~` through an allow rule for
+			// `^git status`.
+			if (opaque) return null
+			return segments.every((segment) => compiledPattern.test(segment)) ? 'allow' : null
 		}
 
 		case 'allow_by_tier': {

@@ -182,6 +182,49 @@ is. To refuse a tool over the *shape* of its input, deny it by name. Numbers and
 booleans **are** matched rather than skipped: they render unambiguously, and a
 rule about a numeric argument is a reasonable thing to write.
 
+#### A command line is not one string
+
+The rule above reads the argument as the **commands it runs**, not as the text
+it happens to be. That matters because a value and a command line are different
+things: `git push origin main` is one command, and `true; git push origin main`
+is two — of which the second is the one `noPushing` was written about. An
+anchored pattern tested against the whole value sees only the first, so the rule
+above would have missed every line in the left column:
+
+| Command | Decision |
+|---|---|
+| `git push origin main` | `deny` |
+| `echo hi && git push origin main` | `deny` |
+| `true; git push origin main` | `deny` |
+| `cd /tmp && git push origin main` | `deny` |
+| `bash -c "git push origin main"` | `deny` |
+| `echo "git push is only mentioned"` | not decided |
+
+Chain operators (`&&`, `||`, `;`, `|`, `&`, newline), subshell grouping and a
+nested `sh -c` payload are all read. Quoting is respected, so the last row is
+one command that prints a string and no rule fires on it.
+
+**The two decisions read that decomposition differently, and the asymmetry is
+deliberate.**
+
+- A **`deny`** matches when *any* command on the line matches. One prohibited
+  command poisons the line it rides on.
+- An **`allow`** matches only when *every* command on the line matches.
+  Permission is a claim about the whole line — granting it because the first
+  command matched is what would let `git status && rm -rf ~` through a rule
+  written for `^git status`.
+
+An `allow` additionally declines any line that runs something the decomposition
+cannot see: command substitution (`$(…)`, backticks, `<(…)`) executes text that
+is not in the line, and `eval` runs a string assembled at runtime. A `deny`
+still tests what *is* visible there, because a deny that matches too much costs
+a prompt and a deny that matches too little costs the thing it was written to
+prevent.
+
+A value with no chain operator, no nested shell and nothing opaque is matched
+exactly as it always was, byte for byte — so a rule about a path, a URL or a
+number is unaffected by any of this.
+
 **`custom_pattern` tests text, and `target: 'args'` is the trap.** The subject
 is `JSON.stringify(toolInput)` — the JSON *text of the whole argument object* —
 not any single argument. So against a `bash` call the subject looks like
