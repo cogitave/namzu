@@ -8,7 +8,7 @@ owner: cogitave/namzu
 status: active
 timestamp: 2026-08-17T00:00:00Z
 lastReviewed: 2026-08-17
-resource: packages/evals/package.json
+resource: packages/evals/kernel
 tags: [evals, testing, reference]
 ---
 
