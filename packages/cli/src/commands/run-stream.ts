@@ -313,7 +313,7 @@ export const runStreamCommand: CommandDef = {
 		})
 		if ('error' in modeResult) return fail(modeResult.error)
 
-		const permissions = compilePermissions(ctx.config.permissions)
+		const permissions = compilePermissions(ctx.config.permissions, ctx.config.permissionChecks)
 		for (const d of permissions.diagnostics) {
 			const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
 			// In band, because a host line-scanning stdout has no other channel —

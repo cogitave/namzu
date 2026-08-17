@@ -13,6 +13,8 @@
 
 import { type AuthorizationRule, builtinCommandArguments } from '@namzu/sdk'
 
+import { type PermissionChecksConfig, verifyPermissionChecks } from './checks.js'
+
 /** What the operator wants to happen when a rule matches. */
 export type PermissionEffect = 'allow' | 'ask' | 'deny'
 
@@ -244,10 +246,16 @@ export function bySpecificity(a: string, b: string): number {
  * A tool nobody wrote a rule for is therefore asked about, and there is no way
  * to spell "allow everything by omission" — the only way to widen is to say so.
  */
-export function compilePermissions(config: PermissionsConfig | undefined): CompiledPermissions {
+export function compilePermissions(
+	config: PermissionsConfig | undefined,
+	checks?: PermissionChecksConfig,
+): CompiledPermissions {
 	const rules: AuthorizationRule[] = []
 	const diagnostics: CompileDiagnostic[] = []
-	if (!config) return { rules, diagnostics }
+	// Checks still run against an empty table. "This command is asked about"
+	// is a claim worth holding when there is no config at all, and returning
+	// early would make the check silently pass by never running.
+	if (!config) return { rules, diagnostics: verifyPermissionChecks(rules, checks) }
 
 	// Asked once. The map is derived from the builtin tools rather than listed
 	// here, so a tool that starts or stops taking a command line changes this
@@ -305,5 +313,9 @@ export function compilePermissions(config: PermissionsConfig | undefined): Compi
 			rules.push(commandRule(tool, argument, pattern, effect))
 		}
 	}
+	// After compiling, never during: a check is a claim about the FINISHED
+	// table, and evaluating one against a half-built rule list would answer
+	// with whatever order the config happened to be written in.
+	diagnostics.push(...verifyPermissionChecks(rules, checks))
 	return { rules, diagnostics }
 }

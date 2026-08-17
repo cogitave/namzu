@@ -227,6 +227,41 @@ Two consequences worth knowing before writing a table:
   (`"*git status*"` covers `sudo -u ci git status`), and no longer reaches
   across one. To approve every call to a tool, say `"*": "allow"`.
 
+### Checking a table against what you meant
+
+A table of globs cannot be read for what it does *not* cover, and that is the
+half that matters. `permissionChecks` states the decision you believe each entry
+produces, and every one is evaluated against the compiled table at startup:
+
+```json
+{
+  "permissions": {
+    "bash": { "git status*": "allow", "git push*": "deny", "*": "ask" }
+  },
+  "permissionChecks": [
+    { "tool": "bash", "input": { "command": "git status --short" }, "expect": "allow" },
+    { "tool": "bash", "input": { "command": "git status && rm -rf ~" }, "expect": "ask" },
+    { "tool": "bash", "input": { "command": "true; git push" }, "expect": "deny" }
+  ]
+}
+```
+
+A mismatch is reported by index, naming the decision it got, the one you
+expected, and the rule that decided — then the run continues, because a wrong
+expectation should cost that line and not your whole policy. A check that cannot
+be read is reported too, never skipped: "all checks passed" over a check that
+never ran is the failure this feature exists to remove.
+
+The dangerous-command floor is switched off while checking, on purpose. It would
+answer for the catastrophic commands before any rule of yours was consulted, so
+a check written about your table would be answered by something your table does
+not contain — and would keep passing after the rule it was written for was
+deleted.
+
+`permissionChecks` is not settable from the environment. A variable that could
+replace the checks could also empty them, silencing the one thing that says a
+policy stopped meaning what its author wrote.
+
 **A permission mode only decides the calls no rule decided.** A rule that denied
 a call already stopped it and a rule that allowed one never asked, so neither
 reaches the mode: `--permission-mode` can never reopen a `deny`. The

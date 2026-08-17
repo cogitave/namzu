@@ -287,7 +287,7 @@ export const runCommand: CommandDef = {
 			return EXIT_USAGE
 		}
 
-		const permissions = compilePermissions(ctx.config.permissions)
+		const permissions = compilePermissions(ctx.config.permissions, ctx.config.permissionChecks)
 		for (const d of permissions.diagnostics) {
 			const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
 			ctx.formatter.error({ message: `${where}: ${d.message}` })

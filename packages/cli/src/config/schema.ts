@@ -9,6 +9,7 @@
 
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { FormatName } from '../output/index.js'
+import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 
 export interface NamzuCliConfig {
@@ -24,6 +25,16 @@ export interface NamzuCliConfig {
 	 * it meant before this existed — the absence of a policy never widens one.
 	 */
 	readonly permissions?: PermissionsConfig
+	/**
+	 * What the operator believes the table above decides, checked at startup.
+	 *
+	 * Each entry names a tool, an input, and the expected `"allow" | "ask" |
+	 * "deny"`. A mismatch is reported by index and the run continues — the
+	 * point is to say that a policy does not do what its author said, which
+	 * a table of globs cannot be read for. Absent means nothing is checked,
+	 * which is what it meant before this existed.
+	 */
+	readonly permissionChecks?: PermissionChecksConfig
 	/**
 	 * External tool servers to connect, keyed by the name their tools are
 	 * prefixed with.

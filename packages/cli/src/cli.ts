@@ -188,7 +188,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// nothing at all, so a `permissions` table in a config file did nothing
 			// in the mode most people actually use.
 			const tuiCtx = getContext()
-			const permissions = compilePermissions(tuiCtx.config.permissions)
+			const permissions = compilePermissions(
+				tuiCtx.config.permissions,
+				tuiCtx.config.permissionChecks,
+			)
 			for (const d of permissions.diagnostics) {
 				const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
 				tuiCtx.formatter.error({ message: `${where}: ${d.message}` })

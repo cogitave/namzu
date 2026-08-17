@@ -26,6 +26,7 @@ import { parse as yamlParse } from 'yaml'
 
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { isFormatName } from '../output/index.js'
+import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import type { SessionExportRedactorName } from './schema.js'
 import { DEFAULT_CONFIG, type NamzuCliConfig } from './schema.js'
@@ -254,6 +255,11 @@ const CONFIG_READERS: ConfigReaders = {
 	// sees; dropping those entries here would silence it.
 	permissions: (v) =>
 		typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as PermissionsConfig) : undefined,
+	// Shape only, like `permissions` and for the same reason: per-entry
+	// validation belongs to `verifyPermissionChecks`, which reports a bad
+	// check by index. Dropping a malformed one here would turn "your check is
+	// unreadable" into "your check passed".
+	permissionChecks: (v) => (Array.isArray(v) ? (v as PermissionChecksConfig) : undefined),
 	// Shape only, for the same reason as `permissions`: an entry that names
 	// neither a command nor a url — or both — is reported by name when the
 	// connection is attempted. Dropping it here would turn a mistake the
@@ -344,6 +350,12 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	format: 'NAMZU_FORMAT',
 	quiet: 'NAMZU_QUIET',
 	permissions: undefined,
+	// Deliberately not env-settable, and for a sharper reason than the rest:
+	// a variable that could replace the checks could also empty them, which
+	// would silence the one thing that says a policy stopped meaning what its
+	// author wrote — from a shell profile, with nothing in the config file to
+	// show for it.
+	permissionChecks: undefined,
 	mcpServers: undefined,
 	sandbox: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`
