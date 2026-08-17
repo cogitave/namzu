@@ -89,6 +89,7 @@ import {
 	mergeHostCommands,
 	renderOutcome,
 	runSlash,
+	reviewPrompt,
 } from './slashCommands.js'
 import { splitCompleteBlocks } from './stream-blocks.js'
 import { theme } from './theme.js'
@@ -1457,6 +1458,33 @@ export function App({ ctx }: AppProps) {
 									`Could not record feedback: ${err instanceof Error ? err.message : String(err)}`,
 								)
 							}
+						})()
+						return
+					}
+					case 'review': {
+						void (async () => {
+							const diff = await workspaceDiff(ctx.cwd)
+							if (diff === null) {
+								pushMessage(
+									'system',
+									'Cannot review here — this is not a git repository, or git is unavailable.',
+								)
+								return
+							}
+							if (diff.stat.length === 0 && diff.untracked.length === 0) {
+								// Refused rather than sent. A review request over an
+								// unchanged tree burns a turn and comes back with a
+								// review of nothing, which reads exactly like a review
+								// of something.
+								pushMessage('system', 'Nothing to review — the working tree is clean.')
+								return
+							}
+							// Queued or run, the same two ways a typed message is. A
+							// review composed while a turn is in flight must not jump
+							// the queue, and must not be dropped either.
+							const text = reviewPrompt(diff.stat, diff.untracked)
+							if (state !== 'idle') setQueued((q) => [...q, text])
+							else void runTurn(text, undefined)
 						})()
 						return
 					}

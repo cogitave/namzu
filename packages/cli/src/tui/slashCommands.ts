@@ -62,6 +62,14 @@ export type SlashAction =
 	 */
 	| { kind: 'diff' }
 	/**
+	 * Read the working tree and report on it as a turn.
+	 *
+	 * Async like its neighbours — the file list comes from git — and it ends in
+	 * a PROMPT rather than a message, so the answer arrives the way every other
+	 * answer does and lands in the transcript that gets saved.
+	 */
+	| { kind: 'review' }
+	/**
 	 * A command the KERNEL registered, to be dispatched and rendered.
 	 *
 	 * Its own action kind because the registry's handlers are async — a
@@ -597,6 +605,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (ctx) => ({ kind: 'message', role: 'system', content: renderCost(ctx.usage) }),
 	},
 	{
+		name: 'review',
+		description: 'Ask the agent to review what is uncommitted in this working tree.',
+		action: () => ({ kind: 'review' }),
+	},
+	{
 		name: 'mcp',
 		description: 'Show which tool servers connected, what they expose, and which failed.',
 		action: (ctx) => ({ kind: 'message', role: 'system', content: renderMcp(ctx.mcp) }),
@@ -779,6 +792,55 @@ export function renderCost(usage: SlashContext['usage']): string {
  * that failed silently is indistinguishable from one nobody configured — which
  * is the state an operator is in when a tool they expect is simply not there.
  */
+/**
+ * The turn `/review` sends.
+ *
+ * Two failures shape it, and they pull in opposite directions.
+ *
+ * A review that INVENTS problems is worse than no review, because someone acts
+ * on it — the same reasoning `initPrompt` uses about invented conventions. So
+ * the instruction asks for findings tied to a specific line and for silence
+ * over speculation.
+ *
+ * A review that only reassures is worse than useless, because it buys
+ * confidence nobody earned. So it also refuses the summary-of-the-diff answer:
+ * restating what changed is not review, and it is the shape a model falls into
+ * when it has nothing to say.
+ *
+ * The FILE LIST goes in, not the patch. The agent has tools and a shell; handing
+ * it a truncated 24 kB patch would spend the context that reading the
+ * interesting parts properly requires, and a review of a truncated diff is a
+ * review of whatever fitted.
+ */
+export function reviewPrompt(stat: string, untracked: readonly string[]): string {
+	const lines = [
+		'Review the uncommitted work in this repository.',
+		'',
+		'`git diff HEAD` reports:',
+		'',
+		stat.length > 0 ? stat : '(no tracked file changed)',
+	]
+	if (untracked.length > 0) {
+		lines.push('', 'Untracked, which no diff shows:', ...untracked.map((p) => `  ${p}`))
+	}
+	lines.push(
+		'',
+		'Read what you need — the diff, the files around it, the tests. Then report:',
+		'',
+		'- Correctness problems, each tied to a file and line, with the input or',
+		'  state that produces the wrong behaviour. If you cannot name one, do not',
+		'  raise the finding.',
+		'- Anything the change claims in a comment or a message that the code does',
+		'  not do.',
+		'- Tests that would pass whether or not the change is correct.',
+		'',
+		'Do not summarise the diff back to me — I can read it, and a summary is what',
+		'a review turns into when it has nothing to say. If the work looks right,',
+		'say so in one line and stop. Say plainly what you did not examine.',
+	)
+	return lines.join('\n')
+}
+
 export function renderMcp(mcp: SlashContext['mcp']): string {
 	if (mcp === null) return 'No session yet — no tool servers have been contacted.'
 
