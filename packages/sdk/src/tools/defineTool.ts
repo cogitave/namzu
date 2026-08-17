@@ -48,6 +48,16 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	outputSchema?: Record<string, unknown>
 	/** Settle the run with this tool's output; see {@link ToolDefinition.terminal}. */
 	terminal?: boolean
+	/**
+	 * The argument holding a shell command line; see
+	 * {@link ToolDefinition.commandArgument}.
+	 *
+	 * Here as well as on the definition for the reason `maxRetries` and
+	 * `presentCall` are: this builder is the sanctioned way to author a tool,
+	 * and a field a host reads that the builder cannot set is a field only
+	 * hand-written definitions can use.
+	 */
+	commandArgument?: string
 	execute(input: z.infer<S>, context: ToolContext): Promise<ToolResult>
 }
 
@@ -66,6 +76,7 @@ export function defineTool<S extends z.ZodType>(
 		tier: options.tier,
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+		...(options.commandArgument !== undefined ? { commandArgument: options.commandArgument } : {}),
 		...(options.presentCall ? { presentCall: options.presentCall } : {}),
 		...(options.presentResult ? { presentResult: options.presentResult } : {}),
 		...(options.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),

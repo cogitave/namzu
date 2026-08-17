@@ -24,6 +24,11 @@ export type { UntrustedEnvelope } from './tools/untrusted-envelope.js'
 // ─── Built-in tools ──────────────────────────────────────────────────────
 
 export { getBuiltinTools } from './tools/builtins/index.js'
+// A host compiling operator permissions has a tool name and needs an argument
+// to attach a pattern to. Without one it can only match against the serialised
+// input, which is how an `allow` for `git status*` came to approve
+// `git status && rm -rf ~`.
+export { builtinCommandArguments, commandArgumentOf } from './tools/command-arguments.js'
 export { ReadFileTool } from './tools/builtins/read-file.js'
 export { WriteFileTool } from './tools/builtins/write-file.js'
 export { EditTool } from './tools/builtins/edit.js'

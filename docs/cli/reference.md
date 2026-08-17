@@ -209,6 +209,24 @@ covers `git push`. A line that cannot be compiled is reported by name and the
 rest still load — a permission somebody believes is in force and which was
 silently dropped is the worst outcome available here.
 
+**A rule about `bash` is a rule about the commands the line runs, not about its
+text.** `git status && rm -rf ~` is two commands, and the table above says
+nothing about the second one, so it is not allowed — an `allow` has to match
+*every* command on the line. A `deny` is the mirror: it matches when *any*
+command on the line matches, so `true; git push` is refused by
+`"git push*": "deny"` exactly as `git push` is. Chain operators, subshell
+grouping and a nested `sh -c` payload are all read, and quoting is respected, so
+`echo "git push"` prints a string and trips nothing.
+
+Two consequences worth knowing before writing a table:
+
+- An `allow` declines a line that runs something the rule cannot see —
+  `$(…)`, backticks, `<(…)`, `eval`. It falls through to being asked rather
+  than being refused.
+- A `*` on the left still loosens the match *within* a command
+  (`"*git status*"` covers `sudo -u ci git status`), and no longer reaches
+  across one. To approve every call to a tool, say `"*": "allow"`.
+
 **A permission mode only decides the calls no rule decided.** A rule that denied
 a call already stopped it and a rule that allowed one never asked, so neither
 reaches the mode: `--permission-mode` can never reopen a `deny`. The

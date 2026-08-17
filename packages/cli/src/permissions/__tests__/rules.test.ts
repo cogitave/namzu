@@ -89,7 +89,16 @@ describe('compiling a permissions table', () => {
 	it('emits pattern rules most-specific-first', () => {
 		const { rules } = compilePermissions({ bash: { '*': 'deny', 'git status*': 'allow' } })
 
-		expect(rules.map((r) => ('decision' in r ? r.decision : r.type))).toEqual(['allow', 'deny'])
+		// The catch-all compiles to `deny_by_name` rather than to a pattern.
+		// For a tool that declares a command argument, "every call" cannot be
+		// written as a pattern about that argument: it would stop being true
+		// the moment the tool is called without it. What is under test here is
+		// the ORDER — the specific rule first, whatever the config order —
+		// which is what makes the catch-all a fallback rather than a verdict.
+		expect(rules.map((r) => ('decision' in r ? r.decision : r.type))).toEqual([
+			'allow',
+			'deny_by_name',
+		])
 	})
 
 	it('emits nothing for ask, because the gate already asks by default', () => {
@@ -251,50 +260,93 @@ describe('the rules actually decide a real call', () => {
 		})
 
 		it('still matches a longer word, because that is what a trailing star means', () => {
-			// Not a hole in the anchoring, and this test exists because an
-			// earlier version of the case below asserted the opposite and
-			// failed. `git status*` is a glob, and `git statusx` starts with
-			// `git status`, so a glob that says otherwise would also break
-			// `*.ts`. The anchoring fixes what comes BEFORE the value; what
-			// comes after is the operator's own pattern.
-			expect(
-				decide(ALLOW_GIT_STATUS, 'bash', { command: 'git statusx; cat /etc/shadow' }).decision,
-			).toBe('allow')
-		})
-
-		it('is still loose on the RIGHT of the match, which this change does not fix', () => {
-			// Pinned as a limit, not asserted as a good outcome, and written
-			// after an earlier version of this test claimed the opposite and
-			// failed.
-			//
-			// `git status *` compiles to `^git status( .*)?$`, which by itself
-			// refuses `git statusx`. Scoping it to a tool re-opens it: the rule
-			// is matched against `bash {"command":"…"}`, so the pattern needs a
-			// trailing `.*` to get past the closing `"}` — and that same `.*`
-			// absorbs `x; cat /etc/shadow` too.
-			//
-			// Removing the trailing `.*` is not the fix: `edit = { "*.ts" }`
-			// would then have to match to the end of the serialised object and
-			// would match nothing at all. The right fix is the kernel's
-			// `argument_pattern`, which matches the argument's own VALUE and so
-			// needs neither of these escapes. Wiring it needs a config syntax
-			// for naming the argument, which is an operator-facing decision
-			// rather than a repair.
-			const precise = { bash: { 'git status *': 'allow' } } as const
-			expect(decide(precise, 'bash', { command: 'git status --porcelain' }).decision).toBe('allow')
-			expect(decide(precise, 'bash', { command: 'git statusx; cat /etc/shadow' }).decision).toBe(
+			// `git status*` is a glob, and `git statusx` starts with `git
+			// status`, so a glob that says otherwise would also break `*.ts`.
+			// What the star reaches over is the rest of THIS command.
+			expect(decide(ALLOW_GIT_STATUS, 'bash', { command: 'git statusx --all' }).decision).toBe(
 				'allow',
 			)
 		})
 
-		it('lets a leading star ask for the loose match, since that is what it means', () => {
-			// The operator keeps the old behaviour by writing it, which is the
-			// difference between a default and a decision.
+		it('requires the command to START with what the operator named', () => {
+			// The anchoring decision this file already made, now pinned where it
+			// can be lost. Decomposition alone does NOT preserve it: an
+			// unanchored `git status.*` matched per command still refuses
+			// `rm -rf ~/.ssh; git status`, so removing the anchor passes every
+			// other case here. What it stops is one command that merely
+			// CONTAINS the named one — which is what a leading `*` is for, and
+			// what its absence has to mean.
+			expect(decide(ALLOW_GIT_STATUS, 'bash', { command: 'sudo -u ci git status' }).decision).toBe(
+				'review',
+			)
+		})
+
+		it('does not let that star reach past a separator into another command', () => {
+			// This used to be `allow`, and the comment beside it called the
+			// looseness unfixable from the CLI. It was fixable — not by
+			// changing the glob but by changing the SUBJECT. The rule is now
+			// matched against the commands the line runs, and an allow has to
+			// match every one of them, so the star stops where the command
+			// does.
+			expect(
+				decide(ALLOW_GIT_STATUS, 'bash', { command: 'git statusx; cat /etc/shadow' }).decision,
+			).toBe('review')
+		})
+
+		it('is no longer loose on the RIGHT of the match', () => {
+			// The limitation this file used to pin as unfixable. `git status *`
+			// compiles to `^git status( .*)?$`, which by itself refuses `git
+			// statusx` — and scoping it to a tool used to re-open it, because
+			// the pattern needed a trailing `.*` to get past the closing `"}`
+			// of the serialised input and that `.*` absorbed `x; cat
+			// /etc/shadow` as well.
+			//
+			// The escape is gone because the serialised object is: the subject
+			// is the argument's own value, read as the commands it runs.
+			const precise = { bash: { 'git status *': 'allow' } } as const
+			expect(decide(precise, 'bash', { command: 'git status --porcelain' }).decision).toBe('allow')
+			expect(decide(precise, 'bash', { command: 'git statusx; cat /etc/shadow' }).decision).toBe(
+				'review',
+			)
+		})
+
+		it('refuses to allow a chain carrying a command the operator did not name', () => {
+			// The whole point of the change, in the form an operator would hit
+			// it. `git status*` said nothing about `rm -rf ~`, and used to
+			// approve it anyway because the match only had to begin where the
+			// value began.
+			expect(decide(ALLOW_GIT_STATUS, 'bash', { command: 'git status && rm -rf ~' }).decision).toBe(
+				'review',
+			)
+		})
+
+		it('allows a chain whose every command the operator did name', () => {
+			// The cost of the rule above, held to what it should be. Requiring
+			// every command to match must not mean refusing every chain, or the
+			// config becomes unusable and gets replaced with `*`.
+			expect(
+				decide(ALLOW_GIT_STATUS, 'bash', { command: 'git status && git status --short' }).decision,
+			).toBe('allow')
+		})
+
+		it('lets a leading star match mid-command, but not across commands', () => {
+			// The escape hatch still opens what it always opened — a match that
+			// does not have to start where the command starts:
+			expect(
+				decide({ bash: { '*git status*': 'allow' } }, 'bash', {
+					command: 'sudo -u ci git status',
+				}).decision,
+			).toBe('allow')
+
+			// — and no longer opens what it should never have opened. A star is
+			// how an operator loosens the match WITHIN a command; there is no
+			// spelling that makes an allow cover a command it does not mention,
+			// because that is what `*` = allow is for.
 			expect(
 				decide({ bash: { '*git status*': 'allow' } }, 'bash', {
 					command: 'rm -rf ~/.ssh; git status',
 				}).decision,
-			).toBe('allow')
+			).toBe('review')
 		})
 
 		it('keeps a deny loose, because a deny that stops matching fails open', () => {
@@ -351,7 +403,11 @@ describe('what a denial actually says to the model', () => {
 			command: 'git push --force',
 		})
 
-		expect(reason).toContain('pattern rule')
+		// It names the ARGUMENT that matched, which the old sentence could not:
+		// a rule compiled against the serialised input had no argument to name,
+		// so the model was told a "pattern rule" stopped it and left to guess
+		// which part of its call was the problem.
+		expect(reason).toContain('command')
 		// The model is shown the rule itself, not the name of its category, so
 		// it can tell which of its options are closed and which are not.
 		expect(reason).toContain('git push')

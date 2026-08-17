@@ -415,6 +415,26 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * request.
 	 */
 	outputSchema?: Record<string, unknown>
+	/**
+	 * The argument that holds a shell command line, when one does.
+	 *
+	 * Declared on the tool because only the tool knows. An operator writing
+	 * `bash = { "git status*" = "allow" }` means the `command` argument, and
+	 * every other way of learning that is a list somewhere else that drifts:
+	 * a host compiling permissions has the tool's NAME and no reason to know
+	 * which of its arguments is the interesting one.
+	 *
+	 * What it buys is the difference between a permission about text and a
+	 * permission about commands. A rule routed through this argument reads
+	 * `git status && rm -rf ~` as the two commands it is, so an `allow`
+	 * written for `git status*` declines it instead of approving it on the
+	 * strength of the first few words. See `decomposeCommandLine`.
+	 *
+	 * Omit it on every tool that takes no command line. A tool that runs
+	 * something but takes an argument list rather than a line — no shell, no
+	 * chaining — has nothing to decompose and must not claim otherwise.
+	 */
+	commandArgument?: string
 	execute(input: TInput, context: ToolContext): Promise<ToolResult>
 	tier?: string
 	permissions?: ToolPermission[]

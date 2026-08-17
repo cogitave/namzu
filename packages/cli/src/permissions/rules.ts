@@ -11,7 +11,7 @@
  * thing that decides anything, which is what keeps this testable without a run.
  */
 
-import type { AuthorizationRule } from '@namzu/sdk'
+import { type AuthorizationRule, builtinCommandArguments } from '@namzu/sdk'
 
 /** What the operator wants to happen when a rule matches. */
 export type PermissionEffect = 'allow' | 'ask' | 'deny'
@@ -116,8 +116,8 @@ export function patternToRegExpSource(pattern: string): string {
  * own leading `.*` sits after the quote. `git status*` is anchored, and
  * `*git status*` is not.
  *
- * **Two loosenesses remain, and neither is fixable from here.** Both come from
- * matching a glob against a SERIALISED OBJECT rather than against a value.
+ * **Two loosenesses remain here, and both come from matching a glob against a
+ * SERIALISED OBJECT rather than against a value.**
  *
  * 1. A pattern can match the start of ANY argument's value, not only the one
  *    the operator had in mind.
@@ -129,9 +129,17 @@ export function patternToRegExpSource(pattern: string): string {
  *    the serialised object and would match nothing.
  *
  * The kernel's `argument_pattern` removes both, because its subject is the
- * argument's own value and it needs neither escape. It is implemented and
- * unused here. Reaching it needs a way for an operator to NAME the argument in
- * config, which is an operator-facing syntax decision rather than a repair.
+ * argument's own value and it needs neither escape. This comment used to say
+ * reaching it needed an operator-facing way to NAME the argument, and that was
+ * the wrong place to look for the name: the operator does not know it and
+ * should not have to, while the TOOL always does. A tool that declares
+ * `commandArgument` is compiled through `argument_pattern` instead, which is
+ * why `bash` no longer arrives here at all.
+ *
+ * What is left for this function is every tool that declares nothing — MCP
+ * servers, host tools, `edit` and `read` — where a glob against the serialised
+ * input remains the only subject available, and where loosening 2 is bounded
+ * by there being no command line to chain onto.
  */
 export function toolScopedPattern(
 	tool: string,
@@ -146,6 +154,47 @@ export function toolScopedPattern(
 	// same set and silently is not for a tool called with a bare number.
 	const anchorToValue = decision === 'allow' && pattern.replaceAll('*', '') !== ''
 	return anchorToValue ? `^${toolPart} .*"${argPart}.*$` : `^${toolPart} .*${argPart}.*$`
+}
+
+/**
+ * Compile one pattern for a tool that declares a command argument.
+ *
+ * This carries the asymmetry `toolScopedPattern` established, because the
+ * reasons for it did not change when the subject did. An `allow` anchors: it is
+ * a claim about a command, and a claim that matches a prefix is a claim about
+ * something else. A `deny` stays loose: an operator who denied `rm -rf*` means
+ * it wherever it appears, and `sudo rm -rf /` is the case that proves it —
+ * anchoring the deny would stop it matching, and a deny that stops matching
+ * fails open.
+ *
+ * What the subject gained is the part that could not be done before. The gate
+ * reads this argument as the COMMANDS the line runs, so the anchored `allow`
+ * is anchored per command: `git status*` no longer approves
+ * `git status && rm -rf ~`, and the loose `deny` now also sees a command that
+ * rides behind a separator.
+ */
+function commandRule(
+	tool: string,
+	argument: string,
+	pattern: string,
+	decision: 'allow' | 'deny',
+): AuthorizationRule {
+	// All wildcards means "every call to this tool", and that has to keep
+	// meaning it. As a pattern it would stop being true the moment the tool is
+	// called without that argument, so it is emitted as the rule that says it.
+	if (pattern.replaceAll('*', '') === '') {
+		return decision === 'allow'
+			? { type: 'allow_by_name', toolNames: [tool] }
+			: { type: 'deny_by_name', toolNames: [tool] }
+	}
+	const anchored = patternToRegExpSource(pattern)
+	return {
+		type: 'argument_pattern',
+		toolNames: [tool],
+		argument,
+		pattern: decision === 'allow' ? anchored : anchored.slice(1, -1),
+		decision,
+	}
 }
 
 function escapeRegExp(value: string): string {
@@ -200,6 +249,11 @@ export function compilePermissions(config: PermissionsConfig | undefined): Compi
 	const diagnostics: CompileDiagnostic[] = []
 	if (!config) return { rules, diagnostics }
 
+	// Asked once. The map is derived from the builtin tools rather than listed
+	// here, so a tool that starts or stops taking a command line changes this
+	// compiler by changing itself.
+	const commandArguments = builtinCommandArguments()
+
 	for (const [tool, permission] of Object.entries(config)) {
 		if (isPermissionEffect(permission)) {
 			if (permission === 'allow') rules.push({ type: 'allow_by_name', toolNames: [tool] })
@@ -234,12 +288,21 @@ export function compilePermissions(config: PermissionsConfig | undefined): Compi
 				})
 				continue
 			}
-			rules.push({
-				type: 'custom_pattern',
-				pattern: toolScopedPattern(tool, pattern, effect),
-				target: 'both',
-				decision: effect,
-			})
+			// A tool that declares which of its arguments holds a command line
+			// gets the rule that can read one. `custom_pattern` stays the
+			// fallback for everything else, and the two loosenesses documented
+			// on `toolScopedPattern` are exactly what this branch removes.
+			const argument = commandArguments.get(tool)
+			if (argument === undefined) {
+				rules.push({
+					type: 'custom_pattern',
+					pattern: toolScopedPattern(tool, pattern, effect),
+					target: 'both',
+					decision: effect,
+				})
+				continue
+			}
+			rules.push(commandRule(tool, argument, pattern, effect))
 		}
 	}
 	return { rules, diagnostics }

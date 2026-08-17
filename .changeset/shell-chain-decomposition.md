@@ -32,3 +32,9 @@ it, or approve the tool by name.
 A value with no chain operator, no nested shell and nothing opaque is matched
 exactly as before, byte for byte, so rules about a path, a URL or a number are
 unaffected.
+
+`ToolDefinition` and `defineTool` gain an optional `commandArgument`, naming the
+argument that holds a command line — `bash` declares `command`. A host
+compiling operator permissions has a tool name and needs an argument to attach a
+pattern to, and every other way of learning that is a list elsewhere that
+drifts. `builtinCommandArguments()` and `commandArgumentOf()` read it back.

@@ -98,6 +98,10 @@ export const BashTool = defineTool({
 		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.',
 	inputSchema,
 	category: 'shell',
+	// This tool's own description tells the model to chain with `&&` and `;`,
+	// so a permission rule about it is a rule about several commands more often
+	// than not. Naming the argument is what lets the gate read it that way.
+	commandArgument: 'command',
 	permissions: ['shell_execute'],
 	readOnly: false,
 	destructive: (input: BashInput) => isDangerousCommand(input.command),
