@@ -2,11 +2,10 @@
 type: Reference
 title: "@namzu/cli"
 description: >-
-  The terminal agent for @namzu/sdk and the operator commands around it. Bare
-  namzu opens an interactive session; the same binary runs one prompt headlessly,
-  streams events for a host UI, drains parked runs and diagnoses the machine.
-  Separate from the kernel because none of this is something a library should own.
-tags: [readme, package, cli, terminal-agent, operator]
+  A terminal coding agent built on the Namzu kernel, from the same public API
+  you get. Interactive sessions, headless runs that stream structured events,
+  and a doctor that reports what the host can actually do.
+tags: [readme, package, cli, agent]
 timestamp: 2026-08-17T00:00:00Z
 status: active
 diataxis: reference
@@ -16,45 +15,36 @@ diataxis: reference
 
 <h1>@namzu/cli</h1>
 
-**A terminal coding agent built on [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk), from the same public API you get.**
+**A terminal coding agent, built on [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk).**
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-[![npm](https://img.shields.io/npm/v/@namzu/cli.svg?label=%40namzu%2Fcli)](https://www.npmjs.com/package/@namzu/cli)
+[![npm](https://img.shields.io/npm/v/@namzu/cli.svg)](https://www.npmjs.com/package/@namzu/cli)
+[![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
 
-[Install](#install) · [Commands](#commands) · [Headless runs](#headless-runs) · [Configuration](#configuration) · [Doctor](#namzu-doctor) · [Library](#as-a-library)
+[Install](#install) · [Usage](#usage) · [Headless](#headless-runs) · [Documentation](#documentation)
 
 </div>
 
 ---
 
-## What this is
-
-Bare `namzu` opens an interactive terminal agent. The same binary is scriptable:
-one prompt and a printed reply, one prompt and a stream of newline-delimited
-events for a host UI, a session's history as JSON, a health report, a pass over
-runs some other process left parked.
-
-It is built entirely on `@namzu/sdk`, in the same repository, out of the public
-API — it exists as much to prove the kernel as to be used. The kernel renders no
-UI, reads no config file and owns no terminal; everything in that sentence is
-this package's job.
-
-It is also a library. `runCli` is the whole shell as one call, and the doctor
-registry, the config cascade, the output formatter and the capability probe are
-exported on their own, for a host that wants the operator surface inside its own
-process rather than behind a subprocess boundary.
+A terminal coding agent built entirely on the Namzu kernel, in the same
+repository, from the same public API you get. It exists as much to prove the
+kernel as to be used: every gap in the SDK showed up first as something the CLI
+had to work around.
 
 ## Install
 
 ```bash
 npm install -g @namzu/cli     # the binary
-npx @namzu/cli                # run it once without installing
+npx @namzu/cli                # or run it once without installing
 ```
 
-There is also an installer, which checks for Node 20+, installs the package and
-then verifies the binary answers before claiming success. If the global prefix is
-not writable it retries into `~/.namzu` and names the one line to add to your
-profile; it never re-runs itself with elevated privileges.
+Requires Node.js 20+.
+
+There is also an installer, which checks the Node version, installs the package
+and then verifies the binary answers before claiming success. If the global
+prefix is not writable it retries into `~/.namzu` and names the one line to add
+to your profile; it never re-runs itself with elevated privileges.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
@@ -62,362 +52,39 @@ curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
 irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
 ```
 
-Node 20 or newer, either way.
+Installing brings the kernel and four model drivers — Anthropic, OpenAI,
+OpenRouter and Ollama — plus `@namzu/files`, as ordinary dependencies rather
+than peers. So a fresh install can already reach any of those services, given a
+credential. `@namzu/telemetry`, `@namzu/sandbox` and `@namzu/computer-use` are
+**not** installed with it; they are the optional capabilities `namzu doctor`
+probes for.
 
-Installing it brings the kernel and four model drivers — `@namzu/anthropic`,
-`@namzu/openai`, `@namzu/openrouter`, `@namzu/ollama` — plus `@namzu/files`.
-These are ordinary dependencies rather than peers, so a fresh install can already
-reach any of those four services, given a credential where the service wants one.
-`@namzu/telemetry`, `@namzu/sandbox` and `@namzu/computer-use` are **not**
-installed with it; they are the optional capabilities `namzu doctor` probes for.
-
-To embed it instead of installing the binary:
+## Usage
 
 ```bash
-pnpm add @namzu/cli
+namzu                       # interactive session in the current directory
+namzu doctor                # what this host can actually do, and what is missing
+namzu login                 # store a credential in the vault
 ```
-
-## The interactive session
-
-With a terminal attached, bare `namzu` launches the terminal UI. Without one — a
-pipe, a CI step — it prints a single line saying an interactive session needs a
-terminal and exits `0`, so a script that reaches the bare binary by accident does
-not hang against a renderer with nothing to render into.
-
-Three things happen on the way in, and they are the difference between a toy and
-something you point at a real repository:
-
-- **A folder nobody has trusted is not one it works in.** Launching in an
-  unfamiliar working directory stops and asks, because reading files, running
-  commands and editing code there is what it is about to be able to do. Accepting
-  the prompt trusts the folder permanently; `--trust` accepts it for one run and
-  deliberately does not remember.
-- **The repository gets to state how it wants work done.** `AGENTS.md` is read
-  from the working directory upward to the repository root, outermost first, so
-  the file nearest the work has the final word. The files that were loaded are
-  named on stderr, and one that was skipped is named with its reason — a refusal
-  that says nothing is indistinguishable from a project that declared nothing.
-- **It connects the tool servers you declare.** Each server's tools arrive
-  prefixed with its name (`mcp_tickets_create`), so two servers offering `search`
-  do not collide. A server that fails to start is named with its reason: the
-  interactive session reports and carries on, because a person can read the line
-  and decide, and a headless run refuses, because nobody is watching.
-
-Inside the session: `/help`, `/tools`, `/skills`, `/skill`, `/resume`,
-`/provider`, `/model`, `/permissions`, `/cost`, `/memory`, `/remember`,
-`/expand`, `/init`, `/login`, `/logout`, `/clear`, `/feedback`, `/quit`,
-`/exit`. Commands the kernel's own registry contributes are merged in beside
-them; a name claimed by both raises an error rather than letting one silently
-shadow the other.
-
-## Commands
-
-| Command | What it does |
-|---|---|
-| `namzu` | The interactive terminal agent |
-| `namzu run <prompt…>` | One prompt, headless. The reply goes to stdout, status lines to stderr |
-| `namzu run-stream <prompt…>` | The same run, one JSON event per line, for a host UI that renders progress |
-| `namzu history --session <id>` | That session's persisted messages, as JSON |
-| `namzu skills-json` | The skills discovered for a working directory, as JSON |
-| `namzu providers-json` | Providers and their per-provider models, as JSON |
-| `namzu doctor` | Health checks against this machine |
-| `namzu login` / `namzu logout` | Store, or remove, a provider subscription credential |
-| `namzu drain` | Continue runs another process left behind — one pass, then exit |
-| `namzu eval` | Run eval suites and set an exit code |
-| `namzu acp` | Speak the agent-client protocol over this process's stdio |
-| `namzu serve` | Answers that there is no daemon: a run is an ordinary process |
-| `namzu skills` | **Not implemented.** Prints a marker naming the milestone that will implement it, rather than answering "unknown command" |
-
-Options that belong to the program rather than to a command go **before** the
-subcommand: `-f, --format text|json|yaml`, `-q, --quiet`, `-v, --verbose`,
-`--log-format pretty|json`, `--dangerously-skip-permissions` (alias `--yolo`),
-`-V, --version`. `namzu run "…" --verbose` is the order a person types and it is
-refused, but the refusal names the option as positional — "try `namzu --verbose
-<command> …`" — rather than handing back the generic advice about prompts that
-begin with a dash, which is about the wrong half of that command line.
-
-`namzu drain` deserves one sentence, because its shape is a decision rather than
-a limitation: namzu has no daemon, so continuing parked runs is a command your
-scheduler invokes, not a service that sits there. It takes every run under a
-`--tenant`/`--project`/`--session` scope that no worker currently holds,
-continues it from its last checkpoint, releases it, and exits. A run parked on a
-human decision is reported, never resumed past — the answer belongs to a person,
-and a drainer that continued without it would discard the question the run
-stopped to ask.
 
 ## Headless runs
 
-`namzu run` and `namzu run-stream` are the same one-shot differing only in how
-they print, and they share one argument parser, so an option honoured by one is
-honoured by the other.
-
 ```bash
-namzu run "what does this repository build?"
-echo "summarise this" | namzu run
-cat notes.txt | namzu run "summarise this"
-namzu run --cwd ../service --gate 'pnpm typecheck' --gate 'pnpm test' "fix the failing test"
+namzu run "fix the failing test" --format json
+namzu run-stream "refactor the parser" | jq -c 'select(.type == "tool_call")'
 ```
 
-Piped input is used rather than discarded. With no prompt argument it *is* the
-prompt; alongside one it is appended as material the question is about, fenced in
-a `<stdin>` tag so the last line of a file cannot run into the request. `namzu
-run -` reads the prompt from stdin explicitly. Everything that is not an option
-is the prompt — and an option this parser does not recognise is refused rather
-than read aloud to the model, which is the worst available response to a typo.
+`run` prints a result; `run-stream` emits one structured event per line as the
+run happens, so a script can act on a tool call before the run is over. Both
+take `--verbose`/`--quiet`, and both write logs to stderr so stdout stays a
+clean protocol stream.
 
-| Option | What it does |
-|---|---|
-| `--cwd <path>` | Directory the agent works in. A path that is missing or is not a directory is refused, never silently ignored |
-| `--provider <id>` | Replaces the provider chain with this provider alone |
-| `--model <id>` | Re-models the existing primary and leaves the rest of the chain intact |
-| `--skills <a,b,c>` | Load these skills as context for the turn, resolved under `--cwd` |
-| `--session <id>` | Bind `run-stream` (and `history`) to a session |
-| `--continue`, `-c` | Resume the most recent conversation here (`run`) |
-| `--resume <id>` | Resume that conversation and no other (`run`) |
-| `--gate <command>` | Must exit `0` before the run may settle. Repeatable; they run in order and stop at the first failure |
-| `--gate-retries <n>` | Fix attempts a failing gate allows. Default `3` |
-| `--permission-mode <m>` | `prompt`, `auto` or `strict` — what happens to a call no rule decided. `auto` when there is nobody to ask |
-| `--trust` | Accept this working directory for this run only |
-| `--yolo` | Alias of `--dangerously-skip-permissions`: resolves undecided calls to `auto`. It does **not** imply `--trust` |
-| `--` | End of options; everything after it is the prompt verbatim |
+## Documentation
 
-`--continue` and `--resume` are `run` options and are refused by `run-stream`
-rather than ignored. Neither ever falls back to starting a fresh conversation:
-somebody who asked for a specific one and got a new one that looks the same finds
-out several turns later, having already acted on it.
-
-**`--gate` is the unattended-operator flag.** The run is not allowed to settle
-until every gate command exits `0`. A failure comes back to the model as the next
-turn, naming the command, the exit code and the output; a gate is not re-run when
-the answer changed nothing on disk, because "the workspace is unchanged" is a
-different instruction from repeating a failure the model has already been shown.
-When the attempts run out the run stops with `answer_rejected` and a non-zero
-exit — never a green run over a red build.
-
-The two commands report failure differently, on purpose, because their callers
-listen for different things. `run` answers a shell: `0` on a reply, `1` on a
-failed or unfinished run (including one stopped by a budget, a timeout, an
-iteration cap or a blocking guardrail, where the partial text still prints), `2`
-when no prompt was supplied, `64` when an argument is wrong, `77` when the folder
-has not been trusted and nothing ran. `run-stream` answers a line-scanning host,
-so every failure is an `error` event on stdout and the exit code says only
-whether the caller could reach the run by sending something else: `0` when they
-could, `1` when they could not, `77` for the untrusted folder that only a person
-can change.
-
-## Configuration
-
-Highest precedence first:
-
-1. Command-line flags
-2. `NAMZU_*` environment variables
-3. `./namzu.config.json` — the project's
-4. `~/.namzu/config.yaml` — the user's
-5. Built-in defaults (`format: 'text'`, `quiet: false`)
-
-A file that is not there contributes nothing, and that is a default. A file that
-**is** there and cannot be established — invalid YAML or JSON, a permission
-error, a top level that is not a mapping — stops the CLI with exit `78` instead
-of continuing on settings it failed to read. That refusal is load-bearing:
-`permissions` is read from these files, so an unreadable config degrading to `{}`
-would turn an operator's deny list into approval of the same calls, on the one
-path where nobody is watching.
-
-| Key | Shape | Notes |
-|---|---|---|
-| `format` | `'text' \| 'json' \| 'yaml'` | Default `text`. Also `NAMZU_FORMAT` |
-| `quiet` | `boolean` | Default `false`. Also `NAMZU_QUIET` (`1`/`true`/`0`/`false`) |
-| `permissions` | tool → effect, or tool → { pattern → effect } | Effects are `allow`, `ask`, `deny`. Absent means every mutating tool prompts |
-| `mcpServers` | name → `{ command, args }` or `{ url }` | Tools arrive prefixed with the server's name |
-| `sandbox` | `{ enabled?, requireIsolation? }` | `enabled` defaults to **on**. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start |
-| `telemetry` | `{ sessionExport?: { destination, eventTypes?, redactors? } }` | Writes run events to a JSONL file. `redactors: []` means no redaction and has to be written to mean it |
-
-Only `format` and `quiet` are settable from the environment. `telemetry` is
-deliberately not: a variable in a shell profile could otherwise start exporting
-conversation content with nothing in the config file to show for it. Separately,
-`NAMZU_LOG_LEVEL` and `NAMZU_LOG_FORMAT` govern the log records on stderr rather
-than this config, and `--verbose` / `--quiet` on the command line beat them.
-
-```json
-{
-  "permissions": {
-    "bash": { "git status*": "allow", "git push*": "deny", "*": "ask" },
-    "write": "ask"
-  },
-  "mcpServers": {
-    "tickets": { "command": "node", "args": ["./tickets-server.js"] }
-  },
-  "sandbox": { "requireIsolation": ["filesystem", "network"] }
-}
-```
-
-A pattern ending in `<space>*` also matches the bare command, so `git push *`
-covers `git push`. A line that cannot be compiled is reported by name and the
-rest still load — a permission somebody believes is in force and which was
-silently dropped is the worst outcome available here.
-
-**A permission mode only decides the calls no rule decided.** A rule that denied
-a call already stopped it and a rule that allowed one never asked, so neither
-reaches the mode: `--permission-mode` can never reopen a `deny`. The
-dangerous-pattern floor sits above both, and no mode reaches that either — which
-is why `--yolo` promises more than it delivers, on purpose.
-
-## `namzu doctor`
-
-```bash
-namzu doctor                              # human-readable, every category
-namzu doctor --json                       # machine-readable report
-namzu doctor --category sandbox,runtime   # sandbox, providers, vault, telemetry, runtime, plugins, custom
-namzu doctor --per-check-timeout 8000     # default 5000
-namzu doctor --wall-clock-timeout 20000   # default 10000
-namzu doctor --verbose                    # repeat the failures, with their messages
-```
-
-The built-in checks, in the order they are reported:
-
-| Check | Category | What it establishes |
-|---|---|---|
-| `sandbox.platform` | `sandbox` | What this host will actually confine — asked of the local sandbox provider, not answered from a table keyed on the OS name |
-| `runtime.cwd-writable` | `runtime` | `W_OK` on the working directory |
-| `runtime.tmpdir-writable` | `runtime` | `W_OK` on the temp directory |
-| `providers.registered` | `providers` | Skipped: there is no provider auto-discovery, so a host registers its own check |
-| `providers.credentials` | `providers` | Which credential sources were scanned, and what each yielded |
-| `providers.chain` | `providers` | Which of the credentials found are actually wired into the chain, member by member |
-| `vault.registered` | `vault` | Each registered credential provider's refs — *described*, never resolved, because this output gets pasted into issues |
-| `sandbox.installed` | `sandbox` | `@namzu/sandbox`: absent, present, or installed and failing to load |
-| `files.installed` | `custom` | `@namzu/files`, same three states |
-| `computer-use.installed` | `custom` | `@namzu/computer-use`, same three states |
-| `telemetry.installed` | `telemetry` | `@namzu/telemetry`, same three states |
-| `logging.pipeline` | `custom` | What the log pipeline did to the records every check above just produced — dropped, redacted, truncated |
-| `runtime.invariants` | `runtime` | Every registered invariant, folded with its violation counter |
-| `telemetry.session-export` | `telemetry` | What this invocation's configuration would send off the machine, in a sentence |
-
-Those four `*.installed` rows are the tri-state capability probe, not a
-`try { await import() } catch`. Resolving and loading are asked separately so
-that "not installed" and "installed and broken" cannot collapse into one answer:
-the first is an optional package legitimately absent, the second is a machine
-running degraded, and telling somebody who already has the package to install it
-is useless advice.
-
-Exit codes:
-
-| Code | Meaning |
-|---|---|
-| `0` | Every check answered, and none of them failed |
-| `1` | One or more checks reported `fail` |
-| `2` | No checks registered — namzu is not configured here |
-| `64` | An argument to `doctor` is wrong. Distinct from `70`: `70` says this CLI is broken and is worth a bug report, `64` says the invocation is |
-| `69` | A check could not answer — it timed out, was aborted, or what it reads threw. Separate from `0` because a report that did not manage to look tells you nothing about the part it did look at, and separate from `1` because nothing was established to have failed |
-| `70` | Internal CLI error |
-
-A `skipped` check never moves the code off `0`. An optional package absent or a
-registry with nothing to discover is an ordinary state of a healthy machine, and
-a diagnostic that went non-zero on every healthy machine would be switched off
-within a week.
-
-The full page, including what each status word means, is
-[`docs/cli/doctor.md`](../../docs/cli/doctor.md).
-
-## As a library
-
-The whole shell, as one call:
-
-```ts
-import { runCli } from '@namzu/cli'
-
-process.exit(await runCli({ argv: process.argv }))
-```
-
-The reason to run the doctor in-process rather than shelling out to the binary is
-visibility: `registerDoctorCheck` writes to a process-wide registry, so a check
-your application registers is only seen by a `runDoctor()` in the same process.
-
-```ts
-import { registerDoctorCheck, runDoctor } from '@namzu/cli'
-
-registerDoctorCheck({
-  id: 'app.queue.reachable',
-  category: 'custom',
-  run: async () => {
-    const url = process.env.QUEUE_URL
-    if (!url) return { status: 'skipped', message: 'QUEUE_URL is not set' }
-    const response = await fetch(`${url}/health`)
-    return response.ok
-      ? { status: 'pass', message: `queue answered ${response.status}` }
-      : {
-          status: 'fail',
-          message: `queue answered ${response.status}`,
-          remediation: 'Check QUEUE_URL and the broker credentials.',
-        }
-  },
-})
-
-const report = await runDoctor()
-process.exit(report.exit)
-```
-
-`createDoctorRegistry()` returns an isolated registry for a test, and
-`runDoctor({ registry })` runs against it instead of the singleton.
-`builtInDoctorChecks` is the array the binary registers, exported so an embedder
-can start from the same set. The individual checks are exported too —
-`sandboxPlatformCheck`, `cwdWritableCheck`, `tmpdirWritableCheck`,
-`providersRegisteredCheck`, `credentialSourcesCheck`, `providerChainCheck`,
-`vaultRegisteredCheck`, `sandboxInstalledCheck`, `filesInstalledCheck`,
-`computerUseInstalledCheck`, `telemetryInstalledCheck` — for registering a subset.
-
-**Why the split runs where it does.** The doctor's protocol types
-(`DoctorCheck`, `DoctorCheckResult`, `DoctorReport`, `DoctorStatus`) live in
-`@namzu/sdk`, so a provider, a vault or a sandbox can implement a
-`doctorCheck?()` hook against them without depending on an operator application.
-The registry, the runner, the formatting and the exit codes live here, because
-those are operator-facing concerns. The kernel owns the contract; this package
-owns the presentation.
-
-Also exported, and each of them is what the binary itself uses rather than a
-parallel implementation:
-
-```ts
-import {
-  createFormatter,
-  loadConfigWithProvenance,
-  NAMZU_OPTIONAL_CAPABILITIES,
-  probeCapabilities,
-} from '@namzu/cli'
-
-const { config, provenance } = loadConfigWithProvenance()
-console.log(config.format, provenance.format) // e.g. 'json' { kind: 'env', variable: 'NAMZU_FORMAT' }
-
-const out = createFormatter('json', { quiet: false })
-out.print({ ready: true })
-
-console.log(NAMZU_OPTIONAL_CAPABILITIES)
-// ['@namzu/sandbox', '@namzu/files', '@namzu/computer-use', '@namzu/telemetry']
-
-for (const probe of await probeCapabilities()) {
-  console.log(probe.specifier, probe.state) // 'present' | 'absent' | 'broken'
-}
-```
-
-`ConfigProvenance` names which cascade layer won each key, down to *which*
-`NAMZU_*` variable it was — "env" alone would not tell an operator what to
-change. `loadConfig()` is the same cascade without the provenance.
-`probeOptionalPackage(specifier)` probes one package instead of all four.
-`registerCommand` / `registerAll` add a `CommandDef` to a Commander program, and
-`DEFAULT_CONFIG`, `ConfigLoadError`, `isFormatName` and `runDoctorCommand` round
-out the surface.
-
-## Status
-
-Published — the badge above is live, so it cannot go stale here — and dogfooded
-in this repository, whose own `.namzu/` runtime state is written by this binary.
-
-**Majors move quickly.** *Any* backward-incompatible change to a public API is
-treated as a major however small the diff, so the version number tracks the
-surface rather than the size of the work, and it climbs faster than you may
-expect. Pin your dependency and read the changelog. The library surface listed
-above is held by a baseline check in CI, so a symbol cannot quietly leave the
-barrel between releases — but it can leave loudly, in a major.
+- [The operator application](https://github.com/cogitave/namzu/blob/main/docs/cli/reference.md) — every command, the configuration surface, headless event shapes
+- [`namzu doctor`](https://github.com/cogitave/namzu/blob/main/docs/cli/doctor.md)
+- [All docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License
 
-MIT.
+FSL-1.1-MIT, converting to MIT two years after each release.

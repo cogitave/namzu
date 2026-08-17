@@ -130,6 +130,33 @@ function markdownUnder(dir) {
 }
 
 /** Every ```ts fence in one file, with the 1-based line its opener sat on. */
+/**
+ * Fence languages that hold TypeScript a reader will copy, and that this gate
+ * does NOT compile.
+ *
+ * It matches ```ts and nothing else. That is a deliberate scope, but an
+ * unstated one was a hole: `docs/` carried ```typescript blocks that were
+ * neither compiled nor mentioned, so the run reported "N fence(s) compiled"
+ * over a page whose examples had never been checked — one of them named an
+ * export that does not exist. A reader cannot tell a language tag apart by
+ * how much verification it bought.
+ *
+ * Counted and printed rather than compiled, per
+ * `docs/conventions/a-gate-must-say-where-it-looks.md`: the fix for an
+ * unexamined fence is to retag it ```ts, and you cannot retag what nobody
+ * reports.
+ */
+const UNCOMPILED_TS_LANGS = ["typescript", "tsx", "js", "javascript", "jsx"];
+
+function countUncompiledTsFences(text) {
+	let n = 0;
+	for (const line of text.split("\n")) {
+		const m = /^```([a-z]+)\s*$/.exec(line);
+		if (m && UNCOMPILED_TS_LANGS.includes(m[1])) n += 1;
+	}
+	return n;
+}
+
 function fences(text) {
 	const lines = text.split("\n");
 	const found = [];
@@ -304,10 +331,12 @@ for (const dir of FENCE_CONFORMING)
 let compiled = 0;
 let sketched = 0;
 let verbatim = 0;
+let untagged = 0;
 const units = [];
 
 for (const file of scoped) {
 	const text = readFileSync(file, "utf8");
+	untagged += countUncompiledTsFences(text);
 	for (const fence of fences(text)) {
 		if (fence.kind === "sketch") {
 			sketched += 1;
@@ -353,6 +382,9 @@ console.log(
 );
 console.log(
 	`           ${verbatim} \`ts verbatim\` fence(s) compared against their source`,
+);
+console.log(
+	`           ${untagged} TypeScript-ish fence(s) in a language this gate does not compile (${UNCOMPILED_TS_LANGS.join(", ")}) — retag as \`ts\` to check them`,
 );
 console.log(
 	`           ${outside} file(s) under docs/ outside FENCE_CONFORMING`,

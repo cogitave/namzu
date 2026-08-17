@@ -27,8 +27,11 @@ agent/
 └── instructions.md
 ```
 
-```typescript
+```ts
 import { deriveRunOptions, loadDirectory, runAgent } from '@namzu/sdk'
+import type { LLMProvider } from '@namzu/sdk'
+
+declare const provider: LLMProvider
 
 const { manifest } = await loadDirectory('./agent')
 const { output } = await runAgent(
@@ -78,7 +81,9 @@ Importing a module executes it. A top-level side effect in `tools/search.ts`
 happens during the load, in your process, with your privileges. So the loader
 has a mode:
 
-```typescript
+```ts
+import { loadDirectory } from '@namzu/sdk'
+
 const { manifest, diagnostics, ok } = await loadDirectory('./agent', {
   modules: 'skip',
 })
@@ -177,8 +182,11 @@ what the model ends up seeing beside it.
 To get persona structure into a folder, call the assembler yourself and put its
 output where the folder expects prose:
 
-```typescript
+```ts
 import { assembleSystemPrompt } from '@namzu/sdk'
+import type { AgentPersona } from '@namzu/sdk'
+
+declare const persona: AgentPersona
 
 // Write the result to agent/instructions.md, or pass it through overrides.
 const instructions = assembleSystemPrompt(persona)

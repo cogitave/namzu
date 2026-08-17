@@ -39,7 +39,7 @@ Reading a reference cannot surface that. Running it can.
 Three runner functions go in; the suite imports no test framework of its own,
 so `@namzu/sdk` adds no test dependency to your install.
 
-```typescript
+```ts sketch
 import { describe, expect, it } from 'vitest'
 import { defineCheckpointStoreConformance } from '@namzu/sdk/testing'
 

@@ -1,0 +1,11 @@
+{
+  "title": "Packages",
+  "pages": [
+    "computer-use",
+    "evals",
+    "files",
+    "lsp",
+    "sandbox",
+    "telemetry"
+  ]
+}

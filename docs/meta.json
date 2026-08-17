@@ -4,6 +4,7 @@
     "cli",
     "sdk",
     "conventions",
-    "providers"
+    "providers",
+    "packages"
   ]
 }
