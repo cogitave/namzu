@@ -3,6 +3,7 @@
   "pages": [
     "cli",
     "sdk",
-    "conventions"
+    "conventions",
+    "providers"
   ]
 }

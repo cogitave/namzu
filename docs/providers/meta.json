@@ -1,0 +1,12 @@
+{
+  "title": "Providers",
+  "pages": [
+    "anthropic",
+    "bedrock",
+    "http",
+    "lmstudio",
+    "ollama",
+    "openai",
+    "openrouter"
+  ]
+}
