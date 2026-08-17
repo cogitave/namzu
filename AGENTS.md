@@ -41,11 +41,12 @@ pnpm build        # Build all packages
 Use `pnpm --filter <pkg>` to scope commands to a single package.
 
 <ci_gates>
-Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs seventeen steps, in this order, and the branch is not green until every one passes.
+Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs eighteen steps, in this order, and the branch is not green until every one passes.
 
 | CI step | Run it locally |
 |---|---|
 | Lint | `pnpm lint` |
+| Project references match workspace dependencies | `node .github/scripts/check-project-references.mjs` |
 | Type check | `pnpm typecheck` |
 | Build | `pnpm -r build` |
 | Test | `pnpm -r test` |
@@ -63,7 +64,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Public-surface regression check | `node .github/scripts/verify-public-surface.mjs` |
 | publint (package.json shape) | `npx -y publint@latest packages/<pkg>` |
 
-Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all seventeen.
+Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all eighteen.
 
 A **second job**, `Docs`, runs **two** gates on a full-history checkout:
 
@@ -76,7 +77,7 @@ Full history because the standard gate's drift check compares a document's last 
 
 The fence gate compiles the ```ts in `docs/` against `packages/sdk/dist`, so this job installs and builds the SDK. Every other gate in this repository checks a document's METADATA; this is the only one that reads its content, and it exists because a rename can otherwise pass everything here while leaving documentation that does not build. Fences opt out by declaring themselves — ```ts sketch is not compiled and is counted out loud, ```ts verbatim is asserted to appear byte-for-byte in the file its `// from:` marker names.
 
-**Why the short list is not enough.** A job stops at its first failing step, and every step after it is reported `skipped`, not `failure`. A red run therefore shows one red entry and a column of grey — and grey is not "these passed", it is "these were never asked". The four commands at the top of this section are the first four rows of that table: green on them establishes four of the seventeen steps and nothing whatsoever about the other thirteen.
+**Why the short list is not enough.** A job stops at its first failing step, and every step after it is reported `skipped`, not `failure`. A red run therefore shows one red entry and a column of grey — and grey is not "these passed", it is "these were never asked". The four commands at the top of this section appear in that table as **Lint**, **Type check**, **Build** and **Test** — rows 1, 3, 4 and 5, since a step that catches a build-graph defect before the compiler reports it as a missing module sits between the first two. Green on them establishes four of the eighteen steps and nothing whatsoever about the other fourteen.
 </ci_gates>
 
 ## Where to find things

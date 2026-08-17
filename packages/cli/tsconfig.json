@@ -17,6 +17,7 @@
 		{
 			"path": "../files" },
 		{ "path": "../providers/anthropic" },
+		{ "path": "../providers/deepseek" },
 		{ "path": "../providers/openai" },
 		{ "path": "../providers/openrouter" },
 		{ "path": "../providers/ollama" }

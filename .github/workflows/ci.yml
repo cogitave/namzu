@@ -127,6 +127,13 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Before the build, because a missing project reference IS a build
+      # failure — one whose error names a missing module rather than the
+      # missing reference, and which never reproduces on a machine that has
+      # a stale `node_modules` from an earlier install.
+      - name: Project references match workspace dependencies
+        run: node .github/scripts/check-project-references.mjs
+
       - name: Type check
         run: pnpm typecheck
 
