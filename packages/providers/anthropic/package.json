@@ -1,10 +1,10 @@
 {
   "name": "@namzu/anthropic",
-  "version": "3.3.2",
+  "version": "3.4.0",
   "description": "Anthropic LLM provider for @namzu/sdk via the official @anthropic-ai/sdk. Messages API with streaming, tool-use, and extended thinking support.",
   "license": "FSL-1.1-MIT",
   "engines": {
-   "node": ">=20.0.0"
+    "node": ">=20.0.0"
   },
   "type": "module",
   "homepage": "https://github.com/cogitave/namzu#readme",

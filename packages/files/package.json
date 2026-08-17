@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/files",
-	"version": "1.0.1",
+	"version": "1.1.0",
 	"description": "Provider-agnostic file registry contracts for Namzu runtimes.",
 	"type": "module",
 	"main": "./dist/index.js",

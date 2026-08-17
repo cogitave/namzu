@@ -1,10 +1,10 @@
 {
   "name": "@namzu/evals",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Namzu's own behaviour and security suites, runnable with `namzu eval` against an installed kernel.",
   "license": "FSL-1.1-MIT",
   "engines": {
-   "node": ">=20.0.0"
+    "node": ">=20.0.0"
   },
   "type": "module",
   "homepage": "https://github.com/cogitave/namzu#readme",
