@@ -64,15 +64,12 @@ in `spanProcessors` keeps receiving them. Only the batch exporter is left out.
 
 ```ts
 import { registerTelemetry } from '@namzu/telemetry'
+import type { SpanProcessorLike } from '@namzu/telemetry'
 
-// Structural on purpose: `spanProcessors` takes a shape, not a class from one
-// tracing-SDK version.
-declare const myOwnCollector: {
-  onStart(): void
-  onEnd(): void
-  forceFlush(): Promise<void>
-  shutdown(): Promise<void>
-}
+// `SpanProcessorLike` is structural on purpose: `spanProcessors` takes a
+// shape, not a class from one tracing-SDK version, so a host is not pinned to
+// the version this package happens to build against.
+declare const myOwnCollector: SpanProcessorLike
 
 await registerTelemetry({
   serviceName: 'my-agent-host',
