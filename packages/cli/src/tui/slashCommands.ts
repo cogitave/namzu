@@ -55,6 +55,13 @@ export type SlashAction =
 	 */
 	| { kind: 'compact' }
 	/**
+	 * Show what is uncommitted in the working tree.
+	 *
+	 * Async for the same reason `compact` is: it shells out to git, and this
+	 * union is synchronous by design.
+	 */
+	| { kind: 'diff' }
+	/**
 	 * A command the KERNEL registered, to be dispatched and rendered.
 	 *
 	 * Its own action kind because the registry's handlers are async — a
@@ -577,6 +584,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'cost',
 		description: 'Show tokens and spend for this run.',
 		action: (ctx) => ({ kind: 'message', role: 'system', content: renderCost(ctx.usage) }),
+	},
+	{
+		name: 'diff',
+		description: 'Show what is uncommitted in this working tree.',
+		action: () => ({ kind: 'diff' }),
 	},
 	{
 		name: 'compact',

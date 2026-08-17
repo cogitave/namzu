@@ -94,6 +94,7 @@ import { splitCompleteBlocks } from './stream-blocks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { keepRecentRows } from './compact-transcript.js'
+import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 
 export interface AppProps {
 	readonly ctx: TuiContext
@@ -1455,6 +1456,23 @@ export function App({ ctx }: AppProps) {
 									`Could not record feedback: ${err instanceof Error ? err.message : String(err)}`,
 								)
 							}
+						})()
+						return
+					}
+					case 'diff': {
+						// Fire-and-forget, like its neighbours: a git invocation is not
+						// something to block a keystroke on.
+						void (async () => {
+							const { summary, detail } = renderWorkspaceDiff(await workspaceDiff(ctx.cwd))
+							setMessages((prev) => [
+								...prev,
+								{
+									id: `diff-${Date.now()}`,
+									role: 'system',
+									content: summary,
+									...(detail.length > 0 ? { detail } : {}),
+								},
+							])
 						})()
 						return
 					}
