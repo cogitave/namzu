@@ -106,6 +106,12 @@ from reading as permission.
   two that printed what they skipped were legitimate and the three that said
   nothing were not. Four kept the scope in a hand-written list, one of which was
   already wrong by the hand of the person reading it.
+- [A ratchet at zero needs a floor](a-ratchet-at-zero-needs-a-floor.md)
+  — exact equality says "declare the change", never "this must stay zero". Once
+  a count reaches zero because the counted thing was removed, the `--write` flag
+  that keeps a ratchet maintainable becomes the way past it: reintroduce the
+  defect, regenerate, and the regression lands as a `0` → `1` diff a reviewer
+  reads as housekeeping.
 
 ### Reading the evidence
 
