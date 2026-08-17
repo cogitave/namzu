@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { failingStream } from '../../../__fixtures__/failing-stream.js'
+import { hostLogger } from '../../../__fixtures__/host-logger.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
@@ -112,8 +113,14 @@ describe('retry and fallback records are correlated to the run that produced the
 		const sink: LogSink = { emit: (record) => records.push(record) }
 		installProcessSink(sink, 'debug', { replace: true })
 
+		const params = baseParams(await mkWorkdir())
 		const run = await drainQuery({
-			...baseParams(await mkWorkdir()),
+			...params,
+			// Handed in, not inherited. The wrappers under test take their
+			// logger from `buildLogger`, which derives from this key — and
+			// since LOG-20 an absent key means NOOP, so without it the
+			// `wrapperLogs` array below is empty and the loop is vacuous.
+			runConfig: { ...params.runConfig, logger: hostLogger(sink) },
 			provider: primary,
 			fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 			messages: [createUserMessage('hello')],

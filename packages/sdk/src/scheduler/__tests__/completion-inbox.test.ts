@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { getRootLogger } from '../../utils/logger.js'
+import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 
 import type { TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
@@ -91,7 +91,7 @@ function launch(inbox: CompletionInbox, taskId: string): void {
 /** Collect what the inbox says at WARN, so a drop cannot pass unnoticed. */
 function captureWarnings(): { lines: string[]; restore: () => void } {
 	const lines: string[] = []
-	const spy = vi.spyOn(getRootLogger(), 'child').mockReturnValue({
+	const spy = vi.spyOn(NOOP_LOGGER, 'child').mockReturnValue({
 		warn: (message: string) => lines.push(message),
 		info: () => {},
 		debug: () => {},

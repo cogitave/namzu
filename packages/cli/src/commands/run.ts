@@ -18,12 +18,7 @@
 
 import { relative } from 'node:path'
 
-import {
-	BOOT_EVENT_NAMES,
-	EVENT_NAME_ATTRIBUTE,
-	getRootLogger,
-	installProcessSink,
-} from '@namzu/sdk'
+import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
@@ -33,7 +28,7 @@ import {
 	type AttachedSessionExport,
 	attachSessionExport,
 } from '../integrations/telemetry/session-export.js'
-import { contextLogging, createStderrSink } from '../logging.js'
+import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
@@ -264,7 +259,7 @@ export const runCommand: CommandDef = {
 		// per process, which a refusing second install would break for
 		// reasons that have nothing to do with what those tests are about.
 		const logging = contextLogging(ctx)
-		installProcessSink(createStderrSink(logging.format), logging.level, { replace: true })
+		installCliLogging(createStderrSink(logging.format), logging.level)
 		const { probeAgentSession, createAgentSession } = await import('../tui/agent.js')
 		const probe = await probeAgentSession()
 		let prefs = probe.preferences ?? defaultPrefs(probe.detected)
@@ -312,7 +307,7 @@ export const runCommand: CommandDef = {
 				// boolean. This is the half that names the destination and the
 				// redactors, and it is emitted HERE because it describes what
 				// actually resolved rather than what was configured.
-				getRootLogger().info(sessionExport.disclosure, {
+				cliLogger().info(sessionExport.disclosure, {
 					[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.TELEMETRY_STATUS,
 					'namzu.telemetry.session_export': true,
 				})

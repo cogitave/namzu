@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { type LogRecord, ProviderRegistry, installProcessSink } from '@namzu/sdk'
+import { type LogRecord, ProviderRegistry } from '@namzu/sdk'
 
 import {
 	ensureFreshAnthropicToken,
 	readSubscriptionCredential,
 } from '../../integrations/providers/index.js'
 import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
+import { installCliLogging } from '../../logging.js'
 import { createAgentSession } from '../agent.js'
 
 vi.mock('../../integrations/subagents/runtime.js', async (importOriginal) => {
@@ -55,7 +56,7 @@ function cwd(): string {
 
 function capturingSink(): LogRecord[] {
 	const records: LogRecord[] = []
-	installProcessSink({ emit: (r) => records.push(r) }, 'debug', { replace: true })
+	installCliLogging({ emit: (r) => records.push(r) }, 'debug')
 	return records
 }
 

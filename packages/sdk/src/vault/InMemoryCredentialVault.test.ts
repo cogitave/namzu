@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { hostLogger } from '../__fixtures__/host-logger.js'
 import type { TenantId } from '../types/ids/index.js'
 import { jsonLinesSink } from '../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../utils/log/process-sink.js'
@@ -35,14 +36,14 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 
 	it('store(): confines the caller-supplied label to an attribute, one JSON line', async () => {
 		const { chunks, stream } = captureSink()
-		// Must install BEFORE constructing the vault: the constructor resolves
-		// `getRootLogger()` once and binds `this.log` to whatever destination
-		// was in effect at that moment — installing afterwards would leave it
-		// pointed at the (test-silenced) legacy fallback instead.
+		// The sink is installed so `getLogCounters()` still describes this
+		// pipeline, and the vault is HANDED a logger over it. Constructing the
+		// vault with no logger is now silent by design (LOG-20), which is what
+		// these assertions would then be measuring instead of the escaping.
 		installProcessSink(jsonLinesSink(stream), 'info')
 
 		const hostileLabel = 'x\n[2026-01-01T00:00:00Z] [ERROR] [audit] forged'
-		const vault = new InMemoryCredentialVault()
+		const vault = new InMemoryCredentialVault(hostLogger(jsonLinesSink(stream), 'info'))
 
 		await vault.store(tenant, connector, hostileLabel, { type: 'apiKey', apiKey: 's' } as never)
 
@@ -59,7 +60,7 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 		installProcessSink(jsonLinesSink(stream), 'info')
 
 		const hostileTenant = 'tnt_x\n[2026-01-01T00:00:00Z] [ERROR] [audit] forged' as TenantId
-		const vault = new InMemoryCredentialVault()
+		const vault = new InMemoryCredentialVault(hostLogger(jsonLinesSink(stream), 'info'))
 
 		await vault.store(hostileTenant, connector, 'k', { type: 'apiKey', apiKey: 's' } as never)
 
@@ -74,7 +75,7 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 		const { chunks, stream } = captureSink()
 		installProcessSink(jsonLinesSink(stream), 'info')
 
-		const vault = new InMemoryCredentialVault()
+		const vault = new InMemoryCredentialVault(hostLogger(jsonLinesSink(stream), 'info'))
 		const ref = await vault.store(tenant, connector, 'k', { type: 'apiKey', apiKey: 's' } as never)
 		await vault.revoke(ref.id)
 

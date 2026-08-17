@@ -89,16 +89,26 @@ import {
   PluginRegistry,
   ToolRegistry,
   PluginLifecycleManager,
+  createLogger,
   discoverAllPluginDirs,
-  getRootLogger,
+  prettySink,
 } from '@namzu/sdk'
+
+// Yours to build and yours to pass. There is no process-wide logger to
+// inherit from: a component constructed without one emits nothing.
+const log = createLogger({
+  sink: prettySink(process.stderr),
+  level: { current: 'info' },
+  resource: { 'service.name': 'my-app' },
+  scope: 'plugins',
+})
 
 const pluginRegistry = new PluginRegistry()
 const toolRegistry = new ToolRegistry()
 const pluginManager = new PluginLifecycleManager({
   pluginRegistry,
   toolRegistry,
-  log: getRootLogger(),
+  log,
 })
 
 const pluginDirs = await discoverAllPluginDirs(process.cwd())
@@ -155,10 +165,16 @@ import {
   PluginRegistry,
   SkillRegistry,
   ToolRegistry,
-  getRootLogger,
+  createLogger,
+  prettySink,
 } from '@namzu/sdk'
 
-const log = getRootLogger()
+const log = createLogger({
+  sink: prettySink(process.stderr),
+  level: { current: 'info' },
+  resource: { 'service.name': 'my-app' },
+  scope: 'plugins',
+})
 
 const pluginManager = new PluginLifecycleManager({
   pluginRegistry: new PluginRegistry(),

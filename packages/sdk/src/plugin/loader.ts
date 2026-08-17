@@ -15,18 +15,16 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
  * Returns an array of absolute paths to plugin directories.
  */
 export async function discoverPlugins(parentDir: string, log?: Logger): Promise<string[]> {
-	// Resolved here, not at module scope. A module-scope
-	// `getRootLogger().child(...)` ran once, at import time — before any
-	// host's `configureLogger()` call had a chance to run — and `child()`
-	// bakes `minLevel` into the closure `log()` reads from forever after
-	// (`utils/logger.ts`), so whatever level was live at that one moment
-	// was permanent. `configureLogger` replaces the `_rootLogger` binding
-	// rather than mutating the object it points at, so caching the CHILD
-	// (as this loader did) survives no later call at all — including the
-	// CLI's own `configureLogger({ level: 'silent' })`.
-	//
-	// `log`, when a caller has one, wins over the process default — LOG-10:
-	// this was the module's own remaining getRootLogger() call site.
+	// Resolved here, not at module scope, and the reason outlived the defect
+	// it was written for. A module-scope `child(...)` of a process-wide logger
+	// ran once at IMPORT time and baked that moment's level in forever, which
+	// no later host call could undo. LOG-20 removed the process-wide logger
+	// altogether, so that particular trap is gone — and per-call resolution
+	// matters more now, not less: the logger this function uses comes from its
+	// own `log` parameter, and anything resolved at module scope could not see
+	// it. Without a `log`, discovery emits nothing (`resolveLogger` is
+	// `NOOP_LOGGER`), which is the deliberate default rather than a fallback
+	// to somebody else's stream.
 	const logger = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'plugin/loader' })
 	const dirs: string[] = []
 

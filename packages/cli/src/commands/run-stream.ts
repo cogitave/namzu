@@ -55,7 +55,7 @@
  * asked for rather than achieving it.
  */
 
-import { type Message, installProcessSink, jsonLinesSink } from '@namzu/sdk'
+import { type Message, jsonLinesSink } from '@namzu/sdk'
 
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
@@ -65,7 +65,7 @@ import {
 	openSessions,
 	resolveConversation,
 } from '../integrations/sessions/store.js'
-import { contextLogging } from '../logging.js'
+import { contextLogging, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
@@ -286,7 +286,7 @@ export const runStreamCommand: CommandDef = {
 		// operator passes, so stderr here stays that way too. `{ replace:
 		// true }`: see `run.ts`'s identical comment.
 		const logging = contextLogging(ctx)
-		installProcessSink(jsonLinesSink(process.stderr), logging.level, { replace: true })
+		installCliLogging(jsonLinesSink(process.stderr), logging.level)
 		const { probeAgentSession, createAgentSession } = await import('../tui/agent.js')
 		const probe = await probeAgentSession()
 		let prefs = probe.preferences ?? defaultPrefs(probe.detected)
@@ -552,7 +552,7 @@ export const providersJSONCommand: CommandDef = {
 			// dynamic import('@namzu/sdk') this replaced bought nothing — it
 			// re-fetched a module already loaded for `Message`.
 			const logging = contextLogging(ctx)
-			installProcessSink(jsonLinesSink(process.stderr), logging.level, { replace: true })
+			installCliLogging(jsonLinesSink(process.stderr), logging.level)
 			const { PROVIDER_REGISTRY, ALL_PROVIDER_IDS, findDetected } = await import(
 				'../integrations/providers/index.js'
 			)

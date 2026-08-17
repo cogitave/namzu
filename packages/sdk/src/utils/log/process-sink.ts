@@ -1,13 +1,16 @@
-// The replacement for `configureLogger`'s "one process, one global" model —
-// still one process-wide destination (a CLI genuinely owns the whole
-// process), but a destination, not only a threshold: `configureLogger` could
-// only raise or lower a level against a fixed `process.stderr.write`.
+// One process-wide DESTINATION, and nothing else process-wide.
 //
-// `getRootLogger` reads this: when a sink is installed, the deprecated
-// accessor routes through it instead of writing straight to stderr. That
-// bridge is what makes the seam reachable without rewriting the ~39 existing
-// `getRootLogger()` call sites in one commit — they keep the old shape and
-// gain the new destination.
+// This replaced a "one process, one global logger" model that could only
+// raise or lower a level against a fixed `process.stderr.write` — a
+// threshold, never a destination. A CLI genuinely does own its whole process,
+// so a single installed sink is the right shape for that half.
+//
+// What it deliberately is NOT is a logger. Installing a sink does not reroute
+// anything on its own: it sets where records go and owns the counter set, and
+// the host builds a logger over it (`createLogger`, passing
+// `getProcessSinkCounters()`) and hands that down. LOG-20 removed the global
+// accessor that used to bridge the two automatically, because "automatically"
+// meant a library nobody handed a logger wrote to the host's stderr.
 
 import { newCounters } from './create-logger.js'
 import type { LevelFilter, LogSink, LogSinkCounters, MutableLogSinkCounters } from './types.js'
@@ -55,10 +58,13 @@ export function getProcessSink():
 /**
  * The mutable counter set the installed destination writes through.
  *
- * Internal: a reader wants {@link getProcessSink}'s readonly view. This
- * exists so `getRootLogger`'s bridge can hand the SAME object to every
- * logger it builds, which is what makes the totals process-wide rather
- * than per-call.
+ * Internal in spirit, exported in fact: a mere reader wants
+ * {@link getProcessSink}'s readonly view. A HOST needs this one, because it
+ * is what makes the totals describe the process rather than one logger — it
+ * hands the same object to every logger it builds, so `getLogCounters()` and
+ * `namzu doctor`'s `logging.pipeline` check see one set of numbers. A global
+ * accessor used to do that on the host's behalf; with it gone, the host does
+ * it, which is why this is reachable from `@namzu/sdk` at all.
  */
 export function getProcessSinkCounters(): MutableLogSinkCounters | undefined {
 	return _processSink?.counters

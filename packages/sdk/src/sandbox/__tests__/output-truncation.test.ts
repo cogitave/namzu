@@ -71,10 +71,10 @@ describe('a clipped stream says it was clipped', () => {
 describe('the sandbox hands the flag to its caller', () => {
 	it('marks a real over-cap run as truncated', async () => {
 		const { LocalSandboxProvider } = await import('../provider/local.js')
-		const { getRootLogger } = await import('../../utils/logger.js')
+		const { NOOP_LOGGER } = await import('../../utils/log/create-logger.js')
 		const { SANDBOX_MAX_OUTPUT_BYTES } = await import('../../constants/sandbox/index.js')
 
-		const sandbox = await new LocalSandboxProvider(getRootLogger()).create()
+		const sandbox = await new LocalSandboxProvider(NOOP_LOGGER).create()
 		try {
 			const over = SANDBOX_MAX_OUTPUT_BYTES + 1024
 			const result = await sandbox.exec('node', ['-e', `process.stdout.write('a'.repeat(${over}))`])
@@ -91,9 +91,9 @@ describe('the sandbox hands the flag to its caller', () => {
 
 	it('leaves an under-cap run unflagged', async () => {
 		const { LocalSandboxProvider } = await import('../provider/local.js')
-		const { getRootLogger } = await import('../../utils/logger.js')
+		const { NOOP_LOGGER } = await import('../../utils/log/create-logger.js')
 
-		const sandbox = await new LocalSandboxProvider(getRootLogger()).create()
+		const sandbox = await new LocalSandboxProvider(NOOP_LOGGER).create()
 		try {
 			const result = await sandbox.exec('node', ['-e', "process.stdout.write('small')"])
 

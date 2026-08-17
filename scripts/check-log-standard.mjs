@@ -355,6 +355,44 @@ export function checkStreamWriteAllowlist(fileEntries, config) {
 	// MUTATION-MARKER:streamWrite:END
 }
 
+/**
+ * Ratchets that have reached zero and are not allowed to leave it.
+ *
+ * An exact-equality ratchet fails on any mismatch, which is what makes it a
+ * ratchet — but the number it compares against lives in a JSON file that
+ * `--write` regenerates. So the ratchet alone says "this count is 1 and a
+ * change must be declared", never "this count is 0 and must stay 0": a commit
+ * that reintroduced a call site and re-ran `--write` would pass the gate,
+ * having declared the regression to a file nobody reads as prose.
+ *
+ * The two names here are LOG-20's acceptance criterion. `getRootLoggerCount`
+ * is zero because the process-wide logger is GONE — there is no such export to
+ * call, so a non-zero here means somebody added one back.
+ * `unnamespacedBindingCount` is zero because every `component:` binding became
+ * a namespaced attribute. Both are floors, and `--write` cannot lower a floor:
+ * `assertFloorsAreHeld` reads the LIVE tree, not the config.
+ */
+const ZERO_FLOOR_RATCHETS = ['getRootLoggerCount', 'unnamespacedBindingCount']
+
+/**
+ * The half `--write` must not be able to satisfy.
+ *
+ * Called with the config as it stands on disk, before any regeneration. A
+ * recorded non-zero for a floored ratchet is itself the violation, so the
+ * failure survives `--write` — which is the whole point, since `--write` is
+ * how an author would otherwise make a reintroduced call site legal.
+ */
+export function checkZeroFloors(config) {
+	return ZERO_FLOOR_RATCHETS.filter((rule) => config[rule] !== 0).map((rule) => ({
+		rule,
+		file: null,
+		message:
+			`scripts/log-standard.json#${rule} records ${config[rule]}, and this ratchet is floored at 0. ` +
+			'It reached zero when the thing it counts was removed from the tree, so a non-zero value is a ' +
+			'reintroduction, not a number to re-record. `--write` cannot clear this: fix the call site.',
+	}))
+}
+
 export function checkGetRootLoggerRatchet(fileEntries, config) {
 	// MUTATION-MARKER:getRootLogger:START
 	const actual = countSdkOnlyOccurrences(fileEntries, isGetRootLoggerCall)
@@ -785,6 +823,22 @@ function main() {
 		const nextUnnamespacedBindingCount = countSdkOnlyOccurrences(fileEntries, isComponentBinding)
 		const nextConstantBodyViolationCount = countConstantBodyViolations(program, fullPaths)
 		const nextNamespacedAttributeKeyViolationCount = countNamespacedAttributeKeyViolations(program, fullPaths)
+		// Refused BEFORE the write, not reported after it. `--write` exists to
+		// re-record a count an author deliberately changed; a floored ratchet
+		// has no such count, so writing one would turn "you reintroduced the
+		// thing this gate removed" into a one-line JSON diff that reviews as
+		// housekeeping.
+		const floorBreaks = checkZeroFloors({
+			...config,
+			getRootLoggerCount: nextGetRootLoggerCount,
+			unnamespacedBindingCount: nextUnnamespacedBindingCount,
+		})
+		if (floorBreaks.length > 0) {
+			console.error(`✗ --write refused — ${floorBreaks.length} floored ratchet(s) would go non-zero:`)
+			for (const v of floorBreaks) console.error(formatViolation(v))
+			process.exit(1)
+		}
+
 		const next = {
 			...config,
 			getRootLoggerCount: nextGetRootLoggerCount,
@@ -809,6 +863,7 @@ function main() {
 	}
 
 	const violations = [
+		...checkZeroFloors(config),
 		...checkConsoleAllowlist(fileEntries, config),
 		...checkStreamWriteAllowlist(fileEntries, config),
 		...checkGetRootLoggerRatchet(fileEntries, config),

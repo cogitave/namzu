@@ -2,6 +2,7 @@ import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { hostLogger } from '../../../__fixtures__/host-logger.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { BOOT_EVENT_NAMES } from '../../../constants/telemetry/index.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
@@ -25,7 +26,15 @@ afterEach(async () => {
 	__resetProcessSinkForTests()
 })
 
-function baseParams(workingDirectory: string, suffix: string) {
+/**
+ * `logger` is not optional dressing here. Since LOG-20 a run with no
+ * `runConfig.logger` narrates to nobody — `resolveLogger(undefined)` is
+ * `NOOP_LOGGER` — so a test that installs a process sink and then asserts on
+ * what arrived would read an empty array no matter what the migration did.
+ * The sink stays installed because `getLogCounters()` describes it; the logger
+ * is what actually routes.
+ */
+function baseParams(workingDirectory: string, suffix: string, sink?: LogSink) {
 	return {
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		tools: new ToolRegistry(),
@@ -35,6 +44,7 @@ function baseParams(workingDirectory: string, suffix: string) {
 			tokenBudget: 100_000,
 			maxIterations: 3,
 			maxResponseTokens: 256,
+			...(sink ? { logger: hostLogger(sink) } : {}),
 		},
 		agentId: 'agent_boot',
 		agentName: 'Boot Agent',
@@ -64,7 +74,7 @@ describe('the boot-time filesystem migration reaches a log through a real query(
 		const sink: LogSink = { emit: (record) => records.push(record) }
 		installProcessSink(sink, 'debug', { replace: true })
 
-		await drainQuery(baseParams(workingDirectory, 'migrated'))
+		await drainQuery(baseParams(workingDirectory, 'migrated', sink))
 
 		const migrationRecords = migrationRecordsFrom(records)
 		expect(migrationRecords).toHaveLength(1)
@@ -82,7 +92,7 @@ describe('the boot-time filesystem migration reaches a log through a real query(
 		const sink: LogSink = { emit: (record) => records.push(record) }
 		installProcessSink(sink, 'debug', { replace: true })
 
-		await drainQuery(baseParams(workingDirectory, 'noop'))
+		await drainQuery(baseParams(workingDirectory, 'noop', sink))
 
 		const migrationRecords = migrationRecordsFrom(records)
 		expect(migrationRecords).toHaveLength(1)
@@ -105,7 +115,7 @@ describe('the boot-time filesystem migration reaches a log through a real query(
 		const sink: LogSink = { emit: (record) => records.push(record) }
 		installProcessSink(sink, 'debug', { replace: true })
 
-		await drainQuery(baseParams(workingDirectory, 'already'))
+		await drainQuery(baseParams(workingDirectory, 'already', sink))
 
 		const migrationRecords = migrationRecordsFrom(records)
 		expect(migrationRecords).toHaveLength(1)

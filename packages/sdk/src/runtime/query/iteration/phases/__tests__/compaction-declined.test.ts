@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ContextReduction } from '../../../../../compaction/reducer.js'
 import type { Message } from '../../../../../types/message/index.js'
 import type { RunEvent } from '../../../../../types/run/index.js'
-import { getRootLogger } from '../../../../../utils/logger.js'
+import { NOOP_LOGGER } from '../../../../../utils/log/create-logger.js'
 import { runCompactionCheck } from '../compaction.js'
 import type { IterationContext } from '../context.js'
 
@@ -43,7 +43,7 @@ function context(reducer: IterationContext['contextReducer']): {
 			keepRecentMessages: 2,
 		},
 		contextReducer: reducer,
-		log: getRootLogger(),
+		log: NOOP_LOGGER,
 		emitEvent: async (event: RunEvent) => {
 			events.push(event)
 		},

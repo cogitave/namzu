@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { type LogRecord, installProcessSink } from '@namzu/sdk'
+import type { LogRecord } from '@namzu/sdk'
 
 import { emitBootNarrative } from '../cli.js'
 import type { ConfigProvenance } from '../config/load.js'
 import { DEFAULT_CONFIG } from '../config/schema.js'
+import { installCliLogging } from '../logging.js'
 
 /**
  * The CLI-process third of the boot narrative — `namzu.boot.start`,
@@ -17,7 +18,7 @@ import { DEFAULT_CONFIG } from '../config/schema.js'
 
 function capturingSink(): LogRecord[] {
 	const records: LogRecord[] = []
-	installProcessSink({ emit: (r) => records.push(r) }, 'debug', { replace: true })
+	installCliLogging({ emit: (r) => records.push(r) }, 'debug')
 	return records
 }
 

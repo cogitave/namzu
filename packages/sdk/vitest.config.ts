@@ -9,7 +9,16 @@ export default defineConfig({
 		// flake the timing-sensitive tests around it. Excluded to keep the unit
 		// suite stable, NOT to make it optional: see `test:proc`.
 		include: ['src/**/*.test.ts'],
-		setupFiles: ['./src/test-setup.ts'],
+		// No `setupFiles`. There used to be one, and its whole job was
+		// `configureLogger({ level: 'silent' })` — a process-wide threshold
+		// raised against a process-wide stderr writer, because a component
+		// constructed without a logger wrote to stderr and CI annotates every
+		// `[ERROR]` line as a workflow error. LOG-20 removed that writer:
+		// `resolveLogger(undefined)` is `NOOP_LOGGER`, so silence is what the
+		// SDK does on its own and there is nothing left to suppress. Keeping
+		// the file would have been worse than useless — it installed a process
+		// sink, which is a one-owner slot, so every suite that installs its own
+		// hit the deliberate second-install refusal.
 		coverage: {
 			provider: 'v8',
 			reporter: ['text', 'json-summary', 'lcov'],

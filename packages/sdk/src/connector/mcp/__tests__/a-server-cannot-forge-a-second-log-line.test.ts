@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { hostLogger } from '../../../__fixtures__/host-logger.js'
 import type {
 	MCPJsonRpcMessage,
 	MCPTransport,
@@ -32,11 +33,9 @@ describe('MCPClient.connect — a hostile server name cannot forge a second log 
 				return true
 			},
 		} as unknown as NodeJS.WritableStream
-		// Must install BEFORE constructing the client: MCPClient's constructor
-		// resolves `getRootLogger()` once, at construction time, and binds
-		// `this.log` to whatever destination was in effect then — installing
-		// the sink afterwards would leave that binding pointed at the
-		// (test-silenced) legacy fallback instead.
+		// The client is HANDED a logger over this sink below. A client
+		// constructed without one is silent by design (LOG-20), so the
+		// assertions here would pass on an empty stream and prove nothing.
 		installProcessSink(jsonLinesSink(stream), 'info')
 
 		const hostileName = 'x\n[2026-01-01T00:00:00Z] [ERROR] [audit] forged'
@@ -66,6 +65,7 @@ describe('MCPClient.connect — a hostile server name cannot forge a second log 
 		const client = new MCPClient({
 			serverName: 'hostile',
 			transport: { type: 'stdio', command: 'noop' } as MCPTransportUnion,
+			logger: hostLogger(jsonLinesSink(stream), 'info'),
 		})
 		// Swap in the fake transport — same technique client.test.ts's own
 		// harness uses; `createTransport` would otherwise try to spawn a real

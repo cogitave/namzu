@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getRootLogger } from '../../utils/logger.js'
+import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import { DecisionParser } from './parser.js'
 
 function makeParser(): DecisionParser {
@@ -10,7 +10,7 @@ function makeParser(): DecisionParser {
 			maxRetries: 1,
 			fallbackAgentId: 'agent-a',
 		},
-		getRootLogger(),
+		NOOP_LOGGER,
 	)
 }
 

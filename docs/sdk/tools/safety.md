@@ -112,7 +112,17 @@ about, rather than an override of the rules they did.
 ## 6. Verification Gate Example
 
 ```ts
-import { AuthorizationGate, getRootLogger } from '@namzu/sdk'
+import { AuthorizationGate, createLogger, prettySink } from '@namzu/sdk'
+
+// The gate's second argument. Passing nothing is legal and means the gate's
+// decisions are not narrated anywhere — build a logger if you want to read
+// them.
+const log = createLogger({
+  sink: prettySink(process.stderr),
+  level: { current: 'info' },
+  resource: { 'service.name': 'my-app' },
+  scope: 'authorization',
+})
 
 const gate = new AuthorizationGate(
   {
@@ -132,7 +142,7 @@ const gate = new AuthorizationGate(
       { type: 'allow_by_category', categories: ['analysis'] },
     ],
   },
-  getRootLogger(),
+  log,
 )
 ```
 

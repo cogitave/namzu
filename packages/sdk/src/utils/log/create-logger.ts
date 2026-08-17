@@ -10,7 +10,8 @@
 // unwrapping, while a caller that wants to observe the pipeline reads
 // `.counters` off the same reference. That caller is now real: LOG-06's
 // `logging.pipeline` doctor check. It could not have been while every
-// `getRootLogger()` built a logger with its own counters — see `shared`
+// the removed process-wide accessor built a logger with its own counters
+// on every call — see `shared`
 // below and `utils/__tests__/log-counters-are-process-wide.test.ts`.
 
 import { getActiveSpanContext } from '../../telemetry/runtime-accessors.js'
@@ -49,9 +50,9 @@ export function newCounters(): MutableLogSinkCounters {
 /**
  * `shared` lets several loggers write through ONE counter set.
  *
- * Without it the counters answer a question nobody asks. `getRootLogger()`
- * resolves per call and builds a fresh logger each time, so every count it
- * accumulated died with the expression that read it -- the five fields were
+ * Without it the counters answer a question nobody asks. The process-wide
+ * accessor this seam replaced resolved per call and built a fresh logger each
+ * time, so every count it accumulated died with the expression that read it -- the five fields were
  * incremented on every record in the process and read by nothing, which is
  * `declared-but-undriven` with a comment above it promising `namzu doctor`
  * would read them. `installProcessSink` now owns one set for the process,
@@ -71,10 +72,11 @@ function build(
 ): CreatedLogger {
 	function emit(severityText: Severity, body: string, data?: LogContext): void {
 		// Read per record, off the shared mutable holder — never resolved once
-		// and captured in this closure. Today's `Logger.child()` bakes its level
-		// in exactly that way, which is why three module-scope loggers in the
-		// skills/plugin loaders are frozen at `info` forever and unreachable by
-		// any later `configureLogger` call.
+		// and captured in this closure. That is what lets a host retune a
+		// logger it has already handed out: assign `level.current` and the next
+		// record honours it. The alternative, resolving once at construction,
+		// is what froze three module-scope loggers in the skills and plugin
+		// loaders at `info` for the life of the process, reachable by nothing.
 		if (SEVERITY_RANK[severityText] < LEVEL_RANK[options.level.current]) return
 
 		const now = Date.now()

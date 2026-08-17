@@ -65,7 +65,6 @@ import {
 	createToolPresenter,
 	genericLabel,
 	getBuiltinTools,
-	getRootLogger,
 	isTrustedReadOnly,
 	query,
 	resumeRun,
@@ -112,6 +111,7 @@ import {
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
+import { cliLogger } from '../logging.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
 
@@ -715,7 +715,7 @@ export async function createAgentSession(
 	// credential, unknown id, not registered); this promotes that same
 	// information from a UI notice string to a boot record rather than
 	// computing it a second time.
-	getRootLogger().info('provider chain resolved', {
+	cliLogger().info('provider chain resolved', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.PROVIDER_RESOLVED,
 		'gen_ai.request.model': model,
 		'namzu.provider.id': primary.id,
@@ -723,7 +723,7 @@ export async function createAgentSession(
 		'namzu.provider.skipped_count': fallbackPlan.notices.length,
 	})
 	for (const notice of fallbackPlan.notices) {
-		getRootLogger().warn(notice, { [EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.PROVIDER_RESOLVED })
+		cliLogger().warn(notice, { [EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.PROVIDER_RESOLVED })
 	}
 	let provider: LLMProvider
 	try {
@@ -771,7 +771,7 @@ export async function createAgentSession(
 			// had no trace anywhere, so the first sign of it was a live 401 an
 			// operator had no way to connect back to "the refresh happened, the
 			// rebuild didn't."
-			getRootLogger().warn(
+			cliLogger().warn(
 				'provider client rebuild after token refresh failed',
 				exceptionAttributes(err),
 			)
@@ -799,7 +799,7 @@ export async function createAgentSession(
 	// report facts, not attempts.
 	let sandbox: ResolvedSandbox
 	try {
-		sandbox = resolveSandbox(getRootLogger(), options.sandbox)
+		sandbox = resolveSandbox(cliLogger(), options.sandbox)
 	} catch (err) {
 		// The one refusal in this function that does not go through
 		// `emptySession(...)`: `resolveSandbox` THROWS rather than degrading
@@ -810,7 +810,7 @@ export async function createAgentSession(
 		// in place, untouched by this change) is what turns the throw into a
 		// non-zero exit; this is only responsible for the record existing
 		// before that happens.
-		getRootLogger().error(err instanceof Error ? err.message : String(err), {
+		cliLogger().error(err instanceof Error ? err.message : String(err), {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_REFUSED,
 			'namzu.refusal.kind': 'environment',
 		})
@@ -822,7 +822,7 @@ export async function createAgentSession(
 	// today computed and thrown away" — an operator reading default `info`
 	// output must see it specifically when nothing is enforced, not only
 	// under `--verbose`.
-	getRootLogger()[sandboxResolvedSeverity(sandbox)](sandbox.notice, {
+	cliLogger()[sandboxResolvedSeverity(sandbox)](sandbox.notice, {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.SANDBOX_RESOLVED,
 		'namzu.sandbox.unconfined': sandbox.unconfined,
 	})
@@ -837,7 +837,7 @@ export async function createAgentSession(
 	// `loadSkillsContext`, per turn) and neither is wired to the boot path
 	// yet, so a fabricated "plugins 0 · skills 0" here would claim a
 	// measurement that was never taken. This reports only what was.
-	getRootLogger().info('discovery complete', {
+	cliLogger().info('discovery complete', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
 		'namzu.discovery.kind': 'connector',
 		'namzu.discovery.count': mcp.connected.length,
@@ -845,7 +845,7 @@ export async function createAgentSession(
 		'namzu.discovery.failed_count': mcp.failed.length,
 	})
 	for (const server of mcp.connected) {
-		getRootLogger().debug('connector discovered', {
+		cliLogger().debug('connector discovered', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
 			'namzu.discovery.kind': 'connector',
 			'namzu.connector.name': server.name,
@@ -853,7 +853,7 @@ export async function createAgentSession(
 		})
 	}
 	for (const server of mcp.failed) {
-		getRootLogger().debug('connector failed to connect', {
+		cliLogger().debug('connector failed to connect', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
 			'namzu.discovery.kind': 'connector',
 			'namzu.connector.name': server.name,
@@ -942,7 +942,7 @@ export async function createAgentSession(
 		// stays empty and the chat still works. Silent until now, which was
 		// the wrong kind of non-fatal — an operator who expected delegation
 		// and got none had nothing on stderr to say why.
-		getRootLogger().warn('sub-agent runtime unavailable this session', exceptionAttributes(err))
+		cliLogger().warn('sub-agent runtime unavailable this session', exceptionAttributes(err))
 	}
 	// Task store → query registers task_create / task_update / task_list as
 	// DEFERRED tools and emits task_created/task_updated, so the agent can track
@@ -982,7 +982,7 @@ export async function createAgentSession(
 	// boolean readiness field anywhere in the record: systemd's own `READY=1`
 	// has no `READY=0` counterpart, for the same reason — a field that CAN
 	// say "not ready" is a field some unaudited path can wrongly set true.
-	getRootLogger().info('agent session ready', {
+	cliLogger().info('agent session ready', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_READY,
 	})
 	return {
@@ -2231,7 +2231,7 @@ function exceptionAttributes(err: unknown): LogAttributes {
  * `namzu.boot.ready` fires.
  */
 function logCapabilities(probes: readonly CapabilityProbe[]): void {
-	const log = getRootLogger()
+	const log = cliLogger()
 	const summary = probes
 		.map((p) => `${p.specifier.split('/').pop()} ${p.state === 'present' ? 'yes' : 'no'}`)
 		.join(' · ')
@@ -2265,7 +2265,7 @@ function emptySession(
 	// emission point instead of five call-site ones is what keeps that true
 	// instead of "true until the sixth `emptySession(...)` someone adds
 	// forgets it."
-	getRootLogger().error(errorHint, {
+	cliLogger().error(errorHint, {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_REFUSED,
 		'namzu.refusal.kind': errorKind,
 	})

@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getRootLogger } from '@namzu/sdk'
-
 import { openSessions } from '../../integrations/sessions/store.js'
+import { cliLogger } from '../../logging.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession, probeAgentSession } from '../../tui/agent.js'
 import { providersJSONCommand, runStreamCommand } from '../run-stream.js'
@@ -76,7 +75,7 @@ describe('namzu run-stream installs a live stderr sink instead of silencing the 
 		})
 		try {
 			await runStreamCommand.handler({ ctx: ctxAt('debug'), rawArgs: ['hi'] })
-			getRootLogger().debug('probe')
+			cliLogger().debug('probe')
 			const out = lines.join('')
 			expect(out).toContain('"body":"probe"')
 			expect(out).toContain('"severityText":"debug"')
@@ -114,7 +113,7 @@ describe('namzu providers-json installs a live stderr sink instead of silencing 
 		})
 		try {
 			await providersJSONCommand.handler({ ctx: ctxAt('debug'), rawArgs: [] })
-			getRootLogger().debug('providers-json probe')
+			cliLogger().debug('providers-json probe')
 			expect(lines.join('')).toContain('providers-json probe')
 		} finally {
 			spy.mockRestore()

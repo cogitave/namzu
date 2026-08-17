@@ -15,8 +15,15 @@
  * the default that used to be silence.
  */
 
-import type { LevelFilter, LogSink } from '@namzu/sdk'
-import { jsonLinesSink, prettySink } from '@namzu/sdk'
+import type { LevelFilter, LogSink, Logger } from '@namzu/sdk'
+import {
+	NOOP_LOGGER,
+	createLogger,
+	getProcessSinkCounters,
+	installProcessSink,
+	jsonLinesSink,
+	prettySink,
+} from '@namzu/sdk'
 
 export type LogFormat = 'pretty' | 'json'
 
@@ -106,4 +113,58 @@ export function createStderrSink(format: LogFormat): LogSink {
  */
 export function contextLogging(ctx: { readonly logging?: ResolvedLogging }): ResolvedLogging {
 	return ctx.logging ?? { level: resolveLogLevel({}), format: resolveLogFormat({}) }
+}
+
+/**
+ * The CLI's own process logger, and the reason it lives here.
+ *
+ * The kernel used to expose `getRootLogger()`, a process-wide global that
+ * resolved to whatever sink was installed. LOG-20 removed it: a library
+ * handing out an ambient logger means every consumer shares one destination
+ * and one level, decided by whoever called last, and the kernel is not the
+ * process owner.
+ *
+ * The CLI **is** the process owner, so the global belongs here. This is the
+ * same bridge, scoped to one binary: `installCliLogging` installs the sink
+ * and builds the logger from it in one step, so the two cannot drift, and
+ * `cliLogger()` hands it to the call sites that used to reach for the
+ * kernel's.
+ *
+ * Before installation it answers `NOOP_LOGGER` rather than writing to
+ * stderr. A record produced before the destination is chosen has nowhere
+ * correct to go, and silently defaulting to stderr is what made the old
+ * global impossible to reason about — `run-stream` publishes NDJSON on
+ * stdout and a stray line on the wrong stream corrupts a host's parse.
+ */
+let _cliLogger: Logger = NOOP_LOGGER
+
+export function installCliLogging(sink: LogSink, level: LevelFilter): Logger {
+	installProcessSink(sink, level, { replace: true })
+	_cliLogger = createLogger(
+		{
+			sink,
+			// A mutable holder, read per record: the level is fixed for an
+			// invocation, but `createLogger` reads it per record by design and
+			// passing a literal would freeze it in a way the sink's does not.
+			level: { current: level },
+			resource: { 'service.name': 'namzu-cli' },
+			scope: 'cli',
+		},
+		// The PROCESS's counter set, not a private one. `getLogCounters()` and
+		// `namzu doctor`'s `logging.pipeline` check read that set; a logger
+		// counting into its own would leave both reporting zeros while records
+		// flowed.
+		getProcessSinkCounters(),
+	)
+	return _cliLogger
+}
+
+/** The logger `installCliLogging` built, or a no-op if boot has not run. */
+export function cliLogger(): Logger {
+	return _cliLogger
+}
+
+/** Test seam: forget the installed logger. */
+export function __resetCliLoggerForTests(): void {
+	_cliLogger = NOOP_LOGGER
 }

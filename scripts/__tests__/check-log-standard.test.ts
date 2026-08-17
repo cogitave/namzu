@@ -31,6 +31,7 @@ import {
 	checkConsoleAllowlist,
 	checkStreamWriteAllowlist,
 	checkGetRootLoggerRatchet,
+	checkZeroFloors,
 	checkUnnamespacedBindingRatchet,
 	checkConstantBody,
 	checkNamespacedAttributeKeys,
@@ -159,6 +160,41 @@ describe('checkGetRootLoggerRatchet', () => {
 		assert.deepEqual(
 			checkGetRootLoggerRatchet([{ rel: 'packages/cli/src/__test-fixture__.ts', text }], { getRootLoggerCount: 0 }),
 			[],
+		)
+	})
+})
+
+describe('checkZeroFloors', () => {
+	// The half the ratchet cannot cover. `checkGetRootLoggerRatchet` compares
+	// the tree against a number in a JSON file, and `--write` regenerates that
+	// number — so on its own it says "declare the change", never "this must
+	// stay zero". LOG-20 removed the process-wide logger entirely; there is no
+	// legal call site left, and re-recording a count is not a way to make one.
+	test('passes when both floored ratchets are zero', () => {
+		assert.deepEqual(
+			checkZeroFloors({ getRootLoggerCount: 0, unnamespacedBindingCount: 0 }),
+			[],
+		)
+	})
+
+	test('fails on a non-zero getRootLoggerCount, whatever the tree says', () => {
+		// No file entries anywhere in this call: the config value ALONE is the
+		// violation. That is what survives `--write`, which recomputes counts
+		// from the tree and would otherwise launder a reintroduction into a
+		// matching pair.
+		const violations = checkZeroFloors({ getRootLoggerCount: 1, unnamespacedBindingCount: 0 })
+		assert.equal(violations.length, 1)
+		assert.equal(violations[0].rule, 'getRootLoggerCount')
+		assert.match(violations[0].message, /floored at 0/)
+	})
+
+	test('fails on a non-zero unnamespacedBindingCount too, and reports both at once', () => {
+		// Both, not just the first. A `.find()` where a `.filter()` belongs
+		// passes a one-violation test and hides the second name forever.
+		const violations = checkZeroFloors({ getRootLoggerCount: 3, unnamespacedBindingCount: 2 })
+		assert.deepEqual(
+			violations.map((v) => v.rule).sort(),
+			['getRootLoggerCount', 'unnamespacedBindingCount'],
 		)
 	})
 })

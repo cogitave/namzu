@@ -1,13 +1,8 @@
-import {
-	NOOP_SINK,
-	createLogger,
-	getLogCounters,
-	getRootLogger,
-	installProcessSink,
-} from '@namzu/sdk'
+import { NOOP_SINK, createLogger, getLogCounters } from '@namzu/sdk'
 import type { LogRecord, LogSink } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
+import { cliLogger, installCliLogging } from '../../../logging.js'
 import { DoctorRegistry } from '../../registry.js'
 import { describeLogPipeline, loggingPipelineCheck } from '../logging.js'
 
@@ -31,7 +26,7 @@ describe('the doctor reports what the log pipeline did', () => {
 		// The acceptance criterion is `=== 3`. An implementation that counted
 		// per `child()` call, or that double-counted a record failing two
 		// caps, passes `> 0` and fails this.
-		installProcessSink(NOOP_SINK, 'debug', { replace: true })
+		installCliLogging(NOOP_SINK, 'debug')
 		const log = createLogger({
 			sink: NOOP_SINK,
 			level: { current: 'debug' },
@@ -115,15 +110,16 @@ describe('the doctor reports what the log pipeline did', () => {
 	})
 
 	it('accumulates across separate loggers once a sink owns the process', () => {
-		// The reason the counters were unreadable: `getRootLogger` resolves
-		// per call and used to build a logger with its own fresh counters, so
-		// two log lines could never be counted together. Reverting
-		// `createLogger`'s `shared` parameter fails this.
-		installProcessSink(NOOP_SINK, 'debug', { replace: true })
-		// Through `getRootLogger()`, which is the path that was broken: it
-		// resolves per call, so these are two different logger objects.
-		getRootLogger().info('a')
-		getRootLogger().info('b')
+		// The reason the counters were unreadable: the process-wide logger
+		// resolved per call and each resolution built a logger with its own
+		// fresh counters, so two log lines could never be counted together.
+		// Reverting `createLogger`'s `shared` parameter fails this — and so
+		// does `installCliLogging` forgetting to pass
+		// `getProcessSinkCounters()`, which is the shape the CLI runs in now
+		// that there is no process-wide logger to inherit from.
+		installCliLogging(NOOP_SINK, 'debug')
+		cliLogger().info('a')
+		cliLogger().info('b')
 
 		expect(getLogCounters()?.dropped).toBe(2)
 	})

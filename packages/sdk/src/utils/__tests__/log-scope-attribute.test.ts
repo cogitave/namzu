@@ -1,9 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createLogger } from '../log/index.js'
 import type { LogRecord, LogSink } from '../log/index.js'
-import { __resetProcessSinkForTests, installProcessSink } from '../log/process-sink.js'
 import { SCOPE_ATTRIBUTE } from '../log/types.js'
-import { configureLogger, getRootLogger } from '../logger.js'
 
 function capturingSink(): { sink: LogSink; records: LogRecord[] } {
 	const records: LogRecord[] = []
@@ -62,56 +60,26 @@ describe('SCOPE_ATTRIBUTE — the OTel-shaped pipeline (create-logger.ts)', () =
 		expect(records[0]?.scope.name).toBe('root')
 		expect(records[0]?.attributes.component).toBe('x')
 	})
-})
 
-describe('SCOPE_ATTRIBUTE — the legacy Logger backends (utils/logger.ts)', () => {
-	afterEach(() => {
-		__resetProcessSinkForTests()
-		vi.restoreAllMocks()
-	})
-
-	it('rebinds scope.name through getRootLogger() once a process sink is installed — the fromSink regression', () => {
+	it('rebinds on a second child() call, not only on the first', () => {
+		// Ported from the removed `getRootLogger()` half of this file, where a
+		// recursive backend hardcoded its scope on every re-entry. The grandchild
+		// case above binds the scope once and then something else; this one binds
+		// it TWICE, which is what distinguishes "consumed into options.scope" from
+		// "consumed the first time and then inherited".
 		const { sink, records } = capturingSink()
-		installProcessSink(sink, 'debug', { replace: true })
+		const logger = createLogger({
+			sink,
+			level: { current: 'info' },
+			resource: { 'service.name': 'test' },
+			scope: 'root',
+		})
 
-		// Before the fix: fromSink's recursive child() call hardcoded
-		// scope: 'namzu' on every call, so this assertion would read 'namzu'
-		// no matter what SCOPE_ATTRIBUTE this child() bound.
-		const child = getRootLogger().child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
-		child.info('hello')
-
-		expect(records).toHaveLength(1)
-		expect(records[0]?.scope.name).toBe('manager/connector')
-	})
-
-	it('threads scope through a second child() call on the process-sink path, not just the first', () => {
-		const { sink, records } = capturingSink()
-		installProcessSink(sink, 'debug', { replace: true })
-
-		const grandchild = getRootLogger()
+		logger
 			.child({ [SCOPE_ATTRIBUTE]: 'vault' })
 			.child({ [SCOPE_ATTRIBUTE]: 'connector/mcp' })
-		grandchild.info('hello')
+			.info('hello')
 
 		expect(records[0]?.scope.name).toBe('connector/mcp')
-	})
-
-	it('renames the console bracket prefix through the stderr fallback when no process sink is installed', () => {
-		// `test-setup.ts` silences the root logger for the whole suite, so this
-		// test has to raise its own floor or it measures the silencing rather
-		// than the prefix. Restored in the `finally` below: leaving the level
-		// up would make every later test in this process noisy, and worse,
-		// would make an assertion about silence pass or fail by test ORDER.
-		const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-		configureLogger({ level: 'info' })
-
-		const child = getRootLogger().child({ [SCOPE_ATTRIBUTE]: 'registry' })
-		child.info('hello')
-
-		expect(writeSpy).toHaveBeenCalledTimes(1)
-		const line = String(writeSpy.mock.calls[0]?.[0])
-		expect(line).toContain('[registry]')
-		expect(line).not.toContain('[namzu]')
-		configureLogger({ level: 'silent' })
 	})
 })

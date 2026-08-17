@@ -62,6 +62,15 @@ vi.mock('../runtime-accessors.js', () => ({
 		createCounter: () => ({ add: () => undefined }),
 		createHistogram: () => ({ record: () => undefined }),
 	}),
+	// The module's third export, and this factory replaces the module WHOLE —
+	// anything left out is not passed through, it is absent, and the first
+	// caller gets "No X export is defined on the mock". `create-logger.ts`
+	// resolves this on every emit to stamp `trace_id`/`span_id`. It went
+	// unnoticed because the suite-wide setup file silenced logging to
+	// `silent`, so no record ever reached the line that calls it; LOG-20
+	// deleted that file (silence is now what a component with no logger does
+	// on its own) and the missing export surfaced immediately.
+	getActiveSpanContext: () => undefined,
 }))
 
 function toolContext() {

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { getRootLogger } from '@namzu/sdk'
-
+import { cliLogger } from '../../logging.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import type { CommandContext } from '../types.js'
 
@@ -56,7 +55,7 @@ describe('namzu drain installs a live stderr sink instead of silencing the SDK l
 		})
 		try {
 			await drainCommand.handler({ ctx: ctxAt('debug'), rawArgs: SCOPE_ARGS })
-			getRootLogger().debug('drain debug probe')
+			cliLogger().debug('drain debug probe')
 			expect(lines.join('')).toContain('drain debug probe')
 		} finally {
 			spy.mockRestore()
@@ -71,7 +70,7 @@ describe('namzu drain installs a live stderr sink instead of silencing the SDK l
 		})
 		try {
 			await drainCommand.handler({ ctx: ctxAt('warn'), rawArgs: SCOPE_ARGS })
-			getRootLogger().debug('should not appear')
+			cliLogger().debug('should not appear')
 			expect(lines.join('')).not.toContain('should not appear')
 		} finally {
 			spy.mockRestore()

@@ -9,7 +9,7 @@ import type { IterationContext } from '../runtime/query/iteration/phases/context
 import { acquireClaim } from '../store/run/claim-disk.js'
 import type { Message } from '../types/message/index.js'
 import type { RunEvent } from '../types/run/index.js'
-import { getRootLogger } from '../utils/logger.js'
+import { NOOP_LOGGER } from '../utils/log/create-logger.js'
 import {
 	InvariantNameCollisionError,
 	ModuleInvariantError,
@@ -162,7 +162,7 @@ describe('compaction:no-split-tool-pair — wired at its real call site', () => 
 					],
 				} as Message,
 			],
-			log: getRootLogger(),
+			log: NOOP_LOGGER,
 			emitEvent: async (event: RunEvent) => {
 				events.push(event)
 			},

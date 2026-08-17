@@ -2,7 +2,7 @@
 	"$comment": "Log-standard gate config, consumed by scripts/check-log-standard.mjs. Four ratchets (exact-equality counts, both directions) and two allowlists (exact per-file, per-symbol counts with a reason). Regenerate all four ratchet numbers with `node scripts/check-log-standard.mjs --write` in the same commit that changes them; the allowlists are edited by hand because a new or removed site needs a human-authored reason, which --write cannot supply.",
 	"$comment_type_aware": "constantBodyViolationCount (rule 3) and namespacedAttributeKeyViolationCount (rule 4), added in LOG-13, are ratchets exactly like the two above — NOT allowlists. constantBodyExcludes and namespacedAttributeKeyExcludes are permanently-empty guard fields: checkConstantBody/checkNamespacedAttributeKeys never read them, so populating either would not suppress anything — it would only make scripts/__tests__/check-log-standard.test.ts's excludes-guard test fail. That is deliberate: a path excluded from 'is this receiver a Logger' or 'is this key namespaced' is a path where neither guarantee holds.",
 	"$comment_scope": "getRootLoggerCount and unnamespacedBindingCount are scoped to packages/sdk/src (excluding __tests__, __fixtures__ and *.test.ts). consoleAllowlist and streamWriteAllowlist are scoped to packages/*/src across every package (one directory below packages/ — packages/providers/<name>/src is nested one level deeper and out of scope; see the script's file header).",
-	"getRootLoggerCount": 1,
+	"getRootLoggerCount": 0,
 	"unnamespacedBindingCount": 0,
 	"constantBodyViolationCount": 0,
 	"namespacedAttributeKeyViolationCount": 0,
@@ -17,12 +17,6 @@
 		}
 	],
 	"streamWriteAllowlist": [
-		{
-			"file": "packages/sdk/src/utils/logger.ts",
-			"symbol": "process.stderr.write",
-			"count": 2,
-			"reason": "createLoggerImpl's own sink — the one place a Logger produced by getRootLogger() actually reaches a stream. Every other production write is expected to go through a Logger, not around one."
-		},
 		{
 			"file": "packages/cli/src/output/json.ts",
 			"symbol": "process.stdout.write",
@@ -113,5 +107,6 @@
 			"count": 1,
 			"reason": "installTuiLogSink's fatal handler. Ink owns the screen while the TUI runs, so this sink buffers rather than writes; on a crash it flushes the buffer and then writes the error itself, after Ink's render loop has stopped. This file IS the TUI's sink implementation — the one place permitted to touch the stream directly on the way out of a process that is already ending."
 		}
-	]
+	],
+	"$comment_floors": "getRootLoggerCount and unnamespacedBindingCount are FLOORED at 0 by checkZeroFloors in scripts/check-log-standard.mjs (LOG-20). They are still exact-equality ratchets, but the value 0 is the only legal one: the process-wide logger export no longer exists and every component: binding became a namespaced attribute, so a non-zero here is a reintroduction rather than a count to re-record. `--write` refuses to raise either one."
 }

@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { LogRecord } from '@namzu/sdk'
-import { installProcessSink } from '@namzu/sdk'
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { emitBootNarrative } from '../../../cli.js'
 import { loadConfigWithProvenance } from '../../../config/load.js'
 import { DEFAULT_CONFIG } from '../../../config/schema.js'
 import { describeSessionExportStatus } from '../../../doctor/checks/session-export.js'
+import { installCliLogging } from '../../../logging.js'
 import {
 	SessionExportUnavailableError,
 	attachSessionExport,
@@ -188,7 +189,7 @@ describe('the config reader', () => {
 
 function capturingSink(): LogRecord[] {
 	const records: LogRecord[] = []
-	installProcessSink({ emit: (r) => records.push(r) }, 'debug', { replace: true })
+	installCliLogging({ emit: (r) => records.push(r) }, 'debug')
 	return records
 }
 

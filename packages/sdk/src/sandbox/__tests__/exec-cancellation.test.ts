@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getRootLogger } from '../../utils/logger.js'
+import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import { LocalSandboxProvider } from '../provider/local.js'
 
 /**
@@ -17,7 +17,7 @@ import { LocalSandboxProvider } from '../provider/local.js'
  */
 describe('a sandboxed command honours the caller cancellation', () => {
 	it('kills a long-running process when the caller aborts', async () => {
-		const provider = new LocalSandboxProvider(getRootLogger())
+		const provider = new LocalSandboxProvider(NOOP_LOGGER)
 		const sandbox = await provider.create()
 		const controller = new AbortController()
 
@@ -41,7 +41,7 @@ describe('a sandboxed command honours the caller cancellation', () => {
 	}, 30_000)
 
 	it('still reports a deadline as a timeout when no caller signal is passed', async () => {
-		const provider = new LocalSandboxProvider(getRootLogger())
+		const provider = new LocalSandboxProvider(NOOP_LOGGER)
 		const sandbox = await provider.create()
 
 		const result = await sandbox.exec('node', ['-e', 'setTimeout(() => {}, 30000)'], {
@@ -54,7 +54,7 @@ describe('a sandboxed command honours the caller cancellation', () => {
 	}, 30_000)
 
 	it('leaves an uncancelled command alone', async () => {
-		const provider = new LocalSandboxProvider(getRootLogger())
+		const provider = new LocalSandboxProvider(NOOP_LOGGER)
 		const sandbox = await provider.create()
 		const controller = new AbortController()
 

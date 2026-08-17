@@ -18,7 +18,10 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
 	test: {
 		include: ['src/**/*.proc-test.ts'],
-		setupFiles: ['./src/test-setup.ts'],
+		// No `setupFiles` — same reason as `vitest.config.ts`'s. The file it
+		// named existed to silence a process-wide stderr logger that LOG-20
+		// removed, and it installed a process sink to do it, which collided
+		// with every suite that installs its own.
 		// One at a time. These measure what a process does when nothing else is
 		// in it; running two at once would put something else in it.
 		fileParallelism: false,

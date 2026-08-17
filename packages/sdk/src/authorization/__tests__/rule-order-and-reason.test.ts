@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { AuthorizationGateConfig } from '../../types/authorization/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import { getRootLogger } from '../../utils/logger.js'
+import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import { AuthorizationGate, describeRule } from '../gate.js'
 
 /**
@@ -26,7 +26,7 @@ function gate(config: Partial<AuthorizationGateConfig>): AuthorizationGate {
 			logDecisions: false,
 			...config,
 		} as AuthorizationGateConfig,
-		getRootLogger(),
+		NOOP_LOGGER,
 	)
 }
 

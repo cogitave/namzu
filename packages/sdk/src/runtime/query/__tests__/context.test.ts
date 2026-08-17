@@ -2,13 +2,19 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { hostLogger } from '../../../__fixtures__/host-logger.js'
 import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
+import {
+	DefaultFilesystemMigrator,
+	loggingMigrationSink,
+} from '../../../session/migration/index.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../../session/workspace/path-builder.js'
 import { posix } from '../../../test-support/paths.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import { NOOP_LOGGER } from '../../../utils/log/create-logger.js'
 import { type LogRecord, type LogSink, createLogger } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { RunContextFactory } from '../context.js'
@@ -132,16 +138,15 @@ describe('RunContextFactory.buildLogger', () => {
 		__resetProcessSinkForTests()
 	})
 
-	it('binds namzu.run.id and the rest of the run scope onto the process root by default', () => {
+	it("binds namzu.run.id and the rest of the run scope onto the host's logger", () => {
 		const records: LogRecord[] = []
 		const sink: LogSink = { emit: (record) => records.push(record) }
-		installProcessSink(sink, 'debug', { replace: true })
 
 		const cfg = buildConfig()
 		const runId = 'run_built' as RunId
 		const log = RunContextFactory.buildLogger({
 			agentName: cfg.agentName,
-			runConfig: cfg.runConfig,
+			runConfig: { ...cfg.runConfig, logger: hostLogger(sink) },
 			runId,
 			sessionId: cfg.sessionId,
 			topicId: cfg.topicId,
@@ -157,15 +162,43 @@ describe('RunContextFactory.buildLogger', () => {
 		expect(records[0]?.attributes[NAMZU.THREAD_ID]).toBe(cfg.topicId)
 		expect(records[0]?.attributes[NAMZU.PROJECT_ID]).toBe(cfg.projectId)
 		expect(records[0]?.attributes[NAMZU.TENANT_ID]).toBe(cfg.tenantId)
-		// The load-bearing regression test for the fromSink scope bug
-		// (utils/logger.ts): before that fix, EVERY getRootLogger()-derived
-		// child reported scope.name 'namzu' regardless of what buildLogger
-		// bound via SCOPE_ATTRIBUTE. This installs a REAL process sink (see
-		// above) and reads the record's scope, not a mock.
+		// Read off a REAL record, not a mock. `buildLogger` binds the scope
+		// through SCOPE_ATTRIBUTE, and a `child()` implementation that copied
+		// the reserved key into attributes instead of consuming it into the
+		// record's scope would leave this at the host logger's own scope.
 		expect(records[0]?.scope.name).toBe('runtime/query')
 	})
 
-	it('derives from a host-supplied runConfig.logger instead of the process root, when one is given', () => {
+	it('emits nothing at all when the host supplied no logger, process sink installed or not', () => {
+		// LOG-20's whole claim, in one assertion. `runConfig.logger` absent
+		// used to mean "resolve the process-wide root", so a library the host
+		// never handed a logger wrote to the host's stderr — and installing a
+		// process sink silently rerouted SDK internals the host never asked to
+		// see. `resolveLogger(undefined)` is `NOOP_LOGGER` now: no logger in,
+		// nothing out. Reintroducing any global fallback fails here.
+		const records: LogRecord[] = []
+		const sink: LogSink = { emit: (record) => records.push(record) }
+		installProcessSink(sink, 'debug', { replace: true })
+
+		const cfg = buildConfig()
+		RunContextFactory.buildLogger({
+			agentName: cfg.agentName,
+			runConfig: cfg.runConfig,
+			runId: 'run_silent' as RunId,
+			sessionId: cfg.sessionId,
+			topicId: cfg.topicId,
+			projectId: cfg.projectId,
+			tenantId: cfg.tenantId,
+		}).info('hello')
+
+		expect(records).toHaveLength(0)
+		// And the discard is COUNTED, which is the half that distinguishes
+		// "silenced" from "never happened" — `NOOP_LOGGER` runs at `debug` on
+		// purpose so a host can still see that N calls were thrown away.
+		expect(NOOP_LOGGER.counters.dropped).toBeGreaterThan(0)
+	})
+
+	it('derives from the host-supplied runConfig.logger, not from any other source', () => {
 		// A capturing sink installed as the process DEFAULT — proves nothing by
 		// itself, since every logger in this test would be reachable from it
 		// too if buildLogger ignored the host's own logger. The marker logger
@@ -229,10 +262,13 @@ describe('RunContextFactory.build accepts a pre-built logger', () => {
 	it('falls back to buildLogger — same correlated shape as the direct call — when config.log is absent', () => {
 		const records: LogRecord[] = []
 		const sink: LogSink = { emit: (record) => records.push(record) }
-		installProcessSink(sink, 'debug', { replace: true })
 
 		const runId = 'run_auto' as RunId
-		const ctx = RunContextFactory.build(buildConfig({ runId }))
+		const base = buildConfig({ runId })
+		const ctx = RunContextFactory.build({
+			...base,
+			runConfig: { ...base.runConfig, logger: hostLogger(sink) },
+		})
 		ctx.log.info('hello')
 
 		expect(records).toHaveLength(1)
@@ -245,21 +281,37 @@ describe('RunContextFactory.ensureMigrated', () => {
 		__resetProcessSinkForTests()
 	})
 
-	it('defaults to NOOP_FILESYSTEM_MIGRATION_SINK: migrating a legacy layout reaches no installed log sink', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'namzu-ensure-migrated-'))
+	it('defaults to NOOP_FILESYSTEM_MIGRATION_SINK: migrating a legacy layout logs nothing', async () => {
+		// Two roots, one assertion each way. Asserting only the empty half
+		// would pass on a migration that never ran, on a sink wired to
+		// nothing, and — since LOG-20 — on absolutely any default at all,
+		// because no logger reaches a component that was not handed one. The
+		// control root proves the same migration DOES narrate when the caller
+		// asks for it, so the empty half means "this default is silent".
+		const quiet = await mkdtemp(join(tmpdir(), 'namzu-ensure-migrated-'))
+		const loud = await mkdtemp(join(tmpdir(), 'namzu-ensure-migrated-loud-'))
 		try {
-			await mkdir(join(root, 'threads', 'thd_abc', 'runs', 'run_1'), { recursive: true })
+			await mkdir(join(quiet, 'threads', 'thd_abc', 'runs', 'run_1'), { recursive: true })
+			await mkdir(join(loud, 'threads', 'thd_abc', 'runs', 'run_1'), { recursive: true })
 
 			const records: LogRecord[] = []
 			const sink: LogSink = { emit: (record) => records.push(record) }
-			installProcessSink(sink, 'debug', { replace: true })
 
-			const result = await RunContextFactory.ensureMigrated(root)
+			const control = await RunContextFactory.ensureMigrated(
+				loud,
+				new DefaultFilesystemMigrator(loggingMigrationSink(hostLogger(sink))),
+			)
+			expect(control.kind).toBe('migrated')
+			expect(records.length).toBeGreaterThan(0)
+
+			records.length = 0
+			const result = await RunContextFactory.ensureMigrated(quiet)
 
 			expect(result.kind).toBe('migrated')
 			expect(records).toHaveLength(0)
 		} finally {
-			await rm(root, { recursive: true, force: true })
+			await rm(quiet, { recursive: true, force: true })
+			await rm(loud, { recursive: true, force: true })
 		}
 	})
 })

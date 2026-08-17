@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PluginRegistry } from '../../registry/plugin/index.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
-import { getRootLogger } from '../../utils/logger.js'
+import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import { PluginLifecycleManager } from '../lifecycle.js'
 import { discoverPlugins } from '../loader.js'
 
@@ -79,7 +79,7 @@ function managerFor(def: unknown): PluginLifecycleManager {
 	return new PluginLifecycleManager({
 		pluginRegistry,
 		toolRegistry: new ToolRegistry(),
-		log: getRootLogger(),
+		log: NOOP_LOGGER,
 	} as never)
 }
 

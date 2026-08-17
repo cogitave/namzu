@@ -13,13 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 import { Command, CommanderError, Option } from 'commander'
 
-import {
-	BOOT_EVENT_NAMES,
-	EVENT_NAME_ATTRIBUTE,
-	VERSION as SDK_VERSION,
-	getRootLogger,
-	installProcessSink,
-} from '@namzu/sdk'
+import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, VERSION as SDK_VERSION } from '@namzu/sdk'
 
 import { acpCommand } from './commands/acp.js'
 import { doctorCommand } from './commands/doctor.js'
@@ -44,7 +38,13 @@ import {
 } from './config/load.js'
 import type { NamzuCliConfig } from './config/schema.js'
 import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
-import { createStderrSink, resolveLogFormat, resolveLogLevel } from './logging.js'
+import {
+	cliLogger,
+	createStderrSink,
+	installCliLogging,
+	resolveLogFormat,
+	resolveLogLevel,
+} from './logging.js'
 import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
 import { compilePermissions } from './permissions/rules.js'
@@ -144,7 +144,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// SAME `logging` this line just resolved, or a deliberately different
 		// one (the TUI's ring buffer) — never a second party fighting this one
 		// for the destination.
-		installProcessSink(createStderrSink(logging.format), logging.level, { replace: true })
+		installCliLogging(createStderrSink(logging.format), logging.level)
 		emitBootNarrative(provenance, fileConfig)
 		ctx = {
 			formatter: createFormatter(format, { quiet }),
@@ -248,7 +248,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
  * without needing a live Commander parse or a real config cascade on disk.
  */
 export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCliConfig): void {
-	const log = getRootLogger()
+	const log = cliLogger()
 	log.info('namzu starting', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_START,
 		'namzu.boot.cli_version': CLI_VERSION,

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { getRootLogger } from '@namzu/sdk'
-
+import { cliLogger } from '../../logging.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { runCommand } from '../run.js'
 import type { CommandContext } from '../types.js'
@@ -35,9 +34,9 @@ async function runAndProbe(level: 'debug' | 'info' | 'warn'): Promise<string> {
 	})
 	try {
 		await runCommand.handler({ ctx: ctxAt(level), rawArgs: ['hi'] })
-		getRootLogger().debug('debug probe')
-		getRootLogger().info('info probe')
-		getRootLogger().warn('warn probe')
+		cliLogger().debug('debug probe')
+		cliLogger().info('info probe')
+		cliLogger().warn('warn probe')
 		return lines.join('')
 	} finally {
 		spy.mockRestore()

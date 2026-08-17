@@ -81,7 +81,20 @@ export {
 // model list, so that check lives in the driver and needs this.
 export { normaliseModelId, resolveModelPricing, VENDOR_RATES } from './pricing/index.js'
 export { toErrorMessage } from './utils/error.js'
-export { configureLogger, getLogCounters, getRootLogger, Logger } from './utils/logger.js'
+export { getLogCounters, Logger } from './utils/logger.js'
+/**
+ * The process sink's own counter set, for a host that installs a sink and
+ * then builds its own logger from it.
+ *
+ * Exported by LOG-20 out of necessity rather than design. Removing
+ * `getRootLogger` removed `fromSink`, which was the only thing passing this
+ * set into a `createLogger`. Without it every host-written record counts into
+ * a private set, `getLogCounters()` reports a permanently zeroed one, and
+ * `namzu doctor`'s `logging.pipeline` check reads health it never measured —
+ * a check that cannot fail, introduced by the removal that was supposed to
+ * end them.
+ */
+export { getProcessSinkCounters } from './utils/log/process-sink.js'
 
 // The LogSink seam — additive. `Logger`/`getRootLogger`/`configureLogger`
 // above are unchanged; this is the new seam that replaces them going

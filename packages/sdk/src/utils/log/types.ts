@@ -1,11 +1,11 @@
 // The LogSink seam's record and pipeline types.
 //
-// `../logger.ts` keeps `Logger`, `LogContext`, `getRootLogger` and
-// `configureLogger` completely unchanged — `Logger` is in INPUT position on
-// the public surface (`logger?: Logger` on `RunConfig` and tool config), so
-// every host's existing implementation must keep satisfying it forever.
-// Everything here is additive: a new, structurally separate seam that does
-// not touch that interface.
+// `../logger.ts` keeps `Logger` and `LogContext` unchanged — `Logger` is in
+// INPUT position on the public surface (`logger?: Logger` on `RunConfig` and
+// tool config), so every host's existing implementation must keep satisfying
+// it forever. This seam was additive when it landed and stayed that way
+// through LOG-20, which removed the two process-global accessors that used to
+// sit beside those types without touching either type itself.
 
 /**
  * The severity vocabulary Namzu actually emits. `trace` and `fatal` are
@@ -157,13 +157,18 @@ export interface LoggerOptions {
 	readonly sink: LogSink
 	/**
 	 * A mutable holder, read per record inside `createLogger`'s dispatch —
-	 * never captured in a closure at construction. `child()` on today's
-	 * `Logger` bakes its level in exactly that way, which is why the
-	 * module-scope loggers in `skills/loader.ts`, `skills/registry.ts` and
-	 * `plugin/loader.ts` are frozen at `info` forever and unreachable by any
-	 * later `configureLogger` call — verified live: `skills/loader.ts:12`,
-	 * `skills/registry.ts:10` and `plugin/loader.ts:12` all call
-	 * `getRootLogger().child({...})` at module load time.
+	 * never captured in a closure at construction. Assigning `level.current`
+	 * therefore retunes a logger already handed out, which is the whole reason
+	 * this is a box and not a value.
+	 *
+	 * The defect it was designed against: a `child()` that baked its level in
+	 * at construction, combined with module-scope loggers built at IMPORT
+	 * time, froze three loaders at `info` for the life of the process and no
+	 * later call could reach them. Those loaders resolve their logger per call
+	 * now, and the process-wide accessor they resolved it FROM no longer
+	 * exists — so this box is what remains of that fix, and the named
+	 * line numbers that used to be quoted here are deliberately gone: they
+	 * were a claim about the tree that the tree stopped honouring.
 	 */
 	readonly level: { current: LevelFilter }
 	readonly resource: Resource

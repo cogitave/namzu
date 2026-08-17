@@ -29,11 +29,11 @@
  * should import the SDK's instead, per `read-the-neighbour`.
  */
 
-import { installProcessSink, jsonLinesSink, prettySink } from '@namzu/sdk'
+import { NOOP_LOGGER, jsonLinesSink, prettySink } from '@namzu/sdk'
 import type { LogRecord, LogSink } from '@namzu/sdk'
 
 import { EXIT_INTERNAL_ERROR } from '../exit-codes.js'
-import { contextLogging } from '../logging.js'
+import { contextLogging, installCliLogging } from '../logging.js'
 import type { ResolvedLogging } from '../logging.js'
 
 /** `ringBufferSink(512)` in the ratified design (§6.1) — enough for a full
@@ -74,7 +74,7 @@ function createRingBufferSink(capacity: number): LogSink & { drain(): readonly L
 export function installTuiLogSink(logging?: ResolvedLogging): () => void {
 	const resolved = contextLogging({ logging })
 	const ring = createRingBufferSink(RING_CAPACITY)
-	installProcessSink(ring, resolved.level, { replace: true })
+	installCliLogging(ring, resolved.level)
 
 	let flushed = false
 	const flush = (): void => {

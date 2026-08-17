@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
-import { getRootLogger } from '../../utils/logger.js'
+import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import { LocalSandboxProvider } from '../provider/local.js'
 
 /**
@@ -133,7 +133,7 @@ describe.skipIf(process.platform === 'win32')('cancelling a sandboxed shell comm
 		const script = join(dir, 'hold.js')
 		writeFileSync(script, 'setInterval(() => {}, 1000)')
 
-		const provider = new LocalSandboxProvider(getRootLogger())
+		const provider = new LocalSandboxProvider(NOOP_LOGGER)
 		const sandbox = await provider.create()
 		const controller = new AbortController()
 
@@ -183,7 +183,7 @@ describe.skipIf(process.platform === 'win32')('cancelling a sandboxed shell comm
 		const script = join(dir, 'hold.js')
 		writeFileSync(script, 'setInterval(() => {}, 1000)')
 
-		const provider = new LocalSandboxProvider(getRootLogger())
+		const provider = new LocalSandboxProvider(NOOP_LOGGER)
 		const sandbox = await provider.create()
 		const controller = new AbortController()
 
@@ -230,7 +230,7 @@ describe.skipIf(process.platform === 'win32')('cancelling a sandboxed shell comm
 		// thing that ends this is a SIGKILL that actually reaches it.
 		writeFileSync(script, "process.on('SIGTERM', () => {})\nsetInterval(() => {}, 1000)")
 
-		const provider = new LocalSandboxProvider(getRootLogger())
+		const provider = new LocalSandboxProvider(NOOP_LOGGER)
 		const sandbox = await provider.create()
 		const controller = new AbortController()
 
