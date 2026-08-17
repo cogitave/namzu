@@ -3,6 +3,9 @@
   "version": "4.0.2",
   "description": "Zero-dependency LLM provider for any OpenAI- or Anthropic-compatible HTTP endpoint. Use with vLLM, TGI, llama-server, Groq, DeepInfra, Together.ai, or any custom inference server.",
   "license": "FSL-1.1-MIT",
+  "engines": {
+   "node": ">=20.0.0"
+  },
   "type": "module",
   "homepage": "https://github.com/cogitave/namzu#readme",
   "repository": {

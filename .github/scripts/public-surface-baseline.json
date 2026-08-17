@@ -2848,6 +2848,7 @@
         "SessionExportRecord",
         "SessionExportRedactor",
         "SessionExportSink",
+        "SpanProcessorLike",
         "TelemetryConfig",
         "TelemetryProvider",
         "createPlatformMetrics",

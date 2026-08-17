@@ -44,6 +44,8 @@ pnpm add @namzu/sdk @namzu/sandbox
 ```ts
 import { createSandboxProvider } from '@namzu/sandbox'
 
+declare const taskId: string
+
 const provider = createSandboxProvider({
   backend: {
     tier: 'container',

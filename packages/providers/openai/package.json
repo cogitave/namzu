@@ -3,6 +3,9 @@
   "version": "1.2.2",
   "description": "OpenAI LLM provider for @namzu/sdk via the official `openai` npm SDK. Chat Completions API with streaming + tool-use.",
   "license": "FSL-1.1-MIT",
+  "engines": {
+   "node": ">=20.0.0"
+  },
   "type": "module",
   "homepage": "https://github.com/cogitave/namzu#readme",
   "repository": {

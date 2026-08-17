@@ -3,6 +3,9 @@
   "version": "5.0.1",
   "description": "AWS Bedrock LLM provider for @namzu/sdk. Provides Converse API (chat + streaming) with full tool-use support.",
   "license": "FSL-1.1-MIT",
+  "engines": {
+   "node": ">=20.0.0"
+  },
   "type": "module",
   "homepage": "https://github.com/cogitave/namzu#readme",
   "repository": {

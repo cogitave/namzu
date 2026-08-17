@@ -129,6 +129,55 @@ function markdownUnder(dir) {
 	return out;
 }
 
+/**
+ * Every publishable package's own README.
+ *
+ * These are the package pages on npm, and until now the one class of
+ * TypeScript in this repository that nothing compiled: `docs/` was gated,
+ * `src/` was typechecked, and the quick-start a reader copies first was
+ * checked by nobody. `@namzu/telemetry`'s shipped example named a config field
+ * that does not exist, passed a factory where its return value belonged, and
+ * omitted a required field — three defects in five lines, found only when that
+ * prose was moved into `docs/` and a compiler finally saw it.
+ *
+ * Derived from the workspace rather than listed, for the same reason
+ * `fencePaths` is: a hand-written list is wrong the day someone adds a
+ * package. CHANGELOG.md is deliberately NOT included — its fences are copied
+ * out of changeset bodies, describe versions that have shipped, and cannot be
+ * fixed without rewriting release history.
+ */
+function packageReadmes() {
+	const out = [];
+	const packagesDir = join(root, "packages");
+	if (!existsSync(packagesDir)) return out;
+	const dirs = [];
+	for (const name of readdirSync(packagesDir)) {
+		if (name === "node_modules") continue;
+		const dir = join(packagesDir, name);
+		if (!statSync(dir).isDirectory()) continue;
+		if (existsSync(join(dir, "package.json"))) dirs.push(dir);
+		else
+			for (const nested of readdirSync(dir)) {
+				if (nested === "node_modules") continue;
+				const nestedDir = join(dir, nested);
+				if (
+					statSync(nestedDir).isDirectory() &&
+					existsSync(join(nestedDir, "package.json"))
+				)
+					dirs.push(nestedDir);
+			}
+	}
+	for (const dir of dirs) {
+		const manifest = JSON.parse(
+			readFileSync(join(dir, "package.json"), "utf8"),
+		);
+		if (manifest.private) continue;
+		const readme = join(dir, "README.md");
+		if (existsSync(readme)) out.push(readme);
+	}
+	return out;
+}
+
 /** Every ```ts fence in one file, with the 1-based line its opener sat on. */
 /**
  * Fence languages that hold TypeScript a reader will copy, and that this gate
@@ -327,6 +376,8 @@ if (!existsSync(join(distDir, "index.d.ts"))) {
 const scoped = [];
 for (const dir of FENCE_CONFORMING)
 	scoped.push(...markdownUnder(join(root, dir)));
+const readmes = packageReadmes();
+scoped.push(...readmes);
 
 let compiled = 0;
 let sketched = 0;
@@ -373,6 +424,20 @@ if (compiled === 0) {
 	);
 }
 
+// The same guard as above, for the half `compiled === 0` cannot see: docs/
+// alone keeps that count healthy, so a `packageReadmes()` that quietly
+// returned nothing — a moved directory, a manifest read that threw, a refactor
+// — would drop fifteen package pages out of scope and still report success
+// over a four-digit fence count. Printing 0 states it; refusing enforces it.
+if (readmes.length === 0) {
+	fail(
+		"doc-fence gate: no publishable package README was compiled.",
+		"    `packageReadmes()` found none. Either every package is private, or its",
+		"    workspace walk stopped matching the tree — and a package page's",
+		"    quick-start is the most-copied snippet a package has.",
+	);
+}
+
 console.log(`doc-fence gate: ${problems} problem(s)`);
 console.log(
 	`           ${compiled} fence(s) compiled against packages/sdk/dist`,
@@ -385,6 +450,9 @@ console.log(
 );
 console.log(
 	`           ${untagged} TypeScript-ish fence(s) in a language this gate does not compile (${UNCOMPILED_TS_LANGS.join(", ")}) — retag as \`ts\` to check them`,
+);
+console.log(
+	`           ${readmes.length} publishable package README(s) compiled alongside docs/`,
 );
 console.log(
 	`           ${outside} file(s) under docs/ outside FENCE_CONFORMING`,

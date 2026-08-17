@@ -3,6 +3,9 @@
   "version": "2.0.2",
   "description": "LM Studio LLM provider for @namzu/sdk via the official @lmstudio/sdk. Local GUI-based model management, chat, and streaming with tool-use support.",
   "license": "FSL-1.1-MIT",
+  "engines": {
+   "node": ">=20.0.0"
+  },
   "type": "module",
   "homepage": "https://github.com/cogitave/namzu#readme",
   "repository": {

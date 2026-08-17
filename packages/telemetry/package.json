@@ -3,6 +3,9 @@
 	"version": "2.1.1",
 	"description": "OpenTelemetry exporter pipeline for @namzu/sdk — OTLP traces + metrics, resource attributes, platform metrics. Extracted from @namzu/sdk so consumers who never emit telemetry don't transitively install the OTEL Node SDK.",
 	"license": "FSL-1.1-MIT",
+	"engines": {
+		"node": ">=20.0.0"
+	},
 	"type": "module",
 	"homepage": "https://github.com/cogitave/namzu#readme",
 	"repository": {
