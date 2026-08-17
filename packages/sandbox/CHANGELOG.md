@@ -1,5 +1,59 @@
 # @namzu/sandbox
 
+## 6.0.0
+
+### Major Changes
+
+- 7425f11: The sandbox worker no longer hands its own configuration to the code it contains
+
+  Every command the agent runs was spawned with `{ ...process.env, ...body.env }` — the worker's **entire** environment, copied into every child by construction, on every call, and visible in a bare `env` in any shell transcript.
+
+  That is a stronger exposure than "untrusted code could read `/proc/self/environ` if it thought to look". It is active propagation: the agent does not have to go looking.
+
+  What rode along: `NAMZU_SANDBOX_WORKSPACE`, `NAMZU_SANDBOX_READ_ROOTS` and `NAMZU_SANDBOX_WRITE_ROOTS` — **the confinement layout itself, handed to the code being confined** — plus every other worker setting. The boundary announced its own shape to the thing it was drawn around.
+
+  Variables prefixed `NAMZU_SANDBOX_` are now stripped from the inherited environment.
+
+  **Stripping by prefix rather than by an allowlist of known-safe names is the load-bearing choice**, and it is the difference between this working and this quietly breaking egress:
+
+  - `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` are set on the container **on purpose**, so tooling inside routes through the egress boundary. An allowlist assembled from first principles drops them, and every proxied workload silently stops being proxied — which looks exactly like the policy working.
+  - A host's own `options.env` arrives on the same channel and is meant to reach commands. Once both are in `process.env` it is indistinguishable from the worker's config; the prefix is the only thing that tells them apart.
+
+  `body.env` is applied **after** the strip and is not filtered. Inheritance is implicit and gets the default; an explicit per-call value is a caller deciding, including one that deliberately sets a prefixed name.
+
+  **What changes for you.** A command that read `NAMZU_SANDBOX_WORKSPACE`, `NAMZU_SANDBOX_READ_ROOTS` or `NAMZU_SANDBOX_WRITE_ROOTS` out of its own environment no longer sees them. Pass the value explicitly — `exec`'s `env`, or the provider's `options.env` under a name of your own — if a workload genuinely needs it. The workspace root is also the command's `cwd`, which is how most callers were getting it already.
+
+  `major` because the environment a spawned command observes is behaviour a consumer can depend on, even though nothing in the type surface changed.
+
+### Patch Changes
+
+- 7aaa35d: Strings that were asserted into ids now go through the checked constructors, and three defects the assertions were hiding are fixed.
+
+  **A docker sandbox's id had the wrong prefix.** `SandboxId` is `` `sbx_${string}` ``; `@namzu/sandbox`'s docker backend minted `sandbox_...` and an `as SandboxId` was the only reason that compiled. Every docker sandbox in the tree carried an id its own type says is impossible — the ACI backend already minted `sbx_`. Both now mint through `asSandboxId`, which is the call that would have caught it. **The container name derives from this** (`namzu-sandbox-${id}`), so a container started by this release is named differently from one an older build started. Nothing matches on the old spelling — teardown computes the name from the id it just minted, in the same process — but it is visible in `docker ps`, and any external tooling that pattern-matched `namzu-sandbox-sandbox_` needs updating.
+
+  **A corrupt migration marker was honoured instead of refused.** `readMarker`'s shape check validated the envelope — `version`, `at`, and that `migratedThreads` is an array — and never looked inside the array. `{"migratedThreads":[null]}` therefore parsed cleanly and produced an entry whose `newProjectId` was `undefined` wearing a `ProjectId` annotation, which then reached a path join. Each element is now checked, and a bad one returns `null` — which is exactly what this function already promised to do about corruption, so the caller re-runs the migration rather than trusting it.
+
+  **`namzu drain` accepted a mistyped scope flag.** `--tenant`, `--project` and `--session` were asserted straight into their id types, so `--tenant prj_a` reached the store and listed nothing — and "no runs" is the same output as a scope that really is empty, which made the typo invisible. Each flag is now prefix-checked, and the refusal names the prefix it wanted, in the same operator-readable shape the command's other refusals use.
+
+  **Model-authored ids are checked before they become store keys.** `read_memory`, `task_update` and the RAG tool took an id straight from the model's tool input and asserted it. A malformed one read back as "not found", telling the model its record had disappeared rather than that it named the wrong thing. All three now refuse with `InvalidIdError`, whose message says which prefix was expected.
+
+  Nothing here changes an exported type, a signature or a default. Sites where a cast is still correct — a value already guarded by an explicit prefix check, an id minted by a service outside this repo, a sentinel the type cannot express — keep the cast and now carry the reason next to it.
+
+- 701bd02: Bring the worker and guest agent under the linter, and document what they already do
+
+  `biome.json` restricted `files.include` to `src/**/*.ts` and the lint script ran `biome check src/`. Two independent exclusions of the same directories, so `worker/server.js` and `agent/agent.cjs` were checked by nothing — including the worker, which is the HTTP surface that executes commands inside the container and has no type checking either, being plain CommonJS.
+
+  Turning it on immediately found dead code: an unused `readNdjson` helper in the worker's own test file. The rest were `useOptionalChain` rewrites in crash handlers, applied and reviewed one at a time — `err && err.stack ? err.stack : err` and `err?.stack ? err.stack : err` take the same branch for every input, including a non-`Error` throw.
+
+  `noConsole` is off for these two directories. They are standalone processes, not modules this package imports, and stdout is their only channel: the host's readiness path and the test harness both wait on the worker's `listening on` line, and the crash handlers exist so an unhandled rejection is diagnosable rather than a silent exit. A logger abstraction would mean a dependency in files that deliberately have none. (The reason lives here and in the commit rather than beside the setting, because `biome.json` is strict JSON and rejects both comments and unknown keys.)
+
+  Two documentation debts from earlier changes are cleared in the same pass:
+
+  - The README's `--cap-drop=ALL` bullet carried only one of its two reasons. It also stops an `--internal` network's egress denial from being undone by a single `ip route add`, which is refused only because `NET_ADMIN` is absent.
+  - The README said nothing about the environment a spawned command sees, which changed materially when the worker stopped passing on its own configuration. It now says what is stripped, what is inherited and why the proxy variables and `options.env` must be.
+
+  No behaviour change.
+
 ## 5.0.0
 
 ### Major Changes

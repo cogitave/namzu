@@ -1,5 +1,1669 @@
 # Changelog
 
+## 28.0.0
+
+### Major Changes
+
+- d7d38a3: New optional `LLMProvider.retryDefaults`. A driver can declare the retry behaviour its vendor wants, merged inside `withProviderRetry` between the generic default and whatever the caller passed.
+
+  One config was applied to every member of a provider chain. An operator running [expensive primary, cheap self-hosted backup] could not give the backup a shorter budget or a different ceiling on a server-directed `Retry-After` — the two have different failure shapes and different costs per attempt, and only the driver knows which. The host configuring a chain is choosing between vendors, not tuning each one's transport.
+
+  The merge is `{ ...DEFAULT, ...provider.retryDefaults, ...options.config }`, and the order is the contract: a driver's declaration is a _default_ and a caller's config is an _intention_. Reversing it would let a driver override the operator, including re-enabling retries a host had switched off.
+
+  Merged inside `withProviderRetry` rather than at `query()`'s call site, because that function is exported: a host wrapping its own chain gets the same precedence instead of the generic default.
+
+  **Breaking:** `ProviderDriverConformanceOptions` now requires `retryDefaults` — a value, or `undefined` with the reason written down. A new driver package that never made the decision does not typecheck. Existing drivers all declare `undefined`: the generic default suits them.
+
+- cb1a487: The id types are nominal. `const runId: RunId = 'run_abc'` no longer compiles, and neither does passing a `SessionId` where a `RunId` was asked for.
+
+  Every id in `types/ids/index.ts` — 40 of them — is now `Id<Prefix, Tag>`: its wire shape intersected with a unique-symbol brand. The prefix stays in the type, so a hover still reads `` `run_${string}` `` and a log line is still legible; what changes is that a matching string is no longer _assignable_ to the type. Before this, `const a: AgentId = 'agt_made-up'` compiled and was indistinguishable from an id a factory minted, which made the "branded ids" the design claimed a comment rather than a property.
+
+  **Migrating.** An id comes from one of three places, and each satisfies the type with no assertion at the call site:
+
+  - `generateRunId()` and friends — mint a new one.
+  - `asRunId(value)` and friends — check a string from a log line, a URL, a flag, or a model's tool input. Throws `InvalidIdError` naming the prefix it wanted.
+  - In this repo's own tests, `fixtureId.run('a')` from `test-support/ids.ts`, which skips the check because a fixture is not testing prefix validation.
+
+  A `value as RunId` assertion still compiles — that is TypeScript's assertion rule, not an oversight, and `types/ids/__tests__/an-id-is-not-a-string.test.ts` pins it as a stated gap rather than leaving a reader to assume a fake id is now impossible. The brand makes a rule against `as <IdType>` enforceable; it does not replace one.
+
+  **`ActorRef.agentId` is now `string`, and that is a correction.** It was annotated `AgentId` (`` `agt_${string}` ``) and every value that ever reached it was an agent's registry key — `'worker'`, `'supervisor'` — put there through a cast. Nothing in this kernel has ever minted an `agt_` id; there is no `generateAgentId`. `AgentId` and `asAgentId` are kept for one release and marked `@deprecated`, so a consumer that annotated its own variable still compiles and gets a warning; `asAgentId` would throw on every identifier the kernel actually produces.
+
+  **`LockAcquireResult.holder` is optional.** The `{ acquired: false }` branch is also reached when the lock was released between the attempt and the read, and it used to report `'' as RunId` for that — an empty string wearing an id type, which no caller could tell apart from a real holder. An absent `holder` says what is true: there is nobody to name. Read it as `result.holder` where you previously compared against `''`.
+
+  **A prefix can no longer drift from its type inside the id factory itself.** `generateId`, `parseId` and `makeIdParser` take the prefix as an inferred type parameter constrained by the id's own shape, so `generateRunId` returning `generateId('ses_')` is a compile error. That constraint was written wrong the first time — supplying one of two type parameters explicitly makes the other fall back to its default, so `makeIdParser<RunId>('ses_')` compiled and the check was vacuous. It is now supplied by annotation instead, and mutating any constructor's prefix fails the build.
+
+  `unsafeId` in `types/ids/brand.ts` is the only unchecked way to produce one, and it is not exported from the package barrel.
+
+- 7015eee: A run's audit trail is now durable and effectively mandatory: a `RunStore` that does not implement it will make every run throw.
+
+  `RunStore` gains two methods, `appendAuditEvent`/`readAuditEvents` — declared OPTIONAL on the interface (an existing custom `RunStore` implementation still compiles unchanged), but `RunPersistence.recordAudit` refuses to run silently without them, and this release wires `recordAudit` into the terminal path of **every** run: on completion, on failure, on a verification-gate denial, and on a guardrail block. A host with a custom `RunStore` that omits the two new methods will find every run throwing where it used to complete successfully — a change reachable at runtime even though nothing fails to compile, which is why this is major rather than minor.
+
+  **If you provide your own `RunStore`** to `RunPersistence`, `query`, or `drainQuery`: implement `appendAuditEvent(event)` and `readAuditEvents()` before upgrading, or every run against that store will now throw at the point it used to settle. The built-in `RunDiskStore` (a new `audit.jsonl`, alongside `transcript.jsonl`) and `InMemoryRunStore` both implement them already and need no host-side change if you use either unmodified.
+
+  `types/run/audit.ts` adds `AuditEvent` (who, what, when, outcome, cost — `cost` is non-optional) and `AuditOutcome` (`'success' | 'failure' | 'refused'`). A permission denial (the verification gate) and a guardrail block each now produce a durable `AuditEvent` with `outcome: 'refused'`, where before neither produced any durable record at all. A run's own completion or failure also records a terminal entry, and the new `replayRun` reconstructs a completed run's cost and status from the trail alone — the append-only trail is authoritative; `Run.costInfo`/`Run.status` are a derived summary cache.
+
+  An audit write is never level-filtered or sampled, and a write failure fails the operation being recorded — the opposite of a log sink failure, which `createLogger` already swallows and counts. At most one operational log record (`namzu.audit.written`, `info`) is emitted per audit write, carrying a pointer (`namzu.audit.event_id`, `namzu.audit.seq`) and never a copy of the event's own content.
+
+- 320322d: The `bash` builtin no longer hands a command the credential-shaped half of the
+  host environment.
+
+  **What changed.** On the non-sandboxed path the tool spawned with
+  `{ ...process.env, ...context.env }`, so the model's command inherited every
+  variable the Namzu process held — including the ones Namzu reads its own
+  provider credentials from. A command that prints its environment (`env`,
+  `printenv`, a Makefile echoing its config, a build script dumping state on
+  failure) returned those keys as tool output, and tool output is appended to the
+  durable transcript, persisted by the session store, and re-sent to the model
+  provider as history on every later turn of the run. The sandboxed path was
+  never affected — it passed `context.env` alone — so this was specifically the
+  default configuration's problem.
+
+  The inherited half is now filtered: variables whose names look like credentials
+  (`*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*CREDENTIAL*`, `*PRIVATE*`,
+  `*COOKIE*`, `*SIGNATURE*`, and a short exact list for the shapes no pattern
+  catches, such as `GOOGLE_APPLICATION_CREDENTIALS` and `KUBECONFIG`) are dropped
+  before the spawn. When a command fails, the names of the withheld variables —
+  names only, never values — are appended to its output so an authentication
+  error points somewhere.
+
+  **What a caller does to keep the old behaviour for a specific variable.** Pass
+  it explicitly. `RunConfig.env` flows to `ToolContext.env`, which is applied
+  after the scrub and is not filtered: a host that means a command to have a
+  credential names it and it arrives. The asymmetry is the design — inheritance
+  is implicit and nobody chose it, an explicit entry is a decision someone made.
+  There is no flag to restore blanket inheritance.
+
+  **What this is not.** A denylist on key names is not a boundary. It cannot see
+  a secret whose name does not look like one — a password in a `DATABASE_URL`
+  userinfo, a pre-signed URL in `ARTIFACT_URL`. The boundary is the sandbox,
+  where the inherited set is a seven-key allowlist. The host path takes the
+  weaker control deliberately, because the same agent is expected to run
+  `pnpm test`, `make` and `docker build`, and an allowlist there would withhold
+  most of what a build needs.
+
+- ec15971: Name log records with `eventName`, wire the filesystem migration sink to a logger, and remove the config field nothing ever read
+
+  **`LogRecord` gains an optional `eventName`.** A call site names a record by setting the reserved `'namzu.event.name'` attribute on the `data` it already passes to `debug`/`info`/`warn`/`error`; `createLogger` promotes that one attribute onto `record.eventName` and deletes it from `attributes` so the name never appears twice. `Logger` itself is unchanged — no new method — because it is in INPUT position on the public surface (`logger?: Logger` on `RunConfig` and tool config) and a new method would break every host's existing implementation.
+
+  `packages/sdk/src/constants/telemetry/index.ts` gains `BOOT_EVENT_NAMES` and `BootEventName`: the closed vocabulary of `eventName`s the boot narrative uses — `namzu.boot.start`, `namzu.config.resolved`, `namzu.sandbox.resolved`, `namzu.provider.resolved`, `namzu.capability.detected`, `namzu.capability.broken`, `namzu.telemetry.status`, `namzu.migration.completed`, `namzu.discovery.completed`, `namzu.boot.refused`, `namzu.boot.ready`.
+
+  **`loggingMigrationSink(log)`** (new export, `session/migration`) turns the migration facts `DefaultFilesystemMigrator` already computes — `kind`, `migratedThreads`, `markerPath`, `at` — into a `namzu.migration.completed` log record instead of discarding them. `query()` now builds its migrator with this sink, so a real run over a legacy `.namzu` layout logs once at `info`; the `already_migrated` and `noop_no_legacy` outcomes log once at `debug`, read directly off `ensureMigrated`'s resolved result rather than by widening `FilesystemMigrationEvent` (unchanged: still exactly `{ type: 'filesystem.migrated'; result: FilesystemMigrationResult }`). `ensureMigrated`'s own default parameter is untouched — still `new DefaultFilesystemMigrator(NOOP_FILESYSTEM_MIGRATION_SINK)` — so a caller that reaches it any other way keeps today's silent behaviour.
+
+  **Breaking: `RunContextConfig.migrationSink` is removed.** It had no producer and no reader anywhere in the workspace: `RunContextFactory.build` never touched migration at all — migration runs entirely through `ensureMigrated`, called separately, before `build`, and nothing threaded this field to it. There is no working code migrating off it, because nothing ever read it. Per `docs/conventions/declared-but-undriven.md` and the SemVer policy in `AGENTS.md`, a provably dead field — no producer, no reader, no runtime effect — may be removed straight to major rather than carried through a deprecation cycle with nothing on the other side of it. A caller passing `migrationSink` in a `RunContextConfig` object literal will now fail to compile with an excess-property error; nothing at runtime ever depended on the value, so there is no behavior to migrate away from. Its sibling `filesystemMigrator` has the identical shape (declared, unread) and is deliberately left in place — this change touches only the field the audit named; `filesystemMigrator` is flagged in source as a follow-up.
+
+- a093e22: Topic ids now begin `top_` instead of `thd_`. From this release `thd_` means only the pre-0.2.0 top-level container that `session/migration/id-prefix.ts` and `session/migration/filesystem.ts` already coerce to `prj_legacy_*` — the Topic layer's own id no longer shares that prefix, closing the ambiguity where two unrelated things wore one prefix and only a path depth told them apart.
+
+  **What breaks, and what to do:**
+
+  - **A minted topic id is now `top_*`.** `generateTopicId()` returns `top_…`; the `TopicId` type is `` `top_${string}` ``. Code that pattern-matches `thd_` on a live topic id, or that pins a literal, needs updating. Code that pattern-matches `thd_` on the _legacy container_ is unaffected and should stay.
+  - **`acceptLegacyThreadId` → `acceptLegacyContainerId`** and **`rejectLegacyPrefix` → `rejectLegacyContainerPrefix`.** Behaviour is identical (`acceptLegacyContainerId` also takes a new optional third `windowOpen` argument, defaulting to the existing `WINDOW_OPEN`). The old names remain as `@deprecated` aliases — your code still compiles and warns. Renamed because "Thread" stopped describing what these accept: the pre-0.2.0 container, not the Topic layer.
+
+  **Nothing is removed in this release.** `ThreadId`, `ThreadManager`, `InMemoryThreadStore`, `generateThreadId`, `acceptLegacyThreadId` and `rejectLegacyPrefix` are all still exported and all now carry `@deprecated`. Removal is a later major.
+
+  That is deliberate, and it corrects a mistake this change was originally planned to make. The rename of Thread→Topic marked those names deprecated in source, but that work has never been published: the registry is still on 27.1.0, and its changeset is still unconsumed. So on every version a consumer can actually install, `ThreadManager` is not a deprecated alias — it is the _only_ name, and ordinary code uses it. Deleting it here would have moved a consumer from "works, no warning" straight to "gone", which is a rename with no alias wearing a major's clothes. This release is the first one that can carry the warning; the next major may remove them.
+
+  Note that `ThreadId` now resolves to `` `top_${string}` `` rather than `` `thd_${string}` ``, and `generateThreadId` mints `top_`. An alias that kept the old prefix would hand two different id spaces to one program depending on which name a file happened to import.
+
+  **Existing records migrate on first read; no operator action.** A `session.json` written with `topicId: "thd_x"` is rewritten to `topicId: "top_x"` when `DiskSessionStore` reads it, and durably on the next write-back, via a new `session-store` schema step (2→3) chained after the existing `threadId`→`topicId` field-rename step for any record still at v1. A serialized `RunState` snapshot migrates the same way through `parseRunState` (`RUN_STATE_VERSION` 2→3).
+
+  **No topic-directory rewriter is included, and none is owed.** There is no disk-backed `TopicStore` — `store/topic/memory.ts` is the only implementation — so no `.namzu/…/threads/<thd_x>/` directory has ever been written by a shipped build. The only on-disk artifact naming a topic is the denormalized `topicId` field covered above.
+
+- fad5da4: Removed the exported type `SessionMetadata`. It was an alias of `RunStateMetadata` with no producer, no reader and no runtime effect anywhere in the workspace — `grep` found exactly two hits, the declaration and its own entry in the public-surface baseline.
+
+  If you referenced it, use `RunStateMetadata`, which is what it always resolved to.
+
+  It goes straight to `major` without a deprecation release because there is nothing to migrate: a deprecation window exists so working code has a version where it still compiles and warns, and no working code can be built against a type that describes a shape nothing produces. It is removed rather than kept because the name was actively misleading — a reader looking for the fields that describe a Session (`topicId`, `currentActor`, `previousActors`, `ownerVersion`, all of which live on the Session entity) found this export and was handed a run's metadata instead. No replacement is introduced: nothing in the tree reserves the phrase for a distinct shape, so a stand-in would be a new undriven name filling an export slot.
+
+- 9bce045: The denormalized `threadId` field is renamed to `topicId` everywhere it appears
+  on an exported shape, and `SessionStore.listSessions` is renamed to
+  `listSessionsByTopic`. NZ-TOPIC-01 (a previous minor) renamed the _layer_ to
+  Topic and left this field as the one place the retired word still surfaced on
+  every shape a consumer types against; this is that rename landing.
+
+  Mechanical edits for every consumer:
+
+  - `session.threadId` → `session.topicId` (same rename on `RunState`,
+    `AgentTaskContext`, `BaseAgentConfig`, `CreateSessionParams`,
+    `HandoffAssignment`, `RunPersistenceConfig`, `RunContextConfig`/`RunContext`,
+    `QueryParams`, `RunStateScope`, `AgentIdentity`, and the CLI's
+    `CliSessions`/`RunScope`)
+  - `store.createSession({ threadId, ... })` → `store.createSession({ topicId, ... })`
+  - `store.listSessions(id, tenantId)` → `store.listSessionsByTopic(id, tenantId)`
+
+  Not touched: the `thd_` id prefix, `ThreadId`/`generateThreadId`/
+  `ThreadManager`/`InMemoryThreadStore` (still `@deprecated` aliases from
+  NZ-TOPIC-01), and the `Thread*`-named error classes in `session/errors.ts`
+  (`ThreadClosedError`, `ThreadNotEmptyError`, `StaleThreadError`) — their
+  `details.threadId` field keeps its name too. Renaming those is a separate,
+  later change with its own deprecation window; this one is the FK field only.
+
+  No alias ships alongside `topicId` — `SessionStore` is an interface hosts
+  implement, and a required method or field cannot be added behind a deprecated
+  twin without every implementor already supplying it. NZ-TOPIC-01 already
+  carried one minor of warning for the vocabulary; this is the field itself
+  moving, and it has to move all at once.
+
+  **Records already on disk migrate on first read, no operator action.**
+  `session.json` bumps the shared `session-store` schema from v1 to v2; a
+  record written by any older release loads exactly as it did before and comes
+  back with `topicId` set from its `threadId`, both in-memory immediately and
+  (after the next write to that record) on disk. `project.json`,
+  `subsession.json`, `summary.json`, and `messages.jsonl` lines never carried
+  the field and the migration step leaves them untouched — verified directly,
+  not just by inspection: a naive unconditional version of this migration would
+  stamp a stray `topicId: undefined` onto every one of them, and that is
+  exactly what the new migration unit test rejects.
+
+  A `RunState` snapshot a host serialized under `RUN_STATE_VERSION: 1` is
+  coerced the same way by `parseRunState`. A snapshot written under the new
+  `RUN_STATE_VERSION: 2` and read by an SDK still on version 1 is refused with
+  `RunStateVersionError`, not partially restored — unchanged behavior, now
+  exercised against this specific case.
+
+- 9d6c482: `ModelInfo.contextWindow` and `ModelInfo.maxOutputTokens` are now optional. Four drivers filled them with `0` where the vendor listing carries no value, and they omit the field instead.
+
+  Zero is not a window. It is "I do not know" written as a number, and it reaches a consumer as a measurement of a model that can hold nothing: divide by it and get `Infinity`, compare against it and conclude every prompt is too long. Absent says the same thing honestly, and lets a consumer fall back to its own table instead of trusting a value that was never known.
+
+  **What breaks:** code reading `model.contextWindow` as a `number` must handle `undefined`. That is the point — the value was already absent in fact, and the type was asserting otherwise. Values that are genuinely known (the offline catalogues, and OpenRouter's real `context_length` mapping) are unchanged.
+
+### Minor Changes
+
+- 9914794: New optional package `@namzu/lsp`: language-server-backed code navigation, so an agent asked for the call sites of a function gets symbol resolution rather than regex matches.
+
+  The whole navigation surface a namzu agent had was `grep` and `glob`. Ask for every call site of `computeTotal` and you get the comment that mentions it, the string literal that names it, and the unrelated same-named function in another scope — and you **miss** the call site that arrives through a re-export or a destructure, which is exactly the one a rename has to get right.
+
+  `StdioCodeNavigationProvider` drives one language server over its stdin and stdout: `Content-Length` framing (not JSON lines — a response carrying source text contains newlines), the `initialize`/`shutdown` handshake, request correlation, `textDocument/definition` and `textDocument/references`.
+
+  **Three answers, not two.** `unsupported` means the server does not implement the operation, so a caller can fall back to `grep` and _say_ the answer is textual; `failed` means something broke and the answer is unknown. Neither is `{ kind: 'locations', locations: [] }`, which means "I looked, and there are none" — the answer a deletion depends on. A provider that answered a missing binary with an empty list would tell an agent a symbol has no callers, and the agent would delete it. So a server that never completes `initialize` produces `failed` naming the binary, within a bounded startup timeout, and the failure is remembered rather than respawning a process per call.
+
+  In `@namzu/sdk`: an `lsp` builtin, `CodeNavigationProvider` on `ToolContext` the way `sandbox` already arrives, and `getCodeNavigationTools(provider)` which returns **an empty array when there is no provider**. The tool is not registered at all in a run that cannot use it — one that is always present and always answers "unavailable" costs a decision on every turn to say nothing, and teaches a model a capability exists when it does not.
+
+  Every path is contained through `resolveWithinReal` before it reaches the server, the same containment `read` and `grep` use. A language server indexes a workspace and will answer about anything it is handed; the boundary is the tool's job.
+
+  `dispose()` sends the shutdown handshake before killing, so a server holding a lock file or mid-write on an index gets to finish, and falls back to `SIGKILL` on a bounded timeout so one that ignores `exit` cannot keep the run alive.
+
+- 3939dc9: A cancellation can now say where it came from. New `CancelCause` (`'user' | 'parent' | 'budget' | 'hook'`), the `RunCancelled` abort reason that carries one, and `cancelCauseOf(reason)` to read it back. `run_completed` and `agent_canceled` carry `cancelCause` when one was recorded.
+
+  `stopReason: 'cancelled'` said a run was cancelled and nothing else, and the cases behind it want different responses: an operator pressing cancel is not a defect, while a parent abandoning its children is a fact about the parent and sends a reader looking for a problem the child does not have.
+
+  The information was not being discarded — it was never carried. `AbstractAgent.cancel()` aborted with no argument at all, and `AgentManager` aborted a child with the bare string `'canceled'`, which `abortReasonText` suppresses _by name_ (its docblock cites that call site, because rendering it would print "was cancelled: canceled"). Both paths reached the run loop indistinguishable.
+
+  `AgentManager.cancelAll` defaults to `'parent'`, because that call site _is_ a parent abandoning its children. `AbstractAgent.cancel(cause?)` has no default for the opposite reason: its caller could be anyone, and defaulting would attribute every unlabelled cancellation to a person who pressed nothing. An unattributed cancellation reports `undefined`, which is a real answer.
+
+  `abortReasonText` suppresses `RunCancelled` too. The cause is machine-readable and must not become prose in the run's error text — that is the noise the function already existed to prevent.
+
+- f05a0f1: New exported type `SubSessionDelegationStatus` — `'pending' | 'active' | 'idle' | 'failed' | 'archived'`, the five values the kernel actually writes to a sub-session. `SubSessionStatus` remains exported as a `@deprecated` alias of the wider eleven-member union; your code still compiles and warns. Removal, and the six extra members with it, is a later major.
+
+  A `SubSession` is the EDGE from a parent to a child. The child is an ordinary `Session` with its own `SessionStatus`, and the two unions shared `active`, `idle` and `archived` — plus `awaiting_merge`, which both declared. So "is this active" had two answers one import apart and nothing said which record to ask. `SubSession.status` now documents that it describes the delegation: whether the parent still has a live handoff, not whether the child is working.
+
+  Six of the eleven members had no writer anywhere in the workspace. Two of those (`merged`, `merge_rejected`) did have a reader: they sat in the archival manager's eligible set, matching values that could not occur. Those two stay archivable — `updateSubSession` takes a whole `SubSession`, so a host may have persisted one while the wide union permitted it, and dropping them would leave exactly those records permanently un-archivable.
+
+- f12284a: New `defineProviderDriverConformance` at `@namzu/sdk/testing`: the `LLMProvider` contract as a suite a driver package runs against itself. All seven in-tree drivers now run it, and a test fails if an eighth package appears without one.
+
+  Seven packages implemented `LLMProvider` and there was nowhere to write a rule binding all of them. Each carried a hand-written error-taxonomy test covering the same ground differently, and every provider finding in the recent audit was a behaviour present in exactly one driver and absent from the other six — which is what a contract living in seven copies of a test produces.
+
+  It takes `describe`/`it`/`expect` as arguments, so the SDK gains no test dependency from publishing it and a host on another runner can still run it. That also buys the property separating a contract from a list of opinions: a caller can pass _recording_ functions and run the whole suite as ordinary code, which is how a deliberately wrong driver is shown to fail it.
+
+  Seeded only with rules that pass for every driver today. A suite that ships red is a suite somebody switches off in its first week; the four known gaps each add a rule here in the commit that closes them.
+
+  **`@namzu/sdk/testing` now resolves to a barrel** rather than straight at the checkpoint-store file. Every existing import keeps working — `defineCheckpointStoreConformance` and its types are re-exported unchanged, and a test fails if the barrel drops them.
+
+- 19a72ff: The kernel now notices when a model issues the identical tool call over and over, and says so on the next `tool_result`. A mild notice at the third repeat, escalated wording at the fifth, each said once. `repeatCallAdvisory: false` on `query()`/`drainQuery()` opts out.
+
+  Nothing observed cross-call repetition before this. The guardrails screen calls in isolation — input at run start, output at run end, one result at a time — so a model re-running a failing command or re-applying a diff that does not apply got no correction from anything in the kernel. The only lever was an operator-configured iteration checkpoint, which fires on a count regardless of whether anything is repeating and needs a human at the other end.
+
+  **It advises and never denies**, deliberately. Polling for a build to finish is the same call by design, and a tracker that refused would break that case to fix a different one. What the model lacks is not permission but the observation, which it cannot make about itself: each turn it sees a history, not a count.
+
+  "Identical" is decided by the key `ToolGrantSet` already uses, so the same call means one thing across the runtime — arguments differing only in object key order are the same call. The tracker is run-scoped, like the grant set: a count carried into a later run is a claim about work nobody repeated.
+
+- 5136fbd: The agent-client bridge can now ask a human, read the editor's unsaved buffers, and resume a session. NZ-PEER-07 refused any session whose client could not answer a permission request, which was honest and left the bridge unusable for the case it exists for.
+
+  **The direction the bridge did not have.** A notification is fire-and-forget; a permission prompt is a question the run cannot proceed past. The server now issues JSON-RPC _requests_ — `session/request_permission`, `fs/read_text_file`, `fs/write_text_file` — parks the promise by id, and resolves it when the client's response frame arrives. A response frame used to be ignored, which was right when nothing was ever out on the wire and would now leave a run parked with nobody coming.
+
+  **Three ways the permission exchange fails silently, each closed and each mutation-checked:**
+
+  - Auto-approving instead of asking. `toResumeDecision` maps the outcome to the kernel's own `HITLResumeDecision`, and a denial becomes `reject_tools` with the client's feedback — a `continue` there would run the calls the human just refused. A bare denial gets a default sentence, because an empty `reject_tools` feedback reads to the model as a tool that failed for no reason and it retries.
+  - An "approve all" that never takes. `approve_tools` with nothing remembered is indistinguishable from a plain approve, so `approve_all` carries the grant keys and a plain approve carries none — consent is not transferable.
+  - An "approve all" that leaks. The latch lives on the SESSION record: a second session from the same process asks again. Hoisting it to the server, or to a module-level variable, would make one person's "stop asking me" cover the next session this process serves — possibly a different repository, editor window, or human.
+
+  An answer the agent cannot parse is treated as a refusal, never as consent.
+
+  **`clientBackedSandbox` makes the editor's buffers the filesystem.** A user with unsaved changes had the agent read disk, see a version nobody is looking at, and patch _that_. A client declaring the `fs` capability answers reads and writes instead. It is a decorator over the existing `Sandbox` — a client-backed object implementing only the file methods would take `bash` away from a session that had it — and it is a `Proxy` rather than a spread, so a member added to `Sandbox` later still reaches the real one. A failed client read rejects rather than falling back to disk: stale text is the exact thing the capability exists to stop.
+
+  **`session/load` resumes.** The prior turns come from the gateway's session store, never from the bridge, and the resumed session answers with the SAME id — a client that asked to resume `ses_x` and got `ses_y` back has to rewrite everything keyed by the old one. A gateway with no store refuses rather than returning an empty history, which a client cannot tell apart from a session that really had no turns. Resuming carries the same permission requirement as creating, because a refusal on `session/new` that `session/load` walks around is not a refusal.
+
+- 966c6de: Two new exported interfaces, `ProbeObservation` (`setLogger`, `on`, `onAny`, `dispatch`) and `ProbeEnforcement` (`veto`, `queryVeto`). `ProbeRegistry` implements both and is unchanged, so nothing a host builds or passes changes — this narrows what a _signature_ can ask for.
+
+  The SDK's own barrel introduced the module as "typed observation over AgentBus + RunEvent stream". That is true of four of its six methods. A registered veto handler denies a tool call, and the executor turns that denial into a failed `tool_result`: enforcement, and the third of the three gates on a tool call, sitting behind a name that said telemetry. The comment is corrected too.
+
+  There was also no way to ask for less. `ProbeRegistry` was the only export, so a consumer that wanted to watch had to accept the power to refuse. Inside the SDK the split is now load-bearing: the provider wrapper, the vault wrapper and the run event emitter take `ProbeObservation` and cannot veto; the tool executor takes `ProbeEnforcement`.
+
+- eff96ac: `Project` gains an optional `rootPath`: the canonical directory its work happens in. `CreateProjectParams` accepts one, `SessionStore` gains an optional `findProjectByRootPath(rootPath, tenantId)`, and `ProjectRootPathTakenError` is exported.
+
+  A host building a project switcher had nothing to bind a directory on disk to a durable cross-session record. No new noun was minted for this — `Project` is already the durable top-level container, with an id, a tenant, a status and a CAS counter, and it simply carried no path.
+
+  **Canonicalized through `realpath` before storage.** A path stored as typed makes `/tmp/p`, `/tmp/p/` and a symlink to it three records for one directory, and every uniqueness check passes while doing it. The lookup canonicalizes too, so a caller may pass whatever they have.
+
+  **A second project on the same canonical directory is refused, not deduplicated.** Returning the existing one looks friendlier and silently discards the `name` and `config` the caller passed — they asked to create something, and getting a different thing back with their arguments dropped is worse than an error. The error carries the existing `ProjectId`.
+
+  The lookup is tenant-scoped, with the tenant _in_ the index key rather than filtered afterwards: two tenants may bind projects to the same path on one machine, and a path-only key would hand one of them the other's project.
+
+  `findProjectByRootPath` is optional. `SessionStore` is implemented by hosts, and a required method stops them compiling for a capability they never asked for.
+
+- 70f8d75: An agent-client protocol bridge over stdio, and `namzu acp` to drive it. An editor extension or a CI orchestrator could previously do two things: shell out to the CLI and scrape stdout, or embed this SDK in its own process. This is the third.
+
+  **The command ships in the same change as the bridge, and that is the point.** `MCPServer` and `ServerStdioTransport` are both exported from this package, and nothing in the tree has ever constructed an `MCPServer` — a complete protocol server with no driver, which reads as a supported feature and is not one. A subprocess test spawns the real binary and completes a handshake over a real pipe, so removing the registration fails a test rather than quietly repeating that shape.
+
+  New: `ACPServer`, `toAcpSessionUpdate`, `toAcpStopReason`, the `Acp*` wire types, and `ACP_METHODS` / `ACP_PROTOCOL_VERSION` / `ACP_ERROR_CODES` / `ACP_PERMISSION_CAPABILITY`. Scope is the session core — initialize and capability exchange, session creation, prompting with streamed updates, and cancellation. No new dependency: it runs on the `ServerStdioTransport` this package already had.
+
+  **The method set cannot drift from the pinned version.** `ACP_METHODS` and the server's handler map are authored independently and compared in both directions by a test: a handler nobody advertises fails, and an advertised method with no handler fails. Deriving one from the other would have made that test a tautology.
+
+  **A session is REFUSED when the client declared no permission capability**, naming the capability. Approval routing lands separately; until it does, a session that cannot ask a human anything and runs every tool regardless is not a degraded version of asking — it is the opposite of it, arrived at by omission.
+
+  **Tool calls are rendered by the tool, never by the bridge.** Updates carry a `ToolCallView` from `createToolPresenter`, and a test asserts no module here contains a tool-name comparison — a front end that switched on `'edit'` could never give a diff to a tool it had not heard of. The client-visible command list is `HostCommandRegistry.describe()` verbatim, asserted by registering a command the bridge has never heard of and expecting it to appear.
+
+  An unknown method answers `-32601` and the connection stays open; a malformed frame is survived. Both are asserted against the spawned binary, as is the one that matters most for stdio: **nothing but protocol reaches stdout**, with info-level logging on.
+
+  `namzu acp` builds its session lazily, at the first prompt. `initialize` and `session/new` are how a client discovers what this agent is and what it requires, and neither needs a model — building the session up front made a namzu with no configured credential answer a connection attempt by exiting, so an editor saw a pipe that closed with the reason on a stderr nobody was reading.
+
+- b947794: New `runConfig.sandbox.workspace`: `'ephemeral'` (default, unchanged behaviour) or `'working-directory'`. The second roots the sandbox at the run's own `workingDirectory`, so a sandboxed `bash` acts on the project the agent was asked about instead of on an empty temp directory.
+
+  That was the case the sandbox was wanted for and could not do. `SandboxCreateConfig.workingDirectory` existed and the local provider honoured it — and the kernel never set it, so anyone configuring a sandbox through `runConfig.sandbox` got a temp directory regardless of what the run was working on.
+
+  The default stays `'ephemeral'`. Changing it would be a major and would point every already-configured sandboxed run at real files.
+
+  `'working-directory'` on a run with no `workingDirectory` is **refused before the sandbox is created**, naming the config key. It does not fall back to ephemeral, and it does not reach for `process.cwd()`: that would confine whatever directory the host process happens to be in, which is not the tree you named, and telling a caller their files are protected by something not looking at them is worse than an error.
+
+- 5d23bf4: A delegated tool scope now survives further delegation, and `ActorRef`'s
+  chain finally has a reader.
+
+  A child scoped `toolScope: { deny: ['bash'] }` could spawn a grandchild
+  naming no scope at all, and the grandchild got `bash` back. Every
+  meaningful confinement is more than one delegation deep, so a restriction
+  a descendant could shed by delegating was not a restriction. The effective
+  scope for a spawn is now the union of every deny along its chain plus its
+  own: a descendant may narrow further and can never widen. The resolved
+  union is recorded on the child's spawn record, so what a child was granted
+  can be read rather than inferred from whether a call was refused.
+
+  New exports `isDescendantOfActor`, `actorChain` and `MAX_ACTOR_CHAIN_DEPTH`
+  walk the `parentActor` chain that `ActorRef` has carried since the 0.2.0
+  design and that nothing traversed — its own docblock says permission audit
+  events walk it, and no code did. Deliberately not a parallel parent
+  registry: the chain is already persisted on the actor, and a second
+  structure would give the tree two answers that can disagree, with the one a
+  check reads being the one not written to disk.
+
+  Identity for an agent actor is its whole lineage, not its `agentId`. An
+  `ActorRef` carries no instance id, so a supervisor spawning the same worker
+  twice produces two field-identical links; matching on the id alone would
+  let an actor assembled under a different user claim containment by name.
+  The walk is depth-bounded, so a malformed or cyclic chain returns `false`
+  instead of hanging a check somebody is holding a lock across.
+
+- 5f5becd: Every log record now names the module that emitted it.
+
+  40 call sites across 36 SDK modules bound `component: '<ClassName>'` on their
+  `child()` logger. `component` is deliberately inert — it is not an alias for the
+  reserved scope key — so those records carried the _default_ `scope.name` and a
+  redundant attribute instead. `AgentBus`, `SkillRegistry`, `DiskTaskStore` and 33
+  others were, in effect, unattributed.
+
+  They now bind `SCOPE_ATTRIBUTE`, and the value is the module path
+  (`bus`, `skills/registry`, `store/task/disk`) rather than the class name — the
+  shape `ManagedRegistry` already used. A scope that varied per instance would not
+  be a scope.
+
+  What a `LogSink` sees change:
+
+  - `record.scope.name` is a module path instead of the root scope's name.
+  - `attributes.component` is gone. A host filtering on it should filter on
+    `record.scope.name`.
+  - Four keys are new where the class name or an id carried information the module
+    path does not: `namzu.connector.type` and `namzu.execution.type` (the concrete
+    subclass behind `connector/base` and `execution/base`), `namzu.mcp.server.id`
+    (the MCP server this process hosts — deliberately not
+    `namzu.connector.server.id`, which identifies a _remote_ being dialed), and
+    `namzu.sandbox.id`. `runtime/bidi/session.ts`'s bare `runId` binding became
+    `namzu.run.id`.
+
+  `NAMZU` gains those four members, which is why this is a minor rather than a
+  patch. `scripts/log-standard.json#unnamespacedBindingCount` moves 40 → 0, so the
+  next `component:` binding fails CI rather than joining a budget.
+
+- 94842e4: `ServerStdioTransport` is now exported from the package root, along with the MCP tool-policy helpers `applyToolPolicy`, `applyNamePolicy`, `diffTools`, `hasDrift`, `toolsHash` and the types `MCPToolPolicy`, `MCPToolPolicyDecision`, `MCPToolDrift`, `MCPToolDiscoveryOptions`.
+
+  `MCPServer` was already public and `ServerStdioTransport` is the only transport in the package that can run one — so a consumer could construct an MCP server, register providers on it, and have no supported way to serve it. The policy types were public with no public function to apply them: a shape you could describe and not use.
+
+  The cause was two lists of the same thing. `connector/index.ts` hand-listed names from the individual `mcp/` modules while `connector/mcp/index.ts` kept its own set, and the two drifted. The connector barrel now sources every MCP name from that one seam, and a test fails if a leaf import is added back.
+
+- 9b15964: New `beforeStep` hook on `query()`/`drainQuery()` and `ReactiveAgentConfig`, plus the `StepVeto` type and a `step_refused` stop reason. Returning `{ reason }` stops the run before the next provider call is made.
+
+  Nothing could refuse a step. `prepareStep` only reshapes one — `activeTools`, `model`, `system`, `temperature` — and cannot reject. `StopCondition` reads `steps`, so it fires after the step it disliked has already run and been paid for. The only remaining path was a durable checkpoint built for human review of tool calls, which pauses the run and waits for a person. None of those is what a host with a live rate limit, a revoked tenant or a spend ceiling has: they need the call not to happen.
+
+  **A throw fails closed**, deliberately opposite to `prepareStep` beside it. They are different kinds of hook. A broken step-_shaper_ skipped costs a run its per-step tuning and lets nothing unsafe through; a broken step-_refuser_ skipped is a refusal that did not happen, which is the thing it exists to prevent. The thrown message becomes the recorded reason.
+
+  `StepVeto` is an object rather than a boolean because a bare boolean does not say which polarity means stop, and carries nothing into the run record — leaving an operator with a run that ended and no account of why.
+
+- d54fe08: New `withStreamIdleTimeout(provider, { idleTimeoutMs })` — a per-chunk watchdog in the same decorator shape as `withProviderRetry` and `withProviderFallback`, so it composes with both.
+
+  A stream that opens successfully and then goes quiet trips nothing. Each driver has a whole-_request_ timeout, and a stall does not reach it: the request is fine, the bytes have stopped. One driver had this written inline and defaulted it to off, so no driver re-armed on a stall unless a host set a config key it had no reason to know about. A run in that state is not slow, it is stuck — holding its budget, its claim and its process, and settling never.
+
+  The failure is classified `network`, which is what `withProviderRetry` and `withProviderFallback` already act on: a stalled stream is retried by the layer above, or the chain moves on. A bespoke classification would reach them as an unknown they treat as fatal.
+
+  Disabled (`0`, negative, non-finite) returns the provider **unwrapped**, not wrapped and inert — a disabled watchdog racing a promise per chunk costs the hottest path in the runtime a timer and a closure for nothing.
+
+- 655cc9d: Code navigation gains `hover` and `symbols`, and routes by file extension so a repository can have more than one language.
+
+  **`symbols` is the entry point, and its absence made the rest unreachable.** `definition` and `references` both need a line and a character, and an agent starting from a name has neither — so every navigation began with a grep, which is the text path this package exists to replace, reintroduced as a prerequisite. `symbols(query, scope?)` finds a declaration by name with no position at all.
+
+  `hover(file, line, character)` gives a symbol's resolved type and documentation without opening the file. Its `contents` may be **empty**, and that is a real answer: hovering over whitespace or a comment resolves to nothing, and a caller has to be able to tell that from a server that broke.
+
+  **Capabilities are READ from the initialize result, never probed.** A server with a workspace index answers `workspace/symbol`; one with only document symbols falls back to `textDocument/documentSymbol`; one declaring neither returns `{ kind: 'unsupported' }` naming both missing capabilities. Sending the request and interpreting whatever error comes back works until a server answers an error for a transient reason, and the fallback then fires for a capability the server has. The `documentSymbol` reply is a tree and is walked — a reader that took only the top level would miss every method, which is most of what a name search is for.
+
+  **`RoutingCodeNavigationProvider` maps extension to server**, starting one lazily per language on first use and reusing it. A file whose extension maps to nothing gets `{ kind: 'unsupported' }` naming the extension — not a default server, which would send the file to something that cannot read it and answer nothing, which reads as a symbol with no references. A `symbols` call with no scope asks every configured language, and reports `unsupported` rather than an empty list when every server refused, because "nobody looked" is not "the name does not exist".
+
+  The `lsp` builtin's input is a discriminated union: position is **required** for `definition`/`references`/`hover` and **absent** for `symbols`. Making it unconditionally optional lets a `definition` with no line silently resolve the top of the file; making it unconditionally required forces a `symbols` call to invent two numbers.
+
+- 1e996bc: New optional `compactionConfig.keepRecentTokens`. When set, the retained conversational tail is sized by tokens instead of by `keepRecentMessages`. Absent by default, so every existing run keeps the same tail it kept before.
+
+  `keepRecentMessages` cannot say what a tail costs. Four messages is four short turns, or three short turns and a 200 KB tool result — and in the second case the retained tail alone can approach `resetThreshold`. The pass then completes, reports it did not reach the threshold, leaves the trigger armed, and the next iteration pays another summarization call and busts the prompt-cache prefix again.
+
+  It replaces only the naive boundary. The existing safe-cut search runs downward from wherever the token walk lands, so a `tool_use` is never separated from its `tool_result` — that guarantee holds by construction rather than by a second check.
+
+  The tail is floored at one message. A single final message larger than the whole budget is still kept: it is the live turn, and dropping it to satisfy a size preference would delete what the run is answering. The pass reports that it did not reach the reset threshold, which is the honest outcome.
+
+- 13b2682: A tool can now say how it should be shown. `ToolDefinition` gains optional `presentCall` and `presentResult`, `defineTool` accepts them, and `createToolPresenter(registry)` is the seam a host resolves through. Three closed view shapes: `generic`, `diff`, `terminal`.
+
+  Presentation lived in one host as four free functions switching on a lowercased tool _name_ — `name === 'write'` and `name === 'edit'` got a diff, everything else got a truncated string. So a tool that host had never heard of, from an MCP server or a plugin, could not get a diff no matter what it did, and every second host started from the raw arguments and rebuilt the same switch. The tool knows what it is doing; the host knows how its surface renders. Neither knew the other's half.
+
+  The union is closed deliberately. An open one would let a tool ask for a rendering no host implements — a request that fails silently at the far end.
+
+  `edit` now builds its own diff, and declines to build one for an _insert_: there is no `before` text, and substituting an empty string renders as "the whole file was added", which is a confident wrong picture. Returning `undefined` means "no opinion" and is distinct from returning a generic view, which asserts that a plain label is right.
+
+  A presenter that throws yields the generic view and logs one warning naming the tool. It is host-supplied code inside a render path — the same trade a log sink already makes — and silence would make a presenter that never works look like one with no opinion.
+
+- be7152b: The A2A bridge reads a peer's card, and dispatches to it as a delegate.
+
+  The bridge was a one-way door: this kernel served an agent card and answered `message/send`, and could read nobody else's. So the delegate seam had no driven consumer — and a seam with no caller is an untested guess at what a caller needs.
+
+  New: `fetchAgentCard` and `A2ADelegate`. Register the delegate with `DelegatingTaskScheduler` and a remote peer becomes reachable through the delegation tools with nothing above learning the difference — the last tests assert exactly that, a peer's answer reaching `taskSucceeded` / `taskFailed` correctly through the scheduler.
+
+  Refusals happen at wiring time, which is the only moment a human is looking: a card that does not parse, a card offering no interface, a peer with no `jsonrpc` interface, and a protocol version this kernel does not implement. The version comparison is on major.minor — A2A is pre-1.0, where the minor carries breaking changes, so matching the full string would refuse a peer over a patch bump.
+
+  Two client-side subtleties the server half does not have. `input-required` stops the poll: it is not terminal for a _server_, which can receive the input and carry on, but it is terminal for a client with no channel to supply it — polling it is polling a state that cannot change. And a cancel reaches the peer as `tasks/cancel` rather than only aborting our own loop, because aborting the poll leaves the peer working, billed, and holding whatever the task holds.
+
+- c2663c2: `ReactiveAgentConfig` gains `steering`, and a host can now hold an
+  `AgentHandle` between runs.
+
+  Steering was declared only on `SupervisorAgentConfig` and forwarded only by
+  `SupervisorAgent` — so the archetype most hosts actually run could not be
+  steered at all. That is the same defect the file's own comment says it has
+  been corrected for twice: a capability the kernel honours in `drainQuery`
+  and not on the surface hosts construct is a capability nobody can reach.
+
+  `createAgentHandle` gives a host two delivery targets with stated lifetimes
+  and no silent third state. `steer` reaches the run happening now; it THROWS
+  on an idle handle rather than accepting into a queue nothing will read, and
+  points at the alternative. Quietly rerouting would be a host asking to
+  redirect what is running and getting a message delivered minutes later to a
+  different run — worse than an error, because nothing says it happened.
+
+  `queueForNextRun` persists onto the Topic's state record and is consumed by
+  the next run on that topic: prepended to its FIRST request rather than
+  arriving a turn late, and cleared in the same compare-and-set write that
+  reads it. A queue read and cleared separately re-delivers on a crash
+  between the two, and "start with this" arriving twice is a different
+  instruction from the one that was left.
+
+  The handle's status type is `AgentHandleStatus`, not `AgentStatus` — that
+  name belongs to a deprecated alias mid-removal, and reusing it would
+  silently change what a consumer's type MEANS rather than failing their
+  build, which is the one outcome a deprecation window exists to avoid.
+
+  `status` reads a live predicate rather than a stored flag, because a stored
+  one is only as current as whoever remembered to update it.
+
+- af47721: Tell the model when the approval policy changes, once, in the slot it already reads.
+
+  The model plans around how closely it is being watched. A run that silently stops asking a human leaves it batching destructive calls it expects to be reviewed; one that silently starts leaves it waiting on permission nobody is left to give. Neither is visible to it.
+
+  `RunApprovalPolicy` gains `takeUnannouncedChange()` — **read-and-clear**, so the notice is said exactly once. A repeated notice is worse than none: the second copy reads as a second change, and the model will believe supervision moved again.
+
+  The notice rides the ephemeral trailing system message that a step's guidance and skills already use. It applies to what happens next, not to the run's history, so pushing it onto the message log would accumulate one stale instruction per iteration.
+
+  Consecutive changes collapse: A→B→C is announced as A→C, keeping the ORIGINAL `from`. Three swaps between two model calls are one fact by the time the model can act on one, and the true statement is about what it planned under versus what it is under now — not the history in between.
+
+- ee7856e: The approval policy is a run-scoped, switchable, durably-logged value instead of a closure captured at `query()` start.
+
+  `ResumeHandler` was read exactly once, when the run began, and from nowhere a host could reach afterwards. So changing from "ask me about every write" to "go ahead, I'm stepping out" meant ending the run — discarding the in-flight step and the context that step was built from, to change one setting. That is the defect `permissionMode` had before it became a box the executor reads through, and this follows the same shape.
+
+  New: `ApprovalPolicy` (a named handler), `RunApprovalPolicy` (the box), the `onApprovalPolicy` query parameter that hands a host the box, and the `approval_policy_changed` run event — on the SSE wire as `approval_policy.changed`, and deliberately absent from A2A, where who supervises this host is not the peer's business.
+
+  The name is not decoration. A log entry that can only print `[Function (anonymous)]` cannot answer "who approved that, and under what rule" months later. An unattended run is named `auto-approve` by identity against the default handler rather than by presence — `resumeHandler` is required internally, so "is it set" is always yes and would name every run `host`, including the ones approving everything unattended.
+
+  A change is recorded **before** it takes effect: swap first and the log reads as approvals that precede the decision permitting them. `reason` is required for the same reason — an optional one is absent exactly when it matters, on the change nobody expected.
+
+  Existing callers are unaffected: omit `onApprovalPolicy` and the policy is set once from `resumeHandler` and never changes, which is what happened before.
+
+- 3331493: A message can carry a reference to an attachment instead of its bytes.
+
+  Every attachment was inline base64 on the message. That is fine for one screenshot and wrong for everything it implies: the bytes are copied into the run's durable transcript, into every checkpoint, into every compaction pass that walks the history, and — because a conversation resends its history — into every subsequent request. A 4 MB PDF attached once is 4 MB in the transcript and 4 MB on the wire per turn for the rest of the run.
+
+  New: `StoredAttachmentRef` as a third member of `MessageAttachment`, the `AttachmentStore` seam, and `attachmentStore` on `query`. The kernel treats `ref` as **opaque** — this seam says nothing about whether it is a hash, a path or a URL, because the store that minted it is the only thing that can answer. A content-addressed store gets deduplication for free; this interface neither requires nor prevents that.
+
+  Resolution happens once, where the run is seeded, before the messages reach the run record. Resolving at the provider boundary instead would put refs in the durable transcript, and a run resumed against a store that had since forgotten a ref would fail replaying its own history rather than at the moment somebody asked for the bytes.
+
+  **Every failure refuses**, and none of the three returns the message unchanged: no store, no such ref, and bytes whose media type is not what the message declared. A message that quietly lost its image is a model answering about a picture it never saw, confidently, with nothing in the transcript saying why. One unresolvable ref refuses the whole conversation rather than resolving what it can.
+
+  Both provider drivers refuse an unresolved stored attachment rather than sending `data: undefined`. The OpenAI driver reads the real SDK type and the compiler caught it; the Anthropic driver reads through a structural cast and did not, so the stored member is spelled out in its local type — that difference is written at the site.
+
+- 83b5f83: An owner-scoped background job registry, and a real background mode for `bash`.
+
+  `bash`'s schema used to end with "start it in the background and poll, rather than holding the turn open". That sentence was removed rather than honoured, because there was nothing to poll with — and because the shell cannot be trusted to background under the sandbox. On the `linux-namespace` isolation tier the wrapping `sh` is PID 1 of a fresh PID namespace; the kernel destroys a PID namespace when its init exits, so `sh -c "long-thing & echo go"` returns in milliseconds looking like it worked with the work already dead, on the successful path.
+
+  So the kernel holds the process itself. New: `BackgroundJobRegistry`, `bash`'s `run_in_background`, and a `job` tool that reads, lists and stops what it starts. Both ship in the default builtin set — an id with nothing that reads it is the same unbacked suggestion.
+
+  Every bound refuses rather than adjusting: the per-owner cap names the limit, and `bash` refuses `run_in_background` outright when the host has provided no registry rather than falling back to `cmd &`. Output retention drops the oldest bytes and **states how many**, because a job whose tail vanished quietly reads as a complete result that happens to be short.
+
+  Ownership is structural, not a check: the executor binds the registry to the run's id before a tool ever sees it, so there is no argument a tool could pass to reach another run's jobs. `query` kills the run's jobs in its `finally`, on the failed path too — a job that outlives its run is an orphan with nothing left that can name it.
+
+  `killTree` moves from `sandbox/provider/local.ts` to `process/kill-tree.ts`, unchanged, so both callers share one implementation.
+
+  Hosts opt in by passing `backgroundJobs` to `query`. Without it, nothing changes.
+
+- 30029bd: `prettySink` renders the boot sequence as a readout instead of a wall of
+  timestamps.
+
+  Three changes, each answering a specific half of "the logs tell me nothing
+  when the project starts":
+
+  - **`+Nms` instead of an absolute ISO clock.** Elapsed since the previous
+    record on that sink, so the column reads as which phase was slow. The
+    state is per sink instance, so two sinks in one process — a file and a
+    terminal — each measure their own stream.
+  - **A fixed-width scope column, coloured by a stable hash of the label.** A
+    dozen module initialisations read as structure rather than scroll, and the
+    colour is the same in every process on every machine: the hash is FNV-1a
+    over the label with a pinned eight-colour palette, touching no process
+    state.
+  - **A template per boot event**, so `info` shows the two attributes that
+    matter rather than all of them as JSON. The map is total over
+    `BootEventName`, so adding an event without deciding how it reads is a
+    compile error.
+
+  Warnings and refusals are marked with a glyph in a fixed column rather than
+  a `[WARN]` label, so they are findable by eye.
+
+  Colour is emitted only when the stream reports `isTTY`; a redirected log
+  contains no escape bytes at all. Records from outside the boot vocabulary
+  keep the previous line format. Nothing here mutates a record, and
+  `jsonLinesSink` produces identical bytes whether or not the renderer is
+  installed.
+
+- 9b053ba: New run event `compaction_tool_results_cleared`, carrying `clearedCount`, `charsReclaimed`, `reclaimedTokens` and `reliefWasEnough`. It reaches the SSE stream as `compaction.tool_results_cleared`, the run reporter, `transcript.jsonl`, and the CLI's context line. A2A maps it to `null` alongside the other two compaction events: which of this runtime's context-relief strategies fired is a property of how it manages its own window, and a peer modelling a task lifecycle can act on none of them.
+
+  Clearing oversized tool results is the cheapest and most common context-relief path, and it was the only one that emitted nothing. It edits the conversation irrecoverably — `tool_result` bodies are replaced in place — so a host reading a transcript saw results it no longer had and no record of why, while both summarization outcomes were already on the wire.
+
+  It fires on **both** branches. `reliefWasEnough: false` means the clear happened, was insufficient, and a summarization followed: the history took two edits in one pass, and a reader who saw only the `compaction_completed` would attribute the whole loss to it.
+
+- 44b5c76: `coalesce` and its `CoalesceOptions` are now exported from the package root. It merges consecutive `text_delta` and `tool_input_delta` events inside a sliding window, so a slow consumer — typically an SSE route writing to a browser — writes fewer, larger frames instead of one per token.
+
+  It was written, tested and reachable by nothing: no in-tree caller, absent from every public entry, its only reader its own test file. Exported rather than deleted because the consumer it was written for is out of process by construction. The kernel emits raw deltas and has no UI and no hosted service, so deciding how often to write to a slow client is the host's policy — only the host knows what is on the other end of its socket. `bridge/sse/` maps an event onto the wire; this decides the rate.
+
+  The module header now also states what `streaming/` owns: coalescing, and nothing else. SSE mapping is `bridge/sse/`, provider chunk assembly is in the driver packages, and the run event stream is `runtime/query/`.
+
+- b01068a: Consolidate the two credential-redaction pattern tables into `constants/secret-patterns.ts`
+
+  `runtime/query/guardrail-presets.ts` (the output guardrail) and `provider/errors.ts` (vendor-error scrubbing) each carried their own, disagreeing list of credential shapes to redact. They now both import from one leaf module, exported as `OUTPUT_SECRET_PATTERNS` and `LOG_SECRET_PATTERNS`.
+
+  `secretRedactionGuardrail`'s own matching set is **unchanged** — it keeps the narrow, vendor-prefix-anchored eight patterns it always had, because a false positive on model output rewrites the caller's answer.
+
+  `provider/errors.ts`'s `redactSecrets`/`vendorDetail` now match the **union** of both tables (previously: a generic key-prefix scan, a bearer-header pattern, and a JSON field-name scan). A `ProviderRequestError.detail` string can now be redacted where it previously was not — for example a Slack-style token, a Google-style API key, a PEM private-key header, or a JWT echoed back in a vendor error body, none of which the old generic scan caught.
+
+  The redaction marker format also changed, on this call site only: `redactSecrets` used to emit a bare `[redacted]` (or, for the JSON-field case, preserve the field name and quote the placeholder); it now emits `[REDACTED:<label>]` for every match, matching the convention the output guardrail already used. A caller pattern-matching `ProviderRequestError.detail` for the literal string `[redacted]` needs to match `[REDACTED:` instead.
+
+  No exported identifier was removed or renamed, and no function signature changed.
+
+- 940f52b: `CredentialProvider` is a seam a host can implement to say where a
+  credential comes from, with `EnvCredentialProvider` shipped in the box.
+
+  Every LLM-provider credential lookup lived in `@namzu/cli`, which walks its
+  own provider registry and reads `process.env` directly. A host embedding the
+  SDK alone had no way to plug in an env- or file-backed source short of
+  reimplementing `CredentialVault` — a connector-scoped interface that asks a
+  different question, holds a whole `AuthConfig` per connector, and has one
+  in-process implementation with no notion of writability.
+
+  `describe()` never carries the value. "Does this exist" is asked in places a
+  secret must not travel to — a doctor readout, a picker, a log line — and a
+  description that carried one would leak on every one of them while looking
+  like metadata.
+
+  `EnvCredentialProvider` is read-only and says so: `set` and `unset` throw a
+  named error pointing at a writable alternative, rather than accepting a
+  write and dropping it. A `set` on `process.env` changes one map in one
+  process and vanishes with it, while the caller is told it worked.
+
+  The credential key-name vocabulary moves to `constants/credential-env-keys.ts`,
+  a leaf with no imports beside `secret-patterns.ts` — that file matches
+  credential VALUES, this one the names they are carried under. The host-bash
+  environment scrub and the credential seam now read the same table, and
+  `isCredentialEnvKey` is exported so a host with its own provider registry can
+  assert its variables are ones the scrub will withhold. A name in one table
+  and not the other means a variable the CLI reads an API key from and the
+  scrub hands to a shell command.
+
+  CLI discovery goes through the seam with identical results.
+
+- ead7703: A delegate need not be an in-process Namzu agent.
+
+  Delegation was reachable exactly one way: `TaskScheduler.createTask` with an `agentId` the host's `AgentManager` could resolve. Every delegate was therefore a Namzu agent, in this process, built from this kernel's own definition — so a host with a specialist behind an A2A card, an ACP connection, or any service at all had nowhere to put it short of implementing the whole `TaskScheduler` surface, most of which is bookkeeping the kernel already does.
+
+  New: the `Delegate` seam — take a prompt, return an outcome, declare whether you can be cancelled or continued — and `DelegatingTaskScheduler`, which presents any set of them as the `TaskScheduler` the delegation tools already speak. An id no delegate claims falls through to the local scheduler untouched.
+
+  **The mapping onto `TaskHandle` is the load-bearing part.** `taskSucceeded` and `taskFailed` require the gateway state and the run status to agree, because locally they are two independent authorities. A foreign delegate has one word, so it is written onto both — and a cancellation is written as `canceled`/`cancelled`, never as a failure: `SiblingFailurePolicy: 'cancel-siblings'` acts on `taskFailed`, so calling a deliberate stop a failure would tear down every healthy sibling as a consequence of the stop.
+
+  Capabilities are refused, not degraded. `continueTask` against a delegate that cannot continue throws rather than silently doing nothing — a no-op there has the parent believe it steered a worker that never heard it. A capability claiming a method the object does not implement is refused at registration, and two delegates claiming one id are refused rather than resolved by registration order.
+
+  The roster is still enforced upstream: the delegation tools check `allowedAgentIds` before an id reaches any scheduler, so registering a delegate does not by itself make it reachable.
+
+- e45699e: A delegation can now narrow the child it spawns.
+
+  `SendMessageOptions` and `CreateTaskOptions` take `toolScope: { deny }` and
+  `personaOverride`; `BaseAgentConfig` takes `allowedTools`, `deniedTools` and
+  `persona`. A supervisor handing out a read-only subtask could not say so
+  before — the child ran with everything its definition granted, so a research
+  delegation given to an agent that also holds `write` and `bash` held them
+  too.
+
+  `toolScope` is deny-only on purpose. The delegating side does not know what
+  the child has, and enumerating an agent's whole tool set in order to remove
+  one from it pins that list against an agent that later gains a tool —
+  silently, and in the direction of more access. Denial is therefore
+  subtractive: it applies on top of whatever the child would otherwise have,
+  composes with a `deniedTools` the agent's own definition set, and a name the
+  run never had is a no-op rather than an error.
+
+  The narrowing is enforced rather than presentational. The denied tool is
+  absent from the request AND rejected if the model calls it by name, so this
+  is a restriction rather than a suggestion. Nothing changes for a caller that
+  passes neither option.
+
+- 17ba31f: The collaboration mode is durable per Topic and read live, instead of
+  frozen for the length of a run.
+
+  `PermissionMode` was resolved once in the context factory and copied into
+  the tool executor. Enforcement was correct; the LIFETIME was the problem —
+  leaving plan mode meant ending the run and starting a fresh one with
+  `permissionMode: 'auto'`, discarding the in-flight step and the tool-schema
+  context to change one enum. So the look-around, propose, get-approval,
+  continue-in-the-same-conversation flow could not be built on it, and
+  `approve_plan` already existed with its approval changing nothing about the
+  mode.
+
+  `TopicState` is a new durable record — its own file beside the Topic, its
+  own schema version, its own revision counter. Separate from the Topic on
+  purpose: the Topic is identity and ownership, this is session state that
+  changes several times within one conversation, and merging them would make
+  every mode toggle a compare-and-set conflict against a title rename.
+  `setPermissionMode` rejects a stale revision the way `updateTopic` rejects a
+  stale `ownerVersion`.
+
+  The executor takes a resolver rather than a value, sampled once per tool
+  batch and held for it: a toggle landing between two calls the model issued
+  together would half-apply, and a batch where the first write is refused and
+  the second succeeds is not a state anyone can reason about.
+
+  Precedence is unchanged for every existing caller: an explicit
+  `RunConfig.permissionMode` still wins, and the topic record supplies the
+  mode only when the run config names none. A run with no topic store behaves
+  exactly as it did.
+
+  `SupervisorAgentConfig.onPlanApproved` fires when the operator approves a
+  plan, so a host can leave plan mode without ending the run.
+
+- c968b58: Work that outlives one run: a durable objective on the Topic, advanced one round at a time.
+
+  Nothing in the kernel survived a single `query()` call. `stopWhen` and `prepareStep` shape one loop; the Topic was a container with no work state in it. A host wanting "keep going until X is done, stop safely if it stalls, let a human pause it" hand-rolled the store, the round cap and the compare-and-set outside the SDK.
+
+  New: `TopicObjective`, `InMemoryTopicObjectiveStore` / `DiskTopicObjectiveStore`, and `advanceObjective` / `driveObjective`.
+
+  The round is debited **before** the work runs. A counter advanced on success lets an objective that fails every round run forever, which is the runaway the cap exists to stop — so a round that crashes still counts, and a runner that throws leaves the objective `blocked` with a stated reason rather than `active`.
+
+  `driveObjective` bounds itself from the objective's own remaining rounds when the caller gives no budget, and throws `ObjectiveNotProgressingError` if a round completes without advancing the counter. Both came out of a mutation test: the first version defaulted to no bound, and breaking the debit turned it into a loop no timeout could interrupt — every `await` resolved as a microtask, so the event loop never reached a timer.
+
+  Interrupting is between rounds, never mid-round, via `signal`: the round in flight finishes and writes its verdict, and the next one does not start. A `paused` phase written by another host is picked up the same way, because the drive re-reads the record rather than trusting what it was handed.
+
+- 7507e33: `compactNow` and `compactRegion` let a host ask for compaction instead of
+  only having it happen.
+
+  `runCompactionCheck` was the only entry point in the kernel and it was
+  exported from nowhere — not from the compaction barrel and not from the
+  package root. So every compaction had to wait for the in-loop threshold or
+  for a provider to reject an overlong prompt: a host could not offer
+  "compact this conversation", could not shrink an idle session sitting
+  between turns, and could not collapse a span it had chosen.
+
+  Both are built on the compaction planner rather than a second copy of the
+  boundary arithmetic, and neither touches a run.
+
+  `compactNow` returns `null` when there is nothing to shed rather than a
+  zero-shed result — a caller has to be able to tell "I compacted and it did
+  nothing" from "I compacted", and an outcome reporting zero is the shape
+  that gets logged as a successful pass and shown to a user as work done.
+  Neither function edits the array it was given; there is no run here and the
+  history belongs to the host.
+
+  `compactRegion` refuses a span whose edge splits a `tool_use`/`tool_result`
+  pair, naming the offending index, rather than snapping it to the nearest
+  safe one. The caller picked those indices from something they were looking
+  at, and a repaired span produces a valid history that summarised the wrong
+  messages with nothing to notice.
+
+  `COMPACTION_HEADER` and `isCompactionMessage` move to `compaction/summary.ts`
+  so the module below can reach them; the previous import path still works.
+
+- 779d62a: `HostCommandRegistry` is a seam for the commands a host offers its
+  operator. There was none — the whole vocabulary was a literal array in one
+  host's TUI module, over a union shaped by that TUI's own concerns, and the
+  coupling had already escaped it: two non-TUI commands import that array
+  from React-adjacent code to build a name list, for facts the kernel owns.
+
+  **Deliberately not tools.** No descriptor reaches a provider and no
+  dispatch path reaches the model. A `/tasks` readout is a question the
+  operator asked; making it callable would let the model spend a turn on it
+  and record the output in the transcript as if it had discovered something.
+
+  Outcomes are structured, not rendered: `report` with rows, `prompt`, `ack`,
+  `refused`. The SDK formats nothing, because a TUI draws a table, a JSON
+  command prints a document and a web host renders a component — and a
+  pre-rendered string forces all three to parse prose back into the fields it
+  was built from.
+
+  `dispatch` returns `undefined` for a name it does not know, which is not
+  `refused`. A host layers its own commands under these, and collapsing "not
+  mine, keep looking" into "mine, and no" makes every one of them
+  unreachable.
+
+  `describe()` strips handlers, so a descriptor survives both
+  `JSON.stringify` (which drops a function silently) and `structuredClone`
+  (which throws on one).
+
+  A name collision throws rather than warning and overwriting, unlike the
+  base registry: these are operator-facing, and a shadowed command does not
+  fail — it simply never runs, and which one wins depends on registration
+  order.
+
+  Filled with the two commands whose facts the kernel already owns:
+  `kernelHostCommands` provides `/tasks` and `/agents`. An empty registry is
+  a declaration, and `/tasks` refuses rather than reporting zero when there
+  is no task store, because "there are none" and "I have nothing to measure
+  with" are different answers.
+
+- 75c5b4a: Ids can now be checked at runtime. `asRunId`, `asSessionId`, `asProjectId`
+  and one constructor per prefixed id type verify the prefix and throw
+  `InvalidIdError` — naming both the value and the prefix that was expected —
+  rather than returning `undefined`. A caller holding a malformed id has no
+  correct fallback, and the value is usually on its way to becoming a store
+  key.
+
+  There was no prefix check anywhere before this. The casts in the tree assert
+  without verifying, so a `ses_` value cast to `RunId` reached a store key
+  unremarked and the first sign of it was a lookup that found nothing. The
+  types cannot catch it either: every id is a bare template-literal type, so
+  `const x: RunId = 'run_made-up'` compiles with no cast and no factory call.
+
+  One constructor per type rather than a generic `asId(prefix, value)`, on
+  purpose — a generic loses the return type, which is what makes the call site
+  type-check.
+
+  Also adds `types/ids/brand.ts` with the nominal-brand machinery, **declared
+  and not applied**. Nothing in `types/ids/index.ts` changes, so no existing
+  code breaks. Applying the brand turns every bare id literal into an error at
+  once, which is a major with a migration in front of it.
+
+  A comment in `types/ids/index.ts` claiming the actor ids were "branded so
+  actor refs cannot be constructed from bare strings" is corrected. The
+  compiler never enforced that, and the sentence had been sitting in the
+  source as documentation.
+
+- 28cbe6d: A plugin can now declare configuration an operator retunes while the run is live.
+
+  `config/runtime.ts` is one schema parsed once into a frozen object, and nothing
+  in that directory watches, subscribes or changes — so a plugin had no way to
+  expose a section of its own, and retuning one knob meant rebuilding the config
+  and restarting whatever had consumed it.
+
+  `ConfigRegistry.register(namespace, schema, { base })` returns a `ConfigScope<T>`
+  with `get()`, `update(patch)` and `watch(listener)`. Resolution is schema
+  defaults, then the plugin's base, then the operator's persisted override, the
+  whole thing parsed — so an override written against an older shape is refused at
+  registration rather than surfacing wherever it happened to be read. An invalid
+  patch throws, leaves the previous value in place, and fires no watcher.
+  `registry.scope(runId)` prefixes store keys so two concurrent runs cannot retune
+  each other while still sharing one `ConfigOverrideStore`
+  (`InMemoryConfigOverrideStore` is the default; `DiskConfigOverrideStore` persists
+  to one JSON file).
+
+  The driver ships with it: `MCPReconnectSupervisor` now takes a
+  `MCPReconnectPolicySource` — a function it calls at every decision point rather
+  than a value it captures at construction — and `attachMCPServer` registers each
+  server's policy under `mcp.<name>`. Raising `maxAttempts` mid-outage takes effect
+  on the next retry instead of on the next process.
+
+  Nothing existing changes shape: `MCPReconnectSupervisor` was not previously
+  exported, and a live seam that only resolved once would be the frozen object
+  again with more ceremony, which is why `get()` is a call.
+
+- f2a7375: `namzu doctor` now reports what the log pipeline did to this process's records: how many never reached the sink, how many had a credential redacted, and how many were shed or truncated by the size caps. It fails — non-zero exit — when records were dropped, and reports `inconclusive` rather than a green row when no sink was installed at all.
+
+  New SDK export `getLogCounters(): LogSinkCounters | undefined`. `undefined` means no host claimed the process's log destination, so nothing measured those records; it is deliberately not a zeroed set, which would read as "nothing was dropped, nothing was redacted" about a process where neither was ever checked.
+
+  `LogSinkCounters` had five fields incremented on every record and no reader anywhere. It could not have had one: the counters lived on whatever logger `createLogger` built, and `getRootLogger()` resolves per call and built a fresh one each time, so every total died with the expression that produced it. `installProcessSink` now owns one counter set per installed destination and every logger routed through it adds to those totals. A replacement install (`{ replace: true }`) starts at zero rather than carrying the previous destination's counts forward — the numbers describe the sink that is live.
+
+  `createLogger` takes an optional second argument, a counter set to share. Omitting it is unchanged behaviour: a host that builds its own logger for one subsystem keeps its own counts unless it asks otherwise.
+
+- 7015eee: A logger's module identity can now be set independently of any log attribute: `Logger.child()` special-cases a new reserved key, exported as `SCOPE_ATTRIBUTE` (`'namzu.log.scope'`), that rebinds `LogRecord.scope.name` — an OTel-shaped field a host can filter stderr/JSON output on to silence or isolate one module — for that logger and every child it produces afterward, rather than being copied into `attributes`.
+
+  This closes a real bug in the pre-existing (but previously unreachable-in-practice) `scope` field: every logger obtained via the deprecated `getRootLogger()` reported the SAME `scope.name` (`'namzu'`) no matter what module built it, because the internal adapter between `getRootLogger()` and the record pipeline hardcoded its scope on every `child()` call. That adapter is fixed in this release as part of wiring `SCOPE_ATTRIBUTE` through it.
+
+  **If you parse stderr JSON:** a small number of call sites migrate their bare, un-namespaced `component` attribute to `scope.name` plus a namespaced `namzu.*`/`gen_ai.*` attribute in this release (the remaining `component:` sites are unaffected and continue to work exactly as before — see the tracking follow-up for the rest):
+
+  | file (component)                                                  | old bare key(s)                                                                                                                | new                                                                                                                                                                                                                                     |
+  | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `ManagedRegistry` (all 5 subclasses)                              | `component`                                                                                                                    | `scope.name: 'registry'` + `namzu.registry.name`                                                                                                                                                                                        |
+  | `AbstractAgent`                                                   | `component`, `agentId`                                                                                                         | `scope.name: 'agents'` + `gen_ai.agent.id` (reused, not re-minted) + new `namzu.agent.type`                                                                                                                                             |
+  | `RouterAgent`                                                     | `component`, `agent`                                                                                                           | `scope.name: 'agents'` + `gen_ai.agent.name` (reused)                                                                                                                                                                                   |
+  | the run's own correlated logger (`RunContextFactory.buildLogger`) | `component`, `agent`, `sessionId`, `threadId`, `projectId`, `tenantId`                                                         | `scope.name: 'runtime/query'` + `gen_ai.agent.name` + `namzu.session.id` / `.thread.id` / `.project.id` / `.tenant.id`; a nested run also now carries `namzu.run.parent_id` when `parentRunId` is set — previously dropped on the floor |
+  | `ConnectorManager` / `TenantConnectorManager`                     | `component`                                                                                                                    | `scope.name: 'manager/connector'`; a tenant-scoped manager's connectors now carry `namzu.tenant.id`, previously unreachable because `ConnectorManager` had no logger input at all                                                       |
+  | `InMemoryCredentialVault`                                         | `component`; `'namzu.credential.id'`/`'namzu.credential.label'`/`'namzu.tenant.id'` as raw string literals                     | `scope.name: 'vault'`; same attribute VALUES, now referenced via constants — no wire-format change on the attribute keys themselves                                                                                                     |
+  | `MCPClient`                                                       | `component`, `serverId` (bound to the operator's own configured name); `'namzu.connector.server.name'` as a raw string literal | `scope.name: 'connector/mcp'` + `namzu.connector.server.id` (operator-configured) / `namzu.connector.server.name` (kept separate — the remote server's own self-reported name, which is untrusted input)                                |
+  | `packages/cli`'s `DoctorRegistry`                                 | `component`                                                                                                                    | `scope.name: 'doctor'` — fixed in the same release specifically because `component` becoming inert would otherwise have silently dropped this logger's console bracket prefix with no alternative available to it                       |
+
+  No exported identifier is renamed or removed. `SCOPE_ATTRIBUTE` is a new export from `@namzu/sdk`'s root — additive. `ConnectorManagerConfig` gains one new _optional_ `log?: Logger` field — additive, no existing caller needs to change. `RunContextFactory.buildLogger`'s config type widens to accept an optional `parentRunId` it did not read before — additive.
+
+  **Not included in this release, tracked as a follow-up:** the remaining ~35 SDK source files that still bind `component:` are unaffected — they behave exactly as before, and will migrate in a later release. The CI gate's `unnamespacedBindingCount` ratchet moves from 48 to 40 to reflect that this release is a partial migration, not the finished one.
+
+- b395a1e: `createLogger` now understands a reserved `err` attribute. Pass the actual thrown value under that key — `logger.error('Guardrail threw — failing closed', { err })` — and the emitted record gains `exception.type` / `exception.message` / `exception.stacktrace`, built from a bounded (4-hop), cycle-safe walk of the error's `cause` chain and passed through the same record-boundary redaction scan as every other attribute.
+
+  This is purely additive: a call site that already builds `{ error: toErrorMessage(err) }` by hand is unaffected, and the two keys (`err` vs `error`) are spelled differently on purpose so both keep compiling side by side. No existing call site in the SDK has been migrated to the new key in this release.
+
+  No new named export. The reserved key and the mapper behind it (`errorAttributes`) stay internal to `@namzu/sdk` — there is no `ERR_ATTRIBUTE` or `errorAttributes` symbol on the public surface to import. A host can still reach the new behavior today by handing `createLogger`'s existing `Logger`/child-logger calls a plain `{ err: someError }` attribute, since `LogContext` already accepts an arbitrary key.
+
+  Unrelated to any provider driver's behavior: `packages/sdk/src/provider/errors.ts` still never attaches `cause` to a classified provider error, and this release does not change that — see the doc comment added there and the note in `docs/conventions/index.md`.
+
+- ca97021: Add `LogAttributes`, and close the two live log-forging (CWE-117) sites
+
+  `packages/sdk/src/utils/log/attributes.ts` adds `LogAttributes` — a namespaced (`namzu.*` / `gen_ai.*` / `service.*` / `exception.*`), shape-safe attribute type (`string | number | boolean`, or an array of those; no nested objects, no `null`/`undefined`). It is a type callers build TOWARD, not a narrowing of `Logger.child(context: LogContext)` — `LogContext` keeps its exact `Record<string, unknown>` shape, so no host `Logger` implementation breaks.
+
+  Two call sites used to interpolate externally-influenced text straight into a log message: `connector/mcp/client.ts` (a remote MCP server's self-reported name) and `vault/InMemoryCredentialVault.ts` (a caller-supplied credential label, and the tenant id and credential id alongside it). A hostile value embedding its own fake log line — `x\n[2026-01-01T00:00:00Z] [ERROR] [audit] forged` — forged a second record in every reader downstream. Both sites now log a constant body string with the variable text carried in a `LogAttributes` attribute instead.
+
+  `prettySink`'s control-byte escaping — previously scoped to `body` and `scope` only — now covers every rendered attribute value too, and additionally escapes DEL (0x7F) and U+2028/U+2029, neither of which `JSON.stringify` touches on its own. Closing the escaping gap only on `body`/`scope` would have left exactly the field the fix above moves untrusted text into unprotected.
+
+  `docs/sdk/observability/logging.md` (new) states the guarantee's actual boundary: `LogAttributes` is a key-shape guarantee only. Any string value can still carry a secret; the record-boundary redaction scan (`redact.ts`, shipped with the LogSink seam) is the value-level defence.
+
+- 9947662: `LogRecord` gains `traceId`, `spanId` and `traceFlags`, resolved from the active OTel span at emit time
+
+  `createLogger`'s `emit` now reads `telemetry/runtime-accessors.ts`'s new `getActiveSpanContext()` — `trace.getSpan(context.active())?.spanContext()` — for every accepted record, and stamps `traceId`/`spanId`/`traceFlags` onto it when a span is active. All three arrive together or not at all: a trace id with no span id would be a half-address, worse than the plain absence a reader can already tell apart from "unwritten".
+
+  Resolved PER RECORD, never once at `createLogger` construction — a logger built before a tracer provider registers still picks up spans started after registration.
+
+  With no tracer provider registered, or a real one registered with no context manager to carry it past the first `await` (`@opentelemetry/api`'s default `NoopContextManager`), the three fields are simply absent from the record — not `''`, not `'unknown'`, and nothing throws. Reading the active context can only ever ADD information to a record; it cannot make a host that never configured telemetry fail anything it did not already fail.
+
+  New optional fields only. No existing `LogRecord` consumer breaks, and a sink reading unknown keys is unaffected.
+
+- 89dfe84: Add the LogSink seam: `createLogger`, pluggable sinks, and a record-boundary redaction/size pipeline
+
+  `packages/sdk/src/utils/logger.ts` wrote directly to `process.stderr` with no way to redirect, replace, or intercept it — the CLI's only lever was `configureLogger({ level: 'silent' })`, which is why every entry point silences the logger outright instead of pointing it somewhere useful.
+
+  This adds the seam additively. `Logger`, `getRootLogger` and `configureLogger` keep their exact signatures and behaviour — every existing test passes unmodified — and are now marked `@deprecated`, naming their replacements:
+
+  - `LogRecord` — the emitted record shape (a subset of the OTel Logs Data Model: timestamp, severity, body, scope, resource, attributes). No `traceId`/`spanId`/`eventName` yet — those ship with their own emitters in later work, not as unwritten fields today.
+  - `LogSink` — `{ emit(record) }`, the seam a host implements to receive records.
+  - `createLogger(options)` — builds a `Logger` whose destination and level come from the caller's options, not a module-global. The level is read per record off `options.level.current`, never captured at construction. A sink whose `emit` throws is caught and counted, never rethrown into the caller — the old direct `stderr.write` could never throw into kernel control flow, and a naive seam would have introduced that failure mode for the first time.
+  - A record-boundary pipeline every sink receives the same output of: secret redaction, an 8 KiB per-value truncation cap, a 64-attribute count cap, and a 16 KiB total-record cap — each counted, and enforced once in `createLogger` rather than duplicated per sink. A custom sink cannot bypass any of it.
+  - `jsonLinesSink(stream)` — NDJSON, additionally escaping U+2028/U+2029 beyond what `JSON.stringify` handles.
+  - `prettySink(stream)` — human-readable lines, with every C0 control byte (ESC included) rendered as inert `\xNN` text in every field, not only the body.
+  - `NOOP_SINK` / `NOOP_LOGGER` — every accepted call counts as dropped, so a host can tell "nothing configured" apart from "configured and silently eating records".
+  - `installProcessSink(sink, level, opts?)` — the CLI's future replacement for `configureLogger`; refuses a second call unless `{ replace: true }` is passed.
+  - `Severity`, `LevelFilter`, `Resource`, `LogSinkCounters` — the supporting types.
+
+  No behaviour change to anything already shipping: the seam is inert until a host calls `installProcessSink` or `createLogger`, which nothing in this package does yet.
+
+- 8a4986f: An MCP connection that drops is now reconnected instead of staying dead for the
+  life of the process.
+
+  `MCPClient.connect()` was called exactly once, by whoever built the client.
+  `transport.onClose` set the status, emitted the lifecycle event and rejected
+  everything pending — and nothing scheduled another attempt. One network blip,
+  one server restart, one laptop sleep, and a plugin's MCP tools were gone until
+  the process ended, while the plugin itself went on reporting as enabled.
+
+  New `MCPReconnectSupervisor` (exported from the connector barrel) watches one
+  client through the existing `onLifecycle` subscription and reconnects with
+  bounded exponential backoff — defaults: 500 ms initial, 30 s ceiling, 6
+  attempts, then `onGaveUp`. `PluginLifecycleManager` attaches one per client it
+  creates.
+
+  **If you build clients yourself, stop the supervisor before disconnecting.**
+  `disconnect()` emits the same `mcp_client_disconnected` event a dead transport
+  does and the event carries nothing that separates them, so a supervisor still
+  attached at teardown will reconnect what you just closed. `stop()` is part of
+  the teardown sequence, not an optimisation. The plugin lifecycle already does
+  this on both its teardown paths.
+
+  `onReconnected` fires after a successful recovery. A reconnected server may
+  have restarted with a different tool list, and the supervisor cannot know what
+  a host needs to redo — so it reports when rather than guessing what.
+
+- b1bb2e0: Nothing stored a per-message judgment, so every consumer had to invent its
+  own side table to answer the most basic question there is — was that answer
+  any good.
+
+  `MessageFeedbackStore` records a `'good' | 'bad'` rating and an optional
+  note per `{ runId, messageId }`, in memory or on disk. `rating` is a closed
+  union rather than a number or a free string: a 1–5 scale invites a mean
+  nobody can interpret across raters, and widening the union later is now a
+  deliberate major rather than an accident.
+
+  Writes are compare-and-set on a per-record `ownerVersion`, throwing
+  `StaleFeedbackError` with both the expected and the actual version. The
+  disk store's first write uses an exclusive create, so two raters who each
+  read "no feedback yet" cannot both land — a read-then-write is not atomic,
+  and a rating is exactly the kind of value where last-write-wins loses
+  information nobody notices is gone.
+
+  A rating aimed at a `messageId` that appears in no event of the named run
+  is refused with `UnknownMessageError` and nothing is written. A row
+  pointing at a message nobody can find is unreviewable and
+  indistinguishable from a real one. A disk store built without a run
+  directory to validate against refuses every write rather than accepting
+  everything it cannot check.
+
+  Both implementations run one conformance suite, which found a real
+  divergence between them the day it was written.
+
+  In the CLI, `/feedback good|bad [note]` rates the last answer. With no
+  answer yet it refuses rather than writing against a synthesized id. The
+  kernel's `messageId` and `runId` now travel across the CLI's event seam,
+  which previously dropped both.
+
+- da66613: Every tool call a `run_code` program makes is visible in the run's event stream.
+
+  The program's calls went through `registry.execute` directly, so they reached the permission gate and reached the event stream **not at all**. A run whose transcript showed one `run_code` call and nothing about the eleven writes it performed is a transcript nobody can audit — the tool would be the one place in the system where work happens off the record.
+
+  `tool_executing` and `tool_completed` gain an optional `via`, present when another _tool_ dispatched the call rather than the model. It **names** the dispatching call rather than merely marking this one nested, and that is the load-bearing part: without it a consumer counting tool calls double-counts the parent and each child, and one rendering a timeline draws eleven siblings where there is one call with eleven children. It is carried on both events, so a consumer can pair them without holding the start.
+
+  A nested call gets its **own** id. Reusing the parent's would make two different calls indistinguishable in any log keyed by it, which is exactly how a nested write gets attributed to the program that ran it rather than to itself.
+
+  `dispatchTool` is bound **per call** rather than once per batch. The base tool context has no `toolUseId` — a caller dispatching outside a batch has no parent to name — and a closure built there reported every nested call as parentless, which is what the tests caught.
+
+- be95e43: Emit the CLI boot narrative — sandbox notice, provider chain, capability probe, config provenance and a terminal ready/refused event
+
+  **`@namzu/sdk`**: `EVENT_NAME_ATTRIBUTE` is now re-exported from the root barrel (`packages/sdk/src/utils/log/index.ts` was missing the value re-export that let it reach a host package). This is what lets a package outside the SDK — `@namzu/cli`, here — name a boot event without duplicating the reserved key `createLogger` promotes onto `LogRecord.eventName`.
+
+  **`@namzu/cli`**'s default stderr output changes from nothing to an info-level boot narrative on every invocation, not only `run`/`drain`/`run-stream`/the TUI — `namzu doctor`/`namzu login` now also print `namzu.boot.start` and `namzu.config.resolved` ahead of their own output, because `getContext()` is the one place any subcommand resolves logging + config. Use `--quiet` (LOG-05) to go back to warn-and-above; `NAMZU_LOG_LEVEL=silent` remains a full return to today's silence.
+
+  The highest-value line: `ResolvedSandbox.notice`/`.unconfined` (computed on every boot, discarded until now) are emitted as `namzu.sandbox.resolved`, at `warn` specifically when nothing is confined and `info` otherwise — an operator reading default output now sees "this platform enforces none of filesystem, network, process" instead of it existing only in a field nothing read.
+
+  Also new: `namzu.provider.resolved` (the constructed chain and each skipped fallback's reason), `namzu.capability.detected`/`.broken` (via `probeCapabilities`, gaining its first consumer and joining `@namzu/cli`'s public exports alongside the existing `probeOptionalPackage`/`CapabilityProbe`/`NAMZU_OPTIONAL_CAPABILITIES`), `namzu.discovery.completed` (MCP connectors — plugin/skill discovery is not yet wired to the boot path and is not claimed here), `namzu.telemetry.status` (states plainly that no `TracerProvider`/`LoggerProvider` is registered, since the CLI does not call `registerTelemetry()` on any path today), and the terminal `namzu.boot.ready` / `namzu.boot.refused` pair — `ready` fires exactly once on success with no boolean readiness field, `refused` fires at `error` on every early return out of `createAgentSession` including a `sandbox.requireIsolation` control this host cannot meet, which now also logs before the process exits non-zero (the exit code itself is unchanged — the existing top-level catch in `runCli` already produced it).
+
+  The two previously-silent `catch {}` blocks in `packages/cli/src/tui/agent.ts` (a failed provider-client rebuild after an OAuth token refresh; a sub-agent runtime that failed to start) now each emit one `warn` record with `exception.type`/`exception.message`. Neither's behavior changed — both remain non-fatal.
+
+  No exported signature changed and no default changed; every addition is either a new export or new stderr output governed by the existing `--quiet`/`--verbose`/`NAMZU_LOG_LEVEL`/`NAMZU_LOG_FORMAT` controls.
+
+- 9aba59a: Named permission presets that bind a gate config to a sandbox isolation requirement and an approval policy.
+
+  The three were configured independently and had to agree by hand. `defaultSandboxedGateConfig` auto-approves in-sandbox file mutation, and its own docstring says why: "the FS boundary is enforced by the sandbox layer, not by per-call review". That is a claim about a **different subsystem**, and nothing checked it. Hand that config a `basic` tier, where the spawned process can read and write the whole host filesystem, and the gate keeps auto-approving writes on the strength of a boundary that is not there.
+
+  Four presets — `supervised`, `sandboxed`, `sandboxed-shell`, `unattended` — each stating the isolation controls it relies on, plus `resolvePermissionPreset`, which **refuses** when the host cannot meet them and names the missing controls. Refusing is the point: a preset that silently fell back to asking about everything would be safe and unusable, and one that silently kept auto-approving would be neither.
+
+  Requirements are controls, not tier names: `SandboxEnvironment` names an implementation — one tier denies the network outright while another leaves the host filesystem visible — and a preset depends on the property, not on which implementation supplies it. A preset requires only what it actually spends, so `sandboxed` does not demand network isolation it never trades on.
+
+  `unattended` is the one whose requirement cannot be waived: with an auto-approving policy the sandbox is the only boundary left, so it requires all three controls. It is also the only preset that auto-approves network calls, and those two facts are the same fact — which is what a preset exists to keep together.
+
+  `availablePermissionPresets` lists what a given host can honour, loosest first, and always ends with `supervised`, which assumes nothing.
+
+- 5a4f7b4: A plugin's declared skills actually load and reach the model.
+
+  The manifest schema validated `skills` with a per-plugin cap and the runtime then refused the whole plugin for declaring any — so a plugin shipping four tools and one skill validated clean, installed clean, and contributed nothing. The refusal was correct while there was no path into `SkillRegistry`; this is the path.
+
+  Pass `skillRegistry` to `PluginLifecycleManager` and a plugin's skills load from the directories its manifest names. Without one, a manifest declaring skills is still **refused** — accepting it and dropping the skills would produce a plugin reporting `enabled` that contributes nothing its author declared, which is the same lie the wholesale refusal was written to prevent.
+
+  Skills are namespaced like tools (`plugin__skill`), because two plugins shipping `reconcile` would otherwise overwrite each other in a Map keyed by the frontmatter name, and the loser would vanish with nothing reporting it. The namespaced name is written into the skill's own `metadata.name` too, so the registry key and what a rendered prompt shows agree.
+
+  What a plugin brought, it takes away: skills are unregistered on rollback and on disable. A disabled plugin whose skills stayed registered keeps offering the model instructions from something the runtime switched off — worse than a stale tool, because a tool call would at least fail and a skill is followed silently.
+
+  `SkillRegistry` gains `add(name, skill)` and `unregister(name)`. `connectors` and `personas` remain refused; a skill registry does not buy them a manifest path.
+
+- 7adf919: The system prompt is open: a contribution registry the assembler consumes, with skills as its first contributor.
+
+  `PromptBuilder` assembled a fixed list — base prompt, persona or system prompt, skills, tool section, tier guidance, environment — and every one of those was a branch written into the builder. A capability that needed the model to know something (web tools and their citation rules, a plugin's conventions, a host's house style) had exactly two options: convince somebody to add a branch, or splice it into `systemPrompt` and lose whatever was there.
+
+  New: `PromptContribution`, `PromptContributionRegistry`, and the `contributions` field on `PromptBuilderConfig`. Omit it and nothing changes.
+
+  **`placement` is not cosmetic.** `static` is the segment the prompt cache keeps and a provider caches across turns; `dynamic` is re-sent every iteration. A contributor whose text varies per turn but declares `static` either invalidates the cached prefix on every iteration — paying full price for a cache that never hits — or gets served the first turn's text forever. The rule: `static` iff the output depends only on things that cannot change inside one run.
+
+  Registration order is rendering order, because the prompt is read top to bottom by a model that weights early text more; an order derived from priority numbers would have every contributor arguing about a number. A duplicate id is refused rather than silently overwritten — "my guidance stopped appearing" is the least debuggable failure this could have — and `replace` keeps the original position, because a replacement is a new implementation of the same contribution, not a new one.
+
+  Skills is the first contributor, and is rendered **in place** rather than at the tail, so a host that registers the built-in gets the seam and not a reordered prompt. Under a persona it stays inside `assembleSystemPrompt`, whose section ordering places it relative to constraints and output discipline — routing it out would silently reorder every persona-driven prompt.
+
+- 70f23bb: A driver can now say how large a model's context window is, and the kernel
+  ranks that above its hand-maintained table.
+
+  That table was the only source below an explicit host config, and its own
+  header records what it cost: every Claude entry carried 200k including the
+  1M-window models, so those runs compacted at roughly 14% full and threw
+  away the prompt-cache prefix to do it. Every model release drifts it again
+  until somebody edits it — while the OpenRouter driver was already parsing
+  the vendor's real `context_length` and discarding it, because there was no
+  member to return it through.
+
+  `LLMProvider.resolveContextWindow?(model, signal)` is three-state like
+  `effortLevelsFor`: absent means this driver cannot answer, a resolved
+  `undefined` means it asked and does not know, a number is the answer. A
+  driver resolving `undefined` falls through to the TABLE, not to the
+  assumed default — asking must never be worse than not asking.
+
+  Resolved once per run, at the door. Both consumers are synchronous and in
+  the hot loop, so this can never become an await inside it. A driver that
+  rejects or hangs does not fail the run: the window is an optimisation over
+  a working default.
+
+  `ResolvedContextWindow['source']` and the `windowSource` on
+  `token_usage_updated` gain `'provider'`, ranked between `'config'` and
+  `'model-table'`, so a host can see which route a number came from.
+
+  Also fixes a hole this exposed: `withProviderRetry` and
+  `withProviderFallback` forwarded `listModels`, `healthCheck` and
+  `doctorCheck` but not `effortLevelsFor`. A dropped optional member does not
+  fail — it reads as "this driver cannot answer" — and retry is on by
+  default, so a driver's declared effort levels were invisible on
+  essentially every run.
+
+- 413d939: Text queued for a running agent is now delivered at the next-turn boundary.
+  Two public APIs could accept it and silently never hand it over.
+
+  `AgentManager.continueTask` and `queueMessage` pushed onto
+  `pendingMessages`, and nothing in the kernel ever drained it — the manager
+  interface's own docblock said "the runtime does not deliver it", and
+  `continue_task` was unmounted from the coordinator tools because of that.
+  So a supervisor could redirect a running worker through a public API and
+  have the instruction go nowhere.
+
+  The steering channel had the mirror-image hole. It can only append to a
+  settled tool result, so guidance queued during a turn that called no tools
+  stayed pending, and the loop ended the run with the channel still full.
+
+  `BaseAgentConfig.inboundMessages` is the delivery seam: a drain callback,
+  stamped on a child's config after its `configBuilder` returns for the same
+  reason `parentSpan`, `resumeHandler` and `env` are — a builder written by
+  whoever registered the agent cannot forward a field it was never told
+  about. Both queues drain at the iteration boundary, beside the completion
+  inbox, which is the established place for putting a user message in after
+  tool results and before the next turn.
+
+  An empty queue costs nothing: no extra iteration, no model call, no message
+  in the history. A queued message costs exactly one more turn.
+
+  `queueMessage` on a settled task now throws instead of pushing silently.
+  There is no longer a state in which a caller believes something is in
+  flight when the only thing that would have drained it has finished.
+
+- 1d428e6: An incremental read-model registry, with derived run status as its first driven consumer.
+
+  Everything derived from a run was computed by scanning what was in hand when somebody asked. `deriveRunStatus` takes a status and a park and answers about that instant — which works while the whole run fits in memory and stops working the moment it does not. A caller wanting the status of a run whose history has been compacted, or of a run in another process, loads the log and folds it, and every caller folds it slightly differently.
+
+  `ReadModelRegistry` is that fold, written once and advanced one event at a time. Its two refusals are what make "incremental" a property rather than a hope:
+
+  - A **duplicate** is refused, because it double-counts anything a model accumulates and nothing downstream can tell a doubled count from a real one.
+  - A **gap** is refused, because a projection built across one produces a state that looks complete while describing a log the registry never saw. A caller that has lost its place calls `replay`, which is honest about starting over.
+
+  One registry per run rather than per model, so `lastSeq` is one number and a caller reading two projections cannot be handed states derived from different prefixes of the same log. A refusal leaves every state untouched — a registry that refused after mutating half its models would be worse than one that accepted.
+
+  `createRunStatusReadModel` derives `RunStatus` from the events a run already emits, feeding `deriveRunStatus` rather than re-implementing it: two implementations of the same rule are two chances to disagree about what `awaiting_hitl_resolution` means, and the disagreement would show up as a run that reads differently depending on which surface asked. The two `awaiting_hitl*` variants had no producer at all before this.
+
+  `now` is injected because a deadline passes without any event being emitted, so what a fold holds is the status **as of the last event** — the honest thing for a projection to say, since nothing woke it up at the deadline.
+
+- f9c1589: `continue_task` is registered again. A supervisor can redirect a background
+  worker instead of only waiting for it or killing it — and killing it throws
+  away everything it has done.
+
+  The tool was dropped because the queue it wrote to had no reader: on a live
+  task the manager accepted the call and pushed onto `pendingMessages`, and
+  nothing drained that queue during a run, so registering it would have
+  handed the model a call that silently does nothing. The comment recording
+  that named its own expiry condition — "if follow-ups on a live worker are
+  wanted, the work is a consumer for the queue" — and that consumer now
+  exists.
+
+  It rides under the same `canDelegate` gate as `create_task`,
+  `wait_for_task` and `cancel_task`: steering a live worker is delegation
+  too, so a run that must not delegate cannot redirect one either.
+
+  It refuses a task this run did not launch, applying the same fencing the
+  listing and the wait already do, so one run cannot steer another's worker on
+  a shared scheduler. "Never existed" and "belongs to someone else" get the
+  same answer, because distinguishing them confirms a task id the run was not
+  supposed to know.
+
+  A settled task is reported as a refusal naming the state, not as a thrown
+  tool error — the manager refuses by throwing, and a throw out of `execute`
+  reads to the model as "the platform broke" rather than "that worker has
+  finished". It does not block: the worker's result still arrives the way it
+  already would.
+
+- 4992819: Three exported names now say what they operate on. Old spellings still work
+  and are marked `@deprecated`; they are removed in the next major.
+
+  | Old                        | New                       |
+  | -------------------------- | ------------------------- |
+  | `collect`                  | `collectChatCompletion`   |
+  | `Registry`                 | `BaseRegistry`            |
+  | `ContextCache`             | `PromptCache`             |
+  | `ContextCacheConfig`       | `PromptCacheConfig`       |
+  | `QueryParams.contextCache` | `QueryParams.promptCache` |
+
+  `collect` gave no hint what it collected — it drains a `StreamChunk`
+  iterable into a `ChatCompletionResponse`. `Registry` sat unqualified beside
+  seven domain-named siblings in the same barrel (`ToolRegistry`,
+  `AgentRegistry`, and five more), so the bare name read as the
+  general-purpose one when it is the base class. `ContextCache` named one
+  input two ways a single call apart: `new ContextCache(ContextCacheConfig)`
+  then `.getSystemPrompt(PromptCacheInput)`.
+
+  To migrate, change the import; nothing else moves. `PromptCacheInput` was
+  already correct and is unchanged.
+
+  Setting both `contextCache` and `promptCache` to different instances throws
+  rather than picking one, before the run starts and at no provider cost. A
+  caller who set both has a real disagreement about which cache to use, and
+  silently preferring either would run with a value they also asked not to
+  use. Setting both to the _same_ instance is fine.
+
+- 215f7b5: The run-claim types now use the settled distributed-locking vocabulary. Old
+  names still work and are marked `@deprecated`; they go in the next major.
+
+  | Old            | New            |
+  | -------------- | -------------- |
+  | `RunClaim`     | `RunLease`     |
+  | `ClaimFence`   | `FencingToken` |
+  | `ClaimSummary` | `LeaseSummary` |
+
+  What these describe is textbook: a time-bounded exclusive grant on a run
+  (holder, fence, absolute `expiresAt`), plus a monotonically increasing
+  number a store compares to reject a superseded writer. That is a lease and
+  a fencing token — terms with a literature a reader can go and check.
+  "Claim" and "Fence" read as ad hoc ownership flags, so nothing told a reader
+  to expect the guarantees the mechanism actually provides, and the
+  `fence?: ClaimFence` threaded through `saveCheckpoint` and `releaseRun`
+  looked decorative rather than load-bearing.
+
+  The verbs are deliberately unchanged. `claimRun`, `releaseRun` and
+  `toClaimSummary` keep their names — "claim a lease" is idiomatic, and
+  renaming the methods would break every `CheckpointStore` implementor for no
+  reading gain.
+
+  `FencingToken` remains a bare `number` alias. It buys clarity, not type
+  safety; making the ids nominal is a separate change.
+
+  To migrate, change the type import. No runtime behaviour moves.
+
+- 62773b8: `TaskGateway` becomes `TaskScheduler` and `LocalTaskGateway` becomes
+  `LocalTaskScheduler`. Old names still work and are marked `@deprecated`;
+  they go in the next major.
+
+  "Gateway" names an object that sits at a system boundary and faces outward
+  — Fowler's POEAA Gateway, an API gateway, a payment gateway. This one faces
+  inward: it creates, waits on, continues, cancels and lists in-process agent
+  tasks. A reader who trusted the name expected a facade over something
+  external and found a scheduler.
+
+  Two config fields move with the types, because the field name is what a
+  host actually types and leaving one spelled `gateway` would retire the type
+  while keeping its vocabulary:
+
+  - `QueryParams.taskGateway` → `QueryParams.taskScheduler`
+  - `SupervisorAgentConfig.gateway` → `SupervisorAgentConfig.scheduler`
+
+  Both accept either spelling for the window. Setting both to different
+  instances throws and names both fields; setting both to the same instance
+  is fine. The supervisor resolves the pair once rather than at each read, so
+  a host that sets only the new name cannot get a working scheduler on one
+  path and `undefined` on another.
+
+  `SupervisorAgentConfig` with neither a scheduler nor an `agentManager` is
+  still an error, and the message now names `scheduler`.
+
+- 6f4cd04: The verification gate is an authorization gate, and is named one. Old names
+  still work and are marked `@deprecated`; they go in the next major.
+
+  | Old                               | New                       |
+  | --------------------------------- | ------------------------- |
+  | `VerificationGate`                | `AuthorizationGate`       |
+  | `VerificationRule`                | `AuthorizationRule`       |
+  | `VerificationGateConfig`          | `AuthorizationGateConfig` |
+  | `verificationGate` (config field) | `authorizationGate`       |
+
+  A reader who saw `VerificationGate` expected something that verifies a claim
+  — checks a signature, confirms an output matches a schema. It is a rule
+  engine that decides, before a tool runs, whether the call is permitted:
+  allow, deny or review, by name, category, tier, or a pattern over the
+  arguments. Every rule variant already said so. The misreading was not
+  academic: the module sat beside real guardrail and HITL neighbours, where
+  "verification" suggests exactly the post-hoc double-check the guardrails do.
+
+  The config field is on `ReactiveAgentConfig`, `SupervisorAgentConfig`,
+  `runAgent`'s options and `QueryParams`. Both spellings are accepted for the
+  window and resolved at one site; setting both to different configs throws
+  and names both fields. One resolve rather than four matters more here than
+  for an ordinary rename — a gate present on one path and absent on another
+  means a tool call permitted where it should have been refused.
+
+  Also renamed, and reachable only in type position: `VerificationRuleSchema`
+  and `VerificationGateConfigSchema`. They are not exported as values, but
+  `import type` and `typeof` both worked, so they carry aliases rather than
+  disappearing.
+
+  Deliberately unchanged, because each is already correct about what it is:
+  `GateDecision`, `GateEvaluationResult`, `ToolCallContext`, `describeRule`,
+  `evaluateRule`, `defaultSandboxedGateConfig`,
+  `defaultSandboxedShellGateConfig`.
+
+  The module-invariant registry — `createInvariantRegistry`, `invariants`,
+  `InvariantRegistry` and friends — moved to its own directory rather than
+  into `authorization/`. It is the one thing in the old `verification/` that
+  genuinely verifies a claim: what a module says about its own live state. No
+  import path changes for consumers; it is exported from the same barrel.
+
+- 71ed5df: A credential turning over is now observable, and the doctor's vault check
+  can answer.
+
+  Rotation was invisible: a lapsed OAuth token was refreshed straight into
+  the CLI's file store, and the bus carried `vault_lookup` with no change
+  event — so no probe subscriber could see a credential replaced, and nothing
+  could answer "when did this last rotate".
+
+  `vault_credential_changed` joins the bus, dispatched through the same probe
+  registry `vault_lookup` already uses rather than a second one, which would
+  mean a subscriber that saw lookups and not rotations depending on which it
+  found. `kind` separates `set` from `rotated`, which is the distinction a
+  reader wants: a first write is configuration, a replacement is a credential
+  turning over. The event carries the credential's NAME and never its value —
+  a change event exists to be logged, forwarded and retained, which is
+  exactly what a secret must not be.
+
+  `FileCredentialProvider` makes the CLI's hardened store writable through
+  the seam. It adds no file logic of its own: the store already owns the `wx`
+  open, the `0600`, and the read-back that proves the mode landed, and a
+  second copy of that guarantee is the one that would drift.
+
+  The doctor's vault check answered `skipped` unconditionally with "no vault
+  auto-discovery in v1" — the same answer on every machine, forever, which is
+  the shape `a-check-that-cannot-fail` warns about. It now reports what the
+  registered providers describe, and returns `skipped` only when none is
+  registered. It calls `describe`, never `resolve`: this output is what an
+  operator pastes into an issue.
+
+- b7f7897: An opt-in `run_code` tool that dispatches a model-authored program through the run's own `ToolRegistry`.
+
+  Twenty tool calls to filter a list is twenty model turns, each at full context size with the whole conversation resent. The same work is one loop. That is the entire argument for this tool, and it only holds if the loop cannot reach further than the twenty calls could have.
+
+  **The program's reach is the run's reach.** Every capability it can call is a tool already in the registry, already narrowed by the turn's `allowedTools`, already going through the dispatch a model-issued call goes through — the permission gate, the approval policy, the audit record. There is no second path, because a second path is a second place for the gate to be forgotten and the one that forgot it would be the one a model reached through a program.
+
+  The program's own `tools` list is **intersected** with what the turn allows, computed host-side rather than trusted from the input: that list is model-authored, and a program that named every tool it wished for would otherwise widen its own grant. It is also a ceiling — a program that declared two tools and reached for a third is refused, because it has done something its author did not describe. Withheld names are reported back with what the turn does allow, so the model can correct itself in the same turn.
+
+  Declared **not** read-only and **destructive**, whatever a given program does: its effects are the union of the tools it calls, which is not knowable from the input, and `readOnly: true` would let a read-only preset auto-approve a program whose whole purpose is calling something else.
+
+  Output is posted as it is printed rather than batched until the program finishes — a program that printed its progress and then hung has told the model where it got to, and a buffer that only ships on completion loses exactly the output a timeout most needs to explain itself.
+
+  `ToolContext.dispatchTool` is the channel, and is available to every tool rather than only this one. That is stated rather than quietly true: tools are host-installed code, so the boundary this protects is the _model's_ reach, and that stays bounded where it has always been.
+
+  Not in the default builtin set. A run that does not need model-authored control flow should not have a way to execute model-authored text.
+
+- dec1964: `AgentStatus` is renamed to `RunExecutionStatus`. The union is unchanged (`'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'`), and `AgentStatus` remains exported as a `@deprecated` alias — your code still compiles and warns. Removal is a later major.
+
+  It never typed an agent. Every use of it in the package is a run's status, a run's audit outcome, or the status field of a run's result; `AbstractAgent` and `ReactiveAgent` have no status of their own, because an agent is a configuration and it is the _run_ that is idle, running or cancelled. A reader importing `AgentStatus` to describe an agent's lifecycle was reaching for the type that governs something else, and the name was the only thing telling them otherwise.
+
+  `isTerminalStatus` now takes `RunExecutionStatus`. A value typed with the old alias is still accepted, since the alias resolves to the same union.
+
+- e5dde44: A run/session query seam, including what compaction removed.
+
+  The stores could each answer part of it and nothing could answer the question. `readEvents` gives a log; `writeMessages` persisted a history; and the two **disagree by design** once compaction has run — the persisted history is what survived, and what compaction removed lives only in the event log. "Show me this conversation" had two plausible answers and a caller picked one by accident.
+
+  The compacted-away half is the reason this exists. `compaction_shed` has carried "exactly the messages the pass removed, in their original order" since shed history was shadowed to the transcript, precisely so it would not be lost — and nothing read it back. Evidence nobody can retrieve is evidence nobody kept.
+
+  `RunQuery.shedHistory()` returns every pass, oldest first, with its iteration, its reason and its position in the log. `fullTranscript(messages)` returns everything that was ever in the conversation.
+
+  The ordering claim is exactly that and no more, and it is stated in the source: this does **not** reconstruct the original interleaving, and it cannot — the log records what each pass removed, not where the summary that replaced it sits relative to what came after. What it does guarantee is completeness, which is the question somebody reconstructing an incident is actually asking.
+
+  `status()` goes through the read model rather than folding the log a second time: two folds of one log are two chances to disagree, and a run that reads differently depending on which surface asked is what this seam exists to remove.
+
+- 8053dc1: An optional pseudo-terminal in the local sandbox, refused rather than faked when the binding is absent.
+
+  `exec` runs a command and hands back what it printed. A large class of work does not fit that shape: an interactive installer waiting on a prompt, a REPL, `git rebase -i`, anything that draws with escape codes, anything that asks for a password.
+
+  **The refusal is the design.** A pseudo-terminal needs a native binding this kernel deliberately does not depend on — it would make every install build C++ for a capability most runs never use. So `Sandbox.openTerminal` is optional, and where the binding is unavailable it **throws** rather than substituting a pipe. A pipe would appear to work: bytes flow, `spawn` succeeds, and every program that calls `isatty` takes its non-interactive branch. The prompt never appears, the REPL exits immediately, the progress bar prints ten thousand lines, and nothing says why. Same rule `Sandbox.setNetworkPolicy` already states, for a sharper reason.
+
+  The refusal names the package, tells `absent` from `broken` (the second is almost always a native build compiled against a different Node version, and telling somebody to install a thing they already installed is the least useful message available), and points at `exec` while saying `exec` is not a terminal.
+
+  `TERM` is set to `xterm-256color`, which is not cosmetic: it is how a program decides which escape sequences it may emit, and unset makes well-behaved programs fall back to no colour and no cursor movement — a terminal that works and looks broken. `size` is required rather than defaulted, because a program asks the terminal how big it is before it draws anything.
+
+  **The local implementation is deliberately not confined by the isolation tier**, and says so at the site: `exec` wraps every command in `unshare`/`sandbox-exec`, and wrapping an interactive session would put the tier's own shell between the operator's keystrokes and the program. It runs in the sandbox's root directory and nothing more. A host that needs the tier uses `exec`, or a backend whose terminals are confined by construction.
+
+- 9142405: Child loggers name their scope with a reserved attribute instead of an
+  unnamespaced `component` key.
+
+  `.child({ component: 'ToolRegistry' })` put a bare `component` key into the
+  attribute bag of every record that logger emitted. It collides with nothing
+  today and with anything tomorrow: OTel's semantic conventions own the
+  unprefixed namespace, and a record whose attributes carry both a
+  convention-defined key and this one has no way to say which meant what.
+
+  `SCOPE_ATTRIBUTE` is a reserved key that both logger backends — the OTel-shaped
+  pipeline and the legacy `Logger` that `getRootLogger()` returns — lift onto
+  `scope.name` and remove from `attributes`, so the value lands in the field the
+  Logs Data Model has for it rather than beside it. Thirteen of the SDK's
+  forty-eight binding sites are converted here; the gate's
+  `unnamespacedBindingCount` ratchet moves 48 → 40 and the rest follow.
+
+  The ratchet is why this can land in pieces without the remainder being
+  forgotten: it fails on any mismatch, so each batch has to write its own number
+  down.
+
+- 4ccf9e3: A compaction no longer deletes its own evidence. A new `compaction_shed`
+  run event carries exactly the messages a pass removed.
+
+  `compaction_completed` carried counts and nothing else, both shed sites
+  replace the live message array, and `persist()` writes `messages.json`
+  wholesale afterwards — so what a pass removed existed nowhere: not in
+  memory, not on disk, not in the transcript. "What did the agent decide
+  three compactions ago" was unanswerable, an undo had no input, and a search
+  index over run history could never see the part that mattered most.
+
+  Emitted BEFORE the array is replaced, at both shed sites — the structured
+  pass and the host-supplied-reducer path. `transcript.jsonl` is append-only
+  and `emitEvent` reaches it synchronously with the pass, so the record is
+  durable before the deletion is; emitted after, a crash between the two
+  loses exactly what this keeps.
+
+  The event carries whole message bodies including tool output, so both the
+  SSE and A2A mappers decline it: a subscribed client receives no frame with
+  shed content in it. The run reporter ignores it too.
+
+  `compactionConfig.recordShedHistory` defaults to `true` and turns it off
+  for an operator with a transcript-size constraint. That is a real trade —
+  the transcript grows by roughly what the compaction saved, since keeping
+  the bodies is the point.
+
+  This does not change the model that the message array is the source of
+  truth for a live run; it adds a parallel append-only record beside it.
+
+- 2df8cd2: A skill says who may invoke it: the model, the operator, or both.
+
+  Every skill was offered to the model and to nobody else, and both halves of that are wrong. A skill only an operator can meaningfully run — "collect a support bundle", "rotate the deploy key" — sat in the model's manifest as something to attempt, and the model would attempt it. A skill that is pure model guidance had no way to be offered to an operator at all.
+
+  New: the `invocation` frontmatter field (`model` | `operator` | `both`), `skillInvocation()` and `isInvocableBy()`. `both` is the default because it is what every existing skill silently was, and narrowing one is a decision its author makes rather than one a version bump makes for them.
+
+  The field is **optional on `SkillMetadata` and not defaulted at parse**, so a stored skill records what its author wrote rather than what this version happened to default to; the default is resolved in one function, because four readers each writing `?? 'both'` is three chances for them to disagree.
+
+  Both sides are driven. `renderSkillsSection` carries only what the model may invoke — including the loaded BODY, since an operator-only skill whose body was pasted in while being absent from the manifest is the worst of both — and returns null rather than an empty manifest block. A new kernel `/skills` command lists only what an operator may invoke, refusing (not reporting zero) when the run has no skills registry.
+
+  A value that is not one of the three is **refused at load**. A typo'd `invocaton: operator` that quietly resolved to `both` would put an operator-only skill back in front of the model, which is exactly what the field exists to stop, and the author would have no way to tell.
+
+- f9833ab: A `skill` tool, and `allowed-tools` that actually narrows.
+
+  The manifest told the model a SKILL.md exists and to "read the SKILL.md at its `<location>` before writing code" — a filesystem instruction. A run without filesystem tools could see every skill it had and open none of them. The protocol text even hedged: _"when the runtime exposes filesystem or skill-loading tools"_. There was no skill-loading tool.
+
+  `allowed-tools` failed from the other side: parsed, stored on `SkillMetadata`, rendered into the prompt as `<allowed_tools>…</allowed_tools>`, and read by nothing. It was advice the model could ignore, phrased as a declaration.
+
+  New: `SkillTool`, `SkillRegistryRef` on `ToolContext`, and `skillRegistry` on `query`. The tool is **not** in the default builtin set — a run with no skills has nothing for it to do, and offering a tool that can only refuse is worse than not offering it.
+
+  A loaded skill's `allowed-tools` is **adopted**, on the same line that already enforces the step's list. Two properties make it safe:
+
+  - It **intersects** what the turn already allows and can never widen it. A skill file is content, and content that can grant tools is a privilege-escalation surface wearing the word "scope" — the same rule `CreateTaskOptions.toolScope` states for delegation.
+  - It lands on the **next** batch. A skill loaded alongside other calls must not retroactively refuse them: the model chose that batch under the old scope, and refusing half of it teaches nothing except that tools fail at random.
+
+  The `skill` tool itself always survives a narrowing, or a skill could narrow the model out of reaching for another skill — a one-way door.
+
+  `allowed-tools: ""` means no tools, and stays distinguishable from declaring nothing at all: collapsing the first into the second would silently widen it to everything. An operator-only skill is refused at the tool even though the manifest omits it — a check that only filtered the listing would be a menu restriction rather than a kitchen one, which is the defect `allowedTools` had.
+
+- cf48cef: New durable run event `request_envelope`, carrying `{ iteration, model, systemPrompt, toolNames, toolSchemaDigest }`. Emitted only when the tuple differs from the last one the run recorded.
+
+  `run_started` records a system prompt once, and tool schemas never reached the transcript at all — while `prepareStep` rewrites the system text, narrows the tool list or swaps the model between iterations, and a step's skills ride an ephemeral trailing system message. So everything about _what_ was asked could change, and the durable record said it had not.
+
+  **Only on a change**, and the suppression is not a performance detail: copying an unchanged system prompt into every iteration is the fastest way to make a transcript too large to read. A run whose request never varies emits exactly one.
+
+  The digest is over the tool **schemas**, sorted, not their names. A name list cannot see a tool whose schema body moved while its name did not — the change most likely to alter what the model does and least likely to be noticed.
+
+  Declined by both wire mappers: a live consumer can already read the prompt off the stream, the payload is the largest the kernel emits, and what this runtime asked its own model is not a fact about the task an A2A peer is tracking. The run reporter logs it at `debug`.
+
+- 2ccbd7b: Drivers now identify this kernel to the provider they call. New `NAMZU_APP_IDENTITY` and `attributionHeaders(identity?)`, merged at each driver's existing header seam — OpenAI, OpenRouter, the generic HTTP driver, Bedrock, and Anthropic's **api-key path only**.
+
+  No driver did this. The single user-agent anywhere was on Anthropic's OAuth path, set because the token-exchange endpoint rejects subscription tokens without it — load-bearing impersonation, not attribution, and untouched here. Merging into that branch would not have improved a label; it would have broken login intermittently, with a 401 or 500 naming none of it.
+
+  What attribution buys is not vanity: a vendor reading its own logs can tell a kernel's traffic from a browser's, a rate-limit or abuse investigation lands on the right party, and a driver bug a vendor reports arrives with something to search for.
+
+  Exactly one header, asserted by a test that counts the keys — every additional one is something a proxy may strip and a reader has to reconcile. The version is read from the package manifest, never hand-copied. A host may pass its own identity, and the driver seams honour it rather than the constant.
+
+  LM Studio and Ollama record `attribution: { kind: 'unsupported', reason }` in their conformance options: their vendor clients own the transport and expose no header seam. The suite requires the declaration either way, so a new driver package cannot skip the decision.
+
+- f2a1dd9: Thread one correlated logger through a run's provider retry and fallback wrappers
+
+  `RunContextFactory.buildLogger(config)` is new: it does what `build` used to do inline — bind a run's `namzu.run.id`, `sessionId`, `threadId`, `projectId` and `tenantId` onto a logger — but as a standalone static method a caller can invoke BEFORE `build` runs. That matters because `runtime/query/index.ts` builds the provider retry and fallback wrappers before it calls `build` (the wrapped, resilient provider is itself one of `build`'s own inputs), so those two wrappers previously had no correlated logger to reach for and each fell back to a bare `getRootLogger()` — the highest-frequency uncorrelated log path in the kernel: every "failed, retrying" and "falling over" line carried no run id at all. `query()` now calls `buildLogger` once, before the chain is wrapped, and passes the SAME logger to `withProviderRetry`, `withProviderFallback`, the boot-time filesystem migration's own log lines, and `build`. `build` accepts a pre-built logger via the new `RunContextConfig.log` and only constructs its own — via `buildLogger` — when none is supplied, so every existing direct caller of `build` is unaffected.
+
+  **`AgentRunConfig` gains an optional `logger?: Logger`.** A host that sets it is not opting out of correlation — `buildLogger` still calls `.child()` on whatever it resolves to, so the run's ids are still bound — it is choosing the SOURCE every record for this run derives from, instead of the process default `getRootLogger()` picks up.
+
+  Neither `runtime/query/context.ts` nor `runtime/query/index.ts` reads `getRootLogger()` anymore. The one fallback-to-process-default read that remains lives in a new `resolveLogger` helper in `utils/logger.ts` (SDK-internal — not re-exported from the package root, so this does not touch the public surface baseline), which `buildLogger` calls when no host logger was supplied. `scripts/log-standard.json#getRootLoggerCount` moves 40 → 37: four call sites removed across the two `runtime/query/` files (the run's own child-logger construction, the retry wrapper's read, the fallback wrapper's read, and the boot-time migration's own read — it now shares the same run-scoped logger instead of a separate `getRootLogger()` call), one added in `resolveLogger`.
+
+- ad98269: Tools now decide how their calls and results are shown, and the CLI stopped
+  matching on tool names.
+
+  `write` gains `presentCall`, returning a diff with an empty `before` —
+  which is what a write is: whatever was there is gone and this replaces it.
+  `edit` and `write` both gain `presentResult` returning a plain label, which
+  is what suppresses the detail block: the content was already shown under
+  the call, and repeating it doubles the longest rows in a transcript to say
+  nothing new. That decision used to be a host matching two names.
+
+  `createToolPresenter`'s result fallback changed from a `generic` view
+  truncated to 120 characters to a `terminal` view carrying the whole output.
+  A host renders a result across many rows and decides for itself how many
+  fit — that is a property of its terminal, not of the tool — and truncating
+  in the kernel destroyed text no host could then recover. A tool that wants
+  the one-line form returns a `generic` view itself.
+
+  In the CLI this deletes `summarizeToolInput`, `previewToolInput`,
+  `toolStartDetail` and `toolEndDetail`, replacing four name-matching
+  functions with one `viewToLines`. A tool the CLI has never heard of — an
+  MCP server's, a plugin's — now gets a diff if it asks for one, where before
+  it got a truncated JSON blob no matter what it did.
+
+- 50c0f29: `Topic` becomes the primary name for the container between Project and Session.
+  Every exported `Thread*` name keeps working as a `@deprecated` alias.
+
+  The layer has always been a topic — its own docstring calls it a "Topic-level
+  container" — and `Thread` is the one word in this kernel's OS vocabulary that
+  already means something specific and different, for a thing that has no
+  execution and no state machine of its own.
+
+  Renamed, with identity aliases on the public surface: `TopicManager` /
+  `ThreadManager`, `InMemoryTopicStore` / `InMemoryThreadStore`,
+  `generateTopicId` / `generateThreadId`. `TopicId` is a type alias to the
+  unchanged `ThreadId`; both are still `` `thd_${string}` `` this release.
+
+  **Not in this release**, and deliberately: the `thd_` prefix itself, the
+  `threadId` field on persisted records, and `acceptLegacyThreadId` /
+  `rejectLegacyPrefix`. The last two belong to a DIFFERENT `thd_` — the
+  pre-0.2.0 top-level container the migration coerces to `prj_legacy_*` — and
+  merging the two meanings is the confusion this chain exists to end. The prefix
+  and the field each carry a data migration and land separately.
+
+- c665956: A `turn` placement, for state that changes during a run.
+
+  `static` is cached across turns and `dynamic` is part of the system prompt, so neither can carry a budget running down, a queue draining, or a policy that just moved: one serves the first iteration's value forever, and the other is read as a standing instruction rather than as a status.
+
+  `turn` is a third thing, not a looser `dynamic`. It rides the ephemeral trailing message that a step's guidance, its skills and the approval-policy notice already use — appended to the request, never pushed onto the run's history, gone the moment the request is sent. `PromptContributionContext.iteration` is present only for this placement, which is the type stating what the placement means: a contribution that needs to know which turn it is cannot be part of a prompt assembled once and cached.
+
+  The builder **refuses** to render `turn`, and its signature says so. In the system prompt it would be cached for the run or read as standing instruction, and either way the state it exists to report goes stale silently.
+
+  The cost is real and stated: every iteration pays for it in tokens, and it lands after the cached prefix so it cannot be cached. The approval-policy notice is the shape to copy — text only when something actually changed, `null` on every other turn.
+
+  The prompt cache hashes contribution ids and placements, not rendered text: hashing output would run every contribution twice per request for a value the cache exists to avoid computing, and a contributor whose output changes while its id does not is exactly the one that must declare `dynamic` or `turn`. The static-segment hash folds in `static` contributions only, so a `turn` contributor coming or going does not invalidate a prefix it does not describe.
+
+- 70e3163: A web connector seam: a guarded fetch provider, and no bundled search vendor.
+
+  Two providers, separated on purpose. **Fetching a URL is a capability this kernel can implement** — the rules are about the network and the same everywhere, so a wrong answer is a defect rather than a preference. **Searching is not.** Every search backend has its own account, its own terms, its own result shape and its own opinion about what a result is, and picking one here would make that choice for every consumer while adding a dependency nobody asked for. `WebSearchProvider` is declared and ships with no implementation; that asymmetry is the design, not an omission.
+
+  `GuardedFetchProvider` exists because a URL a model chose is untrusted input reaching the network stack, and the network the agent runs on is not the network the model is thinking about. `http://169.254.169.254/` is a cloud metadata endpoint holding credentials; `http://localhost:6379/` is whatever the host runs on 6379; `file:///etc/passwd` is not even the network.
+
+  What it does, and why each one:
+
+  - **Refuses before sending.** A response already fetched is a request that already happened, and against a metadata endpoint the request _is_ the exfiltration.
+  - **Resolves the hostname and checks the addresses**, not just the name. A name whose A record points inside is something anyone can set up on a domain they own. A resolution that fails, or returns nothing, is **refused** — treating either as "no private addresses found" is fail-open.
+  - **Re-checks every redirect hop**, with `redirect: 'manual'`. Checking once and letting the platform follow is the classic version of this bug: a permitted page answers `302 → the metadata endpoint` and the guard never sees it. Relative `Location` headers are resolved against the current URL, or the URL checked would not be the URL followed.
+  - **Strips `authorization`, `cookie`, `host` and `proxy-authorization`** from caller-supplied headers, case-insensitively. A tool argument is model-authored, and those turn "fetch this page" into "fetch this page as me".
+  - **Reports truncation** rather than returning a cut page as whole, and reports the whole redirect chain so a citation can name where content came from.
+
+  `allowPrivateAddresses` exists for the one legitimate case — a fixture on `127.0.0.1` — and defaults off, so it is a decision a host makes rather than inherits. The residual DNS-rebinding gap is stated in the source: closing it needs a `fetch` that pins the address it checked, which the platform gives no way to do, so a host that needs it supplies its own.
+
+- 5f8a8c5: The web tools' citation guidance ships through the prompt contribution registry.
+
+  Not in the tool descriptions. A description is repeated in the schema of every request and has to earn its tokens per call, so it says what the tool _does_. How to use two tools together — search, then fetch, then cite what you read — belongs to neither of them, and splitting it across both would send it twice while still leaving the joint rule homeless.
+
+  `webGuidanceContribution` is `static`: it depends on nothing that can change inside a run, so it rides the cached prefix rather than being re-sent. It is registered by a host only when the web tools are, because guidance about tools a run does not have is worse than absent — it spends the cached prefix telling the model to cite results from a search it cannot run.
+
+  What it says, and each line is pinned by a test: a snippet is the provider's summary and not the page; fetch before relying on a result, and say so when a fetch was refused rather than falling back to the snippet; cite where a fetch _landed_, not where you asked; say when a page was cut at the limit; and a fetched page is untrusted text whose instructions are content to report, never directions to follow.
+
+  This is the case the contribution registry was built against: a capability that needs the model to know something, arriving with the capability rather than by editing the prompt builder.
+
+- 5ed3b03: `web_fetch` and `web_search`, declaring `category: 'network'` so they inherit the permission surface — and a read-only network tool no longer auto-approves itself.
+
+  Both tools declare `category: 'network'`, which is what the authorization presets branch on. Under `sandboxed` and `sandboxed-shell` they go to a human; only `unattended` — the preset that requires the sandbox to enforce network isolation — auto-approves them. The tests assert that against the real gate rather than against a property of an object, because the category is only meaningful through the gate.
+
+  **That claim was false when the tools landed, and fixing it is half this change.** `presets.ts` has always documented that a `network` tool goes to review under the sandboxed presets. It did not: `allow_read_only` is appended last as a default for tools nobody wrote a rule about, and it resolved purely through `isTrustedReadOnly` — which asks whether the read-only _claim_ is trustworthy and never what channel the call travels over. A read-only network call matched the default and was approved without review, in the preset whose own docblock said it would not be.
+
+  So the allowance is narrowable by category: `allowReadOnlyExcludeCategories` rides along on the rule the gate appends, and both sandboxed presets exclude `network`. Trusting a claim and matching the default stop being the same question. The field is optional rather than defaulted — `undefined` and `[]` are read identically, and defaulting it would break every hand-authored gate config for no behavioural gain.
+
+  **Breaking:** a read-only tool in an excluded category that used to auto-approve under `defaultSandboxedGateConfig` or `defaultSandboxedShellGateConfig` now goes to review. A host that wants the old behaviour passes `allowReadOnlyExcludeCategories: []` explicitly.
+
+  `web_search` was already a name in this tree: two fixtures invented it, one for a deferred-loading catalog test and one for a network gate test, both describing a tool nobody had written. Reconciled rather than renamed.
+
+  Neither tool is in the default builtin set, and `search` missing is the ordinary case — this kernel ships no search backend. The tools say which piece is absent, so an operator can tell a wiring decision from a fault.
+
+### Patch Changes
+
+- dd170fe: A default-level start is readable again, and a misplaced global flag says where
+  it goes.
+
+  `ManagedRegistry.register` logged at `info`, once per item, and a CLI run
+  registers dozens — every builtin tool, every agent, every task tool. Turning
+  the logger back on therefore replaced silence with twenty lines of
+  `Registered: read`, `Registered: write` ahead of anything an operator could act
+  on. Registration is the startup path working; it belongs at `debug`. The
+  overwrite case stays at `warn`, because a second registration under a live id
+  is news.
+
+  `namzu run "…" --verbose` was answered with "pass `--` before a prompt that
+  starts with a dash" — advice about a prompt beginning with `-`, which sends the
+  reader to the wrong half of their command line. `--verbose`, `--quiet`,
+  `--log-format` and `--format` are program options, accepted before the command
+  name, and the refusal now says exactly that and shows the position.
+
+  Both were found by running the CLI against a real provider. Every unit test in
+  these paths asserts against a logger stub or passes flags in the position that
+  already worked, so neither was visible to any of them.
+
+- 2928057: The task and session disk stores now read, write and scan through the
+  shared `DiskRecordStore` primitive instead of hand-rolling each.
+
+  Between them they carried two private `readJson`/`atomicWriteJson` pairs
+  and sixteen `readdir` scans — the same twenty lines, four times over, in
+  the two stores whose scan semantics the comments themselves call subtle.
+  Every property fixed in one had to be remembered into the others, and the
+  properties are not obvious ones: a missing file is an empty read rather
+  than an error, a record from a newer build is refused rather than read
+  partially and written back with the difference gone, and a listing needs a
+  stable order.
+
+  No behaviour changes. The append-only session event log and
+  `messages.jsonl` are deliberately left alone — they are log-shaped, not
+  record-shaped, each line is a whole record carrying its own stamp, and
+  forcing them through a record store would be a worse fit than the
+  duplication it removes.
+
+- 014da58: 419 of the SDK's log attribute keys are namespaced, and one of them was naming the wrong thing.
+
+  `{ runId }` is now `{ [NAMZU.RUN_ID] }` (`namzu.run.id`), `{ error }` is `exception.message`, `{ tool }` and `{ toolName }` are both `gen_ai.tool.name`, `{ iteration }` is `namzu.iteration`, and so on across 47 files. The bare keys they replace collide with whatever the next feature calls its own `status` or `code`, and they do not sort next to the `namzu.*` / `gen_ai.*` / `exception.*` keys the rest of the telemetry surface already uses — which is the whole reason the rule exists.
+
+  Two of the mappings are worth naming rather than listing:
+
+  **`sessionId` was a run id.** Four call sites in the iteration phases wrote `{ sessionId: ctx.runMgr.id }`, and `RunManager.id` is a `RunId`. An operator filtering by session id found nothing, and one filtering by run id missed those four records. They now write `namzu.run.id`, which is what the value always was.
+
+  **`error` becomes `exception.message`, not `namzu.error`.** Every one of the 77 sites bound a message string — `toErrorMessage(err)`, `err.message`, `String(err)` — so the OpenTelemetry key is the accurate one, and it puts these records under the same key as `exceptionAttributes()` in `utils/log/exception.ts` already produces.
+
+  **If you query these logs, your field names change.** The values are untouched; only the keys move. A dashboard grouping by `runId` needs `namzu.run.id`, an alert matching `error` needs `exception.message`. Nothing fails to compile — `LogContext` has always accepted any key — which is exactly why this is worth stating: the change is invisible until a panel goes empty.
+
+  `scripts/log-standard.json`'s rule-4 ratchet moves 794 → 375. The remainder is a long tail of keys appearing once or twice in a single module, where the namespace has to come from the module rather than from a shared constant.
+
+- 7aaa35d: Strings that were asserted into ids now go through the checked constructors, and three defects the assertions were hiding are fixed.
+
+  **A docker sandbox's id had the wrong prefix.** `SandboxId` is `` `sbx_${string}` ``; `@namzu/sandbox`'s docker backend minted `sandbox_...` and an `as SandboxId` was the only reason that compiled. Every docker sandbox in the tree carried an id its own type says is impossible — the ACI backend already minted `sbx_`. Both now mint through `asSandboxId`, which is the call that would have caught it. **The container name derives from this** (`namzu-sandbox-${id}`), so a container started by this release is named differently from one an older build started. Nothing matches on the old spelling — teardown computes the name from the id it just minted, in the same process — but it is visible in `docker ps`, and any external tooling that pattern-matched `namzu-sandbox-sandbox_` needs updating.
+
+  **A corrupt migration marker was honoured instead of refused.** `readMarker`'s shape check validated the envelope — `version`, `at`, and that `migratedThreads` is an array — and never looked inside the array. `{"migratedThreads":[null]}` therefore parsed cleanly and produced an entry whose `newProjectId` was `undefined` wearing a `ProjectId` annotation, which then reached a path join. Each element is now checked, and a bad one returns `null` — which is exactly what this function already promised to do about corruption, so the caller re-runs the migration rather than trusting it.
+
+  **`namzu drain` accepted a mistyped scope flag.** `--tenant`, `--project` and `--session` were asserted straight into their id types, so `--tenant prj_a` reached the store and listed nothing — and "no runs" is the same output as a scope that really is empty, which made the typo invisible. Each flag is now prefix-checked, and the refusal names the prefix it wanted, in the same operator-readable shape the command's other refusals use.
+
+  **Model-authored ids are checked before they become store keys.** `read_memory`, `task_update` and the RAG tool took an id straight from the model's tool input and asserted it. A malformed one read back as "not found", telling the model its record had disappeared rather than that it named the wrong thing. All three now refuse with `InvalidIdError`, whose message says which prefix was expected.
+
+  Nothing here changes an exported type, a signature or a default. Sites where a cast is still correct — a value already guarded by an explicit prefix check, an id minted by a service outside this repo, a sentinel the type cannot express — keep the cast and now carry the reason next to it.
+
+- ae09a42: An isolated code runtime seam and its `worker_threads` backend — internal, and not yet on the public surface.
+
+  A model that can write a loop does in one call what currently costs twenty: filter a list, retry with backoff, fan out over files. Each of those is a control-flow shape the tool loop expresses by taking a full model turn per step, at full context size, with the whole conversation resent each time.
+
+  The difficulty is that the program is untrusted text. Not code an operator installed — a string the model produced, possibly under the influence of a web page it was told to summarise. So the seam is defined by what a backend must **guarantee**: no ambient capability, a single channel back to the host, and bounds on wall clock and output enforced by the backend rather than asked of the program.
+
+  `worker_threads` over `vm`, because `vm` is not a sandbox and its own documentation says so: a context shares the process, and `this.constructor.constructor` on any leaked object is the whole escape. Over a subprocess, because a subprocess inherits an environment, can be a fork bomb, and needs the process-tree kill. What a worker does _not_ give is stated in the source: it shares the process's filesystem and network. What confines the program is a scope with nothing in it, which is a language-level boundary — exactly as strong as the enumeration of what was withheld. A host needing an OS boundary runs this inside a sandbox that has one.
+
+  The allow-list is enforced on the **host** side. A check inside the worker is a check the program shares a heap with.
+
+  Nothing is exported yet, deliberately: a seam with one backend and no consumer is a guess at what a consumer needs. The public surface joins in the commit that has one.
+
+  Also corrects `coverage-config.json`'s `baselineExempt` list, which the test-presence gate documents as "current zero-tested modules". Seven of its nine entries carried tests — `utils` had twenty-five files — so the list said "these have no tests" about modules that did. A routing document that is false is worse than none, because the next person picks the wrong module to work on. `model-router` and `persona` are the two that genuinely have none.
+
+- bab1e02: The compaction pass is now decided by a pure planner that needs no run.
+
+  The whole algorithm — the leading-system floor scan, the tool-result
+  pre-pass, the boundary search and its guards — lived inside
+  `runCompactionCheck` and read the live message array, the logger and the
+  event emitter off an iteration context. Nothing outside a live iteration
+  could run it, so the pass was testable only through a full run harness and
+  unreachable from any host-callable entry point.
+
+  Everything with an effect stayed where it was: the model call, the
+  working-memory re-pin, the array install, the logging, every event. The
+  arithmetic moved. No behaviour changes and the emitted event and log
+  sequence is identical; the planner is internal to the package.
+
+  This also removes a second copy of the token-budget boundary helper that
+  had been living in the phase file behind a test-only export.
+
+- 47437f6: Internal directory move: `src/bridge/tools/connector/` is now `src/connector/tools/`. No exported name, signature or behaviour changes — every affected symbol is re-exported from the package root exactly as before.
+
+  `bridge/` is protocol boundaries: `bridge/a2a/`, `bridge/mcp/` and `bridge/sse/` each speak a wire format to something outside the process. The connector tool adapter speaks no protocol; it turns a connector's methods into tool definitions, which is connector work. It sat under `bridge/` because it is adjacent to MCP, not because it belongs to a boundary, and `bridge/tools/` had no second occupant to justify the level.
+
+- 40932a1: Every attribute key the SDK writes to a log record is namespaced. The rule-4 ratchet reaches 0, and with rule 3 already there, both are now floors rather than budgets: the first new bare key in a `Logger` call fails CI, not the hundredth.
+
+  This is the long tail after the shared-constant pass — 375 keys across 229 distinct names, almost all appearing once or twice in a single module, where no shared constant applies. They are namespaced by the module that writes them: `namzu.provider.status` and `namzu.run.status` are now different keys, which is the collision the rule exists to stop and which `{ status }` could not express.
+
+  Two defects the pass turned up:
+
+  **Two emitters of the same event wrote two namespaces for one fact.** The boot-time filesystem migration is logged from `session/migration/filesystem.ts` and again, for the nothing-to-do outcomes, from `runtime/query/index.ts`. Both carry `namzu.migration.completed` as their event name, and a per-module namespace gave them `namzu.migration.kind` and `namzu.runtime.kind`. An operator grouping that event by outcome would have seen half of it. Both write `namzu.migration.*` now.
+
+  **The renderer for that event asked for a key nothing writes.** `utils/log/templates.ts` rendered `namzu.migration.completed` as the body plus `namzu.migration.root`, and no emitter has ever produced `namzu.migration.root` — so the operator's migration line appended an empty string. It renders `namzu.migration.kind` now, which is the fact worth seeing: `migrated`, `already_migrated`, or `noop_no_legacy`.
+
+  **If you query these logs, your field names change.** Values are untouched; only keys move. `{ reason }` is `namzu.<module>.reason`, `{ charsShed }` is `namzu.runtime.chars_shed`, and so on. Nothing fails to compile, because `LogContext` accepts any key — which is why this is worth stating: the change is invisible until a panel goes empty.
+
+- 0dbf62f: Fix `LocalSandbox.exec()` leaving a cancelled or timed-out command's own children running.
+
+  Every sandboxed command runs as `sh -c "cmd"` (and, under the strongest local isolation tier, wrapped again in `unshare`), and on abort the local backend only ever signalled the outermost process Node itself spawned — never `cmd`, and never anything `cmd` (or the isolation wrapper) itself forked. A caller cancelling a run, or a run hitting its timeout, could leave the actual work running in the background indefinitely — and in the common case where the shell forks a real child rather than exec-replacing itself, the orphaned descendant kept the command's own stdio pipes open, so `exec()` itself never resolved at all.
+
+  The command is now spawned as the leader of its own process group (POSIX) and the whole group is signalled — SIGTERM immediately, SIGKILL after the existing `SANDBOX_KILL_GRACE_MS` grace period — instead of just the direct child pid. Windows has no process-group id to sign a kill with, so there the process tree is reaped with `taskkill /pid <pid> /t /f` instead, applied on both the immediate and the post-grace call since Windows has no soft-vs-forced signal distinction to grace between.
+
+  No public API change — `Sandbox.exec()`'s signature, options and result shape are all unchanged; this is a runtime behavior fix only.
+
+- f8f0004: Skill and plugin discovery loggers respond to configureLogger again
+
+  `skills/loader.ts`, `skills/registry.ts` and `plugin/loader.ts` each built their logger once, at module-eval time, via a top-level `const logger = getRootLogger().child({...})`. `child()` bakes the root logger's level into the closure it returns, and the module graph loads before any host's `configureLogger()` call has run — so whatever level was live at that moment was permanent. No later `configureLogger()` call, from a host application or from the CLI's own silencing, could ever reach these six log lines.
+
+  Each of the six call sites (`loadSkill`, `discoverSkills`, `SkillRegistry.registerAll`, `resolveSkillChain`, `discoverPlugins`, `discoverAllPluginDirs`) now resolves its own `getRootLogger().child(...)` at the top of the function body, at call time — matching the idiom already used elsewhere in the kernel (`runtime/query/context.ts`, `run/reporter.ts`, `agents/RouterAgent.ts`).
+
+  No exported signature changed. A host that never calls `configureLogger()` sees identical output; a host that does now gets what it asked for.
+
+- 43358a1: `docs/sdk/observability/logging.md` now covers the whole log pipeline — where a host installs its own sink, what the level/throw/counter contract is, how records correlate to spans, and how to write an adapter for a collector with a nested attribute schema — alongside the `LogAttributes` and log-forging material it already carried. The page joins the documentation standard, and `docs/sdk/observability` joins the docs gate's authoritative set.
+
+  The adapter it shows is not typed into the page. It is `packages/sdk/src/__fixtures__/nested-attribute-sink.ts`, embedded verbatim, driven through the real pipeline by a test, and asserted byte-identical to what the page prints — so it cannot compile against an API that no longer exists while still reading as authoritative.
+
+- 6e11fd7: Every diagnostic these two packages emit now has a constant message body, and the identifiers that used to be interpolated into it are attributes beside it.
+
+  87 `Logger` call sites across 29 files were rewritten. `` `Tool execution error: ${toolName}` `` is now `'Tool execution error'` with `namzu.tool.name` in the attribute bag; `` `Tenant registered: ${id} (${name})` `` is now `'Tenant registered'` with `namzu.tenant.id` and `namzu.tenant.name`. Where the neighbouring bag already carried the value, only the message changed; where it did not, the value moved into a new `namzu.*` key in the same edit — a constant body that costs an operator the identifier would be a worse record, not a compliant one.
+
+  **If you grep, alert on, or group by these message bodies, your queries need updating.** No exported type, signature or default changed, and nothing fails to compile — this is diagnostic output, not API — but a log pipeline matching the old interpolated text will stop matching. The upside is the reason for the change: an operator can now grep one literal for every occurrence of an event, and a dashboard can group by it, neither of which was possible when each occurrence rendered a different string.
+
+  `scripts/check-log-standard.mjs`'s rule-3 ratchet (`constantBodyViolationCount`) goes 87 → 0. At zero it stops being a budget and becomes a floor: the _first_ new template literal in a `Logger` call fails CI, not the hundredth. Rule 4 (`namespacedAttributeKeyViolationCount`) is unchanged at 794 and still being worked down.
+
+- 79ed788: Internal directory rename: `src/router/` is now `src/model-router/`. No exported name, signature or behaviour changes — `resolveTaskModel` is imported from the package root as before.
+
+  `router/` said nothing about what it routes, and the SDK has two unrelated routing concepts: this one picks a MODEL for a task, while `types/router/` holds `TaskRouterConfig`/`TaskType`. Those two sat next to each other under names a reader could not tell apart. `types/router/` stays where it is — it is the config shape, filed with the other types.
+
+- c166029: Delete `DiskThreadStore` — a filesystem persistence backend for the Thread layer that no production code ever constructed
+
+  `new DiskThreadStore` appeared zero times in the monorepo outside its own module (`store/thread/disk.ts` and its re-export in `store/thread/index.ts`). It was never exported from `public-runtime.ts` — only `InMemoryThreadStore` was, and still is — and it never entered `.github/scripts/public-surface-baseline.json`, so no consumer inside this repo or out of it could ever have imported the type, let alone constructed it. `@namzu/sdk`'s `package.json#exports` map only publishes `"."` and `"./testing"`, so even a deep import could never have reached it. There was also no `store/thread/__tests__` directory: 220 lines of write-tmp-rename persistence, an id→path index, a CAS path and a tenant guard, with no test exercising any of it.
+
+  The CLI wires `InMemoryThreadStore` for threads today (`ThreadManager({ threadStore: new InMemoryThreadStore(), sessionStore })`, `integrations/subagents/runtime.ts`), even though it wires `DiskSessionStore` for sessions in the same function — the Thread layer does not survive a process restart regardless of which store class exists in source, so removing the unused disk backend changes nothing about what a running `namzu` actually persists.
+
+  This also had a live, untested correctness defect, deleted along with the code: `listThreads` filtered directory entries by name (`entry.startsWith('thd_')`) but returned and indexed records by the `id` field read out of `thread.json` — a record whose `id` disagreed with the directory it lived in was listed under an address `getThread` could not resolve it back through, except by luck of an already-warm cache.
+
+  A durable Thread store is still owed — see the note added to `ThreadStore` in `types/thread/store.ts` — but building one is capability work with a real caller and a real test from day one, not a rename of code that already existed unreached. Decided as branch (a) of NZ-TOPIC-02 (`.work/sessions/ses_020-fit-gap-and-hygiene/README.md`, decision D3): a data migration (NZ-TOPIC-04) was about to be written against a store that had never had a single record written into it.
+
+  No public export changes. `DiskThreadStore` and `DiskThreadStoreConfig` were never part of `@namzu/sdk`'s public surface.
+
+- 01684bf: Internal: adds `store/kv/DiskRecordStore` and adopts it in `DiskMemoryStore`. No public API change — the primitive is deliberately not exported, because it is a shape four call sites already agree on rather than a contract offered to hosts, and exporting it would freeze an argument list nobody outside has asked for.
+
+  Four disk stores each carried a private copy of the same twenty lines: `readFile` + `JSON.parse` + `migrate` with ENOENT collapsed to null, an atomic write of stamped JSON, and a `readdir` filtered by prefix. The properties they duplicated are not the obvious ones — a missing file is an empty read rather than an error, a record from a _newer_ build is refused rather than read partially and written back with the difference gone, a listing needs an explicit sort because `readdir` order is filesystem-dependent. Every copy had to remember all of them, and a fix in one was a fix in one.
+
+- 71939c1: Internal move: `connector/mcp/server.ts` and `connector/mcp/server-stdio.ts` now live in `connector/mcp/server/`, behind a barrel that states the rule the directory encodes. No exported name, signature or behaviour changes, and no import path a consumer writes changes — `connector/mcp/index.ts` re-exports the same names from the new location.
+
+  Everything else under `connector/mcp/` is this process calling somebody else's MCP server. These two are the reverse: somebody else's client calling ours. They were siblings distinguished only by the word `server` in two filenames out of twelve, in a directory where every other name is also about a server — the one being called. `MCPServerToolProvider` is something a host implements to expose its own tools; `MCPServerId` two files over identifies a remote server this process connects to.
+
+- e010634: Internal move: `RemoteExecutionContext`, `HybridExecutionContext` and `ExecutionContextFactory` move from `connector/execution/` to `execution/`, joining `BaseExecutionContext` and `LocalExecutionContext`. No exported name, signature or behaviour changes, and no consumer import path changes — `connector/index.ts` re-exports the whole group from the new home.
+
+  One concept sat in two directories, and `connector/index.ts` reached into both to reassemble a single public export group. A contributor adding a fifth backend had no principled place to put it, and either answer was defensible from where they stood.
+
+  Consolidated upward rather than down: `run/command-gate.ts` imports `LocalExecutionContext` directly, so execution is not connector-scoped. A connector is one _caller_ of an execution context, not the thing that defines one.
+
+- f94ca7d: An edited SKILL.md reaches the model without restarting the process.
+
+  `SkillRegistry.load` short-circuited on `existing.body`, so once a skill's body had been read it was cached for the life of the registry. That is tolerable for a one-shot run and wrong for a long-lived one — a skill is a file an author edits _while_ the agent is running, which is the whole reason it is a file and not a constant.
+
+  One `stat` per lookup, comparing mtime **and** size. Not a hash — that means reading every skill on every lookup, which is the cost the cache exists to avoid — and not a watcher, which is a resource with a lifetime this registry has no teardown to hang one on. The limit is stated rather than hidden: an edit that changes neither size nor mtime, inside one timestamp tick, is not detected.
+
+  A skill whose SKILL.md was **deleted** is dropped rather than served from cache, and removed from the listing too, so a manifest and a lookup cannot disagree about whether it exists. An edit that makes the file invalid surfaces its error rather than quietly keeping the last good body.
+
+  Reloading keeps the name the skill was **registered** under, not the one now on disk — the plugin path files skills as `plugin__skill` while the file says `skill`, so taking the name off disk would silently un-namespace them. The same object is stored and returned, since caching one and returning another hands the caller the on-disk name and the registry the registered one.
+
+  `add()` takes no stamp: a fire-and-forget `stat` in a synchronous method would race the first `load`. Unstamped counts as changed, so the first lookup reads the file — one extra read, never a stale answer.
+
+- 4abc5ee: The oversized-tool-output spill now creates its file exclusively and owner-only.
+
+  `spill()` wrote to `<spillDir>/<toolUseId>.txt` with the default `w` flag,
+  which creates-or-truncates and follows a symlink, at a path anything that has
+  seen the tool call can predict. A file pre-planted at that path — by a hostile
+  or buggy tool body, a stale entry in a reused output directory, or a
+  co-located process on a shared sandbox mount — redirected the kernel's write
+  onto a target of its choosing, with content the model influenced. The
+  directory and file were also created with the default `0o755`/`0o644`, leaving
+  the largest and most sensitive artefact a run produces world-readable on a
+  shared host.
+
+  The write now uses `flag: 'wx'` with `mode: 0o600`, and directories this call
+  creates are made `0o700`. `wx` never follows a symlink and fails with `EEXIST`
+  rather than truncating, so a refusal is reported instead of a silent
+  overwrite.
+
+  Behaviour on refusal is the path that already existed for an unusable spill
+  directory: the call still returns, `truncated` is `true`, no `spillPath` is
+  set, and the model gets the head/tail preview with the "The full output was
+  not retained" recovery line. The `onError` message distinguishes `EEXIST` from
+  other failures, because a stale file is housekeeping while something arriving
+  at a path only this run should know is the case the exclusive open exists to
+  refuse.
+
+  No exported identifier changes; `spill` is module-private and
+  `applyToolOutputBudget`'s signature and result shape are unchanged.
+
 ## 27.1.0
 
 ### Minor Changes
