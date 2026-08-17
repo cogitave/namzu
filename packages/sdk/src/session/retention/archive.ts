@@ -115,24 +115,11 @@ export type WorkspaceResolver = (
  */
 const ARCHIVABLE: ReadonlySet<SubSessionDelegationStatus> = new Set(['idle', 'failed'])
 
-/**
- * Values no code path in this package can write, kept archivable anyway.
- *
- * `merged` and `merge_rejected` sat in the one set above, and nothing has
- * ever produced either — so that membership described a match that could
- * not happen. The temptation is to delete them, and that would be wrong:
- * `SubSessionStore.updateSubSession` takes a whole `SubSession`, so a HOST
- * could have persisted one of these while the wide union permitted it, and
- * dropping them here would strand exactly those records as permanently
- * un-archivable. The union stays wide for one release precisely so such a
- * host can migrate; this set is the other half of that promise.
- *
- * It goes when the six deprecated members go.
- */
-const ARCHIVABLE_LEGACY: ReadonlySet<SubSessionStatus> = new Set(['merged', 'merge_rejected'])
-
 function isArchivable(status: SubSessionStatus): boolean {
-	return ARCHIVABLE.has(status as SubSessionDelegationStatus) || ARCHIVABLE_LEGACY.has(status)
+	// No cast any more. `SubSessionStatus` narrowed to the driven variants in
+	// NZ-RUNREC-14, so the set and the argument are the same type and a value
+	// outside it cannot be constructed to ask about.
+	return ARCHIVABLE.has(status)
 }
 
 export interface ArchivalManagerDeps {

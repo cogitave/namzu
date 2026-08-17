@@ -119,19 +119,25 @@ describe('ArchivalManager', () => {
 		expect(after?.archivedAt).toBeInstanceOf(Date)
 	})
 
-	it.each(['merged', 'merge_rejected'] as const)(
-		'still archives a sub-session a host left on %s, though nothing here can write one',
-		async (legacy) => {
-			// NZ-RUNREC-13 narrowed the archivable set to the two states the
-			// kernel actually produces. These two are not among them and never
-			// were producible — but `updateSubSession` takes a whole
-			// `SubSession`, so a host could have persisted one while the wide
-			// union permitted it. Dropping them from the set would have left
-			// exactly those records permanently un-archivable, which is the
-			// opposite of what a deprecation window is for. Deleting
-			// `ARCHIVABLE_LEGACY` fails this.
+	it.each([
+		['pending', 'not_idle'],
+		['active', 'not_idle'],
+		['archived', 'already_archived'],
+	] as const)(
+		'refuses to archive a sub-session left on %s, with reason %s',
+		async (status, reason) => {
+			// The archivable set is exactly `idle` and `failed`. This pins the
+			// complement member by member rather than by count, so a seventh
+			// delegation status arriving without a decision fails here instead
+			// of silently becoming un-archivable or wrongly archivable.
+			//
+			// It replaces a case that pinned `merged` and `merge_rejected` as
+			// archivable. Those were never producible; they were kept for one
+			// release because a host could have persisted one while the union
+			// was wide, and NZ-RUNREC-14 narrowed the union once 28.0.0 had
+			// carried that window to the registry.
 			const { sub } = await seedIdleSubSession(store)
-			await store.updateSubSession({ ...sub, status: legacy }, tenantA)
+			await store.updateSubSession({ ...sub, status }, tenantA)
 
 			const manager = new ArchivalManager({
 				sessionStore: store,
@@ -139,7 +145,12 @@ describe('ArchivalManager', () => {
 				archiveBackend: backend,
 			})
 
-			await expect(manager.archive(sub.id, tenantA)).resolves.toBeDefined()
+			// The reason is asserted, not just the refusal. `archived` and
+			// `pending` are both "not archivable" and mean opposite things to
+			// a caller — one is done, one is not started.
+			await expect(manager.archive(sub.id, tenantA)).rejects.toMatchObject({
+				details: { reason },
+			})
 		},
 	)
 

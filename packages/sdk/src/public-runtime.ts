@@ -798,7 +798,6 @@ export {
 	HandoffLockRejected,
 	HandoffVersionConflict,
 	NOOP_HANDOFF_SINK,
-	NOOP_RUN_STATUS_RESOLVER,
 } from './session/handoff/index.js'
 
 export {

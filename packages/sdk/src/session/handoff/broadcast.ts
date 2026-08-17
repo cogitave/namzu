@@ -34,7 +34,7 @@ import type { WorkspaceBackendRegistry } from '../workspace/registry.js'
 import type { HandoffAssignment, HandoffOutcome } from './assignment.js'
 import type { CapacityValidator } from './capacity.js'
 import type { HandoffEventSink } from './events.js'
-import { NOOP_RUN_STATUS_RESOLVER, type RunStatusResolver } from './single.js'
+import type { RunStatusResolver } from './single.js'
 import { HandoffLockRejected, HandoffVersionConflict } from './version.js'
 
 export interface BroadcastHandoffDeps {
@@ -42,7 +42,11 @@ export interface BroadcastHandoffDeps {
 	workspaceRegistry: WorkspaceBackendRegistry
 	capacity: CapacityValidator
 	events: HandoffEventSink
-	runStatus?: RunStatusResolver
+	/**
+	 * Required, for the reason `SingleHandoffDeps.runStatus` is: the default
+	 * that used to stand in here reported every session unblocked.
+	 */
+	runStatus: RunStatusResolver
 	/**
 	 * Gate every recipient-session creation on the Thread being `'open'`.
 	 * Added in Phase 2.6; checked once per broadcast (all recipients share
@@ -183,7 +187,7 @@ export async function executeBroadcastHandoff(
 	}
 
 	// 5. Non-terminal Run fan-in (§5.1).
-	const runResolver = deps.runStatus ?? NOOP_RUN_STATUS_RESOLVER
+	const runResolver = deps.runStatus
 	const blocking = await runResolver.blockingRun(source.id, tenantId)
 	if (blocking) {
 		throw new HandoffLockRejected({ sessionId: source.id, reason: blocking.reason })

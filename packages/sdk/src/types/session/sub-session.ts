@@ -26,35 +26,23 @@ import type { SubSessionId, SummaryId, WorkspaceId } from './ids.js'
 export type SubSessionDelegationStatus = 'pending' | 'active' | 'idle' | 'failed' | 'archived'
 
 /**
- * @deprecated Use {@link SubSessionDelegationStatus}. Removal is a later
- * major, and the six extra members go with it.
+ * @deprecated Use {@link SubSessionDelegationStatus}. This is now an alias of
+ * it and carries no members of its own; the name goes in a later major.
  *
  * The merge half of this union was declared and never driven. Grepping
  * `packages/sdk` and `packages/cli` for each of `awaiting_merge`,
  * `pending_merge`, `merging`, `merged`, `merge_conflict` and
- * `merge_rejected` AS A SUB-SESSION STATUS finds no writer at all — the
- * many hits on `awaiting_merge` are `SessionStatus`, which is the shadowing
- * this type's replacement exists to end. Two of them (`merged`,
- * `merge_rejected`) had a READER: they sat in `ARCHIVABLE_STATUSES`, a set
- * that could never match on them.
+ * `merge_rejected` AS A SUB-SESSION STATUS found no writer at all — the many
+ * hits on `awaiting_merge` are `SessionStatus`, which is the shadowing this
+ * type's replacement exists to end. Two of them (`merged`, `merge_rejected`)
+ * had a READER: they sat in `ARCHIVABLE_STATUSES`, a set that could never
+ * match on them.
  *
- * The union stays this wide for one release so a host that persisted one of
- * these values still typechecks while it migrates.
+ * The union stayed wide for one release so a host that had persisted one of
+ * those values still typechecked while it migrated. 28.0.0 carried that
+ * window to the registry and NZ-RUNREC-14 closed it.
  */
-export type SubSessionStatus =
-	| SubSessionDelegationStatus
-	/** @deprecated no producer since ratification */
-	| 'awaiting_merge'
-	/** @deprecated no producer since ratification */
-	| 'pending_merge'
-	/** @deprecated no producer since ratification */
-	| 'merging'
-	/** @deprecated no producer since ratification */
-	| 'merged'
-	/** @deprecated no producer since ratification */
-	| 'merge_conflict'
-	/** @deprecated no producer since ratification */
-	| 'merge_rejected'
+export type SubSessionStatus = SubSessionDelegationStatus
 
 /**
  * Discriminator for how a sub-session was created. Pattern doc §4.4

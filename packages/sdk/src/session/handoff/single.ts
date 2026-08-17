@@ -53,19 +53,18 @@ export interface RunStatusResolver {
 	): Promise<{ reason: 'active_run' | 'pending_hitl' | 'pending_subsession' } | null>
 }
 
-/** Null resolver — treats every session as unblocked. Used by tests that do not exercise Run fan-in. */
-export const NOOP_RUN_STATUS_RESOLVER: RunStatusResolver = {
-	async blockingRun(): Promise<null> {
-		return null
-	},
-}
-
 export interface SingleHandoffDeps {
 	store: SessionStore
 	workspaceRegistry: WorkspaceBackendRegistry
 	capacity: CapacityValidator
 	events: HandoffEventSink
-	runStatus?: RunStatusResolver
+	/**
+	 * Required. A caller that genuinely wants no fan-in check supplies their
+	 * own always-null resolver, deliberately — the default that used to sit
+	 * here answered `null` for every session, which is a check that cannot
+	 * fail dressed as a check that ran.
+	 */
+	runStatus: RunStatusResolver
 	/**
 	 * Gate the recipient-session creation on the Topic being `'open'`.
 	 * Added in Phase 2.6 to mirror spawn — a handoff into an archived
@@ -131,7 +130,7 @@ export async function executeSingleHandoff(
 	}
 
 	// 3. Non-terminal Run fan-in (§5.1).
-	const runResolver = deps.runStatus ?? NOOP_RUN_STATUS_RESOLVER
+	const runResolver = deps.runStatus
 	const blocking = await runResolver.blockingRun(source.id, tenantId)
 	if (blocking) {
 		throw new HandoffLockRejected({

@@ -22,7 +22,7 @@ export type {
 	HandoffUnlockedEvent,
 } from './events.js'
 
-export { executeSingleHandoff, NOOP_RUN_STATUS_RESOLVER } from './single.js'
+export { executeSingleHandoff } from './single.js'
 export type { RunStatusResolver, SingleHandoffDeps } from './single.js'
 
 export { executeBroadcastHandoff } from './broadcast.js'

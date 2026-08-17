@@ -63,6 +63,14 @@ function buildHandoffDeps(
 			store,
 			workspaceRegistry,
 			capacity: new DefaultCapacityValidator(store),
+			// Supplied deliberately: this suite does not exercise Run fan-in, and the
+			// default that used to stand in here answered `null` for every session.
+			runStatus: {
+				async blockingRun() {
+					return null
+				},
+			},
+
 			events: sink,
 			threadManager,
 		},

@@ -15,15 +15,6 @@ export type RunExecutionStatus =
 	| 'failed'
 	| 'cancelled'
 
-/**
- * @deprecated Use {@link RunExecutionStatus}. Removal is a later major.
- *
- * The union is unchanged -- this is a rename, and the alias is here so
- * code written against the old name still compiles and warns for one
- * release, per SemVer's deprecate-before-remove.
- */
-export type AgentStatus = RunExecutionStatus
-
 export function isTerminalStatus(status: RunExecutionStatus): boolean {
 	return status === 'completed' || status === 'failed' || status === 'cancelled'
 }

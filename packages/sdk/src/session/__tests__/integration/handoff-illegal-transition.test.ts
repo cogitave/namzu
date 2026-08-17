@@ -54,6 +54,14 @@ function buildDeps(
 		workspaceRegistry,
 		capacity: new DefaultCapacityValidator(store),
 		events,
+		// Supplied deliberately: this suite does not exercise Run fan-in, and
+		// the default that used to stand in here answered `null` for every
+		// session — a check that could not fail.
+		runStatus: {
+			async blockingRun() {
+				return null
+			},
+		},
 		threadManager: new TopicManager({ topicStore: threadStore, sessionStore: store }),
 		...(runStatus !== undefined && { runStatus }),
 	}
