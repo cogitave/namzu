@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/lsp",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Language-server-backed code navigation for @namzu/sdk. Resolves definitions and references through a real language server over stdio, so an agent asked for call sites gets symbol resolution rather than regex matches.",
 	"license": "FSL-1.1-MIT",
 	"type": "module",

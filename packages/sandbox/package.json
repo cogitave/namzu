@@ -1,6 +1,6 @@
 {
   "name": "@namzu/sandbox",
-  "version": "6.0.0",
+  "version": "6.0.1",
   "description": "Pluggable sandbox provider for @namzu/sdk. Process-level isolation (bubblewrap on Linux, Seatbelt on macOS, via @anthropic-ai/sandbox-runtime) for developer dev loops; container-level isolation (HTTP worker + a loopback-bound egress proxy that allows by resolved address and brokers outbound credentials so they never enter the sandbox) for multi-tenant production. Backend selected at construction time; the SDK consumes both through the same SandboxProvider interface.",
   "license": "FSL-1.1-MIT",
   "type": "module",

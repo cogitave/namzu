@@ -1,5 +1,25 @@
 # @namzu/lsp
 
+## 0.2.1
+
+### Patch Changes
+
+- 075dfdf: Stop the README from making the package unpublishable.
+
+  A paragraph documenting the tool's path-containment boundary named a traversal path literally. npm's registry sits behind a WAF whose managed rules match path-traversal signatures in a request body, and `npm publish` sends the README as part of that body — so every publish of this package was rejected with a generic `403 Forbidden` about permissions, from CI and from a maintainer's machine alike. The prose is the payload; the text now describes traversal without spelling one, and says so in place so nobody puts it back.
+
+  This is why `@namzu/lsp` has no released versions before `0.2.0` despite being in the repository since 2026-08-16.
+
+- b2c005c: Make each README an npm package page rather than the package's manual.
+
+  `@namzu/sdk`'s README was a twenty-four-section architecture tour, 45 KB of it; the others ran to several hundred lines each. That is the right shape for a single-package repository, where the README _is_ the documentation, and the wrong one here — it duplicated a `docs/` tree that already existed, and nothing checked that the two agreed.
+
+  Each README is now what a reader needs in the first minute: what the package is, install with its Node requirement, one working example, and links. The long-form material moved into `docs/` whole — `docs/sdk/architecture.md`, `docs/cli/reference.md`, `docs/packages/<name>.md` — where the doc gates cover it.
+
+  Two documentation defects fell out of the move, both in `@namzu/telemetry`'s session-export example, and both had been shipping: the config field is `redactors` and takes a list, not `redactor` taking one; and `secretRedactor` is a factory that has to be called. The required `destination` field was missing from the example entirely. They surfaced because a README is gated by nothing and `docs/` is compiled against the built SDK.
+
+  No API change.
+
 ## 0.2.0
 
 ### Minor Changes
