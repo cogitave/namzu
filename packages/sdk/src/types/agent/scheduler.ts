@@ -143,14 +143,3 @@ export interface TaskScheduler {
 	 */
 	onTaskProgress?(callback: (taskId: TaskId) => void): () => void
 }
-
-/**
- * @deprecated Renamed to {@link TaskScheduler}. Removed in the next major.
- *
- * "Gateway" names an object that sits at a system boundary and faces
- * outward — Fowler's POEAA Gateway, an API gateway, a payment gateway. This
- * one faces inward: it creates, waits on, continues, cancels and lists
- * in-process agent tasks. A reader who trusted the name expected a facade
- * over something external and found a scheduler.
- */
-export type TaskGateway = TaskScheduler

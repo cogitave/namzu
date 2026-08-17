@@ -65,7 +65,7 @@ export interface SubagentRuntimeOptions {
 	readonly buildProvider: () => LLMProvider
 	/** Build the sub-agent's tool registry (its own working set). */
 	readonly buildTools: () => ToolRegistryContract
-	readonly verificationGate?: AuthorizationGateConfig
+	readonly authorizationGate?: AuthorizationGateConfig
 	/**
 	 * The project's own instruction block, already composed, or absent when the
 	 * working directory declares none.
@@ -316,7 +316,7 @@ function buildDefinition(
 				provider: opts.buildProvider(),
 				tools: opts.buildTools(),
 				systemPrompt: environment ? `${prompt}\n\n${environment}` : prompt,
-				...(opts.verificationGate ? { verificationGate: opts.verificationGate } : {}),
+				...(opts.authorizationGate ? { authorizationGate: opts.authorizationGate } : {}),
 			}
 		},
 	}

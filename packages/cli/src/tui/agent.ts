@@ -927,7 +927,7 @@ export async function createAgentSession(
 				// The parent's settle is the one that speaks for the whole task.
 				return buildToolRegistry(cwd).registry
 			},
-			verificationGate: gateFor(options.rules),
+			authorizationGate: gateFor(options.rules),
 			onEvent: (e) => {
 				if (e.type === 'tool_executing') {
 					childSteps.push(`${e.toolName}(${genericLabel(e.input)})`)
@@ -1091,7 +1091,7 @@ export async function createAgentSession(
 				tools: registry,
 				taskStore,
 				...(subagentGateway ? { taskGateway: subagentGateway } : {}),
-				verificationGate: gateFor(options.rules),
+				authorizationGate: gateFor(options.rules),
 				compactionConfig: COMPACTION_CONFIG,
 				// NOT `emergencySave`, unlike a turn. The manager is a singleton
 				// whose `attach` detaches whoever held it before, so a caller
@@ -1579,7 +1579,7 @@ async function* runTurn({
 			// path that runs every top-level turn. The sub-agent path called
 			// `gateFor` and this one did not.
 			...(sandboxProvider ? { sandboxProvider } : {}),
-			verificationGate: gateFor(rules),
+			authorizationGate: gateFor(rules),
 			compactionConfig: COMPACTION_CONFIG,
 			// The CLI owns its process end to end, so it can safely hand the
 			// termination path to the kernel: a Ctrl-C mid-run now leaves a

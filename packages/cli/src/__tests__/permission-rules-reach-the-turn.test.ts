@@ -119,7 +119,7 @@ describe('a permissions rule written in a config file', () => {
 		}
 
 		expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
-		const gate = queryCalls[0]?.verificationGate as { rules?: unknown[] } | undefined
+		const gate = queryCalls[0]?.authorizationGate as { rules?: unknown[] } | undefined
 		expect(gate?.rules).toEqual([{ type: 'deny_by_name', toolNames: ['bash'] }])
 	})
 
@@ -148,7 +148,7 @@ describe('a permissions rule written in a config file', () => {
 			// drain
 		}
 
-		const gate = queryCalls[0]?.verificationGate as { rules?: unknown[] } | undefined
+		const gate = queryCalls[0]?.authorizationGate as { rules?: unknown[] } | undefined
 		expect(gate?.rules).toEqual([{ type: 'deny_by_name', toolNames: ['bash'] }])
 	})
 })

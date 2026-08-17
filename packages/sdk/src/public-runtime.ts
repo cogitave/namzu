@@ -764,7 +764,6 @@ export { collectChatCompletion } from './provider/collect-chat-completion.js'
 // The file explains why each is a `const`+`type` pair rather than a
 // re-export alias; the short version is that a re-export cannot carry the
 // `@deprecated` tag, and the tag is what the public-surface gate reads.
-export * from './deprecated-aliases.js'
 
 export {
 	wrapCredentialProviderWithProbes,

@@ -48,12 +48,6 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 */
 	allowDelegation?: boolean
 
-	/**
-	 * @deprecated Renamed to {@link SupervisorAgentConfig.scheduler}. Removed
-	 * in the next major. Setting both to different instances throws.
-	 */
-	gateway?: TaskScheduler
-
 	scheduler?: TaskScheduler
 
 	/**
@@ -167,11 +161,6 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * review") so the resumeHandler only fires for the truly
 	 * non-deterministic cases.
 	 */
-	/**
-	 * @deprecated Renamed to `authorizationGate`. Removed in the next major.
-	 * Setting both to different configs throws.
-	 */
-	verificationGate?: AuthorizationGateConfig
 
 	authorizationGate?: AuthorizationGateConfig
 

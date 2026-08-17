@@ -281,13 +281,6 @@ export interface LeaseSummary {
  * no reading gain — the opposite of the point.
  */
 
-/** @deprecated Renamed to {@link RunLease}. Removed in the next major. */
-export type RunClaim = RunLease
-/** @deprecated Renamed to {@link FencingToken}. Removed in the next major. */
-export type ClaimFence = FencingToken
-/** @deprecated Renamed to {@link LeaseSummary}. Removed in the next major. */
-export type ClaimSummary = LeaseSummary
-
 /** What a caller asks for when taking a run. */
 export interface ClaimRunOptions {
 	/** Who is taking it. Recorded so an operator can see what holds a stuck run. */

@@ -10,7 +10,7 @@
  */
 
 import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
-import { collect } from '@namzu/sdk'
+import { collectChatCompletion } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpProvider } from '../client.js'
 import { HTTP_CAPABILITIES, registerHttp } from '../index.js'
@@ -61,7 +61,7 @@ function mockOpenAiDoneSse(): Response {
 	])
 }
 
-async function collectStream<T>(iter: AsyncIterable<T>): Promise<T[]> {
+async function collectChatCompletionStream<T>(iter: AsyncIterable<T>): Promise<T[]> {
 	const out: T[] = []
 	for await (const x of iter) out.push(x)
 	return out
@@ -153,7 +153,7 @@ describe('@namzu/http — request construction', () => {
 			dialect: 'openai',
 		})
 
-		await collect(
+		await collectChatCompletion(
 			provider.chatStream({
 				model: 'gpt-4o',
 				messages: [{ role: 'user', content: 'hi' }],
@@ -204,7 +204,7 @@ describe('@namzu/http — request construction', () => {
 			dialect: 'anthropic',
 		})
 
-		await collect(
+		await collectChatCompletion(
 			provider.chatStream({
 				model: 'claude-sonnet-4',
 				messages: [
@@ -259,7 +259,7 @@ describe('@namzu/http — request construction', () => {
 			dialect: 'openai',
 		})
 
-		await collect(
+		await collectChatCompletion(
 			provider.chatStream({
 				model: 'llama3',
 				messages: [{ role: 'user', content: 'hi' }],
@@ -293,7 +293,7 @@ describe('@namzu/http — request construction', () => {
 			headers: { 'X-Custom-Tenant': 'team-42' },
 		})
 
-		await collect(
+		await collectChatCompletion(
 			provider.chatStream({
 				model: 'm',
 				messages: [{ role: 'user', content: 'hi' }],
@@ -325,7 +325,7 @@ describe('@namzu/http — request construction', () => {
 			additionalProperties: false,
 		}
 
-		await collectStream(
+		await collectChatCompletionStream(
 			provider.chatStream({
 				model: 'claude-opus-5',
 				messages: [{ role: 'user', content: 'edit' }],
@@ -388,7 +388,7 @@ describe('@namzu/http — request construction', () => {
 			},
 		]
 		const call = async (provider: HttpProvider, model: string) => {
-			await collectStream(
+			await collectChatCompletionStream(
 				provider.chatStream({
 					model,
 					messages: [{ role: 'user', content: 'edit' }],
@@ -467,7 +467,7 @@ describe('@namzu/http — request construction', () => {
 			},
 		]
 
-		await collectStream(
+		await collectChatCompletionStream(
 			provider.chatStream({
 				model: 'gpt-5',
 				messages: [{ role: 'user', content: 'edit' }],
@@ -521,7 +521,7 @@ describe('@namzu/http — response parsing', () => {
 			dialect: 'openai',
 		})
 
-		const resp = await collect(
+		const resp = await collectChatCompletion(
 			provider.chatStream({
 				model: 'gpt-4o',
 				messages: [{ role: 'user', content: 'hi' }],
@@ -571,7 +571,7 @@ describe('@namzu/http — response parsing', () => {
 			dialect: 'anthropic',
 		})
 
-		const resp = await collect(
+		const resp = await collectChatCompletion(
 			provider.chatStream({
 				model: 'claude-sonnet-4',
 				messages: [{ role: 'user', content: 'hi' }],
@@ -612,7 +612,7 @@ describe('@namzu/http — response parsing', () => {
 			dialect: 'anthropic',
 		})
 
-		const resp = await collect(
+		const resp = await collectChatCompletion(
 			provider.chatStream({
 				model: 'claude-sonnet-4',
 				messages: [{ role: 'user', content: 'hi' }],
@@ -651,7 +651,7 @@ describe('@namzu/http — DialectMismatchError', () => {
 		})
 
 		await expect(
-			collect(
+			collectChatCompletion(
 				provider.chatStream({
 					model: 'm',
 					messages: [{ role: 'user', content: 'hi' }],
@@ -681,7 +681,7 @@ describe('@namzu/http — DialectMismatchError', () => {
 		})
 
 		await expect(
-			collect(
+			collectChatCompletion(
 				provider.chatStream({
 					model: 'm',
 					messages: [{ role: 'user', content: 'hi' }],
@@ -703,7 +703,7 @@ describe('@namzu/http — DialectMismatchError', () => {
 		})
 
 		try {
-			await collect(
+			await collectChatCompletion(
 				provider.chatStream({
 					model: 'm',
 					messages: [{ role: 'user', content: 'hi' }],
@@ -747,7 +747,7 @@ describe('@namzu/http — streaming', () => {
 			dialect: 'openai',
 		})
 
-		const chunks = await collectStream(
+		const chunks = await collectChatCompletionStream(
 			provider.chatStream({
 				model: 'gpt-4o',
 				messages: [{ role: 'user', content: 'hi' }],
@@ -789,7 +789,7 @@ describe('@namzu/http — streaming', () => {
 			dialect: 'anthropic',
 		})
 
-		const chunks = await collectStream(
+		const chunks = await collectChatCompletionStream(
 			provider.chatStream({
 				model: 'claude-sonnet-4',
 				messages: [{ role: 'user', content: 'hi' }],
@@ -833,7 +833,7 @@ describe('@namzu/http — streaming', () => {
 		})
 
 		await expect(
-			collectStream(
+			collectChatCompletionStream(
 				provider.chatStream({
 					model: 'm',
 					messages: [{ role: 'user', content: 'hi' }],

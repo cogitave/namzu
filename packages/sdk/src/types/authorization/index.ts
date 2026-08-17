@@ -187,13 +187,3 @@ export type AuthorizationGateConfig = z.infer<typeof AuthorizationGateConfigSche
  * Declared as `const` rather than `type` on purpose: a `type` alias would
  * break `typeof`, which is the only way these were ever usable.
  */
-
-/** @deprecated Renamed to {@link AuthorizationRuleSchema}. Removed in the next major. */
-export const VerificationRuleSchema = AuthorizationRuleSchema
-/** @deprecated Renamed to {@link AuthorizationGateConfigSchema}. Removed in the next major. */
-export const VerificationGateConfigSchema = AuthorizationGateConfigSchema
-
-/** @deprecated Renamed to {@link AuthorizationRule}. Removed in the next major. */
-export type VerificationRule = AuthorizationRule
-/** @deprecated Renamed to {@link AuthorizationGateConfig}. Removed in the next major. */
-export type VerificationGateConfig = AuthorizationGateConfig

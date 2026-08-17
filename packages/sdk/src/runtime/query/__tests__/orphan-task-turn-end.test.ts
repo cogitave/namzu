@@ -79,7 +79,7 @@ describe('end of turn with running agent tasks', () => {
 				agentName: 'Test Agent',
 				messages: [createUserMessage('do the thing')],
 				workingDirectory,
-				taskGateway: orphanTaskGateway(),
+				taskScheduler: orphanTaskGateway(),
 				sessionId: 'ses_orphan_task' as SessionId,
 				topicId: 'top_orphan_task' as TopicId,
 				projectId: 'prj_orphan_task' as ProjectId,

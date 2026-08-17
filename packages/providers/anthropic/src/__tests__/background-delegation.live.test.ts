@@ -9,7 +9,7 @@ import {
 	drainQuery,
 	runAgent,
 } from '@namzu/sdk'
-import type { TaskGateway, TaskHandle } from '@namzu/sdk'
+import type { TaskHandle, TaskScheduler } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { AnthropicProvider } from '../client.js'
@@ -28,7 +28,7 @@ import { AnthropicProvider } from '../client.js'
  * the supervisor finally gives contains something only the worker knew.
  *
  * The gateway here is deliberately hand-rolled over `runAgent` rather than
- * the kernel's `LocalTaskGateway`. That is the shape a host implements, so it
+ * the kernel's `LocalTaskScheduler`. That is the shape a host implements, so it
  * doubles as proof that the inbox needs nothing from a gateway beyond the
  * `onTaskCompleted` every gateway already has.
  *
@@ -50,11 +50,11 @@ function provider(): AnthropicProvider {
 /**
  * A host-shaped gateway: spawns a real child run per task and announces it.
  *
- * Nothing here is kernel code. It implements `TaskGateway` the way an
+ * Nothing here is kernel code. It implements `TaskScheduler` the way an
  * embedding application does, which is the point — the inbox attaches to it
  * unchanged.
  */
-function liveGateway(): TaskGateway {
+function liveGateway(): TaskScheduler {
 	const handles = new Map<string, TaskHandle>()
 	const settled = new Map<string, Promise<TaskHandle>>()
 	const listeners = new Set<(h: TaskHandle) => void>()
@@ -112,7 +112,7 @@ function liveGateway(): TaskGateway {
 			listeners.add(cb)
 			return () => listeners.delete(cb)
 		},
-	} as TaskGateway
+	} as TaskScheduler
 }
 
 describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {

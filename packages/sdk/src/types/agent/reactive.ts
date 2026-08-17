@@ -51,11 +51,6 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	 * canonical brick patterns hard-deny instead of executing
 	 * silently.
 	 */
-	/**
-	 * @deprecated Renamed to `authorizationGate`. Removed in the next major.
-	 * Setting both to different configs throws.
-	 */
-	verificationGate?: AuthorizationGateConfig
 
 	authorizationGate?: AuthorizationGateConfig
 

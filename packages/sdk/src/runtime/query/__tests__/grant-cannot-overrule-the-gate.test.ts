@@ -88,7 +88,7 @@ async function run(commands: readonly string[]) {
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
-		verificationGate: gate,
+		authorizationGate: gate,
 		// The approver says "remember: this tool" — the scope the docs
 		// recommend for a tool that would otherwise re-prompt forever.
 		resumeHandler: async () => ({ action: 'approve_tools', remember: ['shell'] }),

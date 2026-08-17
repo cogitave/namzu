@@ -4,7 +4,7 @@ import type { IterationCheckpoint } from '../../../types/hitl/index.js'
 import type {
 	CheckpointRunScope,
 	ClaimRunOptions,
-	RunClaim,
+	RunLease,
 } from '../../../types/run/checkpoint-store.js'
 import { InMemoryCheckpointStore } from '../checkpoint-memory.js'
 import {
@@ -95,7 +95,7 @@ const honest: MakeCheckpointStore = () => ({ store: new InMemoryCheckpointStore(
 
 /** Hands the run to every taker. The mistake a first implementation makes. */
 class GrantsEveryClaim extends InMemoryCheckpointStore {
-	override async claimRun(_scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim> {
+	override async claimRun(_scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunLease> {
 		return { holder: options.holder, fence: 1, expiresAt: (options.now ?? 0) + options.ttlMs }
 	}
 }

@@ -96,7 +96,6 @@ import { generateRunId } from '../../utils/id.js'
 import { errorAttributes } from '../../utils/log/exception.js'
 import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
-import { pickRenamed } from '../../utils/renamed-field.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { AUTO_APPROVE_POLICY_NAME, createRunApprovalPolicy } from './approval-policy.js'
 import { CheckpointManager } from './checkpoint.js'
@@ -593,13 +592,6 @@ export interface QueryParams {
 
 	depth?: number
 
-	/**
-	 * @deprecated Renamed to {@link QueryParams.promptCache}. Removed in the
-	 * next major. Setting both to different instances throws rather than
-	 * picking one.
-	 */
-	contextCache?: PromptCache
-
 	promptCache?: PromptCache
 
 	contextLevel?: AgentContextLevel
@@ -611,12 +603,6 @@ export interface QueryParams {
 	runtimeToolOverrides?: RuntimeToolOverrides
 
 	runtimeContext?: AgentRuntimeContext
-
-	/**
-	 * @deprecated Renamed to {@link QueryParams.taskScheduler}. Removed in
-	 * the next major. Setting both to different instances throws.
-	 */
-	taskGateway?: import('../../types/agent/scheduler.js').TaskScheduler
 
 	taskScheduler?: import('../../types/agent/scheduler.js').TaskScheduler
 
@@ -707,12 +693,6 @@ export interface QueryParams {
 	contextReducer?: ContextReducer
 
 	agentBus?: import('../../bus/index.js').AgentBus
-
-	/**
-	 * @deprecated Renamed to `authorizationGate`. Removed in the next major.
-	 * Setting both to different configs throws.
-	 */
-	verificationGate?: AuthorizationGateConfig
 
 	authorizationGate?: AuthorizationGateConfig
 
@@ -851,18 +831,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// and refusing it here costs them nothing; refusing it at the read site
 	// deep in the loop turns the same bug into a mid-run failure, after a
 	// provider call has been paid for and a partial transcript written.
-	const promptCache = pickRenamed(
-		'contextCache',
-		params.contextCache,
-		'promptCache',
-		params.promptCache,
-	)
-	const taskScheduler = pickRenamed(
-		'taskGateway',
-		params.taskGateway,
-		'taskScheduler',
-		params.taskScheduler,
-	)
+	const promptCache = params.promptCache
+	const taskScheduler = params.taskScheduler
 
 	// The run's one correlated logger, built before anything below needs
 	// one — the migration check, the retry/fallback wrappers and `ctx`
@@ -1443,18 +1413,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 	}
 
-	// One resolve, one construction. Four sites read this field, and had
-	// each read `params.verificationGate` directly a host that set only the
-	// new name would get a gate on one path and none on another — which for
-	// an AUTHORIZATION gate means a tool call permitted somewhere it should
-	// have been refused. That is the failure this field's window has to not
-	// have.
-	const gateConfig = pickRenamed(
-		'verificationGate',
-		params.verificationGate,
-		'authorizationGate',
-		params.authorizationGate,
-	)
+	const gateConfig = params.authorizationGate
+
 	const verificationGate = gateConfig?.enabled
 		? new AuthorizationGate(gateConfig, ctx.log)
 		: undefined

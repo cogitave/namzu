@@ -71,7 +71,6 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				basePrompt: config.basePrompt,
 				provider: config.provider,
 				tools: config.tools,
-				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
 				...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
 				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
 				// Working-memory / compaction seam (optional; absent => unchanged run path).

@@ -14,8 +14,8 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
 /**
  * A gateway the HOST owns, which is the case that goes wrong.
  *
- * `SupervisorAgentConfig.gateway` is a first-class option, and a host that
- * built a gateway reuses it — across sequential runs, and across concurrent
+ * `SupervisorAgentConfig.scheduler` is a first-class option, and a host that
+ * built a scheduler reuses it — across sequential runs, and across concurrent
  * ones. The supervisor attached a fresh `CompletionInbox` to it on every run
  * and never detached, so the subscription set only grew: three runs, three
  * live listeners, each still holding its own run's handles and each still
@@ -60,7 +60,7 @@ const collidingTool = defineTool({
 })
 
 async function runOnce(
-	gateway: TaskScheduler,
+	scheduler: TaskScheduler,
 	id: string,
 	options: { collide?: boolean } = {},
 ): Promise<void> {
@@ -83,7 +83,7 @@ async function runOnce(
 		{
 			provider: new MockLLMProvider({ turns: [{ text: 'nothing to delegate' }] }),
 			agentIds: ['worker'],
-			gateway,
+			scheduler,
 			tools,
 			systemPrompt: 'You coordinate.',
 			model: 'mock-model',

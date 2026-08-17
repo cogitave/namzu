@@ -20,7 +20,6 @@ import type { RunEventListener } from '../types/run/index.js'
 import type { ActorRef } from '../types/session/actor.js'
 import { ZERO_COST } from '../utils/cost.js'
 import type { Logger } from '../utils/logger.js'
-import { pickRenamed } from '../utils/renamed-field.js'
 import { AbstractAgent } from './AbstractAgent.js'
 
 /**
@@ -131,12 +130,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		// instead, a host that set only `scheduler` would get a working one
 		// on one path and `undefined` on another — a half-migration that
 		// fails silently, which is worse than not renaming the field.
-		const configuredScheduler = pickRenamed(
-			'gateway',
-			config.gateway,
-			'scheduler',
-			config.scheduler,
-		)
+		const configuredScheduler = config.scheduler
 
 		let gateway: TaskScheduler
 		if (configuredScheduler) {
@@ -349,7 +343,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					taskStore: input.taskStore,
 					runtimeToolOverrides: input.runtimeToolOverrides,
 					runtimeContext: input.runtimeContext,
-					taskGateway: gateway,
+					taskScheduler: gateway,
 					completionInbox,
 					advisory: config.advisory,
 					invocationState: childInvocationState,
@@ -365,7 +359,6 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					// corrected for twice.
 					...(config.steering ? { steering: config.steering } : {}),
 					...(config.inboundMessages ? { inboundMessages: config.inboundMessages } : {}),
-					...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
 					...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
 					// The one hop between the config and the tool. `drainQuery`
 					// registers `structured_output` from this and the loop
