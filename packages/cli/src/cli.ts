@@ -102,6 +102,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			'Run tools without asking for approval (no permission prompts). Only use in a sandbox or a folder you fully trust.',
 		)
 		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
+		.option(
+			'--profile <name>',
+			'Apply a named profile from the config files. A name no file declares is refused, not ignored.',
+		)
 		// Required by Commander 14 so subcommands (doctor) can opt into
 		// passThroughOptions for unparsed argument forwarding.
 		.enablePositionalOptions(true)
@@ -116,8 +120,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			quiet?: boolean
 			verbose?: boolean
 			logFormat?: string
+			profile?: string
 		}>()
-		const { config: fileConfig, provenance } = loadConfigWithProvenance()
+		const { config: fileConfig, provenance } = loadConfigWithProvenance(
+			globalOpts.profile !== undefined ? { profile: globalOpts.profile } : {},
+		)
 		const format: FormatName =
 			globalOpts.format && isFormatName(globalOpts.format)
 				? globalOpts.format
@@ -264,7 +271,9 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 		default: 0,
 		'user-file': 0,
 		'project-file': 0,
+		profile: 0,
 		env: 0,
+		managed: 0,
 	}
 	for (const source of Object.values(provenance)) {
 		if (source) counts[source.kind]++
@@ -334,8 +343,15 @@ function describeConfigSource(source: ConfigSource): string {
 			return `user-file ${source.path}`
 		case 'project-file':
 			return `project-file ${source.path}`
+		case 'profile':
+			// The name AND the file. Neither answers on its own: the name does
+			// not say which file to open, and the path does not say which of
+			// that file's profiles is in force.
+			return `profile ${source.name} (${source.path})`
 		case 'env':
 			return `env ${source.variable}`
+		case 'managed':
+			return `managed ${source.path}`
 	}
 }
 

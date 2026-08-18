@@ -28,7 +28,7 @@ import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { isFormatName } from '../output/index.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
-import type { SessionExportRedactorName } from './schema.js'
+import type { ProfilesConfig, SessionExportRedactorName } from './schema.js'
 import { DEFAULT_CONFIG, type NamzuCliConfig } from './schema.js'
 
 export interface LoadConfigOptions {
@@ -38,7 +38,41 @@ export interface LoadConfigOptions {
 	readonly cwd?: string
 	/** Replacement env source (testing). */
 	readonly env?: NodeJS.ProcessEnv
+	/**
+	 * Which profile to apply, if any.
+	 *
+	 * A name that no file declares is an ERROR rather than a no-op. Someone
+	 * who typed `--profile revew` is running under settings they did not
+	 * choose, and every reading of the run after that is wrong; the cost of
+	 * refusing is one retyped word.
+	 */
+	readonly profile?: string
+	/** Overridable for tests; defaults to {@link MANAGED_CONFIG_PATH}. */
+	readonly managedPath?: string
 }
+
+/**
+ * A machine-wide config that wins the cascade.
+ *
+ * It exists for the case where the person running namzu is not the person
+ * deciding what it may do — a shared build machine, a managed workstation.
+ * Applied LAST, so it beats the project file and the environment both, which
+ * is the only ordering that makes it worth having.
+ *
+ * **Its guarantee is the file system's and nothing more.** namzu does not
+ * verify a signature, does not check an owner, and cannot tell an
+ * administrator's file from one the user wrote there. What stops a user
+ * editing it is that the path needs privileges they do not have, on a machine
+ * somebody configured that way. That is a real control and a narrow one, and
+ * stating it precisely is the difference between a security boundary and the
+ * appearance of one.
+ *
+ * Absent on almost every machine, which is the expected case and not an error.
+ */
+export const MANAGED_CONFIG_PATH =
+	process.platform === 'win32'
+		? join(process.env.PROGRAMDATA ?? 'C:\\ProgramData', 'namzu', 'config.json')
+		: '/etc/namzu/config.json'
 
 /**
  * A config value's source, one variant per cascade layer.
@@ -54,7 +88,17 @@ export type ConfigSource =
 	| { readonly kind: 'default' }
 	| { readonly kind: 'user-file'; readonly path: string }
 	| { readonly kind: 'project-file'; readonly path: string }
+	/**
+	 * A selected profile, and the file it was declared in.
+	 *
+	 * Both are named because neither alone answers the question an operator
+	 * asks here. "profile" does not say which file to open, and the path does
+	 * not say which of that file's profiles is in force.
+	 */
+	| { readonly kind: 'profile'; readonly name: string; readonly path: string }
 	| { readonly kind: 'env'; readonly variable: string }
+	/** A machine-wide file that wins the cascade; see `MANAGED_CONFIG_PATH`. */
+	| { readonly kind: 'managed'; readonly path: string }
 
 /**
  * Which `ConfigSource` won each key of the resolved config.
@@ -90,14 +134,32 @@ export function loadConfigWithProvenance(opts: LoadConfigOptions = {}): {
 	const userPath = join(home, '.namzu', 'config.yaml')
 	const projectPath = resolve(cwd, 'namzu.config.json')
 
+	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
+
 	const userCfg = readYamlIfExists(userPath)
 	const projectCfg = readJsonIfExists(projectPath)
+	const managedCfg = readJsonIfExists(managedPath)
 	const { config: envCfg, variables: envVariables } = readEnv(env)
+
+	// The command line first, then the environment. A flag is this run; a
+	// variable is this shell — so the narrower statement wins, the way it does
+	// everywhere else here.
+	const profileName = opts.profile ?? env.NAMZU_PROFILE
+	const profiles = profileLayers(profileName, [
+		[userCfg, userPath],
+		[projectCfg, projectPath],
+		[managedCfg, managedPath],
+	])
 
 	return mergeConfigs(
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
 		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
 		constantLayer(projectCfg, { kind: 'project-file', path: projectPath }),
+		// After both files and before the environment. A profile is a
+		// deliberate choice about a set of settings, so it beats the ambient
+		// values in the file it came from; a variable is a statement about this
+		// one shell, so it beats the profile.
+		...profiles,
 		{
 			config: envCfg,
 			sourceFor: (key) => {
@@ -113,7 +175,58 @@ export function loadConfigWithProvenance(opts: LoadConfigOptions = {}): {
 				return { kind: 'env', variable }
 			},
 		},
+		// Last, so it beats the project file and the environment both. That
+		// ordering is the whole of what a managed layer is.
+		constantLayer(managedCfg, { kind: 'managed', path: managedPath }),
 	)
+}
+
+/**
+ * The selected profile, once per file that declares it.
+ *
+ * One layer per file rather than one merged layer, so provenance keeps naming
+ * the file a value actually came from — a project profile overriding a user
+ * profile of the same name is the ordinary case, and reporting both as "the
+ * profile" would leave an operator opening the wrong file.
+ *
+ * Refuses a name nothing declares. The alternative is a run under settings
+ * nobody chose, reported as success.
+ */
+function profileLayers(
+	name: string | undefined,
+	files: readonly (readonly [MutableConfig, string])[],
+): ConfigLayer[] {
+	if (name === undefined || name === '') return []
+
+	const layers: ConfigLayer[] = []
+	const declared = new Set<string>()
+	const declaringFiles: string[] = []
+	for (const [config, path] of files) {
+		const profiles = config.profiles
+		if (profiles === undefined) continue
+		declaringFiles.push(path)
+		for (const key of Object.keys(profiles)) declared.add(key)
+		const selected = profiles[name]
+		if (selected === undefined) continue
+		layers.push(constantLayer(selected as MutableConfig, { kind: 'profile', name, path }))
+	}
+
+	if (layers.length === 0) {
+		const known = [...declared].sort()
+		// The path is where to go and fix it. A file that already declares
+		// profiles is the better answer than the one bound to this folder,
+		// because a misspelled name usually sits next to the right one — and
+		// when nothing declares any, the folder's own file is where the first
+		// one would go.
+		const where = declaringFiles[0] ?? files[1]?.[1] ?? ''
+		throw new ConfigLoadError(
+			where,
+			known.length === 0
+				? `No profile named "${name}" — no config file declares any profiles.`
+				: `No profile named "${name}". Declared in ${declaringFiles.join(', ')}: ${known.join(', ')}.`,
+		)
+	}
+	return layers
 }
 
 export function loadConfig(opts: LoadConfigOptions = {}): NamzuCliConfig {
@@ -260,6 +373,12 @@ const CONFIG_READERS: ConfigReaders = {
 	// check by index. Dropping a malformed one here would turn "your check is
 	// unreadable" into "your check passed".
 	permissionChecks: (v) => (Array.isArray(v) ? (v as PermissionChecksConfig) : undefined),
+	// Shape only. Which profile is SELECTED is decided in the cascade, which
+	// refuses a name nothing declares — and it can only do that if a
+	// malformed-looking profile still reaches it. Dropping one here would
+	// turn "that profile is not declared" into "that profile did nothing".
+	profiles: (v) =>
+		typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as ProfilesConfig) : undefined,
 	// Shape only, for the same reason as `permissions`: an entry that names
 	// neither a command nor a url — or both — is reported by name when the
 	// connection is attempted. Dropping it here would turn a mistake the
@@ -356,6 +475,12 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// author wrote — from a shell profile, with nothing in the config file to
 	// show for it.
 	permissionChecks: undefined,
+	// The SET of profiles is not env-settable — it is the thing being chosen
+	// BETWEEN, and a variable that could replace it could hand a shell a
+	// profile the files never declared. `NAMZU_PROFILE` selects one of the
+	// declared profiles and is read in the cascade rather than here, because
+	// it does not set a config field.
+	profiles: undefined,
 	mcpServers: undefined,
 	sandbox: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`

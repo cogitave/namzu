@@ -12,6 +12,11 @@ import type { FormatName } from '../output/index.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 
+/** What one profile may set: anything in the config except more profiles. */
+export type ProfileConfig = Omit<NamzuCliConfig, 'profiles'>
+
+export type ProfilesConfig = Readonly<Record<string, ProfileConfig>>
+
 export interface NamzuCliConfig {
 	/** Default output format when not overridden by --format. */
 	readonly format?: FormatName
@@ -35,6 +40,21 @@ export interface NamzuCliConfig {
 	 * which is what it meant before this existed.
 	 */
 	readonly permissionChecks?: PermissionChecksConfig
+	/**
+	 * Named bundles of settings to switch between.
+	 *
+	 * A profile is not another file. It sits INSIDE one, so the settings a
+	 * person switches between live next to each other and can be read as a
+	 * set — which is the thing a second config file cannot give you, because
+	 * a second file has to be found before it can be compared.
+	 *
+	 * Selecting one applies it as a layer above the file it came from, so a
+	 * profile overrides that file's own base values and is in turn overridden
+	 * by the environment. A profile may set anything except `profiles`: a
+	 * profile that carried profiles would be a cascade inside a cascade, and
+	 * the question "which one is active" would stop having one answer.
+	 */
+	readonly profiles?: ProfilesConfig
 	/**
 	 * External tool servers to connect, keyed by the name their tools are
 	 * prefixed with.

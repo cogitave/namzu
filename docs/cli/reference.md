@@ -186,11 +186,62 @@ can change.
 
 Highest precedence first:
 
-1. Command-line flags
-2. `NAMZU_*` environment variables
-3. `./namzu.config.json` — the project's
-4. `~/.namzu/config.yaml` — the user's
-5. Built-in defaults (`format: 'text'`, `quiet: false`)
+1. `/etc/namzu/config.json` — the machine's, if an administrator installed one
+   (`%ProgramData%\namzu\config.json` on Windows)
+2. Command-line flags
+3. `NAMZU_*` environment variables
+4. A selected profile, from whichever files declare it
+5. `./namzu.config.json` — the project's
+6. `~/.namzu/config.yaml` — the user's
+7. Built-in defaults (`format: 'text'`, `quiet: false`)
+
+### Profiles
+
+A profile is a named bundle of settings **inside** a config file, so the
+settings you switch between sit next to each other and can be read as a set:
+
+```json
+{
+  "permissions": { "bash": "ask" },
+  "profiles": {
+    "ci":     { "quiet": true, "permissions": { "bash": "allow" } },
+    "review": { "permissions": { "bash": "deny", "read": "allow" } }
+  }
+}
+```
+
+Select one with `--profile ci` or `NAMZU_PROFILE=ci`; the flag wins, because a
+flag is this run and a variable is this shell. A profile overrides the base
+values of the file it was declared in — otherwise selecting it could not change
+anything — and is in turn overridden by the environment, so a variable set for
+one shell keeps working after somebody picks a profile.
+
+The same profile name may appear in both files. Each is applied as its own
+layer, in the usual file order, so the project's wins *and* the boot log still
+names the file each value actually came from. A profile may set anything except
+`profiles`: nesting them would make "which one is active" stop having one
+answer.
+
+**A profile name no file declares is refused, not ignored.** The error lists the
+names that do exist and the files that declare them, because the mistake is
+almost always a typo — and the alternative is running under settings nobody
+chose while reporting success.
+
+### The managed file
+
+`/etc/namzu/config.json` is read last and wins everything, including the
+environment and the project file. It exists for the case where the person
+running namzu is not the person deciding what it may do.
+
+**Its guarantee is the file system's and nothing more.** namzu does not verify a
+signature, does not check an owner, and cannot tell an administrator's file from
+one a user wrote there. What stops a user editing it is that the path needs
+privileges they do not have, on a machine somebody configured that way. That is
+a real control and a narrow one, and the distinction matters: this is not a
+sandbox for the config.
+
+It is absent on almost every machine, which is the expected case and not an
+error.
 
 A file that is not there contributes nothing, and that is a default. A file that
 **is** there and cannot be established — invalid YAML or JSON, a permission
