@@ -119,15 +119,22 @@ const editLike = defineTool({
 })
 ```
 
-The built-in `edit` and `write` tools deliberately expose the same single
-canonical shape at both boundaries:
+The built-in `edit` and `write` tools deliberately expose ONE canonical shape to
+the model, narrower than what the host boundary accepts:
 
-- `edit`: `path`, `old_string`, `new_string`, optional `replace_all`
+- `edit`: `path`, `old_string`, `new_string`, optional `replace_all`,
+  optional `insertLine`, optional `edits`
 - `write`: `path`, `content`
 
-They do not accept aliases or combine exact replacement with line-number
-insertion. For append-like work, replace a unique tail or deterministic rolling
-marker with itself plus the new content.
+The narrowing is about spellings, not about capability. The host schema also
+accepts the `oldStr` / `newStr` aliases, because hosts that expose replacement
+under those names are real; the model-facing schema does not, because offering a
+model two names for one field is how it learns to guess between them. Both are
+closed — a field outside either is rejected, never silently dropped.
+
+For a change that spans several places in one file, send the whole thing as
+`edits` rather than as several calls: applied in order, committed as one write,
+and refused entirely if any entry does not apply.
 
 `enforceModelInput: true` without an explicit `modelInputSchema` is rejected at
 registration. Namzu does not assume a Zod-generated schema is compatible with

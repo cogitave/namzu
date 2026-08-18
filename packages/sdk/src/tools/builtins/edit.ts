@@ -57,21 +57,78 @@ const inputSchema = z
 			.describe(
 				'Optional line insertion target. Inserts the replacement after this 1-indexed line; 0 inserts before the first line; "end" appends to the file.',
 			),
+		// Optional rather than defaulted, for the reason given on the entry
+		// field below: `execute` takes the schema's OUTPUT type, so a default
+		// here makes `replace_all` mandatory for every hand-built call —
+		// including a batch call, where the top-level flag means nothing at
+		// all. The default is applied in `normalizeEditInput`.
 		replace_all: z
 			.boolean()
-			.default(false)
+			.optional()
 			.describe('Replace all occurrences instead of just the first unique match'),
+		edits: z
+			.array(
+				z
+					.object({
+						old_string: z
+							.string()
+							.min(1)
+							.describe('The exact string to find. Must be unique in the file at this point.'),
+						new_string: z.string().describe('The replacement string.'),
+						// `.optional()` where the top-level field uses `.default(false)`,
+						// and the difference is about the CALLER rather than the
+						// value. `execute` takes the schema's OUTPUT type, so a
+						// defaulted field is required of everyone who builds a call
+						// by hand — and a batch entry is built by hand far more
+						// often than the top-level object is. The default lives in
+						// `normalizeEditInput` instead, where it is applied once for
+						// every entry.
+						replace_all: z
+							.boolean()
+							.optional()
+							.describe('Replace every occurrence of this old_string instead of requiring one.'),
+					})
+					.strict(),
+			)
+			.min(1)
+			.optional()
+			.describe(
+				'Several replacements in one file, applied in order and committed together. Nothing is written unless every one applies.',
+			),
 	})
 	.strict()
-	.refine((value) => typeof value.new_string === 'string' || typeof value.newStr === 'string', {
-		message: 'Either new_string or newStr is required.',
-	})
 	.refine(
 		(value) =>
+			value.edits !== undefined ||
+			typeof value.new_string === 'string' ||
+			typeof value.newStr === 'string',
+		{ message: 'Either new_string or newStr is required.' },
+	)
+	.refine(
+		(value) =>
+			value.edits !== undefined ||
 			value.insertLine !== undefined ||
 			typeof value.old_string === 'string' ||
 			typeof value.oldStr === 'string',
 		{ message: 'Either old_string/oldStr or insertLine is required.' },
+	)
+	// Refused rather than resolved. A call carrying both an `edits` list and a
+	// top-level replacement is two different intentions in one object, and any
+	// precedence this code picked would be a guess about which the model meant
+	// — silently dropping the other. There is no reading of that which is safe:
+	// the dropped half is an edit somebody believes was made.
+	.refine(
+		(value) =>
+			value.edits === undefined ||
+			(value.old_string === undefined &&
+				value.oldStr === undefined &&
+				value.new_string === undefined &&
+				value.newStr === undefined &&
+				value.insertLine === undefined),
+		{
+			message:
+				'Use either `edits` or a single top-level edit, not both. Move the top-level old_string/new_string into the edits list.',
+		},
 	)
 
 type EditInput = z.infer<typeof inputSchema>
@@ -134,6 +191,31 @@ const modelInputSchema: Record<string, unknown> = {
 			type: 'boolean',
 			description: 'Replace every occurrence instead of requiring one unique match.',
 		},
+		edits: {
+			// The batch shape. Stated as an array of the same two fields
+			// rather than as a second tool, because a model offered two tools
+			// that both edit a file spends a decision on every turn choosing
+			// between them — and the choice carries no information.
+			type: 'array',
+			items: {
+				type: 'object',
+				properties: {
+					old_string: {
+						type: 'string',
+						description: 'Exact text from the file at this point in the sequence.',
+					},
+					new_string: { type: 'string', description: 'Exact replacement text.' },
+					replace_all: {
+						type: 'boolean',
+						description: 'Replace every occurrence of this old_string.',
+					},
+				},
+				required: ['old_string', 'new_string'],
+				additionalProperties: false,
+			},
+			description:
+				'Several replacements in one file, applied in order and committed together. Nothing is written unless every one applies. Use this instead of several edit calls when the changes only make sense together.',
+		},
 	},
 	// `old_string` is deliberately NOT required, and this is the fix.
 	//
@@ -152,7 +234,13 @@ const modelInputSchema: Record<string, unknown> = {
 	// incomplete call is now expressible and caught at execution rather than
 	// at generation — paid knowingly, because the alternative is that a
 	// working capability stays unreachable.
-	required: ['path', 'new_string'],
+	//
+	// `new_string` left the required list for exactly that reason, one shape
+	// later: a batch call carries its replacements inside `edits` and has no
+	// top-level `new_string` to give. This is the same trade, made the same
+	// way — a third refinement names what is missing at execution, and it also
+	// refuses a call that carries both shapes rather than picking one.
+	required: ['path'],
 	additionalProperties: false,
 }
 
@@ -173,12 +261,12 @@ type NormalizedEditInput =
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
-		'Makes targeted edits to a file using exact string find-and-replace or line insertion. THIS IS THE PREFERRED WAY TO MODIFY AN EXISTING FILE — never reach for `write` to change a file that already exists, because `write` overwrites the whole body and discards earlier work on partial failure. `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Self-budget new_string/newStr under 12000 characters before emitting the tool call; use repeated bounded edits for long sections. Preserves file formatting and indentation.',
+		'Makes targeted edits to a file using exact string find-and-replace or line insertion. THIS IS THE PREFERRED WAY TO MODIFY AN EXISTING FILE — never reach for `write` to change a file that already exists, because `write` overwrites the whole body and discards earlier work on partial failure. `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Self-budget new_string/newStr under 12000 characters before emitting the tool call; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to ONE file that only make sense together, send them as `edits`: a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,
 	validationErrorHint:
-		'Two shapes. Replace: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"} (optional "replace_all": true). Insert: {"path":"file.md","insertLine":"end","new_string":"text to add"} where insertLine is a non-negative line number or "end". Exactly one of old_string or insertLine.',
+		'Three shapes. Replace: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"} (optional "replace_all": true). Insert: {"path":"file.md","insertLine":"end","new_string":"text to add"} where insertLine is a non-negative line number or "end". Batch: {"path":"file.md","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]} applied in order, all or nothing. Exactly one of old_string, insertLine or edits — a call carrying more than one of them is refused rather than resolved.',
 	category: 'filesystem',
 	permissions: ['file_write'],
 	readOnly: false,
@@ -237,14 +325,22 @@ export const EditTool = defineTool({
 		if (!normalized.success) {
 			return { success: false, output: '', error: normalized.error }
 		}
-		if (
-			normalized.operation.operation === 'replace' &&
-			normalized.operation.oldString === normalized.operation.newString
-		) {
+		// Checked per operation, not for the call. A batch whose third entry is
+		// a no-op is still a mistake worth naming: the model believed it was
+		// changing something there, and a silent pass would leave it believing
+		// that after the edit reported success.
+		const noOp = normalized.operations.findIndex(
+			(operation) =>
+				operation.operation === 'replace' && operation.oldString === operation.newString,
+		)
+		if (noOp >= 0) {
 			return {
 				success: false,
 				output: '',
-				error: 'old_string/oldStr and new_string/newStr are identical — no change needed',
+				error:
+					normalized.operations.length === 1
+						? 'old_string/oldStr and new_string/newStr are identical — no change needed'
+						: `edits[${noOp}]: old_string and new_string are identical — no change needed. Nothing was written.`,
 			}
 		}
 
@@ -266,7 +362,7 @@ export const EditTool = defineTool({
 		return withFileMutationLock(lockKey, async () => {
 			if (context.sandbox) {
 				const buffer = await context.sandbox.readFile(parsed.data.path)
-				const result = applyEdit(buffer.toString('utf-8'), normalized.operation)
+				const result = applyEdit(buffer.toString('utf-8'), normalized.operations)
 				if (!result.success) {
 					return { success: false as const, output: '', error: result.error }
 				}
@@ -282,7 +378,7 @@ export const EditTool = defineTool({
 			const hostPath = filePath as string
 			const content = await readFile(hostPath, 'utf-8')
 
-			const result = applyEdit(content, normalized.operation)
+			const result = applyEdit(content, normalized.operations)
 			if (!result.success) {
 				// The anchor did not match what is on disk. Two very different
 				// situations produce that, and the difference is the whole
@@ -327,9 +423,31 @@ export const EditTool = defineTool({
 	},
 })
 
+/**
+ * Turn one call into the ordered list of operations it stands for.
+ *
+ * A list rather than a single operation because the batch shape is not a
+ * different kind of edit, only a longer one. Keeping ONE representation is
+ * what stops the two shapes diverging: everything below this function — the
+ * uniqueness check, the CRLF reconciliation, the identical-text refusal, the
+ * atomic write — sees a list of length one for a single edit and never learns
+ * which shape the caller used.
+ */
 function normalizeEditInput(
 	input: EditInput,
-): { success: true; operation: NormalizedEditInput } | { success: false; error: string } {
+): { success: true; operations: NormalizedEditInput[] } | { success: false; error: string } {
+	if (input.edits !== undefined) {
+		return {
+			success: true,
+			operations: input.edits.map((edit) => ({
+				operation: 'replace' as const,
+				oldString: edit.old_string,
+				newString: edit.new_string,
+				replace_all: edit.replace_all ?? false,
+			})),
+		}
+	}
+
 	const newString = input.new_string ?? input.newStr
 	if (typeof newString !== 'string') {
 		return { success: false, error: 'Either new_string or newStr is required.' }
@@ -340,12 +458,14 @@ function normalizeEditInput(
 		if (!insertLine.success) return insertLine
 		return {
 			success: true,
-			operation: {
-				operation: 'insert',
-				insertLine: insertLine.value,
-				newString,
-				replace_all: input.replace_all,
-			},
+			operations: [
+				{
+					operation: 'insert',
+					insertLine: insertLine.value,
+					newString,
+					replace_all: input.replace_all ?? false,
+				},
+			],
 		}
 	}
 
@@ -355,12 +475,14 @@ function normalizeEditInput(
 	}
 	return {
 		success: true,
-		operation: {
-			operation: 'replace',
-			oldString,
-			newString,
-			replace_all: input.replace_all,
-		},
+		operations: [
+			{
+				operation: 'replace',
+				oldString,
+				newString,
+				replace_all: input.replace_all ?? false,
+			},
+		],
 	}
 }
 
@@ -398,7 +520,48 @@ function normalizeInsertLine(
 	return { success: true, value }
 }
 
+/**
+ * Apply every operation in order, or none of them.
+ *
+ * "Or none" is the whole reason this takes a list. Four related changes sent
+ * as four calls are four chances to stop halfway, and the file left behind
+ * after the third succeeded and the fourth did not is in a state no one wrote
+ * and no one is looking at. Here the fold runs entirely in memory and the
+ * caller writes once, so a failure anywhere leaves the file exactly as it was.
+ *
+ * Each operation matches against the content as the ones before it left it,
+ * not against the original. That is what lets a later edit target text an
+ * earlier one produced — and it is also why a failure names the INDEX: by the
+ * time hunk 3 fails, the string it was looking for may have been consumed by
+ * hunk 1, and "old_string not found" without a position sends the model to
+ * re-check the wrong hunk.
+ */
 function applyEdit(
+	content: string,
+	operations: readonly NormalizedEditInput[],
+): { success: true; content: string; replacements: number } | { success: false; error: string } {
+	let current = content
+	let replacements = 0
+
+	for (const [index, operation] of operations.entries()) {
+		const result = applyOne(current, operation)
+		if (!result.success) {
+			return {
+				success: false,
+				error:
+					operations.length === 1
+						? result.error
+						: `edits[${index}] of ${operations.length}: ${result.error} Nothing was written — the whole batch is refused, so the file is exactly as it was.`,
+			}
+		}
+		current = result.content
+		replacements += result.replacements
+	}
+
+	return { success: true, content: current, replacements }
+}
+
+function applyOne(
 	content: string,
 	input: NormalizedEditInput,
 ): { success: true; content: string; replacements: number } | { success: false; error: string } {

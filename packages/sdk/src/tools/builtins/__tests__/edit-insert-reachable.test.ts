@@ -66,8 +66,22 @@ describe('the model can emit the idiom the description recommends', () => {
 		expect(schema().required).not.toContain('old_string')
 	})
 
-	it('still requires the two fields every operation needs', () => {
-		expect(schema().required).toEqual(expect.arrayContaining(['path', 'new_string']))
+	it('still requires the one field every shape needs', () => {
+		// `path` and nothing else. `new_string` left the list when the batch
+		// shape arrived: a call carrying `edits` has its replacements inside
+		// the list and none at the top level, so requiring one would make the
+		// batch unexpressible the same way requiring `old_string` made the
+		// append unexpressible.
+		expect(schema().required).toEqual(['path'])
+	})
+
+	it('leaves what each shape needs to a refinement that names what is missing', () => {
+		// The cost of the line above, stated where it can be checked: an
+		// incomplete call is expressible and must be caught at execution.
+		const parsed = EditTool.inputSchema.safeParse({ path: 'doc.md' })
+
+		expect(parsed.success).toBe(false)
+		expect(JSON.stringify(parsed)).toContain('new_string')
 	})
 
 	it('admits only "end" as a string, so a synonym cannot be generated', () => {

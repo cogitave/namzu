@@ -96,13 +96,13 @@ Notes:
 
 Purpose:
 
-- apply one exact-string replacement
+- apply exact-string replacements — one, or several committed together
 
 Notes:
 
-- the model is constrained to exactly `path`, `old_string`, `new_string`, and
-  optional `replace_all` — one closed shape, so it never has to choose between
-  two spellings of the same field
+- the model is constrained to `path`, `old_string`, `new_string`, optional
+  `replace_all`, and an optional `edits` list — one closed shape, so it never
+  has to choose between two spellings of the same field
 - the host schema additionally accepts the `oldStr` / `newStr` aliases and
   `insertLine`, for hosts that expose replacement under those names
 - either way the contract is closed: a field outside it is rejected, not
@@ -114,6 +114,35 @@ Notes:
 - commits local writes atomically; sandbox writes rely on the `Sandbox`
   interface's atomic replacement guarantee
 - useful for targeted edits without rewriting entire files
+
+**Several changes to one file go in one call.** `edits` takes a list of
+`{old_string, new_string}` applied in order and committed as a single write:
+
+```json
+{
+  "path": "src/user.ts",
+  "edits": [
+    { "old_string": "function getUser(", "new_string": "function loadUser(" },
+    { "old_string": "getUser(id)", "new_string": "loadUser(id)" }
+  ]
+}
+```
+
+Each entry matches against the content the entries before it left, so a later
+one can target text an earlier one produced. If any entry does not apply — not
+found, ambiguous, or a no-op — **nothing is written at all** and the error names
+the entry by index. A rename applied at two of its five call sites compiles
+nowhere and reads like a bug in the code rather than an unfinished edit, and
+that is the state this shape exists to make unreachable.
+
+Use it whenever the changes only make sense together. A call carrying both an
+`edits` list and a top-level `old_string` is refused rather than resolved: that
+is two intentions in one object, and any precedence would silently drop one of
+them.
+
+The guarantee is per file. `edits` names one `path`, and a change spanning
+several files is still several calls — atomicity across files is not something
+this tool can enforce, so it is not claimed.
 
 To append or assemble a long document, write a unique deterministic marker and
 replace it with the bounded chunk plus the next marker. Advance markers

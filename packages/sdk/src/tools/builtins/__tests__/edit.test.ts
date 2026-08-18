@@ -48,11 +48,36 @@ describe('EditTool', () => {
 					type: 'boolean',
 					description: 'Replace every occurrence instead of requiring one unique match.',
 				},
+				edits: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							old_string: {
+								type: 'string',
+								description: 'Exact text from the file at this point in the sequence.',
+							},
+							new_string: { type: 'string', description: 'Exact replacement text.' },
+							replace_all: {
+								type: 'boolean',
+								description: 'Replace every occurrence of this old_string.',
+							},
+						},
+						required: ['old_string', 'new_string'],
+						additionalProperties: false,
+					},
+					description:
+						'Several replacements in one file, applied in order and committed together. Nothing is written unless every one applies. Use this instead of several edit calls when the changes only make sense together.',
+				},
 			},
-			//  left out on purpose: an insert has no text to match,
+			// `old_string` left out on purpose: an insert has no text to match,
 			// and requiring it is what made the append idiom the tool's own
 			// description recommends unexpressible under constrained decoding.
-			required: ['path', 'new_string'],
+			// `new_string` left for the same reason one shape later — a batch
+			// carries its replacements inside `edits` and has none at the top
+			// level. Which fields a given shape needs is decided by the
+			// refinements on the execution schema, which name what is missing.
+			required: ['path'],
 			additionalProperties: false,
 		})
 
