@@ -235,9 +235,19 @@ export class RunContextFactory {
 			// takes an AbortController and what arrives here is a bare
 			// AbortSignal, so the reason is forwarded by hand rather than by
 			// reaching for a helper that does not fit.
-			config.signal.addEventListener('abort', () => abortController.abort(config.signal?.reason), {
-				once: true,
-			})
+			// AbortSignal does not replay an event that happened before a
+			// listener was installed. Mirror that state synchronously or a caller
+			// that withdrew authority before `query()` began receives a live run
+			// controller, allowing provider and tool work to start anyway.
+			if (config.signal.aborted) {
+				abortController.abort(config.signal.reason)
+			} else {
+				config.signal.addEventListener(
+					'abort',
+					() => abortController.abort(config.signal?.reason),
+					{ once: true },
+				)
+			}
 		}
 
 		const cwd = config.workingDirectory ?? process.cwd()

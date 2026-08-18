@@ -87,6 +87,15 @@ The position is part of the contract:
 The final exhausted error reaches `run_failed` with `kind: 'network'`, the
 provider id, and the exact idle duration.
 
+Advisors configured on a query may use providers that are not members of the
+main chain. The query applies the same effective idle bound and its internal
+cancellation signal to every triggered and model-requested advisory call.
+Those calls do not acquire the main provider's retry or fallback policy: a
+triggered advisory idle failure is logged and swallowed under the advisory
+phase's existing best-effort semantics, then the main run continues. A caller
+or operator cancellation closes the pending advisor transport and retains its
+ordinary cancelled-run meaning.
+
 `RouterAgent` makes one model call before its delegate run exists, so that
 routing call cannot inherit `query()` composition. It resolves the same
 `streamIdleTimeoutMs` policy explicitly. An idle routing call enters the
@@ -108,6 +117,11 @@ watchdog is translated back to the network-classified idle error so retry and
 fallback remain reachable. A caller cancellation that happened first retains
 the caller's original reason and follows the ordinary cancelled-run path.
 
+A caller signal that was already aborted before `query()` begins is mirrored
+into the run synchronously. The run settles as cancelled without starting a
+main, advisory, or tool request; abort events are not replayed to listeners, so
+this initial-state check is separate from the listener used for later stops.
+
 ## Direct provider composition
 
 Hosts that consume a provider outside `query()` can apply
@@ -120,5 +134,7 @@ original provider object by identity.
 Inside `query()`, prefer `streamIdleTimeoutMs` on the run config. The runtime
 owns the retry/fallback order there and applies the bound to main turns,
 compaction calls, verification calls, and forced-final calls through one
-composition boundary. `RouterAgent` applies the same config to its separate
-routing decision before it enters a delegate's `query()` boundary.
+composition boundary. Query-owned advisor providers receive the same bound and
+run cancellation separately because they are not members of that chain.
+`RouterAgent` applies the same config to its separate routing decision before
+it enters a delegate's `query()` boundary.

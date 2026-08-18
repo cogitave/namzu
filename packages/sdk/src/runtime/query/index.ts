@@ -1376,14 +1376,29 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 	let advisoryCtx: AdvisoryContext | undefined
 	if (params.advisory && params.advisory.advisors.length > 0) {
-		const advisorRegistry = new AdvisorRegistry(
-			params.advisory.advisors,
-			params.advisory.defaultAdvisorId,
-		)
+		// Advisors are model calls owned by this run even when they use a
+		// different provider. Sending the raw definitions into the registry
+		// lets a triggered or model-requested consultation bypass both the
+		// finite stream-silence bound and Stop. Bind every advisor provider at
+		// the query boundary, where the effective timeout and run signal are
+		// already known; standalone AdvisoryExecutor callers retain their
+		// explicitly chosen provider/cancellation policy.
+		const boundedAdvisors = params.advisory.advisors.map((advisor) => ({
+			...advisor,
+			provider: withStreamIdleTimeout(advisor.provider, {
+				idleTimeoutMs: streamIdleTimeoutMs,
+				log: ctx.log,
+			}),
+		}))
+		const advisorRegistry = new AdvisorRegistry(boundedAdvisors, params.advisory.defaultAdvisorId)
 		// A budget the runtime cannot measure is refused here rather than
 		// silently ignored for the length of the run.
 		assertBudgetEnforceable(params.advisory)
-		const advisoryExecutor = new AdvisoryExecutor(ctx.log, params.advisory.budget)
+		const advisoryExecutor = new AdvisoryExecutor(
+			ctx.log,
+			params.advisory.budget,
+			ctx.abortController.signal,
+		)
 		const triggerEvaluator = new TriggerEvaluator(
 			params.advisory.triggers ?? [],
 			params.advisory.budget,

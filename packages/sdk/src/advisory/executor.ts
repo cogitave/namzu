@@ -44,10 +44,12 @@ export interface AdvisoryExecutionResult {
 export class AdvisoryExecutor {
 	private readonly logger: Logger
 	private readonly budget: AdvisoryBudget | undefined
+	private readonly signal: AbortSignal | undefined
 
-	constructor(logger?: Logger, budget?: AdvisoryBudget) {
+	constructor(logger?: Logger, budget?: AdvisoryBudget, signal?: AbortSignal) {
 		this.logger = resolveLogger(logger).child({ [SCOPE_ATTRIBUTE]: 'advisory/executor' })
 		this.budget = budget
+		this.signal = signal
 	}
 
 	/**
@@ -92,6 +94,7 @@ export class AdvisoryExecutor {
 				temperature: advisor.temperature,
 				maxTokens: this.responseTokenCeiling(advisor),
 				toolChoice: 'none',
+				...(this.signal ? { signal: this.signal } : {}),
 			}),
 		)
 

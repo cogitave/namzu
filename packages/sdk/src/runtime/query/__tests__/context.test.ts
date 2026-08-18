@@ -123,6 +123,17 @@ describe('RunContextFactory.build', () => {
 		expect((ctx.abortController.signal.reason as Error)?.message).toBe('nightly window closed')
 	})
 
+	it("mirrors a caller's stop when it happened before the context existed", () => {
+		const host = new AbortController()
+		const reason = new Error('authority was already withdrawn')
+		host.abort(reason)
+
+		const ctx = RunContextFactory.build(buildConfig({ signal: host.signal }))
+
+		expect(ctx.abortController.signal.aborted).toBe(true)
+		expect(ctx.abortController.signal.reason).toBe(reason)
+	})
+
 	it('still aborts when the caller gave no reason', () => {
 		const host = new AbortController()
 		const ctx = RunContextFactory.build(buildConfig({ signal: host.signal }))
