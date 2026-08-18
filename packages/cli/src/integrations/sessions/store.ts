@@ -15,9 +15,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
+	DiskSessionGoalStore,
 	DiskSessionStore,
 	type Message,
 	type ProjectId,
+	type SessionGoalStore,
 	type SessionId,
 	type TenantId,
 	type TopicId,
@@ -42,6 +44,8 @@ const THREAD = asTopicId('top_namzu-cli')
 
 export interface CliSessions {
 	readonly store: DiskSessionStore
+	/** Durable completion goal owned by each conversation Session. */
+	readonly goals: SessionGoalStore
 	readonly projectId: ProjectId
 	readonly topicId: TopicId
 	readonly tenantId: TenantId
@@ -105,6 +109,7 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 	}
 	return {
 		store,
+		goals: new DiskSessionGoalStore({ rootDir: root, sessions: store }),
 		projectId,
 		topicId: THREAD,
 		tenantId: TENANT,

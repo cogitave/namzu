@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import { InMemorySessionGoalStore } from '../../../store/goal/index.js'
+import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
 import type { RunId } from '../../../types/ids/index.js'
+import { generateTenantId, generateTopicId } from '../../../utils/id.js'
 import { ToolRegistry } from '../../tool/execute.js'
 import { HostCommandRegistry } from '../index.js'
 import { kernelHostCommands } from '../kernel-commands.js'
@@ -34,6 +37,25 @@ function registryWith(commands: ReturnType<typeof kernelHostCommands>): HostComm
 	const registry = new HostCommandRegistry()
 	registry.register(commands)
 	return registry
+}
+
+async function registryWithGoal() {
+	const sessions = new InMemorySessionStore()
+	const tenantId = generateTenantId()
+	const project = await sessions.createProject({ tenantId, name: 'goal commands' }, tenantId)
+	const session = await sessions.createSession(
+		{ projectId: project.id, topicId: generateTopicId(), currentActor: null },
+		tenantId,
+	)
+	const store = new InMemorySessionGoalStore({ sessions })
+	return {
+		store,
+		session,
+		tenantId,
+		registry: registryWith(
+			kernelHostCommands({ goal: { store, sessionId: session.id, tenantId } }),
+		),
+	}
 }
 
 describe('a host command answers from what the kernel owns', () => {
@@ -71,6 +93,63 @@ describe('a host command answers from what the kernel owns', () => {
 		)
 
 		expect(outcome).toEqual({ kind: 'report', title: 'Agents', rows: [] })
+	})
+})
+
+describe('/goal is direct host control over durable session state', () => {
+	it('refuses without a durable scope instead of inventing an ephemeral goal', async () => {
+		const outcome = await registryWith(kernelHostCommands({})).dispatch('/goal ship the release')
+
+		expect(outcome).toMatchObject({ kind: 'refused' })
+		if (outcome?.kind === 'refused') expect(outcome.reason).toMatch(/durable session/i)
+	})
+
+	it('creates, shows, edits, pauses, resumes and clears one current goal', async () => {
+		const { registry, store, session, tenantId } = await registryWithGoal()
+
+		expect(await registry.dispatch('/goal finish the release')).toMatchObject({
+			kind: 'ack',
+		})
+		expect((await store.getGoal(session.id, tenantId))?.objective).toBe('finish the release')
+		expect((await registry.dispatch('/goal'))?.kind).toBe('ack')
+		expect(await registry.dispatch('/goal edit verify then release')).toMatchObject({
+			kind: 'ack',
+			message: expect.stringContaining('Goal updated'),
+		})
+		expect(await registry.dispatch('/goal pause')).toMatchObject({
+			kind: 'ack',
+			message: expect.stringContaining('Status: paused'),
+		})
+		expect(await registry.dispatch('/goal resume')).toMatchObject({
+			kind: 'ack',
+			message: expect.stringContaining('Status: active'),
+		})
+		expect(await registry.dispatch('/goal clear')).toEqual({
+			kind: 'ack',
+			message: 'Goal cleared.',
+		})
+		expect(await store.getGoal(session.id, tenantId)).toBeNull()
+	})
+
+	it('treats a control word as control only when it occupies the whole input', async () => {
+		const { registry, store, session, tenantId } = await registryWithGoal()
+
+		await registry.dispatch('/goal pause after verification')
+
+		expect((await store.getGoal(session.id, tenantId))?.objective).toBe('pause after verification')
+	})
+
+	it('refuses replacement and missing edit text without changing the current goal', async () => {
+		const { registry, store, session, tenantId } = await registryWithGoal()
+		await registry.dispatch('/goal original')
+
+		expect(await registry.dispatch('/goal replacement')).toMatchObject({
+			kind: 'refused',
+		})
+		expect(await registry.dispatch('/goal edit')).toMatchObject({
+			kind: 'refused',
+		})
+		expect((await store.getGoal(session.id, tenantId))?.objective).toBe('original')
 	})
 })
 
@@ -113,7 +192,7 @@ describe('a descriptor survives the wire', () => {
 		// registry nobody filled is the failure this task exists to avoid.
 		const described = registryWith(kernelHostCommands({})).describe()
 
-		expect(described.map((c) => c.name)).toEqual(['agents', 'skills', 'tasks'])
+		expect(described.map((c) => c.name)).toEqual(['agents', 'goal', 'skills', 'tasks'])
 	})
 })
 
@@ -142,6 +221,6 @@ describe('two commands cannot share a name', () => {
 		const registry = new HostCommandRegistry()
 		registry.register(kernelHostCommands({}))
 
-		expect(() => registry.register(kernelHostCommands({}))).toThrow(/tasks|agents/)
+		expect(() => registry.register(kernelHostCommands({}))).toThrow(/goal|tasks|agents/)
 	})
 })

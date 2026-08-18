@@ -163,6 +163,20 @@ export {
 } from './manager/topic/objective.js'
 export { StaleObjectiveError } from './types/topic/objective.js'
 
+// A completion goal belongs to one durable Session. The direct host command
+// consumes this store; automatic continuation is a separate driver rather
+// than a side effect hidden inside persistence.
+export {
+	DiskSessionGoalStore,
+	GoalExistsError,
+	GoalNotFoundError,
+	GoalSessionNotFoundError,
+	GoalTransitionError,
+	InMemorySessionGoalStore,
+	MAX_GOAL_OBJECTIVE_CHARS,
+	StaleGoalError,
+} from './store/goal/index.js'
+
 export {
 	EnvCredentialProvider,
 	ReadOnlyCredentialProviderError,
@@ -1158,7 +1172,10 @@ export type { CompactRegionInput } from './compaction/manual.js'
 export type { UsageSink } from './compaction/verifier.js'
 export type { PluginDiscoveryOptions } from './plugin/loader.js'
 export type { ProbeContextInput } from './probe/context.js'
-export type { KernelCommandOptions } from './registry/command/kernel-commands.js'
+export type {
+	GoalCommandScope,
+	KernelCommandOptions,
+} from './registry/command/kernel-commands.js'
 export type { ToolCatalogFromRegistryOptions } from './registry/toolset/catalog.js'
 export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
 export type { BidiRun, BidiRunParams } from './runtime/bidi/session.js'

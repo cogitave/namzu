@@ -16,6 +16,7 @@ import type {
 	EmergencySaveId,
 	EnvironmentId,
 	ExecutionContextId,
+	GoalId,
 	HandoffId,
 	KnowledgeBaseId,
 	KnowledgeBaseRef,
@@ -99,6 +100,10 @@ export function generateMessageId(): MessageId {
 
 export function generateSessionId(): SessionId {
 	return generateId('ses_')
+}
+
+export function generateGoalId(): GoalId {
+	return generateId('goal_')
 }
 
 export function generateToolCallId(): ToolCallId {
@@ -309,6 +314,7 @@ function makeIdParser<T extends `${P}${string}`, P extends string = string>(
 export const asRunId: IdParser<RunId> = makeIdParser('run_')
 export const asMessageId: IdParser<MessageId> = makeIdParser('msg_')
 export const asSessionId: IdParser<SessionId> = makeIdParser('ses_')
+export const asGoalId: IdParser<GoalId> = makeIdParser('goal_')
 export const asToolCallId: IdParser<ToolCallId> = makeIdParser('call_')
 export const asActivityId: IdParser<ActivityId> = makeIdParser('act_')
 export const asTaskId: IdParser<TaskId> = makeIdParser('task_')

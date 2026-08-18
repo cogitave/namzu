@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
 import { fixtureId, unchecked } from '../../../test-support/ids.js'
-import { InvalidIdError, asRunId, asSessionId, generateRunId } from '../../../utils/id.js'
+import {
+	InvalidIdError,
+	asGoalId,
+	asRunId,
+	asSessionId,
+	generateGoalId,
+	generateRunId,
+} from '../../../utils/id.js'
 import { UNKNOWN_TENANT_ID } from '../index.js'
-import type { RunId, SessionId, TenantId } from '../index.js'
+import type { GoalId, RunId, SessionId, TenantId } from '../index.js'
 
 /**
  * The id types are nominal, and this file is what keeps them that way.
@@ -59,11 +66,15 @@ describe('an id is not a string', () => {
 		// assertion at the call site.
 		const minted: RunId = generateRunId()
 		const checked: RunId = asRunId('run_from_a_log_line')
+		const goal: GoalId = generateGoalId()
+		const checkedGoal: GoalId = asGoalId('goal_from_a_session')
 		const fixture: RunId = fixtureId.run('from_a_test')
 		const sentinel: TenantId = UNKNOWN_TENANT_ID
 
 		expect(minted.startsWith('run_')).toBe(true)
 		expect(checked).toBe('run_from_a_log_line')
+		expect(goal.startsWith('goal_')).toBe(true)
+		expect(checkedGoal).toBe('goal_from_a_session')
 		expect(fixture).toBe('run_from_a_test')
 		expect(sentinel).toBe('tnt_unknown_legacy')
 	})
@@ -75,6 +86,7 @@ describe('an id is not a string', () => {
 		// catches a value read from a log, a URL or a flag.
 		expect(() => asRunId('ses_wrong_kind')).toThrow(InvalidIdError)
 		expect(() => asSessionId('run_wrong_kind')).toThrow(InvalidIdError)
+		expect(() => asGoalId('ses_wrong_kind')).toThrow(InvalidIdError)
 		expect(() => asRunId('')).toThrow(InvalidIdError)
 	})
 })

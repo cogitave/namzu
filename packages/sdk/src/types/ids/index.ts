@@ -17,6 +17,8 @@ import { type Id, unsafeId } from './brand.js'
 export type RunId = Id<'run', 'RunId'>
 export type MessageId = Id<'msg', 'MessageId'>
 export type SessionId = Id<'ses', 'SessionId'>
+/** Identifies one durable completion goal across its revisions. */
+export type GoalId = Id<'goal', 'GoalId'>
 export type ToolCallId = Id<'call', 'ToolCallId'>
 /**
  * Provider-issued tool-use identifier surfaced on the streaming event bus.

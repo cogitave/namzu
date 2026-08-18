@@ -62,7 +62,7 @@ Inside the session, grouped by the question each one answers:
 |---|---|
 | **What is going on** | `/status`, `/debug-config`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
-| **This conversation** | `/resume`, `/title`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/export` |
+| **This conversation** | `/resume`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
 | **Everything else** | `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
 
@@ -114,6 +114,27 @@ overflow relief; a context-reduction retry cannot replace state inherited from
 the earlier host-triggered pass with a summary built only from the newer run.
 The disk log remains append-only: one replacement record changes the projected
 conversation, and later turns append after it.
+
+**`/goal` is durable operator control for what this conversation should
+achieve.** `/goal <objective>` creates one, bare `/goal` inspects it, and
+`/goal edit <objective>`, `/goal pause`, `/goal resume`, and `/goal clear`
+change it under exact revisions. Control words are commands only when they are
+the whole argument: `/goal pause after verification` creates that literal
+objective. The command is handled by the host and never sent to the model as a
+prompt.
+
+The goal belongs to the durable session, not to the screen or the working
+directory. `/resume` therefore finds the same goal again. `/new`, `/clear`, and
+`/fork` create another session with no inherited goal; the source keeps its own.
+An unfinished goal cannot be silently replaced — edit or clear it explicitly.
+A pending goal write also closes the input boundary until it settles, so a
+later conversation switch cannot overtake the write and make its result appear
+under the wrong session.
+
+This command currently persists and controls goal state; it does not start an
+automatic continuation loop. A host that wants unattended continuation must
+drive the exported session-goal store deliberately, including its own
+quiescence, budget, interruption, admission accounting, and ownership policy.
 
 **`/clear` starts a fresh conversation and clears the terminal; `/new` starts the
 same fresh conversation without clearing the terminal.** In both cases the old

@@ -57,6 +57,7 @@ export type * from './types/bus/index.js'
 export type * from './types/probe/index.js'
 export type * from './types/doctor/index.js'
 export type * from './types/workspace/index.js'
+export type * from './types/goal/index.js'
 
 // Session-hierarchy type surface (ses_010 moved entities here).
 export type * from './types/session/index.js'
@@ -228,6 +229,14 @@ export type {
 	AdvanceObjectiveParams,
 	DriveObjectiveParams,
 } from './manager/topic/objective.js'
+
+export type {
+	CreateSessionGoalParams,
+	DiskSessionGoalStoreConfig,
+	EditSessionGoalParams,
+	InMemorySessionGoalStoreConfig,
+	SessionGoalStore,
+} from './store/goal/index.js'
 
 export type { AgentHandle, AgentHandleOptions, AgentHandleStatus } from './agents/handle.js'
 

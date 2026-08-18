@@ -29,18 +29,21 @@ describe('a command the kernel registers reaches the operator', () => {
 
 		expect(names).toContain('tasks')
 		expect(names).toContain('agents')
+		expect(names).toContain('goal')
 	})
 
 	it('is offered by autocomplete', () => {
 		const merged = mergeHostCommands(kernelCommandDescriptors())
 
 		expect(matchSlashCommands('/ta', [], merged).map((c) => c.name)).toContain('tasks')
+		expect(matchSlashCommands('/go', [], merged).map((c) => c.name)).toContain('goal')
 	})
 
 	it('is known to the headless path, so it is not sent to the model as prose', () => {
 		// The failure mode a name list can have and a dropdown cannot: an
 		// unrecognised `/command` becomes a prompt.
 		expect(hostCommandNames()).toContain('tasks')
+		expect(hostCommandNames()).toContain('goal')
 	})
 
 	it('keeps the CLI-local commands first', () => {

@@ -466,6 +466,8 @@ export function App({ ctx }: AppProps) {
 	const [conversationMutation, setConversationMutation] = useState<ConversationMutation | null>(null)
 	/** Closes the same-tick input window while a verified export reads disk. */
 	const exportingRef = useRef(false)
+	/** A goal mutation is ordered before any later conversation command. */
+	const goalCommandInFlightRef = useRef(false)
 	/**
 	 * Whether a conversation has been chosen and is still being read.
 	 *
@@ -1859,6 +1861,13 @@ export function App({ ctx }: AppProps) {
 
 	const handleSubmit = useCallback(
 		(value: string, attachments?: readonly MessageAttachment[]) => {
+			if (goalCommandInFlightRef.current) {
+				pushMessage(
+					'system',
+					'A goal command is still reaching durable session state. Wait for its result before sending another command or prompt.',
+				)
+				return
+			}
 			if (exportingRef.current) {
 				pushMessage(
 					'system',
@@ -2097,18 +2106,49 @@ export function App({ ctx }: AppProps) {
 						// THIS session can answer from. The descriptors used for
 						// the merge above carry no store — they are names — so the
 						// registry is rebuilt here with the live one.
+						const durableSessions = sessionsRef.current
+						const runScope = scopeRef.current
+						const generation = conversationGenRef.current
+						const goalCommand = slash.name === 'goal'
+						if (goalCommand) goalCommandInFlightRef.current = true
 						const registry = new HostCommandRegistry()
-						registry.register(kernelHostCommands({ allowedAgentIds: session?.agentIds ?? [] }))
+						registry.register(
+							kernelHostCommands({
+								allowedAgentIds: session?.agentIds ?? [],
+								...(durableSessions && runScope
+									? {
+											goal: {
+												store: durableSessions.goals,
+												sessionId: runScope.sessionId,
+												tenantId: durableSessions.tenantId,
+											},
+										}
+									: {}),
+							}),
+						)
 						void (async () => {
-							const outcome = await registry.dispatch(
-								`/${slash.name} ${slash.args.join(' ')}`.trim(),
-							)
-							pushMessage(
-								'system',
-								outcome
-									? renderOutcome(outcome)
-									: `/${slash.name} is registered but this session cannot run it.`,
-							)
+							try {
+								const outcome = await registry.dispatch(
+									`/${slash.name} ${slash.args.join(' ')}`.trim(),
+								)
+								// A late readout from the conversation just left must not be
+								// painted as state of the one now on screen.
+								if (conversationGenRef.current !== generation) return
+								pushMessage(
+									'system',
+									outcome
+										? renderOutcome(outcome)
+										: `/${slash.name} is registered but this session cannot run it.`,
+								)
+							} catch (error) {
+								if (conversationGenRef.current !== generation) return
+								pushMessage(
+									'system',
+									`Could not run /${slash.name}: ${error instanceof Error ? error.message : String(error)}`,
+								)
+							} finally {
+								if (goalCommand) goalCommandInFlightRef.current = false
+							}
 						})()
 						return
 					}

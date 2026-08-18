@@ -59,6 +59,16 @@ Public ids are encoded injectively for immutable revision directories so path
 syntax cannot leave the configured root. A previous single-file name is still
 read directly when the id was already one path component, preserving dotted,
 spaced and Unicode ids during migration. Separators and NUL are encoded.
+Listing stores decode and validate the immutable directory names themselves;
+they do not depend on the best-effort projection being present. A store may
+also suppress a legacy projection when the old filename scheme would map two
+logical keys to one path.
+
+The revision record helper takes a domain-specific revision selector. Topic
+state and topic objectives use their public revision directly. Other stores may
+use a private monotonic storage sequence when their public identity can restart
+— session goals, for example, begin a fresh public goal at revision 1 after a
+clear tombstone while their immutable record sequence continues forward.
 
 ## Filesystem requirement
 
