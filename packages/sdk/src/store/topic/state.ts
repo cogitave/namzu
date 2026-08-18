@@ -31,8 +31,16 @@ import { defineSchema } from '../schema.js'
  * record is designed to be folded into one if that arrives.
  */
 
-const SCHEMA = defineSchema({ kind: 'topic-state', current: 1, migrations: {} })
-const revisionRecords = new DiskRevisionRecordStore<TopicState>(SCHEMA, 'topic state store')
+const SCHEMA = defineSchema({
+	kind: 'topic-state',
+	current: 1,
+	migrations: {},
+})
+const revisionRecords = new DiskRevisionRecordStore<TopicState>(
+	SCHEMA,
+	'topic state store',
+	(record) => record.revision,
+)
 
 export interface TopicStateStore {
 	/** `null` when this topic has never had state written. */
@@ -72,7 +80,10 @@ function next(
 	topicId: TopicId,
 	tenantId: TenantId,
 	previous: TopicState | null,
-	patch: { permissionMode?: PermissionMode; queuedMessages?: readonly Message[] },
+	patch: {
+		permissionMode?: PermissionMode
+		queuedMessages?: readonly Message[]
+	},
 	now: number,
 ): TopicState {
 	return {
@@ -111,7 +122,10 @@ function assertFresh(topicId: TopicId, actual: number, expected: number): void {
 function proposeState(
 	topicId: TopicId,
 	tenantId: TenantId,
-	patch: { permissionMode?: PermissionMode; queuedMessages?: readonly Message[] },
+	patch: {
+		permissionMode?: PermissionMode
+		queuedMessages?: readonly Message[]
+	},
 	revision: number,
 	now: () => number,
 	existing: TopicState | null,

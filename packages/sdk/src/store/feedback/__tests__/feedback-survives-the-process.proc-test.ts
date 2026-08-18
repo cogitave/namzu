@@ -1,7 +1,8 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -15,6 +16,10 @@ import { afterEach, describe, expect, it } from 'vitest'
  */
 
 const DIST = join(import.meta.dirname, '../../../../dist/store/feedback/disk.js')
+const DIST_DIR = join(import.meta.dirname, '../../../../dist')
+const WORKER = join(import.meta.dirname, 'feedback-cas-worker.mjs')
+const exec = promisify(execFile)
+const UPDATE_RECORDS = 160
 
 const dirs: string[] = []
 
@@ -91,4 +96,101 @@ describe('feedback survives the process that recorded it', () => {
 		expect(run(write('good'))).toBe('ok')
 		expect(run(write('bad'))).toBe('StaleFeedbackError')
 	})
+
+	it('admits one version-one update per message across real processes', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-update-proc-'))
+		dirs.push(root)
+		const runsDir = join(root, 'runs')
+		const feedbackDir = join(root, 'feedback')
+		const runDir = join(runsDir, 'run_feedback_update_proc')
+		const prefix = 'msg_feedback_update_proc_'
+		const ids = Array.from({ length: UPDATE_RECORDS }, (_, index) => `${prefix}${index}`)
+		await mkdir(runDir, { recursive: true })
+		await writeFile(
+			join(runDir, 'transcript.jsonl'),
+			`${ids
+				.map((messageId, index) =>
+					JSON.stringify({
+						seq: index + 1,
+						type: 'text_delta',
+						runId: 'run_feedback_update_proc',
+						messageId,
+					}),
+				)
+				.join('\n')}\n`,
+		)
+
+		const { DiskMessageFeedbackStore } = await import('../disk.js')
+		const seed = new DiskMessageFeedbackStore({
+			rootDir: feedbackDir,
+			runsDir,
+		})
+		for (const messageId of ids) {
+			await seed.putMessageFeedback({
+				runId: 'run_feedback_update_proc' as never,
+				messageId: messageId as never,
+				rating: 'good',
+				expectedVersion: 0,
+			})
+		}
+
+		// Past process startup. Without a barrier one child can finish the
+		// batch before another imports the SDK, which proves sequencing rather
+		// than arbitration of the same expected version.
+		const barrier = String(Date.now() + 1_500)
+		const outputs = await Promise.all(
+			Array.from({ length: 3 }, (_, index) =>
+				exec(
+					process.execPath,
+					[
+						WORKER,
+						DIST_DIR,
+						feedbackDir,
+						runsDir,
+						prefix,
+						String(UPDATE_RECORDS),
+						`w${index}`,
+						barrier,
+					],
+					{ maxBuffer: 4 * 1024 * 1024 },
+				),
+			),
+		)
+		const results = outputs.map(
+			({ stdout }) =>
+				JSON.parse(stdout.trim()) as {
+					won: {
+						id: string
+						rating: 'good' | 'bad'
+						note: string
+						worker: string
+					}[]
+					unexpected: { id: string; name?: string; message?: string }[]
+				},
+		)
+		const byId = new Map<string, (typeof results)[number]['won']>()
+		for (const result of results) {
+			expect(result.unexpected).toEqual([])
+			for (const winner of result.won) {
+				byId.set(winner.id, [...(byId.get(winner.id) ?? []), winner])
+			}
+		}
+		expect(byId.size).toBe(UPDATE_RECORDS)
+		expect([...byId.values()].filter((winners) => winners.length !== 1)).toEqual([])
+
+		const durable = await new DiskMessageFeedbackStore({
+			rootDir: feedbackDir,
+			runsDir,
+		}).listMessageFeedback({ runId: 'run_feedback_update_proc' as never })
+		expect(durable).toHaveLength(UPDATE_RECORDS)
+		for (const record of durable) {
+			const winners = byId.get(record.messageId)
+			expect(winners).toHaveLength(1)
+			expect(record).toMatchObject({
+				ownerVersion: 2,
+				rating: winners?.[0]?.rating,
+				note: winners?.[0]?.note,
+			})
+		}
+	}, 60_000)
 })

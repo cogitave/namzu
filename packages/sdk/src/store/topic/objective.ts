@@ -28,8 +28,16 @@ import { defineSchema } from '../schema.js'
  * have nothing to say to each other.
  */
 
-const SCHEMA = defineSchema({ kind: 'topic-objective', current: 1, migrations: {} })
-const revisionRecords = new DiskRevisionRecordStore<TopicObjective>(SCHEMA, 'topic objective store')
+const SCHEMA = defineSchema({
+	kind: 'topic-objective',
+	current: 1,
+	migrations: {},
+})
+const revisionRecords = new DiskRevisionRecordStore<TopicObjective>(
+	SCHEMA,
+	'topic objective store',
+	(record) => record.revision,
+)
 
 export interface CreateObjectiveParams {
 	readonly id: string
@@ -117,7 +125,10 @@ function missing(id: string): Error {
 
 function assertTenant(record: TopicObjective, tenantId: TenantId): void {
 	if (record.tenantId !== tenantId) {
-		throw new TenantIsolationError({ requested: tenantId, resource: `objective(${record.id})` })
+		throw new TenantIsolationError({
+			requested: tenantId,
+			resource: `objective(${record.id})`,
+		})
 	}
 }
 
@@ -233,7 +244,10 @@ abstract class ObjectiveStoreBase implements TopicObjectiveStore {
 		if (outcome.exhausted) {
 			// Blocked BEFORE the throw. The committed result is what a reader sees
 			// even if this exception is swallowed or the caller exits on it.
-			throw new ObjectiveExhaustedError({ id, maxRounds: outcome.record.maxRounds })
+			throw new ObjectiveExhaustedError({
+				id,
+				maxRounds: outcome.record.maxRounds,
+			})
 		}
 		return outcome.record
 	}

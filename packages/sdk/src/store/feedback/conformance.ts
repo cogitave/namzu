@@ -122,6 +122,45 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 			expect(listed[0]?.ownerVersion).toBe(1)
 		})
 
+		it('lets exactly one of two racing updates advance a stored version', async () => {
+			const { store, runId, knownMessageId } = await makeStore()
+			await store.putMessageFeedback({
+				runId,
+				messageId: knownMessageId,
+				rating: 'good',
+				expectedVersion: 0,
+			})
+
+			const attempts = [
+				{ rating: 'good' as const, note: 'writer-a' },
+				{ rating: 'bad' as const, note: 'writer-b' },
+			].map((candidate) =>
+				store
+					.putMessageFeedback({
+						runId,
+						messageId: knownMessageId,
+						...candidate,
+						expectedVersion: 1,
+					})
+					.then(
+						(record) => ({ kind: 'ok' as const, record }),
+						() => ({ kind: 'refused' as const }),
+					),
+			)
+			const outcomes = await Promise.all(attempts)
+			const winners = outcomes.filter((outcome) => outcome.kind === 'ok')
+
+			expect(winners).toHaveLength(1)
+			expect(outcomes.filter((outcome) => outcome.kind === 'refused')).toHaveLength(1)
+			const winner = winners[0]
+			if (winner?.kind !== 'ok') throw new Error('expected one feedback update winner')
+			const listed = await store.listMessageFeedback({ runId })
+			expect(listed).toHaveLength(1)
+			expect(listed[0]?.ownerVersion).toBe(2)
+			expect(listed[0]?.rating).toBe(winner.record.rating)
+			expect(listed[0]?.note).toBe(winner.record.note)
+		})
+
 		it('advances the version on a correct update', async () => {
 			const { store, runId, knownMessageId } = await makeStore()
 			await store.putMessageFeedback({

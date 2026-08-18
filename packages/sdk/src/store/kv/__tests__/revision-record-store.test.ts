@@ -8,6 +8,7 @@ import { DiskRecordStore } from '../record-store.js'
 import {
 	DiskRevisionRecordStore,
 	type RevisionedRecordLocation,
+	decodeRevisionFileSegment,
 	legacyRevisionFileSegment,
 	revisionFileSegment,
 } from '../revision-record-store.js'
@@ -17,7 +18,11 @@ interface RecordValue {
 	readonly value: string
 }
 
-const SCHEMA = defineSchema({ kind: 'revision-record-test', current: 1, migrations: {} })
+const SCHEMA = defineSchema({
+	kind: 'revision-record-test',
+	current: 1,
+	migrations: {},
+})
 const roots: string[] = []
 
 afterEach(async () => {
@@ -38,7 +43,11 @@ async function fixture(): Promise<{
 			legacyPath: join(root, 'record.json'),
 			revisionsDir: join(root, '.revisions', 'record'),
 		},
-		store: new DiskRevisionRecordStore<RecordValue>(SCHEMA, 'test revision store'),
+		store: new DiskRevisionRecordStore<RecordValue>(
+			SCHEMA,
+			'test revision store',
+			(record) => record.revision,
+		),
 	}
 }
 
@@ -132,7 +141,10 @@ describe('an immutable revision record', () => {
 			})
 
 		try {
-			expect(await store.read(location)).toMatchObject({ revision: 2, value: 'second' })
+			expect(await store.read(location)).toMatchObject({
+				revision: 2,
+				value: 'second',
+			})
 		} finally {
 			scan.mockRestore()
 		}
@@ -157,6 +169,17 @@ describe('revision filesystem segments', () => {
 			expect(segment).not.toMatch(/[\\/.]/)
 			expect(segment).not.toBe('..')
 		}
+	})
+
+	it('round-trips every canonical segment without admitting aliases', () => {
+		const inputs = ['msg_plain', '../x', 'a\\b', '', '~empty', '\ud800', 'ü', '%2F']
+		for (const input of inputs) {
+			expect(decodeRevisionFileSegment(revisionFileSegment(input))).toBe(input)
+		}
+		expect(decodeRevisionFileSegment('')).toBeNull()
+		expect(decodeRevisionFileSegment('~0061')).toBeNull()
+		expect(decodeRevisionFileSegment('~00AF')).toBeNull()
+		expect(decodeRevisionFileSegment('not.valid')).toBeNull()
 	})
 
 	it('preserves an old single-component projection name but confines separators', () => {

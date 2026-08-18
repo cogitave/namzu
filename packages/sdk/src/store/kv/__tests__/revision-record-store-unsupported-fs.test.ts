@@ -46,11 +46,15 @@ describe('a filesystem that cannot publish an immutable revision', () => {
 	})
 
 	function write() {
-		const schema = defineSchema({ kind: 'revision-fs-test', current: 1, migrations: {} })
-		const store = new DiskRevisionRecordStore<{ revision: number; value: string }>(
-			schema,
-			'test revision store',
-		)
+		const schema = defineSchema({
+			kind: 'revision-fs-test',
+			current: 1,
+			migrations: {},
+		})
+		const store = new DiskRevisionRecordStore<{
+			revision: number
+			value: string
+		}>(schema, 'test revision store', (record) => record.revision)
 		return store.transact(
 			{
 				legacyPath: join(root, 'record.json'),
