@@ -83,12 +83,35 @@ import type { LinkageView } from './linkage.js'
  */
 const SCHEMA = defineSchema({
 	kind: 'session-store',
-	current: 3,
+	current: 4,
 	migrations: {
 		1: migrateSessionStoreThreadIdToTopicId,
 		2: migrateSessionStoreTopicIdPrefix,
+		3: migrateSessionStoreMessageRecordKind,
 	},
 })
+
+/**
+ * v3 → v4: distinguish ordinary message appends from atomic replacements.
+ *
+ * The schema migrator runs over every record kind in this store, so the
+ * predicate names the fields unique to a message-log line and leaves project,
+ * session, sub-session and summary records byte-for-byte alone.
+ */
+export function migrateSessionStoreMessageRecordKind(
+	record: Record<string, unknown>,
+): Record<string, unknown> {
+	if (
+		record.recordKind !== undefined ||
+		typeof record.id !== 'string' ||
+		typeof record.sessionId !== 'string' ||
+		!('message' in record) ||
+		typeof record.at !== 'string'
+	) {
+		return record
+	}
+	return { ...record, recordKind: 'message' }
+}
 
 /**
  * Read, write and list, through the one implementation.
@@ -216,12 +239,33 @@ interface PersistedSubSession {
 }
 
 interface PersistedMessageLine {
+	recordKind: 'message'
 	id: MessageId
 	sessionId: SessionId
 	tenantId: TenantId
 	message: Message
 	at: string
 }
+
+/**
+ * One atomic projection change inside the append-only message log.
+ *
+ * Writing the replacement as several ordinary lines would expose a prefix if
+ * the process died between appends. One line is the transaction boundary: a
+ * reader sees the old conversation or the complete compacted one.
+ */
+interface PersistedMessageReplacementLine {
+	recordKind: 'replacement'
+	sessionId: SessionId
+	tenantId: TenantId
+	messages: readonly {
+		readonly id: MessageId
+		readonly message: Message
+		readonly at: string
+	}[]
+}
+
+type PersistedMessageRecord = PersistedMessageLine | PersistedMessageReplacementLine
 
 interface PersistedSummary {
 	id: SummaryId
@@ -738,6 +782,7 @@ export class DiskSessionStore implements SessionStore {
 
 		const id = generateMessageId()
 		const entry: PersistedMessageLine = {
+			recordKind: 'message',
 			id,
 			sessionId,
 			tenantId,
@@ -753,6 +798,36 @@ export class DiskSessionStore implements SessionStore {
 			'utf-8',
 		)
 		return id
+	}
+
+	async replaceMessages(
+		sessionId: SessionId,
+		messages: readonly Message[],
+		tenantId: TenantId,
+	): Promise<void> {
+		const located = await this.locateSession(sessionId)
+		if (!located) throw new Error(`Session ${sessionId} not found`)
+
+		const session = await records.read<PersistedSession>(join(located.path, 'session.json'))
+		if (!session) throw new Error(`Session ${sessionId} not found on disk`)
+		this.assertTenant(session.tenantId, tenantId, `session(${sessionId})`)
+
+		const at = new Date().toISOString()
+		const entry: PersistedMessageReplacementLine = {
+			recordKind: 'replacement',
+			sessionId,
+			tenantId,
+			messages: messages.map((message) => ({ id: generateMessageId(), message, at })),
+		}
+		// One append, however many projected messages. If the process dies before
+		// this line lands, readers see the old projection; after it lands, they
+		// see the whole replacement. There is no prefix state to mistake for a
+		// successful compaction.
+		await appendFile(
+			join(located.path, 'messages.jsonl'),
+			`${JSON.stringify(stamp(SCHEMA, entry))}\n`,
+			'utf-8',
+		)
 	}
 
 	async loadMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly Message[]> {
@@ -781,16 +856,28 @@ export class DiskSessionStore implements SessionStore {
 			throw err
 		}
 		const lines = raw.split('\n').filter((l) => l.length > 0)
-		return lines.map((line) => {
-			const persisted = migrate<PersistedMessageLine>(SCHEMA, JSON.parse(line))
-			return {
+		let projected: SessionMessage[] = []
+		for (const line of lines) {
+			const persisted = migrate<PersistedMessageRecord>(SCHEMA, JSON.parse(line))
+			if (persisted.recordKind === 'replacement') {
+				projected = persisted.messages.map((entry) => ({
+					id: entry.id,
+					sessionId: persisted.sessionId,
+					tenantId: persisted.tenantId,
+					message: entry.message,
+					at: new Date(entry.at),
+				}))
+				continue
+			}
+			projected.push({
 				id: persisted.id,
 				sessionId: persisted.sessionId,
 				tenantId: persisted.tenantId,
 				message: persisted.message,
 				at: new Date(persisted.at),
-			}
-		})
+			})
+		}
+		return projected
 	}
 
 	// Linkage -----------------------------------------------------------------

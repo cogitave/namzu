@@ -53,10 +53,10 @@ describe('what lands on disk', () => {
 	it('stamps a session record', async () => {
 		const { projectId, sessionId } = await seed()
 		const raw = JSON.parse(await readFile(sessionPath(projectId, sessionId), 'utf-8'))
-		// v3 as of NZ-TOPIC-04 — the `thd_` -> `top_` prefix narrowing bumped the
-		// shared session-store schema again, so every record this build writes
-		// now carries the current stamp, not the one NZ-TOPIC-03 left it at.
-		expect(raw.schemaVersion).toBe(3)
+		// v4 distinguishes ordinary message lines from replacement projection
+		// records. The schema is shared by every session-store record, so a
+		// session carries that current stamp even though its own shape is unchanged.
+		expect(raw.schemaVersion).toBe(4)
 	})
 
 	it('stamps every line of the append-only message log', async () => {
@@ -72,7 +72,7 @@ describe('what lands on disk', () => {
 		expect(lines).toHaveLength(2)
 		// An append-only log is written by many builds over its lifetime, so
 		// its lines can legitimately differ in version — each carries its own.
-		for (const line of lines) expect(JSON.parse(line).schemaVersion).toBe(3)
+		for (const line of lines) expect(JSON.parse(line).schemaVersion).toBe(4)
 	})
 })
 
@@ -191,7 +191,7 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		await store.updateSession({ ...loaded, status: 'active' }, TENANT)
 
 		const rewritten = JSON.parse(await readFile(join(dir, 'session.json'), 'utf-8'))
-		expect(rewritten.schemaVersion).toBe(3)
+		expect(rewritten.schemaVersion).toBe(4)
 		expect(rewritten.topicId).toBe('top_legacy2')
 		expect(rewritten.threadId).toBeUndefined()
 	})

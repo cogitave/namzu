@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { TenantIsolationError } from '../../../session/errors.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import { createSystemMessage, createUserMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import { DiskSessionStore } from '../disk.js'
 
@@ -134,6 +134,48 @@ describe('DiskSessionStore', () => {
 		)
 		const lines = jsonl.split('\n').filter((l) => l.length > 0)
 		expect(lines).toHaveLength(2)
+	})
+
+	it('projects one complete replacement from one append-only log record', async () => {
+		const { project, session } = await seed(store, tenantA)
+		await store.appendMessage(session.id, createUserMessage('old-a'), tenantA)
+		await store.appendMessage(session.id, createUserMessage('old-b'), tenantA)
+
+		await store.replaceMessages(
+			session.id,
+			[createSystemMessage('summary'), createUserMessage('recent')],
+			tenantA,
+		)
+		await store.appendMessage(session.id, createUserMessage('after'), tenantA)
+
+		const fresh = new DiskSessionStore({ rootDir })
+		expect(
+			(await fresh.loadMessages(session.id, tenantA)).map((message) => message.content),
+		).toEqual(['summary', 'recent', 'after'])
+
+		const jsonl = await readFile(
+			join(rootDir, 'projects', project.id, 'sessions', session.id, 'messages.jsonl'),
+			'utf-8',
+		)
+		const lines = jsonl
+			.split('\n')
+			.filter(Boolean)
+			.map((line) => JSON.parse(line))
+		// The two superseded records still exist; replacement is a projection
+		// event, not a rewrite disguised as one.
+		expect(lines).toHaveLength(4)
+		expect(lines[2]?.recordKind).toBe('replacement')
+		expect(lines[2]?.messages).toHaveLength(2)
+	})
+
+	it('rejects a cross-tenant replacement before it touches the log', async () => {
+		const { project, session } = await seed(store, tenantA)
+		const path = join(rootDir, 'projects', project.id, 'sessions', session.id, 'messages.jsonl')
+
+		await expect(
+			store.replaceMessages(session.id, [createUserMessage('forged')], tenantB),
+		).rejects.toBeInstanceOf(TenantIsolationError)
+		await expect(readFile(path, 'utf-8')).rejects.toMatchObject({ code: 'ENOENT' })
 	})
 
 	it('loadMessages returns [] when no messages yet persisted', async () => {

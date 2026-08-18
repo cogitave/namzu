@@ -20,6 +20,9 @@ import {
 	type Message,
 	type MessageId,
 	type RunId,
+	createAssistantMessage,
+	createUserMessage,
+	isCompactionMessage,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput } from 'ink'
 import { join, relative } from 'node:path'
@@ -61,7 +64,6 @@ import { Picker } from './Picker.js'
 import { type ContextFill, StatusBar } from './StatusBar.js'
 import { Transcript, willCollapse } from './Transcript.js'
 import { liveWindow, transcriptLines } from './live-window.js'
-import { createAssistantMessage, createUserMessage } from '@namzu/sdk'
 import {
 	type CliSessions,
 	type RecentConversation,
@@ -70,6 +72,7 @@ import {
 	listRecent,
 	loadConversation,
 	openSessions,
+	replaceConversation,
 	setTitle,
 	startConversation,
 	titleOf,
@@ -150,6 +153,17 @@ export function App({ ctx }: AppProps) {
 	 */
 	const lastAssistantMessage = useRef<{ runId: string; messageId: string } | null>(null)
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
+	/**
+	 * The conversation sent to the model, in the SDK's own lossless shape.
+	 *
+	 * The transcript is a view: it has system notices and tool decorations, and
+	 * its user rows deliberately keep readable `@file` tokens instead of the
+	 * expanded content sent to the provider. Rebuilding history from that view
+	 * dropped manual-compaction summaries, file expansions, and attachments.
+	 * This ref is the one record of model-visible history; transcript state never
+	 * has to pretend it is one.
+	 */
+	const modelHistoryRef = useRef<readonly Message[]>([])
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
@@ -206,6 +220,9 @@ export function App({ ctx }: AppProps) {
 	const settledRef = useRef<number>(0)
 	// Messages typed while a turn is running — auto-sent when it settles.
 	const [queued, setQueued] = useState<readonly string[]>([])
+	/** Manual compaction owns the conversation snapshot until its durable write lands. */
+	const compactingRef = useRef(false)
+	const [compacting, setCompacting] = useState(false)
 	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
 	const [selectedResume, setSelectedResume] = useState<number>(0)
 	const exitArmedRef = useRef<boolean>(false)
@@ -255,6 +272,16 @@ export function App({ ctx }: AppProps) {
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
+	/**
+	 * Conversation writes in the order the operator produced them.
+	 *
+	 * A turn becomes idle before its best-effort disk append necessarily lands,
+	 * so `/compact` can otherwise append a replacement first and let that older
+	 * turn arrive after it. The projection then contains the compacted turn twice.
+	 * This tail never rejects — each write reports its own failure — which makes
+	 * it safe for the next write and manual compaction to await.
+	 */
+	const persistenceTailRef = useRef<Promise<void>>(Promise.resolve())
 	/**
 	 * How many times the operator has switched conversations.
 	 *
@@ -875,17 +902,34 @@ export function App({ ctx }: AppProps) {
 			}
 			resumeCommittedRef.current = false
 			setPhase('ready')
-			const restored: TranscriptMessage[] = msgs
-				.filter((m) => m.role === 'user' || m.role === 'assistant')
-				.map((m) => ({
-					id: nextId(),
-					role: m.role as 'user' | 'assistant',
-					content: typeof m.content === 'string' ? m.content : '',
-				}))
+			const restored = msgs.flatMap<TranscriptMessage>((message) => {
+				if (message.role === 'user' || message.role === 'assistant') {
+					return [
+						{
+							id: nextId(),
+							role: message.role,
+							content: typeof message.content === 'string' ? message.content : '',
+						},
+					]
+				}
+				if (message.role === 'system' && isCompactionMessage(message.content)) {
+					return [
+						{
+							id: nextId(),
+							role: 'system' as const,
+							content: 'Earlier turns are represented by the compacted summary below.',
+							glyph: '⌫',
+							detail: summaryDetail(message),
+						},
+					]
+				}
+				return []
+			})
 			const interrupted = interruptTurn()
 			conversationGenRef.current += 1
 			resetTranscript()
 			setMessages(restored)
+			modelHistoryRef.current = msgs
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
 			pushMessage('system', `Resumed: ${conv.title}`)
 			if (interrupted) {
@@ -1141,19 +1185,9 @@ export function App({ ctx }: AppProps) {
 			// `@path` mentions: the visible message keeps the readable token, but
 			// the model receives the file contents inlined.
 			const { sendText, attached } = expandFileMentions(text, ctx.cwd)
-			const priorForSdk: Message[] = messages
-				.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.pending)
-				.map((m) => ({
-					role: m.role as 'user' | 'assistant',
-					content: m.content,
-					timestamp: Date.now(),
-				}))
-			priorForSdk.push({
-				role: 'user',
-				content: sendText,
-				timestamp: Date.now(),
-				...(images && images.length > 0 ? { attachments: images } : {}),
-			})
+			const historyBeforeTurn = modelHistoryRef.current
+			const userMessage = createUserMessage(sendText, images)
+			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
 
 			const metaParts: string[] = []
 			if (attached.length > 0)
@@ -1225,11 +1259,18 @@ export function App({ ctx }: AppProps) {
 					pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 				}
 			} finally {
+				// One turn shape, used by both the next provider request and the durable
+				// store. The visible transcript keeps the operator's readable `@file`
+				// token; this message keeps what was actually sent, including expanded
+				// contents and attachments.
+				const turn: Message[] = [userMessage]
+				if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
 				// The screen belongs to the conversation on it, which after a
 				// `/resume` is no longer this turn's. `interruptTurn` already did this
 				// cleanup at the moment it decided to stop; repeating it here would
 				// clear the state of whatever has started since.
 				if (stillHere()) {
+					modelHistoryRef.current = [...historyBeforeTurn, ...turn]
 					// Unguarded, and it can be: a second turn cannot start in the
 					// conversation this one is running in — the composer queues instead
 					// — so within one generation this handle is still ours. An
@@ -1260,20 +1301,22 @@ export function App({ ctx }: AppProps) {
 				// fault of the one in front of them.
 				const sessions = sessionsRef.current
 				if (sessions && destination) {
-					const turn: Message[] = [createUserMessage(text)]
-					if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
-					void appendMessages(sessions, destination, turn).catch((err: unknown) => {
-						pushMessage(
-							'system',
-							`A turn was not saved to conversation ${destination}: ${
-								err instanceof Error ? err.message : String(err)
-							}. That conversation's history will not include it, and its next turn will not have it as context.`,
-						)
+					persistenceTailRef.current = persistenceTailRef.current.then(async () => {
+						try {
+							await appendMessages(sessions, destination, turn)
+						} catch (err) {
+							pushMessage(
+								'system',
+								`A turn was not saved to conversation ${destination}: ${
+									err instanceof Error ? err.message : String(err)
+								}. That conversation's history will not include it, and its next turn will not have it as context.`,
+							)
+						}
 					})
 				}
 			}
 		},
-		[activeSkills, applyEvent, ctx.cwd, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
+		[activeSkills, applyEvent, ctx.cwd, ctx.skipPermissions, finalizeMessage, onPermission, pushMessage, session],
 	)
 
 	const handleSubmit = useCallback(
@@ -1601,23 +1644,26 @@ export function App({ ctx }: AppProps) {
 							pushMessage('system', 'No session yet — nothing to compact.')
 							return
 						}
+						if (abortRef.current || state !== 'idle') {
+							pushMessage(
+								'system',
+								'A turn is still running. Compacting now would summarize a conversation while its next message is being written — wait for it to finish, or press esc to stop it.',
+							)
+							return
+						}
+						if (compactingRef.current) return
+						compactingRef.current = true
+						setCompacting(true)
+						setState('thinking')
 						// Fire-and-forget, the same shape `feedback` above uses and for
 						// the same reason: this switch is synchronous and the work is a
 						// model call. The transcript reports the outcome either way.
 						void (async () => {
 							try {
-								// Derived exactly as a turn derives it, so the thing
-								// summarised is the thing the model would have been sent.
-								// A second derivation here that drifted would compact a
-								// conversation nobody was having.
-								const sendable: Message[] = messages
-									.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.pending)
-									.map((m) => ({
-										role: m.role as 'user' | 'assistant',
-										content: m.content,
-										timestamp: Date.now(),
-									}))
-								const result = await session.compact(sendable)
+								// The same lossless record `runTurn` reads — including an earlier
+								// compaction summary and attachments. The transcript is only its
+								// rendered view and is never reverse-engineered into history.
+								const result = await session.compact(modelHistoryRef.current)
 								if (!result) {
 									// Not an error, and not silence: a conversation too short
 									// to shed anything is a real answer to a question the
@@ -1629,6 +1675,17 @@ export function App({ ctx }: AppProps) {
 									return
 								}
 
+								// Durable first, screen second. Reporting success and only then
+								// discovering `/resume` still has the old history is the exact
+								// false-success state this command used to create.
+								const sessions = sessionsRef.current
+								const destination = scopeRef.current?.sessionId
+								if (sessions && destination) {
+									await persistenceTailRef.current
+									await replaceConversation(sessions, destination, result.messages)
+								}
+								modelHistoryRef.current = result.messages
+
 								// How many user/assistant turns survived the pass.
 								// `keepRecentRows` explains why the transcript is trimmed
 								// to match rather than rebuilt from `result.messages`.
@@ -1636,11 +1693,20 @@ export function App({ ctx }: AppProps) {
 									(m) => m.role === 'user' || m.role === 'assistant',
 								).length
 
+								// The summary belongs before the surviving turns. `<Static>` only
+								// emits items beyond the index it has already printed, so prepending
+								// into the mounted transcript makes the summary invisible. Remount
+								// the projection just as `/resume` does when it replaces the log.
+								resetTranscript()
 								setMessages((prev) => {
 									const summaryRow: TranscriptMessage = {
 										id: `compact-${Date.now()}`,
 										role: 'system',
-										content: `Compacted ${result.shed} earlier message(s) into a summary.`,
+										content: `Compacted ${result.shed} earlier message(s) into a summary.${
+											sessions && destination
+												? ''
+												: ' Conversation persistence is unavailable, so this compacted history lasts only for this process.'
+										}`,
 										detail: summaryDetail(result.summary),
 									}
 									return [summaryRow, ...keepRecentRows(prev, keptTurns)]
@@ -1650,6 +1716,10 @@ export function App({ ctx }: AppProps) {
 									'system',
 									`Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
 								)
+							} finally {
+								compactingRef.current = false
+								setCompacting(false)
+								setState('idle')
 							}
 						})()
 						return
@@ -2039,11 +2109,11 @@ export function App({ ctx }: AppProps) {
 								</Box>
 							) : null}
 							<Composer
-								disabled={phase !== 'ready' || state === 'awaiting-permission'}
+								disabled={phase !== 'ready' || state === 'awaiting-permission' || compacting}
 								hidden={permission !== null}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
-								escapeInterrupts={state === 'thinking' || state === 'tool'}
+								escapeInterrupts={!compacting && (state === 'thinking' || state === 'tool')}
 								onSubmit={handleSubmit}
 								onNotice={(text) => pushMessage('system', text)}
 								userCommands={userCommands}
@@ -2058,7 +2128,11 @@ export function App({ ctx }: AppProps) {
 						provider={session?.providerSummary ?? null}
 						model={session?.modelSummary ?? null}
 						state={state}
-						hint={hintForPhase(phase, state, session?.hasProvider === true)}
+						hint={
+							compacting
+								? 'compacting conversation — input is paused'
+								: hintForPhase(phase, state, session?.hasProvider === true)
+						}
 						usage={usage}
 						context={context}
 					/>

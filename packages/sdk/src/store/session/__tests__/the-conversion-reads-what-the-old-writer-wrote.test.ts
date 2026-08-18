@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { ProjectId, TenantId } from '../../../types/ids/index.js'
 import { SCHEMA_VERSION_KEY } from '../../schema.js'
-import { DiskSessionStore } from '../disk.js'
+import { DiskSessionStore, migrateSessionStoreMessageRecordKind } from '../disk.js'
 
 /**
  * The two largest stores stopped hand-rolling read, write and scan.
@@ -63,6 +63,20 @@ function projectRecord(id: string, name: string, createdAt: number) {
 }
 
 describe('the converted store reads what the old writer wrote', () => {
+	it('marks only old message-log lines as ordinary appends', () => {
+		const old = {
+			id: 'msg_old',
+			sessionId: 'ses_old',
+			tenantId: TENANT,
+			message: { role: 'user', content: 'hello' },
+			at: '2026-08-18T00:00:00.000Z',
+		}
+		expect(migrateSessionStoreMessageRecordKind(old)).toEqual({ ...old, recordKind: 'message' })
+
+		const project = projectRecord('prj_a', 'A', 1)
+		expect(migrateSessionStoreMessageRecordKind(project)).toBe(project)
+	})
+
 	it('reads a project record written in the old byte layout', async () => {
 		// No trailing newline, which the primitive now adds on write. A reader
 		// that had come to depend on the newline would fail here and only

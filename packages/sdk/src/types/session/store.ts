@@ -322,6 +322,24 @@ export interface SessionStore {
 	appendMessage(sessionId: SessionId, message: Message, tenantId: TenantId): Promise<MessageId>
 
 	/**
+	 * Replace the conversation view with a compacted history. OPTIONAL.
+	 *
+	 * This is not deletion of the underlying log. A durable implementation may
+	 * append one replacement record and project every later read from it, which
+	 * keeps the write atomic while preserving the earlier records for recovery.
+	 *
+	 * Optional because existing hosts implement this interface, and manual
+	 * compaction is a host capability rather than a requirement every store must
+	 * gain. A caller that offers durable compaction checks for it and refuses to
+	 * claim persistence when the store cannot perform the replacement.
+	 */
+	replaceMessages?(
+		sessionId: SessionId,
+		messages: readonly Message[],
+		tenantId: TenantId,
+	): Promise<void>
+
+	/**
 	 * Load the full message history for a session in insertion order.
 	 * Returns an empty array when the session has no messages.
 	 *

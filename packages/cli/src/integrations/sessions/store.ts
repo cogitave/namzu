@@ -165,6 +165,30 @@ export async function appendMessages(
 	}
 }
 
+/**
+ * Replace the durable conversation view with a compacted history.
+ *
+ * The store writes this as one replacement record inside its append-only log,
+ * so a crash cannot expose the first half of a compacted conversation. Before
+ * replacing, pin the derived title without calling it a chosen name: the
+ * opening user message may be among the turns compacted away, and `/resume`
+ * must neither rename nor quote the conversation as a side effect of making
+ * it smaller.
+ */
+export async function replaceConversation(
+	s: CliSessions,
+	sessionId: SessionId,
+	messages: readonly Message[],
+): Promise<void> {
+	const existing = await loadConversation(s, sessionId)
+	const titles = readTitles(s.root)
+	if (titles[sessionId as string] === undefined) {
+		titles[sessionId as string] = { title: conversationTitle(existing), named: false }
+		writeTitles(s.root, titles)
+	}
+	await s.store.replaceMessages(sessionId, messages, s.tenantId)
+}
+
 /** Load a conversation's full message history. */
 export async function loadConversation(s: CliSessions, sessionId: SessionId): Promise<Message[]> {
 	return [...(await s.store.loadMessages(sessionId, s.tenantId))]
@@ -173,16 +197,16 @@ export async function loadConversation(s: CliSessions, sessionId: SessionId): Pr
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
 	const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
-	const named = readTitles(s.root)
+	const titles = readTitles(s.root)
 	const out: RecentConversation[] = []
 	for (const sess of sessions) {
 		const messages = await s.store.loadMessages(sess.id, s.tenantId)
 		if (messages.length === 0) continue
-		const chosen = named[sess.id as string]
+		const stored = titles[sess.id as string]
 		out.push({
 			id: sess.id,
-			title: chosen ?? conversationTitle(messages),
-			named: chosen !== undefined,
+			title: stored?.title ?? conversationTitle(messages),
+			named: stored?.named ?? false,
 			updatedAt: toIso(sess.updatedAt),
 			count: messages.length,
 		})
@@ -191,7 +215,9 @@ export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConv
 }
 
 /**
- * Operator-chosen conversation names, in a file beside the sessions.
+ * Conversation titles that must survive their opening message, in a file
+ * beside the sessions. `named` distinguishes a person's choice from a derived
+ * title pinned before compaction removes the message it came from.
  *
  * A sidecar rather than a field on the SDK's `Session`. Naming a conversation
  * is an operator-application concern: the kernel has no view that lists them
@@ -210,18 +236,32 @@ function titlesPath(root: string): string {
 	return join(root, TITLES_FILE)
 }
 
-function readTitles(root: string): Record<string, string> {
+interface StoredTitle {
+	readonly title: string
+	readonly named: boolean
+}
+
+function readTitles(root: string): Record<string, StoredTitle> {
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(titlesPath(root), 'utf-8'))
 		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
 		// Filtered rather than trusted. This file is on disk where a person can
-		// edit it, and a non-string value reaching the renderer as a title is a
-		// crash in a list nobody could then get out of.
-		return Object.fromEntries(
-			Object.entries(parsed as Record<string, unknown>).filter(
-				(entry): entry is [string, string] => typeof entry[1] === 'string',
-			),
-		)
+		// edit it, and a malformed value reaching the renderer as a title is a
+		// crash in a list nobody could then get out of. Strings are the v1 shape:
+		// every one was written by `/title`, so each remains a chosen name.
+		const titles: Record<string, StoredTitle> = {}
+		for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+			if (typeof value === 'string') {
+				titles[id] = { title: value, named: true }
+				continue
+			}
+			if (typeof value !== 'object' || value === null) continue
+			const candidate = value as Record<string, unknown>
+			if (typeof candidate.title === 'string' && typeof candidate.named === 'boolean') {
+				titles[id] = { title: candidate.title, named: candidate.named }
+			}
+		}
+		return titles
 	} catch {
 		// Absent, unreadable, or not JSON. A conversation with no chosen name
 		// still has a derived one, so the honest fallback is "nobody named
@@ -230,9 +270,15 @@ function readTitles(root: string): Record<string, string> {
 	}
 }
 
+function writeTitles(root: string, titles: Readonly<Record<string, StoredTitle>>): void {
+	mkdirSync(root, { recursive: true })
+	writeFileSync(titlesPath(root), `${JSON.stringify(titles, null, 2)}\n`, 'utf-8')
+}
+
 /** The name a person gave this conversation, or `undefined`. */
 export function titleOf(s: CliSessions, sessionId: SessionId): string | undefined {
-	return readTitles(s.root)[sessionId as string]
+	const stored = readTitles(s.root)[sessionId as string]
+	return stored?.named ? stored.title : undefined
 }
 
 /**
@@ -246,9 +292,8 @@ export function setTitle(s: CliSessions, sessionId: SessionId, title: string): v
 	const titles = readTitles(s.root)
 	const trimmed = title.trim()
 	if (trimmed === '') delete titles[sessionId as string]
-	else titles[sessionId as string] = trimmed
-	mkdirSync(s.root, { recursive: true })
-	writeFileSync(titlesPath(s.root), `${JSON.stringify(titles, null, 2)}\n`, 'utf-8')
+	else titles[sessionId as string] = { title: trimmed, named: true }
+	writeTitles(s.root, titles)
 }
 
 /**
@@ -277,10 +322,15 @@ export async function forkConversation(
 		throw new Error('There is nothing to fork yet — this conversation has no messages.')
 	}
 
-	const source = titleOf(s, sourceId) ?? conversationTitle(messages)
+	const source = readTitles(s.root)[sourceId as string]?.title ?? conversationTitle(messages)
 	const id = await startConversation(s)
 	await appendMessages(s, id, messages)
-	const title = nextForkName(readTitles(s.root), source)
+	const title = nextForkName(
+		Object.fromEntries(
+			Object.entries(readTitles(s.root)).map(([key, value]) => [key, value.title]),
+		),
+		source,
+	)
 	setTitle(s, id, title)
 	return { id, title, copied: messages.length }
 }

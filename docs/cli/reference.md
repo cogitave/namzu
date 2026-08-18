@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-18T00:00:00Z
+lastReviewed: 2026-08-18
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -86,6 +86,20 @@ derive the same title and appear as two rows nobody could tell apart, which is
 the list you would use to get back. It is refused while a turn is running: a
 fork taken then would be missing the reply you are watching arrive, because that
 reply belongs to the conversation it started in.
+
+**`/compact` replaces the older model-visible history with a summary.** It is
+refused while a turn is running, and input stays paused until the summary and
+its durable replacement have both landed. The next turn receives that summary;
+leaving and returning through `/resume` receives the same history rather than
+restoring the superseded turns. The disk log remains append-only: one replacement
+record changes the projected conversation, and later turns append after it.
+
+The transcript is only the view of that history. Compaction remounts and trims
+the view so the summary is visible before the recent rows, while the model record
+keeps values the view cannot represent: expanded `@file` contents and image
+attachments remain in later turns after their readable token or composer chip is
+all that remains on screen. For the same reason, `/clear` clears the transcript,
+not the conversation context or its durable record.
 
 ## Commands
 

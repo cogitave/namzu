@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { TenantIsolationError } from '../../../session/errors.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import { createSystemMessage, createUserMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { TopicId } from '../../../types/session/ids.js'
 import type { SubSession } from '../../../types/session/sub-session.js'
@@ -122,6 +122,23 @@ describe('InMemorySessionStore', () => {
 
 		const loaded = await store.loadMessages(session.id, tenantA)
 		expect(loaded.map((m) => m.content)).toEqual(['first', 'second'])
+	})
+
+	it('replaces the projected history and keeps later appends', async () => {
+		const store = new InMemorySessionStore()
+		const { session } = await seed(store, tenantA)
+		await store.appendMessage(session.id, createUserMessage('old'), tenantA)
+
+		await store.replaceMessages(
+			session.id,
+			[createSystemMessage('summary'), createUserMessage('recent')],
+			tenantA,
+		)
+		await store.appendMessage(session.id, createUserMessage('after'), tenantA)
+
+		expect(
+			(await store.loadMessages(session.id, tenantA)).map((message) => message.content),
+		).toEqual(['summary', 'recent', 'after'])
 	})
 
 	it('rejects cross-tenant appendMessage / loadMessages', async () => {

@@ -12,6 +12,7 @@
  * depends on the caller passing `onNotice`, which a component test cannot see.
  */
 
+import type { Message } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -23,6 +24,7 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 
 /** What the mocked clipboard returns for the next read. */
 let clipboard: import('../../integrations/clipboard/image.js').ClipboardRead = { kind: 'empty' }
+const sent: Message[][] = []
 
 vi.mock('../../integrations/clipboard/image.js', () => ({
 	readClipboardImage: () => clipboard,
@@ -71,7 +73,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 			close: async () => {},
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
-			send: async function* (): AsyncIterable<AgentEvent> {
+			send: async function* (messages): AsyncIterable<AgentEvent> {
+				sent.push([...messages])
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 			},
 		}),
@@ -97,6 +100,7 @@ async function frameShows(
 
 beforeEach(() => {
 	clipboard = { kind: 'empty' }
+	sent.length = 0
 })
 
 afterEach(() => {
@@ -111,6 +115,17 @@ async function ready() {
 	await frameShows(harness.lastFrame, 'Type a message')
 	await tick(60)
 	return harness
+}
+
+async function sendsReach(count: number, timeoutMs = 3_000): Promise<void> {
+	const started = performance.now()
+	while (sent.length < count && performance.now() - started < timeoutMs) await tick(20)
+}
+
+async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {
+	harness.stdin.write(text)
+	await tick(20)
+	harness.stdin.write('\r')
 }
 
 describe('Ctrl+V with nothing to paste', () => {
@@ -153,5 +168,27 @@ describe('Ctrl+V with an image', () => {
 		const frame = lastFrame() ?? ''
 		expect(frame).toContain('Image #1')
 		expect(frame, 'reported a failure on the success path').not.toContain('No image')
+	})
+
+	it('keeps the attachment in model history after its composer chip is gone', async () => {
+		const image = { data: 'AAAA', mediaType: 'image/png' as const }
+		clipboard = { kind: 'image', image }
+		const harness = await ready()
+
+		harness.stdin.write('\x16')
+		await frameShows(harness.lastFrame, 'Image #1')
+		await submit(harness, 'inspect this image')
+		await sendsReach(1)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await submit(harness, 'what did it show?')
+		await sendsReach(2)
+
+		expect(sent).toHaveLength(2)
+		const preserved = sent[1]?.[0]
+		expect(preserved?.role).toBe('user')
+		expect(
+			preserved?.role === 'user' ? preserved.attachments : undefined,
+			'the next request rebuilt history from the attachment-free transcript row',
+		).toEqual([image])
 	})
 })

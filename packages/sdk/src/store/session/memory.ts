@@ -424,6 +424,28 @@ export class InMemorySessionStore implements SessionStore {
 		return id
 	}
 
+	async replaceMessages(
+		sessionId: SessionId,
+		messages: readonly Message[],
+		tenantId: TenantId,
+	): Promise<void> {
+		const record = this.sessions.get(sessionId)
+		if (!record) throw new Error(`Session ${sessionId} not found`)
+		this.assertTenant(record.tenantId, tenantId, `session(${sessionId})`)
+
+		const at = new Date()
+		this.messages.set(
+			sessionId,
+			messages.map((message) => ({
+				id: generateMessageId(),
+				sessionId,
+				tenantId,
+				message,
+				at,
+			})),
+		)
+	}
+
 	async loadMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly Message[]> {
 		const record = this.sessions.get(sessionId)
 		if (!record) return []

@@ -11,6 +11,7 @@ import {
 	loadConversation,
 	nextForkName,
 	openSessions,
+	replaceConversation,
 	setTitle,
 	startConversation,
 	titleOf,
@@ -137,6 +138,20 @@ describe('naming a conversation', () => {
 		expect(titleOf(s, id)).toBeUndefined()
 		expect((await listRecent(s))[0]?.title).toBe('still listed')
 	})
+
+	it('reads chosen names written by the old string-only sidecar', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await appendMessages(s, id, [said('user', 'opening')])
+		writeFileSync(
+			join(s.root, 'titles.json'),
+			JSON.stringify({ [id]: 'legacy chosen name' }),
+			'utf-8',
+		)
+
+		expect(titleOf(s, id)).toBe('legacy chosen name')
+		expect((await listRecent(s))[0]).toMatchObject({ title: 'legacy chosen name', named: true })
+	})
 })
 
 describe('forking a conversation', () => {
@@ -211,6 +226,46 @@ describe('forking a conversation', () => {
 		const id = await startConversation(s)
 
 		await expect(forkConversation(s, id)).rejects.toThrow(/nothing to fork/i)
+	})
+})
+
+describe('compacting a conversation', () => {
+	it('replaces the durable view and preserves the opening title', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await appendMessages(s, id, [
+			said('user', 'the opening question'),
+			said('assistant', 'an old answer'),
+			said('user', 'a recent follow-up'),
+		])
+
+		await replaceConversation(s, id, [
+			{ role: 'system', content: 'the compacted summary' } as Message,
+			said('user', 'a recent follow-up'),
+		])
+
+		expect((await loadConversation(s, id)).map((message) => message.content)).toEqual([
+			'the compacted summary',
+			'a recent follow-up',
+		])
+		const [row] = await listRecent(s)
+		expect(row?.title).toBe('the opening question')
+		expect(row?.named).toBe(false)
+		expect(titleOf(s, id)).toBeUndefined()
+	})
+
+	it('does not replace a name the operator chose', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await appendMessages(s, id, [said('user', 'opening')])
+		setTitle(s, id, 'chosen name')
+
+		await replaceConversation(s, id, [
+			{ role: 'system', content: 'summary' } as Message,
+			said('user', 'recent'),
+		])
+
+		expect(titleOf(s, id)).toBe('chosen name')
 	})
 })
 

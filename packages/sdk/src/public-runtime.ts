@@ -964,6 +964,10 @@ export { assertTaskStatus, isTerminalTaskStatus } from './types/task/index.js'
 // offer "compact this conversation", could not shrink an idle session
 // between turns, and could not collapse a span it had chosen.
 export { compactNow, compactRegion } from './compaction/manual.js'
+// A host persisting manual compaction has to recognise the system message on
+// resume. Export the identity predicate rather than making every host copy the
+// marker string and eventually disagree with the writer.
+export { isCompactionMessage } from './compaction/summary.js'
 // Their input and result types, because a function on the public surface whose
 // return type is not on it forces every caller to inline the shape or reach for
 // `any` — and the first host to try (`@namzu/cli`'s `/compact`) did exactly

@@ -6,8 +6,8 @@ type: Explanation
 diataxis: explanation
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-18T00:00:00Z
+lastReviewed: 2026-08-18
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -194,6 +194,8 @@ Memory in the kernel is two systems cooperating.
 **Working memory** is `compaction/`. When a thread's context approaches the model's window, the kernel does not truncate. It runs the `structured` compaction manager (default in `compaction/managers/structured.ts`, with `slidingWindow.ts` and `null.ts` as alternatives), which incrementally extracts `task / plan / files / decisions / failures` from the message stream into a typed `WorkingState`. The extractor (`compaction/extractor.ts`), verifier (`compaction/verifier.ts`), and serializer (`compaction/serializer.ts`) together produce compact markdown that replaces old messages. The agent keeps context awareness at a fraction of the token cost. `compaction/dangling.ts` handles partial tool-call streams that could otherwise corrupt the conversation state.
 
 A pass also runs **when a host asks for one**, not only when a threshold fires: `compactNow` summarises a whole conversation and `compactRegion` collapses a span the caller chose, both returning a replacement history rather than editing the input. `CompactNowInput` and `CompactionResult` are exported alongside them — a function on the public surface whose parameter and return types are not on it forces its first caller to inline both shapes, which is exactly what happened before they were.
+
+A host that persists conversation messages can commit that returned history through the optional `SessionStore.replaceMessages`. The in-memory store replaces its projection directly; the disk store appends one replacement record to `messages.jsonl`, so the physical log stays append-only while subsequent reads see the complete replacement followed by later appends. One record is the transaction boundary — a crash cannot expose the first half of a compacted history. `isCompactionMessage` identifies the summary system message when a host restores its own transcript view.
 
 That rule is now a CI step rather than a habit. `check-signature-types-exported.mjs` resolves every exported signature and fails when a type it names is declared in the package and not exported; its first run found twenty-eight, each the parameter or the result of a function that was already public.
 
