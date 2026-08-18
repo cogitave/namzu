@@ -8,6 +8,16 @@ import type { CheckpointStore } from './checkpoint-store.js'
 export interface AgentRunConfig {
 	model: string
 	timeoutMs: number
+	/**
+	 * Maximum silence between provider stream chunks, in milliseconds.
+	 *
+	 * Defaults to five minutes at the `query()` boundary. This is distinct
+	 * from `timeoutMs`, which is checked between agent iterations and cannot
+	 * settle a provider iterator whose pending `next()` never returns. Set
+	 * `0` to retain unbounded stream silence. Positive values must be integer
+	 * milliseconds accepted by the platform timer.
+	 */
+	streamIdleTimeoutMs?: number
 	maxResponseTokens?: number
 
 	/**

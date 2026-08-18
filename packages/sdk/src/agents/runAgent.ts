@@ -97,6 +97,8 @@ export interface RunAgentOptions extends AgentIdentity {
 	maxIterations?: number
 	tokenBudget?: number
 	timeoutMs?: number
+	/** Maximum provider-stream silence; defaults to five minutes. `0` disables. */
+	streamIdleTimeoutMs?: number
 	temperature?: number
 
 	/**
@@ -239,6 +241,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 				maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
 				tokenBudget: options.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
 				timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+				...(options.streamIdleTimeoutMs !== undefined
+					? { streamIdleTimeoutMs: options.streamIdleTimeoutMs }
+					: {}),
 				...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
 				...(options.thinking ? { thinking: options.thinking } : {}),
 				...(options.effort ? { effort: options.effort } : {}),

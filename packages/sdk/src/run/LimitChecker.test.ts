@@ -30,4 +30,9 @@ describe('token budget limits', () => {
 		expect(RuntimeConfigSchema.parse({ tokenBudget: 0 }).tokenBudget).toBe(0)
 		expect(RunConfigSchema.parse({ tokenBudget: 0 }).tokenBudget).toBe(0)
 	})
+
+	it('accepts an explicit stream-idle opt-out but refuses negative silence', () => {
+		expect(RunConfigSchema.parse({ streamIdleTimeoutMs: 0 }).streamIdleTimeoutMs).toBe(0)
+		expect(() => RunConfigSchema.parse({ streamIdleTimeoutMs: -1 })).toThrow()
+	})
 })

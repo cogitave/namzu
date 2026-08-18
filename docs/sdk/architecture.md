@@ -6,8 +6,8 @@ type: Explanation
 diataxis: explanation
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-18T00:00:00Z
-lastReviewed: 2026-08-18
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -44,7 +44,7 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Human-in-the-loop.** Structured plan review, per-tool approval with destructiveness flags, typed decision contracts, checkpoint/resume across sessions.
 - **Plugin system.** Lifecycle-hooked plugin loader with MCP contributions, tool contributions, and manifest-driven resolution.
 - **Multi-tenant isolation from day one.** Connector registries, vaults, config, and stores are tenant-scoped. Two organizations can share a process without cross-contamination.
-- **Provider abstraction.** Seven drivers ship today, each its own package installed only if you use it, plus a scriptable mock pre-registered in the kernel. The `LLMProvider` interface is narrow enough that adding another is an afternoon. BYOK everywhere, no hidden hot paths for any vendor.
+- **Provider abstraction.** Seven drivers ship today, each its own package installed only if you use it, plus a scriptable mock pre-registered in the kernel. The `LLMProvider` interface is narrow enough that adding another is an afternoon. BYOK everywhere, no hidden hot paths for any vendor. Every run also applies a finite per-chunk silence bound inside retry and fallback, so a request that opened and then stopped producing cannot hold the lifecycle forever.
 - **Telemetry.** OpenTelemetry-native spans and metrics. Cost accounting (input tokens, output tokens, cached tokens, cache write tokens, cache discount) flows from the provider into per-run, per-tenant rollups.
 - **Prompt cache integration.** Hash-based system-prompt caching by agent and project, integrated with provider cache controls, plus cache telemetry in every run.
 - **Vault.** BYOK credentials and secrets, tenant-scoped, pluggable backend.
@@ -102,6 +102,7 @@ exists to be checked against the source, not against anybody else.
 | Vault / BYOK | Tenant-scoped |
 | Telemetry | OpenTelemetry natively, with GenAI conventions |
 | Provider lock-in | None; the driver is a config choice |
+| Provider liveness | Five-minute stream-silence default, transport abort, retry then fallback |
 
 ---
 
@@ -324,6 +325,14 @@ The kernel does not render a UI for this — it emits events and exposes a typed
 An LLM provider implements a narrow interface: given a typed request, return a typed response (streaming or not) and propagate normalized usage, cost, and cache telemetry. Concrete providers live in dedicated sibling packages — `@namzu/anthropic`, `@namzu/bedrock`, `@namzu/http`, `@namzu/lmstudio`, `@namzu/ollama`, `@namzu/openai`, `@namzu/openrouter` — each calling `ProviderRegistry.register('<vendor>', Class, capabilities)` via a `register<Vendor>()` helper. The kernel itself ships only the `LLMProvider` interface, the `ProviderRegistry`, and a pre-registered `MockLLMProvider` for tests and offline work. `provider/telemetry/` normalizes provider-specific response fields (`cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_discount`, Bedrock equivalents) into a single kernel-wide telemetry shape.
 
 `ProviderRegistry` is the single entry point. `ProviderRegistry.create({ type, ... })` returns `{ provider, capabilities }`; TypeScript module augmentation from each provider package gives type-narrowed config. Providers are stateless enough to be shared across runs.
+
+The runtime composes each provider as `fallback(retry(idle(provider)))`. The
+idle layer bounds time between chunks rather than total request duration,
+aborts the driver's transport without aborting the caller's controller, and
+preserves a network-classified cause even when a provider library reports the
+transport close as a generic `AbortError`. See [Provider stream idle
+bounds](runtime/provider-stream-idle-bound.md) for the default, override,
+opt-out, validation, and recovery rules.
 
 ### 16. Connectors (`connector/`)
 

@@ -64,6 +64,9 @@ export function deriveRunOptions(
 			? { tokenBudget: manifest.config.tokenBudget }
 			: {}),
 		...(manifest.config.timeoutMs !== undefined ? { timeoutMs: manifest.config.timeoutMs } : {}),
+		...(manifest.config.streamIdleTimeoutMs !== undefined
+			? { streamIdleTimeoutMs: manifest.config.streamIdleTimeoutMs }
+			: {}),
 		...(input.identity ?? {}),
 		...(input.overrides ?? {}),
 	}

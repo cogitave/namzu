@@ -36,6 +36,8 @@ export {
 export { DEFAULT_PROVIDER_RETRY, withProviderRetry } from './retry.js'
 export type { ProviderRetryConfig, WithProviderRetryOptions } from './retry.js'
 export { withProviderFallback } from './fallback.js'
+export { DEFAULT_STREAM_IDLE_TIMEOUT_MS, withStreamIdleTimeout } from './idle-timeout.js'
+export type { WithStreamIdleTimeoutOptions } from './idle-timeout.js'
 export type {
 	ProviderChainMember,
 	ServingMember,

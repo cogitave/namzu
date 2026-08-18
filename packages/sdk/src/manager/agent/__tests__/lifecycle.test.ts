@@ -527,6 +527,25 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
  * their identity.
  */
 describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
+	it('carries a child-specific provider idle bound through the bare config path', async () => {
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-idle-bound', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const options = buildOptions('child-idle-bound', harness.parentSession.id, harness.projectId)
+		options.configOverrides = { streamIdleTimeoutMs: 1234 }
+
+		const task = await harness.manager.sendMessage(
+			options,
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		expect(seen[0]?.streamIdleTimeoutMs).toBe(1234)
+	})
+
 	it('does not derive the child deadline from the TOKEN budget', async () => {
 		// The fallback used to be `context.budgetTracker.remaining` — a token
 		// count read as milliseconds. It hid for so long because a six-figure

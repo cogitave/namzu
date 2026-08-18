@@ -200,7 +200,7 @@ export type { ToolPresenter } from './registry/tool/presentation.js'
 export { NAMZU_APP_IDENTITY, attributionHeaders } from './provider/attribution.js'
 export type { AppIdentity } from './provider/attribution.js'
 
-export { withStreamIdleTimeout } from './provider/idle-timeout.js'
+export { DEFAULT_STREAM_IDLE_TIMEOUT_MS, withStreamIdleTimeout } from './provider/idle-timeout.js'
 export type { WithStreamIdleTimeoutOptions } from './provider/idle-timeout.js'
 
 export { isTrustedReadOnly } from './tools/trusted-read-only.js'

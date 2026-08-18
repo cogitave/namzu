@@ -135,6 +135,9 @@ export function deriveSupervisorOptions(
 		// guess, so the two front doors cannot drift.
 		tokenBudget: manifest.config.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
 		timeoutMs: manifest.config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+		...(manifest.config.streamIdleTimeoutMs !== undefined
+			? { streamIdleTimeoutMs: manifest.config.streamIdleTimeoutMs }
+			: {}),
 		...(manifest.config.temperature !== undefined
 			? { temperature: manifest.config.temperature }
 			: {}),

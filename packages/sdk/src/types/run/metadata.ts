@@ -42,6 +42,7 @@ export interface RunConfigSnapshot {
 	model: string
 	tokenBudget: number
 	timeoutMs: number
+	streamIdleTimeoutMs?: number
 	maxIterations?: number
 	temperature?: number
 	maxResponseTokens?: number

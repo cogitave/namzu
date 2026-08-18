@@ -387,6 +387,7 @@ export class AgentManager {
 				model: options.configOverrides?.model ?? 'default',
 				tokenBudget: allocatedTokens,
 				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
+				streamIdleTimeoutMs: options.configOverrides?.streamIdleTimeoutMs,
 				temperature: options.configOverrides?.temperature,
 				parentSpan: options.configOverrides?.parentSpan,
 				maxIterations: options.configOverrides?.maxIterations,

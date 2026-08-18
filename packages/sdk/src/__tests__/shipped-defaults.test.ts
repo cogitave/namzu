@@ -6,6 +6,7 @@ import {
 } from '../compaction/context-window.js'
 import { DEFAULT_MCP_REQUEST_TIMEOUT_MS } from '../constants/mcp/index.js'
 import { DEFAULT_STRUCTURED_OUTPUT_RETRIES } from '../constants/tools/index.js'
+import { DEFAULT_STREAM_IDLE_TIMEOUT_MS } from '../provider/idle-timeout.js'
 import { MOCK_CAPABILITIES } from '../provider/mock-register.js'
 import { DEFAULT_PROVIDER_RETRY } from '../provider/retry.js'
 import { DEFAULT_TOOL_CONCURRENCY, DEFAULT_TOOL_TIMEOUT_MS } from '../runtime/query/executor.js'
@@ -40,6 +41,13 @@ describe('a run cannot hang', () => {
 		// all, so a wedged server hung the run with no error and no run_failed.
 		expect(DEFAULT_MCP_REQUEST_TIMEOUT_MS).toBeGreaterThan(0)
 		expect(DEFAULT_MCP_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(60_000)
+	})
+
+	it('provider streams have a finite silence bound', () => {
+		// A request can open successfully and then stop producing bytes, so the
+		// whole-request timeout and the between-iteration run timeout do not see it.
+		expect(DEFAULT_STREAM_IDLE_TIMEOUT_MS).toBeGreaterThan(0)
+		expect(DEFAULT_STREAM_IDLE_TIMEOUT_MS).toBeLessThanOrEqual(5 * 60_000)
 	})
 
 	it('tool fan-out is bounded', () => {

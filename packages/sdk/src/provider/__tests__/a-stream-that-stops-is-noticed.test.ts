@@ -53,6 +53,34 @@ async function drainChunks(provider: LLMProvider): Promise<StreamChunk[]> {
 	return out
 }
 
+function abortRejectingDriver(observe: (signal: AbortSignal) => void): LLMProvider {
+	return {
+		id: 'abort-rejecting',
+		name: 'Abort Rejecting',
+		chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+			const signal = params.signal
+			if (!signal) throw new Error('expected a transport signal')
+			observe(signal)
+			return {
+				[Symbol.asyncIterator]() {
+					return {
+						next: () =>
+							new Promise<IteratorResult<StreamChunk>>((_resolve, reject) => {
+								signal.addEventListener(
+									'abort',
+									() =>
+										reject(Object.assign(new Error('transport aborted'), { name: 'AbortError' })),
+									{ once: true },
+								)
+							}),
+						return: async () => ({ done: true, value: undefined }),
+					}
+				},
+			}
+		},
+	}
+}
+
 describe('a stalled stream is surfaced', () => {
 	it('fails with a network-classified error naming the idle duration', async () => {
 		// `network`, not a new kind: retry and fallback already know how to
@@ -74,6 +102,64 @@ describe('a stalled stream is surfaced', () => {
 
 		expect(caught).toBeInstanceOf(ProviderRequestError)
 		expect((caught as ProviderRequestError).message).toContain('30s')
+	})
+
+	it('names a sub-second bound exactly and aborts only the provider transport', async () => {
+		vi.useFakeTimers()
+		const caller = new AbortController()
+		let transport: AbortSignal | undefined
+		let caught: unknown
+		try {
+			const wrapped = withStreamIdleTimeout(
+				abortRejectingDriver((signal) => {
+					transport = signal
+				}),
+				{ idleTimeoutMs: 10 },
+			)
+			const settled = (async () => {
+				for await (const _chunk of wrapped.chatStream({ signal: caller.signal } as never)) {
+					// no chunks: the transport remains pending until the watchdog aborts it
+				}
+			})().catch((err: unknown) => {
+				caught = err
+			})
+
+			await vi.advanceTimersByTimeAsync(11)
+			await settled
+		} finally {
+			vi.useRealTimers()
+		}
+
+		expect(caught).toBeInstanceOf(ProviderRequestError)
+		expect((caught as ProviderRequestError).kind).toBe('network')
+		expect((caught as ProviderRequestError).message).toContain('10ms')
+		expect(transport?.aborted).toBe(true)
+		expect(transport?.reason).toBe(caught)
+		expect(caller.signal.aborted).toBe(false)
+	})
+
+	it('preserves a caller abort that wins before the watchdog', async () => {
+		const caller = new AbortController()
+		const reason = new Error('operator stopped this turn')
+		let transport: AbortSignal | undefined
+		const wrapped = withStreamIdleTimeout(
+			abortRejectingDriver((signal) => {
+				transport = signal
+			}),
+			{ idleTimeoutMs: 30_000 },
+		)
+		const settled = (async () => {
+			for await (const _chunk of wrapped.chatStream({ signal: caller.signal } as never)) {
+				// no chunks: caller cancellation is the only settlement in this test
+			}
+		})()
+		await Promise.resolve()
+
+		caller.abort(reason)
+
+		await expect(settled).rejects.toBe(reason)
+		expect(transport?.aborted).toBe(true)
+		expect(transport?.reason).toBe(reason)
 	})
 
 	it('re-arms per chunk, so a slow-but-alive stream is not killed', async () => {
@@ -170,5 +256,54 @@ describe('a stalled stream is surfaced', () => {
 		expect(wrapped.id).toBe(driver.id)
 		expect(wrapped.name).toBe(driver.name)
 		expect(wrapped.capabilities).toEqual(driver.capabilities)
+	})
+
+	it('keeps prototype methods and retry defaults rather than spreading a class', async () => {
+		class ClassDriver implements LLMProvider {
+			readonly id = 'class-driver'
+			readonly name = 'Class Driver'
+			readonly retryDefaults = { maxRetries: 0 }
+			probed = false
+
+			async *chatStream(): AsyncIterable<StreamChunk> {
+				yield chunk('ok')
+			}
+
+			async listModels() {
+				return [
+					{
+						id: 'class-model',
+						name: 'Class Model',
+						provider: this.id,
+						inputPrice: 0,
+						outputPrice: 0,
+						supportsToolUse: true,
+						supportsStreaming: true,
+					},
+				]
+			}
+
+			async probeCredential(): Promise<void> {
+				this.probed = true
+			}
+		}
+
+		const driver = new ClassDriver()
+		const wrapped = withStreamIdleTimeout(driver, { idleTimeoutMs: 1_000 })
+
+		expect(wrapped.retryDefaults).toBe(driver.retryDefaults)
+		expect(await wrapped.listModels?.()).toEqual([
+			{
+				id: 'class-model',
+				name: 'Class Model',
+				provider: 'class-driver',
+				inputPrice: 0,
+				outputPrice: 0,
+				supportsToolUse: true,
+				supportsStreaming: true,
+			},
+		])
+		await wrapped.probeCredential?.()
+		expect(driver.probed).toBe(true)
 	})
 })

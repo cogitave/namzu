@@ -26,6 +26,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { failingStream } from '../../../__fixtures__/failing-stream.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { DEFAULT_STREAM_IDLE_TIMEOUT_MS } from '../../../provider/idle-timeout.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
@@ -42,6 +43,8 @@ import type { Logger } from '../../../utils/logger.js'
 const retryLogs: (Logger | undefined)[] = []
 /** Every `log` a `withProviderFallback` construction received — one per query(). */
 const fallbackLogs: (Logger | undefined)[] = []
+/** Every production idle-wrapper construction, including its shipped default. */
+const idleOptions: Array<{ log: Logger | undefined; idleTimeoutMs: number }> = []
 /** Every `config.log` a `RunContextFactory.build` call received — one per query(). */
 const buildLogs: (Logger | undefined)[] = []
 /** How many times `RunContextFactory.buildLogger` actually ran. */
@@ -69,6 +72,22 @@ vi.mock('../../../provider/fallback.js', async (importOriginal) => {
 		): ReturnType<typeof actual.withProviderFallback> => {
 			fallbackLogs.push(args[1]?.log)
 			return actual.withProviderFallback(...args)
+		},
+	}
+})
+
+vi.mock('../../../provider/idle-timeout.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../../provider/idle-timeout.js')>()
+	return {
+		...actual,
+		withStreamIdleTimeout: (
+			...args: Parameters<typeof actual.withStreamIdleTimeout>
+		): ReturnType<typeof actual.withStreamIdleTimeout> => {
+			idleOptions.push({
+				log: args[1].log,
+				idleTimeoutMs: args[1].idleTimeoutMs,
+			})
+			return actual.withStreamIdleTimeout(...args)
 		},
 	}
 })
@@ -121,6 +140,7 @@ describe('the run logger reaches withProviderRetry, withProviderFallback and bui
 		workdirs = []
 		retryLogs.length = 0
 		fallbackLogs.length = 0
+		idleOptions.length = 0
 		buildLogs.length = 0
 		buildLoggerCalls = 0
 	})
@@ -158,6 +178,7 @@ describe('the run logger reaches withProviderRetry, withProviderFallback and bui
 		})
 
 		expect(run.status).toBe('completed')
+		expect(run.metadata.config.streamIdleTimeoutMs).toBe(DEFAULT_STREAM_IDLE_TIMEOUT_MS)
 
 		expect(buildLoggerCalls).toBe(1)
 		// One `withProviderRetry` construction per chain member (primary,
@@ -165,6 +186,7 @@ describe('the run logger reaches withProviderRetry, withProviderFallback and bui
 		// `getRootLogger()` read apiece.
 		expect(retryLogs.length).toBe(2)
 		expect(fallbackLogs.length).toBe(1)
+		expect(idleOptions.length).toBe(2)
 		expect(buildLogs.length).toBe(1)
 
 		const log = buildLogs[0]
@@ -173,5 +195,9 @@ describe('the run logger reaches withProviderRetry, withProviderFallback and bui
 			expect(retryLog).toBe(log)
 		}
 		expect(fallbackLogs[0]).toBe(log)
+		for (const idle of idleOptions) {
+			expect(idle.log).toBe(log)
+			expect(idle.idleTimeoutMs).toBe(DEFAULT_STREAM_IDLE_TIMEOUT_MS)
+		}
 	})
 })

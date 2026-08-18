@@ -28,6 +28,7 @@ export const RunConfigSchema = z
 		tokenBudget: z.number().int().nonnegative().optional(),
 		maxResponseTokens: z.number().int().positive().optional(),
 		timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+		streamIdleTimeoutMs: z.number().int().nonnegative().max(3_600_000).optional(),
 		permissionMode: z.enum(['plan', 'auto']).optional(),
 		systemPrompt: z.string().min(1).max(100_000).optional(),
 	})

@@ -1,6 +1,7 @@
 {
   "title": "Runtime",
   "pages": [
-    "checkpoint-store-conformance"
+    "checkpoint-store-conformance",
+    "provider-stream-idle-bound"
   ]
 }

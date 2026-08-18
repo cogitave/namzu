@@ -26,6 +26,10 @@ import {
 	type ServingMember,
 	withProviderFallback,
 } from '../../provider/fallback.js'
+import {
+	DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+	withStreamIdleTimeout,
+} from '../../provider/idle-timeout.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import { DefaultFilesystemMigrator, loggingMigrationSink } from '../../session/migration/index.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
@@ -827,6 +831,18 @@ async function resolveProviderContextWindow(
 	}
 }
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+function resolveStreamIdleTimeoutMs(value: number | undefined): number {
+	const resolved = value ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
+	if (!Number.isInteger(resolved) || resolved < 0 || resolved > MAX_TIMER_DELAY_MS) {
+		throw new RangeError(
+			`runConfig.streamIdleTimeoutMs must be an integer from 0 to ${MAX_TIMER_DELAY_MS}; received ${String(resolved)}`,
+		)
+	}
+	return resolved
+}
+
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
 	// Resolved at the DOOR, before a run id exists or a logger is built.
 	// A caller who set both spellings of a renamed field has a config bug,
@@ -835,6 +851,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// provider call has been paid for and a partial transcript written.
 	const promptCache = params.promptCache
 	const taskScheduler = params.taskScheduler
+	const streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(params.runConfig.streamIdleTimeoutMs)
+	// Persist the EFFECTIVE value, not only an override. A run replayed after a
+	// later release must be able to explain which liveness policy settled it;
+	// an absent field whose meaning follows the currently-installed default
+	// would rewrite that evidence at read time.
+	const runConfig: AgentRunConfig = { ...params.runConfig, streamIdleTimeoutMs }
 
 	// The run's one correlated logger, built before anything below needs
 	// one — the migration check, the retry/fallback wrappers and `ctx`
@@ -848,7 +870,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const runId = params.runId ?? generateRunId()
 	const log = RunContextFactory.buildLogger({
 		agentName: params.agentName,
-		runConfig: params.runConfig,
+		runConfig,
 		runId,
 		parentRunId: params.parentRunId,
 		sessionId: params.sessionId,
@@ -903,9 +925,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// call site — so without it the "failed, retrying" and "failed, giving
 	// up" lines were dead code and a backoff left no trace anywhere.
 	//
-	// With a chain declared, the same sentence holds one level out: retry is
-	// applied per MEMBER and the fallback decorator wraps the result, so the
-	// composition is `fallback(retry(m0), retry(m1), …)`. That order is not a
+	// With a chain declared, the same sentence holds two levels out. The idle
+	// watchdog is applied to each raw member, retry wraps that, and fallback
+	// wraps the members: `fallback(retry(idle(m0)), retry(idle(m1)), …)`. The
+	// idle layer cannot sit outside retry, because its timer would then count a
+	// legitimate backoff as provider silence. This order is not a
 	// preference. Assembled the other way round — which is what a host gets if
 	// it wraps its own chain and hands the result in, because this function
 	// would then wrap THAT in retry — an exhausted chain gets restarted from
@@ -918,8 +942,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	]
 	assertCostIsAttributable(chain, params.pricing)
 	assertBudgetIsMeasurable(params)
-	const withRetry = (provider: LLMProvider): LLMProvider =>
-		params.retry === false ? provider : withProviderRetry(provider, { config: params.retry, log })
+	const withRecovery = (provider: LLMProvider): LLMProvider => {
+		const withIdleBound = withStreamIdleTimeout(provider, {
+			idleTimeoutMs: streamIdleTimeoutMs,
+			log,
+		})
+		return params.retry === false
+			? withIdleBound
+			: withProviderRetry(withIdleBound, { config: params.retry, log })
+	}
 	// Who is serving right now, for the run RECORD rather than for the request.
 	//
 	// It starts at the head and moves only when the chain does, which is the
@@ -931,7 +962,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		current: { index: 0, providerId: params.provider.id },
 	}
 	const resilientProvider = withProviderFallback(
-		chain.map((member) => ({ ...member, provider: withRetry(member.provider) })),
+		chain.map((member) => ({ ...member, provider: withRecovery(member.provider) })),
 		{
 			log,
 			onSwap: (to) => {
@@ -952,7 +983,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// window is an optimisation over a working default, not a prerequisite.
 	const providerContextWindow = await resolveProviderContextWindow(
 		resilientProvider,
-		params.runConfig.model,
+		runConfig.model,
 		params.signal,
 		log,
 	)
@@ -1014,7 +1045,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(params.permissionModeRef ? { permissionModeRef: params.permissionModeRef } : {}),
 		agentId: params.agentId,
 		agentName: params.agentName,
-		runConfig: params.runConfig,
+		runConfig,
 		provider: resilientProvider,
 		workingDirectory: params.workingDirectory,
 		pricing: params.pricing,
@@ -1255,7 +1286,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			runId: ctx.runId,
 			workingDirectory: ctx.cwd,
 			permissionMode: () => ctx.permissionMode.current,
-			env: params.runConfig.env ?? {},
+			env: runConfig.env ?? {},
 			abortSignal: ctx.abortController.signal,
 			allowedTools: effectiveAllowedTools,
 			invocationState: params.invocationState,
@@ -1321,10 +1352,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	})
 
 	const guard = new GuardCoordinator({
-		tokenBudget: params.runConfig.tokenBudget,
-		timeoutMs: params.runConfig.timeoutMs,
-		costLimitUsd: params.runConfig.costLimitUsd,
-		maxIterations: params.runConfig.maxIterations,
+		tokenBudget: runConfig.tokenBudget,
+		timeoutMs: runConfig.timeoutMs,
+		costLimitUsd: runConfig.costLimitUsd,
+		maxIterations: runConfig.maxIterations,
 	})
 
 	const checkpointMgr = new CheckpointManager(
@@ -1424,7 +1455,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const iterationOrchestrator = new IterationOrchestrator({
 		provider: resilientProvider,
 		servingMember: () => serving.current,
-		runConfig: params.runConfig,
+		runConfig,
 		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
 		...(params.prepareStep ? { prepareStep: params.prepareStep } : {}),
 		...(params.beforeStep ? { beforeStep: params.beforeStep } : {}),
@@ -1512,7 +1543,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		checkpointMgr.setTraceSource(() => serializeSpan(rootSpan))
 		// And every park it records carries an absolute deadline, so an
 		// unanswered approval cannot outlive the worker that asked for it.
-		checkpointMgr.setParkTtl(params.runConfig.hitlParkTtlMs)
+		checkpointMgr.setParkTtl(runConfig.hitlParkTtlMs)
 		// The claim this worker holds, if it took one. Without this hop the
 		// fence exists, the refusal exists, and no checkpoint a RUN writes ever
 		// carries a number — so a stalled worker is refused nowhere.
@@ -1583,7 +1614,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			[GENAI.AGENT_NAME]: params.agentName,
 			[GENAI.AGENT_ID]: params.agentId,
-			[GENAI.REQUEST_MODEL]: params.runConfig.model,
+			[GENAI.REQUEST_MODEL]: runConfig.model,
 			[GENAI.SYSTEM]: params.provider.id,
 		})
 
@@ -1630,8 +1661,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			ctx.log.info('Starting query', {
 				[NAMZU.RUN_ID]: ctx.runMgr.id,
 				'namzu.runtime.agent': params.agentName,
-				[GENAI.REQUEST_MODEL]: params.runConfig.model,
-				'namzu.runtime.token_budget': params.runConfig.tokenBudget,
+				[GENAI.REQUEST_MODEL]: runConfig.model,
+				'namzu.runtime.token_budget': runConfig.tokenBudget,
 				'namzu.runtime.activity_tracking': ctx.activityStore.enabled,
 				'namzu.runtime.permission_mode': ctx.permissionMode.current,
 				'namzu.runtime.resume_from_checkpoint': params.resumeFromCheckpoint ?? null,
@@ -1894,7 +1925,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 			// --- Sandbox lifecycle: create before iteration loop ---
 			if (params.sandboxProvider) {
-				const rootAtCwd = params.runConfig.sandbox?.workspace === 'working-directory'
+				const rootAtCwd = runConfig.sandbox?.workspace === 'working-directory'
 				// Checked against what the CALLER passed, not against `ctx.cwd`.
 				// `ctx.cwd` falls back to `process.cwd()`, so reading it here
 				// would silently root the sandbox at whatever directory the
@@ -1915,9 +1946,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				}
 				sandbox = await params.sandboxProvider.create({
 					...(rootAtCwd ? { workingDirectory: ctx.cwd } : {}),
-					timeoutMs: params.runConfig.sandbox?.timeoutMs,
-					memoryLimitMb: params.runConfig.sandbox?.memoryLimitMb,
-					maxProcesses: params.runConfig.sandbox?.maxProcesses,
+					timeoutMs: runConfig.sandbox?.timeoutMs,
+					memoryLimitMb: runConfig.sandbox?.memoryLimitMb,
+					maxProcesses: runConfig.sandbox?.maxProcesses,
 				})
 				toolExecutor.setSandbox(sandbox)
 

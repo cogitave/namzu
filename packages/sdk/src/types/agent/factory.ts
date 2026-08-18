@@ -46,6 +46,7 @@ export interface AgentFactoryOptions {
 	workingDirectory?: string
 	tokenBudget?: number
 	timeoutMs?: number
+	streamIdleTimeoutMs?: number
 	temperature?: number
 	maxResponseTokens?: number
 	env?: Record<string, string>

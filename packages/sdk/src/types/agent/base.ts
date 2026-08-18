@@ -18,6 +18,8 @@ export interface BaseAgentConfig {
 	model: string
 	tokenBudget: number
 	timeoutMs: number
+	/** See {@link import('../run/config.js').AgentRunConfig.streamIdleTimeoutMs}. */
+	streamIdleTimeoutMs?: number
 	maxIterations?: number
 	temperature?: number
 	maxResponseTokens?: number

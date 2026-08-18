@@ -3,6 +3,9 @@ import type { LLMProvider } from '../types/provider/interface.js'
 import type { Logger } from '../utils/logger.js'
 import { ProviderRequestError } from './errors.js'
 
+/** Five minutes without one provider chunk is a stalled model call. */
+export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 5 * 60_000
+
 /**
  * Notices a stream that stopped producing without ending.
  *
@@ -62,26 +65,77 @@ export function withStreamIdleTimeout(
 	const disarm = options.clearTimeoutFn ?? clearTimeout
 
 	async function* chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		const iterator = provider.chatStream(params)[Symbol.asyncIterator]()
+		const callerSignal = params.signal
+		callerSignal?.throwIfAborted()
+
+		// Do not abort the caller's controller. The watchdog owns this transport
+		// signal and fuses the caller's stop into it in the one safe direction.
+		// Keeping it stable for the whole stream is important: drivers attach one
+		// listener when the request opens and expect that signal to remain the
+		// request's cancellation identity until the socket closes.
+		const transportAbort = new AbortController()
+		type TerminalCause =
+			| { readonly kind: 'caller'; readonly reason: unknown }
+			| { readonly kind: 'idle'; readonly error: ProviderRequestError }
+		let terminalCause: TerminalCause | undefined
+		let rejectCallerAbort: ((reason?: unknown) => void) | undefined
+		const callerAbort = callerSignal
+			? new Promise<never>((_resolve, reject) => {
+					rejectCallerAbort = reject
+				})
+			: undefined
+		const onCallerAbort = (): void => {
+			const reason = callerSignal?.reason
+			if (terminalCause === undefined) terminalCause = { kind: 'caller', reason }
+			if (!transportAbort.signal.aborted) transportAbort.abort(reason)
+			rejectCallerAbort?.(reason)
+		}
+		callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
+
+		let iteratorForCleanup: AsyncIterator<StreamChunk> | undefined
 		try {
+			const iterator = provider
+				.chatStream({ ...params, signal: transportAbort.signal })
+				[Symbol.asyncIterator]()
+			iteratorForCleanup = iterator
 			for (;;) {
 				let timer: ReturnType<typeof setTimeout> | undefined
 				let result: IteratorResult<StreamChunk>
 				try {
-					result = await Promise.race([
-						iterator.next(),
-						new Promise<never>((_resolve, reject) => {
-							timer = arm(() => {
-								reject(
-									new ProviderRequestError({
-										kind: 'network',
-										providerId: provider.id,
-										detail: `stream idle for ${Math.round(idleTimeoutMs / 1000)}s — aborting so the run lifecycle can settle it`,
-									}),
-								)
-							}, idleTimeoutMs)
-						}),
-					])
+					const idle = new Promise<never>((_resolve, reject) => {
+						timer = arm(() => {
+							if (terminalCause !== undefined) return
+							const duration =
+								idleTimeoutMs < 1_000 || idleTimeoutMs % 1_000 !== 0
+									? `${idleTimeoutMs}ms`
+									: `${idleTimeoutMs / 1_000}s`
+							const error = new ProviderRequestError({
+								kind: 'network',
+								providerId: provider.id,
+								detail: `stream idle for ${duration} — aborting so the run lifecycle can settle it`,
+							})
+							// Latch BEFORE the transport is aborted. Some provider SDKs
+							// synchronously reject their pending `next()` with a generic
+							// AbortError. Retry/fallback correctly treat that shape as a
+							// caller stop, so letting it escape would erase this network
+							// cause and make the recovery policy unreachable.
+							terminalCause = { kind: 'idle', error }
+							transportAbort.abort(error)
+							reject(error)
+						}, idleTimeoutMs)
+					})
+					const pending = callerAbort
+						? [iterator.next(), idle, callerAbort]
+						: [iterator.next(), idle]
+					result = await Promise.race(pending)
+				} catch (err) {
+					// The first control-flow cause wins even if the driver's own
+					// abort listener rejected its pull with a different error object.
+					// In particular, a generic AbortError caused by OUR watchdog is
+					// still the network failure retry/fallback need to see.
+					if (terminalCause?.kind === 'idle') throw terminalCause.error
+					if (terminalCause?.kind === 'caller') throw terminalCause.reason
+					throw err
 				} finally {
 					// In a `finally`, so a rejection from either side of the
 					// race clears the timer. Clearing only on success leaks one
@@ -93,6 +147,7 @@ export function withStreamIdleTimeout(
 				yield result.value
 			}
 		} finally {
+			callerSignal?.removeEventListener('abort', onCallerAbort)
 			// Asked to clean up, NOT awaited — and the difference is the whole
 			// case this decorator exists for. A generator stalled inside an
 			// `await` is not suspended at a `yield`, so `return()` resumes
@@ -104,9 +159,53 @@ export function withStreamIdleTimeout(
 			// signal that nobody is reading — so it is made and abandoned,
 			// with the rejection swallowed because there is no one left to
 			// tell.
-			void iterator.return?.().catch(() => {})
+			try {
+				void iteratorForCleanup?.return?.().catch(() => {})
+			} catch {
+				// A non-conforming iterator can throw before returning its cleanup
+				// promise. The original stream outcome still owns this boundary.
+			}
 		}
 	}
 
-	return { ...provider, chatStream }
+	// Explicit forwarding rather than object spread. A provider may be a class
+	// whose methods live on its prototype; spreading it silently strips those
+	// methods, and retry reads `retryDefaults` AFTER this wrapper is installed.
+	return {
+		get id() {
+			return provider.id
+		},
+		get name() {
+			return provider.name
+		},
+		get capabilities() {
+			return provider.capabilities
+		},
+		get retryDefaults() {
+			return provider.retryDefaults
+		},
+		chatStream,
+		...(provider.listModels ? { listModels: () => provider.listModels?.() } : {}),
+		...(provider.probeCredential ? { probeCredential: () => provider.probeCredential?.() } : {}),
+		...(provider.healthCheck
+			? { healthCheck: (model?: string) => provider.healthCheck?.(model) }
+			: {}),
+		...(provider.doctorCheck
+			? { doctorCheck: (model?: string) => provider.doctorCheck?.(model) }
+			: {}),
+		...(provider.effortLevelsFor
+			? {
+					effortLevelsFor: (
+						model: string,
+						thinking?: Parameters<NonNullable<LLMProvider['effortLevelsFor']>>[1],
+					) => provider.effortLevelsFor?.(model, thinking) ?? [],
+				}
+			: {}),
+		...(provider.resolveContextWindow
+			? {
+					resolveContextWindow: (model: string, signal?: AbortSignal) =>
+						provider.resolveContextWindow?.(model, signal) ?? Promise.resolve(undefined),
+				}
+			: {}),
+	} as LLMProvider
 }

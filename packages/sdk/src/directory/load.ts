@@ -185,6 +185,7 @@ function readConfig(
 	take('maxIterations', isNumber, 'finite number')
 	take('tokenBudget', isNumber, 'finite number')
 	take('timeoutMs', isNumber, 'finite number')
+	take('streamIdleTimeoutMs', isNumber, 'finite number')
 
 	// `metadata` is typed `Record<string, string>` and was admitted on
 	// `typeof === 'object'` alone — which an array also satisfies, and which
