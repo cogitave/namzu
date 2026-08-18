@@ -372,6 +372,36 @@ export function App({ ctx }: AppProps) {
 	 */
 	const conversationGenRef = useRef<number>(0)
 	/**
+	 * Turns whose `finally` blocks have not yet attached their durable write.
+	 *
+	 * `interruptTurn()` deliberately hands the screen back immediately, while the
+	 * provider iterator may take longer to unwind. During that interval `idle`
+	 * is a UI fact, not a history barrier: awaiting `persistenceTailRef.current`
+	 * would await the OLD tail because this turn has not appended to it yet.
+	 *
+	 * Values are conversation generations so `/resume` can leave an old turn
+	 * unwinding without blocking history operations in the conversation now on
+	 * screen. Within one generation, a history snapshot is safe only when no
+	 * entry remains; at that point every turn has either attached its write to
+	 * the persistence tail or established that there is nowhere to write it.
+	 */
+	const unsettledTurnGenerationsRef = useRef<Map<object, number>>(new Map())
+	const hasUnsettledTurn = useCallback(
+		(generation = conversationGenRef.current): boolean =>
+			[...unsettledTurnGenerationsRef.current.values()].some((g) => g === generation),
+		[],
+	)
+	/**
+	 * Serializes operations that replace or fork the active history.
+	 *
+	 * The ref closes the same-tick window before React can repaint the disabled
+	 * composer; state is only the rendered half. The queue pump reads the ref too,
+	 * so a turn cannot start while `/fork` is waiting for an already-attached disk
+	 * write to land.
+	 */
+	const conversationMutationRef = useRef<null | 'fork'>(null)
+	const [conversationMutation, setConversationMutation] = useState<null | 'fork'>(null)
+	/**
 	 * Whether a conversation has been chosen and is still being read.
 	 *
 	 * The picker keeps the screen for that interval, and `Esc` stops cancelling:
@@ -1107,20 +1137,16 @@ export function App({ ctx }: AppProps) {
 	/**
 	 * `/fork`: continue in a copy, leaving this conversation where it is.
 	 *
-	 * Refused while a turn is running, rather than interrupted like `/resume`
-	 * does. The two look similar and are not: `/resume` LEAVES a conversation,
+	 * Refused while a turn is running or still unwinding, rather than interrupted
+	 * like `/resume` does. The two look similar and are not: `/resume` LEAVES a
+	 * conversation,
 	 * so an interrupted reply landing in the one being left is where it
 	 * belongs. A fork stays here — the reply would land in the original, the
 	 * screen would go on showing it, and the copy would be missing the last
 	 * thing the operator watched arrive.
 	 */
 	const doFork = useCallback(async () => {
-		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
-		const scope = scopeRef.current
-		if (!sessions || !scope) {
-			pushMessage('system', 'Conversation history is unavailable in this folder.')
-			return
-		}
+		if (conversationMutationRef.current) return
 		if (abortRef.current) {
 			pushMessage(
 				'system',
@@ -1128,8 +1154,35 @@ export function App({ ctx }: AppProps) {
 			)
 			return
 		}
-		const original = scope.sessionId
+		if (hasUnsettledTurn()) {
+			pushMessage(
+				'system',
+				'A turn is still settling after it was interrupted. Wait for its partial reply to be saved before forking.',
+			)
+			return
+		}
+		if (queuedRef.current.length > 0) {
+			pushMessage(
+				'system',
+				'Queued prompts have not run yet. Wait for them to finish, or press esc to discard them before forking.',
+			)
+			return
+		}
+
+		conversationMutationRef.current = 'fork'
+		setConversationMutation('fork')
 		try {
+			const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+			const scope = scopeRef.current
+			if (!sessions || !scope) {
+				pushMessage('system', 'Conversation history is unavailable in this folder.')
+				return
+			}
+			// The settlement guard above establishes that no current-generation
+			// turn can attach another write after this read. The remaining tail may
+			// still be writing, so the fork waits for that exact durable snapshot.
+			await persistenceTailRef.current
+			const original = scope.sessionId
 			const forked = await forkConversation(sessions, original)
 			// The transcript on screen is already the fork's history, so nothing
 			// is reloaded or reset. Only where the NEXT turn is written changes.
@@ -1140,8 +1193,11 @@ export function App({ ctx }: AppProps) {
 			)
 		} catch (err) {
 			pushMessage('system', `Could not fork: ${err instanceof Error ? err.message : String(err)}`)
+		} finally {
+			conversationMutationRef.current = null
+			setConversationMutation(null)
 		}
-	}, [ensureSessions, pushMessage])
+	}, [ensureSessions, hasUnsettledTurn, pushMessage])
 
 	// Bridge passed into session.send(): the agent calls this before a
 	// non-read-only tool batch; it parks until the user presses y/n/a.
@@ -1356,6 +1412,7 @@ export function App({ ctx }: AppProps) {
 			// anyone.
 			const destination = scopeRef.current?.sessionId ?? null
 			const turnGeneration = conversationGenRef.current
+			unsettledTurnGenerationsRef.current.set(turnToken, turnGeneration)
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
 			const askPermission = ctx.skipPermissions
 				? undefined
@@ -1483,6 +1540,10 @@ export function App({ ctx }: AppProps) {
 						}
 					})
 				}
+				// Removed only AFTER the write has been attached to the tail. A history
+				// operation that sees no current-generation entries can now await that
+				// tail without a turn appearing behind its read later.
+				unsettledTurnGenerationsRef.current.delete(turnToken)
 			}
 		},
 		[
@@ -1502,6 +1563,13 @@ export function App({ ctx }: AppProps) {
 
 	const handleSubmit = useCallback(
 		(value: string, images?: readonly ImageAttachment[]) => {
+			if (conversationMutationRef.current) {
+				pushMessage(
+					'system',
+					'Conversation history is being forked. Wait for it to finish before sending another command or prompt.',
+				)
+				return
+			}
 			setHistory((prev) => [...prev, value])
 			// What actually gets sent. A `prompt` action replaces it with text the
 			// command composed, and then takes the ordinary send path below —
@@ -1824,10 +1892,10 @@ export function App({ ctx }: AppProps) {
 							pushMessage('system', 'No session yet — nothing to compact.')
 							return
 						}
-						if (abortRef.current || state !== 'idle') {
+						if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
 							pushMessage(
 								'system',
-								'A turn is still running. Compacting now would summarize a conversation while its next message is being written — wait for it to finish, or press esc to stop it.',
+								'A turn is still running or settling. Compacting now would summarize a conversation while its next message is being written — wait for it to finish, or press esc to stop it and wait for its partial reply to be saved.',
 							)
 							return
 						}
@@ -1979,7 +2047,17 @@ export function App({ ctx }: AppProps) {
 				...(images && images.length > 0 ? { images: [...images] } : {}),
 			})
 		},
-		[activeSkills, doResume, enqueueQueued, exit, nextId, pushMessage, slashCtx, state],
+		[
+			activeSkills,
+			doResume,
+			enqueueQueued,
+			exit,
+			hasUnsettledTurn,
+			nextId,
+			pushMessage,
+			slashCtx,
+			state,
+		],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
@@ -1989,7 +2067,8 @@ export function App({ ctx }: AppProps) {
 			state !== 'idle' ||
 			phase !== 'ready' ||
 			queuedRef.current.length === 0 ||
-			abortRef.current
+			abortRef.current ||
+			conversationMutationRef.current
 		)
 			return
 		// Read and remove from the synchronous source of truth. `queued` is the
@@ -2340,7 +2419,7 @@ export function App({ ctx }: AppProps) {
 						    decision it had nothing to do with. */}
 						{permission ? <PermissionOverlay toolCalls={permission.toolCalls} /> : null}
 						<ComposerFrame
-							focus={state === 'idle' && phase === 'ready'}
+							focus={state === 'idle' && phase === 'ready' && conversationMutation === null}
 							hidden={permission !== null}
 						>
 							{queued.length > 0 && permission === null ? (
@@ -2352,7 +2431,12 @@ export function App({ ctx }: AppProps) {
 								</Box>
 							) : null}
 							<Composer
-								disabled={phase !== 'ready' || state === 'awaiting-permission' || compacting}
+								disabled={
+									phase !== 'ready' ||
+									state === 'awaiting-permission' ||
+									compacting ||
+									conversationMutation !== null
+								}
 								hidden={permission !== null}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
@@ -2372,7 +2456,9 @@ export function App({ ctx }: AppProps) {
 						model={session?.modelSummary ?? null}
 						state={state}
 						hint={
-							compacting
+							conversationMutation === 'fork'
+								? 'forking conversation — input is paused'
+								: compacting
 								? 'compacting conversation — input is paused'
 								: hintForPhase(phase, state, session?.hasProvider === true)
 						}

@@ -83,16 +83,19 @@ transcript on screen carries over, the next turn is written to the copy, and the
 conversation you forked from is unchanged and still in `/resume`. The copy is
 named after the original (`… (fork)`, then `… (fork 2)`) — both would otherwise
 derive the same title and appear as two rows nobody could tell apart, which is
-the list you would use to get back. It is refused while a turn is running: a
-fork taken then would be missing the reply you are watching arrive, because that
-reply belongs to the conversation it started in.
+the list you would use to get back. It is refused while a turn is running and
+while an interrupted provider iterator is still settling: `Esc` hands the screen
+back immediately, but the partial reply still has to join and finish the durable
+write queue. Once settled, the fork waits for that queue before copying, so it
+cannot omit the reply you just watched or race a write already in progress.
 
 **`/compact` replaces the older model-visible history with a summary.** It is
-refused while a turn is running, and input stays paused until the summary and
-its durable replacement have both landed. The next turn receives that summary;
-leaving and returning through `/resume` receives the same history rather than
-restoring the superseded turns. The disk log remains append-only: one replacement
-record changes the projected conversation, and later turns append after it.
+refused while a turn is running or an interrupted turn is still settling, and
+input stays paused until the summary and its durable replacement have both
+landed. The next turn receives that summary; leaving and returning through
+`/resume` receives the same history rather than restoring the superseded turns.
+The disk log remains append-only: one replacement record changes the projected
+conversation, and later turns append after it.
 
 The transcript is only the view of that history. Compaction remounts and trims
 the view so the summary is visible before the recent rows, while the model record

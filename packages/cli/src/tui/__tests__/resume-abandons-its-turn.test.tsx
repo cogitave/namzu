@@ -44,6 +44,10 @@ const RESUMED = 'conv-resumed'
 
 /** Every `appendMessages` call, with the conversation it named. */
 const appended: Array<{ sessionId: string; contents: string[] }> = []
+/** Number of durable appends visible each time `/fork` takes its snapshot. */
+const forkedAfterAppends: number[] = []
+/** Compaction model calls — none may start against an unsettled snapshot. */
+let compactCalls = 0
 
 /**
  * One gate per turn, standing in for a tool still running.
@@ -73,6 +77,14 @@ let abortSeenAtRelease = false
 let loadShouldFail = false
 /** Set by a test that wants the write of the abandoned turn to fail. */
 let appendShouldFail = false
+/** Held by a test that needs the write attached to the tail but not yet landed. */
+let appendHeld: Promise<void> | null = null
+let releaseTheAppend: () => void = () => {}
+function holdTheAppend(): void {
+	appendHeld = new Promise<void>((resolve) => {
+		releaseTheAppend = resolve
+	})
+}
 /** Held by a test that wants the conversation read to take an observable while. */
 let readHeld: Promise<void> | null = null
 let releaseTheRead: () => void = () => {}
@@ -106,6 +118,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 			sessionId,
 			contents: messages.map((m) => (typeof m.content === 'string' ? m.content : '')),
 		})
+		if (appendHeld) await appendHeld
 		if (appendShouldFail) throw new Error('ENOSPC: no space left on device')
 	},
 	listRecent: async () => [
@@ -118,6 +131,10 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 			{ role: 'user', content: 'RESTOREDQUESTION', timestamp: 1 },
 			{ role: 'assistant', content: 'RESTOREDANSWER', timestamp: 2 },
 		]
+	},
+	forkConversation: async () => {
+		forkedAfterAppends.push(appended.length)
+		return { id: 'conv-forked', title: 'the fork', copied: 2 }
 	},
 }))
 
@@ -133,7 +150,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
-				compact: async () => null,
+				compact: async () => {
+					compactCalls += 1
+					return null
+				},
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
@@ -212,11 +232,14 @@ const mounted: { unmount: () => void }[] = []
 
 beforeEach(() => {
 	appended.length = 0
+	forkedAfterAppends.length = 0
+	compactCalls = 0
 	gates.length = 0
 	signals.length = 0
 	abortSeenAtRelease = false
 	loadShouldFail = false
 	appendShouldFail = false
+	appendHeld = null
 	readHeld = null
 	throwAtEnd = false
 	askPermission = false
@@ -228,6 +251,7 @@ afterEach(() => {
 	// Released whatever the test did, so a failing assertion cannot leave a
 	// generator or a read parked forever and take the next file down with it.
 	for (const g of gates) g.release()
+	releaseTheAppend()
 	releaseTheRead()
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
@@ -598,5 +622,57 @@ describe('/resume while a turn is running', () => {
 		const everything = said(harness)
 		expect(everything, 'the turn stopped rendering into its own transcript').toContain('LEAKEDREPLY0')
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
+	})
+})
+
+describe('/fork after an interrupted turn', () => {
+	it('waits until the old iterator has attached and finished its durable write', async () => {
+		// `Esc` hands the screen back immediately. The provider iterator is still
+		// parked on `gate.wait`, so its `finally` has not attached this turn to the
+		// persistence tail yet. Awaiting the current tail in this window would await
+		// an already-resolved promise and fork stale history.
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await tick(60)
+		await submit(harness, 'the prompt being interrupted')
+		await untilFrame(harness, 'RUNNING0', 'the turn never reached its held tool')
+
+		harness.stdin.write('\x1B')
+		await untilFrame(harness, 'Interrupted.', 'Esc did not hand the screen back')
+		await submit(harness, '/compact')
+		expect(compactCalls, 'compaction read history before the interrupted turn settled').toBe(0)
+		expect(said(harness), 'the compaction refusal did not explain the unsettled write').toContain(
+			'still running or settling',
+		)
+		await submit(harness, '/fork')
+
+		expect(
+			forkedAfterAppends,
+			'fork reached the store before the interrupted iterator scheduled its append',
+		).toEqual([])
+		expect(said(harness), 'the unsettled refusal did not explain what remains').toContain(
+			'still settling after it was interrupted',
+		)
+
+		// Once the old iterator unwinds, the append is first CHAINED and then
+		// awaited by `/fork`. The store therefore cannot observe a snapshot from
+		// before the turn the operator just watched.
+		holdTheAppend()
+		gates[0]?.release()
+		await appendsReach(1)
+		await submit(harness, '/fork')
+		expect(
+			forkedAfterAppends,
+			'fork did not await the attached persistence tail before taking its snapshot',
+		).toEqual([])
+
+		releaseTheAppend()
+		const started = performance.now()
+		while (forkedAfterAppends.length === 0 && performance.now() - started < 3_000) {
+			await tick(20)
+		}
+
+		expect(forkedAfterAppends).toEqual([1])
+		expect(appended[0]?.contents.join(' ')).toContain('LEAKEDREPLY0')
 	})
 })
