@@ -33,7 +33,7 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Limit checker, task router (cheap model for compaction, expensive for coding), tool tiering (LLM learns to prefer cheaper tools first).
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs can be paused and resumed, aborted cleanly, and emit lifecycle events for every transition.
 - **Memory management.** Working memory via structured compaction to a typed `WorkingState`. Long-term memory via an indexed, tag/query/status-searchable store with disk persistence. No vector database required by default.
-- **Durability.** Atomic per-iteration checkpoints, an opt-in emergency core-dump on SIGINT/SIGTERM (`emergencySave: true` — a library must not seize a host process termination path by default), separate storage for runs, threads, conversations, activities, memories, and tasks.
+- **Durability.** Atomic per-iteration checkpoints, an opt-in emergency core-dump on SIGINT/SIGTERM (`emergencySave: true` — a library must not seize a host process termination path by default), and separate storage for runs, sessions, topic state and objectives, activities, memories, and tasks.
 - **IPC.** Native A2A (agent-to-agent) and MCP (Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking so concurrent agents do not stomp on each other.
 - **Capability system.** Tools are first-class, typed, permissioned, and progressively disclosed. The LLM does not see the full tool catalog; tools start deferred, get activated on demand, and can be suspended. Each tool declares `readOnly`, `destructive`, `concurrencySafe`, `permissions`, `category`.
 - **Syscall filtering.** Every tool call goes through a verification gate — allow / deny / ask, with built-in rules for read-only allowlist and dangerous pattern deny-list, plus custom regex rules. This is separate from sandbox isolation; it is the decision layer, the sandbox is the enforcement layer.
@@ -46,9 +46,9 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Multi-tenant isolation from day one.** Connector registries, vaults, config, and stores are tenant-scoped. Two organizations can share a process without cross-contamination.
 - **Provider abstraction.** Seven drivers ship today, each its own package installed only if you use it, plus a scriptable mock pre-registered in the kernel. The `LLMProvider` interface is narrow enough that adding another is an afternoon. BYOK everywhere, no hidden hot paths for any vendor.
 - **Telemetry.** OpenTelemetry-native spans and metrics. Cost accounting (input tokens, output tokens, cached tokens, cache write tokens, cache discount) flows from the provider into per-run, per-tenant rollups.
-- **Prompt cache integration.** Hash-based system-prompt cache per thread, integrated with provider cache controls (OpenRouter `cacheControl` today, more planned), plus full cache telemetry in every run.
+- **Prompt cache integration.** Hash-based system-prompt caching by agent and project, integrated with provider cache controls, plus cache telemetry in every run.
 - **Vault.** BYOK credentials and secrets, tenant-scoped, pluggable backend.
-- **Thread / Run separation.** Conversations (thread: user ↔ assistant messages across sessions) are cleanly separated from runs (tool calls, iterations, internal state). Multi-turn dialogs carry only the context that matters.
+- **Topic / Run separation.** A topic can outlive the sessions and runs that work on it; a run remains one execution pass with its own events, checkpoints, usage, and result.
 
 Every one of those bullets points at code that exists today in `src/`. The architecture is deep even where the surface is quiet.
 
@@ -76,14 +76,14 @@ exists to be checked against the source, not against anybody else.
 | Capability | What it is here |
 |---|---|
 | Process sandbox (OS-level) | Seatbelt profiles or mount + PID namespaces, refusing when a requested control cannot be enforced |
-| Multi-tenancy | Tenant, project, thread and run are separate identities from day one, not a field added later |
+| Multi-tenancy | Tenant, project, topic, session and run are separate identities from day one, not a field added later |
 | Sub-agent spawn | Parent/child with depth, budget and a shared pool the parent debits |
 | Signal propagation | One abort tree; cancelling a parent tears down every descendant |
 | Checkpoint and resume | Per iteration, versioned, written atomically, with the trace context to rejoin |
 | Emergency save | Opt-in snapshot on a fatal signal, replayable through the ordinary restore path |
 | Resource quotas | Token, cost and wall-clock caps per run and per child |
 | Prompt cache | Cache anchors placed by the runtime and reported in telemetry |
-| Thread ↔ Run separation | A conversation outlives the runs inside it |
+| Topic ↔ Run separation | A topic outlives the sessions and runs that work on it |
 | Agent-to-agent protocol | Client and server, in the kernel |
 | Model Context Protocol | Client and server, in the kernel |
 | Retrieval | A full pipeline in the kernel rather than an integration |
@@ -156,7 +156,7 @@ These exist because the moment you have more than one agent running in parallel 
 - Allocates a slice of the parent's token budget, timeout budget, and cost budget to the child
 - Creates a child `AbortController` linked to the parent's
 - Builds a child config via the agent definition's `configBuilder(factoryOptions)`
-- Stamps the child with `parentAgentId`, `parentRunId`, `threadId`, and `depth`
+- Stamps the child with `parentAgentId`, `parentRunId`, `topicId`, and `depth`
 - Registers the child task in an internal `TaskRegistry` keyed by `TaskId`
 - Emits `agent_pending` on the bus with parent/child/depth metadata
 - Forwards every child event to the parent's run listener so the supervisor sees what its subtree is doing
@@ -178,7 +178,7 @@ The limit checker (`run/LimitChecker.ts`) is the kernel scheduler's enforcement 
 `runtime/query/` is where one iteration of the agent loop actually happens. The pieces:
 
 - `runtime/query/context.ts` assembles the request context: system prompt, persona, skills, tools, messages.
-- `runtime/query/context-cache.ts` implements `ContextCache` — a hash-based system-prompt cache per thread. If the prompt inputs have not changed since last iteration, the cache returns the same text so provider-level prompt caching can hit.
+- `runtime/query/prompt-cache.ts` implements `PromptCache` — a hash-based system-prompt cache keyed by the agent and project that own it. If the prompt inputs have not changed since the last iteration, the cache returns the same text so provider-level prompt caching can hit.
 - `runtime/query/prompt.ts` owns `PromptBuilder` — structured, segment-based prompt assembly (static segment vs dynamic segment) that plays well with provider prompt caches.
 - `runtime/query/guard.ts` runs pre-dispatch guards on the request.
 - `runtime/query/executor.ts` actually calls the provider and streams the result.
@@ -195,7 +195,7 @@ The limit checker (`run/LimitChecker.ts`) is the kernel scheduler's enforcement 
 
 Memory in the kernel is two systems cooperating.
 
-**Working memory** is `compaction/`. When a thread's context approaches the model's window, the kernel does not truncate. The runtime query's `structured` compaction phase incrementally extracts `task / plan / files / decisions / failures` from the message stream into a typed `WorkingState`; `sliding-window` is the deliberately simpler reducer alternative and `disabled` opts out. The older `StructuredCompactionManager` class is a deprecated parallel implementation, not the strategy the runtime drives. The extractor (`compaction/extractor.ts`), verifier (`compaction/verifier.ts`), and serializer (`compaction/serializer.ts`) together produce compact markdown that replaces old messages. The agent keeps context awareness at a fraction of the token cost. `compaction/dangling.ts` handles partial tool-call streams that could otherwise corrupt the conversation state.
+**Working memory** is `compaction/`. When a topic's carried conversation approaches the model's window, the kernel does not truncate. The runtime query's `structured` compaction phase incrementally extracts `task / plan / files / decisions / failures` from the message stream into a typed `WorkingState`; `sliding-window` is the deliberately simpler reducer alternative and `disabled` opts out. The older `StructuredCompactionManager` class is a deprecated parallel implementation, not the strategy the runtime drives. The extractor (`compaction/extractor.ts`), verifier (`compaction/verifier.ts`), and serializer (`compaction/serializer.ts`) together produce compact markdown that replaces old messages. The agent keeps context awareness at a fraction of the token cost. `compaction/dangling.ts` handles partial tool-call streams that could otherwise corrupt the conversation state.
 
 A pass also runs **when a host asks for one**, not only when a threshold fires: `compactNow` summarises a whole conversation and `compactRegion` collapses a span the caller chose, both returning a replacement history rather than editing the input. These host-triggered paths first extract structured state from the span they replace; a header with an empty body is not a summary. Their summary message is retained because no run-scoped manager exists outside the query to prove it has reconstructed equivalent state. A later pass may add a newer replaceable summary, but it cannot erase that retained record.
 
@@ -209,7 +209,7 @@ That rule is now a CI step rather than a habit. `check-signature-types-exported.
 
 **Long-term memory** is `store/memory/`. The `MemoryIndex` (with `InMemoryMemoryIndex` as the default and a disk-backed variant) stores typed `MemoryIndexEntry` records, searchable by free-text query, tag set, and status filter. It persists to disk atomically. There is no required vector database — the default is good-old tag and text search. You can layer an embedding-backed index on top if you want, but the kernel does not assume it.
 
-Alongside memory, `store/` has sibling stores for every kernel concept: `store/run/` (runs, iterations, checkpoints), `store/conversation/` (threads and messages), `store/activity/` (activity log), `store/task/` (task registry), and an in-memory generic `InMemoryStore` for tests and ephemeral workloads.
+Alongside memory, `store/` has sibling stores for the kernel's durable concepts: `store/run/` (runs, events, checkpoints and surviving messages), `store/session/` (projects, topics, sessions and summaries), `store/topic/` (mutable topic state and multi-round objectives), `store/activity/`, `store/attachment/`, `store/feedback/`, and `store/task/`. Topic state and objective updates use exact revisions; the disk implementations publish immutable revision commits so one writer wins even across processes. See [Durable topic revisions](topic-store-revisions.md) for the filesystem and upgrade contract.
 
 ### 7. The Capability System: Tools (`tools/`) and Registry (`registry/`)
 
@@ -321,7 +321,7 @@ A connector is how an agent reaches external systems. `connector/BaseConnector.t
 
 ### 17. Prompt Cache Integration
 
-The kernel takes prompt caching seriously because token cost is the number-one production constraint for agents. `runtime/query/context-cache.ts` maintains a per-thread `ContextCache` that hashes the inputs (system prompt + persona + skills + tools + base prompt) and only rebuilds when the hash changes. When the provider supports cache controls (OpenRouter's `cacheControl` parameter today, Anthropic and Bedrock cache headers in progress), the kernel attaches them, and the response's cache telemetry (`cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_discount`) flows back into the run's usage metrics.
+The kernel takes prompt caching seriously because token cost is a production constraint for agents. `runtime/query/prompt-cache.ts` maintains a `PromptCache` identified by agent and project. It hashes the prompt inputs and rebuilds only when that hash changes. Static and dynamic segments are tracked separately so changing turn-local context does not invalidate a reusable static prefix; provider-reported cache usage flows back into the run's usage metrics.
 
 This is why `PromptBuilder` splits a request into static and dynamic segments: the static segment is the cache target, and the kernel does the bookkeeping to keep it stable across iterations so the cache actually hits.
 
@@ -331,7 +331,7 @@ The vault holds BYOK credentials and arbitrary secrets. `InMemoryCredentialVault
 
 ### 19. Telemetry (`telemetry/`)
 
-OpenTelemetry-native. `telemetry/attributes.ts` defines the canonical attribute keys; `telemetry/metrics.ts` defines the kernel's metrics surface. Every iteration, every tool call, every provider call emits spans with consistent attributes: `run.id`, `thread.id`, `agent.id`, `tenant.id`, `tool.name`, `provider.name`, `model`, `usage.input_tokens`, `usage.output_tokens`, `usage.cached_tokens`, `cost.usd`. Wire your existing OTel collector, or pipe to LangSmith / Langfuse / Braintrust via their OTel adapters.
+OpenTelemetry-native. The SDK's telemetry constants define the correlation keys used by run, model and tool spans and logs. Run context carries tenant, project, topic, session and run identities; the current compatibility key `NAMZU.THREAD_ID` still carries the `topicId` value until that exported telemetry name completes its deprecation window. Provider-reported input, output and cache usage flows into the run's usage and cost records.
 
 ### 20. Plugin System (`plugin/`)
 
@@ -358,9 +358,9 @@ All four sit on top of the same lifecycle manager, the same limit checker, the s
 
 Every registry, every store, every vault is tenant-scoped. `TenantId` is a branded ID threaded through the kernel's types. A run for tenant A cannot accidentally read tenant B's knowledge base, invoke tenant B's tools, or resolve tenant B's credentials. This is not a feature you turn on — it is the default, and a single-tenant setup is just a special case.
 
-### 24. Thread / Run Separation
+### 24. Topic / Run Separation
 
-A **thread** is a conversation: a series of user ↔ assistant messages, possibly spanning many sessions, probably spanning many days. A **run** is a single execution pass: an input, iterations, tool calls, usage, cost, result. One thread has many runs. Most frameworks conflate the two; Namzu keeps them explicit, with separate stores, separate IDs, and separate serialization. Multi-turn dialogs carry only the context the kernel thinks matters (via compaction), and run traces stay auditable without drowning in prior-turn tool chatter.
+A **topic** is the durable subject under which sessions work. A **session** is the multi-turn work unit owned by one actor at a time, and a **run** is one execution pass with its own input, iterations, tool calls, usage, cost, and result. One topic can own many sessions and each session can produce many runs. Keeping those identities explicit lets a topic retain mutable conversation state and a bounded objective without mixing either into a run's auditable event history.
 
 ---
 
@@ -371,11 +371,11 @@ Five choices shape every decision in the kernel.
 
 **No workarounds. Fix at the root.** When something is wrong, we fix the pattern, not the symptom. A subtle bug in the lifecycle manager means the lifecycle manager changes — we do not paper over it in the agent pattern that calls it.
 
-**Type safety is the foundation.** Every resource ID is branded (`RunId`, `ThreadId`, `TaskId`, `TenantId`, `AgentId`, `ToolId`, `MemoryId`, `ChunkId`...). Every discriminated union has exhaustiveness checks. Every public API has Zod-validated inputs at the boundary. The TypeScript compiler is not a formality; it is the first line of defense.
+**Type safety is the foundation.** Every resource ID is branded (`RunId`, `TopicId`, `SessionId`, `TaskId`, `TenantId`, `ToolId`, `MemoryId`, `ChunkId`...). Every discriminated union has exhaustiveness checks. Every public API has Zod-validated inputs at the boundary. The TypeScript compiler is not a formality; it is the first line of defense.
 
 **Deny by default. Fail fast.** Sandboxes deny file I/O by default. Verification gates deny tool calls by default unless a rule allows them. Limit checkers fail the run the moment a budget is breached. Configuration errors throw at boot, not at the 90-minute mark of a long-running job.
 
-**Dependency direction is sacred.** `contracts` knows nothing about `sdk`. `sdk` knows nothing about `agents` or `api`. Circular dependencies are a compile error, not a code-review suggestion. This is what keeps the kernel's interface surface small even as its guts grow.
+**Dependency direction is sacred.** `@namzu/sdk` is the dependency root. The CLI, capability packages, telemetry, evals and provider drivers may import it; the SDK does not import them, and sibling packages do not import one another. Circular dependencies are a compile error, not a code-review suggestion. This is what keeps the kernel's interface surface small even as its guts grow.
 
 **Convention over surprise.** Every new feature follows a shared pattern language — Registries, Managers, Stores, Runs, Bridges, Providers. You read one subsystem, you can navigate the next one.
 
@@ -391,7 +391,7 @@ AEP flows over three transports:
 - **SSE** (`bridge/sse/mapper.ts`) — cross-process over HTTP, for web UIs and remote observers.
 - **A2A** (`bridge/a2a/`) — cross-agent, for multi-agent meshes.
 
-Every transport emits the same event shape. Event types include run lifecycle (`run_started`, `run_paused`, `run_completed`), iteration events (`iteration_started`, `checkpoint_created`), tool events (`tool_called`, `tool_result`), agent events (`agent_pending`, `agent_canceled`), plan events (`plan_requested`, `plan_approved`), advisory events, and error events. They carry consistent metadata: `runId`, `threadId`, `agentId`, `tenantId`, `timestamp`, `depth`, `parentRunId`.
+Every transport emits the same `RunEvent` union. Every event carries `type` and `runId`; variants add only the identifiers and payload they need, such as `toolUseId`, `taskId`, `planId`, `parentRunId`, or `depth`. Topic, session, project and tenant correlation belongs to the run context and durable run metadata rather than being repeated on every event variant.
 
 AEP v1 is being finalized. Until the spec is stamped, treat the event shapes as semver-minor.
 
@@ -431,8 +431,8 @@ that changes.
 
 This section used to carry a version-numbered roadmap. It was written at 0.x
 and the package is well past it — several of its items shipped under different
-names, one of them (`ContextCache`) is now deprecated, and a plan a reader
-cannot trust is worse than no plan. The changelog is the record of what
+names, and a plan a reader cannot trust is worse than no plan. The changelog is
+the record of what
 actually landed; the repository's issues are where what is next gets argued.
 
 Explicitly out of scope, and staying that way: framework chat hooks, hosting

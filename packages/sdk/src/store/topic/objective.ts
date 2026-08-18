@@ -1,6 +1,6 @@
-import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { TenantIsolationError } from '../../session/errors.js'
 import type { TenantId, TopicId } from '../../types/ids/index.js'
 import {
 	type ObjectivePhase,
@@ -8,7 +8,13 @@ import {
 	StaleObjectiveError,
 	type TopicObjective,
 } from '../../types/topic/objective.js'
-import { DiskRecordStore } from '../kv/record-store.js'
+import {
+	DiskRevisionRecordStore,
+	type RevisionMutation,
+	type RevisionedRecordLocation,
+	legacyRevisionFileSegment,
+	revisionFileSegment,
+} from '../kv/revision-record-store.js'
 import { defineSchema } from '../schema.js'
 
 /**
@@ -23,7 +29,7 @@ import { defineSchema } from '../schema.js'
  */
 
 const SCHEMA = defineSchema({ kind: 'topic-objective', current: 1, migrations: {} })
-const records = new DiskRecordStore<TopicObjective>(SCHEMA)
+const revisionRecords = new DiskRevisionRecordStore<TopicObjective>(SCHEMA, 'topic objective store')
 
 export interface CreateObjectiveParams {
 	readonly id: string
@@ -109,6 +115,28 @@ function missing(id: string): Error {
 	return new Error(`No objective ${id}.`)
 }
 
+function assertTenant(record: TopicObjective, tenantId: TenantId): void {
+	if (record.tenantId !== tenantId) {
+		throw new TenantIsolationError({ requested: tenantId, resource: `objective(${record.id})` })
+	}
+}
+
+interface ObjectiveBackend {
+	readonly read: (id: string) => Promise<TopicObjective | null>
+	readonly transact: <R>(
+		id: string,
+		mutate: (current: TopicObjective | null) => RevisionMutation<TopicObjective, R>,
+	) => Promise<R>
+}
+
+const objectiveBackends = new WeakMap<object, ObjectiveBackend>()
+
+function backendFor(store: object): ObjectiveBackend {
+	const backend = objectiveBackends.get(store)
+	if (!backend) throw new Error('Objective store backend was not initialized.')
+	return backend
+}
+
 /**
  * The shared write logic.
  *
@@ -121,35 +149,49 @@ function missing(id: string): Error {
 abstract class ObjectiveStoreBase implements TopicObjectiveStore {
 	protected constructor(protected readonly now: () => number) {}
 
-	abstract getObjective(id: string, tenantId: TenantId): Promise<TopicObjective | null>
+	/**
+	 * Commit seam for the shared domain transitions. Shipped implementations
+	 * enforce an exact next revision here; keeping every transition on this
+	 * path also preserves a subclass observer without letting it replace the
+	 * domain rules above.
+	 */
 	protected abstract put(record: TopicObjective): Promise<void>
+
+	async getObjective(id: string, tenantId: TenantId): Promise<TopicObjective | null> {
+		const found = await backendFor(this).read(id)
+		// Enumeration-style reads deliberately hide another tenant's record.
+		// Mutations reject instead: treating it as absent would overwrite it.
+		return found && found.tenantId === tenantId ? found : null
+	}
 
 	async createObjective(
 		params: CreateObjectiveParams,
 		tenantId: TenantId,
 	): Promise<TopicObjective> {
-		if (await this.getObjective(params.id, tenantId)) {
-			throw new ObjectiveExistsError({ id: params.id })
-		}
-		if (params.maxRounds < 1) {
+		if (!Number.isSafeInteger(params.maxRounds) || params.maxRounds < 1) {
 			// A cap of zero is an objective that can never run. Accepting it
 			// would produce a record that blocks on its own first round, which
 			// reads as a runaway that was stopped rather than a caller mistake.
-			throw new Error(`maxRounds must be at least 1, got ${params.maxRounds}.`)
+			throw new Error(`maxRounds must be a positive safe integer, got ${params.maxRounds}.`)
 		}
-		const record: TopicObjective = {
-			id: params.id,
-			topicId: params.topicId,
-			tenantId,
-			revision: 1,
-			objective: params.objective,
-			phase: 'active',
-			maxRounds: params.maxRounds,
-			roundsStarted: 0,
-			updatedAt: this.now(),
-		}
-		await this.put(record)
-		return record
+		return await backendFor(this).transact(params.id, (existing) => {
+			if (existing) {
+				assertTenant(existing, tenantId)
+				throw new ObjectiveExistsError({ id: params.id })
+			}
+			const record: TopicObjective = {
+				id: params.id,
+				topicId: params.topicId,
+				tenantId,
+				revision: 1,
+				objective: params.objective,
+				phase: 'active',
+				maxRounds: params.maxRounds,
+				roundsStarted: 0,
+				updatedAt: this.now(),
+			}
+			return { record, result: record }
+		})
 	}
 
 	async beginRound(
@@ -157,36 +199,43 @@ abstract class ObjectiveStoreBase implements TopicObjectiveStore {
 		tenantId: TenantId,
 		opts: { revision: number },
 	): Promise<TopicObjective> {
-		const existing = await this.getObjective(id, tenantId)
-		if (!existing) throw missing(id)
-		assertFresh(id, existing, opts.revision)
-		if (existing.phase !== 'active') {
-			throw new Error(`Objective ${id} is ${existing.phase}, not active.`)
-		}
-		if (existing.roundsStarted >= existing.maxRounds) {
-			// Blocked BEFORE the throw. A caller that swallows this error, or a
-			// process that dies on it, must not leave a record that still says
-			// `active` — the next reader would start the round this refused.
-			await this.put({
+		const outcome = await backendFor(this).transact<{
+			record: TopicObjective
+			exhausted: boolean
+		}>(id, (existing) => {
+			if (!existing) throw missing(id)
+			assertTenant(existing, tenantId)
+			assertFresh(id, existing, opts.revision)
+			if (existing.phase !== 'active') {
+				throw new Error(`Objective ${id} is ${existing.phase}, not active.`)
+			}
+			if (existing.roundsStarted >= existing.maxRounds) {
+				const record: TopicObjective = {
+					...existing,
+					revision: existing.revision + 1,
+					phase: 'blocked',
+					blockedReason: {
+						code: 'round_cap',
+						message: `Reached the ${existing.maxRounds}-round cap.`,
+					},
+					updatedAt: this.now(),
+				}
+				return { record, result: { record, exhausted: true as const } }
+			}
+			const record: TopicObjective = {
 				...existing,
 				revision: existing.revision + 1,
-				phase: 'blocked',
-				blockedReason: {
-					code: 'round_cap',
-					message: `Reached the ${existing.maxRounds}-round cap.`,
-				},
+				roundsStarted: existing.roundsStarted + 1,
 				updatedAt: this.now(),
-			})
-			throw new ObjectiveExhaustedError({ id, maxRounds: existing.maxRounds })
+			}
+			return { record, result: { record, exhausted: false as const } }
+		})
+		if (outcome.exhausted) {
+			// Blocked BEFORE the throw. The committed result is what a reader sees
+			// even if this exception is swallowed or the caller exits on it.
+			throw new ObjectiveExhaustedError({ id, maxRounds: outcome.record.maxRounds })
 		}
-		const record: TopicObjective = {
-			...existing,
-			revision: existing.revision + 1,
-			roundsStarted: existing.roundsStarted + 1,
-			updatedAt: this.now(),
-		}
-		await this.put(record)
-		return record
+		return outcome.record
 	}
 
 	async settleRound(
@@ -195,19 +244,20 @@ abstract class ObjectiveStoreBase implements TopicObjectiveStore {
 		verdict: ObjectiveRoundVerdict,
 		opts: { revision: number },
 	): Promise<TopicObjective> {
-		const existing = await this.getObjective(id, tenantId)
-		if (!existing) throw missing(id)
-		assertFresh(id, existing, opts.revision)
-		const record: TopicObjective = {
-			...existing,
-			revision: existing.revision + 1,
-			phase: verdict.phase ?? existing.phase,
-			...(verdict.blockedReason ? { blockedReason: verdict.blockedReason } : {}),
-			...(verdict.runId ? { lastRunId: verdict.runId } : {}),
-			updatedAt: this.now(),
-		}
-		await this.put(record)
-		return record
+		return await backendFor(this).transact(id, (existing) => {
+			if (!existing) throw missing(id)
+			assertTenant(existing, tenantId)
+			assertFresh(id, existing, opts.revision)
+			const record: TopicObjective = {
+				...existing,
+				revision: existing.revision + 1,
+				phase: verdict.phase ?? existing.phase,
+				...(verdict.blockedReason ? { blockedReason: verdict.blockedReason } : {}),
+				...(verdict.runId ? { lastRunId: verdict.runId } : {}),
+				updatedAt: this.now(),
+			}
+			return { record, result: record }
+		})
 	}
 
 	async setPhase(
@@ -216,29 +266,30 @@ abstract class ObjectiveStoreBase implements TopicObjectiveStore {
 		phase: ObjectivePhase,
 		opts: { revision: number },
 	): Promise<TopicObjective> {
-		const existing = await this.getObjective(id, tenantId)
-		if (!existing) throw missing(id)
-		assertFresh(id, existing, opts.revision)
-		if (existing.phase === 'complete' && phase !== 'complete') {
-			// One-way. Reopening a finished objective by writing a phase would
-			// let a stale caller restart work somebody already signed off, and
-			// the round counter it would run against is the one already spent.
-			throw new Error(`Objective ${id} is complete; it cannot be moved to ${phase}.`)
-		}
-		// A move off `blocked` drops the reason. Carrying it would describe a
-		// running objective as blocked by something it no longer is, and that
-		// stale sentence is what an operator reads to decide whether to
-		// intervene.
-		const { blockedReason, ...rest } = existing
-		const record: TopicObjective = {
-			...rest,
-			revision: existing.revision + 1,
-			phase,
-			...(phase === 'blocked' && blockedReason ? { blockedReason } : {}),
-			updatedAt: this.now(),
-		}
-		await this.put(record)
-		return record
+		return await backendFor(this).transact(id, (existing) => {
+			if (!existing) throw missing(id)
+			assertTenant(existing, tenantId)
+			assertFresh(id, existing, opts.revision)
+			if (existing.phase === 'complete' && phase !== 'complete') {
+				// One-way. Reopening a finished objective by writing a phase would
+				// let a stale caller restart work somebody already signed off, and
+				// the round counter it would run against is the one already spent.
+				throw new Error(`Objective ${id} is complete; it cannot be moved to ${phase}.`)
+			}
+			// A move off `blocked` drops the reason. Carrying it would describe a
+			// running objective as blocked by something it no longer is, and that
+			// stale sentence is what an operator reads to decide whether to
+			// intervene.
+			const { blockedReason, ...rest } = existing
+			const record: TopicObjective = {
+				...rest,
+				revision: existing.revision + 1,
+				phase,
+				...(phase === 'blocked' && blockedReason ? { blockedReason } : {}),
+				updatedAt: this.now(),
+			}
+			return { record, result: record }
+		})
 	}
 }
 
@@ -247,16 +298,34 @@ export class InMemoryTopicObjectiveStore extends ObjectiveStoreBase {
 
 	constructor(now: () => number = Date.now) {
 		super(now)
-	}
-
-	async getObjective(id: string, tenantId: TenantId): Promise<TopicObjective | null> {
-		const found = this.objectives.get(id)
-		// Another tenant's record reads as absent rather than as an error, for
-		// the reason the project listing gives: refusing confirms it is there.
-		return found && found.tenantId === tenantId ? found : null
+		objectiveBackends.set(this, {
+			read: async (id) => this.objectives.get(id) ?? null,
+			transact: async <R>(
+				id: string,
+				mutate: (current: TopicObjective | null) => RevisionMutation<TopicObjective, R>,
+			): Promise<R> => {
+				// Deliberately no await: read, domain checks and publish are one JS
+				// turn. `put` executes its map check/set before its returned promise
+				// settles; awaiting an async get before this point would let two callers
+				// capture the same revision.
+				const proposal = mutate(this.objectives.get(id) ?? null)
+				await this.put(proposal.record)
+				return proposal.result
+			},
+		})
 	}
 
 	protected async put(record: TopicObjective): Promise<void> {
+		const existing = this.objectives.get(record.id)
+		if (existing) assertTenant(existing, record.tenantId)
+		const expected = (existing?.revision ?? 0) + 1
+		if (record.revision !== expected) {
+			throw new StaleObjectiveError({
+				id: record.id,
+				expectedRevision: record.revision - 1,
+				actualRevision: existing?.revision ?? 0,
+			})
+		}
 		this.objectives.set(record.id, record)
 	}
 }
@@ -272,19 +341,51 @@ export class DiskTopicObjectiveStore extends ObjectiveStoreBase {
 		now: () => number = Date.now,
 	) {
 		super(now)
+		objectiveBackends.set(this, {
+			read: async (id) => await revisionRecords.read(this.location(id)),
+			transact: async <R>(
+				id: string,
+				mutate: (current: TopicObjective | null) => RevisionMutation<TopicObjective, R>,
+			): Promise<R> => {
+				const location = this.location(id)
+				const proposal = mutate(await revisionRecords.read(location))
+				try {
+					await this.put(proposal.record)
+				} catch (err) {
+					if (err instanceof StaleObjectiveError) {
+						// Re-run only the domain guard against the durable winner. Creation
+						// must report ObjectiveExistsError, while an ordinary mutation keeps
+						// the stale error and its actual revision.
+						mutate(await revisionRecords.read(location))
+					}
+					throw err
+				}
+				return proposal.result
+			},
+		})
 	}
 
-	private path(id: string): string {
-		return join(this.config.rootDir, 'objectives', `${id}.json`)
-	}
-
-	async getObjective(id: string, tenantId: TenantId): Promise<TopicObjective | null> {
-		const found = await records.read(this.path(id))
-		return found && found.tenantId === tenantId ? found : null
+	private location(id: string): RevisionedRecordLocation {
+		const root = join(this.config.rootDir, 'objectives')
+		const segment = revisionFileSegment(id)
+		return {
+			legacyPath: join(root, `${legacyRevisionFileSegment(id)}.json`),
+			revisionsDir: join(root, '.revisions', segment),
+		}
 	}
 
 	protected async put(record: TopicObjective): Promise<void> {
-		await mkdir(join(this.config.rootDir, 'objectives'), { recursive: true })
-		await records.write(this.path(record.id), record)
+		await revisionRecords.transact(this.location(record.id), (existing) => {
+			if (existing) assertTenant(existing, record.tenantId)
+			const actual = existing?.revision ?? 0
+			if (record.revision !== actual + 1) {
+				throw new StaleObjectiveError({
+					id: record.id,
+					expectedRevision: record.revision - 1,
+					actualRevision: actual,
+				})
+			}
+			return { record, result: undefined }
+		})
 	}
 }

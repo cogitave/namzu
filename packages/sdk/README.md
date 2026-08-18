@@ -118,7 +118,7 @@ unchanged.
 |---|---|
 | **Boundary** | tool calls run confined; a permission gate decides before, not after |
 | **Budget** | tokens, money, wall clock and iterations, enforced rather than hoped for |
-| **Identity** | tenant → project → thread → session → run, on every record and span |
+| **Identity** | tenant → project → topic → session → run, on every record and span |
 | **Durability** | checkpoints a run resumes from, and a record that outlives the process |
 | **Compaction** | a conversation about to overflow is shrunk without being corrupted |
 | **Observability** | OpenTelemetry spans and metrics, and a log pipeline you own the sink for |

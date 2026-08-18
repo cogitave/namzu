@@ -1,11 +1,17 @@
-import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { TenantIsolationError } from '../../session/errors.js'
 import type { TenantId, TopicId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import { StaleTopicStateError, type TopicState } from '../../types/topic/state.js'
-import { DiskRecordStore } from '../kv/record-store.js'
+import {
+	DiskRevisionRecordStore,
+	type RevisionMutation,
+	type RevisionedRecordLocation,
+	legacyRevisionFileSegment,
+	revisionFileSegment,
+} from '../kv/revision-record-store.js'
 import { defineSchema } from '../schema.js'
 
 /**
@@ -26,7 +32,7 @@ import { defineSchema } from '../schema.js'
  */
 
 const SCHEMA = defineSchema({ kind: 'topic-state', current: 1, migrations: {} })
-const records = new DiskRecordStore<TopicState>(SCHEMA)
+const revisionRecords = new DiskRevisionRecordStore<TopicState>(SCHEMA, 'topic state store')
 
 export interface TopicStateStore {
 	/** `null` when this topic has never had state written. */
@@ -83,6 +89,39 @@ function next(
 	}
 }
 
+function assertTenant(record: TopicState, tenantId: TenantId): void {
+	if (record.tenantId !== tenantId) {
+		throw new TenantIsolationError({
+			requested: tenantId,
+			resource: `topic-state(${record.topicId})`,
+		})
+	}
+}
+
+function assertFresh(topicId: TopicId, actual: number, expected: number): void {
+	if (expected !== actual) {
+		throw new StaleTopicStateError({
+			topicId,
+			expectedRevision: expected,
+			actualRevision: actual,
+		})
+	}
+}
+
+function proposeState(
+	topicId: TopicId,
+	tenantId: TenantId,
+	patch: { permissionMode?: PermissionMode; queuedMessages?: readonly Message[] },
+	revision: number,
+	now: () => number,
+	existing: TopicState | null,
+): RevisionMutation<TopicState, TopicState> {
+	if (existing) assertTenant(existing, tenantId)
+	assertFresh(topicId, existing?.revision ?? 0, revision)
+	const record = next(topicId, tenantId, existing, patch, now())
+	return { record, result: record }
+}
+
 export class InMemoryTopicStateStore implements TopicStateStore {
 	private readonly states = new Map<TopicId, TopicState>()
 
@@ -90,9 +129,6 @@ export class InMemoryTopicStateStore implements TopicStateStore {
 
 	async getState(topicId: TopicId, tenantId: TenantId): Promise<TopicState | null> {
 		const found = this.states.get(topicId)
-		// A record from another tenant reads as absent rather than as an
-		// error, for the reason the project listing gives: refusing would
-		// confirm that somebody else's topic is there.
 		return found && found.tenantId === tenantId ? found : null
 	}
 
@@ -102,18 +138,18 @@ export class InMemoryTopicStateStore implements TopicStateStore {
 		mode: PermissionMode,
 		opts: { revision: number },
 	): Promise<TopicState> {
-		const existing = await this.getState(topicId, tenantId)
-		const actual = existing?.revision ?? 0
-		if (opts.revision !== actual) {
-			throw new StaleTopicStateError({
-				topicId,
-				expectedRevision: opts.revision,
-				actualRevision: actual,
-			})
-		}
-		const record = next(topicId, tenantId, existing, { permissionMode: mode }, this.now())
-		this.states.set(topicId, record)
-		return record
+		// Deliberately no await: read, domain checks and publish are one JS turn.
+		// Awaiting an async get here lets two callers capture the same revision.
+		const proposal = proposeState(
+			topicId,
+			tenantId,
+			{ permissionMode: mode },
+			opts.revision,
+			this.now,
+			this.states.get(topicId) ?? null,
+		)
+		this.states.set(topicId, proposal.record)
+		return proposal.result
 	}
 
 	async setQueuedMessages(
@@ -122,18 +158,16 @@ export class InMemoryTopicStateStore implements TopicStateStore {
 		messages: readonly Message[],
 		opts: { revision: number },
 	): Promise<TopicState> {
-		const existing = await this.getState(topicId, tenantId)
-		const actual = existing?.revision ?? 0
-		if (opts.revision !== actual) {
-			throw new StaleTopicStateError({
-				topicId,
-				expectedRevision: opts.revision,
-				actualRevision: actual,
-			})
-		}
-		const record = next(topicId, tenantId, existing, { queuedMessages: messages }, this.now())
-		this.states.set(topicId, record)
-		return record
+		const proposal = proposeState(
+			topicId,
+			tenantId,
+			{ queuedMessages: messages },
+			opts.revision,
+			this.now,
+			this.states.get(topicId) ?? null,
+		)
+		this.states.set(topicId, proposal.record)
+		return proposal.result
 	}
 }
 
@@ -148,12 +182,17 @@ export class DiskTopicStateStore implements TopicStateStore {
 		private readonly now: () => number = Date.now,
 	) {}
 
-	private path(topicId: TopicId): string {
-		return join(this.config.rootDir, 'topic-state', `${topicId}.json`)
+	private location(topicId: TopicId): RevisionedRecordLocation {
+		const root = join(this.config.rootDir, 'topic-state')
+		const segment = revisionFileSegment(topicId)
+		return {
+			legacyPath: join(root, `${legacyRevisionFileSegment(topicId)}.json`),
+			revisionsDir: join(root, '.revisions', segment),
+		}
 	}
 
 	async getState(topicId: TopicId, tenantId: TenantId): Promise<TopicState | null> {
-		const found = await records.read(this.path(topicId))
+		const found = await revisionRecords.read(this.location(topicId))
 		return found && found.tenantId === tenantId ? found : null
 	}
 
@@ -163,18 +202,9 @@ export class DiskTopicStateStore implements TopicStateStore {
 		mode: PermissionMode,
 		opts: { revision: number },
 	): Promise<TopicState> {
-		const existing = await this.getState(topicId, tenantId)
-		const actual = existing?.revision ?? 0
-		if (opts.revision !== actual) {
-			throw new StaleTopicStateError({
-				topicId,
-				expectedRevision: opts.revision,
-				actualRevision: actual,
-			})
-		}
-		const record = next(topicId, tenantId, existing, { permissionMode: mode }, this.now())
-		await this.persist(record)
-		return record
+		return await revisionRecords.transact(this.location(topicId), (existing) =>
+			proposeState(topicId, tenantId, { permissionMode: mode }, opts.revision, this.now, existing),
+		)
 	}
 
 	async setQueuedMessages(
@@ -183,22 +213,15 @@ export class DiskTopicStateStore implements TopicStateStore {
 		messages: readonly Message[],
 		opts: { revision: number },
 	): Promise<TopicState> {
-		const existing = await this.getState(topicId, tenantId)
-		const actual = existing?.revision ?? 0
-		if (opts.revision !== actual) {
-			throw new StaleTopicStateError({
+		return await revisionRecords.transact(this.location(topicId), (existing) =>
+			proposeState(
 				topicId,
-				expectedRevision: opts.revision,
-				actualRevision: actual,
-			})
-		}
-		const record = next(topicId, tenantId, existing, { queuedMessages: messages }, this.now())
-		await this.persist(record)
-		return record
-	}
-
-	private async persist(record: TopicState): Promise<void> {
-		await mkdir(join(this.config.rootDir, 'topic-state'), { recursive: true })
-		await records.write(this.path(record.topicId), record)
+				tenantId,
+				{ queuedMessages: messages },
+				opts.revision,
+				this.now,
+				existing,
+			),
+		)
 	}
 }

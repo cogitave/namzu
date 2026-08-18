@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { TenantIsolationError } from '../../../session/errors.js'
 import type { TenantId, TopicId } from '../../../types/ids/index.js'
 import { StaleTopicStateError } from '../../../types/topic/state.js'
 import { DiskTopicStateStore, InMemoryTopicStateStore } from '../state.js'
@@ -86,6 +87,34 @@ describe.each([
 		expect(second.permissionMode).toBe('auto')
 	})
 
+	it('admits exactly one of two simultaneous writes to one revision', async () => {
+		const { store } = await make()
+		const results = await Promise.allSettled([
+			store.setPermissionMode(TOPIC, TENANT, 'plan', { revision: 0 }),
+			store.setQueuedMessages(TOPIC, TENANT, [{ role: 'user', content: 'queued winner' }], {
+				revision: 0,
+			}),
+		])
+
+		const fulfilled = results.filter((result) => result.status === 'fulfilled')
+		const rejected = results.filter((result) => result.status === 'rejected')
+		expect(fulfilled).toHaveLength(1)
+		expect(rejected).toHaveLength(1)
+		expect(rejected[0]).toMatchObject({ reason: expect.any(StaleTopicStateError) })
+
+		const durable = await store.getState(TOPIC, TENANT)
+		expect(durable?.revision).toBe(1)
+		if (results[0]?.status === 'fulfilled') {
+			expect(durable).toMatchObject({ permissionMode: 'plan' })
+			expect(durable?.queuedMessages).toBeUndefined()
+		} else {
+			expect(durable).toMatchObject({ permissionMode: 'auto' })
+			expect(durable?.queuedMessages).toEqual([
+				expect.objectContaining({ content: 'queued winner' }),
+			])
+		}
+	})
+
 	it('reads another tenant as absent rather than refusing', async () => {
 		// Refusing confirms that somebody else's topic is there, which is the
 		// leak the project listing already avoids the same way.
@@ -93,6 +122,19 @@ describe.each([
 		await store.setPermissionMode(TOPIC, TENANT, 'plan', { revision: 0 })
 
 		expect(await store.getState(TOPIC, OTHER)).toBeNull()
+	})
+
+	it('refuses another tenant mutation instead of overwriting the hidden record', async () => {
+		const { store } = await make()
+		await store.setPermissionMode(TOPIC, TENANT, 'plan', { revision: 0 })
+
+		await expect(
+			store.setPermissionMode(TOPIC, OTHER, 'auto', { revision: 0 }),
+		).rejects.toBeInstanceOf(TenantIsolationError)
+		expect(await store.getState(TOPIC, TENANT)).toMatchObject({
+			permissionMode: 'plan',
+			revision: 1,
+		})
 	})
 })
 
