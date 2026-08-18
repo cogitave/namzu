@@ -62,7 +62,7 @@ Inside the session, grouped by the question each one answers:
 |---|---|
 | **What is going on** | `/status`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
-| **This conversation** | `/resume`, `/title`, `/fork`, `/compact`, `/copy`, `/clear` |
+| **This conversation** | `/resume`, `/title`, `/fork`, `/compact`, `/copy`, `/export`, `/clear` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
 | **Everything else** | `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
 
@@ -139,6 +139,24 @@ bytes; oversized text is never truncated. OSC 52 has no portable acknowledgement
 so success means only that the request was sent. A terminal, multiplexer or remote
 session policy may still ignore it, and the UI says so rather than claiming the
 clipboard changed.
+
+**`/export [path]` writes a verified Markdown conversation, not a rendering of
+the terminal.** Each new turn reserves its SDK run id and durably binds that id
+to the exact user message before model execution begins. Export then reads the
+run's strictly parsed event log and the survivor snapshot whose event boundary
+matches that log. Raw assistant Markdown, model-visible tool calls and results,
+provider fallback and context-relief activity therefore remain available after
+`/clear`; inline attachment bytes are represented by name and media type rather
+than copied into the Markdown.
+
+Bare `/export` writes `namzu-conversation-<session-id>.md` in the working
+directory; an argument selects another path. The writer publishes through a
+same-directory temporary file and never replaces an existing target. A legacy
+conversation with no turn/run bindings, a fork whose copied prefix is not yet
+tied to stable source turns, an unbound run, a torn event record, or a survivor
+snapshot that does not match the event head is refused. Those states can still
+contain useful history, but none can support the command's claim that the export
+is complete.
 
 ## Commands
 

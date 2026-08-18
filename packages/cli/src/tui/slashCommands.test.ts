@@ -149,6 +149,14 @@ describe('runSlash', () => {
 		expect(runSlash('/copy', ctx)).toEqual({ kind: 'copy' })
 	})
 
+	it('/export carries an optional path for App to resolve and write', () => {
+		expect(runSlash('/export', ctx)).toEqual({ kind: 'export' })
+		expect(runSlash('/export artifacts/session transcript.md', ctx)).toEqual({
+			kind: 'export',
+			path: 'artifacts/session transcript.md',
+		})
+	})
+
 	it('/quit and /exit both produce an exit action', () => {
 		expect(runSlash('/quit', ctx)).toEqual({ kind: 'exit' })
 		expect(runSlash('/exit', ctx)).toEqual({ kind: 'exit' })

@@ -14,12 +14,12 @@
  * submitted during another turn did not become text-only at that boundary.
  */
 
-import type { Message } from '@namzu/sdk'
+import type { Message, StopReason } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentEvent, AgentSession } from '../agent.js'
+import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
@@ -28,6 +28,21 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 let clipboard: import('../../integrations/clipboard/image.js').ClipboardRead = { kind: 'empty' }
 const sent: Message[][] = []
 const persisted: Message[][] = []
+const sentOptions: SendOptions[] = []
+const evidenceStarts: Array<{
+	readonly turnId: string
+	readonly runId: string
+	readonly displayText: string
+	readonly user: Message
+}> = []
+const evidenceSettlements: Array<{
+	readonly turnId: string
+	readonly runId: string
+	readonly outcome: string
+	readonly assistantText: string
+}> = []
+const sendSawDurableBinding: boolean[] = []
+let nextStopReason: StopReason = 'end_turn'
 
 /** A gate per provider turn, when a test needs to observe the queue between turns. */
 const turnGates: Array<{ wait: Promise<void>; release: () => void }> = []
@@ -46,7 +61,34 @@ vi.mock('../../integrations/clipboard/image.js', () => ({
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
-	openSessions: async () => ({ tenantId: 't' }),
+	openSessions: async () => ({
+		tenantId: 't',
+		turnEvidence: {
+			recordTurnStarted: async (input: {
+				runId: string
+				displayText: string
+				user: Message
+			}) => {
+				const record = {
+					turnId: `turn_${evidenceStarts.length + 1}`,
+					runId: input.runId,
+					displayText: input.displayText,
+					user: input.user,
+				}
+				evidenceStarts.push(record)
+				return record
+			},
+			recordTurnSettled: async (input: {
+				turnId: string
+				runId: string
+				outcome: string
+				assistantText: string
+			}) => {
+				evidenceSettlements.push(input)
+				return input
+			},
+		},
+	}),
 	startConversation: async () => 'conv',
 	appendMessages: async (_sessions: unknown, _id: string, messages: readonly Message[]) => {
 		persisted.push([...messages])
@@ -88,11 +130,16 @@ vi.mock('../agent.js', async (importOriginal) => {
 			close: async () => {},
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
-			send: async function* (messages): AsyncIterable<AgentEvent> {
+			send: async function* (messages, options): AsyncIterable<AgentEvent> {
 				sent.push([...messages])
+				sentOptions.push(options ?? {})
+				sendSawDurableBinding.push(
+					typeof options?.runId === 'string' &&
+						evidenceStarts.some((record) => record.runId === options.runId),
+				)
 				const gate = turnGates.shift()
 				if (gate) await gate.wait
-				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+				yield { kind: 'done', stopReason: nextStopReason } as AgentEvent
 			},
 		}),
 	}
@@ -119,6 +166,11 @@ beforeEach(() => {
 	clipboard = { kind: 'empty' }
 	sent.length = 0
 	persisted.length = 0
+	sentOptions.length = 0
+	evidenceStarts.length = 0
+	evidenceSettlements.length = 0
+	sendSawDurableBinding.length = 0
+	nextStopReason = 'end_turn'
 	for (const gate of turnGates.splice(0)) gate.release()
 })
 
@@ -154,6 +206,16 @@ async function submit(harness: { stdin: { write: (value: string) => void } }, te
 }
 
 describe('Ctrl+V with nothing to paste', () => {
+	it('keeps SDK cancellation distinct in durable turn evidence', async () => {
+		nextStopReason = 'cancelled'
+		const harness = await ready()
+
+		await submit(harness, 'cancel this turn')
+		await persistenceReaches(1)
+
+		expect(evidenceSettlements).toMatchObject([{ outcome: 'cancelled' }])
+	})
+
 	it('says the clipboard holds no image, rather than doing nothing', async () => {
 		clipboard = { kind: 'empty' }
 		const { stdin, lastFrame } = await ready()
@@ -261,5 +323,22 @@ describe('Ctrl+V with an image', () => {
 			),
 			'the provider saw an attachment that /resume and /fork would lose',
 		).toEqual([[firstImage], [secondImage]])
+
+		expect(sendSawDurableBinding).toEqual([true, true, true])
+		expect(new Set(sentOptions.map((options) => options.runId)).size).toBe(3)
+		expect(
+			evidenceStarts.slice(1).map((record) => ({
+				displayText: record.displayText,
+				content: record.user.content,
+				attachments: record.user.role === 'user' ? record.user.attachments : undefined,
+			})),
+			'turn evidence was reduced to display text or recorded after the provider started',
+		).toEqual([
+			{ displayText: 'queued first', content: 'queued first', attachments: [firstImage] },
+			{ displayText: 'queued second', content: 'queued second', attachments: [secondImage] },
+		])
+		expect(evidenceSettlements.map((record) => record.runId)).toEqual(
+			sentOptions.map((options) => options.runId),
+		)
 	})
 })

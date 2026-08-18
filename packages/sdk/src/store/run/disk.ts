@@ -403,8 +403,15 @@ export async function readRunEventsIn(
 	}
 
 	const sinceSeq = options?.sinceSeq ?? 0
+	const strict = options?.integrity === 'strict'
+	if (strict && raw.length > 0 && !raw.endsWith('\n')) {
+		throw new Error(
+			`Invalid run transcript in ${join(runDir, 'transcript.jsonl')}: final record is not newline-terminated`,
+		)
+	}
 	const events: PersistedRunEvent[] = []
 	let position = 0
+	let previousSeq = 0
 
 	for (const line of raw.split('\n')) {
 		if (line.length === 0) continue
@@ -413,12 +420,31 @@ export async function readRunEventsIn(
 		let parsed: Record<string, unknown>
 		try {
 			parsed = JSON.parse(line) as Record<string, unknown>
-		} catch {
+		} catch (error) {
+			if (strict) {
+				throw new Error(
+					`Invalid run transcript in ${join(runDir, 'transcript.jsonl')}: record ${position} is not valid JSON`,
+					{ cause: error },
+				)
+			}
 			continue
 		}
-		if (parsed === null || typeof parsed !== 'object' || typeof parsed.type !== 'string') continue
+		if (parsed === null || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
+			if (strict) {
+				throw new Error(
+					`Invalid run transcript in ${join(runDir, 'transcript.jsonl')}: record ${position} is not an event object`,
+				)
+			}
+			continue
+		}
 
 		const seq = typeof parsed.seq === 'number' ? parsed.seq : position
+		if (strict && (!Number.isSafeInteger(seq) || seq <= 0 || seq !== previousSeq + 1)) {
+			throw new Error(
+				`Invalid run transcript in ${join(runDir, 'transcript.jsonl')}: record ${position} has sequence ${String(seq)}, expected ${previousSeq + 1}`,
+			)
+		}
+		previousSeq = seq
 		if (seq <= sinceSeq) continue
 
 		events.push({

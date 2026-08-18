@@ -72,6 +72,8 @@ export type SlashAction =
 	| { kind: 'compact' }
 	/** Ask the terminal to copy the latest available assistant output. */
 	| { kind: 'copy' }
+	/** Write a verified, no-clobber Markdown projection of this conversation. */
+	| { kind: 'export'; path?: string }
 	/**
 	 * Show what is uncommitted in the working tree.
 	 *
@@ -663,6 +665,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'copy',
 		description: 'Send the latest available assistant output to the terminal clipboard.',
 		action: () => ({ kind: 'copy' }),
+	},
+	{
+		name: 'export',
+		description: 'Write this verified conversation to Markdown: /export [path].',
+		action: (_ctx, args) => {
+			const path = args.join(' ').trim()
+			return { kind: 'export', ...(path.length > 0 ? { path } : {}) }
+		},
 	},
 	{
 		name: 'status',

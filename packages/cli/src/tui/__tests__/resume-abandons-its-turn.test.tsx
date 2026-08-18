@@ -44,6 +44,8 @@ const RESUMED = 'conv-resumed'
 
 /** Every `appendMessages` call, with the conversation it named. */
 const appended: Array<{ sessionId: string; contents: string[] }> = []
+const evidenceStarted: Array<{ sessionId: string; runId: string; turnId: string }> = []
+const evidenceSettled: Array<{ sessionId: string; runId: string; turnId: string }> = []
 /** Number of durable appends visible each time `/fork` takes its snapshot. */
 const forkedAfterAppends: number[] = []
 /** Compaction model calls — none may start against an unsettled snapshot. */
@@ -111,7 +113,25 @@ vi.mock('../../integrations/updates.js', () => ({
 }))
 
 vi.mock('../../integrations/sessions/store.js', () => ({
-	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
+	openSessions: async () => ({
+		tenantId: 't',
+		root: '/tmp/.namzu',
+		turnEvidence: {
+			recordTurnStarted: async (input: { sessionId: string; runId: string }) => {
+				const record = { ...input, turnId: `turn_${evidenceStarted.length + 1}` }
+				evidenceStarted.push(record)
+				return record
+			},
+			recordTurnSettled: async (input: {
+				sessionId: string
+				runId: string
+				turnId: string
+			}) => {
+				evidenceSettled.push(input)
+				return input
+			},
+		},
+	}),
 	startConversation: async () => STARTED_IN,
 	appendMessages: async (_s: unknown, sessionId: string, messages: readonly { content: unknown }[]) => {
 		appended.push({
@@ -232,6 +252,8 @@ const mounted: { unmount: () => void }[] = []
 
 beforeEach(() => {
 	appended.length = 0
+	evidenceStarted.length = 0
+	evidenceSettled.length = 0
 	forkedAfterAppends.length = 0
 	compactCalls = 0
 	gates.length = 0
@@ -374,6 +396,9 @@ describe('/resume while a turn is running', () => {
 		// 3 — the durable half. It must be written to the conversation it was
 		// started in, and to no other.
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
+		expect(evidenceStarted.map((record) => record.sessionId)).toEqual([STARTED_IN])
+		expect(evidenceSettled.map((record) => record.sessionId)).toEqual([STARTED_IN])
+		expect(evidenceSettled[0]?.runId).toBe(evidenceStarted[0]?.runId)
 		// And whole: the events after the switch are consumed even though they are
 		// not rendered, so the saved reply is not truncated at the moment the
 		// operator happened to leave.

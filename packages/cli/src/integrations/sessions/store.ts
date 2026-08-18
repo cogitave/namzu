@@ -28,6 +28,7 @@ import {
 	asTopicId,
 	requireOpenProject,
 } from '@namzu/sdk'
+import { type ConversationOrigin, DiskConversationEvidence } from './turn-evidence.js'
 
 // `UNKNOWN_TENANT_ID` is already a `TenantId`; the assertion this replaced
 // re-stated a type the constant carries.
@@ -41,6 +42,11 @@ export interface CliSessions {
 	readonly tenantId: TenantId
 	/** Absolute path of the cwd's `.namzu` root (where pointers live). */
 	readonly root: string
+	/**
+	 * CLI-only turn/run correlation. Optional for embedded test doubles and
+	 * pre-feature hosts; {@link openSessions} always supplies it.
+	 */
+	readonly turnEvidence?: DiskConversationEvidence
 }
 
 export interface RecentConversation {
@@ -92,7 +98,14 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 		mkdirSync(root, { recursive: true })
 		writeFileSync(pointerPath, `${JSON.stringify({ projectId }, null, 2)}\n`, { mode: 0o600 })
 	}
-	return { store, projectId, topicId: THREAD, tenantId: TENANT, root }
+	return {
+		store,
+		projectId,
+		topicId: THREAD,
+		tenantId: TENANT,
+		root,
+		turnEvidence: new DiskConversationEvidence({ root, projectId }),
+	}
 }
 
 // Maps an embedder's own session key (e.g. a desktop host's uuid) to a
@@ -148,11 +161,16 @@ export async function resolveConversation(s: CliSessions, key: string): Promise<
  * the first run could never have shown this.
  */
 export async function startConversation(s: CliSessions): Promise<SessionId> {
+	return await createConversation(s, { kind: 'new' })
+}
+
+async function createConversation(s: CliSessions, origin: ConversationOrigin): Promise<SessionId> {
 	await requireOpenProject(s.store, s.projectId, s.tenantId, 'cli-session')
 	const session = await s.store.createSession(
 		{ topicId: s.topicId, projectId: s.projectId, currentActor: null },
 		s.tenantId,
 	)
+	await s.turnEvidence?.recordOrigin(session.id, origin)
 	return session.id
 }
 
@@ -390,7 +408,11 @@ async function writeFork(
 	copiedMessages: readonly Message[],
 ): Promise<{ id: SessionId; title: string }> {
 	const source = readTitles(s.root)[sourceId as string]?.title ?? conversationTitle(sourceMessages)
-	const id = await startConversation(s)
+	const id = await createConversation(s, {
+		kind: 'fork-unresolved',
+		sourceSessionId: sourceId,
+		copiedMessages: copiedMessages.length,
+	})
 	await appendMessages(s, id, copiedMessages)
 	const title = nextForkName(
 		Object.fromEntries(

@@ -22,6 +22,7 @@ import {
 	type RunId,
 	createAssistantMessage,
 	createUserMessage,
+	generateRunId,
 	isCompactionMessage,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
@@ -86,6 +87,10 @@ import {
 	titleOf,
 } from '../integrations/sessions/store.js'
 import {
+	conversationMarkdown,
+	writeConversationExport,
+} from '../integrations/sessions/transcript-export.js'
+import {
 	type AgentEvent,
 	type AgentSession,
 	type PermissionDecision,
@@ -111,6 +116,10 @@ import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
+import type {
+	ConversationTurnOutcome,
+	ConversationTurnStartedRecord,
+} from '../integrations/sessions/turn-evidence.js'
 
 export interface AppProps {
 	readonly ctx: TuiContext
@@ -133,6 +142,8 @@ type StreamState = {
 	pending?: string
 	/** Only a normal run end makes this text the next `/copy` target. */
 	completed: boolean
+	/** Exact durable run outcome; notification wording is intentionally coarser. */
+	outcome: ConversationTurnOutcome | null
 	/** Terminal notice earned by this turn, or null when it was interrupted. */
 	notification: TerminalNotification | null
 }
@@ -452,6 +463,8 @@ export function App({ ctx }: AppProps) {
 	 */
 	const conversationMutationRef = useRef<null | 'fork' | 'edit'>(null)
 	const [conversationMutation, setConversationMutation] = useState<null | 'fork' | 'edit'>(null)
+	/** Closes the same-tick input window while a verified export reads disk. */
+	const exportingRef = useRef(false)
 	/**
 	 * Whether a conversation has been chosen and is still being read.
 	 *
@@ -1480,6 +1493,12 @@ export function App({ ctx }: AppProps) {
 					// Missing remains a normal end for older producers, matching the
 					// headless command's compatibility rule.
 					st.completed = event.stopReason === undefined || event.stopReason === 'end_turn'
+					st.outcome =
+						event.stopReason === 'cancelled'
+							? 'cancelled'
+							: st.completed
+								? 'completed'
+								: 'stopped'
 					st.notification = {
 						kind: 'turn-settled',
 						outcome: st.completed ? 'completed' : 'stopped',
@@ -1488,6 +1507,7 @@ export function App({ ctx }: AppProps) {
 					break
 				case 'error':
 					closeAssistant()
+					st.outcome = event.message === 'aborted' ? 'cancelled' : 'failed'
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
 						pushMessage('system', `Error: ${event.message}`)
@@ -1510,6 +1530,7 @@ export function App({ ctx }: AppProps) {
 			const historyBeforeTurn = modelHistoryRef.current
 			const userMessage = createUserMessage(sendText, attachments)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
+			const runId = generateRunId()
 
 			const metaParts: string[] = []
 			if (attached.length > 0)
@@ -1535,6 +1556,7 @@ export function App({ ctx }: AppProps) {
 				text: '',
 				pending: '',
 				completed: false,
+				outcome: null,
 				notification: null,
 			}
 			const ac = new AbortController()
@@ -1552,6 +1574,7 @@ export function App({ ctx }: AppProps) {
 			// outlives the process. A string captured now cannot be reassigned by
 			// anyone.
 			const destination = scopeRef.current?.sessionId ?? null
+			const turnSessions = sessionsRef.current
 			const turnGeneration = conversationGenRef.current
 			unsettledTurnGenerationsRef.current.set(turnToken, turnGeneration)
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
@@ -1570,9 +1593,26 @@ export function App({ ctx }: AppProps) {
 						}
 						return onPermission(req)
 					}
+			let evidenceTurn: ConversationTurnStartedRecord | undefined
+			if (turnSessions?.turnEvidence && destination) {
+				try {
+					evidenceTurn = await turnSessions.turnEvidence.recordTurnStarted({
+						sessionId: destination,
+						runId,
+						displayText: text,
+						user: userMessage,
+					})
+				} catch (err) {
+					pushMessage(
+						'system',
+						`Could not record durable evidence for this turn before run ${runId}: ${err instanceof Error ? err.message : String(err)}. The turn will continue, but a complete export of conversation ${destination} will refuse rather than omit it.`,
+					)
+				}
+			}
 			try {
 				for await (const event of session.send(priorForSdk, {
 					signal: ac.signal,
+					runId,
 					// Bypass mode (--dangerously-skip-permissions / --yolo): omit the
 					// permission callback so every tool batch auto-approves.
 					onPermission: askPermission,
@@ -1600,6 +1640,7 @@ export function App({ ctx }: AppProps) {
 				// half of it, because an abort reads as an error.
 				if (stillHere()) {
 					if (!ac.signal.aborted) {
+						st.outcome = 'failed'
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
 					}
 					// Flushed first: this path does not go through `applyEvent`, so
@@ -1666,11 +1707,28 @@ export function App({ ctx }: AppProps) {
 				// conversation, because there is no other channel and it is news they
 				// need. Naming the conversation is what keeps it from reading as a
 				// fault of the one in front of them.
-				const sessions = sessionsRef.current
-				if (sessions && destination) {
+				if (turnSessions && destination) {
 					persistenceTailRef.current = persistenceTailRef.current.then(async () => {
+						if (evidenceTurn && turnSessions.turnEvidence) {
+							try {
+								await turnSessions.turnEvidence.recordTurnSettled({
+									sessionId: destination,
+									turnId: evidenceTurn.turnId,
+									runId,
+									outcome: ac.signal.aborted
+										? 'cancelled'
+										: (st.outcome ?? (st.completed ? 'completed' : 'stopped')),
+									assistantText: st.text,
+								})
+							} catch (err) {
+								pushMessage(
+									'system',
+									`Could not finish the durable evidence for turn ${evidenceTurn.turnId}: ${err instanceof Error ? err.message : String(err)}. A complete export of conversation ${destination} will refuse if the SDK run record cannot prove the missing text.`,
+								)
+							}
+						}
 						try {
-							await appendMessages(sessions, destination, turn)
+							await appendMessages(turnSessions, destination, turn)
 						} catch (err) {
 							pushMessage(
 								'system',
@@ -1704,6 +1762,13 @@ export function App({ ctx }: AppProps) {
 
 	const handleSubmit = useCallback(
 		(value: string, attachments?: readonly MessageAttachment[]) => {
+			if (exportingRef.current) {
+				pushMessage(
+					'system',
+					'A verified conversation export is still being written. Wait for its result before sending another command or prompt.',
+				)
+				return
+			}
 			if (conversationMutationRef.current) {
 				const operation =
 					conversationMutationRef.current === 'fork' ? 'forked' : 'branched for prompt editing'
@@ -2165,6 +2230,62 @@ export function App({ ctx }: AppProps) {
 						}
 						return
 					}
+					case 'export': {
+						const sessions = sessionsRef.current
+						const destination = scopeRef.current?.sessionId
+						if (!sessions || !destination) {
+							pushMessage(
+								'system',
+								'Cannot export this conversation because durable session persistence is unavailable.',
+							)
+							return
+						}
+						if (
+							abortRef.current ||
+							state !== 'idle' ||
+							hasUnsettledTurn() ||
+							compactingRef.current ||
+							queuedRef.current.length > 0
+						) {
+							pushMessage(
+								'system',
+								'A turn, compaction, or queued prompt is still running or settling. Export waits for a stable durable boundary; try again when the composer is idle.',
+							)
+							return
+						}
+						exportingRef.current = true
+						setState('thinking')
+						const generation = conversationGenRef.current
+						const path = slash.path ?? `namzu-conversation-${destination}.md`
+						void (async () => {
+							try {
+								await persistenceTailRef.current
+								if (
+									conversationGenRef.current !== generation ||
+									scopeRef.current?.sessionId !== destination
+								) {
+									throw new Error(
+										'The active conversation changed before the export reached its durable boundary.',
+									)
+								}
+								const projected = await conversationMarkdown(sessions, destination)
+								const written = await writeConversationExport(projected.markdown, path, ctx.cwd)
+								pushMessage(
+									'system',
+									`Exported ${projected.turns} turn${projected.turns === 1 ? '' : 's'} to ${written.path} (${written.bytes.toLocaleString()} bytes). Existing files are never overwritten.`,
+								)
+							} catch (err) {
+								pushMessage(
+									'system',
+									`Conversation export failed: ${err instanceof Error ? err.message : String(err)}`,
+								)
+							} finally {
+								exportingRef.current = false
+								if (conversationGenRef.current === generation) setState('idle')
+							}
+						})()
+						return
+					}
 					default: {
 						// Exhaustive on purpose. Without it a `SlashAction` kind added
 						// and not handled here falls out of the switch into the send
@@ -2194,6 +2315,7 @@ export function App({ ctx }: AppProps) {
 		},
 		[
 			activeSkills,
+			ctx.cwd,
 			doResume,
 			enqueueQueued,
 			exit,

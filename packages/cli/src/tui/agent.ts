@@ -44,6 +44,7 @@ import {
 	type ResumeOutcome,
 	type ReviewAnswer,
 	type RunEvent,
+	type RunId,
 	type SandboxProvider,
 	SearchToolsTool,
 	type SessionId,
@@ -255,6 +256,8 @@ export type PermissionFn = (req: PermissionRequest) => Promise<PermissionDecisio
 
 export interface SendOptions {
 	readonly signal?: AbortSignal
+	/** Caller-reserved identity used to correlate this turn before it starts. */
+	readonly runId?: RunId
 	/**
 	 * Called before a batch of non-read-only tools runs. Resolves with the
 	 * user's decision. When omitted, every tool batch is auto-approved
@@ -1613,6 +1616,7 @@ async function* runTurn({
 	try {
 		const events = query({
 			provider,
+			...(opts?.runId ? { runId: opts.runId } : {}),
 			// Omitted rather than empty when there is no tail. `query` treats the
 			// two the same, but an absent option reads as "this run has no chain"
 			// where `[]` reads as "this run has a chain with nothing in it".

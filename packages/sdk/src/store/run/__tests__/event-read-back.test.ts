@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -197,6 +197,55 @@ describe('a transcript written before events were numbered', () => {
 })
 
 describe('a transcript cut off mid-write', () => {
+	it('can refuse the torn record when a caller needs a completeness proof', async () => {
+		const dir = await baseDir()
+		const runDir = join(dir, 'run_torn_strict')
+		await mkdir(runDir, { recursive: true })
+		await writeFile(
+			join(runDir, 'transcript.jsonl'),
+			'{"type":"run_started","runId":"run_torn_strict","seq":1,"timestamp":1}',
+			'utf-8',
+		)
+
+		await expect(readRunEventsIn(runDir, { integrity: 'strict' })).rejects.toThrow(
+			/final record is not newline-terminated/,
+		)
+	})
+
+	it('can refuse a malformed middle record instead of skipping it', async () => {
+		const dir = await baseDir()
+		const runDir = join(dir, 'run_malformed_strict')
+		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
+		await store.initRun('run_malformed_strict')
+		await writeFile(
+			join(runDir, 'transcript.jsonl'),
+			`${JSON.stringify({ type: 'run_started', runId: 'run_malformed_strict', seq: 1, timestamp: 1 })}\nnot-json\n${JSON.stringify({ type: 'run_completed', runId: 'run_malformed_strict', seq: 3, timestamp: 3 })}\n`,
+			'utf-8',
+		)
+
+		await expect(readRunEventsIn(runDir, { integrity: 'strict' })).rejects.toThrow(
+			/record 2 is not valid JSON/,
+		)
+		// The reporting default remains intentionally tolerant.
+		expect((await readRunEventsIn(runDir)).map((event) => event.seq)).toEqual([1, 3])
+	})
+
+	it('can refuse a sequence gap even when every line is valid JSON', async () => {
+		const dir = await baseDir()
+		const runDir = join(dir, 'run_gap_strict')
+		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
+		await store.initRun('run_gap_strict')
+		await writeFile(
+			join(runDir, 'transcript.jsonl'),
+			`${JSON.stringify({ type: 'run_started', runId: 'run_gap_strict', seq: 1, timestamp: 1 })}\n${JSON.stringify({ type: 'run_completed', runId: 'run_gap_strict', seq: 3, timestamp: 3 })}\n`,
+			'utf-8',
+		)
+
+		await expect(readRunEventsIn(runDir, { integrity: 'strict' })).rejects.toThrow(
+			/sequence 3, expected 2/,
+		)
+	})
+
 	it('loses the fragment and nothing after it', async () => {
 		const dir = await baseDir()
 		const runDir = join(dir, 'run_torn')

@@ -251,6 +251,14 @@ The kernel assumes processes crash. Two layers make sure that when they do, you 
 
 **Run evidence** has two durable halves: the event log and the message snapshot that survived compaction. `RunStore.readEvents()` reads the first; `RunStore.readMessages()` reads the second. A published message snapshot carries `throughEventSeq`, the exact durable event-log head it follows. `RunQuery.fullTranscript()` can therefore combine every `compaction_shed` record with the surviving messages without mistaking a snapshot left by an earlier pause for the current run. It refuses when the snapshot is missing, when an older raw-array snapshot has no verifiable boundary, or when its boundary does not match the log head. Missing is not treated as an empty conversation: a process may have written the terminal event and run metadata before crashing on message publication. `readRunMessagesIn(runDir)` provides the same non-creating disk read as `readRunEventsIn(runDir)` for hosts walking run directories directly.
 
+Event-log read-back is tolerant by default: an incident viewer can still show
+the intact records around one damaged line. A caller making a completeness claim
+passes `{ integrity: 'strict' }` to `readEvents` or `readRunEventsIn`; a torn
+final record, malformed event object, invalid sequence, or sequence gap then
+refuses the read instead of being skipped. The two modes answer different
+questions — “what evidence remains?” and “can I prove no event is missing?” —
+and neither silently substitutes for the other.
+
 **Emergency save** (`manager/run/emergency.ts`) is the kernel's core-dump. Pass `emergencySave: true` to `query()` and `EmergencySaveManager` installs handlers for SIGINT, SIGTERM and `uncaughtException`; when the process is dying the run's `toEmergencySnapshot()` is flushed atomically to an `emergency/` directory, and `replay({ fromCheckpoint: 'emergency' })` reads it back. The handlers are removed when the run settles.
 
 It is **opt-in on purpose.** Attaching means calling `process.on(...)` with handlers that `process.exit()` — a library must not seize a host's termination path by default, and the manager is a singleton, so with concurrent runs the last one to attach would silently become the only one saved. Turn it on for a process that owns its run end to end (a CLI, a single-run worker); leave it off inside a server that has its own drain sequence.

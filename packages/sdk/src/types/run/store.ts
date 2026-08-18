@@ -71,6 +71,17 @@ export interface ReadRunEventsOptions {
 	 * delivered twice. Absent means the whole log.
 	 */
 	readonly sinceSeq?: number
+	/**
+	 * Refuse a disk transcript with a torn, malformed, or discontinuously
+	 * numbered record instead of skipping past it.
+	 *
+	 * The default stays `tolerant`: an incident viewer is usually better served
+	 * by every intact event around one damaged line. A caller making a
+	 * completeness claim — an export, a replay proof, an archive — chooses
+	 * `strict`, because one skipped line makes that claim false even when the
+	 * rest of the log remains useful.
+	 */
+	readonly integrity?: 'tolerant' | 'strict'
 }
 
 /**
