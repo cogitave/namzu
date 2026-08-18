@@ -31,6 +31,9 @@ function recent(...ids: string[]) {
 		ids.map((id, i) => ({
 			id: id as never,
 			title: id,
+			// These fixtures predate `/title`, so none of them is named — which
+			// is also the state this command has to keep working in.
+			named: false,
 			updatedAt: `2026-08-0${i + 1}T00:00:00Z`,
 			count: 2,
 		})),

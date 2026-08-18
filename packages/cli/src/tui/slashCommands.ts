@@ -46,6 +46,22 @@ export type SlashAction =
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
 	/**
+	 * Name this conversation, show its name, or take the name away.
+	 *
+	 * Its own kind rather than a message, because the write touches the
+	 * session store and this union is pure. An empty `title` means "show me";
+	 * an explicit clear is the literal word, so a person cannot erase a name
+	 * by pressing enter on a half-typed command.
+	 */
+	| { kind: 'title'; title: string; clear: boolean }
+	/**
+	 * Continue in a copy, leaving this conversation where it is.
+	 *
+	 * Async like its neighbours: the copy reads the persisted transcript and
+	 * writes it into a new session before anything on screen changes.
+	 */
+	| { kind: 'fork' }
+	/**
 	 * Shrink the conversation now, rather than when a threshold decides.
 	 *
 	 * Its own kind, and asynchronous where this union is not, for the reason
@@ -515,6 +531,23 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				? { kind: 'message', role: 'system', content: 'Usage: /remember <something to remember>' }
 				: { kind: 'remember', text }
 		},
+	},
+	{
+		name: 'title',
+		description: 'Name this conversation so /resume is navigable: /title <name>, or /title clear.',
+		action: (_ctx, args) => {
+			const text = args.join(' ').trim()
+			// `clear` is a word, not an empty argument. Bare `/title` is the
+			// question — the reading a person expects, and the one that cannot
+			// destroy anything by being typed early.
+			if (text.toLowerCase() === 'clear') return { kind: 'title', title: '', clear: true }
+			return { kind: 'title', title: text, clear: false }
+		},
+	},
+	{
+		name: 'fork',
+		description: 'Continue in a copy of this conversation, leaving the original where it is.',
+		action: () => ({ kind: 'fork' }),
 	},
 	{
 		name: 'memory',

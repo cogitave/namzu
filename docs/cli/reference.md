@@ -56,12 +56,36 @@ something you point at a real repository:
   interactive session reports and carries on, because a person can read the line
   and decide, and a headless run refuses, because nobody is watching.
 
-Inside the session: `/help`, `/tools`, `/skills`, `/skill`, `/resume`,
-`/provider`, `/model`, `/permissions`, `/cost`, `/memory`, `/remember`,
-`/expand`, `/init`, `/login`, `/logout`, `/clear`, `/feedback`, `/quit`,
-`/exit`. Commands the kernel's own registry contributes are merged in beside
-them; a name claimed by both raises an error rather than letting one silently
-shadow the other.
+Inside the session, grouped by the question each one answers:
+
+| | |
+|---|---|
+| **What is going on** | `/status`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
+| **What changed** | `/diff`, `/review`, `/expand` |
+| **This conversation** | `/resume`, `/title`, `/fork`, `/compact`, `/clear` |
+| **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
+| **Everything else** | `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
+
+Commands the kernel's own registry contributes are merged in beside them; a name
+claimed by both raises an error rather than letting one silently shadow the
+other.
+
+**Naming a conversation is what makes `/resume` navigable.** Without a name, a
+conversation is listed by the first thing you typed in it — a reasonable default
+and a poor identity, because it stops describing the work as soon as the work
+moves on from that opening question. `/title <name>` fixes one in place, bare
+`/title` reports the current one, and `/title clear` goes back to the derived
+one. A named row is shown in quotes so the two kinds are distinguishable in the
+list.
+
+**`/fork` continues in a copy and leaves the original where it is.** The
+transcript on screen carries over, the next turn is written to the copy, and the
+conversation you forked from is unchanged and still in `/resume`. The copy is
+named after the original (`… (fork)`, then `… (fork 2)`) — both would otherwise
+derive the same title and appear as two rows nobody could tell apart, which is
+the list you would use to get back. It is refused while a turn is running: a
+fork taken then would be missing the reply you are watching arrive, because that
+reply belongs to the conversation it started in.
 
 ## Commands
 

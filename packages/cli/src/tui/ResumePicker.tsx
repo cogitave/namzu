@@ -37,7 +37,15 @@ export function ResumePicker({ conversations, selected }: ResumePickerProps) {
 								bold={i === selected}
 								wrap="truncate-end"
 							>
-								{c.title}
+								{/*
+								 * A named row is quoted; a derived one is not. The two
+								 * carry different promises — a name keeps meaning what
+								 * it meant, and an opening message stops describing a
+								 * conversation as soon as the work moves on from it —
+								 * and without the mark they are one column of text
+								 * that reads as if every row were chosen.
+								 */}
+								{c.named ? `"${c.title}"` : c.title}
 							</Text>
 						</Box>
 						<Text color={theme.text.muted}> {relativeTime(c.updatedAt)}</Text>

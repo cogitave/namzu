@@ -66,10 +66,13 @@ import {
 	type CliSessions,
 	type RecentConversation,
 	appendMessages,
+	forkConversation,
 	listRecent,
 	loadConversation,
 	openSessions,
+	setTitle,
 	startConversation,
+	titleOf,
 } from '../integrations/sessions/store.js'
 import {
 	type AgentEvent,
@@ -900,6 +903,88 @@ export function App({ ctx }: AppProps) {
 		[interruptTurn, nextId, pushMessage, resetTranscript],
 	)
 
+	/**
+	 * `/title`: read or set the name this conversation appears under.
+	 *
+	 * A bare `/title` asks rather than clears. Erasing a name by pressing
+	 * enter on a half-typed command is the kind of loss nobody notices until
+	 * `/resume` is a list of opening messages again.
+	 */
+	const doTitle = useCallback(
+		async (title: string, clear: boolean) => {
+			const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+			const scope = scopeRef.current
+			if (!sessions || !scope) {
+				pushMessage('system', 'Conversation history is unavailable in this folder.')
+				return
+			}
+			try {
+				if (!clear && title === '') {
+					const current = titleOf(sessions, scope.sessionId)
+					pushMessage(
+						'system',
+						current !== undefined
+							? `This conversation is named "${current}". /title <name> renames it; /title clear removes the name.`
+							: 'This conversation has no name, so /resume lists it by its opening message — which stops describing it as the conversation moves on. /title <name> fixes that.',
+					)
+					return
+				}
+				setTitle(sessions, scope.sessionId, clear ? '' : title)
+				pushMessage(
+					'system',
+					clear
+						? 'Name removed. /resume will list this conversation by its opening message again.'
+						: `Named "${title}".`,
+				)
+			} catch (err) {
+				pushMessage(
+					'system',
+					`Could not save the name: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		},
+		[ensureSessions, pushMessage],
+	)
+
+	/**
+	 * `/fork`: continue in a copy, leaving this conversation where it is.
+	 *
+	 * Refused while a turn is running, rather than interrupted like `/resume`
+	 * does. The two look similar and are not: `/resume` LEAVES a conversation,
+	 * so an interrupted reply landing in the one being left is where it
+	 * belongs. A fork stays here — the reply would land in the original, the
+	 * screen would go on showing it, and the copy would be missing the last
+	 * thing the operator watched arrive.
+	 */
+	const doFork = useCallback(async () => {
+		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+		const scope = scopeRef.current
+		if (!sessions || !scope) {
+			pushMessage('system', 'Conversation history is unavailable in this folder.')
+			return
+		}
+		if (abortRef.current) {
+			pushMessage(
+				'system',
+				'A turn is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
+			)
+			return
+		}
+		const original = scope.sessionId
+		try {
+			const forked = await forkConversation(sessions, original)
+			// The transcript on screen is already the fork's history, so nothing
+			// is reloaded or reset. Only where the NEXT turn is written changes.
+			scope.sessionId = forked.id
+			pushMessage(
+				'system',
+				`Forked into "${forked.title}" — ${forked.copied} message(s) copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
+			)
+		} catch (err) {
+			pushMessage('system', `Could not fork: ${err instanceof Error ? err.message : String(err)}`)
+		}
+	}, [ensureSessions, pushMessage])
+
 	// Bridge passed into session.send(): the agent calls this before a
 	// non-read-only tool batch; it parks until the user presses y/n/a.
 	const onPermission = useCallback(
@@ -1305,6 +1390,12 @@ export function App({ ctx }: AppProps) {
 					}
 					case 'resume':
 						void doResume()
+						return
+					case 'title':
+						void doTitle(slash.title, slash.clear)
+						return
+					case 'fork':
+						void doFork()
 						return
 					case 'expand': {
 						// Resolved INSIDE the updater, against `prev`.

@@ -44,6 +44,16 @@ export interface CliSessions {
 export interface RecentConversation {
 	readonly id: SessionId
 	readonly title: string
+	/**
+	 * Whether a person chose that title, or it was taken from the first thing
+	 * they typed.
+	 *
+	 * Surfaced rather than inferred, because the two read identically in a
+	 * list and mean different things: a derived title changes meaning as a
+	 * conversation moves on from its opening question, and a named one does
+	 * not. `/resume` is the place that difference matters.
+	 */
+	readonly named: boolean
 	readonly updatedAt: string
 	readonly count: number
 }
@@ -163,18 +173,136 @@ export async function loadConversation(s: CliSessions, sessionId: SessionId): Pr
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
 	const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
+	const named = readTitles(s.root)
 	const out: RecentConversation[] = []
 	for (const sess of sessions) {
 		const messages = await s.store.loadMessages(sess.id, s.tenantId)
 		if (messages.length === 0) continue
+		const chosen = named[sess.id as string]
 		out.push({
 			id: sess.id,
-			title: conversationTitle(messages),
+			title: chosen ?? conversationTitle(messages),
+			named: chosen !== undefined,
 			updatedAt: toIso(sess.updatedAt),
 			count: messages.length,
 		})
 	}
 	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit)
+}
+
+/**
+ * Operator-chosen conversation names, in a file beside the sessions.
+ *
+ * A sidecar rather than a field on the SDK's `Session`. Naming a conversation
+ * is an operator-application concern: the kernel has no view that lists them
+ * and nothing in it would read the name. Putting it in the entity would widen
+ * a store interface every host implements, to carry a string only this package
+ * writes and only this package displays.
+ *
+ * The cost is that the two can disagree — a session deleted outside this
+ * process leaves its name behind. That is why nothing here treats the file as
+ * a list of sessions: it is consulted BY id, from a list the store produced,
+ * so a stale entry is never reachable and never has to be reconciled.
+ */
+const TITLES_FILE = 'titles.json'
+
+function titlesPath(root: string): string {
+	return join(root, TITLES_FILE)
+}
+
+function readTitles(root: string): Record<string, string> {
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(titlesPath(root), 'utf-8'))
+		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+		// Filtered rather than trusted. This file is on disk where a person can
+		// edit it, and a non-string value reaching the renderer as a title is a
+		// crash in a list nobody could then get out of.
+		return Object.fromEntries(
+			Object.entries(parsed as Record<string, unknown>).filter(
+				(entry): entry is [string, string] => typeof entry[1] === 'string',
+			),
+		)
+	} catch {
+		// Absent, unreadable, or not JSON. A conversation with no chosen name
+		// still has a derived one, so the honest fallback is "nobody named
+		// anything" rather than a failure the operator cannot act on.
+		return {}
+	}
+}
+
+/** The name a person gave this conversation, or `undefined`. */
+export function titleOf(s: CliSessions, sessionId: SessionId): string | undefined {
+	return readTitles(s.root)[sessionId as string]
+}
+
+/**
+ * Name a conversation, or with an empty name, take the name away.
+ *
+ * Removing rather than storing `''` is what keeps "named" a real distinction:
+ * an empty string is not a name, and leaving one behind would make `/resume`
+ * show a blank row that reads as a conversation with nothing in it.
+ */
+export function setTitle(s: CliSessions, sessionId: SessionId, title: string): void {
+	const titles = readTitles(s.root)
+	const trimmed = title.trim()
+	if (trimmed === '') delete titles[sessionId as string]
+	else titles[sessionId as string] = trimmed
+	mkdirSync(s.root, { recursive: true })
+	writeFileSync(titlesPath(s.root), `${JSON.stringify(titles, null, 2)}\n`, 'utf-8')
+}
+
+/**
+ * Continue in a copy, leaving the original where it is.
+ *
+ * The copy is a real Session with the transcript written into it, not a
+ * pointer: the two diverge from here, and a pointer would make the original's
+ * later turns appear in the fork.
+ *
+ * **The fork is always named, and that is the load-bearing part.** Both
+ * conversations start with the same first message, so both DERIVE the same
+ * title — and `/resume` would show two rows a person cannot tell apart, which
+ * is a worse outcome than not being able to fork at all. The name is taken
+ * from the source's own, so a fork of a fork stays readable, and it is
+ * numbered against the names already in use so a second fork does not collide
+ * with the first.
+ */
+export async function forkConversation(
+	s: CliSessions,
+	sourceId: SessionId,
+): Promise<{ id: SessionId; title: string; copied: number }> {
+	const messages = await loadConversation(s, sourceId)
+	if (messages.length === 0) {
+		// Refused rather than served. A fork of nothing is an empty session
+		// that shows up in `/resume` forever and answers no question.
+		throw new Error('There is nothing to fork yet — this conversation has no messages.')
+	}
+
+	const source = titleOf(s, sourceId) ?? conversationTitle(messages)
+	const id = await startConversation(s)
+	await appendMessages(s, id, messages)
+	const title = nextForkName(readTitles(s.root), source)
+	setTitle(s, id, title)
+	return { id, title, copied: messages.length }
+}
+
+/**
+ * `X (fork)`, then `X (fork 2)`, `X (fork 3)`.
+ *
+ * Numbered against the names in use rather than against a count of forks,
+ * because a name that was removed frees its number and a fork that was renamed
+ * never held one.
+ */
+export function nextForkName(taken: Record<string, string>, source: string): string {
+	const used = new Set(Object.values(taken))
+	const first = `${source} (fork)`
+	if (!used.has(first)) return first
+	for (let n = 2; n < 1000; n += 1) {
+		const candidate = `${source} (fork ${n})`
+		if (!used.has(candidate)) return candidate
+	}
+	// A thousand forks of one conversation is not a case worth a cleverer
+	// answer, and a name that repeats is better than a refusal here.
+	return `${source} (fork)`
 }
 
 function conversationTitle(messages: readonly Message[]): string {
