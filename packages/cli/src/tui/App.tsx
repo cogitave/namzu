@@ -1022,7 +1022,13 @@ export function App({ ctx }: AppProps) {
 				}
 				return []
 			})
+			// A queue can outlive its turn by one render: the turn has set idle and
+			// cleared `abortRef`, while the passive queue pump is paused behind this
+			// picker. `interruptTurn` correctly reports no RUNNING turn then, but an
+			// early return from it must not make those old prompts cross the switch.
+			const discardedQueued = queuedRef.current.length
 			const interrupted = interruptTurn()
+			replaceQueued([])
 			conversationGenRef.current += 1
 			activeTurnTokenRef.current = null
 			resetTranscript()
@@ -1034,6 +1040,12 @@ export function App({ ctx }: AppProps) {
 				: null
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
 			pushMessage('system', `Resumed: ${conv.title}`)
+			if (discardedQueued > 0) {
+				pushMessage(
+					'system',
+					`Discarded ${discardedQueued} queued prompt${discardedQueued === 1 ? '' : 's'} from the conversation you left.`,
+				)
+			}
 			if (interrupted) {
 				// "is being saved", not "is saved". The write has not happened yet —
 				// it runs when the abandoned turn finishes unwinding, which is after
@@ -1046,7 +1058,7 @@ export function App({ ctx }: AppProps) {
 				)
 			}
 		},
-		[interruptTurn, nextId, pushMessage, resetTranscript],
+		[interruptTurn, nextId, pushMessage, replaceQueued, resetTranscript],
 	)
 
 	/**

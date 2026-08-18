@@ -498,6 +498,39 @@ describe('/resume while a turn is running', () => {
 		expect(gates.length, 'the queued follow-up ran in the resumed conversation').toBe(1)
 	})
 
+	it('drops a queued prompt even when the old turn settles behind the picker first', async () => {
+		// This is the idle edge the ordinary interrupt case above cannot reach.
+		// The picker pauses queue draining. Letting the old turn finish while it is
+		// open removes abortRef, so a cleanup tied only to "was there a running
+		// turn?" returns early and hands the queued prompt to the resumed scope.
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await tick(60)
+		await submit(harness, 'go')
+		await submit(harness, 'IDLE_EDGE_FOLLOWUP')
+		await untilFrame(harness, 'queued', 'the follow-up was not queued')
+
+		harness.stdin.write('/resume')
+		await tick(30)
+		harness.stdin.write('\r')
+		await untilFrame(harness, 'Resume a conversation', 'the resume picker never opened')
+
+		// Finish the source turn while the picker still owns the screen. The queue
+		// remains because its pump requires phase=ready, but there is no active
+		// AbortController left for `interruptTurn` to find.
+		gates[0]?.release()
+		await appendsReach(1)
+		await tick(100)
+
+		harness.stdin.write('\r')
+		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
+		await untilFrame(harness, 'Discarded 1 queued prompt', 'the dropped prompt was not accounted for')
+		await tick(200)
+
+		expect(gates.length, 'the idle-edge prompt crossed into the resumed conversation').toBe(1)
+		expect(appended.map((entry) => entry.sessionId)).toEqual([STARTED_IN])
+	})
+
 	it('settles a permission prompt the abandoned turn was parked on', async () => {
 		// The picker opens on an `await`, so a tool batch can reach the prompt
 		// while it is up — and the resume picker owns the keyboard ahead of the
