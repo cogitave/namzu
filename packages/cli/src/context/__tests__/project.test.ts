@@ -9,9 +9,9 @@
  * block says when a file was cut.
  */
 
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
@@ -73,6 +73,33 @@ describe('the search path', () => {
 		expect(path).not.toContain(outside)
 	})
 
+	/**
+	 * Say so when the machine, not the code, broke the test.
+	 *
+	 * The two cases below assert that a walk finds no repository ABOVE a temp
+	 * directory — which is a claim about the machine as much as about the
+	 * code, because the walk goes to the filesystem root and `/tmp` is shared
+	 * and writable. One of these failed here exactly once, with an array diff
+	 * showing `/tmp` at the head of the chain, and the cause was a `.git` that
+	 * another process created in `/tmp` and removed again during the run.
+	 *
+	 * Diagnosing that from the diff took far longer than it should have. This
+	 * does not weaken either assertion — it fails the same runs — it just makes
+	 * the one failure mode that is not a code defect say which one it is.
+	 */
+	function assertNoRepositoryAbove(dir: string): void {
+		for (let d = dirname(dir); ; d = dirname(d)) {
+			if (existsSync(join(d, '.git'))) {
+				throw new Error(
+					`This test needs no repository above its temp directory, and ${join(d, '.git')} exists. ` +
+						'That is a polluted machine rather than a defect here — a shared /tmp is writable ' +
+						'by anything, including another test run.',
+				)
+			}
+			if (dirname(d) === d) return
+		}
+	}
+
 	it('does not walk at all when there is no repository above the directory', () => {
 		// The walk that would otherwise happen reaches the DRIVE ROOT: on
 		// Windows a run in a temp directory would read %TEMP%\AGENTS.md,
@@ -82,6 +109,7 @@ describe('the search path', () => {
 		// to cover, unhandled.
 		const orphan = join(root, 'no-repo-here')
 		mkdirSync(orphan, { recursive: true })
+		assertNoRepositoryAbove(orphan)
 
 		expect(instructionSearchPath(orphan)).toEqual([orphan])
 	})
@@ -91,6 +119,7 @@ describe('the search path', () => {
 		const orphan = join(root, 'no-repo-here')
 		mkdirSync(orphan, { recursive: true })
 		writeFileSync(join(root, 'AGENTS.md'), 'Not this project.')
+		assertNoRepositoryAbove(orphan)
 
 		expect(loadProjectInstructions(orphan).files).toEqual([])
 	})
