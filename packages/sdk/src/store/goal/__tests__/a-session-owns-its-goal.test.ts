@@ -1,4 +1,4 @@
-import { mkdtemp, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -20,6 +20,7 @@ import {
 	type CreateSessionGoalParams,
 	DiskSessionGoalStore,
 	GoalExistsError,
+	GoalRoundLimitError,
 	GoalSessionNotFoundError,
 	GoalTransitionError,
 	InMemorySessionGoalStore,
@@ -30,7 +31,6 @@ import {
 const publicCreateShape = {
 	sessionId: asSessionId('ses_goal_surface'),
 	objective: 'compile-time surface',
-	// @ts-expect-error round policy belongs to the not-yet-shipped admission driver
 	maxGoalRounds: 1,
 } satisfies CreateSessionGoalParams
 void publicCreateShape
@@ -116,13 +116,17 @@ describe.each(implementations)('%s session goal store', (_name, fixture) => {
 			revision: 1,
 			objective: 'finish the release',
 			phase: 'active',
+			maxGoalRounds: 256,
+			roundsAdmitted: 0,
 		})
 		expect(Object.keys(created).sort()).toEqual([
 			'createdAt',
 			'id',
+			'maxGoalRounds',
 			'objective',
 			'phase',
 			'revision',
+			'roundsAdmitted',
 			'sessionId',
 			'tenantId',
 			'updatedAt',
@@ -217,6 +221,67 @@ describe.each(implementations)('%s session goal store', (_name, fixture) => {
 		expect(await goals.getGoal(sessionId, tenantId)).toEqual(paused)
 	})
 
+	it('admits an exact round before work and durably blocks at the finite limit', async () => {
+		const { goals, sessionId, tenantId } = await fixture()
+		const created = await goals.createGoal(
+			{ sessionId, objective: 'finish exactly once', maxGoalRounds: 1 },
+			tenantId,
+		)
+
+		const authority = await goals.admitRound(sessionId, tenantId, created)
+		expect(authority).toEqual({
+			id: created.id,
+			revision: 2,
+			sessionId,
+			tenantId,
+			objective: 'finish exactly once',
+			round: 1,
+			maxGoalRounds: 1,
+		})
+		expect(await goals.getGoal(sessionId, tenantId)).toMatchObject({
+			revision: 2,
+			roundsAdmitted: 1,
+			phase: 'active',
+		})
+
+		const exhausted = goals.admitRound(sessionId, tenantId, authority)
+		await expect(exhausted).rejects.toBeInstanceOf(GoalRoundLimitError)
+		await expect(exhausted).rejects.toMatchObject({
+			name: 'GoalRoundLimitError',
+			goal: {
+				revision: 3,
+				phase: 'blocked',
+				roundsAdmitted: 1,
+				blockedReason: {
+					code: 'round-limit',
+					message: 'Reached the 1-round limit.',
+				},
+			},
+		})
+		expect(await goals.getGoal(sessionId, tenantId)).toMatchObject({
+			revision: 3,
+			phase: 'blocked',
+			roundsAdmitted: 1,
+		})
+	})
+
+	it('admits only one caller against the same exact revision', async () => {
+		const { goals, sessionId, tenantId } = await fixture()
+		const created = await goals.createGoal({ sessionId, objective: 'one admission' }, tenantId)
+		const outcomes = await Promise.allSettled([
+			goals.admitRound(sessionId, tenantId, created),
+			goals.admitRound(sessionId, tenantId, created),
+		])
+
+		expect(outcomes.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+		const loser = outcomes.find((result) => result.status === 'rejected')
+		expect(loser?.status === 'rejected' ? loser.reason : null).toBeInstanceOf(StaleGoalError)
+		expect(await goals.getGoal(sessionId, tenantId)).toMatchObject({
+			revision: 2,
+			roundsAdmitted: 1,
+		})
+	})
+
 	it('allows only one concurrent creator', async () => {
 		const { goals, sessionId, tenantId } = await fixture()
 		const outcomes = await Promise.allSettled([
@@ -238,6 +303,9 @@ describe.each(implementations)('%s session goal store', (_name, fixture) => {
 		await expect(
 			goals.createGoal({ sessionId, objective: 'x'.repeat(4_001) }, tenantId),
 		).rejects.toBeInstanceOf(TypeError)
+		await expect(
+			goals.createGoal({ sessionId, objective: 'valid', maxGoalRounds: 0 }, tenantId),
+		).rejects.toBeInstanceOf(TypeError)
 		expect(await goals.getGoal(sessionId, tenantId)).toBeNull()
 
 		const created = await goals.createGoal({ sessionId, objective: 'valid' }, tenantId)
@@ -251,6 +319,41 @@ describe.each(implementations)('%s session goal store', (_name, fixture) => {
 		).rejects.toBeInstanceOf(TypeError)
 		expect(await goals.getGoal(sessionId, tenantId)).toEqual(created)
 	})
+})
+
+it('migrates a schema-v1 goal to honest zero-admission accounting', async () => {
+	const fixture = await diskFixture()
+	const goalId = asGoalId('goal_legacy_v1')
+	const legacyPath = join(fixture.root, 'goals', `${fixture.sessionId}.json`)
+	await mkdir(join(fixture.root, 'goals'), { recursive: true })
+	await writeFile(
+		legacyPath,
+		`${JSON.stringify({
+			sessionId: fixture.sessionId,
+			tenantId: fixture.tenantId,
+			storageRevision: 1,
+			goal: {
+				id: goalId,
+				sessionId: fixture.sessionId,
+				tenantId: fixture.tenantId,
+				revision: 1,
+				objective: 'legacy objective',
+				phase: 'active',
+				createdAt: 100,
+				updatedAt: 100,
+			},
+			updatedAt: 100,
+		})}\n`,
+	)
+
+	const migrated = await fixture.goals.getGoal(fixture.sessionId, fixture.tenantId)
+	expect(migrated).toMatchObject({
+		id: goalId,
+		maxGoalRounds: 256,
+		roundsAdmitted: 0,
+	})
+	const admitted = await fixture.goals.admitRound(fixture.sessionId, fixture.tenantId, migrated!)
+	expect(admitted).toMatchObject({ revision: 2, round: 1, maxGoalRounds: 256 })
 })
 
 describe('session ownership is checked before goal storage', () => {

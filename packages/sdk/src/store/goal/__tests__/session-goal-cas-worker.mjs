@@ -25,12 +25,10 @@ const won = []
 const unexpected = []
 for (const ref of refs) {
 	try {
-		await goals.editGoal(
-			ref.sessionId,
-			tenantId,
-			{ id: ref.id, revision: ref.revision },
-			{ objective: `winner:${worker}` },
-		)
+		await goals.admitRound(ref.sessionId, tenantId, {
+			id: ref.id,
+			revision: ref.revision,
+		})
 		won.push({ sessionId: ref.sessionId, worker })
 	} catch (error) {
 		if (!(error instanceof StaleGoalError)) {

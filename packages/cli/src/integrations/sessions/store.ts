@@ -591,8 +591,18 @@ export function nextForkName(taken: Record<string, string>, source: string): str
 }
 
 function conversationTitle(messages: readonly Message[]): string {
-	const firstUser = messages.find((m) => m.role === 'user')
-	const raw = typeof firstUser?.content === 'string' ? firstUser.content : 'Conversation'
+	const firstHuman = messages.find(
+		(message) => message.role === 'user' && message.source?.type !== 'goal-round',
+	)
+	const firstGoal = messages.find(
+		(message) => message.role === 'user' && message.source?.type === 'goal-round',
+	)
+	const raw =
+		firstHuman?.role === 'user'
+			? firstHuman.content
+			: firstGoal?.role === 'user' && firstGoal.source?.type === 'goal-round'
+				? firstGoal.source.objective
+				: 'Conversation'
 	const text = raw.replace(/\s+/g, ' ').trim()
 	return text.length > 60 ? `${text.slice(0, 59)}…` : text || 'Conversation'
 }

@@ -72,7 +72,8 @@ it('admits one exact goal-revision writer per Session across processes', async (
 		expect(forSession).toHaveLength(1)
 		expect(await goals.getGoal(sessionId, tenantId)).toMatchObject({
 			revision: 2,
-			objective: `winner:${forSession[0]?.worker}`,
+			objective: 'seed',
+			roundsAdmitted: 1,
 		})
 	}
 }, 60_000)

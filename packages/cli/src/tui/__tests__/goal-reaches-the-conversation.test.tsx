@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { render } from 'ink-testing-library'
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { DiskSessionGoalStore } from '@namzu/sdk'
+import { DiskSessionGoalStore, type SessionGoalStore } from '@namzu/sdk'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -46,7 +46,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 		createAgentSession: async (
 			_preferences: Preferences,
 			_detected: readonly unknown[],
-			options: { readonly scope?: RunScope },
+			options: { readonly scope?: RunScope; readonly sessionGoals?: SessionGoalStore },
 		): Promise<AgentSession> => {
 			scope = options.scope
 			return {
@@ -70,8 +70,15 @@ vi.mock('../agent.js', async (importOriginal) => {
 					throw new Error('not used')
 				},
 				close: async () => {},
-				send: async function* () {
+				send: async function* (_messages, sendOptions) {
 					sends += 1
+					if (sendOptions?.goalRound && options.sessionGoals) {
+						await options.sessionGoals.completeGoal(
+							sendOptions.goalRound.sessionId,
+							sendOptions.goalRound.tenantId,
+							sendOptions.goalRound,
+						)
+					}
 					yield { kind: 'done', stopReason: 'end_turn' } as const
 				},
 			}
@@ -119,7 +126,7 @@ async function submit(
 	await tick(50)
 }
 
-it('writes /goal to the active Session, never to the model or the next conversation', async () => {
+it('writes /goal to the active Session and admits automatic work only there', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-goal-reach-'))
 	roots.push(root)
 	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
@@ -133,13 +140,14 @@ it('writes /goal to the active Session, never to the model or the next conversat
 		() => harness.frames.join('\n').includes('Goal created'),
 		'the direct goal result never reached the transcript',
 	)
+	await until(() => sends === 1, 'the armed goal never admitted its automatic turn')
 	const reopened = await openSessions(root)
 	expect(await reopened.goals.getGoal(source, reopened.tenantId)).toMatchObject({
 		sessionId: source,
 		objective: 'finish the durable release',
-		phase: 'active',
+		phase: 'complete',
 	})
-	expect(sends).toBe(0)
+	expect(sends).toBe(1)
 
 	await submit(harness, '/new')
 	await until(() => scope?.sessionId !== source, 'the new conversation did not replace the scope')
@@ -151,7 +159,7 @@ it('writes /goal to the active Session, never to the model or the next conversat
 	expect(await reopened.goals.getGoal(source, reopened.tenantId)).toMatchObject({
 		objective: 'finish the durable release',
 	})
-	expect(sends).toBe(0)
+	expect(sends).toBe(1)
 })
 
 it('does not let a later conversation command overtake a pending durable goal write', async () => {
@@ -194,5 +202,5 @@ it('does not let a later conversation command overtake a pending durable goal wr
 	expect(await reopened.goals.getGoal(source, reopened.tenantId)).toMatchObject({
 		objective: 'ordered before new',
 	})
-	expect(sends).toBe(0)
+	expect(sends).toBe(1)
 })

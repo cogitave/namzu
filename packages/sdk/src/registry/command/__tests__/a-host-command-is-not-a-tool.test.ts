@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { SessionGoalActivation } from '../../../manager/goal/activation.js'
 import { InMemorySessionGoalStore } from '../../../store/goal/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
@@ -48,12 +49,14 @@ async function registryWithGoal() {
 		tenantId,
 	)
 	const store = new InMemorySessionGoalStore({ sessions })
+	const activation = new SessionGoalActivation()
 	return {
 		store,
+		activation,
 		session,
 		tenantId,
 		registry: registryWith(
-			kernelHostCommands({ goal: { store, sessionId: session.id, tenantId } }),
+			kernelHostCommands({ goal: { store, sessionId: session.id, tenantId, activation } }),
 		),
 	}
 }
@@ -105,25 +108,37 @@ describe('/goal is direct host control over durable session state', () => {
 	})
 
 	it('creates, shows, edits, pauses, resumes and clears one current goal', async () => {
-		const { registry, store, session, tenantId } = await registryWithGoal()
+		const { activation, registry, store, session, tenantId } = await registryWithGoal()
 
 		expect(await registry.dispatch('/goal finish the release')).toMatchObject({
 			kind: 'ack',
 		})
 		expect((await store.getGoal(session.id, tenantId))?.objective).toBe('finish the release')
+		expect(activation.get(session.id)).toMatchObject({ revision: 1 })
 		expect((await registry.dispatch('/goal'))?.kind).toBe('ack')
 		expect(await registry.dispatch('/goal edit verify then release')).toMatchObject({
 			kind: 'ack',
 			message: expect.stringContaining('Goal updated'),
 		})
+		expect(activation.get(session.id)).toMatchObject({ revision: 2 })
 		expect(await registry.dispatch('/goal pause')).toMatchObject({
 			kind: 'ack',
 			message: expect.stringContaining('Status: paused'),
 		})
+		expect(activation.get(session.id)).toBeNull()
 		expect(await registry.dispatch('/goal resume')).toMatchObject({
 			kind: 'ack',
 			message: expect.stringContaining('Status: active'),
 		})
+		expect(activation.get(session.id)).toMatchObject({ revision: 4 })
+		const beforeRearm = await store.getGoal(session.id, tenantId)
+		activation.disarm(session.id)
+		expect(await registry.dispatch('/goal resume')).toMatchObject({
+			kind: 'ack',
+			message: expect.stringContaining('Goal armed'),
+		})
+		expect(await store.getGoal(session.id, tenantId)).toEqual(beforeRearm)
+		expect(activation.get(session.id)).toMatchObject({ revision: 4 })
 		expect(await registry.dispatch('/goal clear')).toEqual({
 			kind: 'ack',
 			message: 'Goal cleared.',

@@ -18,6 +18,7 @@ import {
 	type RunId,
 	type SessionId,
 	type UserMessage,
+	asGoalId,
 	asProjectId,
 	asRunId,
 	asSessionId,
@@ -620,6 +621,27 @@ function parseUserMessage(value: unknown, path: string, line: number): UserMessa
 	if (value.attachments !== undefined) {
 		if (!Array.isArray(value.attachments)) throw invalidRecord(path, line, 'user.attachments')
 		for (const attachment of value.attachments) validateAttachment(attachment, path, line)
+	}
+	if (value.source !== undefined) {
+		if (
+			!isObject(value.source) ||
+			value.source.type !== 'goal-round' ||
+			typeof value.source.goalId !== 'string' ||
+			typeof value.source.objective !== 'string' ||
+			!Number.isSafeInteger(value.source.goalRevision) ||
+			Number(value.source.goalRevision) < 1 ||
+			!Number.isSafeInteger(value.source.round) ||
+			Number(value.source.round) < 1 ||
+			!Number.isSafeInteger(value.source.maxGoalRounds) ||
+			Number(value.source.maxGoalRounds) < 1
+		) {
+			throw invalidRecord(path, line, 'user.source')
+		}
+		try {
+			asGoalId(value.source.goalId)
+		} catch {
+			throw invalidRecord(path, line, 'user.source.goalId')
+		}
 	}
 	return value as unknown as UserMessage
 }

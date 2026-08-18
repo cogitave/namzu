@@ -1,3 +1,5 @@
+import type { GoalId } from '../ids/index.js'
+
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
 export type CacheHint = 'cache' | 'ephemeral' | 'none'
@@ -179,7 +181,22 @@ export interface UserMessage extends BaseMessage {
 	content: string
 	/** Optional image or document attachments. */
 	attachments?: readonly MessageAttachment[]
+	/** Host provenance for user-role input that was not authored by the operator. */
+	source?: UserMessageSource
 }
+
+/** One automatic continuation prompt admitted against a durable SessionGoal. */
+export interface GoalRoundMessageSource {
+	readonly type: 'goal-round'
+	readonly goalId: GoalId
+	readonly objective: string
+	/** Post-admission goal revision that authorized this prompt. */
+	readonly goalRevision: number
+	readonly round: number
+	readonly maxGoalRounds: number
+}
+
+export type UserMessageSource = GoalRoundMessageSource
 
 /**
  * An opaque reasoning block produced by the model.
@@ -280,12 +297,14 @@ export function createSystemMessage(content: string, cacheHint?: CacheHint): Sys
 export function createUserMessage(
 	content: string,
 	attachments?: readonly MessageAttachment[],
+	source?: UserMessageSource,
 ): UserMessage {
 	return {
 		role: 'user',
 		content,
 		timestamp: Date.now(),
 		...(attachments && attachments.length > 0 ? { attachments } : {}),
+		...(source ? { source } : {}),
 	}
 }
 

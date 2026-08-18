@@ -237,6 +237,8 @@ export type {
 	InMemorySessionGoalStoreConfig,
 	SessionGoalStore,
 } from './store/goal/index.js'
+export type { ResolveGoalRoundAuthority } from './tools/goal/index.js'
+export type { ActiveSessionGoal } from './manager/goal/activation.js'
 
 export type { AgentHandle, AgentHandleOptions, AgentHandleStatus } from './agents/handle.js'
 

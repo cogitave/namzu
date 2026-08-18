@@ -8,6 +8,7 @@ import {
 	type RunId,
 	type SessionId,
 	type UserMessage,
+	asGoalId,
 	asRunId,
 	createAssistantMessage,
 	createToolMessage,
@@ -203,6 +204,27 @@ async function publishSimpleTurn(
 }
 
 describe('verified conversation Markdown', () => {
+	it('labels an automatic continuation as a goal round, not operator-authored input', async () => {
+		const sessions = await openSessions(await cwd())
+		const sessionId = await startConversation(sessions)
+		const user = createUserMessage('internal model continuation prompt', undefined, {
+			type: 'goal-round',
+			goalId: asGoalId('goal_export_round'),
+			objective: 'finish the release',
+			goalRevision: 2,
+			round: 1,
+			maxGoalRounds: 4,
+		})
+		await publishSimpleTurn(sessions, sessionId, 'Goal round 1 / 4', 'progress', { user })
+
+		const projected = await conversationMarkdown(sessions, sessionId)
+
+		expect(projected.markdown).toContain('## Goal round 1 / 4')
+		expect(projected.markdown).toContain('Objective: finish the release')
+		expect(projected.markdown).toContain('internal model continuation prompt')
+		expect(projected.markdown).not.toContain('## User')
+	})
+
 	it('projects raw assistant Markdown and tool input/result after the screen could be cleared', async () => {
 		const root = await cwd()
 		const sessions = await openSessions(root)

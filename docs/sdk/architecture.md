@@ -213,11 +213,13 @@ That rule is now a CI step rather than a habit. `check-signature-types-exported.
 Alongside memory, `store/` has sibling stores for the kernel's durable concepts: `store/run/` (runs, events, checkpoints and surviving messages), `store/session/` (projects, topics, sessions and summaries), `store/goal/` (same-session completion state), `store/topic/` (mutable topic state and multi-round objectives), `store/activity/`, `store/attachment/`, `store/feedback/`, and `store/task/`. Topic state, objectives, session goals, and message feedback use exact revisions; the disk implementations publish immutable revision commits so one writer wins even across processes. See [Session-owned completion goals](session-goals.md), [Durable topic revisions](topic-store-revisions.md), and [Durable message-feedback revisions](feedback-store-revisions.md) for their ownership, filesystem, compatibility, and upgrade contracts.
 
 An active session goal is state, not a scheduler. The store proves which durable
-session owns the objective and arbitrates its lifecycle, while the host remains
-responsible for deciding when another model turn is safe to admit. Keeping that
-driver outside persistence prevents a record read from becoming hidden work and
-lets the host fence continuation against user input, interruption, and session
-switching.
+session owns the objective and atomically admits a finite round; a separate
+process-local activation says whether this host may spend another one. Exact
+run authority makes the goal tools reachable only inside that admitted round.
+The host remains responsible for whole-application quiescence, human FIFO,
+turn-evidence publication, persistence settlement, and the final ownership
+check before provider creation. Keeping that driver outside persistence means
+a restart or state read cannot become hidden work.
 
 ### 7. The Capability System: Tools (`tools/`) and Registry (`registry/`)
 

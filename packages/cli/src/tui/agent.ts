@@ -32,6 +32,7 @@ import {
 	type DurableRunEntry,
 	EVENT_NAME_ATTRIBUTE,
 	type FencingToken,
+	type GoalRoundAuthority,
 	type HITLResumeDecision,
 	type LLMProvider,
 	type LogAttributes,
@@ -45,8 +46,10 @@ import {
 	type ReviewAnswer,
 	type RunEvent,
 	type RunId,
+	SESSION_GOAL_TOOL_NAMES,
 	type SandboxProvider,
 	SearchToolsTool,
+	type SessionGoalStore,
 	type SessionId,
 	type StopReason,
 	type TaskScheduler,
@@ -63,6 +66,7 @@ import {
 	asTenantId,
 	asTopicId,
 	buildMemoryTools,
+	buildSessionGoalTools,
 	compactNow,
 	createMemoryPromoter,
 	createToolPresenter,
@@ -258,6 +262,8 @@ export interface SendOptions {
 	readonly signal?: AbortSignal
 	/** Caller-reserved identity used to correlate this turn before it starts. */
 	readonly runId?: RunId
+	/** Exact durable admission that makes goal tools visible for this one run. */
+	readonly goalRound?: GoalRoundAuthority
 	/**
 	 * Called before a batch of non-read-only tools runs. Resolves with the
 	 * user's decision. When omitted, every tool batch is auto-approved
@@ -675,6 +681,8 @@ export interface AgentSessionOptions {
 	 * packages, redactors, or what a destination is.
 	 */
 	readonly onRunEvent?: (event: RunEvent) => void
+	/** Durable goal authority for the main TUI session; omitted on headless surfaces. */
+	readonly sessionGoals?: SessionGoalStore
 }
 
 export async function createAgentSession(
@@ -854,6 +862,16 @@ export async function createAgentSession(
 		'namzu.sandbox.unconfined': sandbox.unconfined,
 	})
 	const { registry, memoryStore } = buildToolRegistry(cwd)
+	// Registered only on the main session path. Sub-agents call
+	// `buildToolRegistry` directly below, so they never receive these tools.
+	// Per-send denial further keeps the schemas out of ordinary human turns.
+	const goalAuthorities = new Map<RunId, GoalRoundAuthority>()
+	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
+	if (options.sessionGoals) {
+		registry.register(
+			buildSessionGoalTools(options.sessionGoals, (runId) => goalAuthorities.get(runId)),
+		)
+	}
 	// External tool servers, before the roster is counted, so `toolNames` and
 	// the `/tools` list a user reads include what they configured. Connecting
 	// after the count would report a session smaller than the one that runs.
@@ -1032,7 +1050,11 @@ export async function createAgentSession(
 		// Reads the same registry object the deferred registration mutates, at
 		// call time — the pair of `promptExemptTools` below, and for the same
 		// reason.
-		toolNames: () => registry.getCallableTools().map((t) => t.name),
+		toolNames: () =>
+			registry
+				.getCallableTools()
+				.map((t) => t.name)
+				.filter((name) => !goalToolNames.has(name)),
 		agentIds: allowedAgentIds,
 		instructionFiles: projectInstructions.files.map((f) => f.path),
 		skippedInstructionFiles: projectInstructions.skipped,
@@ -1050,7 +1072,8 @@ export async function createAgentSession(
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
 		approvalLatched: () => approval.all,
-		promptExemptTools: () => promptExemptToolNames(registry),
+		promptExemptTools: () =>
+			promptExemptToolNames(registry).filter((name) => !goalToolNames.has(name)),
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
 			// tokens and non-keychain credentials).
@@ -1082,35 +1105,73 @@ export async function createAgentSession(
 				]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
-			yield* runTurn({
-				provider,
-				// Constructed HERE, per turn, and that is not an optimisation to
-				// undo. `refreshTokenIfNeeded` above replaces the head's client
-				// object when an OAuth token rotates, so a member list built once at
-				// session creation would hand the kernel a client holding a token
-				// that expired hours ago — and a chain whose own members are stale
-				// is a fallback that fails for the reason the fallback exists to
-				// survive. Building a driver is a client object, not a request.
-				fallbackProviders: fallbackPlan.build(currentToken),
-				model,
-				tools: registry,
-				scope,
-				workingDirectory: cwd,
-				rules: options.rules,
-				permissionMode: options.permissionMode,
-				reviewAnswer: options.reviewAnswer,
-				maxAnswerReviews: options.maxAnswerReviews,
-				promoteMemory,
-				approval,
-				taskStore,
-				systemPrompt,
-				messages,
-				opts,
-				taskGateway: subagentGateway,
-				onRunEvent: options.onRunEvent,
-				childSteps,
-				...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
-			})
+			let capturedAuthority: GoalRoundAuthority | undefined
+			if (opts?.goalRound) {
+				if (!opts.runId) throw new Error('A goal round requires a caller-reserved runId.')
+				if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
+				if (
+					opts.goalRound.sessionId !== scope.sessionId ||
+					opts.goalRound.tenantId !== scope.tenantId
+				) {
+					throw new Error('Goal-round authority does not belong to this agent session scope.')
+				}
+				const current = await options.sessionGoals.getGoal(scope.sessionId, scope.tenantId)
+				if (
+					!current ||
+					current.phase !== 'active' ||
+					current.id !== opts.goalRound.id ||
+					current.revision !== opts.goalRound.revision ||
+					current.objective !== opts.goalRound.objective ||
+					current.roundsAdmitted !== opts.goalRound.round ||
+					current.maxGoalRounds !== opts.goalRound.maxGoalRounds
+				) {
+					throw new Error('Goal-round authority is stale or does not match the durable goal.')
+				}
+				if (goalAuthorities.has(opts.runId)) {
+					throw new Error(`Run ${opts.runId} already owns goal-round authority.`)
+				}
+				capturedAuthority = Object.freeze({ ...opts.goalRound })
+				goalAuthorities.set(opts.runId, capturedAuthority)
+			}
+			try {
+				yield* runTurn({
+					provider,
+					// Constructed HERE, per turn, and that is not an optimisation to
+					// undo. `refreshTokenIfNeeded` above replaces the head's client
+					// object when an OAuth token rotates, so a member list built once at
+					// session creation would hand the kernel a client holding a token
+					// that expired hours ago — and a chain whose own members are stale
+					// is a fallback that fails for the reason the fallback exists to
+					// survive. Building a driver is a client object, not a request.
+					fallbackProviders: fallbackPlan.build(currentToken),
+					model,
+					tools: registry,
+					scope,
+					workingDirectory: cwd,
+					rules: options.rules,
+					permissionMode: options.permissionMode,
+					reviewAnswer: options.reviewAnswer,
+					maxAnswerReviews: options.maxAnswerReviews,
+					promoteMemory,
+					approval,
+					taskStore,
+					systemPrompt,
+					messages,
+					opts,
+					taskGateway: subagentGateway,
+					onRunEvent: options.onRunEvent,
+					childSteps,
+					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
+				})
+			} finally {
+				if (
+					opts?.runId &&
+					capturedAuthority &&
+					goalAuthorities.get(opts.runId) === capturedAuthority
+				) {
+					goalAuthorities.delete(opts.runId)
+				}
+			}
 		},
 		resumeDurable: async ({ entry, checkpointStore, claimFence, signal }) => {
 			// The same prelude a turn runs, and for the same reasons: a lapsed
@@ -1622,6 +1683,9 @@ async function* runTurn({
 			// where `[]` reads as "this run has a chain with nothing in it".
 			...(fallbackProviders.length > 0 ? { fallbackProviders } : {}),
 			tools,
+			// Withheld at both provider and executor boundaries on every ordinary
+			// turn. An admitted send owns the exact run-scoped authority above.
+			...(!opts?.goalRound ? { deniedTools: SESSION_GOAL_TOOL_NAMES } : {}),
 			taskStore,
 			...(taskGateway ? { taskGateway } : {}),
 			// `gateFor`, not the bare default: the default's `rules` is a hardcoded
@@ -1813,7 +1877,7 @@ export function makeResumeHandler(
  * survives the process, into the user's own repository, is not read-only under
  * any reading, and it now prompts.
  */
-const PROMPT_EXEMPT_WRITES = new Set(['task_create', 'task_update'])
+const PROMPT_EXEMPT_WRITES = new Set(['task_create', 'task_update', 'update_goal'])
 
 /**
  * Whether a call runs without asking: it declares itself read-only, or it is a

@@ -26,15 +26,23 @@ export function editablePrompts(
 	history: readonly Message[],
 	transcript: readonly TranscriptMessage[],
 ): readonly EditablePrompt[] {
-	const users = history.filter((message): message is UserMessage => message.role === 'user')
+	let durableUserOrdinal = 0
+	const users = history.flatMap<{ readonly message: UserMessage; readonly userOrdinal: number }>(
+		(message) => {
+			if (message.role !== 'user') return []
+			const userOrdinal = durableUserOrdinal
+			durableUserOrdinal += 1
+			return message.source?.type === 'goal-round' ? [] : [{ message, userOrdinal }]
+		},
+	)
 	const visible = transcript.filter((message) => message.role === 'user')
 	const paired = Math.min(users.length, visible.length)
 	const durableStart = users.length - paired
 	const visibleStart = visible.length - paired
 
-	return users.map((message, userOrdinal) => {
-		const visibleIndex = visibleStart + (userOrdinal - durableStart)
-		const row = userOrdinal >= durableStart ? visible[visibleIndex] : undefined
+	return users.map(({ message, userOrdinal }, index) => {
+		const visibleIndex = visibleStart + (index - durableStart)
+		const row = index >= durableStart ? visible[visibleIndex] : undefined
 		return {
 			userOrdinal,
 			message,

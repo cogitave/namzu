@@ -29,8 +29,22 @@ export interface SessionGoal extends GoalRef {
 	readonly tenantId: TenantId
 	readonly objective: string
 	readonly phase: GoalPhase
+	/** Finite number of automatic rounds that may be admitted for this goal. */
+	readonly maxGoalRounds: number
+	/** Durable admissions, not a claim that the provider began or completed. */
+	readonly roundsAdmitted: number
 	/** Present exactly while {@link phase} is `blocked`. */
 	readonly blockedReason?: GoalBlockReason
 	readonly createdAt: number
 	readonly updatedAt: number
+}
+
+/** Immutable authority carried by exactly one admitted automatic turn. */
+export interface GoalRoundAuthority extends GoalRef {
+	readonly sessionId: SessionId
+	readonly tenantId: TenantId
+	readonly objective: string
+	/** One-based admitted round number. */
+	readonly round: number
+	readonly maxGoalRounds: number
 }

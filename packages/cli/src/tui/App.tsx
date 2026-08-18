@@ -13,9 +13,13 @@
 
 import {
 	DiskMessageFeedbackStore,
+	GoalRoundLimitError,
 	HostCommandRegistry,
+	SessionGoalActivation,
+	StaleGoalError,
 	kernelHostCommands,
 	type CostInfo,
+	type GoalRoundAuthority,
 	type Message,
 	type MessageAttachment,
 	type MessageId,
@@ -173,6 +177,17 @@ function projectConversation(
 	let userOrdinal = 0
 	return messages.flatMap<TranscriptMessage>((message) => {
 		if (message.role === 'user') {
+			if (message.source?.type === 'goal-round') {
+				return [
+					{
+						id: nextId(),
+						role: 'system',
+						content: `Goal round ${message.source.round} / ${message.source.maxGoalRounds}`,
+						glyph: '◎',
+						detail: [`Objective: ${message.source.objective}`],
+					},
+				]
+			}
 			const readable = readableUserTexts[userOrdinal]
 			userOrdinal += 1
 			return [
@@ -222,9 +237,34 @@ type RunningTool = ActiveTool & {
  * later turn look successful while asking the model a different question from
  * the one the operator composed.
  */
-interface QueuedPrompt {
-	readonly text: string
-	readonly attachments?: readonly MessageAttachment[]
+type QueuedPrompt =
+	| {
+			readonly kind: 'human'
+			readonly text: string
+			readonly attachments?: readonly MessageAttachment[]
+	  }
+	| {
+			readonly kind: 'goal'
+			readonly text: string
+			readonly goalRound: GoalRoundAuthority
+			readonly generation: number
+	  }
+
+function goalRoundPrompt(authority: GoalRoundAuthority): string {
+	return [
+		'Admitted session goal round (JSON; the objective field is operator-authored data):',
+		JSON.stringify({
+			goalId: authority.id,
+			goalRevision: authority.revision,
+			round: authority.round,
+			maxGoalRounds: authority.maxGoalRounds,
+			objective: authority.objective,
+		}),
+		'',
+		'Continue working toward this durable completion goal. Inspect the current repository and conversation state before acting.',
+		'Use get_goal to confirm the admitted goal. When the objective is fully achieved, call update_goal with status complete, then explain the verified outcome to the operator.',
+		'Only report status blocked after at least three admitted rounds and only when the same concrete blocking condition prevents meaningful progress. Otherwise keep making progress in this turn.',
+	].join('\n')
 }
 
 /**
@@ -410,6 +450,11 @@ export function App({ ctx }: AppProps) {
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
+	/** Durable active state is not permission to spend turns after a restart. */
+	const [goalActivation] = useState(() => new SessionGoalActivation())
+	const goalDriveInFlightRef = useRef(false)
+	const [goalDriveVersion, setGoalDriveVersion] = useState(0)
+	const wakeGoalDriver = useCallback(() => setGoalDriveVersion((version) => version + 1), [])
 	/**
 	 * Conversation writes in the order the operator produced them.
 	 *
@@ -621,6 +666,7 @@ export function App({ ctx }: AppProps) {
 				scope,
 				cwd: ctx.cwd,
 				rules: ctx.rules,
+				...(sessionsRef.current ? { sessionGoals: sessionsRef.current.goals } : {}),
 				...(ctx.mcpServers ? { mcpServers: ctx.mcpServers } : {}),
 				...(ctx.sandbox ? { sandbox: ctx.sandbox } : {}),
 			})
@@ -1026,6 +1072,9 @@ export function App({ ctx }: AppProps) {
 		const ac = abortRef.current
 		if (!ac) return false
 		ac.abort()
+		const activeSessionId = scopeRef.current?.sessionId
+		if (activeSessionId) goalActivation.disarm(activeSessionId)
+		wakeGoalDriver()
 		activeTurnTokenRef.current = null
 		// Dropped now so a second interrupt does not re-abort, and the queue with
 		// it: interrupting means stop, not "run the next one".
@@ -1034,7 +1083,7 @@ export function App({ ctx }: AppProps) {
 		clearActiveTools()
 		setState('idle')
 		return true
-	}, [clearActiveTools, replaceQueued, resolvePermission])
+	}, [clearActiveTools, goalActivation, replaceQueued, resolvePermission, wakeGoalDriver])
 
 	/**
 	 * Load the chosen conversation into the transcript and continue in it.
@@ -1106,6 +1155,8 @@ export function App({ ctx }: AppProps) {
 			const discardedQueued = queuedRef.current.length
 			const interrupted = interruptTurn()
 			replaceQueued([])
+			goalActivation.clear()
+			wakeGoalDriver()
 			conversationGenRef.current += 1
 			activeTurnTokenRef.current = null
 			resetTranscript()
@@ -1135,7 +1186,7 @@ export function App({ ctx }: AppProps) {
 				)
 			}
 		},
-		[interruptTurn, nextId, pushMessage, replaceQueued, resetTranscript],
+		[goalActivation, interruptTurn, nextId, pushMessage, replaceQueued, resetTranscript, wakeGoalDriver],
 	)
 
 	/**
@@ -1172,6 +1223,8 @@ export function App({ ctx }: AppProps) {
 				const discardedQueued = queuedRef.current.length
 				const interrupted = interruptTurn()
 				replaceQueued([])
+				goalActivation.clear()
+				wakeGoalDriver()
 				conversationGenRef.current += 1
 				activeTurnTokenRef.current = null
 				modelHistoryRef.current = []
@@ -1220,7 +1273,7 @@ export function App({ ctx }: AppProps) {
 				setConversationMutation(null)
 			}
 		},
-		[interruptTurn, pushMessage, replaceQueued, resetTranscript],
+		[goalActivation, interruptTurn, pushMessage, replaceQueued, resetTranscript, wakeGoalDriver],
 	)
 
 	/**
@@ -1318,6 +1371,8 @@ export function App({ ctx }: AppProps) {
 			// The transcript on screen is already the fork's history, so nothing
 			// is reloaded or reset. Only where the NEXT turn is written changes.
 			scope.sessionId = forked.id
+			goalActivation.clear()
+			wakeGoalDriver()
 			pushMessage(
 				'system',
 				`Forked into "${forked.title}" — ${forked.copied} message(s) copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
@@ -1328,7 +1383,7 @@ export function App({ ctx }: AppProps) {
 			conversationMutationRef.current = null
 			setConversationMutation(null)
 		}
-	}, [ensureSessions, hasUnsettledTurn, pushMessage])
+	}, [ensureSessions, goalActivation, hasUnsettledTurn, pushMessage, wakeGoalDriver])
 
 	/** Open the durable prompt picker after the composer's second empty Esc. */
 	const openPromptEditor = useCallback(() => {
@@ -1402,6 +1457,8 @@ export function App({ ctx }: AppProps) {
 
 				conversationGenRef.current += 1
 				activeTurnTokenRef.current = null
+				goalActivation.clear()
+				wakeGoalDriver()
 				scope.sessionId = forked.id
 				modelHistoryRef.current = forked.messages
 				lastAssistantMessage.current = null
@@ -1438,7 +1495,16 @@ export function App({ ctx }: AppProps) {
 				setConversationMutation(null)
 			}
 		},
-		[editList, ensureSessions, hasUnsettledTurn, nextId, pushMessage, resetTranscript],
+		[
+			editList,
+			ensureSessions,
+			goalActivation,
+			hasUnsettledTurn,
+			nextId,
+			pushMessage,
+			resetTranscript,
+			wakeGoalDriver,
+		],
 	)
 
 	// Bridge passed into session.send(): the agent calls this before a
@@ -1609,16 +1675,47 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const runTurn = useCallback(
-		async (text: string, attachments?: readonly MessageAttachment[]) => {
+		async (prompt: QueuedPrompt) => {
 			if (!session || !session.hasProvider) {
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
 			}
-			// `@path` mentions: the visible message keeps the readable token, but
-			// the model receives the file contents inlined.
-			const { sendText, attached } = expandFileMentions(text, ctx.cwd)
+			const { text } = prompt
+			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
+			const goalRound = prompt.kind === 'goal' ? prompt.goalRound : undefined
+			if (
+				prompt.kind === 'goal' &&
+				(prompt.generation !== conversationGenRef.current ||
+					scopeRef.current?.sessionId !== goalRound?.sessionId ||
+					!goalRound ||
+					!goalActivation.isArmed(goalRound.sessionId, goalRound))
+			) {
+				return
+			}
+			// `@path` mentions: the visible human message keeps the readable token,
+			// but the model receives the file contents inlined. An automatic goal
+			// prompt is already host-authored context and is never reinterpreted as
+			// a file-mention command.
+			const expanded =
+				prompt.kind === 'human'
+					? expandFileMentions(text, ctx.cwd)
+					: { sendText: text, attached: [] as readonly string[] }
+			const { sendText, attached } = expanded
 			const historyBeforeTurn = modelHistoryRef.current
-			const userMessage = createUserMessage(sendText, attachments)
+			const userMessage = createUserMessage(
+				sendText,
+				attachments,
+				goalRound
+					? {
+							type: 'goal-round',
+							goalId: goalRound.id,
+							objective: goalRound.objective,
+							goalRevision: goalRound.revision,
+							round: goalRound.round,
+							maxGoalRounds: goalRound.maxGoalRounds,
+						}
+					: undefined,
+			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
 			const runId = generateRunId()
 
@@ -1629,15 +1726,25 @@ export function App({ ctx }: AppProps) {
 				metaParts.push(
 					`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`,
 				)
-			pushMessage(
-				'user',
-				text,
-				false,
-				undefined,
-				undefined,
-				undefined,
-				metaParts.length > 0 ? metaParts.join(' · ') : undefined,
-			)
+			if (goalRound) {
+				pushMessage(
+					'system',
+					`Goal round ${goalRound.round} / ${goalRound.maxGoalRounds}`,
+					false,
+					'◎',
+					[`Objective: ${goalRound.objective}`],
+				)
+			} else {
+				pushMessage(
+					'user',
+					text,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					metaParts.length > 0 ? metaParts.join(' · ') : undefined,
+				)
+			}
 			setState('thinking')
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
@@ -1684,6 +1791,7 @@ export function App({ ctx }: AppProps) {
 						return onPermission(req)
 					}
 			let evidenceTurn: ConversationTurnStartedRecord | undefined
+			let evidenceReady = goalRound === undefined
 			if (turnSessions?.turnEvidence && destination) {
 				try {
 					evidenceTurn = await turnSessions.turnEvidence.recordTurnStarted({
@@ -1692,12 +1800,29 @@ export function App({ ctx }: AppProps) {
 						displayText: text,
 						user: userMessage,
 					})
+					evidenceReady = true
 				} catch (err) {
-					pushMessage(
-						'system',
-						`Could not record durable evidence for this turn before run ${runId}: ${err instanceof Error ? err.message : String(err)}. The turn will continue, but a complete export of conversation ${destination} will refuse rather than omit it.`,
-					)
+					if (goalRound) {
+						goalActivation.disarm(goalRound.sessionId, goalRound)
+						wakeGoalDriver()
+						pushMessage(
+							'system',
+							`Goal round ${goalRound.round} was not started because its durable evidence could not be recorded: ${err instanceof Error ? err.message : String(err)}. Automatic continuation is disarmed; /goal resume retries explicitly.`,
+						)
+					} else {
+						pushMessage(
+							'system',
+							`Could not record durable evidence for this turn before run ${runId}: ${err instanceof Error ? err.message : String(err)}. The turn will continue, but a complete export of conversation ${destination} will refuse rather than omit it.`,
+						)
+					}
 				}
+			} else if (goalRound) {
+				goalActivation.disarm(goalRound.sessionId, goalRound)
+				wakeGoalDriver()
+				pushMessage(
+					'system',
+					`Goal round ${goalRound.round} was not started because durable turn evidence is unavailable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
+				)
 			}
 			try {
 				// `recordTurnStarted` is an awaited durability boundary. A conversation
@@ -1705,10 +1830,19 @@ export function App({ ctx }: AppProps) {
 				// captured by `createAgentSession`. Re-admit the turn here, immediately
 				// before the generator exists, or an abandoned prompt can initialize its
 				// reserved SDK run under the new conversation.
-				if (!ac.signal.aborted && stillHere() && activeTurnTokenRef.current === turnToken) {
+				if (
+					evidenceReady &&
+					!ac.signal.aborted &&
+					stillHere() &&
+					activeTurnTokenRef.current === turnToken &&
+					(!goalRound ||
+						(destination === goalRound.sessionId &&
+							goalActivation.isArmed(goalRound.sessionId, goalRound)))
+				) {
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						runId,
+						...(goalRound ? { goalRound } : {}),
 						// Bypass mode (--dangerously-skip-permissions / --yolo): omit the
 						// permission callback so every tool batch auto-approves.
 						onPermission: askPermission,
@@ -1754,8 +1888,12 @@ export function App({ ctx }: AppProps) {
 				// store. The visible transcript keeps the operator's readable `@file`
 				// token; this message keeps what was actually sent, including expanded
 				// contents and attachments.
-				const turn: Message[] = [userMessage]
+				const turn: Message[] = goalRound && !evidenceReady ? [] : [userMessage]
 				if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
+				if (goalRound && (ac.signal.aborted || st.outcome !== 'completed')) {
+					goalActivation.disarm(goalRound.sessionId, goalRound)
+					wakeGoalDriver()
+				}
 				// The screen belongs to the conversation on it, which after a
 				// `/resume` is no longer this turn's. `interruptTurn` already did this
 				// cleanup at the moment it decided to stop; repeating it here would
@@ -1785,6 +1923,7 @@ export function App({ ctx }: AppProps) {
 					if (
 						ownsTurn &&
 						!ac.signal.aborted &&
+						!goalRound &&
 						st.notification &&
 						queuedRef.current.length === 0
 					) {
@@ -1806,7 +1945,7 @@ export function App({ ctx }: AppProps) {
 				// conversation, because there is no other channel and it is news they
 				// need. Naming the conversation is what keeps it from reading as a
 				// fault of the one in front of them.
-				if (turnSessions && destination) {
+				if (turnSessions && destination && (turn.length > 0 || evidenceTurn)) {
 					persistenceTailRef.current = persistenceTailRef.current.then(async () => {
 						if (evidenceTurn && turnSessions.turnEvidence) {
 							try {
@@ -1827,13 +1966,17 @@ export function App({ ctx }: AppProps) {
 							}
 						}
 						try {
-							await appendMessages(turnSessions, destination, turn)
+							if (turn.length > 0) await appendMessages(turnSessions, destination, turn)
 						} catch (err) {
+							if (goalRound) {
+								goalActivation.disarm(goalRound.sessionId, goalRound)
+								wakeGoalDriver()
+							}
 							pushMessage(
 								'system',
 								`A turn was not saved to conversation ${destination}: ${
 									err instanceof Error ? err.message : String(err)
-								}. That conversation's history will not include it, and its next turn will not have it as context.`,
+								}. Its durable history will not include it. It remains only in this process's in-memory context if that conversation is still open; resuming or restarting will lose it.`,
 							)
 						}
 					})
@@ -1852,10 +1995,12 @@ export function App({ ctx }: AppProps) {
 			ctx.skipPermissions,
 			finalizeMessage,
 			flushStream,
+			goalActivation,
 			onPermission,
 			pushMessage,
 			sendTerminalNotification,
 			session,
+			wakeGoalDriver,
 		],
 	)
 
@@ -2121,6 +2266,7 @@ export function App({ ctx }: AppProps) {
 												store: durableSessions.goals,
 												sessionId: runScope.sessionId,
 												tenantId: durableSessions.tenantId,
+												activation: goalActivation,
 											},
 										}
 									: {}),
@@ -2147,7 +2293,10 @@ export function App({ ctx }: AppProps) {
 									`Could not run /${slash.name}: ${error instanceof Error ? error.message : String(error)}`,
 								)
 							} finally {
-								if (goalCommand) goalCommandInFlightRef.current = false
+								if (goalCommand) {
+									goalCommandInFlightRef.current = false
+									wakeGoalDriver()
+								}
 							}
 						})()
 						return
@@ -2218,7 +2367,7 @@ export function App({ ctx }: AppProps) {
 							// while a turn is in flight must not jump the queue, and
 							// must not be dropped either.
 							const text = reviewPrompt(diff.stat, diff.untracked)
-							enqueueQueued({ text })
+							enqueueQueued({ kind: 'human', text })
 						})()
 						return
 					}
@@ -2451,6 +2600,7 @@ export function App({ ctx }: AppProps) {
 			// Keep the attachment array beside its text. Reconstructing a prompt from
 			// the transcript later cannot recover bytes whose composer chip is gone.
 			enqueueQueued({
+				kind: 'human',
 				text: outgoing,
 				...(attachments && attachments.length > 0
 					? { attachments: [...attachments] }
@@ -2472,6 +2622,126 @@ export function App({ ctx }: AppProps) {
 		],
 	)
 
+	// Admit automatic work only at a whole-App durable boundary. This effect
+	// reserves; it never starts a turn itself. The one queue pump below remains
+	// the sole starter, which is what keeps a human prompt that arrives during
+	// admission ahead of the resulting goal round.
+	useEffect(() => {
+		void goalDriveVersion
+		// The ref is the synchronous gate; this state read is the wake-up edge.
+		// A failed fork/edit can close its mutation boundary while the screen stays
+		// idle, so no other dependency would necessarily re-run this driver.
+		void conversationMutation
+		if (
+			goalDriveInFlightRef.current ||
+			state !== 'idle' ||
+			phase !== 'ready' ||
+			!session?.hasProvider ||
+			queuedRef.current.length > 0 ||
+			abortRef.current ||
+			hasUnsettledTurn() ||
+			conversationMutationRef.current ||
+			exportingRef.current ||
+			compactingRef.current ||
+			goalCommandInFlightRef.current
+		) {
+			return
+		}
+		const durableSessions = sessionsRef.current
+		const scope = scopeRef.current
+		if (!durableSessions?.turnEvidence || !scope) return
+		const generation = conversationGenRef.current
+		const sessionId = scope.sessionId
+		const armed = goalActivation.get(sessionId)
+		if (!armed) return
+
+		goalDriveInFlightRef.current = true
+		void (async () => {
+			try {
+				await persistenceTailRef.current
+				if (
+					conversationGenRef.current !== generation ||
+					scopeRef.current?.sessionId !== sessionId ||
+					state !== 'idle' ||
+					abortRef.current ||
+					hasUnsettledTurn(generation) ||
+					conversationMutationRef.current ||
+					exportingRef.current ||
+					compactingRef.current ||
+					goalCommandInFlightRef.current ||
+					queuedRef.current.length > 0 ||
+					!goalActivation.isArmed(sessionId, armed)
+				) {
+					return
+				}
+
+				const current = await durableSessions.goals.getGoal(sessionId, durableSessions.tenantId)
+				if (
+					!current ||
+					current.phase !== 'active' ||
+					current.id !== armed.id ||
+					current.revision !== armed.revision
+				) {
+					goalActivation.disarm(sessionId, armed)
+					return
+				}
+
+				const authority = await durableSessions.goals.admitRound(
+					sessionId,
+					durableSessions.tenantId,
+					armed,
+				)
+				// Human input may have entered or even started while admission was on
+				// disk; keep it. The goal round appends after that FIFO. A conversation
+				// or goal command is different: it revoked this scheduling boundary.
+				if (
+					conversationGenRef.current !== generation ||
+					scopeRef.current?.sessionId !== sessionId ||
+					conversationMutationRef.current ||
+					goalCommandInFlightRef.current ||
+					!goalActivation.isArmed(sessionId, armed)
+				) {
+					goalActivation.disarm(sessionId, armed)
+					return
+				}
+				goalActivation.arm(authority)
+				enqueueQueued({
+					kind: 'goal',
+					text: goalRoundPrompt(authority),
+					goalRound: authority,
+					generation,
+				})
+			} catch (error) {
+				goalActivation.disarm(sessionId, armed)
+				if (error instanceof GoalRoundLimitError) {
+					pushMessage(
+						'system',
+						`Goal blocked after ${error.goal.roundsAdmitted} admitted round${error.goal.roundsAdmitted === 1 ? '' : 's'}: ${error.goal.blockedReason?.message ?? 'the round limit was reached'}`,
+					)
+				} else if (!(error instanceof StaleGoalError)) {
+					pushMessage(
+						'system',
+						`Automatic goal continuation was disarmed because round admission failed: ${error instanceof Error ? error.message : String(error)}. Run /goal resume to retry explicitly.`,
+					)
+				}
+			} finally {
+				goalDriveInFlightRef.current = false
+				wakeGoalDriver()
+			}
+		})()
+	}, [
+		enqueueQueued,
+		goalActivation,
+		goalDriveVersion,
+		hasUnsettledTurn,
+		phase,
+		pushMessage,
+		conversationMutation,
+		session,
+		state,
+		wakeGoalDriver,
+	])
+
 	// Drain the queue: when a turn settles (idle) and nothing is running,
 	// send the next queued message automatically.
 	useEffect(() => {
@@ -2480,7 +2750,11 @@ export function App({ ctx }: AppProps) {
 			phase !== 'ready' ||
 			queuedRef.current.length === 0 ||
 			abortRef.current ||
-			conversationMutationRef.current
+			hasUnsettledTurn() ||
+			conversationMutationRef.current ||
+			exportingRef.current ||
+			compactingRef.current ||
+			goalCommandInFlightRef.current
 		)
 			return
 		// Read and remove from the synchronous source of truth. `queued` is the
@@ -2488,8 +2762,8 @@ export function App({ ctx }: AppProps) {
 		// have appended to the ref, and replacing from that old snapshot would
 		// erase it.
 		const next = dequeueQueued()
-		if (next !== undefined) void runTurn(next.text, next.attachments)
-	}, [state, phase, queued, dequeueQueued, runTurn])
+		if (next !== undefined) void runTurn(next)
+	}, [state, phase, queued, dequeueQueued, hasUnsettledTurn, runTurn])
 
 	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.

@@ -316,6 +316,18 @@ export async function writeConversationExport(
 }
 
 function renderUser(turn: ConversationTurnEvidence): string[] {
+	if (turn.started.user.source?.type === 'goal-round') {
+		const source = turn.started.user.source
+		return [
+			`## Goal round ${source.round} / ${source.maxGoalRounds}`,
+			'',
+			`Objective: ${source.objective}`,
+			'',
+			'Model-visible continuation prompt:',
+			'',
+			turn.started.user.content,
+		]
+	}
 	const lines = ['## User', '', turn.started.displayText]
 	const attachments = turn.started.user.attachments ?? []
 	if (attachments.length > 0) {
@@ -370,7 +382,16 @@ function renderProducedMessages(messages: readonly Message[]): string[] {
 				)
 				break
 			case 'user':
-				lines.push('## User', '', message.content, '')
+				if (message.source?.type === 'goal-round') {
+					lines.push(
+						`## Goal round ${message.source.round} / ${message.source.maxGoalRounds}`,
+						'',
+						`Objective: ${message.source.objective}`,
+						'',
+						message.content,
+						'',
+					)
+				} else lines.push('## User', '', message.content, '')
 				break
 			case 'system':
 				// System and working-memory messages are model context, not operator

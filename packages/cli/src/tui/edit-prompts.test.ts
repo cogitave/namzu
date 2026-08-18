@@ -1,4 +1,4 @@
-import { createAssistantMessage, createUserMessage } from '@namzu/sdk'
+import { asGoalId, createAssistantMessage, createUserMessage } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { editablePrompts } from './edit-prompts.js'
@@ -36,5 +36,25 @@ describe('editable prompt projection', () => {
 			'recent @file prompt',
 		])
 		expect(prompts.map((prompt) => prompt.userOrdinal)).toEqual([0, 1])
+	})
+
+	it('excludes automatic goal prompts while preserving their durable user ordinal', () => {
+		const automatic = createUserMessage('internal continuation', undefined, {
+			type: 'goal-round',
+			goalId: asGoalId('goal_edit_projection'),
+			objective: 'finish',
+			goalRevision: 2,
+			round: 1,
+			maxGoalRounds: 8,
+		})
+		const human = createUserMessage('human correction')
+
+		const prompts = editablePrompts(
+			[automatic, createAssistantMessage('progress'), human],
+			[row('human', 'human correction')],
+		)
+
+		expect(prompts).toHaveLength(1)
+		expect(prompts[0]).toMatchObject({ userOrdinal: 1, message: human })
 	})
 })

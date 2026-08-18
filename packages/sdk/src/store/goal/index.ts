@@ -1,7 +1,13 @@
 import { join } from 'node:path'
 
 import { TenantIsolationError } from '../../session/errors.js'
-import type { GoalBlockReason, GoalPhase, GoalRef, SessionGoal } from '../../types/goal/index.js'
+import type {
+	GoalBlockReason,
+	GoalPhase,
+	GoalRef,
+	GoalRoundAuthority,
+	SessionGoal,
+} from '../../types/goal/index.js'
 import type { GoalId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { SessionStore } from '../../types/session/store.js'
 import { asGoalId, asSessionId, generateGoalId } from '../../utils/id.js'
@@ -16,9 +22,13 @@ import { defineSchema } from '../schema.js'
 /** Current source-backed limit for a human goal objective. */
 export const MAX_GOAL_OBJECTIVE_CHARS = 4_000
 
+/** Source-aligned default; hosts may choose a smaller positive finite cap. */
+export const DEFAULT_MAX_GOAL_ROUNDS = 256
+
 export interface CreateSessionGoalParams {
 	readonly sessionId: SessionId
 	readonly objective: string
+	readonly maxGoalRounds?: number
 }
 
 export interface EditSessionGoalParams {
@@ -36,6 +46,8 @@ export interface SessionGoalStore {
 	): Promise<SessionGoal>
 	pauseGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal>
 	resumeGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal>
+	/** Durably reserve one automatic round before any provider work begins. */
+	admitRound(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<GoalRoundAuthority>
 	completeGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal>
 	blockGoal(
 		sessionId: SessionId,
@@ -98,6 +110,14 @@ export class GoalSessionNotFoundError extends Error {
 	}
 }
 
+/** Admission reached its finite cap after durably blocking the goal. */
+export class GoalRoundLimitError extends Error {
+	constructor(readonly goal: SessionGoal) {
+		super(`Goal ${goal.id} has admitted all ${goal.maxGoalRounds} automatic rounds.`)
+		this.name = 'GoalRoundLimitError'
+	}
+}
+
 interface SessionGoalRecord {
 	readonly sessionId: SessionId
 	readonly tenantId: TenantId
@@ -109,8 +129,21 @@ interface SessionGoalRecord {
 
 const SCHEMA = defineSchema({
 	kind: 'session-goal',
-	current: 1,
-	migrations: {},
+	current: 2,
+	migrations: {
+		1: (record) => {
+			const goal = record.goal
+			if (goal === null || typeof goal !== 'object' || Array.isArray(goal)) return record
+			return {
+				...record,
+				goal: {
+					...goal,
+					maxGoalRounds: DEFAULT_MAX_GOAL_ROUNDS,
+					roundsAdmitted: 0,
+				},
+			}
+		},
+	},
 })
 const revisionRecords = new DiskRevisionRecordStore<SessionGoalRecord>(
 	SCHEMA,
@@ -156,6 +189,14 @@ function objective(value: string): string {
 		throw new TypeError(`goal objective must be at most ${MAX_GOAL_OBJECTIVE_CHARS} characters.`)
 	}
 	return trimmed
+}
+
+function maxGoalRounds(value: number | undefined): number {
+	const resolved = value ?? DEFAULT_MAX_GOAL_ROUNDS
+	if (!Number.isSafeInteger(resolved) || resolved < 1) {
+		throw new TypeError(`maxGoalRounds must be a positive safe integer, got ${resolved}.`)
+	}
+	return resolved
 }
 
 function blockReason(value: GoalBlockReason): GoalBlockReason {
@@ -231,6 +272,7 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 	async createGoal(params: CreateSessionGoalParams, tenantId: TenantId): Promise<SessionGoal> {
 		const sessionId = await this.requireSession(params.sessionId, tenantId)
 		const text = objective(params.objective)
+		const maxRounds = maxGoalRounds(params.maxGoalRounds)
 		return await backendFor(this).transact(sessionId, (existing) => {
 			if (existing) {
 				assertTenant(existing, tenantId)
@@ -246,6 +288,8 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 				revision: 1,
 				objective: text,
 				phase: 'active',
+				maxGoalRounds: maxRounds,
+				roundsAdmitted: 0,
 				createdAt: now,
 				updatedAt: now,
 			}
@@ -291,6 +335,73 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 			['paused', 'blocked'],
 			'active',
 		)
+	}
+
+	async admitRound(
+		sessionId: SessionId,
+		tenantId: TenantId,
+		ref: GoalRef,
+	): Promise<GoalRoundAuthority> {
+		const checked = await this.requireSession(sessionId, tenantId)
+		const expected = validRef(ref)
+		const outcome = await backendFor(this).transact<
+			| { readonly kind: 'admitted'; readonly authority: GoalRoundAuthority }
+			| { readonly kind: 'exhausted'; readonly goal: SessionGoal }
+		>(checked, (existing) => {
+			const goal = currentGoal(existing, checked, tenantId, expected)
+			if (goal.phase !== 'active') throw new GoalTransitionError(goal.phase, 'admit a round for')
+			const now = this.now()
+			if (goal.roundsAdmitted >= goal.maxGoalRounds) {
+				const blocked: SessionGoal = {
+					...goal,
+					revision: goal.revision + 1,
+					phase: 'blocked',
+					blockedReason: {
+						code: 'round-limit',
+						message: `Reached the ${goal.maxGoalRounds}-round limit.`,
+					},
+					updatedAt: now,
+				}
+				return {
+					record: {
+						sessionId: checked,
+						tenantId,
+						storageRevision: (existing?.storageRevision ?? 0) + 1,
+						goal: blocked,
+						updatedAt: now,
+					},
+					result: { kind: 'exhausted', goal: blocked },
+				}
+			}
+
+			const admitted: SessionGoal = {
+				...goal,
+				revision: goal.revision + 1,
+				roundsAdmitted: goal.roundsAdmitted + 1,
+				updatedAt: now,
+			}
+			const authority: GoalRoundAuthority = {
+				id: admitted.id,
+				revision: admitted.revision,
+				sessionId: admitted.sessionId,
+				tenantId: admitted.tenantId,
+				objective: admitted.objective,
+				round: admitted.roundsAdmitted,
+				maxGoalRounds: admitted.maxGoalRounds,
+			}
+			return {
+				record: {
+					sessionId: checked,
+					tenantId,
+					storageRevision: (existing?.storageRevision ?? 0) + 1,
+					goal: admitted,
+					updatedAt: now,
+				},
+				result: { kind: 'admitted', authority },
+			}
+		})
+		if (outcome.kind === 'exhausted') throw new GoalRoundLimitError(outcome.goal)
+		return outcome.authority
 	}
 
 	async completeGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal> {

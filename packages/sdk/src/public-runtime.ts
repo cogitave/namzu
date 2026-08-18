@@ -167,9 +167,11 @@ export { StaleObjectiveError } from './types/topic/objective.js'
 // consumes this store; automatic continuation is a separate driver rather
 // than a side effect hidden inside persistence.
 export {
+	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskSessionGoalStore,
 	GoalExistsError,
 	GoalNotFoundError,
+	GoalRoundLimitError,
 	GoalSessionNotFoundError,
 	GoalTransitionError,
 	InMemorySessionGoalStore,
@@ -202,6 +204,13 @@ export { withStreamIdleTimeout } from './provider/idle-timeout.js'
 export type { WithStreamIdleTimeoutOptions } from './provider/idle-timeout.js'
 
 export { isTrustedReadOnly } from './tools/trusted-read-only.js'
+export {
+	GoalRoundAuthorityError,
+	MIN_GOAL_BLOCK_ROUND,
+	SESSION_GOAL_TOOL_NAMES,
+	buildSessionGoalTools,
+} from './tools/goal/index.js'
+export { SessionGoalActivation } from './manager/goal/activation.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
 export {
 	compressShellOutput,

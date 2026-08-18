@@ -1,3 +1,4 @@
+import type { SessionGoalActivation } from '../../manager/goal/activation.js'
 import {
 	GoalExistsError,
 	GoalNotFoundError,
@@ -48,6 +49,8 @@ export interface GoalCommandScope {
 	readonly store: SessionGoalStore
 	readonly sessionId: SessionId
 	readonly tenantId: TenantId
+	/** Process-local permission for automatic continuation. */
+	readonly activation?: SessionGoalActivation
 }
 
 const GOAL_USAGE = 'Usage: /goal [<objective>|clear|edit <objective>|pause|resume]'
@@ -77,25 +80,33 @@ function goalRef(goal: SessionGoal): GoalRef {
 	return { id: goal.id, revision: goal.revision }
 }
 
-function goalCommands(goal: SessionGoal): string {
-	if (goal.phase === 'active') return '/goal edit <objective>, /goal pause, /goal clear'
+function goalCommands(goal: SessionGoal, armed: boolean): string {
+	if (goal.phase === 'active') {
+		return `${armed ? '' : '/goal resume, '}/goal edit <objective>, /goal pause, /goal clear`
+	}
 	if (goal.phase === 'paused' || goal.phase === 'blocked') {
 		return '/goal edit <objective>, /goal resume, /goal clear'
 	}
 	return '/goal <objective>, /goal clear'
 }
 
-function renderGoal(title: string, goal: SessionGoal): string {
+function renderGoal(title: string, goal: SessionGoal, armed: boolean): string {
 	return [
 		title,
 		`Status: ${goal.phase}`,
+		`Automatic continuation: ${armed ? 'armed' : 'disarmed'}`,
+		`Rounds admitted: ${goal.roundsAdmitted} / ${goal.maxGoalRounds}`,
 		...(goal.blockedReason
 			? [`Blocker: ${goal.blockedReason.code}: ${goal.blockedReason.message}`]
 			: []),
 		`Objective: ${goal.objective}`,
 		'',
-		`Commands: ${goalCommands(goal)}`,
+		`Commands: ${goalCommands(goal, armed)}`,
 	].join('\n')
+}
+
+function renderScopedGoal(title: string, goal: SessionGoal, scope: GoalCommandScope): string {
+	return renderGoal(title, goal, scope.activation?.isArmed(scope.sessionId, goal) ?? false)
 }
 
 function missingGoal(action: string) {
@@ -118,7 +129,7 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 		switch (command.kind) {
 			case 'show':
 				return current
-					? { kind: 'ack' as const, message: renderGoal('Goal', current) }
+					? { kind: 'ack' as const, message: renderScopedGoal('Goal', current, scope) }
 					: {
 							kind: 'ack' as const,
 							message: `No goal is currently set.\n${GOAL_USAGE}`,
@@ -128,68 +139,91 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 					kind: 'refused' as const,
 					reason: `Goal editing requires a replacement objective.\n${GOAL_USAGE}`,
 				}
-			case 'create':
+			case 'create': {
 				if (current && current.phase !== 'complete') {
 					return {
 						kind: 'refused' as const,
 						reason: `A goal is already ${current.phase}. Use /goal edit <objective> to change it or /goal clear before replacing it.`,
 					}
 				}
+				const created = await scope.store.createGoal(
+					{ sessionId: scope.sessionId, objective: command.objective },
+					scope.tenantId,
+				)
+				scope.activation?.arm(created)
 				return {
 					kind: 'ack' as const,
-					message: renderGoal(
-						'Goal created',
-						await scope.store.createGoal(
-							{ sessionId: scope.sessionId, objective: command.objective },
-							scope.tenantId,
-						),
-					),
+					message: renderScopedGoal('Goal created', created, scope),
 				}
-			case 'edit':
+			}
+			case 'edit': {
 				if (!current) return missingGoal('edit')
 				if (current.phase === 'complete') {
+					const replacement = await scope.store.createGoal(
+						{ sessionId: scope.sessionId, objective: command.objective },
+						scope.tenantId,
+					)
+					scope.activation?.arm(replacement)
 					return {
 						kind: 'ack' as const,
-						message: renderGoal(
-							'Goal created',
-							await scope.store.createGoal(
-								{ sessionId: scope.sessionId, objective: command.objective },
-								scope.tenantId,
-							),
-						),
+						message: renderScopedGoal('Goal created', replacement, scope),
 					}
 				}
+				const wasArmed = scope.activation?.isArmed(scope.sessionId, current) ?? false
+				const edited = await scope.store.editGoal(
+					scope.sessionId,
+					scope.tenantId,
+					goalRef(current),
+					{ objective: command.objective },
+				)
+				if (wasArmed) scope.activation?.arm(edited)
 				return {
 					kind: 'ack' as const,
-					message: renderGoal(
-						'Goal updated',
-						await scope.store.editGoal(scope.sessionId, scope.tenantId, goalRef(current), {
-							objective: command.objective,
-						}),
-					),
+					message: renderScopedGoal('Goal updated', edited, scope),
 				}
-			case 'pause':
+			}
+			case 'pause': {
 				if (!current) return missingGoal('pause')
+				const paused = await scope.store.pauseGoal(
+					scope.sessionId,
+					scope.tenantId,
+					goalRef(current),
+				)
+				scope.activation?.disarm(scope.sessionId)
 				return {
 					kind: 'ack' as const,
-					message: renderGoal(
-						'Goal paused',
-						await scope.store.pauseGoal(scope.sessionId, scope.tenantId, goalRef(current)),
-					),
+					message: renderScopedGoal('Goal paused', paused, scope),
 				}
-			case 'resume':
+			}
+			case 'resume': {
 				if (!current) return missingGoal('resume')
+				if (current.phase === 'active') {
+					scope.activation?.arm(current)
+					return {
+						kind: 'ack' as const,
+						message: renderScopedGoal('Goal armed', current, scope),
+					}
+				}
+				const resumed = await scope.store.resumeGoal(
+					scope.sessionId,
+					scope.tenantId,
+					goalRef(current),
+				)
+				scope.activation?.arm(resumed)
 				return {
 					kind: 'ack' as const,
-					message: renderGoal(
-						'Goal resumed',
-						await scope.store.resumeGoal(scope.sessionId, scope.tenantId, goalRef(current)),
-					),
+					message: renderScopedGoal('Goal resumed', resumed, scope),
 				}
-			case 'clear':
-				if (!current) return { kind: 'ack' as const, message: 'No goal to clear.' }
+			}
+			case 'clear': {
+				if (!current) {
+					scope.activation?.disarm(scope.sessionId)
+					return { kind: 'ack' as const, message: 'No goal to clear.' }
+				}
 				await scope.store.clearGoal(scope.sessionId, scope.tenantId, goalRef(current))
+				scope.activation?.disarm(scope.sessionId)
 				return { kind: 'ack' as const, message: 'Goal cleared.' }
+			}
 		}
 	} catch (error) {
 		if (

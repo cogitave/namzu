@@ -120,8 +120,9 @@ achieve.** `/goal <objective>` creates one, bare `/goal` inspects it, and
 `/goal edit <objective>`, `/goal pause`, `/goal resume`, and `/goal clear`
 change it under exact revisions. Control words are commands only when they are
 the whole argument: `/goal pause after verification` creates that literal
-objective. The command is handled by the host and never sent to the model as a
-prompt.
+objective. The command is handled by the host and is never itself sent to the
+model as a prompt. Creating or explicitly resuming a goal arms automatic work;
+bare inspection does not.
 
 The goal belongs to the durable session, not to the screen or the working
 directory. `/resume` therefore finds the same goal again. `/new`, `/clear`, and
@@ -131,10 +132,22 @@ A pending goal write also closes the input boundary until it settles, so a
 later conversation switch cannot overtake the write and make its result appear
 under the wrong session.
 
-This command currently persists and controls goal state; it does not start an
-automatic continuation loop. A host that wants unattended continuation must
-drive the exported session-goal store deliberately, including its own
-quiescence, budget, interruption, admission accounting, and ownership policy.
+An armed goal continues through finite, durably admitted rounds. The default
+cap is 256. Each round is reserved before provider creation, carries its exact
+goal authority, and can use `get_goal` plus `update_goal`; ordinary human turns,
+`/tools`, and subagents do not see those capabilities. A model may complete the
+goal in any admitted round, but cannot report it blocked before round three.
+Reaching the cap blocks it durably rather than starting unbounded work.
+
+Human input wins the queue. A prompt typed while admission is on disk runs
+before that reserved goal round, including later human prompts already waiting
+behind the active turn. Interruption, abnormal provider settlement, failed turn
+evidence, failed message persistence, or a conversation switch disarms
+automatic work. Process restart and `/resume` restore durable goal state but do
+not silently re-arm it; `/goal resume` on an already-active, disarmed goal is the
+explicit retry. Goal rounds are shown as such rather than as operator messages,
+retain that provenance through persistence and export, are excluded from the
+previous-prompt editor, and suppress per-round settled notifications.
 
 **`/clear` starts a fresh conversation and clears the terminal; `/new` starts the
 same fresh conversation without clearing the terminal.** In both cases the old
