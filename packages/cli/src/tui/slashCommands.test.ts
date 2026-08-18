@@ -57,6 +57,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		permissions: permissions(),
 		instructionFiles: [],
 		userCommands: [],
+		configDebug: null,
 		...over,
 	}
 }
@@ -155,6 +156,24 @@ describe('runSlash', () => {
 
 	it('/copy returns a copy action for App to resolve against completed output', () => {
 		expect(runSlash('/copy', ctx)).toEqual({ kind: 'copy' })
+	})
+
+	it('/debug-config renders the launch-time winning source without a value', () => {
+		const r = runSlash(
+			'/debug-config',
+			context({
+				configDebug: {
+					sources: {
+						permissions: { kind: 'project-file', path: '/work/namzu.config.json' },
+					},
+				},
+			}),
+		)
+		expect(r?.kind).toBe('message')
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('permissions: project-file "/work/namzu.config.json"')
+			expect(r.content).toContain('resolved values are deliberately omitted')
+		}
 	})
 
 	it('/export carries an optional path for App to resolve and write', () => {

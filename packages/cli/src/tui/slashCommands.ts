@@ -31,6 +31,7 @@ import {
 	kernelHostCommands,
 } from '@namzu/sdk'
 
+import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { SandboxSummary } from '../context/sandbox.js'
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
@@ -233,6 +234,8 @@ export interface SlashContext {
 	 * already answers to. Empty is the normal case.
 	 */
 	readonly userCommands: readonly UserCommand[]
+	/** Values-free launch snapshot behind `/debug-config`; null for an embed that omitted it. */
+	readonly configDebug: ConfigDebugSnapshot | null
 
 	/**
 	 * Everything this session answers to, for `/help` to list.
@@ -691,6 +694,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'status',
 		description: 'Show what this session is, where it may write, and when it stops to ask.',
 		action: (ctx) => ({ kind: 'message', role: 'system', content: renderStatus(ctx) }),
+	},
+	{
+		name: 'debug-config',
+		description: 'Show the winning source for every resolved config key.',
+		action: (ctx) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderConfigDebug(ctx.configDebug),
+		}),
 	},
 	{
 		name: 'permissions',

@@ -31,6 +31,11 @@ import { runCommand } from './commands/run.js'
 import { stubCommands } from './commands/stubs.js'
 import type { CommandContext } from './commands/types.js'
 import {
+	type ConfigDebugSnapshot,
+	createConfigDebugSnapshot,
+	formatConfigSource,
+} from './config/debug.js'
+import {
 	ConfigLoadError,
 	type ConfigProvenance,
 	type ConfigSource,
@@ -76,6 +81,11 @@ export interface RunCliOptions {
 	readonly argv: readonly string[]
 }
 
+/** Extra process-owned context that command plugins do not need to know about. */
+interface ResolvedCommandContext extends CommandContext {
+	readonly configDebug: ConfigDebugSnapshot
+}
+
 export async function runCli(opts: RunCliOptions): Promise<number> {
 	let exitCode = 0
 	const setExitCode = (code: number): void => {
@@ -112,8 +122,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.exitOverride()
 		.showHelpAfterError(false)
 
-	let ctx: CommandContext | null = null
-	const getContext = (): CommandContext => {
+	let ctx: ResolvedCommandContext | null = null
+	const getContext = (): ResolvedCommandContext => {
 		if (ctx) return ctx
 		const globalOpts = program.opts<{
 			format?: string
@@ -125,11 +135,25 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		const { config: fileConfig, provenance } = loadConfigWithProvenance(
 			globalOpts.profile !== undefined ? { profile: globalOpts.profile } : {},
 		)
-		const format: FormatName =
-			globalOpts.format && isFormatName(globalOpts.format)
+		const cliFormat: FormatName | undefined =
+			globalOpts.format !== undefined && isFormatName(globalOpts.format)
 				? globalOpts.format
-				: (fileConfig.format ?? 'text')
+				: undefined
+		const formatFromCli = cliFormat !== undefined
+		const format: FormatName = cliFormat ?? fileConfig.format ?? 'text'
 		const quiet = globalOpts.quiet ?? fileConfig.quiet ?? false
+		const envProfile = process.env.NAMZU_PROFILE
+		const selectedProfile =
+			globalOpts.profile !== undefined && globalOpts.profile !== ''
+				? { name: globalOpts.profile, selectedBy: '--profile' as const }
+				: globalOpts.profile === undefined && envProfile !== undefined && envProfile !== ''
+					? { name: envProfile, selectedBy: 'NAMZU_PROFILE' as const }
+					: undefined
+		const configDebug = createConfigDebugSnapshot(provenance, {
+			formatFromCli,
+			quietFromCli: globalOpts.quiet !== undefined,
+			...(selectedProfile ? { selectedProfile } : {}),
+		})
 		// Resolved from the ACTUAL parsed flags, not `quiet` above — that value
 		// already folds in NAMZU_QUIET and a config file's `quiet: true`.
 		// "Flag beats env" (LOG-05) means the literal --verbose/--quiet on THIS
@@ -156,6 +180,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		ctx = {
 			formatter: createFormatter(format, { quiet }),
 			config: { ...fileConfig, format, quiet },
+			configDebug,
 			logging,
 		}
 		return ctx
@@ -207,6 +232,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			await launchTui({
 				cwd: process.cwd(),
 				version: CLI_VERSION,
+				configDebug: tuiCtx.configDebug,
 				skipPermissions,
 				rules: permissions.rules,
 				logging: tuiCtx.logging,
@@ -304,7 +330,7 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CONFIG_RESOLVED,
 			'namzu.config.key': key,
 			'namzu.config.value': JSON.stringify((config as Record<string, unknown>)[key]),
-			'namzu.config.source': describeConfigSource(source),
+			'namzu.config.source': formatConfigSource(source),
 		})
 	}
 
@@ -334,26 +360,6 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 			'namzu.telemetry.session_export': config.telemetry?.sessionExport !== undefined,
 		},
 	)
-}
-
-function describeConfigSource(source: ConfigSource): string {
-	switch (source.kind) {
-		case 'default':
-			return 'default'
-		case 'user-file':
-			return `user-file ${source.path}`
-		case 'project-file':
-			return `project-file ${source.path}`
-		case 'profile':
-			// The name AND the file. Neither answers on its own: the name does
-			// not say which file to open, and the path does not say which of
-			// that file's profiles is in force.
-			return `profile ${source.name} (${source.path})`
-		case 'env':
-			return `env ${source.variable}`
-		case 'managed':
-			return `managed ${source.path}`
-	}
 }
 
 function mapCommanderError(err: CommanderError): number {

@@ -60,7 +60,7 @@ Inside the session, grouped by the question each one answers:
 
 | | |
 |---|---|
-| **What is going on** | `/status`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
+| **What is going on** | `/status`, `/debug-config`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
 | **This conversation** | `/resume`, `/title`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
@@ -290,6 +290,20 @@ Highest precedence first:
 5. `./namzu.config.json` — the project's
 6. `~/.namzu/config.yaml` — the user's
 7. Built-in defaults (`format: 'text'`, `quiet: false`)
+
+`/debug-config` shows which source won each resolved top-level key, in a stable
+order, and states the cascade separately. It deliberately receives and prints
+no resolved values: the display answers which file, profile, variable or flag
+to change without turning a diagnostic into a credential or command-argument
+dump. A selected profile remains visible even when higher layers replace every
+value it supplied. `--format` and `--quiet` are attributed to their exact flags;
+profile selection says whether it came from `--profile` or `NAMZU_PROFILE`.
+
+Paths, profile names and variable names are redacted with the same credential
+patterns as logs, then rendered as quoted printable-ASCII literals. Control,
+bidirectional-formatting and non-ASCII code points appear as visible escapes,
+so a source name cannot add a terminal command, forge a row or make the shown
+precedence read backwards.
 
 ### Terminal notifications
 

@@ -6,6 +6,7 @@
 
 import type { AuthorizationRule } from '@namzu/sdk'
 
+import type { ConfigDebugSnapshot } from '../config/debug.js'
 import type { SandboxConfig, TuiConfig } from '../config/schema.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
@@ -53,6 +54,13 @@ export interface TranscriptMessage {
 export interface TuiContext {
 	readonly cwd: string
 	readonly version: string
+	/**
+	 * Values-free launch-time config provenance for `/debug-config`.
+	 *
+	 * Optional for embedded callers and the many hand-built App fixtures. The
+	 * standalone CLI always supplies it; the command says when an embed did not.
+	 */
+	readonly configDebug?: ConfigDebugSnapshot
 	/** When true, tools run without the approval prompt (--dangerously-skip-permissions / --yolo). */
 	readonly skipPermissions?: boolean
 	/**

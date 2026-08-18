@@ -965,6 +965,7 @@ export function App({ ctx }: AppProps) {
 		},
 		instructionFiles: session?.instructionFiles ?? [],
 		userCommands,
+		configDebug: ctx.configDebug ?? null,
 	}
 
 	// `/resume`: open the picker with this folder's recent conversations.

@@ -29,6 +29,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		usage: null,
 		instructionFiles: [],
 		userCommands: [],
+		configDebug: null,
 		permissions: {
 			skipPermissions: false,
 			rules: [],

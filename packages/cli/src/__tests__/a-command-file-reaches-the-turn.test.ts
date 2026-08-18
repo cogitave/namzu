@@ -74,6 +74,7 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 		},
 		instructionFiles: [],
 		userCommands,
+		configDebug: null,
 	}
 }
 
