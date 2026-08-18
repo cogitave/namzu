@@ -24,7 +24,7 @@ import {
 	createUserMessage,
 	isCompactionMessage,
 } from '@namzu/sdk'
-import { Box, Text, useApp, useInput } from 'ink'
+import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import { join, relative } from 'node:path'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -40,6 +40,7 @@ import {
 	type SubscriptionLogin,
 	writePreferences,
 } from '../integrations/providers/index.js'
+import { writeClipboardText } from '../integrations/clipboard/text.js'
 import { describeLoginOutcome, describeLoginStart, describeLogout } from './login-prompt.js'
 import { openInBrowser } from './open-browser.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
@@ -122,6 +123,23 @@ type StreamState = {
 	assistantId: string | null
 	text: string
 	pending?: string
+	/** Only a normal run end makes this text the next `/copy` target. */
+	completed: boolean
+}
+
+/** Last non-empty assistant text in a durable conversation, newest first. */
+function latestAssistantOutput(messages: readonly Message[]): string | null {
+	for (let i = messages.length - 1; i >= 0; i -= 1) {
+		const message = messages[i]
+		if (
+			message?.role === 'assistant' &&
+			typeof message.content === 'string' &&
+			message.content.trim().length > 0
+		) {
+			return message.content
+		}
+	}
+	return null
 }
 
 /** A running tool tracked internally: the live row's fields plus what we need
@@ -144,6 +162,7 @@ const LIVE_FURNITURE_ROWS = 10
 
 export function App({ ctx }: AppProps) {
 	const { exit } = useApp()
+	const { stdout, write: writeStdout } = useStdout()
 	/**
 	 * The last assistant message id the run reported, for `/feedback`.
 	 *
@@ -152,6 +171,21 @@ export function App({ ctx }: AppProps) {
 	 * buffering two hundred lines down exists to avoid.
 	 */
 	const lastAssistantMessage = useRef<{ runId: string; messageId: string } | null>(null)
+	/**
+	 * The latest assistant text available to `/copy`, with what proves it.
+	 *
+	 * Separate from `lastAssistantMessage`: feedback needs ids as soon as a
+	 * streamed message exists, while copying must keep the previous finished
+	 * answer until the current run reaches a normal `done`. A budget stop,
+	 * cancellation, guardrail or thrown error may leave partial text and must not
+	 * silently promote it to a completed answer. A resumed session is different:
+	 * the conversation store predates stop-reason persistence, so its last saved
+	 * assistant row is usable but only described as persisted, never as normal.
+	 */
+	const lastCompletedOutputRef = useRef<{
+		readonly text: string
+		readonly provenance: 'normal-completion' | 'persisted'
+	} | null>(null)
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
 	/**
 	 * The conversation sent to the model, in the SDK's own lossless shape.
@@ -930,6 +964,10 @@ export function App({ ctx }: AppProps) {
 			resetTranscript()
 			setMessages(restored)
 			modelHistoryRef.current = msgs
+			const persistedOutput = latestAssistantOutput(msgs)
+			lastCompletedOutputRef.current = persistedOutput
+				? { text: persistedOutput, provenance: 'persisted' }
+				: null
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
 			pushMessage('system', `Resumed: ${conv.title}`)
 			if (interrupted) {
@@ -1165,6 +1203,11 @@ export function App({ ctx }: AppProps) {
 					pushMessage('system', event.text, false, '⇄')
 					break
 				case 'done':
+					// `run_completed` is not synonymous with success: budgets,
+					// cancellation and output guardrails arrive through this event too.
+					// Missing remains a normal end for older producers, matching the
+					// headless command's compatibility rule.
+					st.completed = event.stopReason === undefined || event.stopReason === 'end_turn'
 					closeAssistant()
 					break
 				case 'error':
@@ -1206,7 +1249,7 @@ export function App({ ctx }: AppProps) {
 			setState('thinking')
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
-			const st: StreamState = { assistantId: null, text: '', pending: '' }
+			const st: StreamState = { assistantId: null, text: '', pending: '', completed: false }
 			const ac = new AbortController()
 			abortRef.current = ac
 			// Where this turn will be saved, and which transcript its rows belong
@@ -1271,6 +1314,12 @@ export function App({ ctx }: AppProps) {
 				// clear the state of whatever has started since.
 				if (stillHere()) {
 					modelHistoryRef.current = [...historyBeforeTurn, ...turn]
+					if (st.completed && st.text.trim().length > 0) {
+						lastCompletedOutputRef.current = {
+							text: st.text,
+							provenance: 'normal-completion',
+						}
+					}
 					// Unguarded, and it can be: a second turn cannot start in the
 					// conversation this one is running in — the composer queues instead
 					// — so within one generation this handle is still ours. An
@@ -1722,6 +1771,56 @@ export function App({ ctx }: AppProps) {
 								setState('idle')
 							}
 						})()
+						return
+					}
+					case 'copy': {
+						const target = lastCompletedOutputRef.current
+						if (!target) {
+							pushMessage(
+								'system',
+								'Nothing to copy yet — /copy applies to the latest assistant answer that finished normally.',
+							)
+							return
+						}
+
+						const result = writeClipboardText(target.text, {
+							isTTY: stdout.isTTY,
+							write: writeStdout,
+						})
+						switch (result.kind) {
+							case 'request-sent':
+								pushMessage(
+									'system',
+									`Copy request sent for the ${
+										target.provenance === 'persisted'
+											? 'latest persisted assistant output'
+											: 'latest normally completed answer'
+									} (${result.bytes.toLocaleString()} bytes). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
+								)
+								break
+							case 'unavailable':
+								pushMessage(
+									'system',
+									`Cannot send a copy request here — ${result.detail}. /copy needs an interactive terminal with OSC 52 clipboard support.`,
+								)
+								break
+							case 'too-large':
+								pushMessage(
+									'system',
+									`Cannot send this answer to the terminal clipboard — it is ${result.bytes.toLocaleString()} bytes and the OSC 52 safety limit is ${result.limit.toLocaleString()}. Nothing was truncated.`,
+								)
+								break
+							case 'write-failed':
+								pushMessage(
+									'system',
+									`Could not send the terminal copy request: ${result.detail}`,
+								)
+								break
+							default: {
+								const exhaustive: never = result
+								void exhaustive
+							}
+						}
 						return
 					}
 					default: {

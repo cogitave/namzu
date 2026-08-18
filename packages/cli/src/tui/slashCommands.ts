@@ -70,6 +70,8 @@ export type SlashAction =
 	 * command decides; `App` performs and reports.
 	 */
 	| { kind: 'compact' }
+	/** Ask the terminal to copy the latest available assistant output. */
+	| { kind: 'copy' }
 	/**
 	 * Show what is uncommitted in the working tree.
 	 *
@@ -656,6 +658,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'compact',
 		description: 'Summarise the older half of this conversation to free up context.',
 		action: () => ({ kind: 'compact' }),
+	},
+	{
+		name: 'copy',
+		description: 'Send the latest available assistant output to the terminal clipboard.',
+		action: () => ({ kind: 'copy' }),
 	},
 	{
 		name: 'status',

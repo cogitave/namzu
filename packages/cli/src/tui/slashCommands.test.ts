@@ -145,6 +145,10 @@ describe('runSlash', () => {
 		expect(runSlash('/clear', ctx)).toEqual({ kind: 'clear' })
 	})
 
+	it('/copy returns a copy action for App to resolve against completed output', () => {
+		expect(runSlash('/copy', ctx)).toEqual({ kind: 'copy' })
+	})
+
 	it('/quit and /exit both produce an exit action', () => {
 		expect(runSlash('/quit', ctx)).toEqual({ kind: 'exit' })
 		expect(runSlash('/exit', ctx)).toEqual({ kind: 'exit' })

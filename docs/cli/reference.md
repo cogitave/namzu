@@ -62,7 +62,7 @@ Inside the session, grouped by the question each one answers:
 |---|---|
 | **What is going on** | `/status`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
-| **This conversation** | `/resume`, `/title`, `/fork`, `/compact`, `/clear` |
+| **This conversation** | `/resume`, `/title`, `/fork`, `/compact`, `/copy`, `/clear` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
 | **Everything else** | `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
 
@@ -100,6 +100,21 @@ keeps values the view cannot represent: expanded `@file` contents and image
 attachments remain in later turns after their readable token or composer chip is
 all that remains on screen. For the same reason, `/clear` clears the transcript,
 not the conversation context or its durable record.
+
+**`/copy` asks the terminal to copy the latest available assistant output.** It
+sends the raw, unrendered Markdown through OSC 52 instead of reconstructing text
+from the screen or starting a host clipboard process. While a new answer is
+streaming, the previous normally completed answer remains the target; a cancelled,
+guarded or otherwise partial answer does not replace it. `/clear` and `/compact`
+keep the target. `/resume` replaces it with the newest non-empty assistant output
+in the resumed conversation, labelled as persisted because older durable records
+do not carry the stop reason needed to prove a normal completion.
+
+The request is refused outside an interactive terminal and above 100,000 UTF-8
+bytes; oversized text is never truncated. OSC 52 has no portable acknowledgement,
+so success means only that the request was sent. A terminal, multiplexer or remote
+session policy may still ignore it, and the UI says so rather than claiming the
+clipboard changed.
 
 ## Commands
 
