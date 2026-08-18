@@ -33,7 +33,7 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Limit checker, task router (cheap model for compaction, expensive for coding), tool tiering (LLM learns to prefer cheaper tools first).
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs can be paused and resumed, aborted cleanly, and emit lifecycle events for every transition.
 - **Memory management.** Working memory via structured compaction to a typed `WorkingState`. Long-term memory via an indexed, tag/query/status-searchable store with disk persistence. No vector database required by default.
-- **Durability.** Atomic per-iteration checkpoints, an opt-in emergency core-dump on SIGINT/SIGTERM (`emergencySave: true` — a library must not seize a host process termination path by default), and separate storage for runs, sessions, topic state and objectives, activities, memories, and tasks.
+- **Durability.** Atomic per-iteration checkpoints, an opt-in emergency core-dump on SIGINT/SIGTERM (`emergencySave: true` — a library must not seize a host process termination path by default), and separate storage for runs, sessions, session-owned completion goals, topic state and objectives, activities, memories, and tasks.
 - **IPC.** Native A2A (agent-to-agent) and MCP (Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking so concurrent agents do not stomp on each other.
 - **Capability system.** Tools are first-class, typed, permissioned, and progressively disclosed. The LLM does not see the full tool catalog; tools start deferred, get activated on demand, and can be suspended. Each tool declares `readOnly`, `destructive`, `concurrencySafe`, `permissions`, `category`.
 - **Syscall filtering.** Every tool call goes through a verification gate — allow / deny / ask, with built-in rules for read-only allowlist and dangerous pattern deny-list, plus custom regex rules. This is separate from sandbox isolation; it is the decision layer, the sandbox is the enforcement layer.
@@ -84,6 +84,7 @@ exists to be checked against the source, not against anybody else.
 | Resource quotas | Token, cost and wall-clock caps per run and per child |
 | Prompt cache | Cache anchors placed by the runtime and reported in telemetry |
 | Topic ↔ Run separation | A topic outlives the sessions and runs that work on it |
+| Session goal | Exact-revision completion state owned and tenant-authorized by one durable session |
 | Agent-to-agent protocol | Client and server, in the kernel |
 | Model Context Protocol | Client and server, in the kernel |
 | Retrieval | A full pipeline in the kernel rather than an integration |
@@ -209,7 +210,14 @@ That rule is now a CI step rather than a habit. `check-signature-types-exported.
 
 **Long-term memory** is `store/memory/`. The `MemoryIndex` (with `InMemoryMemoryIndex` as the default and a disk-backed variant) stores typed `MemoryIndexEntry` records, searchable by free-text query, tag set, and status filter. It persists to disk atomically. There is no required vector database — the default is good-old tag and text search. You can layer an embedding-backed index on top if you want, but the kernel does not assume it.
 
-Alongside memory, `store/` has sibling stores for the kernel's durable concepts: `store/run/` (runs, events, checkpoints and surviving messages), `store/session/` (projects, topics, sessions and summaries), `store/topic/` (mutable topic state and multi-round objectives), `store/activity/`, `store/attachment/`, `store/feedback/`, and `store/task/`. Topic state, objectives and message feedback use exact revisions; the disk implementations publish immutable revision commits so one writer wins even across processes. See [Durable topic revisions](topic-store-revisions.md) and [Durable message-feedback revisions](feedback-store-revisions.md) for their filesystem, compatibility and upgrade contracts.
+Alongside memory, `store/` has sibling stores for the kernel's durable concepts: `store/run/` (runs, events, checkpoints and surviving messages), `store/session/` (projects, topics, sessions and summaries), `store/goal/` (same-session completion state), `store/topic/` (mutable topic state and multi-round objectives), `store/activity/`, `store/attachment/`, `store/feedback/`, and `store/task/`. Topic state, objectives, session goals, and message feedback use exact revisions; the disk implementations publish immutable revision commits so one writer wins even across processes. See [Session-owned completion goals](session-goals.md), [Durable topic revisions](topic-store-revisions.md), and [Durable message-feedback revisions](feedback-store-revisions.md) for their ownership, filesystem, compatibility, and upgrade contracts.
+
+An active session goal is state, not a scheduler. The store proves which durable
+session owns the objective and arbitrates its lifecycle, while the host remains
+responsible for deciding when another model turn is safe to admit. Keeping that
+driver outside persistence prevents a record read from becoming hidden work and
+lets the host fence continuation against user input, interruption, and session
+switching.
 
 ### 7. The Capability System: Tools (`tools/`) and Registry (`registry/`)
 
