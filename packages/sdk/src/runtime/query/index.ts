@@ -243,7 +243,9 @@ export interface QueryParams {
 	 * Host-owned so it can outlive one run — a registry built per run could
 	 * never be the thing that kills a run's jobs when the run is already
 	 * gone. This run's jobs are torn down in the `finally` below; another
-	 * run's are untouched.
+	 * run's are untouched. The registry launches host processes, so a run
+	 * that also supplies a {@link sandboxProvider} does not expose it to tools:
+	 * background execution is refused rather than silently bypassing the sandbox.
 	 */
 	backgroundJobs?: BackgroundJobRegistry
 

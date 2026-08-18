@@ -19,16 +19,6 @@ export interface ToolRegistryRef {
 }
 
 /**
- * The slice of the background job registry a tool is given.
- *
- * A structural reference rather than the class, for the reason
- * `ToolRegistryRef` exists: this type file is imported by everything, and
- * naming the implementation here would drag a `node:child_process` module
- * into every consumer's type graph. `owner` is not on this surface at all —
- * the executor binds it to the run, so a tool cannot start a job that
- * outlives, or is billed to, somebody else's run.
- */
-/**
  * The slice of the skills registry a tool is given.
  *
  * Structural for the reason `ToolRegistryRef` is: this file is imported by
@@ -67,6 +57,16 @@ export interface SkillRegistryRef {
 	names(): readonly string[]
 }
 
+/**
+ * The slice of the background job registry a tool is given.
+ *
+ * A structural reference rather than the class, for the reason
+ * `ToolRegistryRef` exists: this type file is imported by everything, and
+ * naming the implementation here would drag a `node:child_process` module
+ * into every consumer's type graph. `owner` is not on this surface at all —
+ * the executor binds it to the run, so a tool cannot start a job that
+ * outlives, or is billed to, somebody else's run.
+ */
 export interface BackgroundJobRegistryRef {
 	start(params: { command: string; workingDirectory: string }): { id: string; status: string }
 	get(id: string): { id: string; status: string; exitCode?: number }
@@ -207,7 +207,9 @@ export interface ToolContext {
 	 * `linux-namespace` tier the wrapping `sh` is PID 1 of a fresh PID
 	 * namespace, so a backgrounded grandchild dies the moment that shell
 	 * exits, on the successful path. It returns in milliseconds looking like
-	 * it worked, with the work already dead.
+	 * it worked, with the work already dead. It is also absent from sandboxed
+	 * query-built contexts: the shipped registry owns host processes and
+	 * cannot preserve a sandbox boundary.
 	 */
 	backgroundJobs?: BackgroundJobRegistryRef
 

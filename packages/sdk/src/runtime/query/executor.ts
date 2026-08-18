@@ -708,7 +708,14 @@ export class ToolExecutor {
 			// Bound to this run, once. Binding here rather than passing the
 			// owner from the tool is what makes the scoping structural: there
 			// is no argument a tool could pass to reach another run's jobs.
-			...(this.config.backgroundJobs
+			//
+			// The registry's process substrate is the HOST. It must not coexist
+			// with a Sandbox in one tool context: handing both to every tool lets
+			// any of them call `backgroundJobs.start()` and escape the boundary
+			// that its foreground work would use. A sandbox-aware persistent
+			// process capability needs its own execution seam; until one exists,
+			// the safe composition is to withhold this host capability entirely.
+			...(this.config.backgroundJobs && !this.config.sandbox
 				? {
 						backgroundJobs: bindOwner(this.config.backgroundJobs, this.config.runId, {
 							workingDirectory: this.config.workingDirectory,

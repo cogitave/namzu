@@ -123,6 +123,23 @@ export const BashTool = defineTool({
 		}
 
 		if (input.run_in_background) {
+			// The current registry owns a host process. Foreground execution,
+			// however, goes through `context.sandbox.exec()` below. Treating the
+			// same command as host work just because `run_in_background` changed
+			// would make that boolean an escape hatch from the configured boundary.
+			//
+			// Query-built contexts structurally withhold the registry in this
+			// composition. This explicit check also protects direct tool callers
+			// and says why the capability is absent instead of misdiagnosing the
+			// host as having configured no registry.
+			if (context.sandbox) {
+				return {
+					success: false,
+					output: '',
+					error:
+						'run_in_background is unavailable while a sandbox is active because the host background-job registry cannot preserve that sandbox boundary. Run the command in the foreground, or use a sandbox-aware persistent-process capability.',
+				}
+			}
 			// Refused, not degraded to `cmd &`. The fallback is not a lesser
 			// version of this: under the local sandbox's `linux-namespace` tier
 			// the wrapping `sh` is PID 1 of a fresh PID namespace, so the

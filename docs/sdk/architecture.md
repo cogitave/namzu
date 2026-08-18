@@ -131,6 +131,8 @@ This matters because the failure it guards against is silent. If a run requires 
 
 The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) lets you supply a stronger provider without touching the rest of the kernel. The kernel enforces memory, timeout, and max-process limits on top of whatever the sandbox gives you.
 
+Background jobs are a separate host-process capability, not a mode of sandbox execution. `BackgroundJobRegistry` can be supplied to an unsandboxed run, where `bash` may start work that outlives its tool call and the run later tears that work down. A run that creates a sandbox does not expose that host registry in `ToolContext`, and `bash run_in_background` refuses with that reason. Otherwise changing only `run_in_background` would move the same command from `sandbox.exec()` to a host child process and turn a scheduling option into an isolation bypass. A sandboxed persistent process requires a backend that owns both its lifetime and its confinement; the host registry does not claim to be one.
+
 ### 2. Interprocess Communication: Bridge (`bridge/`) and Bus (`bus/`)
 
 Two layers here, with different jobs.
