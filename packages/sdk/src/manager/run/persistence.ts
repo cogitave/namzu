@@ -669,7 +669,7 @@ export class RunPersistence {
 
 	async persist(): Promise<void> {
 		await this.runStore.writeRunMeta(this.run)
-		await this.runStore.writeMessages(this.run)
+		await this.runStore.writeMessages(this.run, this._lastEventSeq)
 		// Optional on the contract: a backend whose runs are already queryable
 		// has no browsable directory to add a row to.
 		await this.runStore.addToIndex?.(this.run)

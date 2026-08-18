@@ -20,6 +20,7 @@ function stubStore(overrides: Partial<RunStore> = {}): RunStore {
 		initRun: vi.fn(async () => null),
 		writeRunMeta: vi.fn(async () => {}),
 		writeMessages: vi.fn(async () => {}),
+		readMessages: vi.fn(async () => ({ kind: 'unavailable', reason: 'not-persisted' }) as const),
 		appendEvent: vi.fn(async () => {}),
 		readEvents: vi.fn(async () => []),
 		writeReport: vi.fn(async () => null),

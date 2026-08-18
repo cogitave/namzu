@@ -27,9 +27,39 @@
  * re-keyed per call, it happens once, deliberately, as its own change.
  */
 
+import type { Message } from '../message/index.js'
 import type { AuditEvent } from './audit.js'
 import type { Run } from './entity.js'
 import type { PersistedRunEvent, RunEvent } from './events.js'
+
+/**
+ * The run's surviving message history, and whether it can be placed against
+ * the durable event log without guessing.
+ *
+ * `available` is stronger than "some bytes were found": `throughEventSeq`
+ * names the exact event-log head the snapshot was published after. A caller
+ * can therefore refuse a stale snapshot left by an earlier pause or a crash
+ * during final persistence instead of presenting it as the whole run.
+ *
+ * `legacy-unverified` preserves read access to the raw message arrays written
+ * before snapshots carried that boundary. Those messages are real, but no
+ * stored fact proves which event-log head they represent, so they must not be
+ * used to claim a complete transcript.
+ */
+export type RunMessageSnapshot =
+	| {
+			readonly kind: 'available'
+			readonly throughEventSeq: number
+			readonly messages: readonly Message[]
+	  }
+	| {
+			readonly kind: 'legacy-unverified'
+			readonly messages: readonly Message[]
+	  }
+	| {
+			readonly kind: 'unavailable'
+			readonly reason: 'not-persisted'
+	  }
 
 /** What a caller asks the log for. See {@link RunStore.readEvents}. */
 export interface ReadRunEventsOptions {
@@ -72,8 +102,25 @@ export interface RunStore {
 	/** Persist the run record: status, metadata, usage, timings. */
 	writeRunMeta(run: Run): Promise<void>
 
-	/** Persist the run's full message history. */
-	writeMessages(run: Run): Promise<void>
+	/**
+	 * Publish the run's surviving message history through a durable event.
+	 *
+	 * The boundary is required. Messages are written after the terminal or
+	 * pause event, and a resumed run reuses the same run id; without the
+	 * boundary an older, valid file is indistinguishable from the current
+	 * run's final snapshot.
+	 */
+	writeMessages(run: Run, throughEventSeq: number): Promise<void>
+
+	/**
+	 * Read the published message snapshot back.
+	 *
+	 * Missing data is `unavailable`, never an available empty list. An empty
+	 * list is a real snapshot only after {@link RunStore.writeMessages}
+	 * explicitly published it. This distinction closes the crash window where
+	 * the run's terminal event and metadata landed but its messages did not.
+	 */
+	readMessages(): Promise<RunMessageSnapshot>
 
 	/**
 	 * Append one event to the run's durable event log.

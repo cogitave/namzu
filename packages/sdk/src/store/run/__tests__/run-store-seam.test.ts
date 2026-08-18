@@ -36,8 +36,6 @@ function persistence(runStore?: InMemoryRunStore) {
 		projectId: 'prj_seam',
 		tenantId: 'tnt_seam',
 		...(runStore ? { runStore } : {}),
-		// biome-ignore lint/suspicious/noExplicitAny: branded id types are not
-		// what this test is about; the wiring is.
 	} as any)
 }
 
@@ -115,6 +113,20 @@ describe('the run store a host injects', () => {
 		// fail. Optional on the contract only helps if the caller honours it.
 		await expect(mgr.persist()).resolves.not.toThrow()
 		expect(store.snapshot().meta?.status).toBe('completed')
+	})
+
+	it('publishes messages against the durable event head', async () => {
+		const store = new InMemoryRunStore()
+		const mgr = persistence(store)
+		await mgr.init()
+		mgr.commitEventSeq(23)
+
+		await mgr.persist()
+
+		expect(await store.readMessages()).toMatchObject({
+			kind: 'available',
+			throughEventSeq: 23,
+		})
 	})
 
 	// KNOWN GAP, stated rather than left to be discovered.

@@ -277,7 +277,11 @@ export type {
 	RunStatusState,
 } from './read-model/index.js'
 
-export type { RunQueryOptions, ShedPass } from './run-query/index.js'
+export type {
+	RunQueryOptions,
+	RunTranscriptUnavailableReason,
+	ShedPass,
+} from './run-query/index.js'
 
 export type {
 	OpenTerminalOptions,

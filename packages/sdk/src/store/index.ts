@@ -1,7 +1,7 @@
 export { InMemoryStore } from './InMemoryStore.js'
 export type { Identifiable, Timestamped } from './InMemoryStore.js'
 
-export { RunDiskStore, readRunEventsIn } from './run/disk.js'
+export { RunDiskStore, readRunEventsIn, readRunMessagesIn } from './run/disk.js'
 export { InMemoryRunStore } from './run/memory.js'
 export { DiskCheckpointStore } from './run/checkpoint-disk.js'
 export type { DiskCheckpointStoreAttribution } from './run/checkpoint-disk.js'

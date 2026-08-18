@@ -1,7 +1,12 @@
 import type { AuditEvent } from '../../types/run/audit.js'
 import type { Run } from '../../types/run/entity.js'
 import type { PersistedRunEvent, RunEvent } from '../../types/run/events.js'
-import type { CompletedToolRecord, ReadRunEventsOptions, RunStore } from '../../types/run/store.js'
+import type {
+	CompletedToolRecord,
+	ReadRunEventsOptions,
+	RunMessageSnapshot,
+	RunStore,
+} from '../../types/run/store.js'
 
 /**
  * Process-local {@link RunStore}: a run's evidence with no filesystem.
@@ -22,6 +27,7 @@ export class InMemoryRunStore implements RunStore {
 	private parentRunId: string | undefined
 	private meta: Run | null = null
 	private messages: Run['messages'] = []
+	private messagesThroughEventSeq: number | null = null
 	private report: string | null = null
 	private events: PersistedRunEvent[] = []
 	private auditEvents: AuditEvent[] = []
@@ -36,6 +42,7 @@ export class InMemoryRunStore implements RunStore {
 		if (this.runId !== null && this.runId !== runId) {
 			this.meta = null
 			this.messages = []
+			this.messagesThroughEventSeq = null
 			this.report = null
 			this.events = []
 			this.auditEvents = []
@@ -72,9 +79,22 @@ export class InMemoryRunStore implements RunStore {
 		this.meta = structuredClone(run)
 	}
 
-	async writeMessages(run: Run): Promise<void> {
+	async writeMessages(run: Run, throughEventSeq: number): Promise<void> {
 		this.requireInit()
 		this.messages = structuredClone(run.messages)
+		this.messagesThroughEventSeq = throughEventSeq
+	}
+
+	async readMessages(): Promise<RunMessageSnapshot> {
+		this.requireInit()
+		if (this.messagesThroughEventSeq === null) {
+			return { kind: 'unavailable', reason: 'not-persisted' }
+		}
+		return {
+			kind: 'available',
+			throughEventSeq: this.messagesThroughEventSeq,
+			messages: structuredClone(this.messages),
+		}
 	}
 
 	async appendEvent(event: RunEvent): Promise<void> {

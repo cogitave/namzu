@@ -27,6 +27,38 @@ export interface RunQueryOptions {
 	readonly now?: () => number
 }
 
+export type RunTranscriptUnavailableReason =
+	| 'message-snapshot-not-persisted'
+	| 'message-snapshot-unverified'
+	| 'message-snapshot-out-of-sync'
+
+/**
+ * Refusal to call a partial or unverifiable reconstruction "complete".
+ */
+export class RunTranscriptUnavailableError extends Error {
+	readonly reason: RunTranscriptUnavailableReason
+	readonly eventHeadSeq: number | undefined
+	readonly snapshotThroughEventSeq: number | undefined
+
+	constructor(input: {
+		reason: RunTranscriptUnavailableReason
+		eventHeadSeq?: number
+		snapshotThroughEventSeq?: number
+	}) {
+		const detail =
+			input.reason === 'message-snapshot-not-persisted'
+				? 'the surviving message snapshot was never persisted or its publication was interrupted'
+				: input.reason === 'message-snapshot-unverified'
+					? 'the surviving messages use the legacy format and carry no event-log boundary'
+					: `the surviving message snapshot ends at event ${input.snapshotThroughEventSeq ?? 'unknown'}, but the durable log ends at event ${input.eventHeadSeq ?? 'unknown'}`
+		super(`Complete run transcript unavailable: ${detail}.`)
+		this.name = 'RunTranscriptUnavailableError'
+		this.reason = input.reason
+		this.eventHeadSeq = input.eventHeadSeq
+		this.snapshotThroughEventSeq = input.snapshotThroughEventSeq
+	}
+}
+
 /** What one compaction pass removed. */
 export interface ShedPass {
 	readonly iteration: number
@@ -53,17 +85,7 @@ export class RunQuery {
 	 * was reading during an incident.
 	 */
 	async shedHistory(): Promise<readonly ShedPass[]> {
-		const passes: ShedPass[] = []
-		for (const event of await this.events()) {
-			if (event.type !== 'compaction_shed') continue
-			passes.push({
-				iteration: event.iteration,
-				reason: event.reason,
-				messages: event.messages,
-				seq: event.seq,
-			})
-		}
-		return passes
+		return shedPassesFrom(await this.events())
 	}
 
 	/**
@@ -80,10 +102,43 @@ export class RunQuery {
 	 * the conversation is missing from this list, which is the question
 	 * somebody reconstructing an incident is actually asking.
 	 */
-	async fullTranscript(messages: readonly Message[]): Promise<readonly Message[]> {
-		const shed = await this.shedHistory()
-		if (shed.length === 0) return messages
-		return [...shed.flatMap((pass) => pass.messages), ...messages]
+	async fullTranscript(messages?: readonly Message[]): Promise<readonly Message[]> {
+		if (messages !== undefined) {
+			const shed = await this.shedHistory()
+			if (shed.length === 0) return messages
+			return [...shed.flatMap((pass) => pass.messages), ...messages]
+		}
+
+		// Read the log first and compare the snapshot to that exact head. A
+		// previous pause may have left a perfectly valid messages file under the
+		// same run id; only the boundary says whether it belongs to THIS head.
+		const events = await this.events()
+		const eventHeadSeq = events.at(-1)?.seq ?? 0
+		const snapshot = await this.options.store.readMessages()
+
+		if (snapshot.kind === 'unavailable') {
+			throw new RunTranscriptUnavailableError({
+				reason: 'message-snapshot-not-persisted',
+				eventHeadSeq,
+			})
+		}
+		if (snapshot.kind === 'legacy-unverified') {
+			throw new RunTranscriptUnavailableError({
+				reason: 'message-snapshot-unverified',
+				eventHeadSeq,
+			})
+		}
+		if (snapshot.throughEventSeq !== eventHeadSeq) {
+			throw new RunTranscriptUnavailableError({
+				reason: 'message-snapshot-out-of-sync',
+				eventHeadSeq,
+				snapshotThroughEventSeq: snapshot.throughEventSeq,
+			})
+		}
+
+		const shed = shedPassesFrom(events)
+		if (shed.length === 0) return snapshot.messages
+		return [...shed.flatMap((pass) => pass.messages), ...snapshot.messages]
 	}
 
 	/**
@@ -105,4 +160,18 @@ export class RunQuery {
 		registry.replay(await this.events())
 		return registry.get<RunStatusState>(RUN_STATUS_READ_MODEL_ID)
 	}
+}
+
+function shedPassesFrom(events: readonly PersistedRunEvent[]): ShedPass[] {
+	const passes: ShedPass[] = []
+	for (const event of events) {
+		if (event.type !== 'compaction_shed') continue
+		passes.push({
+			iteration: event.iteration,
+			reason: event.reason,
+			messages: event.messages,
+			seq: event.seq,
+		})
+	}
+	return passes
 }

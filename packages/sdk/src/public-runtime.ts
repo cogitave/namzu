@@ -412,7 +412,7 @@ export { claimRun, fencedOut, releaseRun, toClaimSummary } from './store/index.j
 // another) composes with the chain that is already persisted, rather than
 // building a second parent registry beside it.
 export { actorChain, isDescendantOfActor, MAX_ACTOR_CHAIN_DEPTH } from './session/actor-scope.js'
-export { readRunEventsIn } from './store/index.js'
+export { readRunEventsIn, readRunMessagesIn } from './store/index.js'
 export {
 	DiskMessageFeedbackStore,
 	InMemoryMessageFeedbackStore,
@@ -1127,7 +1127,7 @@ export {
 // `compaction_shed` has carried the removed messages since NZ-RUNREC-06 and
 // nothing read them back; evidence nobody can retrieve is evidence nobody
 // kept.
-export { RunQuery } from './run-query/index.js'
+export { RunQuery, RunTranscriptUnavailableError } from './run-query/index.js'
 
 // A host-scoped pseudo-terminal primitive, or a refusal that names the
 // binding to install. It neither creates a sandbox nor owns a descendant

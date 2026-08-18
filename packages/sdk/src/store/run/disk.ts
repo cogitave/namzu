@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
+import type { Message } from '../../types/message/index.js'
 import type {
 	AuditEvent,
 	PersistedRunEvent,
@@ -8,7 +9,12 @@ import type {
 	RunEvent,
 	RunStoreConfig,
 } from '../../types/run/index.js'
-import type { CompletedToolRecord, ReadRunEventsOptions, RunStore } from '../../types/run/store.js'
+import type {
+	CompletedToolRecord,
+	ReadRunEventsOptions,
+	RunMessageSnapshot,
+	RunStore,
+} from '../../types/run/store.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
@@ -77,6 +83,10 @@ export class RunDiskStore implements RunStore {
 
 	async readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]> {
 		return readRunEventsIn(this.requireInit(), options)
+	}
+
+	async readMessages(): Promise<RunMessageSnapshot> {
+		return readRunMessagesIn(this.requireInit())
 	}
 
 	async appendAuditEvent(event: AuditEvent): Promise<void> {
@@ -204,9 +214,13 @@ export class RunDiskStore implements RunStore {
 		await atomicWriteJson(join(dir, 'run.json'), meta)
 	}
 
-	async writeMessages(run: Run): Promise<void> {
+	async writeMessages(run: Run, throughEventSeq: number): Promise<void> {
 		const dir = this.requireInit()
-		await atomicWriteJson(join(dir, 'messages.json'), run.messages)
+		await atomicWriteJson(join(dir, 'messages.json'), {
+			format: 'namzu.run-message-snapshot.v1',
+			throughEventSeq,
+			messages: run.messages,
+		})
 	}
 
 	async writeReport(content: string): Promise<string> {
@@ -419,6 +433,57 @@ export async function readRunEventsIn(
 	}
 
 	return events
+}
+
+/**
+ * Read a run's surviving message snapshot without binding a store to it.
+ *
+ * Binding a {@link RunDiskStore} creates the directory, which would turn a
+ * missing run into an apparently empty one. This helper performs no writes.
+ */
+export async function readRunMessagesIn(runDir: string): Promise<RunMessageSnapshot> {
+	let raw: string
+	try {
+		raw = await readFile(join(runDir, 'messages.json'), 'utf-8')
+	} catch (err) {
+		if (isFileNotFound(err)) return { kind: 'unavailable', reason: 'not-persisted' }
+		throw err
+	}
+
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(raw)
+	} catch {
+		throw new Error(
+			`Invalid run message snapshot in ${join(runDir, 'messages.json')}: invalid JSON`,
+		)
+	}
+
+	// The pre-boundary format was the message array itself. Preserve access to
+	// those bytes, but do not manufacture the event-log boundary it never held.
+	if (Array.isArray(parsed)) {
+		return { kind: 'legacy-unverified', messages: parsed as Message[] }
+	}
+
+	if (
+		parsed === null ||
+		typeof parsed !== 'object' ||
+		(parsed as Record<string, unknown>).format !== 'namzu.run-message-snapshot.v1' ||
+		typeof (parsed as Record<string, unknown>).throughEventSeq !== 'number' ||
+		!Number.isSafeInteger((parsed as Record<string, unknown>).throughEventSeq) ||
+		((parsed as Record<string, unknown>).throughEventSeq as number) < 0 ||
+		!Array.isArray((parsed as Record<string, unknown>).messages)
+	) {
+		throw new Error(
+			`Invalid run message snapshot in ${join(runDir, 'messages.json')}: expected a versioned snapshot`,
+		)
+	}
+
+	return {
+		kind: 'available',
+		throughEventSeq: (parsed as Record<string, unknown>).throughEventSeq as number,
+		messages: (parsed as Record<string, unknown>).messages as Message[],
+	}
 }
 
 /**

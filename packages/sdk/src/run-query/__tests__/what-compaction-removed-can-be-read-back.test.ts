@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { RunId } from '../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../types/message/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { PersistedRunEvent, RunStore } from '../../types/run/index.js'
-import { RunQuery } from '../index.js'
+import type { PersistedRunEvent, RunMessageSnapshot, RunStore } from '../../types/run/index.js'
+import { RunQuery, RunTranscriptUnavailableError } from '../index.js'
 
 /**
  * Asking a finished run what happened.
@@ -29,10 +29,16 @@ const reset = () => {
 	seq = 0
 }
 
-function storeWith(events: PersistedRunEvent[]): RunStore {
+function storeWith(
+	events: PersistedRunEvent[],
+	snapshot: RunMessageSnapshot = { kind: 'unavailable', reason: 'not-persisted' },
+): RunStore {
 	return {
 		async readEvents() {
 			return events
+		},
+		async readMessages() {
+			return snapshot
 		},
 	} as unknown as RunStore
 }
@@ -79,6 +85,82 @@ describe('what compaction removed can be read back', () => {
 })
 
 describe('the full transcript is complete', () => {
+	it('reads the surviving snapshot from the bound store when none is supplied', async () => {
+		reset()
+		const gone = createUserMessage('the durable instruction')
+		const survived = [createAssistantMessage('the durable summary')]
+		const events = [event('run_started'), shed([gone]), event('run_completed')]
+		const query = new RunQuery({
+			store: storeWith(events, {
+				kind: 'available',
+				throughEventSeq: 3,
+				messages: survived,
+			}),
+		})
+
+		expect((await query.fullTranscript()).map((message) => message.content)).toEqual([
+			'the durable instruction',
+			'the durable summary',
+		])
+	})
+
+	it('refuses a terminal run whose message publication was interrupted', async () => {
+		reset()
+		const events = [
+			event('run_started'),
+			shed([createUserMessage('recoverable only from the log')]),
+			event('run_completed'),
+		]
+		const query = new RunQuery({ store: storeWith(events) })
+
+		const refusal = await query.fullTranscript().catch((error: unknown) => error)
+
+		expect(refusal).toBeInstanceOf(RunTranscriptUnavailableError)
+		expect(refusal).toMatchObject({
+			reason: 'message-snapshot-not-persisted',
+			eventHeadSeq: 3,
+		})
+	})
+
+	it('refuses a stale snapshot left by an earlier pause of the same run', async () => {
+		reset()
+		const events = [
+			event('run_started'),
+			event('run_paused', { checkpointId: 'cp_1', reason: 'retry' }),
+			event('run_resuming', { fromCheckpointId: 'cp_1' }),
+			event('run_completed'),
+		]
+		const query = new RunQuery({
+			store: storeWith(events, {
+				kind: 'available',
+				throughEventSeq: 2,
+				messages: [createUserMessage('only complete through the pause')],
+			}),
+		})
+
+		const refusal = await query.fullTranscript().catch((error: unknown) => error)
+		expect(refusal).toMatchObject({
+			reason: 'message-snapshot-out-of-sync',
+			eventHeadSeq: 4,
+			snapshotThroughEventSeq: 2,
+		})
+	})
+
+	it('keeps legacy messages readable but refuses to call their transcript complete', async () => {
+		reset()
+		const events = [event('run_started'), event('run_completed')]
+		const query = new RunQuery({
+			store: storeWith(events, {
+				kind: 'legacy-unverified',
+				messages: [createUserMessage('from an older sdk')],
+			}),
+		})
+
+		await expect(query.fullTranscript()).rejects.toMatchObject({
+			reason: 'message-snapshot-unverified',
+		})
+	})
+
 	it('carries a message compaction removed AND the ones that survived', async () => {
 		// The question somebody reconstructing an incident is actually asking.
 		reset()
