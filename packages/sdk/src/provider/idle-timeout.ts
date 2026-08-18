@@ -6,6 +6,19 @@ import { ProviderRequestError } from './errors.js'
 /** Five minutes without one provider chunk is a stalled model call. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 5 * 60_000
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+/** Resolve the shared run/router stream bound before either creates durable run identity. */
+export function resolveStreamIdleTimeoutMs(value: number | undefined): number {
+	const resolved = value ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
+	if (!Number.isInteger(resolved) || resolved < 0 || resolved > MAX_TIMER_DELAY_MS) {
+		throw new RangeError(
+			`streamIdleTimeoutMs must be an integer from 0 to ${MAX_TIMER_DELAY_MS}; received ${String(resolved)}`,
+		)
+	}
+	return resolved
+}
+
 /**
  * Notices a stream that stopped producing without ending.
  *

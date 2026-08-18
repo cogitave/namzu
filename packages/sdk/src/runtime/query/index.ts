@@ -26,10 +26,7 @@ import {
 	type ServingMember,
 	withProviderFallback,
 } from '../../provider/fallback.js'
-import {
-	DEFAULT_STREAM_IDLE_TIMEOUT_MS,
-	withStreamIdleTimeout,
-} from '../../provider/idle-timeout.js'
+import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../../provider/idle-timeout.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import { DefaultFilesystemMigrator, loggingMigrationSink } from '../../session/migration/index.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
@@ -829,18 +826,6 @@ async function resolveProviderContextWindow(
 		})
 		return undefined
 	}
-}
-
-const MAX_TIMER_DELAY_MS = 2_147_483_647
-
-function resolveStreamIdleTimeoutMs(value: number | undefined): number {
-	const resolved = value ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
-	if (!Number.isInteger(resolved) || resolved < 0 || resolved > MAX_TIMER_DELAY_MS) {
-		throw new RangeError(
-			`runConfig.streamIdleTimeoutMs must be an integer from 0 to ${MAX_TIMER_DELAY_MS}; received ${String(resolved)}`,
-		)
-	}
-	return resolved
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {

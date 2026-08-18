@@ -1,5 +1,6 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
+import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import { FallbackResolver } from '../runtime/decision/fallback.js'
 import { DecisionParser } from '../runtime/decision/parser.js'
 import type {
@@ -61,13 +62,19 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		config: RouterAgentConfig,
 		listener?: RunEventListener,
 	): Promise<RouterAgentResult> {
+		// Resolve before a run id/event exists, matching query(): malformed
+		// liveness policy is a caller config error, not a failed model run.
+		const streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
+		const signal = input.signal
+			? AbortSignal.any([input.signal, this.abortController.signal])
+			: this.abortController.signal
 		const startTime = Date.now()
 		const runId = this.createRunId()
 		this.bindRun(runId, config.logger)
 
 		await this.emitEvent({ type: 'run_started', runId }, listener)
 
-		const decision = await this.route(input, config)
+		const decision = await this.route(input, config, streamIdleTimeoutMs, signal)
 
 		let targetRoute = config.routes.find((r) => r.agentId === decision.agentId)
 
@@ -149,7 +156,12 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		}
 	}
 
-	private async route(input: AgentInput, config: RouterAgentConfig): Promise<RoutingDecision> {
+	private async route(
+		input: AgentInput,
+		config: RouterAgentConfig,
+		streamIdleTimeoutMs: number,
+		signal: AbortSignal,
+	): Promise<RoutingDecision> {
 		// `this.log`, not a fresh `getRootLogger()` child — bound by `bindRun` in
 		// `runExclusive` before this is called, so a routing warning below
 		// carries the SAME `namzu.run.id` as the run it is routing. The old
@@ -209,15 +221,20 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		// Every routing attempt is a billed model call; a fallback after
 		// three failed parses still cost three calls.
 		let routingUsage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
+		const routingProvider = withStreamIdleTimeout(config.provider, {
+			idleTimeoutMs: streamIdleTimeoutMs,
+			log,
+		})
 
 		for (let attempt = 0; attempt < maxRetries; attempt++) {
 			try {
 				const response = await collectChatCompletion(
-					config.provider.chatStream({
+					routingProvider.chatStream({
 						model: config.model,
 						messages: [createSystemMessage(prompt), createUserMessage(userContent)],
 						temperature: 0,
 						maxTokens: 200,
+						signal,
 					}),
 				)
 
@@ -265,6 +282,11 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 					}
 				}
 			} catch (err) {
+				// Provider-idle expiry aborts only the wrapper's private transport
+				// and is eligible for the router's declared fallback. A caller or
+				// agent cancellation owns this fused signal and must not be
+				// reinterpreted as permission to start a delegate.
+				if (signal.aborted) throw signal.reason
 				log.warn('Routing LLM call failed', {
 					'namzu.router.attempt': attempt + 1,
 					'exception.message': String(err),

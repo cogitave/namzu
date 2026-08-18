@@ -87,6 +87,12 @@ The position is part of the contract:
 The final exhausted error reaches `run_failed` with `kind: 'network'`, the
 provider id, and the exact idle duration.
 
+`RouterAgent` makes one model call before its delegate run exists, so that
+routing call cannot inherit `query()` composition. It resolves the same
+`streamIdleTimeoutMs` policy explicitly. An idle routing call enters the
+router's declared route fallback; a caller or agent cancellation is preserved
+instead and never starts a fallback delegate.
+
 ## Cancellation and transport closure
 
 The watchdog creates one transport signal for each provider request and passes
@@ -114,4 +120,5 @@ original provider object by identity.
 Inside `query()`, prefer `streamIdleTimeoutMs` on the run config. The runtime
 owns the retry/fallback order there and applies the bound to main turns,
 compaction calls, verification calls, and forced-final calls through one
-composition boundary.
+composition boundary. `RouterAgent` applies the same config to its separate
+routing decision before it enters a delegate's `query()` boundary.
