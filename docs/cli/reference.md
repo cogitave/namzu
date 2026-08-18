@@ -88,6 +88,10 @@ while an interrupted provider iterator is still settling: `Esc` hands the screen
 back immediately, but the partial reply still has to join and finish the durable
 write queue. Once settled, the fork waits for that queue before copying, so it
 cannot omit the reply you just watched or race a write already in progress.
+The copied model context is published as one atomic replacement and read back
+before the fork commits its lineage. That lineage is a flattened, immutable
+list of source turns: later work in the source cannot appear in the branch, and
+a fork of a fork does not depend on a live chain of moving boundaries.
 
 **Esc twice on an empty composer edits an earlier prompt without rewriting its
 source conversation.** The picker opens on the latest user message; Esc or left
@@ -157,6 +161,14 @@ tied to stable source turns, an unbound run, a torn event record, or a survivor
 snapshot that does not match the event head is refused. Those states can still
 contain useful history, but none can support the command's claim that the export
 is complete.
+
+New forks tie their copied prefix to source turns only after the copied model
+history is atomically published and verified. A branch created before an edited
+prompt maps the surviving durable prompt and answer back to one unique raw turn;
+compacted older turns remain exportable through that lineage. If legacy history,
+a partial persistence, or indistinguishable repeated turns make the boundary
+ambiguous, the fork itself still preserves the model history but `/export`
+refuses rather than choosing one lookalike source turn.
 
 ## Commands
 

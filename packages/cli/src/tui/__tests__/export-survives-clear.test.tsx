@@ -198,7 +198,7 @@ async function submit(stdin: { write: (text: string) => void }, text: string): P
 	stdin.write('\r')
 }
 
-it('exports raw model/tool history after /clear and refuses to overwrite it', async () => {
+it('exports raw model/tool history after /fork and /clear, then refuses to overwrite it', async () => {
 	const ctx: TuiContext = { cwd: root, version: '0.0.0-test' }
 	const harness = render(<App ctx={ctx} />)
 	mounted = harness
@@ -209,6 +209,8 @@ it('exports raw model/tool history after /clear and refuses to overwrite it', as
 	await waitFor(harness.lastFrame, 'inspect this')
 	await waitFor(harness.lastFrame, 'First')
 	await waitFor(harness.lastFrame, 'Type a message')
+	await submit(harness.stdin, '/fork')
+	await waitFor(harness.lastFrame, 'Forked into')
 	await submit(harness.stdin, '/clear')
 	await tick(80)
 	expect(harness.lastFrame()).not.toContain('First **raw**.')

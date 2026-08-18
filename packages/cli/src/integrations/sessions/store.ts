@@ -28,7 +28,12 @@ import {
 	asTopicId,
 	requireOpenProject,
 } from '@namzu/sdk'
-import { type ConversationOrigin, DiskConversationEvidence } from './turn-evidence.js'
+import {
+	type ConversationLineageTurn,
+	type ConversationOrigin,
+	type ConversationTurnReference,
+	DiskConversationEvidence,
+} from './turn-evidence.js'
 
 // `UNKNOWN_TENANT_ID` is already a `TenantId`; the assertion this replaced
 // re-stated a type the constant carries.
@@ -161,16 +166,17 @@ export async function resolveConversation(s: CliSessions, key: string): Promise<
  * the first run could never have shown this.
  */
 export async function startConversation(s: CliSessions): Promise<SessionId> {
-	return await createConversation(s, { kind: 'new' })
+	const id = await createConversation(s)
+	await s.turnEvidence?.recordOrigin(id, { kind: 'new' })
+	return id
 }
 
-async function createConversation(s: CliSessions, origin: ConversationOrigin): Promise<SessionId> {
+async function createConversation(s: CliSessions): Promise<SessionId> {
 	await requireOpenProject(s.store, s.projectId, s.tenantId, 'cli-session')
 	const session = await s.store.createSession(
 		{ topicId: s.topicId, projectId: s.projectId, currentActor: null },
 		s.tenantId,
 	)
-	await s.turnEvidence?.recordOrigin(session.id, origin)
 	return session.id
 }
 
@@ -342,7 +348,7 @@ export async function forkConversation(
 		throw new Error('There is nothing to fork yet — this conversation has no messages.')
 	}
 
-	const { id, title } = await writeFork(s, sourceId, messages, messages)
+	const { id, title } = await writeFork(s, sourceId, messages, messages, { kind: 'all' })
 	return { id, title, copied: messages.length }
 }
 
@@ -396,7 +402,10 @@ export async function forkConversationBeforeUser(
 	}
 
 	const prefix = messages.slice(0, messageIndex)
-	const { id, title } = await writeFork(s, sourceId, messages, prefix)
+	const { id, title } = await writeFork(s, sourceId, messages, prefix, {
+		kind: 'before-user',
+		userOrdinal,
+	})
 	return { id, title, messages: prefix, selected }
 }
 
@@ -406,14 +415,24 @@ async function writeFork(
 	sourceId: SessionId,
 	sourceMessages: readonly Message[],
 	copiedMessages: readonly Message[],
+	boundary:
+		| { readonly kind: 'all' }
+		| { readonly kind: 'before-user'; readonly userOrdinal: number },
 ): Promise<{ id: SessionId; title: string }> {
 	const source = readTitles(s.root)[sourceId as string]?.title ?? conversationTitle(sourceMessages)
-	const id = await createConversation(s, {
-		kind: 'fork-unresolved',
-		sourceSessionId: sourceId,
-		copiedMessages: copiedMessages.length,
-	})
-	await appendMessages(s, id, copiedMessages)
+	const origin = await forkOrigin(s, sourceId, sourceMessages, copiedMessages.length, boundary)
+	const id = await createConversation(s)
+	// The copied model context is published as one replacement record and read
+	// back before lineage is committed. If the process dies before origin, export
+	// refuses; once origin exists, a restart cannot observe a half-copied prefix.
+	await s.store.replaceMessages(id, copiedMessages, s.tenantId)
+	const copiedBack = await loadConversation(s, id)
+	if (!isDeepStrictEqual(copiedBack, copiedMessages)) {
+		throw new Error(
+			`The forked conversation did not preserve its exact copied history. No lineage record was published for ${id}.`,
+		)
+	}
+	await s.turnEvidence?.recordOrigin(id, origin)
 	const title = nextForkName(
 		Object.fromEntries(
 			Object.entries(readTitles(s.root)).map(([key, value]) => [key, value.title]),
@@ -422,6 +441,128 @@ async function writeFork(
 	)
 	setTitle(s, id, title)
 	return { id, title }
+}
+
+async function forkOrigin(
+	s: CliSessions,
+	sourceId: SessionId,
+	sourceMessages: readonly Message[],
+	copiedMessages: number,
+	boundary:
+		| { readonly kind: 'all' }
+		| { readonly kind: 'before-user'; readonly userOrdinal: number },
+): Promise<ConversationOrigin> {
+	const unresolved: ConversationOrigin = {
+		kind: 'fork-unresolved',
+		sourceSessionId: sourceId,
+		copiedMessages,
+	}
+	if (!s.turnEvidence) return unresolved
+
+	try {
+		const lineage = await s.turnEvidence.resolveLineage(sourceId)
+		if (lineage.kind !== 'available') return unresolved
+		const durableTurns = durableTurnProjections(sourceMessages)
+		if (!durableTurns || durableTurns.length === 0) return unresolved
+		const selected =
+			boundary.kind === 'all'
+				? uniqueLineageIndex(durableTurns, lineage.turns, durableTurns.length - 1)
+				: uniqueLineageIndex(durableTurns, lineage.turns, boundary.userOrdinal)
+		if (selected === undefined) return unresolved
+		const copiedTurnCount = boundary.kind === 'all' ? selected + 1 : selected
+
+		return {
+			kind: 'fork',
+			sourceSessionId: sourceId,
+			copiedMessages,
+			turns: lineage.turns
+				.slice(0, copiedTurnCount)
+				.map((turn) => ({ ...turn.reference }) satisfies ConversationTurnReference),
+		}
+	} catch {
+		// Forking model history remains useful when old/foreign evidence cannot
+		// prove lineage. The origin says so explicitly, and complete export refuses.
+		return unresolved
+	}
+}
+
+interface DurableTurnProjection {
+	readonly user: UserMessage
+	readonly assistantText?: string
+}
+
+function durableTurnProjections(messages: readonly Message[]): DurableTurnProjection[] | undefined {
+	const turns: Array<{ user: UserMessage; assistantText?: string }> = []
+	for (const message of messages) {
+		if (message.role === 'user') {
+			turns.push({ user: message })
+			continue
+		}
+		if (message.role !== 'assistant') continue
+		const turn = turns.at(-1)
+		if (!turn || turn.assistantText !== undefined || typeof message.content !== 'string') {
+			return undefined
+		}
+		turn.assistantText = message.content
+	}
+	return turns
+}
+
+/** Unique source-turn boundary for one user selected from a possibly compacted suffix. */
+function uniqueLineageIndex(
+	durable: readonly DurableTurnProjection[],
+	lineage: readonly ConversationLineageTurn[],
+	selectedUser: number,
+): number | undefined {
+	if (selectedUser < 0 || selectedUser >= durable.length) return undefined
+	const prefix = alignmentTable(durable, lineage)
+	const reversedDurable = [...durable].reverse()
+	const reversedLineage = [...lineage].reverse()
+	const suffix = alignmentTable(reversedDurable, reversedLineage)
+	const candidates: number[] = []
+	for (let index = 0; index < lineage.length; index += 1) {
+		if (!projectionMatches(durable[selectedUser], lineage[index])) continue
+		const beforeFits = prefix[selectedUser]?.[index] === true
+		const durableAfter = durable.length - selectedUser - 1
+		const lineageAfter = lineage.length - index - 1
+		const afterFits = suffix[durableAfter]?.[lineageAfter] === true
+		if (beforeFits && afterFits) candidates.push(index)
+	}
+	return candidates.length === 1 ? candidates[0] : undefined
+}
+
+/** DP table: whether the first i needles embed, in order, within the first j haystack values. */
+function alignmentTable(
+	needles: readonly DurableTurnProjection[],
+	haystack: readonly ConversationLineageTurn[],
+): boolean[][] {
+	const table = Array.from({ length: needles.length + 1 }, () =>
+		Array.from({ length: haystack.length + 1 }, () => false),
+	)
+	for (let column = 0; column <= haystack.length; column += 1) table[0][column] = true
+	for (let row = 1; row <= needles.length; row += 1) {
+		for (let column = 1; column <= haystack.length; column += 1) {
+			table[row][column] =
+				table[row]?.[column - 1] === true ||
+				(table[row - 1]?.[column - 1] === true &&
+					projectionMatches(needles[row - 1], haystack[column - 1]))
+		}
+	}
+	return table
+}
+
+function projectionMatches(
+	durable: DurableTurnProjection | undefined,
+	lineage: ConversationLineageTurn | undefined,
+): boolean {
+	if (!durable || !lineage || !isDeepStrictEqual(durable.user, lineage.evidence.started.user)) {
+		return false
+	}
+	const settled = lineage.evidence.settled
+	if (!settled) return false
+	return durable.assistantText === undefined
+		? settled.assistantText.trim().length === 0
+		: settled.assistantText === durable.assistantText
 }
 
 /**

@@ -7,6 +7,7 @@ import {
 	type RunEvent,
 	type RunId,
 	type SessionId,
+	type UserMessage,
 	asRunId,
 	createAssistantMessage,
 	createToolMessage,
@@ -15,7 +16,15 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { type CliSessions, forkConversation, openSessions, startConversation } from './store.js'
+import {
+	type CliSessions,
+	appendMessages,
+	forkConversation,
+	forkConversationBeforeUser,
+	openSessions,
+	replaceConversation,
+	startConversation,
+} from './store.js'
 import { conversationMarkdown, writeConversationExport } from './transcript-export.js'
 
 const dirs: string[] = []
@@ -137,6 +146,60 @@ async function publishCompleteRun(
 		'utf-8',
 	)
 	return runDir
+}
+
+async function publishSimpleTurn(
+	sessions: CliSessions,
+	sessionId: SessionId,
+	userText: string,
+	assistantText: string,
+	options: { readonly user?: UserMessage; readonly persist?: boolean } = {},
+) {
+	const runId = generateRunId()
+	const user = options.user ?? createUserMessage(userText)
+	const assistant = createAssistantMessage(assistantText)
+	const started = await sessions.turnEvidence?.recordTurnStarted({
+		sessionId,
+		runId,
+		displayText: userText,
+		user,
+	})
+	if (!started) throw new Error('fixture requires production evidence store')
+	await sessions.turnEvidence?.recordTurnSettled({
+		sessionId,
+		turnId: started.turnId,
+		runId,
+		outcome: 'completed',
+		assistantText,
+	})
+	if (options.persist !== false) await appendMessages(sessions, sessionId, [user, assistant])
+	const runDir = new DefaultPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+	await mkdir(runDir, { recursive: true })
+	const events = [
+		recordedEvent('run_started', runId, 1),
+		recordedEvent('message_completed', runId, 2, {
+			iteration: 1,
+			messageId: `msg_${runId}`,
+			stopReason: 'end_turn',
+			content: assistantText,
+		}),
+		recordedEvent('run_completed', runId, 3, { result: assistantText }),
+	]
+	await writeFile(
+		join(runDir, 'transcript.jsonl'),
+		`${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
+		'utf-8',
+	)
+	await writeFile(
+		join(runDir, 'messages.json'),
+		`${JSON.stringify({
+			format: 'namzu.run-message-snapshot.v1',
+			throughEventSeq: 3,
+			messages: [user, assistant],
+		})}\n`,
+		'utf-8',
+	)
+	return { runId, user, assistant, started }
 }
 
 describe('verified conversation Markdown', () => {
@@ -331,6 +394,131 @@ describe('verified conversation Markdown', () => {
 		await sessions.store.appendMessage(source, createUserMessage('source'), sessions.tenantId)
 		const fork = await forkConversation(sessions, source)
 
+		await expect(conversationMarkdown(sessions, fork.id)).rejects.toMatchObject({
+			reason: 'fork-lineage-unavailable',
+		})
+	})
+
+	it('exports the immutable source boundary of a resolved fork, not later source turns', async () => {
+		const sessions = await openSessions(await cwd())
+		const source = await startConversation(sessions)
+		await publishSimpleTurn(sessions, source, 'source one', 'answer one')
+		const fork = await forkConversation(sessions, source)
+
+		await publishSimpleTurn(sessions, source, 'source later', 'answer later')
+		const projected = await conversationMarkdown(sessions, fork.id)
+
+		expect(projected.turns).toBe(1)
+		expect(projected.markdown).toContain('source one')
+		expect(projected.markdown).toContain('answer one')
+		expect(projected.markdown).not.toContain('source later')
+		expect(projected.markdown).not.toContain('answer later')
+	})
+
+	it('does not inherit evidence that advanced beyond the copied session history', async () => {
+		const sessions = await openSessions(await cwd())
+		const source = await startConversation(sessions)
+		await publishSimpleTurn(sessions, source, 'durable source', 'durable answer')
+		await publishSimpleTurn(sessions, source, 'evidence only', 'not copied', { persist: false })
+
+		const fork = await forkConversation(sessions, source)
+		const projected = await conversationMarkdown(sessions, fork.id)
+
+		expect(projected.turns).toBe(1)
+		expect(projected.markdown).toContain('durable answer')
+		expect(projected.markdown).not.toContain('evidence only')
+		expect(projected.markdown).not.toContain('not copied')
+	})
+
+	it('refuses resolved lineage when the copied session lost a settled assistant answer', async () => {
+		const sessions = await openSessions(await cwd())
+		const source = await startConversation(sessions)
+		const partial = await publishSimpleTurn(sessions, source, 'partially saved', 'missing answer', {
+			persist: false,
+		})
+		await appendMessages(sessions, source, [partial.user])
+
+		const fork = await forkConversation(sessions, source)
+
+		expect(await sessions.turnEvidence?.read(fork.id)).toMatchObject({
+			kind: 'available',
+			origin: { origin: { kind: 'fork-unresolved' } },
+		})
+		await expect(conversationMarkdown(sessions, fork.id)).rejects.toMatchObject({
+			reason: 'fork-lineage-unavailable',
+		})
+	})
+
+	it('flattens inherited and local turns when a fork is forked again', async () => {
+		const sessions = await openSessions(await cwd())
+		const source = await startConversation(sessions)
+		await publishSimpleTurn(sessions, source, 'root turn', 'root answer')
+		const firstFork = await forkConversation(sessions, source)
+		await publishSimpleTurn(sessions, firstFork.id, 'branch turn', 'branch answer')
+		const nested = await forkConversation(sessions, firstFork.id)
+
+		const projected = await conversationMarkdown(sessions, nested.id)
+
+		expect(projected.turns).toBe(2)
+		expect(projected.markdown).toContain('root answer')
+		expect(projected.markdown).toContain('branch answer')
+		const origin = await sessions.turnEvidence?.read(nested.id)
+		expect(origin).toMatchObject({
+			kind: 'available',
+			origin: {
+				origin: { kind: 'fork', turns: [{ sessionId: source }, { sessionId: firstFork.id }] },
+			},
+		})
+	})
+
+	it('maps a compacted surviving prompt back to its unique raw turn boundary', async () => {
+		const sessions = await openSessions(await cwd())
+		const source = await startConversation(sessions)
+		await publishSimpleTurn(sessions, source, 'older raw turn', 'older raw answer')
+		const selected = await publishSimpleTurn(
+			sessions,
+			source,
+			'surviving prompt',
+			'answer to remove',
+		)
+		await replaceConversation(sessions, source, [
+			{ role: 'system', content: 'opaque compacted context' } as Message,
+			selected.user,
+			selected.assistant,
+		])
+
+		const fork = await forkConversationBeforeUser(sessions, source, 0, selected.user)
+		const projected = await conversationMarkdown(sessions, fork.id)
+
+		expect(projected.turns).toBe(1)
+		expect(projected.markdown).toContain('older raw turn')
+		expect(projected.markdown).toContain('older raw answer')
+		expect(projected.markdown).not.toContain('surviving prompt')
+		expect(projected.markdown).not.toContain('answer to remove')
+	})
+
+	it('keeps an ambiguous compacted prompt unresolved instead of choosing a lookalike turn', async () => {
+		const sessions = await openSessions(await cwd())
+		const source = await startConversation(sessions)
+		const repeated = createUserMessage('identical prompt')
+		await publishSimpleTurn(sessions, source, 'identical prompt', 'first answer', {
+			user: repeated,
+		})
+		const later = await publishSimpleTurn(sessions, source, 'identical prompt', 'first answer', {
+			user: repeated,
+		})
+		await replaceConversation(sessions, source, [
+			{ role: 'system', content: 'opaque compacted context' } as Message,
+			repeated,
+			later.assistant,
+		])
+
+		const fork = await forkConversationBeforeUser(sessions, source, 0, repeated)
+
+		expect(await sessions.turnEvidence?.read(fork.id)).toMatchObject({
+			kind: 'available',
+			origin: { origin: { kind: 'fork-unresolved' } },
+		})
 		await expect(conversationMarkdown(sessions, fork.id)).rejects.toMatchObject({
 			reason: 'fork-lineage-unavailable',
 		})

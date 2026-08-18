@@ -30,6 +30,17 @@ export type ConversationOrigin =
 	| { readonly kind: 'new' }
 	| {
 			/**
+			 * Immutable turn boundary copied from the source conversation. The
+			 * references are flattened, so later source turns and deeper fork chains
+			 * cannot change what this conversation inherited.
+			 */
+			readonly kind: 'fork'
+			readonly sourceSessionId: SessionId
+			readonly copiedMessages: number
+			readonly turns: readonly ConversationTurnReference[]
+	  }
+	| {
+			/**
 			 * The copied model history has no stable turn boundary yet. The source
 			 * is kept so a later lineage migration has evidence to work from, while
 			 * the current exporter refuses instead of guessing.
@@ -38,6 +49,11 @@ export type ConversationOrigin =
 			readonly sourceSessionId: SessionId
 			readonly copiedMessages: number
 	  }
+
+export interface ConversationTurnReference {
+	readonly sessionId: SessionId
+	readonly turnId: string
+}
 
 export type ConversationTurnOutcome = 'completed' | 'stopped' | 'failed' | 'cancelled'
 
@@ -87,12 +103,28 @@ export interface ConversationTurnEvidence {
 	readonly settled?: ConversationTurnSettledRecord
 }
 
+export interface ConversationLineageTurn {
+	readonly reference: ConversationTurnReference
+	readonly evidence: ConversationTurnEvidence
+}
+
 export type ConversationEvidenceRead =
 	| { readonly kind: 'not-recorded' }
 	| {
 			readonly kind: 'available'
 			readonly origin: ConversationOriginRecord
 			readonly turns: readonly ConversationTurnEvidence[]
+	  }
+
+export type ConversationLineageRead =
+	| { readonly kind: 'unavailable'; readonly detail: string }
+	| {
+			readonly kind: 'available'
+			readonly origin: ConversationOriginRecord
+			/** Turns physically recorded in the requested conversation. */
+			readonly localTurns: readonly ConversationTurnEvidence[]
+			/** Inherited turns followed by local turns, at the immutable fork boundary. */
+			readonly turns: readonly ConversationLineageTurn[]
 	  }
 
 export class ConversationEvidenceCorruptionError extends Error {
@@ -237,6 +269,46 @@ export class DiskConversationEvidence {
 		return await this.readUnlocked(sessionId)
 	}
 
+	/** Resolve and verify the immutable turn sequence visible to one conversation. */
+	async resolveLineage(sessionId: SessionId): Promise<ConversationLineageRead> {
+		await this.tail
+		const resolved = await this.resolveReferencesUnlocked(sessionId, new Set())
+		if (resolved.kind === 'unavailable') return resolved
+
+		const current = await this.readUnlocked(sessionId)
+		if (current.kind !== 'available') {
+			return { kind: 'unavailable', detail: `conversation ${sessionId} has no origin record` }
+		}
+		const cache = new Map<SessionId, ConversationEvidenceRead>([[sessionId, current]])
+		const turns: ConversationLineageTurn[] = []
+		for (const reference of resolved.references) {
+			let owner = cache.get(reference.sessionId)
+			if (!owner) {
+				owner = await this.readUnlocked(reference.sessionId)
+				cache.set(reference.sessionId, owner)
+			}
+			if (owner.kind !== 'available') {
+				throw new ConversationEvidenceCorruptionError(
+					`Fork lineage for conversation ${sessionId} names missing conversation ${reference.sessionId}.`,
+				)
+			}
+			const evidence = owner.turns.find((turn) => turn.started.turnId === reference.turnId)
+			if (!evidence) {
+				throw new ConversationEvidenceCorruptionError(
+					`Fork lineage for conversation ${sessionId} names missing local turn ${reference.turnId} in ${reference.sessionId}.`,
+				)
+			}
+			turns.push({ reference, evidence })
+		}
+
+		return {
+			kind: 'available',
+			origin: current.origin,
+			localTurns: current.turns,
+			turns,
+		}
+	}
+
 	private async serialize<T>(operation: () => Promise<T>): Promise<T> {
 		const result = this.tail.then(operation)
 		this.tail = result.then(
@@ -337,6 +409,53 @@ export class DiskConversationEvidence {
 
 		return { kind: 'available', origin, turns }
 	}
+
+	private async resolveReferencesUnlocked(
+		sessionId: SessionId,
+		visiting: Set<SessionId>,
+	): Promise<
+		| { readonly kind: 'unavailable'; readonly detail: string }
+		| { readonly kind: 'available'; readonly references: readonly ConversationTurnReference[] }
+	> {
+		if (visiting.has(sessionId)) {
+			throw new ConversationEvidenceCorruptionError(
+				`Fork lineage contains a cycle through conversation ${sessionId}.`,
+			)
+		}
+		visiting.add(sessionId)
+		try {
+			const evidence = await this.readUnlocked(sessionId)
+			if (evidence.kind !== 'available') {
+				return { kind: 'unavailable', detail: `conversation ${sessionId} has no origin record` }
+			}
+			const local = evidence.turns.map((turn) => ({
+				sessionId,
+				turnId: turn.started.turnId,
+			}))
+			const origin = evidence.origin.origin
+			if (origin.kind === 'new') return { kind: 'available', references: local }
+			if (origin.kind === 'fork-unresolved') {
+				return {
+					kind: 'unavailable',
+					detail: `conversation ${sessionId} has an unresolved copied prefix from ${origin.sourceSessionId}`,
+				}
+			}
+
+			const source = await this.resolveReferencesUnlocked(origin.sourceSessionId, visiting)
+			if (source.kind === 'unavailable') return source
+			if (
+				origin.turns.length > source.references.length ||
+				origin.turns.some((reference, index) => !sameReference(reference, source.references[index]))
+			) {
+				throw new ConversationEvidenceCorruptionError(
+					`Fork lineage for conversation ${sessionId} is not a prefix of source ${origin.sourceSessionId}.`,
+				)
+			}
+			return { kind: 'available', references: [...origin.turns, ...local] }
+		} finally {
+			visiting.delete(sessionId)
+		}
+	}
 }
 
 function parseRecord(
@@ -383,7 +502,7 @@ function parseRecord(
 				projectId: recordProjectId,
 				sessionId: recordSessionId,
 				recordedAt,
-				origin: parseOrigin(value.origin, path, lineNumber),
+				origin: parseOrigin(value.origin, path, lineNumber, recordSessionId),
 			}
 		case 'turn_started': {
 			let runId: RunId
@@ -438,10 +557,17 @@ function parseRecord(
 	}
 }
 
-function parseOrigin(value: unknown, path: string, line: number): ConversationOrigin {
+function parseOrigin(
+	value: unknown,
+	path: string,
+	line: number,
+	sessionId: SessionId,
+): ConversationOrigin {
 	if (!isObject(value)) throw invalidRecord(path, line, 'origin')
 	if (value.kind === 'new') return { kind: 'new' }
-	if (value.kind !== 'fork-unresolved') throw invalidRecord(path, line, 'origin.kind')
+	if (value.kind !== 'fork' && value.kind !== 'fork-unresolved') {
+		throw invalidRecord(path, line, 'origin.kind')
+	}
 	let sourceSessionId: SessionId
 	try {
 		sourceSessionId = asSessionId(requiredString(value.sourceSessionId, 'sourceSessionId'))
@@ -450,6 +576,32 @@ function parseOrigin(value: unknown, path: string, line: number): ConversationOr
 	}
 	if (!Number.isSafeInteger(value.copiedMessages) || Number(value.copiedMessages) < 0) {
 		throw invalidRecord(path, line, 'copiedMessages')
+	}
+	if (sourceSessionId === sessionId) throw invalidRecord(path, line, 'sourceSessionId')
+	if (value.kind === 'fork') {
+		if (!Array.isArray(value.turns)) throw invalidRecord(path, line, 'turns')
+		const seen = new Set<string>()
+		const turns = value.turns.map((entry) => {
+			if (!isObject(entry)) throw invalidRecord(path, line, 'turn reference')
+			let owner: SessionId
+			try {
+				owner = asSessionId(requiredString(entry.sessionId, 'turn.sessionId'))
+			} catch (error) {
+				throw invalidRecord(path, line, error)
+			}
+			const turnId = requiredString(entry.turnId, 'turn.turnId')
+			if (!/^turn_[a-z0-9]+$/.test(turnId)) throw invalidRecord(path, line, 'turn.turnId')
+			const key = `${owner}\0${turnId}`
+			if (seen.has(key)) throw invalidRecord(path, line, 'duplicate turn reference')
+			seen.add(key)
+			return { sessionId: owner, turnId }
+		})
+		return {
+			kind: 'fork',
+			sourceSessionId,
+			copiedMessages: Number(value.copiedMessages),
+			turns,
+		}
 	}
 	return {
 		kind: 'fork-unresolved',
@@ -525,6 +677,13 @@ function invalidRecord(
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function sameReference(
+	left: ConversationTurnReference,
+	right: ConversationTurnReference | undefined,
+): boolean {
+	return left.sessionId === right?.sessionId && left.turnId === right?.turnId
 }
 
 function isMissing(error: unknown): boolean {

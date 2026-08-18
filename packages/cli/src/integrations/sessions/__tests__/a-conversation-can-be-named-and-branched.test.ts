@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type Message, createUserMessage } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
 	appendMessages,
@@ -17,6 +17,7 @@ import {
 	startConversation,
 	titleOf,
 } from '../store.js'
+import { conversationMarkdown } from '../transcript-export.js'
 
 /**
  * `/resume` lists conversations by the first thing the operator typed. That is
@@ -169,6 +170,28 @@ describe('forking a conversation', () => {
 			'first',
 			'second',
 		])
+	})
+
+	it('does not publish lineage when the atomic copied prefix fails read-back', async () => {
+		const s = await project()
+		const source = await startConversation(s)
+		const messages = [said('user', 'first'), said('assistant', 'second')]
+		await appendMessages(s, source, messages)
+		const replace = s.store.replaceMessages.bind(s.store)
+		vi.spyOn(s.store, 'replaceMessages').mockImplementation(async (sessionId, copied, tenantId) => {
+			await replace(sessionId, copied.slice(0, 1), tenantId)
+		})
+
+		await expect(forkConversation(s, source)).rejects.toThrow(/exact copied history/i)
+
+		const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
+		const partial = sessions.find((session) => session.id !== source)
+		if (!partial) throw new Error('fixture expected the interrupted fork session')
+		expect(await loadConversation(s, partial.id)).toEqual([messages[0]])
+		expect(await s.turnEvidence?.read(partial.id)).toEqual({ kind: 'not-recorded' })
+		await expect(conversationMarkdown(s, partial.id)).rejects.toMatchObject({
+			reason: 'evidence-not-recorded',
+		})
 	})
 
 	it('leaves the original exactly as it was', async () => {

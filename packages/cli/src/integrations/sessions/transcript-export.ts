@@ -17,7 +17,11 @@ import {
 	readRunMessagesIn,
 } from '@namzu/sdk'
 import type { CliSessions } from './store.js'
-import type { ConversationTurnEvidence, ConversationTurnOutcome } from './turn-evidence.js'
+import type {
+	ConversationTurnEvidence,
+	ConversationTurnOutcome,
+	DiskConversationEvidence,
+} from './turn-evidence.js'
 
 export type ConversationTranscriptUnavailableReason =
 	| 'evidence-not-recorded'
@@ -76,14 +80,26 @@ export async function conversationMarkdown(
 			`conversation ${sessionId} is a fork whose copied prefix is not yet tied to stable source turns`,
 		)
 	}
-	if (evidence.turns.length === 0) {
+	let lineage: Awaited<ReturnType<DiskConversationEvidence['resolveLineage']>>
+	try {
+		lineage = await evidenceStore.resolveLineage(sessionId)
+	} catch (error) {
+		throw unavailable(
+			'fork-lineage-unavailable',
+			`conversation ${sessionId} has invalid fork lineage: ${messageOf(error)}`,
+		)
+	}
+	if (lineage.kind === 'unavailable') {
+		throw unavailable('fork-lineage-unavailable', lineage.detail)
+	}
+	if (lineage.turns.length === 0) {
 		throw unavailable('nothing-to-export', `conversation ${sessionId} has no recorded turns`)
 	}
 
 	const paths = new DefaultPathBuilder(sessions.root)
 	const runsRoot = join(paths.sessionDir(sessions.projectId, sessionId), 'runs')
 	const onDiskRunIds = await listRunIds(runsRoot)
-	const boundRunIds = new Set(evidence.turns.map((turn) => turn.started.runId as string))
+	const boundRunIds = new Set(lineage.localTurns.map((turn) => turn.started.runId as string))
 	const unbound = onDiskRunIds.filter((runId) => !boundRunIds.has(runId))
 	if (unbound.length > 0) {
 		throw unavailable(
@@ -93,9 +109,14 @@ export async function conversationMarkdown(
 	}
 
 	const lines = ['# Namzu conversation', '', `Conversation: \`${sessionId}\``, '']
-	for (const turn of evidence.turns) {
+	for (const inherited of lineage.turns) {
+		const turn = inherited.evidence
 		lines.push(...renderUser(turn), '')
-		const runDir = paths.runDir(sessions.projectId, sessionId, turn.started.runId)
+		const runDir = paths.runDir(
+			sessions.projectId,
+			inherited.reference.sessionId,
+			turn.started.runId,
+		)
 		if (!(await isDirectory(runDir))) {
 			if (turn.settled) {
 				throw unavailable(
@@ -234,7 +255,7 @@ export async function conversationMarkdown(
 
 	return {
 		sessionId,
-		turns: evidence.turns.length,
+		turns: lineage.turns.length,
 		markdown: `${trimBlankTail(lines).join('\n')}\n`,
 	}
 }

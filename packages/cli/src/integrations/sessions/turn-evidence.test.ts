@@ -1,10 +1,16 @@
 import { appendFile, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DefaultPathBuilder, asRunId, createUserMessage, generateRunId } from '@namzu/sdk'
+import {
+	DefaultPathBuilder,
+	asRunId,
+	createAssistantMessage,
+	createUserMessage,
+	generateRunId,
+} from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { forkConversation, openSessions, startConversation } from './store.js'
+import { appendMessages, forkConversation, openSessions, startConversation } from './store.js'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -94,7 +100,7 @@ describe('CLI turn evidence', () => {
 		expect(await sessions.turnEvidence?.read(legacy.id)).toEqual({ kind: 'not-recorded' })
 	})
 
-	it('marks a fork origin as unresolved instead of claiming its copied prefix is proven', async () => {
+	it('keeps a legacy fork unresolved instead of claiming its copied prefix is proven', async () => {
 		const sessions = await openSessions(await cwd())
 		const source = await startConversation(sessions)
 		await sessions.store.appendMessage(
@@ -115,6 +121,121 @@ describe('CLI turn evidence', () => {
 				},
 			},
 		})
+	})
+
+	it('flattens a proven source turn into an immutable fork lineage', async () => {
+		const sessions = await openSessions(await cwd())
+		const source = await startConversation(sessions)
+		const user = createUserMessage('source prompt')
+		const assistant = createAssistantMessage('source answer')
+		const runId = generateRunId()
+		const started = await sessions.turnEvidence?.recordTurnStarted({
+			sessionId: source,
+			runId,
+			displayText: 'source prompt',
+			user,
+		})
+		if (!started) throw new Error('fixture requires turn evidence')
+		await sessions.turnEvidence?.recordTurnSettled({
+			sessionId: source,
+			turnId: started.turnId,
+			runId,
+			outcome: 'completed',
+			assistantText: 'source answer',
+		})
+		await appendMessages(sessions, source, [user, assistant])
+
+		const fork = await forkConversation(sessions, source)
+		const record = await sessions.turnEvidence?.read(fork.id)
+		const lineage = await sessions.turnEvidence?.resolveLineage(fork.id)
+
+		expect(record).toMatchObject({
+			kind: 'available',
+			origin: {
+				origin: {
+					kind: 'fork',
+					sourceSessionId: source,
+					copiedMessages: 2,
+					turns: [{ sessionId: source, turnId: started.turnId }],
+				},
+			},
+		})
+		expect(lineage).toMatchObject({
+			kind: 'available',
+			localTurns: [],
+			turns: [
+				{
+					reference: { sessionId: source, turnId: started.turnId },
+					evidence: { started },
+				},
+			],
+		})
+	})
+
+	it('refuses a resolved prefix that does not belong to its declared source', async () => {
+		const sessions = await openSessions(await cwd())
+		const declaredSource = await startConversation(sessions)
+		const otherSource = await startConversation(sessions)
+		const runId = generateRunId()
+		const otherTurn = await sessions.turnEvidence?.recordTurnStarted({
+			sessionId: otherSource,
+			runId,
+			displayText: 'other',
+			user: createUserMessage('other'),
+		})
+		if (!otherTurn) throw new Error('fixture requires turn evidence')
+		const child = await sessions.store.createSession(
+			{
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				currentActor: null,
+			},
+			sessions.tenantId,
+		)
+		await sessions.turnEvidence?.recordOrigin(child.id, {
+			kind: 'fork',
+			sourceSessionId: declaredSource,
+			copiedMessages: 0,
+			turns: [{ sessionId: otherSource, turnId: otherTurn.turnId }],
+		})
+
+		await expect(sessions.turnEvidence?.resolveLineage(child.id)).rejects.toThrow(
+			/not a prefix of source/,
+		)
+	})
+
+	it('refuses a cycle even when every individual fork origin parses', async () => {
+		const sessions = await openSessions(await cwd())
+		const first = await sessions.store.createSession(
+			{
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				currentActor: null,
+			},
+			sessions.tenantId,
+		)
+		const second = await sessions.store.createSession(
+			{
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				currentActor: null,
+			},
+			sessions.tenantId,
+		)
+		await sessions.turnEvidence?.recordOrigin(first.id, {
+			kind: 'fork',
+			sourceSessionId: second.id,
+			copiedMessages: 0,
+			turns: [],
+		})
+		await sessions.turnEvidence?.recordOrigin(second.id, {
+			kind: 'fork',
+			sourceSessionId: first.id,
+			copiedMessages: 0,
+			turns: [],
+		})
+
+		await expect(sessions.turnEvidence?.resolveLineage(first.id)).rejects.toThrow(/cycle/)
 	})
 
 	it('refuses torn and duplicate bindings rather than skipping them', async () => {
