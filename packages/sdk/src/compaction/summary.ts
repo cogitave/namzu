@@ -16,10 +16,10 @@ export const COMPACTION_HEADER =
 /**
  * Identity check for a prior compaction summary in the leading floor.
  *
- * Used to REPLACE one in place, so at most one `[COMPACTED CONTEXT]` block
- * ever lives in the never-trimmed floor, and by the checkpoint-restore path
- * to PRESERVE the summary across a resume — it is the only surviving record
- * of the older history a run compacted away.
+ * Used to replace a summary produced by the SAME run in place, and by restore
+ * paths to preserve summaries whose state was produced elsewhere. A retained
+ * summary is deliberately not replaceable: it is the only surviving record
+ * of an opaque older span.
  */
 export function isCompactionMessage(content: string | null | undefined): boolean {
 	return typeof content === 'string' && content.startsWith(COMPACTION_HEADER)

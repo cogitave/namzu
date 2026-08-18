@@ -617,13 +617,14 @@ export async function runCompactionCheck(
 
 	const compactionMessage = buildCompactionMessage(compactedContent)
 
-	// Drop any PRIOR `[COMPACTED CONTEXT]` summary from the leading floor —
-	// `serializeState` is cumulative, so the new summary supersedes it.
-	// Without this the never-trimmed floor accumulates one redundant summary
-	// per pass, unbounded. Unconditional now, for the reason given at the
-	// thrash guard above.
+	// Drop a replaceable PRIOR `[COMPACTED CONTEXT]` summary from this run's
+	// leading floor — `serializeState` is cumulative, so the new summary
+	// supersedes it. A retained summary came from outside this manager's state
+	// horizon (for example a host-triggered pass between runs) and remains
+	// opaque; deleting it would erase the only surviving record of that span.
 	const preservedSystem = systemMessages.filter(
-		(m) => !isCompactionMessage(typeof m.content === 'string' ? m.content : null),
+		(m) =>
+			!isCompactionMessage(typeof m.content === 'string' ? m.content : null) || m.retain === true,
 	)
 
 	// Pinned turns from the older window survive verbatim, in order, between

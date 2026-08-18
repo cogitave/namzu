@@ -1804,7 +1804,21 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				pushSystemMessages()
 				let isFirstUserMessage = true
 				for (const msg of initialMessages) {
-					if (msg.role === 'system') continue
+					if (msg.role === 'system') {
+						// A fresh run rebuilds its current static/dynamic prompt above,
+						// so arbitrary historical system messages stay out. These two
+						// are different: they are conversation STATE, and dropping them
+						// deletes the only surviving record of compacted history or the
+						// produced-artifact ledger. A compaction summary arriving from a
+						// prior run is pinned because this new WorkingStateManager cannot
+						// prove it has reconstructed equivalent state yet.
+						if (isCompactionMessage(msg.content)) {
+							ctx.runMgr.pushMessage({ ...msg, retain: true })
+						} else if (isWorkingMemoryMessage(msg.content)) {
+							ctx.runMgr.pushMessage(msg)
+						}
+						continue
+					}
 					ctx.runMgr.pushMessage(msg)
 
 					if (workingStateManager && msg.role === 'user' && msg.content) {

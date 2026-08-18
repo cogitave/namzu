@@ -73,6 +73,34 @@ describe('a host can ask for compaction', () => {
 		// rejected by the provider on the very next turn.
 		expect(findDanglingMessages([...result.messages]).isValid).toBe(true)
 		expect(String(result.summary.content)).toContain('[COMPACTED CONTEXT]')
+		expect(
+			String(result.summary.content),
+			'the summary header survived but the history it claimed to summarize did not',
+		).toContain('question 0')
+		expect(result.summary.retain).toBe(true)
+	})
+
+	it('keeps an earlier host-triggered summary when compacting again', async () => {
+		const first = await compactNow({
+			messages: history(20),
+			config: config(),
+			provider: provider(),
+		})
+		expect(first).not.toBeNull()
+		if (!first) return
+
+		const continued = [
+			...first.messages,
+			...history(8).filter((message) => message.role !== 'system'),
+		]
+		const second = await compactNow({ messages: continued, config: config(), provider: provider() })
+		expect(second).not.toBeNull()
+		if (!second) return
+
+		expect(
+			second.messages.some((message) => message.content === first.summary.content),
+			'a later manual pass erased the only surviving account of the first pass',
+		).toBe(true)
 	})
 
 	it('returns null on a history too short to shed, without calling the provider', async () => {
@@ -143,6 +171,8 @@ describe('a host can ask for compaction', () => {
 		expect(result.messages).toHaveLength(originalLength - 3)
 		expect(result.messages[0]).toEqual(messages[0])
 		expect(String(result.messages[1]?.content)).toContain('[COMPACTED CONTEXT]')
+		expect(String(result.messages[1]?.content)).toContain('question 0')
+		expect(result.summary.retain).toBe(true)
 		expect(result.messages[2]).toEqual(messages[5])
 	})
 

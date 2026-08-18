@@ -105,6 +105,9 @@ refused while a turn is running or an interrupted turn is still settling, and
 input stays paused until the summary and its durable replacement have both
 landed. The next turn receives that summary; leaving and returning through
 `/resume` receives the same history rather than restoring the superseded turns.
+The summary remains model-visible if that next turn itself needs automatic
+overflow relief; a context-reduction retry cannot replace state inherited from
+the earlier host-triggered pass with a summary built only from the newer run.
 The disk log remains append-only: one replacement record changes the projected
 conversation, and later turns append after it.
 

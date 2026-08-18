@@ -110,7 +110,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 			promptExemptTools: () => [],
 			compact: async (messages) => {
 				compactCalls += 1
-				const summary = createSystemMessage(SUMMARY_TEXT)
+				// The SDK pins host-triggered summaries because no run-scoped
+				// WorkingStateManager exists between turns to reproduce them.
+				const summary = { ...createSystemMessage(SUMMARY_TEXT), retain: true }
 				return { messages: [summary, ...messages.slice(-2)], shed: 1, summary }
 			},
 			send: async function* (messages): AsyncIterable<AgentEvent> {
@@ -196,6 +198,7 @@ it('puts the compacted summary in the next model request and the durable convers
 
 	expect(replacements, 'the durable conversation was not compacted').toHaveLength(1)
 	expect(replacements[0]?.some((message) => message.content === SUMMARY_TEXT)).toBe(true)
+	expect(replacements[0]?.find((message) => message.content === SUMMARY_TEXT)?.retain).toBe(true)
 
 	await submit(harness, 'question after compaction')
 	await frameShows(harness, 'answer-2')

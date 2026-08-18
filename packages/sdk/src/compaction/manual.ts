@@ -1,9 +1,16 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { NamzuError } from '../types/errors/index.js'
+import { toolResultToText } from '../types/message/content.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider } from '../types/provider/index.js'
 import { resolveContextWindow } from './context-window.js'
 import { findDanglingMessages, findSafeTrimIndex } from './dangling.js'
+import {
+	extractFromAssistantMessage,
+	extractFromToolCall,
+	extractFromToolResult,
+	extractFromUserMessage,
+} from './extractor.js'
 import { WorkingStateManager } from './manager.js'
 import { planCompaction } from './plan.js'
 import { buildCompactionMessage, isCompactionMessage } from './summary.js'
@@ -46,14 +53,55 @@ function splice(
 	summaryBody: string,
 	recentMessages: readonly Message[],
 ): { messages: Message[]; summary: Message } {
-	const summary = buildCompactionMessage(summaryBody)
-	// Any PRIOR summary is dropped: the state a summary is built from is
-	// cumulative, so a new one supersedes it. Without this the never-trimmed
-	// floor accumulates one redundant block per pass, unbounded.
+	// A host-triggered pass has no run-scoped WorkingStateManager to carry the
+	// summary into a later query. Pin this summary itself: until a future run
+	// has rebuilt equivalent state, this message is the only surviving record
+	// of what the pass removed.
+	const summary = { ...buildCompactionMessage(summaryBody), retain: true }
+	// A replaceable in-run summary may be superseded. A pinned summary may not:
+	// `retain` is the public promise that compaction leaves the message alone,
+	// and a prior manual summary is opaque state rather than redundant prose.
 	const preserved = systemMessages.filter(
-		(m) => !isCompactionMessage(typeof m.content === 'string' ? m.content : null),
+		(m) =>
+			!isCompactionMessage(typeof m.content === 'string' ? m.content : null) || m.retain === true,
 	)
 	return { messages: [...preserved, summary, ...recentMessages], summary }
+}
+
+/** Build the state a host-triggered pass is about to replace. */
+function populateWorkingState(
+	manager: WorkingStateManager,
+	messages: readonly Message[],
+	config: CompactionConfig,
+): void {
+	let firstUser = true
+	const toolNames = new Map<string, string>()
+
+	for (const message of messages) {
+		switch (message.role) {
+			case 'user':
+				extractFromUserMessage(manager, message.content, firstUser)
+				firstUser = false
+				break
+			case 'assistant':
+				if (message.content) extractFromAssistantMessage(manager, message.content, config)
+				for (const call of message.toolCalls ?? []) {
+					toolNames.set(call.id, call.function.name)
+					extractFromToolCall(manager, call.function.name, call.function.arguments)
+				}
+				break
+			case 'tool':
+				extractFromToolResult(
+					manager,
+					toolNames.get(message.toolCallId) ?? 'tool',
+					toolResultToText(message.content),
+					message.isError === true,
+				)
+				break
+			case 'system':
+				break
+		}
+	}
 }
 
 /**
@@ -84,6 +132,7 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 	if (plan.kind !== 'plan') return null
 
 	const manager = new WorkingStateManager(input.config)
+	populateWorkingState(manager, plan.olderMessages, input.config)
 	const body = await buildVerifiedSummary(
 		manager,
 		[...plan.olderMessages],
@@ -147,6 +196,7 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 	}
 
 	const manager = new WorkingStateManager(input.config)
+	populateWorkingState(manager, messages.slice(start, end), input.config)
 	const body = await buildVerifiedSummary(
 		manager,
 		messages.slice(start, end),
@@ -156,7 +206,9 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 		input.model ?? '',
 	)
 
-	const summary = buildCompactionMessage(body)
+	// Same cross-run ownership as compactNow: a selected region has been
+	// replaced outside a run, so its only surviving account is pinned.
+	const summary = { ...buildCompactionMessage(body), retain: true }
 	const out = [...messages.slice(0, start), summary, ...messages.slice(end)]
 
 	// Checked after the splice, not only before it. The edges being
