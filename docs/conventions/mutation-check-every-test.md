@@ -84,6 +84,24 @@ A harness that reports false negatives certifies vacuous tests as sound. Make
 it print the summary line when it finds no failures, so "not caught" can be
 told apart from "could not read the output".
 
+**And it can mutate the wrong line.** A harness doing a single textual
+substitution reported an empty-list guard as uncaught. The guard was fine: the
+string it searched for appeared five times in the file, `replace(old, new, 1)`
+took the first, and the mutation landed on an unrelated field twelve lines
+above the target. The test that was supposed to catch it never had anything to
+catch.
+
+This is worse than the output-parsing failure, because nothing looks wrong. The
+substitution succeeded, the suite ran, the result was reported. So assert the
+target is **unique** before mutating, and fail the harness when it is not —
+`assert s.count(old) == 1`. Ambiguity means the harness cannot know what it
+just changed, and a mutation whose subject is unknown proves nothing in either
+direction.
+
+The tell, when it happens: a mutation that "escapes" a test you can reason
+must catch it. Reproduce that one by hand before believing the harness — the
+second reading here found the guard doing exactly its job.
+
 ## Read the run, not the summary line
 
 `N passed` is a subset of the result, not the result. Read the **exit code**,

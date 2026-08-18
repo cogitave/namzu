@@ -87,6 +87,9 @@ from reading as permission.
   to confirm the first: twenty aimed mutations all died, and ten written with
   the opposite intent produced seven survivors.
 - [A test can be sound and still be about the wrong thing](sound-about-the-wrong-thing.md)
+- [Assert on something only the code under test could have produced](assert-on-what-only-the-code-could-produce.md)
+  — a substring echoed from the input, or a fragment that survives deleting the
+  sentence around it, is green whether or not the behaviour exists
   — right path, wrong observer, wrong moment. A live run is not exempt.
 - [A fixture unlike production tests a system that does not ship](fixture-must-match-production.md)
   — the defect lives in a branch an empty listener set never enters.
