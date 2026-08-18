@@ -40,13 +40,7 @@ import type {
 import { generateSandboxId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { assertIsolation, describeIsolation } from '../isolation.js'
-import {
-	type OpenTerminalOptions,
-	type PtyLoader,
-	type TerminalSession,
-	loadPty,
-	openTerminalWith,
-} from '../terminal.js'
+import type { PtyLoader } from '../terminal.js'
 
 // ---------------------------------------------------------------------------
 // Path safety
@@ -483,22 +477,13 @@ class LocalSandbox implements Sandbox {
 		return this._status
 	}
 
-	/**
-	 * How the pty binding is loaded. Injectable so a test needs no native
-	 * build — the refusal path and the session wiring are both worth
-	 * covering, and neither should require compiling C++ on CI.
-	 */
-	private readonly ptyLoader: PtyLoader | undefined
-
 	constructor(
 		id: SandboxId,
 		rootDir: string,
 		environment: SandboxEnvironment,
 		config: SandboxCreateConfig,
 		log: Logger,
-		ptyLoader?: PtyLoader,
 	) {
-		this.ptyLoader = ptyLoader
 		this.id = id
 		this.rootDir = rootDir
 		this.environment = environment
@@ -562,33 +547,6 @@ class LocalSandbox implements Sandbox {
 				this._status = 'ready'
 			}
 		}
-	}
-
-	/**
-	 * A real pseudo-terminal, or a refusal that says what to install.
-	 *
-	 * Deliberately NOT confined the way `exec` is. `exec` wraps every
-	 * command in this class's isolation tiers (`unshare …`,
-	 * `sandbox-exec …`); a terminal is an interactive session a human is
-	 * driving, and wrapping it would put the tier's own shell between the
-	 * operator's keystrokes and the program. So this runs inside the
-	 * sandbox's ROOT DIRECTORY and nothing more — which is stated here
-	 * because a caller reading "sandbox" would otherwise assume the tier
-	 * applies, and it is exactly the assumption that makes a boundary
-	 * imaginary.
-	 *
-	 * A host that needs the tier runs its interactive program through
-	 * `exec` and accepts that it is not a terminal, or supplies a backend
-	 * whose terminals are confined by construction — a container's `exec`,
-	 * for instance, where the confinement is the container and not a
-	 * wrapper.
-	 */
-	async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {
-		if (this._status === 'destroyed') {
-			throw new Error(`Sandbox ${this.id} is destroyed`)
-		}
-		const pty = await loadPty(this.ptyLoader)
-		return openTerminalWith(pty, options, { shell: '/bin/sh', cwd: this.rootDir })
 	}
 
 	async writeFile(path: string, content: string | Buffer): Promise<void> {
@@ -770,11 +728,13 @@ export interface LocalSandboxProviderOptions {
 	 */
 	readonly requireIsolation?: readonly SandboxIsolationControl[]
 	/**
-	 * How a sandbox loads the pty binding for {@link Sandbox.openTerminal}.
+	 * Legacy test injection for the local backend's former terminal method.
 	 *
-	 * Injectable so a test needs no native build. Absent means the real
-	 * `import`, which is what a host gets — and what refuses, by name, when
-	 * the binding is not installed.
+	 * @deprecated The local backend cannot preserve its selected isolation
+	 * tier or own the complete terminal process tree, so it no longer exposes
+	 * `Sandbox.openTerminal`. Supplying this option now throws. Use the
+	 * host-scoped terminal helpers directly only when unconfined execution is
+	 * intentional, or provide a backend that owns confinement and teardown.
 	 */
 	readonly ptyLoader?: PtyLoader
 }
@@ -786,10 +746,12 @@ export class LocalSandboxProvider implements SandboxProvider {
 
 	private readonly log: Logger
 
-	private readonly ptyLoader: PtyLoader | undefined
-
 	constructor(log: Logger, options: LocalSandboxProviderOptions = {}) {
-		this.ptyLoader = options.ptyLoader
+		if (options.ptyLoader !== undefined) {
+			throw new Error(
+				'LocalSandboxProvider no longer accepts ptyLoader because its terminal could not preserve the selected isolation tier or sandbox teardown ownership. Use the host-scoped terminal helpers only for intentional host execution, or provide a confined terminal backend.',
+			)
+		}
 		this.environment = detectEnvironment()
 		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'sandbox/provider/local' })
 
@@ -828,6 +790,6 @@ export class LocalSandboxProvider implements SandboxProvider {
 
 		this.log.info('Creating sandbox', { 'namzu.sandbox.id': id, 'namzu.sandbox.root_dir': rootDir })
 
-		return new LocalSandbox(id, rootDir, this.environment, config ?? {}, this.log, this.ptyLoader)
+		return new LocalSandbox(id, rootDir, this.environment, config ?? {}, this.log)
 	}
 }

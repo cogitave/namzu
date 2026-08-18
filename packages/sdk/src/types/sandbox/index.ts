@@ -220,7 +220,8 @@ export interface Sandbox {
 	setNetworkPolicy?(policy: SandboxNetworkPolicy): Promise<void>
 
 	/**
-	 * Open a real pseudo-terminal inside this sandbox.
+	 * Open a real pseudo-terminal whose complete process tree is confined to
+	 * and owned by this sandbox.
 	 *
 	 * Optional, and a backend that cannot provide one must **throw** rather
 	 * than hand back a pipe — the same rule {@link Sandbox.setNetworkPolicy}
@@ -230,7 +231,14 @@ export interface Sandbox {
 	 * exits immediately, the progress bar prints ten thousand lines, and
 	 * nothing says why.
 	 *
-	 * See `sandbox/terminal.ts` for why the backing binding is optional.
+	 * A backend that implements this method MUST make {@link destroy} kill and
+	 * await every terminal it returned. Merely starting a host pseudo-terminal
+	 * with `rootDir` as its working directory does not satisfy either the
+	 * confinement or the ownership contract.
+	 *
+	 * @deprecated No built-in backend currently satisfies both guarantees.
+	 * Use a separately owned terminal backend; this member will be removed in
+	 * a future major release after the repository's deprecation window.
 	 */
 	openTerminal?(options: OpenTerminalOptions): Promise<TerminalSession>
 	writeFile(path: string, content: string | Buffer): Promise<void>

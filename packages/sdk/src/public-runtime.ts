@@ -1129,9 +1129,11 @@ export {
 // kept.
 export { RunQuery } from './run-query/index.js'
 
-// A real pseudo-terminal inside a sandbox, or a refusal that names the
-// binding to install. A pipe is not a terminal, and substituting one is the
-// failure this refuses — see `sandbox/terminal.ts`.
+// A host-scoped pseudo-terminal primitive, or a refusal that names the
+// binding to install. It neither creates a sandbox nor owns a descendant
+// process tree; a terminal backend supplies those guarantees. A pipe is not
+// a terminal, and substituting one is the failure this refuses — see
+// `sandbox/terminal.ts`.
 export {
 	PTY_SPECIFIER,
 	TerminalUnavailableError,

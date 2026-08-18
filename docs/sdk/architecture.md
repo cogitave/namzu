@@ -133,6 +133,8 @@ The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) le
 
 Background jobs are a separate host-process capability, not a mode of sandbox execution. `BackgroundJobRegistry` can be supplied to an unsandboxed run, where `bash` may start work that outlives its tool call and the run later tears that work down. A run that creates a sandbox does not expose that host registry in `ToolContext`, and `bash run_in_background` refuses with that reason. Otherwise changing only `run_in_background` would move the same command from `sandbox.exec()` to a host child process and turn a scheduling option into an isolation bypass. A sandboxed persistent process requires a backend that owns both its lifetime and its confinement; the host registry does not claim to be one.
 
+The same boundary applies to pseudo-terminals. `LocalSandboxProvider` does not implement `Sandbox.openTerminal`: setting a host PTY's working directory to `rootDir` neither applies the provider's isolation tier nor makes `destroy()` kill and await its descendant tree. The optional method is deprecated while its removal observes the public deprecation window; any external backend that still implements it must provide both guarantees. The exported `loadPty` and `openTerminalWith` utilities are host-scoped primitives, not sandbox or lifecycle owners. A future persistent-terminal service needs an owner-scoped registry, a process substrate that owns complete session teardown, and confinement applied to the exact argv before spawn.
+
 ### 2. Interprocess Communication: Bridge (`bridge/`) and Bus (`bus/`)
 
 Two layers here, with different jobs.

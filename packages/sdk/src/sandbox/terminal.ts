@@ -1,5 +1,5 @@
 /**
- * A real terminal inside the sandbox, or nothing.
+ * A real host pseudo-terminal, or nothing.
  *
  * `exec` runs a command and hands back what it printed. That is the whole
  * shape of it, and a large class of work does not fit: an interactive
@@ -18,6 +18,12 @@
  * why. That is the same rule `Sandbox.setNetworkPolicy` states for itself:
  * a capability accepted and not applied is worse than one never offered,
  * because the caller stops looking.
+ *
+ * Nothing in this module creates a sandbox or owns a complete descendant
+ * process tree. `openTerminalWith` starts exactly the program, arguments and
+ * working directory it is handed through the supplied binding. A sandbox or
+ * durable terminal backend must wrap that argv under its own confinement and
+ * make teardown await every process it owns before using this primitive.
  */
 
 export interface TerminalSize {
@@ -26,7 +32,7 @@ export interface TerminalSize {
 }
 
 export interface OpenTerminalOptions {
-	/** The program to run. Defaults to the sandbox's own shell. */
+	/** The program to run. Defaults to the caller-supplied shell. */
 	readonly command?: string
 	readonly args?: readonly string[]
 	readonly cwd?: string
@@ -57,7 +63,7 @@ export interface TerminalSession {
 	onData(listener: (chunk: string) => void): () => void
 	/** Resolves when the program exits. */
 	readonly exited: Promise<{ exitCode: number; signal?: number }>
-	/** Stop it. */
+	/** Ask the backing binding to stop its top-level terminal process. */
 	kill(signal?: string): void
 }
 
@@ -142,11 +148,13 @@ export async function loadPty(loader?: PtyLoader): Promise<PtyModule> {
 }
 
 /**
- * Open a terminal, given a loaded binding.
+ * Open a host terminal, given a loaded binding.
  *
  * Separated from `loadPty` so the refusal and the session are testable
  * apart: one is about a missing dependency, the other about wiring a
- * process that exists.
+ * process that exists. This helper does not add confinement or descendant
+ * cleanup; those belong to the backend that supplies its argv and owns the
+ * returned session.
  */
 export function openTerminalWith(
 	pty: PtyModule,

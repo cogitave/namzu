@@ -149,17 +149,27 @@ describe('a missing binding is refused, by name', () => {
 		// would fail later, further from the cause.
 		await expect(loadPty(async () => ({}) as PtyModule)).rejects.toThrow(TerminalUnavailableError)
 	})
+})
 
-	it('reaches a caller through the sandbox, unchanged', async () => {
-		const provider = new LocalSandboxProvider(NOOP_LOGGER, {
-			ptyLoader: async () => {
-				throw new Error("Cannot find module 'node-pty'")
-			},
-		})
-		const sandbox = await provider.create({})
+describe('a local sandbox does not claim a terminal it cannot confine and own', () => {
+	it('does not expose the optional terminal capability', async () => {
+		const sandbox = await new LocalSandboxProvider(NOOP_LOGGER).create({})
 
-		await expect(sandbox.openTerminal?.({ size: SIZE })).rejects.toThrow(TerminalUnavailableError)
+		expect('openTerminal' in sandbox).toBe(false)
+		expect(sandbox.openTerminal).toBeUndefined()
+
 		await sandbox.destroy()
+	})
+
+	it('refuses the legacy loader instead of accepting an option it cannot honour', () => {
+		expect(
+			() =>
+				new LocalSandboxProvider(NOOP_LOGGER, {
+					ptyLoader: async () => fakePty().module,
+				}),
+		).toThrow(
+			'LocalSandboxProvider no longer accepts ptyLoader because its terminal could not preserve the selected isolation tier or sandbox teardown ownership.',
+		)
 	})
 })
 
@@ -269,28 +279,5 @@ describe('a session that IS available', () => {
 		expect(last().killedWith).toBe('SIGTERM')
 		session.kill('SIGKILL')
 		expect(last().killedWith).toBe('SIGKILL')
-	})
-})
-
-describe('a destroyed sandbox has no terminal', () => {
-	it('refuses rather than opening one in a directory that is gone', async () => {
-		const { module } = fakePty()
-		const provider = new LocalSandboxProvider(NOOP_LOGGER, { ptyLoader: async () => module })
-		const sandbox = await provider.create({})
-		await sandbox.destroy()
-
-		await expect(sandbox.openTerminal?.({ size: SIZE })).rejects.toThrow(/destroyed/)
-	})
-
-	it('opens one for a live sandbox, rooted in it', async () => {
-		const { module, last } = fakePty()
-		const provider = new LocalSandboxProvider(NOOP_LOGGER, { ptyLoader: async () => module })
-		const sandbox = await provider.create({})
-
-		const session = await sandbox.openTerminal?.({ size: SIZE })
-
-		expect(session).toBeDefined()
-		expect(last().options.cwd).toBe(sandbox.rootDir)
-		await sandbox.destroy()
 	})
 })
