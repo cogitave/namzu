@@ -60,10 +60,12 @@ export {
 } from './output/index.js'
 export {
 	ConfigLoadError,
+	ConfigValueError,
 	loadConfig,
 	loadConfigWithProvenance,
 	type ConfigProvenance,
 	type ConfigSource,
+	type ConfigValueSource,
 	type LoadConfigOptions,
 } from './config/load.js'
 export {

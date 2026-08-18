@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	ConfigLoadError,
+	ConfigValueError,
 	ENV_VARIABLE_NAMES,
 	type LoadConfigOptions,
 	loadConfig,
@@ -53,10 +54,51 @@ describe('loadConfig cascade', () => {
 		expect(cfg.format).toBe('text')
 	})
 
-	it('ignores invalid format values silently', () => {
+	it('refuses an invalid known value instead of silently using the default', () => {
 		const home = userConfig('format: xml\n')
-		const cfg = loadConfig({ home, cwd: tmpdir(), env: {} })
-		expect(cfg.format).toBe('text')
+		let error: unknown
+		try {
+			loadConfig({ home, cwd: tmpdir(), env: {} })
+		} catch (cause) {
+			error = cause
+		}
+
+		expect(error).toBeInstanceOf(ConfigValueError)
+		expect(error).toMatchObject({
+			settingPath: 'format',
+			source: { kind: 'file', path: join(home, '.namzu', 'config.yaml') },
+		})
+		expect((error as Error).message).toContain('must be one of "text", "json", or "yaml"')
+	})
+
+	it('refuses a malformed lower-precedence file even when the environment could override it', () => {
+		const home = userConfig('format: xml\n')
+
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: { NAMZU_FORMAT: 'json' } })).toThrow(
+			ConfigValueError,
+		)
+	})
+
+	it.each([
+		['NAMZU_FORMAT', { NAMZU_FORMAT: 'xml' }, 'format'],
+		['NAMZU_FORMAT', { NAMZU_FORMAT: '' }, 'format'],
+		['NAMZU_QUIET', { NAMZU_QUIET: 'yes' }, 'quiet'],
+		['NAMZU_QUIET', { NAMZU_QUIET: '' }, 'quiet'],
+	] as const)('refuses invalid explicit environment variable %s', (variable, env, settingPath) => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		let error: unknown
+		try {
+			loadConfig({ home, cwd, env })
+		} catch (cause) {
+			error = cause
+		}
+
+		expect(error).toBeInstanceOf(ConfigValueError)
+		expect(error).toMatchObject({
+			settingPath,
+			source: { kind: 'environment', variable },
+		})
 	})
 })
 
@@ -80,11 +122,83 @@ describe('terminal notification config', () => {
 		{ notifications: ['turn-complet'] },
 		{ notifications: 'yes' },
 		{ notifications: true, notificationMethod: 'desktop' },
-	])('does not turn on a different notification shape for invalid $notifications', (tui) => {
+	])('refuses an invalid notification shape instead of changing it: $notifications', (tui) => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui }))
 
-		expect(loadConfig({ home: tmpdir(), cwd, env: {} }).tui).toBeUndefined()
+		expect(() => loadConfig({ home: tmpdir(), cwd, env: {} })).toThrow(ConfigValueError)
+	})
+})
+
+describe('semantic validation of known file settings', () => {
+	function projectError(body: unknown): ConfigValueError {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify(body))
+		try {
+			loadConfig({ home: mkdtempSync(join(tmpdir(), 'namzu-home-')), cwd, env: {} })
+			expect.unreachable('an invalid known value must not load')
+		} catch (error) {
+			expect(error).toBeInstanceOf(ConfigValueError)
+			return error as ConfigValueError
+		}
+	}
+
+	it.each([
+		[{ quiet: 'yes' }, 'quiet'],
+		[{ permissions: [] }, 'permissions'],
+		[{ permissionChecks: {} }, 'permissionChecks'],
+		[{ mcpServers: [] }, 'mcpServers'],
+		[{ sandbox: { enabled: 'yes' } }, 'sandbox.enabled'],
+		[{ sandbox: { requireIsolation: 'filesystem' } }, 'sandbox.requireIsolation'],
+		[{ sandbox: { requireIsolation: ['filesystem', 'memory'] } }, 'sandbox.requireIsolation[1]'],
+		[
+			{ telemetry: { sessionExport: { destination: 'out.jsonl', redactors: 'secrets' } } },
+			'telemetry.sessionExport.redactors',
+		],
+		[
+			{ telemetry: { sessionExport: { destination: 'out.jsonl', eventTypes: ['ok', 7] } } },
+			'telemetry.sessionExport.eventTypes[1]',
+		],
+		[{ tui: { notifications: true, notificationMethod: 'desktop' } }, 'tui.notificationMethod'],
+	] as const)('names the exact invalid config path %#', (body, settingPath) => {
+		expect(projectError(body).settingPath).toBe(settingPath)
+	})
+
+	it('refuses an invalid managed value rather than letting a lower layer win', () => {
+		const root = mkdtempSync(join(tmpdir(), 'namzu-managed-'))
+		const home = join(root, 'home')
+		const cwd = join(root, 'cwd')
+		const managedPath = join(root, 'managed.json')
+		mkdirSync(home)
+		mkdirSync(cwd)
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ sandbox: { enabled: true } }))
+		writeFileSync(
+			managedPath,
+			JSON.stringify({ sandbox: { requireIsolation: ['filesystem', 'memory'] } }),
+		)
+
+		let error: unknown
+		try {
+			loadConfig({ home, cwd, env: {}, managedPath })
+		} catch (cause) {
+			error = cause
+		}
+		expect(error).toMatchObject({
+			settingPath: 'sandbox.requireIsolation[1]',
+			source: { kind: 'file', path: managedPath },
+		})
+	})
+
+	it('continues to accept and ignore unknown keys instead of inventing strict mode', () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ futureSetting: true, sandbox: { enabled: true, futureControl: 'x' } }),
+		)
+
+		const config = loadConfig({ home: tmpdir(), cwd, env: {} })
+		expect(config.sandbox).toEqual({ enabled: true })
+		expect('futureSetting' in config).toBe(false)
 	})
 })
 

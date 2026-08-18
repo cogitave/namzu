@@ -7,7 +7,7 @@ import type { LogRecord } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { emitBootNarrative } from '../../../cli.js'
-import { loadConfigWithProvenance } from '../../../config/load.js'
+import { ConfigValueError, loadConfigWithProvenance } from '../../../config/load.js'
 import { DEFAULT_CONFIG } from '../../../config/schema.js'
 import { describeSessionExportStatus } from '../../../doctor/checks/session-export.js'
 import { installCliLogging } from '../../../logging.js'
@@ -163,27 +163,25 @@ describe('the config reader', () => {
 		expect(read()?.sessionExport).toEqual({ destination: 'out.jsonl', redactors: ['secrets'] })
 	})
 
-	it('drops the WHOLE sessionExport when `redactors` is malformed', () => {
+	it('refuses the config when `redactors` is malformed', () => {
 		write({ telemetry: { sessionExport: { destination: 'out.jsonl', redactors: 'secrets' } } })
 
-		// Not "drop the bad key and keep exporting". A misspelled or mistyped
-		// `redactors` read leniently would leave export ON with redaction
-		// silently OFF — the one outcome a config typo must not be able to
-		// produce. Dropping it entirely makes the boot line read "off", which
-		// is visible.
-		expect(read()?.sessionExport).toBeUndefined()
+		// Neither "drop the bad key and keep exporting" nor "turn export off" is
+		// the configuration the operator wrote. The known bad value is named.
+		expect(read).toThrow(ConfigValueError)
+		expect(read).toThrow(/telemetry\.sessionExport\.redactors/)
 	})
 
-	it('drops it when the destination is missing or empty', () => {
+	it('refuses it when the destination is missing or empty', () => {
 		write({ telemetry: { sessionExport: { redactors: ['secrets'] } } })
-		expect(read()?.sessionExport).toBeUndefined()
+		expect(read).toThrow(/telemetry\.sessionExport\.destination/)
 		write({ telemetry: { sessionExport: { destination: '' } } })
-		expect(read()?.sessionExport).toBeUndefined()
+		expect(read).toThrow(/telemetry\.sessionExport\.destination/)
 	})
 
-	it('drops it for an unknown redactor name', () => {
+	it('refuses it for an unknown redactor name', () => {
 		write({ telemetry: { sessionExport: { destination: 'out.jsonl', redactors: ['everything'] } } })
-		expect(read()?.sessionExport).toBeUndefined()
+		expect(read).toThrow(/telemetry\.sessionExport\.redactors\[0\]/)
 	})
 })
 

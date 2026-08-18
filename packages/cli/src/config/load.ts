@@ -1,21 +1,25 @@
 /**
- * Config cascade for @namzu/cli (M0 scaffolding).
+ * Config cascade and runtime admission for @namzu/cli.
  *
  * Resolution order (highest priority first):
- *   1. CLI flags (handled by Commander, merged in `bin.ts`)
+ *   1. CLI flags (handled by Commander, merged in `cli.ts`)
  *   2. Environment variables prefixed `NAMZU_`
  *   3. Project config: `./namzu.config.json` (TS variant added in a later
  *      milestone when a build step is justified)
  *   4. User config: `~/.namzu/config.yaml`
  *   5. Built-in defaults from `schema.ts`
  *
- * In M0 we wire steps 2, 3, 4, 5. CLI-flag merging happens in `bin.ts`
- * where Commander knows what was explicitly set vs defaulted.
+ * This module owns steps 2–5. CLI-flag merging happens in `cli.ts`, where
+ * Commander knows what was explicitly set rather than merely defaulted.
  *
  * A file that is not there contributes nothing, and that is a default. A file
  * that IS there and cannot be read throws {@link ConfigLoadError} — this loader
  * has no way to say "some of your settings", and will not pretend the ones it
  * failed to read were never written.
+ *
+ * A source Namzu can parse but whose known key carries an invalid value throws
+ * {@link ConfigValueError}. Absence, syntax failure, and semantic rejection are
+ * three different states and none is represented by another.
  */
 
 import { readFileSync } from 'node:fs'
@@ -28,7 +32,9 @@ import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { isFormatName } from '../output/index.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
+import { configMetadataLiteral } from './debug.js'
 import type {
+	ProfileConfig,
 	ProfilesConfig,
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
@@ -210,7 +216,11 @@ function profileLayers(
 		if (profiles === undefined) continue
 		declaringFiles.push(path)
 		for (const key of Object.keys(profiles)) declared.add(key)
+		if (!Object.hasOwn(profiles, name)) continue
 		const selected = profiles[name]
+		// `Object.hasOwn` above is the declaration check. Direct indexing alone
+		// admits inherited `toString`, `constructor`, and `__proto__` as profiles
+		// a file never declared.
 		if (selected === undefined) continue
 		layers.push(constantLayer(selected as MutableConfig, { kind: 'profile', name, path }))
 	}
@@ -252,6 +262,36 @@ export class ConfigLoadError extends Error {
 		super(message, options)
 		this.name = 'ConfigLoadError'
 		this.path = path
+	}
+}
+
+/** The explicit source that supplied a semantically invalid config value. */
+export type ConfigValueSource =
+	| { readonly kind: 'file'; readonly path: string }
+	| { readonly kind: 'environment'; readonly variable: string }
+
+/**
+ * A known config key whose explicit value does not satisfy its public type.
+ *
+ * Kept distinct from {@link ConfigLoadError}: that class means a file could
+ * not be read or parsed at all, while this one means the source was readable
+ * and named a setting Namzu cannot honour. Public loaders throw both; the
+ * standalone binary maps both to `EX_CONFIG`.
+ */
+export class ConfigValueError extends Error {
+	readonly source: ConfigValueSource
+	/** Dot/bracket path to the invalid known setting, without its source. */
+	readonly settingPath: string
+
+	constructor(source: ConfigValueSource, settingPath: string, message: string) {
+		const origin =
+			source.kind === 'file'
+				? `config file ${configMetadataLiteral(source.path)}`
+				: `environment variable ${source.variable}`
+		super(`${origin}: ${settingPath} ${message}`)
+		this.name = 'ConfigValueError'
+		this.source = source
+		this.settingPath = settingPath
 	}
 }
 
@@ -327,7 +367,7 @@ function asConfigObject(path: string, parsed: unknown): MutableConfig {
 			`${path} must contain a mapping of settings, but its top level is ${describe(parsed)}`,
 		)
 	}
-	return sanitize(parsed)
+	return sanitize(parsed, { kind: 'file', path })
 }
 
 function describe(value: unknown): string {
@@ -351,6 +391,13 @@ function reasonOf(cause: unknown): string {
  */
 type MutableConfig = { -readonly [K in keyof NamzuCliConfig]?: NamzuCliConfig[K] }
 
+type SettingPathSegment = string | number
+
+interface ConfigReaderContext {
+	readonly source: ConfigValueSource
+	readonly path: readonly SettingPathSegment[]
+}
+
 /**
  * One reader per public config field. The mapped type has no `?`, so **every**
  * key of `NamzuCliConfig` must appear here — adding a field to the public
@@ -361,86 +408,159 @@ type MutableConfig = { -readonly [K in keyof NamzuCliConfig]?: NamzuCliConfig[K]
  * parsed, validated, type-checked and did nothing.
  */
 type ConfigReaders = {
-	[K in keyof Required<NamzuCliConfig>]: (value: unknown) => NamzuCliConfig[K] | undefined
+	[K in keyof Required<NamzuCliConfig>]: (
+		value: unknown,
+		context: ConfigReaderContext,
+	) => NamzuCliConfig[K]
 }
 
 const CONFIG_READERS: ConfigReaders = {
-	format: (v) => (typeof v === 'string' && isFormatName(v) ? v : undefined),
-	quiet: (v) => (typeof v === 'boolean' ? v : undefined),
+	format: (v, context) => {
+		if (typeof v === 'string' && isFormatName(v)) return v
+		return invalidConfigValue(context, [], 'must be one of "text", "json", or "yaml"')
+	},
+	quiet: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	// Shape only. Per-entry validation belongs to `compilePermissions`, which
 	// reports a bad effect or an unusable pattern as a diagnostic the user
 	// sees; dropping those entries here would silence it.
-	permissions: (v) =>
-		typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as PermissionsConfig) : undefined,
+	permissions: (v, context) => {
+		if (isConfigMapping(v)) return v as PermissionsConfig
+		return invalidConfigValue(context, [], 'must be a mapping of tool names')
+	},
 	// Shape only, like `permissions` and for the same reason: per-entry
 	// validation belongs to `verifyPermissionChecks`, which reports a bad
 	// check by index. Dropping a malformed one here would turn "your check is
 	// unreadable" into "your check passed".
-	permissionChecks: (v) => (Array.isArray(v) ? (v as PermissionChecksConfig) : undefined),
-	// Shape only. Which profile is SELECTED is decided in the cascade, which
-	// refuses a name nothing declares — and it can only do that if a
-	// malformed-looking profile still reaches it. Dropping one here would
-	// turn "that profile is not declared" into "that profile did nothing".
-	profiles: (v) =>
-		typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as ProfilesConfig) : undefined,
+	permissionChecks: (v, context) => {
+		if (Array.isArray(v)) return v as PermissionChecksConfig
+		return invalidConfigValue(context, [], 'must be a list')
+	},
+	// Every declared profile is checked when its file loads, not only when it is
+	// selected. Typed config in a lower-precedence layer cannot become valid
+	// merely because another layer happens to win today. Unknown profile keys
+	// remain non-strict and are ignored by `sanitize`, like unknown base keys.
+	profiles: (v, context) => {
+		if (!isConfigMapping(v)) {
+			return invalidConfigValue(context, [], 'must be a mapping of profile names')
+		}
+		const profiles: Record<string, ProfileConfig> = {}
+		for (const name of Object.keys(v)) {
+			const entry = v[name]
+			if (!isConfigMapping(entry)) {
+				return invalidConfigValue(context, [name], 'must be a mapping of settings')
+			}
+			const parsed = sanitize(entry, context.source, [...context.path, name], false)
+			// Define rather than assign: `__proto__` is a valid own profile name,
+			// not permission to change this dictionary's prototype.
+			Object.defineProperty(profiles, name, {
+				value: parsed as ProfileConfig,
+				enumerable: true,
+				configurable: true,
+				writable: true,
+			})
+		}
+		return profiles as ProfilesConfig
+	},
 	// Shape only, for the same reason as `permissions`: an entry that names
 	// neither a command nor a url — or both — is reported by name when the
 	// connection is attempted. Dropping it here would turn a mistake the
 	// operator can see into a server that silently was never there.
-	mcpServers: (v) =>
-		typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as McpServersConfig) : undefined,
+	mcpServers: (v, context) => {
+		if (isConfigMapping(v)) return v as McpServersConfig
+		return invalidConfigValue(context, [], 'must be a mapping of server names')
+	},
 	// Read field by field rather than shape-only, unlike the two above.
 	// Those hand their entries to a compiler that reports a bad one by name;
 	// this one is consumed directly, and a misspelled `require_isolation` or
 	// a string where a list belongs would otherwise become "no requirement"
 	// — a security control silently downgraded by a typo, which is the
 	// failure this whole change exists to remove.
-	sandbox: (v) => {
-		if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined
+	sandbox: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as { enabled?: unknown; requireIsolation?: unknown }
-		const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : undefined
-		const requireIsolation = Array.isArray(raw.requireIsolation)
-			? raw.requireIsolation.filter(
-					(c): c is 'filesystem' | 'network' | 'process' =>
-						c === 'filesystem' || c === 'network' || c === 'process',
-				)
-			: undefined
+		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
+			return invalidConfigValue(context, ['enabled'], 'must be a boolean')
+		}
+		if (raw.requireIsolation !== undefined && !Array.isArray(raw.requireIsolation)) {
+			return invalidConfigValue(context, ['requireIsolation'], 'must be a list')
+		}
+		const requireIsolation = raw.requireIsolation as unknown[] | undefined
+		const invalidIndex = requireIsolation?.findIndex(
+			(value) => value !== 'filesystem' && value !== 'network' && value !== 'process',
+		)
+		if (invalidIndex !== undefined && invalidIndex >= 0) {
+			return invalidConfigValue(
+				context,
+				['requireIsolation', invalidIndex],
+				'must be one of "filesystem", "network", or "process"',
+			)
+		}
 		return {
-			...(enabled !== undefined ? { enabled } : {}),
-			...(requireIsolation !== undefined ? { requireIsolation } : {}),
+			...(raw.enabled !== undefined ? { enabled: raw.enabled } : {}),
+			...(requireIsolation !== undefined
+				? {
+						requireIsolation: requireIsolation as readonly ('filesystem' | 'network' | 'process')[],
+					}
+				: {}),
 		}
 	},
 	// Field by field, for the same reason as `sandbox` and one stronger:
 	// this one decides whether conversation content leaves the machine. A
-	// misspelled `redacters` read shape-only would become "no redactors"
-	// while the export still ran — redaction silently off, which is the one
-	// outcome a config typo must not be able to produce. So a malformed
-	// `redactors` drops the WHOLE sessionExport rather than the key, and the
-	// boot disclosure then reads "off" instead of "on with nothing
-	// installed".
-	telemetry: (v) => {
-		if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined
+	// misspelled `redacters` read shape-only could change the export's security
+	// posture while it still ran. A malformed known field therefore refuses the
+	// config rather than selecting either "off" or a different redactor set.
+	telemetry: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as { sessionExport?: unknown }
 		if (raw.sessionExport === undefined) return {}
 		const se = raw.sessionExport
-		if (typeof se !== 'object' || se === null || Array.isArray(se)) return undefined
+		if (!isConfigMapping(se)) {
+			return invalidConfigValue(context, ['sessionExport'], 'must be a mapping')
+		}
 		const entry = se as { destination?: unknown; eventTypes?: unknown; redactors?: unknown }
 
 		// No destination, no export. There is nothing to fall back to and
 		// nothing safe to guess.
-		if (typeof entry.destination !== 'string' || entry.destination.length === 0) return undefined
+		if (typeof entry.destination !== 'string' || entry.destination.length === 0) {
+			return invalidConfigValue(
+				context,
+				['sessionExport', 'destination'],
+				'must be a non-empty string',
+			)
+		}
 
 		let eventTypes: readonly string[] | undefined
 		if (entry.eventTypes !== undefined) {
-			if (!Array.isArray(entry.eventTypes)) return undefined
-			if (!entry.eventTypes.every((t) => typeof t === 'string')) return undefined
+			if (!Array.isArray(entry.eventTypes)) {
+				return invalidConfigValue(context, ['sessionExport', 'eventTypes'], 'must be a list')
+			}
+			const invalidIndex = entry.eventTypes.findIndex((event) => typeof event !== 'string')
+			if (invalidIndex >= 0) {
+				return invalidConfigValue(
+					context,
+					['sessionExport', 'eventTypes', invalidIndex],
+					'must be a string',
+				)
+			}
 			eventTypes = entry.eventTypes as readonly string[]
 		}
 
 		let redactors: readonly SessionExportRedactorName[] | undefined
 		if (entry.redactors !== undefined) {
-			if (!Array.isArray(entry.redactors)) return undefined
-			if (!entry.redactors.every((r) => r === 'secrets')) return undefined
+			if (!Array.isArray(entry.redactors)) {
+				return invalidConfigValue(context, ['sessionExport', 'redactors'], 'must be a list')
+			}
+			const invalidIndex = entry.redactors.findIndex((redactor) => redactor !== 'secrets')
+			if (invalidIndex >= 0) {
+				return invalidConfigValue(
+					context,
+					['sessionExport', 'redactors', invalidIndex],
+					'must be "secrets"',
+				)
+			}
 			redactors = entry.redactors as readonly SessionExportRedactorName[]
 		}
 
@@ -453,27 +573,34 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 	},
 	// TUI notifications are terminal escape writes only. Invalid nested values
-	// disable this whole optional feature rather than silently selecting a
-	// different event or protocol from the one the operator wrote.
-	tui: (v) => {
-		if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined
+	// refuse rather than silently selecting a different event/protocol or
+	// disabling the feature the operator explicitly configured.
+	tui: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as { notifications?: unknown; notificationMethod?: unknown }
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
 		else if (Array.isArray(raw.notifications)) {
-			if (
-				!raw.notifications.every(
-					(event): event is TerminalNotificationEvent =>
-						event === 'turn-settled' || event === 'approval-required',
-				)
+			const invalidIndex = raw.notifications.findIndex(
+				(event) => event !== 'turn-settled' && event !== 'approval-required',
 			)
-				return undefined
-			notifications = raw.notifications
-		} else if (raw.notifications !== undefined) return undefined
+			if (invalidIndex >= 0) {
+				return invalidConfigValue(
+					context,
+					['notifications', invalidIndex],
+					'must be one of "turn-settled" or "approval-required"',
+				)
+			}
+			notifications = raw.notifications as readonly TerminalNotificationEvent[]
+		} else if (raw.notifications !== undefined) {
+			return invalidConfigValue(context, ['notifications'], 'must be a boolean or a list')
+		}
 
 		const method = raw.notificationMethod
-		if (method !== undefined && method !== 'osc9' && method !== 'bel') return undefined
+		if (method !== undefined && method !== 'osc9' && method !== 'bel') {
+			return invalidConfigValue(context, ['notificationMethod'], 'must be "osc9" or "bel"')
+		}
 
 		return {
 			...(notifications !== undefined ? { notifications } : {}),
@@ -535,7 +662,14 @@ function readEnv(env: NodeJS.ProcessEnv): { config: MutableConfig; variables: En
 	const formatVar = ENV_VARIABLE_NAMES.format
 	if (formatVar) {
 		const format = env[formatVar]
-		if (format && isFormatName(format)) {
+		if (format !== undefined) {
+			if (!isFormatName(format)) {
+				throw new ConfigValueError(
+					{ kind: 'environment', variable: formatVar },
+					'format',
+					'must be one of "text", "json", or "yaml"',
+				)
+			}
 			config.format = format
 			variables.format = formatVar
 		}
@@ -544,12 +678,15 @@ function readEnv(env: NodeJS.ProcessEnv): { config: MutableConfig; variables: En
 	const quietVar = ENV_VARIABLE_NAMES.quiet
 	if (quietVar) {
 		const quiet = env[quietVar]
-		if (quiet === '1' || quiet === 'true') {
-			config.quiet = true
-			variables.quiet = quietVar
-		}
-		if (quiet === '0' || quiet === 'false') {
-			config.quiet = false
+		if (quiet !== undefined) {
+			if (quiet !== '1' && quiet !== 'true' && quiet !== '0' && quiet !== 'false') {
+				throw new ConfigValueError(
+					{ kind: 'environment', variable: quietVar },
+					'quiet',
+					'must be one of "1", "true", "0", or "false"',
+				)
+			}
+			config.quiet = quiet === '1' || quiet === 'true'
 			variables.quiet = quietVar
 		}
 	}
@@ -557,15 +694,59 @@ function readEnv(env: NodeJS.ProcessEnv): { config: MutableConfig; variables: En
 	return { config, variables }
 }
 
-function sanitize(value: object): MutableConfig {
+function sanitize(
+	value: object,
+	source: ConfigValueSource,
+	prefix: readonly SettingPathSegment[] = [],
+	allowProfiles = true,
+): MutableConfig {
 	const v = value as Record<string, unknown>
 	const out: MutableConfig = {}
 	for (const key of Object.keys(CONFIG_READERS) as (keyof NamzuCliConfig)[]) {
-		if (!(key in v)) continue
-		const parsed = CONFIG_READERS[key](v[key])
+		if (!Object.hasOwn(v, key)) continue
+		if (key === 'profiles' && !allowProfiles) {
+			throw new ConfigValueError(
+				source,
+				formatSettingPath([...prefix, key]),
+				'cannot be declared inside a profile',
+			)
+		}
+		const parsed = CONFIG_READERS[key](v[key], { source, path: [...prefix, key] })
 		// One assignment through a widened view, rather than a cast on the
 		// result: the key/reader pairing is what `ConfigReaders` proves.
-		if (parsed !== undefined) (out as Record<string, unknown>)[key] = parsed
+		;(out as Record<string, unknown>)[key] = parsed
+	}
+	return out
+}
+
+function isConfigMapping(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function invalidConfigValue(
+	context: ConfigReaderContext,
+	suffix: readonly SettingPathSegment[],
+	message: string,
+): never {
+	throw new ConfigValueError(
+		context.source,
+		formatSettingPath([...context.path, ...suffix]),
+		message,
+	)
+}
+
+function formatSettingPath(segments: readonly SettingPathSegment[]): string {
+	let out = ''
+	for (const segment of segments) {
+		if (typeof segment === 'number') {
+			out += `[${segment}]`
+			continue
+		}
+		if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(segment)) {
+			out += out === '' ? segment : `.${segment}`
+			continue
+		}
+		out += `[${configMetadataLiteral(segment)}]`
 	}
 	return out
 }

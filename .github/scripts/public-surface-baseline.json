@@ -48,6 +48,7 @@
     ".": {
       "runtime": [
         "ConfigLoadError",
+        "ConfigValueError",
         "DEFAULT_CONFIG",
         "DoctorRegistry",
         "NAMZU_OPTIONAL_CAPABILITIES",
@@ -87,6 +88,8 @@
         "ConfigLoadError",
         "ConfigProvenance",
         "ConfigSource",
+        "ConfigValueError",
+        "ConfigValueSource",
         "DEFAULT_CONFIG",
         "DoctorRegistry",
         "FormatName",

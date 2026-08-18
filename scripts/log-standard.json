@@ -68,8 +68,8 @@
 		{
 			"file": "packages/cli/src/cli.ts",
 			"symbol": "process.stderr.write",
-			"count": 2,
-			"reason": "runCli's top-level catch: a bad-config message and a fatal-error message, both bootstrap-time paths in the same category as bin.ts."
+			"count": 3,
+			"reason": "runCli's top-level catch: source-aware semantic config refusal, a broader config-load failure, and a fatal-error message; all are bootstrap-time paths in the same category as bin.ts."
 		},
 		{
 			"file": "packages/cli/src/commands/doctor.ts",

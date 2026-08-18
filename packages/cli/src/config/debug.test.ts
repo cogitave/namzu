@@ -78,7 +78,7 @@ describe('/debug-config rendering', () => {
 			...Array.from({ length: 4 }, (_, offset) => String.fromCodePoint(0x2066 + offset)),
 		].join('')
 		const separators = `${String.fromCodePoint(0x2028)}${String.fromCodePoint(0x2029)}`
-		const credential = 'sk-proj-abcdefghijklmnopqrstuvwxyz1234'
+		const credential = 'pk_abcdefghijklmnopqrstuvwxyz1234'
 		const dangerous = `${c0}${c1}${bidi}${separators}\\"T\u0131rk\u00e7e\ud83d\ude42${credential}`
 		const source = { kind: 'project-file', path: `/work/${dangerous}` } as const
 		const rendered = renderConfigDebug(
@@ -109,11 +109,11 @@ describe('/debug-config rendering', () => {
 		expect(rendered).toContain('\\u{202e}')
 		expect(rendered).toContain('\\u{2066}')
 		expect(rendered).toContain('\\u{1f642}')
-		expect(rendered).toContain('[REDACTED:openai-key]')
+		expect(rendered).toContain('[REDACTED:generic-key]')
 		expect(rendered).not.toContain(credential)
 		// Both sources must redact: a reused /g pattern with stale lastIndex can
 		// protect the first row and leak the second.
-		expect(rendered.match(/\[REDACTED:openai-key\]/g)).toHaveLength(3)
+		expect(rendered.match(/\[REDACTED:generic-key\]/g)).toHaveLength(3)
 	})
 
 	it('shares one raw source vocabulary with boot logging', () => {

@@ -39,6 +39,7 @@ import {
 	ConfigLoadError,
 	type ConfigProvenance,
 	type ConfigSource,
+	ConfigValueError,
 	loadConfigWithProvenance,
 } from './config/load.js'
 import type { NamzuCliConfig } from './config/schema.js'
@@ -96,7 +97,13 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.name('namzu')
 		.description('Operator CLI for the Namzu agent platform')
 		.version(CLI_VERSION, '-V, --version', 'Print version and exit')
-		.option('-f, --format <type>', 'Output format: text, json, yaml')
+		.addOption(
+			new Option('-f, --format <type>', 'Output format: text, json, yaml').choices([
+				'text',
+				'json',
+				'yaml',
+			]),
+		)
 		.option('-q, --quiet', 'Suppress non-essential output; also raises the log floor to warn')
 		.addOption(
 			new Option('-v, --verbose', 'Emit debug-level log records to stderr').conflicts('quiet'),
@@ -135,10 +142,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		const { config: fileConfig, provenance } = loadConfigWithProvenance(
 			globalOpts.profile !== undefined ? { profile: globalOpts.profile } : {},
 		)
-		const cliFormat: FormatName | undefined =
-			globalOpts.format !== undefined && isFormatName(globalOpts.format)
-				? globalOpts.format
-				: undefined
+		const cliFormat: FormatName | undefined = (() => {
+			if (globalOpts.format === undefined) return undefined
+			if (isFormatName(globalOpts.format)) return globalOpts.format
+			// Commander's enumerated option owns the operator-facing refusal. This
+			// branch is an invariant check so removing `.choices(...)` cannot bring
+			// back the old silent fallback.
+			throw new Error(`Commander admitted an invalid --format value: ${globalOpts.format}`)
+		})()
 		const formatFromCli = cliFormat !== undefined
 		const format: FormatName = cliFormat ?? fileConfig.format ?? 'text'
 		const quiet = globalOpts.quiet ?? fileConfig.quiet ?? false
@@ -262,6 +273,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		if (err instanceof ConfigLoadError) {
 			process.stderr.write(
 				`${err.message}\nnamzu will not start with a config it cannot read. Fix the file or remove it.\n`,
+			)
+			return EXIT_BAD_CONFIG
+		}
+		if (err instanceof ConfigValueError) {
+			const remediation =
+				err.source.kind === 'file'
+					? 'Fix the named setting or remove it from that file.'
+					: `Fix or unset ${err.source.variable}.`
+			process.stderr.write(
+				`${err.message}\nnamzu will not start with an explicit config value it cannot honour. ${remediation}\n`,
 			)
 			return EXIT_BAD_CONFIG
 		}

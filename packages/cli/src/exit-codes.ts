@@ -37,10 +37,11 @@
  *                             nothing else is. A caller who cannot tell them
  *                             apart matches on the message string, and then
  *                             the message can never be reworded.
- *   78  EXIT_BAD_CONFIG     — sysexits EX_CONFIG; a config file is present and
- *                             its contents could not be established, so the
- *                             run refused to start rather than continue with
- *                             settings it failed to read. Distinct from 2 for
+ *   78  EXIT_BAD_CONFIG     — sysexits EX_CONFIG; a config source is present
+ *                             and cannot be read or contains a known setting
+ *                             with an invalid value, so the run refuses rather
+ *                             than silently substituting another setting.
+ *                             Distinct from 2 for
  *                             the reason 2 is distinct from 0: "namzu is not
  *                             configured here" and "your configuration is
  *                             unreadable" are fixed by opposite actions, and a

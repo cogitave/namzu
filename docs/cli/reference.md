@@ -393,14 +393,36 @@ of continuing on settings it failed to read. That refusal is load-bearing:
 would turn an operator's deny list into approval of the same calls, on the one
 path where nobody is watching.
 
+A readable source with a **known key whose explicit value is invalid** also
+stops with exit `78`; it is not treated as if the key were absent. This applies
+to the user, project and managed files, every declared profile body, and the
+explicit `NAMZU_FORMAT` / `NAMZU_QUIET` variables. Each source is validated
+before precedence is applied, so a malformed lower layer is still an error when
+a higher layer could override it. The message names the source and exact setting
+path, such as `sandbox.requireIsolation[1]`. An empty environment value is an
+explicit invalid value; unset the variable to omit it. Invalid `--format` is a
+command-line usage error instead and exits `64` before a command runs.
+
+Unknown keys remain accepted and ignored for forward compatibility; this is not
+a strict-config mode. Permission rules, permission checks and MCP server entries
+also keep their existing per-entry compilers, which can name multiple bad entries
+instead of losing the rest. Their outer container must still have the documented
+shape. Every profile is validated when its file loads, selected or not, and a
+profile name is an own key of the `profiles` mapping — inherited object names
+such as `toString` are not declarations. A literal own profile with that name is
+valid.
+
 | Key | Shape | Notes |
 |---|---|---|
 | `format` | `'text' \| 'json' \| 'yaml'` | Default `text`. Also `NAMZU_FORMAT` |
 | `quiet` | `boolean` | Default `false`. Also `NAMZU_QUIET` (`1`/`true`/`0`/`false`) |
 | `permissions` | tool → effect, or tool → { pattern → effect } | Effects are `allow`, `ask`, `deny`. Absent means every mutating tool prompts |
+| `permissionChecks` | list of `{ tool, input, expect }` | Checks the compiled permission table at startup and reports each mismatch or malformed entry |
+| `profiles` | name → config mapping | Select with `--profile` or `NAMZU_PROFILE`; a profile cannot contain `profiles` |
 | `mcpServers` | name → `{ command, args }` or `{ url }` | Tools arrive prefixed with the server's name |
 | `sandbox` | `{ enabled?, requireIsolation? }` | `enabled` defaults to **on**. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start |
 | `telemetry` | `{ sessionExport?: { destination, eventTypes?, redactors? } }` | Writes run events to a JSONL file. `redactors: []` means no redaction and has to be written to mean it |
+| `tui` | `{ notifications?, notificationMethod? }` | Interactive notifications; events are `turn-settled` / `approval-required`, method is `osc9` / `bel` |
 
 Only `format` and `quiet` are settable from the environment. `telemetry` is
 deliberately not: a variable in a shell profile could otherwise start exporting
@@ -626,8 +648,10 @@ for (const probe of await probeCapabilities()) {
 change. `loadConfig()` is the same cascade without the provenance.
 `probeOptionalPackage(specifier)` probes one package instead of all four.
 `registerCommand` / `registerAll` add a `CommandDef` to a Commander program, and
-`DEFAULT_CONFIG`, `ConfigLoadError`, `isFormatName` and `runDoctorCommand` round
-out the surface.
+`DEFAULT_CONFIG`, `ConfigLoadError`, `ConfigValueError`, `isFormatName` and
+`runDoctorCommand` round out the surface. `ConfigLoadError` identifies a file
+that could not be read or parsed; `ConfigValueError` carries its file/environment
+source plus the exact known setting path whose value was rejected.
 
 ## Status
 

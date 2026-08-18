@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { ConfigLoadError, loadConfigWithProvenance } from './load.js'
+import { ConfigLoadError, ConfigValueError, loadConfigWithProvenance } from './load.js'
 
 /**
  * Two layers with opposite jobs.
@@ -95,6 +95,33 @@ describe('a profile is not applied until it is selected', () => {
 		expect(config.format).toBe('yaml')
 		expect(provenance.format).toMatchObject({ kind: 'env' })
 	})
+
+	it('refuses an invalid known value in an unselected profile when the file loads', () => {
+		const l = layout({ project: { profiles: { ci: { format: 'xml' } } } })
+
+		let error: unknown
+		try {
+			load(l)
+		} catch (cause) {
+			error = cause
+		}
+		expect(error).toBeInstanceOf(ConfigValueError)
+		expect(error).toMatchObject({ settingPath: 'profiles.ci.format' })
+	})
+
+	it('refuses a profile that recursively declares profiles', () => {
+		const l = layout({ project: { profiles: { ci: { profiles: { nested: {} } } } } })
+
+		expect(() => load(l)).toThrow(/profiles\.ci\.profiles cannot be declared inside a profile/)
+	})
+
+	it('accepts unknown profile keys without merging them into the typed config', () => {
+		const l = layout({ project: { profiles: { ci: { futureSetting: true, quiet: true } } } })
+
+		const { config } = load(l, { profile: 'ci' })
+		expect(config.quiet).toBe(true)
+		expect('futureSetting' in config).toBe(false)
+	})
 })
 
 describe('the same profile in two files', () => {
@@ -145,6 +172,35 @@ describe('a profile nothing declares', () => {
 
 		expect(() => load(l, { profile: 'ci' })).toThrow(/no config file declares any profiles/i)
 	})
+
+	it.each(['toString', 'constructor', '__proto__'])(
+		'refuses inherited Object.prototype name %s from the flag-equivalent option',
+		(name) => {
+			const l = layout({ project: { profiles: { safe: { quiet: true } } } })
+
+			expect(() => load(l, { profile: name })).toThrow(ConfigLoadError)
+		},
+	)
+
+	it.each(['toString', 'constructor', '__proto__'])(
+		'refuses inherited Object.prototype name %s from NAMZU_PROFILE',
+		(name) => {
+			const l = layout({ project: { profiles: { safe: { quiet: true } } } })
+
+			expect(() => load(l, { env: { NAMZU_PROFILE: name } })).toThrow(ConfigLoadError)
+		},
+	)
+
+	it.each(['toString', 'constructor', '__proto__'])(
+		'allows %s when the file declares it as an own profile',
+		(name) => {
+			const profiles = Object.create(null) as Record<string, unknown>
+			profiles[name] = { format: 'json' }
+			const l = layout({ project: { profiles } })
+
+			expect(load(l, { profile: name }).config.format).toBe('json')
+		},
+	)
 })
 
 describe('the managed file wins', () => {

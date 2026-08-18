@@ -105,7 +105,7 @@ export function renderConfigDebug(snapshot: ConfigDebugSnapshot | null): string 
 	if (snapshot.selectedProfile) {
 		lines.push(
 			'',
-			`Selected profile: ${metadataLiteral(snapshot.selectedProfile.name)} (selected by ${snapshot.selectedProfile.selectedBy})`,
+			`Selected profile: ${configMetadataLiteral(snapshot.selectedProfile.name)} (selected by ${snapshot.selectedProfile.selectedBy})`,
 		)
 	}
 
@@ -127,7 +127,7 @@ export function renderConfigDebug(snapshot: ConfigDebugSnapshot | null): string 
 function formatEffectiveSource(source: EffectiveConfigSource): string {
 	return source.kind === 'cli-flag'
 		? `CLI flag ${source.flag}`
-		: formatConfigSource(source, metadataLiteral)
+		: formatConfigSource(source, configMetadataLiteral)
 }
 
 /**
@@ -139,7 +139,7 @@ function formatEffectiveSource(source: EffectiveConfigSource): string {
  * backslash is escaped too, so a literal `\\u{202e}` in a path cannot be
  * mistaken for a code point this function encoded.
  */
-function metadataLiteral(value: string): string {
+export function configMetadataLiteral(value: string): string {
 	const redacted = redactSourceMetadata(value)
 	let out = '"'
 	for (const character of redacted) {

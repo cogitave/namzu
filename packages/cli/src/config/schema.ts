@@ -1,10 +1,10 @@
 /**
- * @namzu/cli config schema (M0 stub).
+ * Public @namzu/cli configuration vocabulary.
  *
- * The schema is intentionally minimal in M0; each later milestone extends
- * it as concrete settings land (M2 providers, M4 memory, M5 skills, etc.).
- * Validation library (e.g. Zod) is introduced when constraints exist that
- * are worth enforcing at runtime — premature now.
+ * Runtime admission lives in `load.ts`, beside the source/precedence facts it
+ * needs for actionable errors. Keeping this file declarative makes the public
+ * type the one list of settings while the loader's total reader map forces a
+ * validation decision whenever that list grows.
  */
 
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
