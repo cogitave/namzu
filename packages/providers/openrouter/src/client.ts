@@ -338,43 +338,45 @@ export class OpenRouterProvider implements LLMProvider {
 	 * authoritative as it was, while a substituted number would present a
 	 * guess as a vendor answer.
 	 *
-	 * Cached for the process, because a listing of several hundred models is
-	 * a real payload and a model's window does not change under a running
-	 * run. A failure is NOT cached — the next run asks again rather than
-	 * inheriting one bad minute forever.
+	 * A fulfilled listing is cached for this driver, because a payload of
+	 * several hundred models does not change under a running run. Pending
+	 * requests stay caller-owned, so concurrent cold misses may duplicate the
+	 * request rather than letting one caller's cancellation own both. A
+	 * failure is NOT cached — the next run asks again rather than inheriting
+	 * one bad minute forever.
 	 */
 	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
-		const pending =
-			this.contextWindows ??
-			(async () => {
-				const models = await this.listModels()
-				return new Map<string, number>(
-					models
-						.filter(
-							(m): m is typeof m & { contextWindow: number } => typeof m.contextWindow === 'number',
-						)
-						.map((m) => [m.id, m.contextWindow]),
-				)
-			})().catch((err: unknown) => {
-				// Not cached. A listing endpoint that was down for a minute must
-				// not leave every later run answering from that minute.
-				this.contextWindows = undefined
-				throw err
-			})
-		this.contextWindows = pending
-
-		const windows = await pending
 		if (signal?.aborted) return undefined
+		let windows = this.contextWindows
+		if (!windows) {
+			const models = await this.listModels(signal)
+			if (signal?.aborted) return undefined
+			windows = new Map<string, number>(
+				models
+					.filter(
+						(m): m is typeof m & { contextWindow: number } => typeof m.contextWindow === 'number',
+					)
+					.map((m) => [m.id, m.contextWindow]),
+			)
+			// Cache only a fulfilled value. Sharing a pending request would make
+			// its first caller's AbortSignal the owner of every concurrent query's
+			// metadata transport; cancelling that caller would then degrade still-
+			// authorized runs to the static table. Concurrent cold misses may issue
+			// duplicate listings, and converge here after either succeeds.
+			this.contextWindows ??= windows
+			windows = this.contextWindows
+		}
 		const reported = windows.get(model)
 		return typeof reported === 'number' && reported > 0 ? reported : undefined
 	}
 
-	/** Resolved once per process; see the note on `resolveContextWindow`. */
-	private contextWindows?: Promise<Map<string, number>>
+	/** First fulfilled listing; see the note on `resolveContextWindow`. */
+	private contextWindows?: Map<string, number>
 
-	async listModels(): Promise<ModelInfo[]> {
+	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
 		const response = await fetch(`${this.baseUrl}/models`, {
 			headers: this.getHeaders(),
+			...(signal ? { signal } : {}),
 		})
 
 		if (!response.ok) {

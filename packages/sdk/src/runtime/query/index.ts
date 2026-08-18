@@ -813,11 +813,49 @@ async function resolveProviderContextWindow(
 	provider: LLMProvider,
 	model: string | undefined,
 	signal: AbortSignal | undefined,
+	timeoutMs: number,
 	log: Logger,
 ): Promise<number | undefined> {
 	if (!provider.resolveContextWindow || !model) return undefined
+	if (signal?.aborted) return undefined
+
+	// The resolver is an optional optimisation that runs before RunContext
+	// owns its child controller. Give it a private deadline signal and fuse
+	// caller cancellation into that transport in the safe direction: neither
+	// outcome aborts the caller's controller. Passing a signal is necessary
+	// but not sufficient, because a third-party driver can accept it and still
+	// leave its promise pending; the race below makes fallback independent of
+	// driver cooperation. Promise.race keeps the losing provider promise
+	// observed, so a later rejection cannot become unhandled.
+	const deadline = new AbortController()
+	const resolverSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal
+	const interrupted = Symbol('provider-context-window-interrupted')
+	let onAbort: (() => void) | undefined
+	const interruption = new Promise<typeof interrupted>((resolve) => {
+		onAbort = () => resolve(interrupted)
+		resolverSignal.addEventListener('abort', onAbort, { once: true })
+	})
+	// Wire and directory config validation already limit this field to one
+	// hour. The clamp also keeps a direct QueryParams caller from triggering
+	// Node's >2^31-1 one-millisecond timer coercion and turning a huge run
+	// budget into an immediate metadata fallback.
+	const deadlineMs = Math.min(Math.max(0, timeoutMs), 2_147_483_647)
+	const timer = setTimeout(() => {
+		deadline.abort(new Error(`Provider context-window lookup exceeded ${deadlineMs}ms`))
+	}, deadlineMs)
+
 	try {
-		const reported = await provider.resolveContextWindow(model, signal)
+		const resolution = provider.resolveContextWindow(model, resolverSignal)
+		const reported = await Promise.race([resolution, interruption])
+		if (reported === interrupted) {
+			if (deadline.signal.aborted) {
+				log.debug('Provider context-window lookup timed out; using the table', {
+					'namzu.model.id': model,
+					'namzu.runtime.timeout_ms': deadlineMs,
+				})
+			}
+			return undefined
+		}
 		return typeof reported === 'number' && reported > 0 ? reported : undefined
 	} catch (err) {
 		log.debug('Provider could not report a context window; using the table', {
@@ -825,6 +863,9 @@ async function resolveProviderContextWindow(
 			'namzu.error.message': toErrorMessage(err),
 		})
 		return undefined
+	} finally {
+		clearTimeout(timer)
+		if (onAbort) resolverSignal.removeEventListener('abort', onAbort)
 	}
 }
 
@@ -970,6 +1011,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		resilientProvider,
 		runConfig.model,
 		params.signal,
+		runConfig.timeoutMs,
 		log,
 	)
 

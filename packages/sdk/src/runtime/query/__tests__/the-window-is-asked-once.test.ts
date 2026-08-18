@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
@@ -9,6 +9,7 @@ import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import { RunCancelled } from '../../../types/run/cancel-cause.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
@@ -38,6 +39,7 @@ afterEach(async () => {
 /** A provider that counts how often the runtime asks about its window. */
 class ReportingProvider extends MockLLMProvider {
 	calls = 0
+	readonly resolverSignals: AbortSignal[] = []
 	constructor(
 		private readonly answer: () => Promise<number | undefined>,
 		turns: number,
@@ -52,8 +54,9 @@ class ReportingProvider extends MockLLMProvider {
 			] as never,
 		})
 	}
-	async resolveContextWindow(): Promise<number | undefined> {
+	async resolveContextWindow(_model: string, signal?: AbortSignal): Promise<number | undefined> {
 		this.calls++
+		if (signal) this.resolverSignals.push(signal)
 		return this.answer()
 	}
 }
@@ -63,7 +66,12 @@ function registry(): ToolRegistry {
 	return r
 }
 
-async function run(provider: MockLLMProvider, iterations = 4) {
+async function run(
+	provider: MockLLMProvider,
+	iterations = 4,
+	signal?: AbortSignal,
+	timeoutMs = 20_000,
+) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-window-'))
 	dirs.push(workingDirectory)
 	const events: RunEvent[] = []
@@ -74,7 +82,7 @@ async function run(provider: MockLLMProvider, iterations = 4) {
 			tools: registry(),
 			runConfig: {
 				model: 'mock-model',
-				timeoutMs: 20_000,
+				timeoutMs,
 				tokenBudget: 200_000,
 				maxIterations: iterations,
 			},
@@ -92,6 +100,7 @@ async function run(provider: MockLLMProvider, iterations = 4) {
 			topicId: 'top_w' as TopicId,
 			projectId: 'prj_w' as ProjectId,
 			tenantId: 'tnt_w' as TenantId,
+			...(signal ? { signal } : {}),
 		},
 		(event: RunEvent) => {
 			events.push(event)
@@ -160,6 +169,126 @@ describe('the context window is asked for once per run', () => {
 				e.type === 'token_usage_updated',
 		)
 		expect(usage.every((e) => e.windowSource !== 'provider')).toBe(true)
+	})
+
+	it('settles cancellation even when the optional resolver ignores its signal', async () => {
+		let markStarted!: () => void
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve
+		})
+		let release!: (value: number | undefined) => void
+		const held = new Promise<number | undefined>((resolve) => {
+			release = resolve
+		})
+		const provider = new ReportingProvider(() => {
+			markStarted()
+			return held
+		}, 1)
+		const caller = new AbortController()
+		const running = run(provider, 2, caller.signal)
+		let settled = false
+		void running.then(
+			() => {
+				settled = true
+			},
+			() => {
+				settled = true
+			},
+		)
+
+		await started
+		caller.abort(new RunCancelled('user'))
+
+		let waitFailure: unknown
+		try {
+			await vi.waitFor(() => expect(settled).toBe(true), { timeout: 1_000, interval: 10 })
+		} catch (err) {
+			waitFailure = err
+		} finally {
+			// A broken implementation must fail an assertion, not leave Vitest
+			// waiting on the deliberately non-cooperative resolver.
+			release(undefined)
+		}
+
+		const { result, events } = await running
+		if (waitFailure) throw waitFailure
+		expect(result.status).toBe('cancelled')
+		expect(provider.requests).toHaveLength(0)
+		expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
+			type: 'run_completed',
+			stopReason: 'cancelled',
+			cancelCause: 'user',
+		})
+	})
+
+	it('falls back and runs when metadata stays pending without caller cancellation', async () => {
+		let markStarted!: () => void
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve
+		})
+		let release!: (value: number | undefined) => void
+		const held = new Promise<number | undefined>((resolve) => {
+			release = resolve
+		})
+		const provider = new ReportingProvider(() => {
+			markStarted()
+			return held
+		}, 0)
+		const running = run(provider, 1, undefined, 20)
+		let settled = false
+		void running.then(
+			() => {
+				settled = true
+			},
+			() => {
+				settled = true
+			},
+		)
+
+		await started
+		let waitFailure: unknown
+		try {
+			await vi.waitFor(() => expect(settled).toBe(true), { timeout: 1_000, interval: 10 })
+		} catch (err) {
+			waitFailure = err
+		} finally {
+			// A mutation that drops the private deadline must fail its assertion
+			// and still release the hostile resolver so the suite remains clean.
+			release(undefined)
+		}
+
+		const { result, events } = await running
+		if (waitFailure) throw waitFailure
+		expect(result.status).toBe('completed')
+		expect(provider.requests).toHaveLength(1)
+		expect(provider.resolverSignals).toHaveLength(1)
+		expect(provider.resolverSignals[0]?.aborted).toBe(true)
+		expect(provider.resolverSignals[0]?.reason).toMatchObject({
+			message: 'Provider context-window lookup exceeded 20ms',
+		})
+		const usage = events.filter(
+			(event): event is Extract<RunEvent, { type: 'token_usage_updated' }> =>
+				event.type === 'token_usage_updated',
+		)
+		expect(usage.every((event) => event.windowSource !== 'provider')).toBe(true)
+	})
+
+	it('does not enter the optional resolver after authority was already withdrawn', async () => {
+		const provider = new ReportingProvider(async () => 1_000_000, 1)
+		const caller = new AbortController()
+		caller.abort(new RunCancelled('user'))
+
+		const { result, events } = await run(provider, 2, caller.signal)
+
+		expect(result.status).toBe('cancelled')
+		expect(provider.calls).toBe(0)
+		expect(provider.resolverSignals).toHaveLength(0)
+		expect(provider.requests).toHaveLength(0)
+		expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
+			type: 'run_completed',
+			stopReason: 'cancelled',
+			cancelCause: 'user',
+		})
 	})
 
 	it('does not ask a driver that has no such member', async () => {

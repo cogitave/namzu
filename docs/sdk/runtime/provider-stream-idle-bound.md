@@ -122,6 +122,21 @@ into the run synchronously. The run settles as cancelled without starting a
 main, advisory, or tool request; abort events are not replayed to listeners, so
 this initial-state check is separate from the listener used for later stops.
 
+Before that run controller exists, `query()` may ask the driver for optional
+context-window metadata. This is not a provider stream, so
+`streamIdleTimeoutMs` does not time the lookup. The run's `timeoutMs` is its
+finite preflight deadline: expiry aborts a private metadata-transport signal
+and falls back to the static context-window table. The normal
+between-iteration guard starts after preflight and uses the same configured
+interval for run work.
+
+Caller cancellation remains distinct from that deadline. An already-aborted
+caller does not enter the resolver, and a later abort stops waiting even if a
+third-party resolver leaves its promise pending. The caller's exact reason is
+fused into the private signal passed to a cooperative driver, so it can close
+its metadata transport without either cancellation path aborting the caller's
+own controller.
+
 ## Direct provider composition
 
 Hosts that consume a provider outside `query()` can apply

@@ -6,9 +6,9 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
-resource: packages/providers/openrouter/src/index.ts
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
+resource: packages/providers/openrouter/src/client.ts
 tags: [provider, openrouter, reference]
 ---
 
@@ -135,7 +135,8 @@ import type { OpenRouterProvider } from '@namzu/openrouter'
 
 declare const driver: OpenRouterProvider
 
-await driver.listModels()
+const controller = new AbortController()
+await driver.listModels(controller.signal)
 // id, name, contextWindow, maxOutputTokens, inputPrice, outputPrice,
 // supportsToolUse, supportsStreaming
 ```
@@ -145,7 +146,8 @@ behind it: `contextWindow` is the catalogue's `context_length`,
 `maxOutputTokens` is `top_provider.max_completion_tokens` where the vendor
 states one and `4096` where it does not, and `inputPrice` / `outputPrice` are
 the catalogue's per-token prices scaled to per-million. If the listing call
-fails, it throws rather than substituting a menu.
+fails, it throws rather than substituting a menu. The optional signal aborts
+the underlying `GET /models` fetch with its original reason.
 
 `resolveContextWindow(model)` answers the kernel's own question — how large is
 this model's context — from that same listing. It matters because the fallback
@@ -158,17 +160,20 @@ import type { OpenRouterProvider } from '@namzu/openrouter'
 
 declare const driver: OpenRouterProvider
 
-await driver.resolveContextWindow('anthropic/claude-opus-5')
+const controller = new AbortController()
+await driver.resolveContextWindow('anthropic/claude-opus-5', controller.signal)
 // the vendor's own context_length, or undefined
 ```
 
 `undefined` for a model the listing does not contain, deliberately, rather than
 a guess: "I asked and it is not there" leaves the table exactly as authoritative
 as it was, while a substituted number would present a guess as a vendor answer.
-The listing is resolved once per process, because several hundred models is a
-real payload and a window does not change under a running run. A **failure** is
-not cached — the next run asks again rather than inheriting one bad minute
-forever.
+The first successfully resolved listing is cached for the life of the driver,
+because several hundred models is a real payload and a window does not change
+under a running run. Pending requests are caller-owned rather than shared:
+concurrent cold lookups may issue duplicate requests, so cancelling one query
+cannot abort another query's metadata lookup. A **failure** is not cached — the
+next run asks again rather than inheriting one bad minute forever.
 
 ## Credentials and attribution
 
