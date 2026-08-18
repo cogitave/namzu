@@ -7,9 +7,11 @@
  * has no clipboard tool installed", and "this key was never wired up" were the
  * same observable event, and the operator's next move is different in each.
  *
- * These drive a rendered `<App>` rather than the component alone, because the
- * composer has no transcript of its own: whether the reason reaches the screen
- * depends on the caller passing `onNotice`, which a component test cannot see.
+ * These drive a rendered `<App>` rather than the component alone. The composer
+ * has no transcript of its own, so whether a clipboard refusal reaches the
+ * screen depends on App. More importantly, App owns the between-turn queue:
+ * only a complete provider history and durable append can prove that a chip
+ * submitted during another turn did not become text-only at that boundary.
  */
 
 import type { Message } from '@namzu/sdk'
@@ -25,6 +27,17 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 /** What the mocked clipboard returns for the next read. */
 let clipboard: import('../../integrations/clipboard/image.js').ClipboardRead = { kind: 'empty' }
 const sent: Message[][] = []
+const persisted: Message[][] = []
+
+/** A gate per provider turn, when a test needs to observe the queue between turns. */
+const turnGates: Array<{ wait: Promise<void>; release: () => void }> = []
+function holdNextTurn(): void {
+	let release: () => void = () => {}
+	const wait = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	turnGates.push({ wait, release })
+}
 
 vi.mock('../../integrations/clipboard/image.js', () => ({
 	readClipboardImage: () => clipboard,
@@ -35,7 +48,9 @@ vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
-	appendMessages: async () => {},
+	appendMessages: async (_sessions: unknown, _id: string, messages: readonly Message[]) => {
+		persisted.push([...messages])
+	},
 	listRecent: async () => [],
 	loadConversation: async () => [],
 }))
@@ -75,6 +90,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 			promptExemptTools: () => [],
 			send: async function* (messages): AsyncIterable<AgentEvent> {
 				sent.push([...messages])
+				const gate = turnGates.shift()
+				if (gate) await gate.wait
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 			},
 		}),
@@ -101,9 +118,12 @@ async function frameShows(
 beforeEach(() => {
 	clipboard = { kind: 'empty' }
 	sent.length = 0
+	persisted.length = 0
+	for (const gate of turnGates.splice(0)) gate.release()
 })
 
 afterEach(() => {
+	for (const gate of turnGates.splice(0)) gate.release()
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
 	vi.restoreAllMocks()
@@ -120,6 +140,11 @@ async function ready() {
 async function sendsReach(count: number, timeoutMs = 3_000): Promise<void> {
 	const started = performance.now()
 	while (sent.length < count && performance.now() - started < timeoutMs) await tick(20)
+}
+
+async function persistenceReaches(count: number, timeoutMs = 3_000): Promise<void> {
+	const started = performance.now()
+	while (persisted.length < count && performance.now() - started < timeoutMs) await tick(20)
 }
 
 async function submit(harness: { stdin: { write: (value: string) => void } }, text: string) {
@@ -190,5 +215,51 @@ describe('Ctrl+V with an image', () => {
 			preserved?.role === 'user' ? preserved.attachments : undefined,
 			'the next request rebuilt history from the attachment-free transcript row',
 		).toEqual([image])
+	})
+
+	it('keeps queued images attached, in FIFO order, through the provider and durable turn', async () => {
+		const firstImage = { data: 'FIRST', mediaType: 'image/png' as const }
+		const secondImage = { data: 'SECOND', mediaType: 'image/png' as const }
+		holdNextTurn()
+		const firstGate = turnGates[0]
+		const harness = await ready()
+
+		await submit(harness, 'turn already running')
+		await sendsReach(1)
+
+		clipboard = { kind: 'image', image: firstImage }
+		harness.stdin.write('\x16')
+		await frameShows(harness.lastFrame, 'Image #1')
+		await submit(harness, 'queued first')
+		await frameShows(harness.lastFrame, '1 message queued')
+
+		clipboard = { kind: 'image', image: secondImage }
+		harness.stdin.write('\x16')
+		await frameShows(harness.lastFrame, 'Image #1')
+		await submit(harness, 'queued second')
+		await frameShows(harness.lastFrame, '2 messages queued')
+
+		firstGate?.release()
+		await sendsReach(3)
+		await persistenceReaches(3)
+
+		const sentTurns = sent.slice(1).map((history) => history.at(-1))
+		expect(
+			sentTurns.map((message) => message?.content),
+			'a later prompt bypassed the queue or an older snapshot erased it',
+		).toEqual(['queued first', 'queued second'])
+		expect(
+			sentTurns.map((message) => (message?.role === 'user' ? message.attachments : undefined)),
+			'the queue preserved text but discarded the composer attachment',
+		).toEqual([[firstImage], [secondImage]])
+
+		const durableTurns = persisted.slice(1).map((turn) => turn[0])
+		expect(durableTurns.map((message) => message?.content)).toEqual(['queued first', 'queued second'])
+		expect(
+			durableTurns.map((message) =>
+				message?.role === 'user' ? message.attachments : undefined,
+			),
+			'the provider saw an attachment that /resume and /fork would lose',
+		).toEqual([[firstImage], [secondImage]])
 	})
 })

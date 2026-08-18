@@ -157,6 +157,19 @@ type RunningTool = ActiveTool & {
 }
 
 /**
+ * One complete composer submission waiting for the active turn to settle.
+ *
+ * A queue of strings is not a queue of prompts. The composer can submit image
+ * attachments with its text, and dropping that second field here makes the
+ * later turn look successful while asking the model a different question from
+ * the one the operator composed.
+ */
+interface QueuedPrompt {
+	readonly text: string
+	readonly images?: readonly ImageAttachment[]
+}
+
+/**
  * Rows the live region occupies apart from the transcript window: the activity
  * line, the composer frame and its padding, the status bar.
  *
@@ -259,20 +272,25 @@ export function App({ ctx }: AppProps) {
 	 * hold the window shut for the length of the next conversation.
 	 */
 	const settledRef = useRef<number>(0)
-	// Messages typed while a turn is running — auto-sent when it settles.
-	const [queued, setQueued] = useState<readonly string[]>([])
+	// Complete prompts waiting for the one queue pump that may start a turn.
+	const [queued, setQueued] = useState<readonly QueuedPrompt[]>([])
 	// Kept synchronous with the rendered queue so a turn's `finally` can decide
 	// whether it is truly the last turn. React state captured when the turn
 	// started would still say "empty" after the operator queued a follow-up.
-	const queuedRef = useRef<readonly string[]>([])
-	const replaceQueued = useCallback((next: readonly string[]) => {
+	const queuedRef = useRef<readonly QueuedPrompt[]>([])
+	const replaceQueued = useCallback((next: readonly QueuedPrompt[]) => {
 		queuedRef.current = next
 		setQueued(next)
 	}, [])
 	const enqueueQueued = useCallback(
-		(text: string) => replaceQueued([...queuedRef.current, text]),
+		(prompt: QueuedPrompt) => replaceQueued([...queuedRef.current, prompt]),
 		[replaceQueued],
 	)
+	const dequeueQueued = useCallback((): QueuedPrompt | undefined => {
+		const [next, ...rest] = queuedRef.current
+		if (next !== undefined) replaceQueued(rest)
+		return next
+	}, [replaceQueued])
 	/** Manual compaction owns the conversation snapshot until its durable write lands. */
 	const compactingRef = useRef(false)
 	const [compacting, setCompacting] = useState(false)
@@ -1764,12 +1782,11 @@ export function App({ ctx }: AppProps) {
 								pushMessage('system', 'Nothing to review — the working tree is clean.')
 								return
 							}
-							// Queued or run, the same two ways a typed message is. A
-							// review composed while a turn is in flight must not jump
-							// the queue, and must not be dropped either.
+							// The same FIFO a typed message enters. A review composed
+							// while a turn is in flight must not jump the queue, and
+							// must not be dropped either.
 							const text = reviewPrompt(diff.stat, diff.untracked)
-							if (state !== 'idle') enqueueQueued(text)
-							else void runTurn(text, undefined)
+							enqueueQueued({ text })
 						})()
 						return
 					}
@@ -1938,25 +1955,38 @@ export function App({ ctx }: AppProps) {
 					}
 				}
 			}
-			// A turn is in flight → queue the message; it auto-sends when idle.
-			// (Queued messages are text-only; pasted images aren't carried.)
-			if (state !== 'idle') {
-				enqueueQueued(outgoing)
-				return
-			}
-			void runTurn(outgoing, images)
+			// Every model-bound prompt enters one FIFO, including one submitted while
+			// idle. If idle submissions bypassed it, a prompt arriving after a turn's
+			// `setState('idle')` but before the passive drain effect could start ahead
+			// of an older queued prompt. The drain below is the only turn starter.
+			//
+			// Keep the attachment array beside its text. Reconstructing a prompt from
+			// the transcript later cannot recover bytes whose composer chip is gone.
+			enqueueQueued({
+				text: outgoing,
+				...(images && images.length > 0 ? { images: [...images] } : {}),
+			})
 		},
-		[activeSkills, doResume, enqueueQueued, exit, nextId, pushMessage, runTurn, slashCtx, state],
+		[activeSkills, doResume, enqueueQueued, exit, nextId, pushMessage, slashCtx, state],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
 	// send the next queued message automatically.
 	useEffect(() => {
-		if (state !== 'idle' || phase !== 'ready' || queued.length === 0 || abortRef.current) return
-		const [next, ...rest] = queued
-		replaceQueued(rest)
-		if (next !== undefined) void runTurn(next)
-	}, [state, phase, queued, replaceQueued, runTurn])
+		if (
+			state !== 'idle' ||
+			phase !== 'ready' ||
+			queuedRef.current.length === 0 ||
+			abortRef.current
+		)
+			return
+		// Read and remove from the synchronous source of truth. `queued` is the
+		// render snapshot that scheduled this effect; a later input may already
+		// have appended to the ref, and replacing from that old snapshot would
+		// erase it.
+		const next = dequeueQueued()
+		if (next !== undefined) void runTurn(next.text, next.images)
+	}, [state, phase, queued, dequeueQueued, runTurn])
 
 	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.

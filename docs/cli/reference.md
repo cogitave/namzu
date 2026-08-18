@@ -101,6 +101,13 @@ attachments remain in later turns after their readable token or composer chip is
 all that remains on screen. For the same reason, `/clear` clears the transcript,
 not the conversation context or its durable record.
 
+The composer remains available while a turn runs. A submitted follow-up waits in
+FIFO order and carries the complete prompt, including pasted images, into the
+provider request and durable conversation; queueing never reduces it to display
+text. Interrupting the active turn or switching conversations drops those whole
+queued prompts together, so an attachment cannot be stranded and sent somewhere
+its text was not intended for.
+
 **`/copy` asks the terminal to copy the latest available assistant output.** It
 sends the raw, unrendered Markdown through OSC 52 instead of reconstructing text
 from the screen or starting a host clipboard process. While a new answer is
