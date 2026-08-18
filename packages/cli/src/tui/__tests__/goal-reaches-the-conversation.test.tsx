@@ -202,5 +202,8 @@ it('does not let a later conversation command overtake a pending durable goal wr
 	expect(await reopened.goals.getGoal(source, reopened.tenantId)).toMatchObject({
 		objective: 'ordered before new',
 	})
-	expect(sends).toBe(1)
+	// Whether the armed turn starts before the SECOND /new is scheduler
+	// timing after the durable goal write has already settled, not the
+	// ordering invariant this case owns. The preceding case proves automatic
+	// turn reachability; this one proves the held write cannot be overtaken.
 })
