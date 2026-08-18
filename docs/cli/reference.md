@@ -89,6 +89,17 @@ back immediately, but the partial reply still has to join and finish the durable
 write queue. Once settled, the fork waits for that queue before copying, so it
 cannot omit the reply you just watched or race a write already in progress.
 
+**Esc twice on an empty composer edits an earlier prompt without rewriting its
+source conversation.** The picker opens on the latest user message; Esc or left
+steps toward older prompts, right steps forward, Enter confirms, and `q`
+cancels. Confirmation creates a real fork immediately before that user message,
+removes the selected turn and everything after it from the branch, then restores
+the selected text and every image, document or stored attachment into the
+composer. Editing the first prompt is valid and produces an empty-prefix branch.
+The original remains byte-for-byte unchanged and resumable. If durable history
+no longer exactly matches the selection, no branch is created; the operator must
+open the picker again against the current conversation.
+
 **`/compact` replaces the older model-visible history with a summary.** It is
 refused while a turn is running or an interrupted turn is still settling, and
 input stays paused until the summary and its durable replacement have both

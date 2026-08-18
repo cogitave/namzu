@@ -1,12 +1,13 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Message } from '@namzu/sdk'
+import { type Message, createUserMessage } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
 	appendMessages,
 	forkConversation,
+	forkConversationBeforeUser,
 	listRecent,
 	loadConversation,
 	nextForkName,
@@ -226,6 +227,81 @@ describe('forking a conversation', () => {
 		const id = await startConversation(s)
 
 		await expect(forkConversation(s, id)).rejects.toThrow(/nothing to fork/i)
+	})
+})
+
+describe('forking before a selected user prompt', () => {
+	it('copies the exact prefix and leaves the source byte-for-byte whole', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		const summary = {
+			role: 'system',
+			content: 'summary of older work',
+			timestamp: 10,
+			cacheHint: 'ephemeral',
+		} as Message
+		const first = createUserMessage('first surviving prompt', [
+			{
+				type: 'document',
+				data: 'UERG',
+				mediaType: 'application/pdf',
+				name: 'design.pdf',
+				citations: true,
+			},
+		])
+		const answer = { role: 'assistant', content: 'first answer', timestamp: 20 } as Message
+		const selected = createUserMessage('rewrite this prompt', [
+			{
+				type: 'stored',
+				ref: 'sha256:abc',
+				mediaType: 'image/png',
+				kind: 'image',
+				name: 'diagram.png',
+			},
+		])
+		const suffix = { role: 'assistant', content: 'answer to remove', timestamp: 40 } as Message
+		const source = [summary, first, answer, selected, suffix]
+		await appendMessages(s, id, source)
+
+		const forked = await forkConversationBeforeUser(s, id, 1, selected)
+
+		expect(forked.messages).toEqual([summary, first, answer])
+		expect(forked.selected).toEqual(selected)
+		expect(await loadConversation(s, forked.id)).toEqual([summary, first, answer])
+		expect(await loadConversation(s, id)).toEqual(source)
+	})
+
+	it('allows the first prompt to reopen on an empty branch', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		const selected = createUserMessage('the opening prompt', [
+			{ data: 'aGVsbG8=', mediaType: 'image/png' },
+		])
+		await appendMessages(s, id, [selected, said('assistant', 'the old answer')])
+
+		const forked = await forkConversationBeforeUser(s, id, 0, selected)
+
+		expect(forked.messages).toEqual([])
+		expect(await loadConversation(s, forked.id)).toEqual([])
+		expect((await loadConversation(s, id)).map((message) => message.content)).toEqual([
+			'the opening prompt',
+			'the old answer',
+		])
+	})
+
+	it('detects a changed selection before it creates any branch', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		const durable = createUserMessage('durable text')
+		await appendMessages(s, id, [durable])
+		const before = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
+
+		await expect(
+			forkConversationBeforeUser(s, id, 0, { ...durable, content: 'stale picker text' }),
+		).rejects.toThrow(/conversation changed.*nothing was forked/i)
+
+		const after = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
+		expect(after.map((session) => session.id)).toEqual(before.map((session) => session.id))
 	})
 })
 

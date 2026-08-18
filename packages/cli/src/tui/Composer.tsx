@@ -8,9 +8,9 @@
  * else browse history, Backspace deletes.
  */
 
-import type { ImageAttachment } from '@namzu/sdk'
+import type { MessageAttachment } from '@namzu/sdk'
 import { Box, Text, useInput } from 'ink'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { UserCommand } from '../user-commands/store.js'
@@ -19,7 +19,7 @@ import { theme } from './theme.js'
 
 export interface ComposerProps {
 	readonly disabled?: boolean
-	readonly onSubmit: (value: string, images?: readonly ImageAttachment[]) => void
+	readonly onSubmit: (value: string, attachments?: readonly MessageAttachment[]) => void
 	readonly history: readonly string[]
 	/** Operator-defined commands, offered in the dropdown alongside builtins. */
 	readonly userCommands?: readonly UserCommand[]
@@ -52,6 +52,18 @@ export interface ComposerProps {
 	 * silence this exists to end.
 	 */
 	readonly onNotice?: (text: string) => void
+	/** Empty-composer Esc ×2 asks App to select a durable prompt to edit. */
+	readonly onEditPrevious?: () => void
+	/** One-shot prompt restored after App has created a source-preserving fork. */
+	readonly draftToRestore?: ComposerDraft | null
+	/** Lets App clear the one-shot value without racing the local state update. */
+	readonly onDraftRestored?: (token: number) => void
+}
+
+export interface ComposerDraft {
+	readonly token: number
+	readonly text: string
+	readonly attachments?: readonly MessageAttachment[]
 }
 
 const MAX_SUGGESTIONS = 6
@@ -66,6 +78,9 @@ export function Composer({
 	hidden = false,
 	escapeInterrupts = false,
 	onNotice,
+	onEditPrevious,
+	draftToRestore = null,
+	onDraftRestored,
 }: ComposerProps) {
 	const [value, setValue] = useState<string>('')
 	const [historyIndex, setHistoryIndex] = useState<number>(-1)
@@ -73,9 +88,11 @@ export function Composer({
 	// Large pastes are held as attachments (shown as chips) instead of being
 	// dumped into the input, then folded into the message on submit.
 	const [pastes, setPastes] = useState<readonly string[]>([])
-	// Images pasted from the clipboard (Ctrl+V), shown as chips and sent as
-	// vision attachments on submit.
-	const [images, setImages] = useState<readonly ImageAttachment[]>([])
+	// Pasted images and restored durable attachments, shown as chips and sent
+	// back in the exact SDK union on submit.
+	const [attachments, setAttachments] = useState<readonly MessageAttachment[]>([])
+	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
+	const restoredTokenRef = useRef<number | null>(null)
 
 	const suggestions = matchSlashCommands(value, userCommands).slice(0, MAX_SUGGESTIONS)
 	const showSuggestions = suggestions.length > 0
@@ -86,8 +103,21 @@ export function Composer({
 		setHistoryIndex(-1)
 		setSelected(0)
 		setPastes([])
-		setImages([])
+		setAttachments([])
+		setEditPreviousArmed(false)
 	}, [])
+
+	useEffect(() => {
+		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
+		restoredTokenRef.current = draftToRestore.token
+		setValue(draftToRestore.text)
+		setHistoryIndex(-1)
+		setSelected(0)
+		setPastes([])
+		setAttachments(draftToRestore.attachments ? [...draftToRestore.attachments] : [])
+		setEditPreviousArmed(false)
+		onDraftRestored?.(draftToRestore.token)
+	}, [draftToRestore, onDraftRestored])
 
 	useInput(
 		(input, key) => {
@@ -104,6 +134,7 @@ export function Composer({
 			// component that draws nothing must not consume input on the
 			// strength of a second flag happening to agree with it.
 			if (disabled || hidden) return
+			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
 			if (key.return) {
 				if (showSuggestions) {
 					// Run the highlighted command.
@@ -112,8 +143,8 @@ export function Composer({
 					return
 				}
 				const message = [value, ...pastes].map((s) => s.trim()).filter(Boolean).join('\n\n')
-				if (message.length === 0 && images.length === 0) return
-				onSubmit(message, images.length > 0 ? images : undefined)
+				if (message.length === 0 && attachments.length === 0) return
+				onSubmit(message, attachments.length > 0 ? attachments : undefined)
 				reset()
 				return
 			}
@@ -130,14 +161,22 @@ export function Composer({
 				// and clearing the draft too would punish the operator for
 				// following the hint the status bar is showing them.
 				if (escapeInterrupts) return
+				const empty = value.length === 0 && pastes.length === 0 && attachments.length === 0
+				if (empty && onEditPrevious) {
+					if (editPreviousArmed) {
+						setEditPreviousArmed(false)
+						onEditPrevious()
+					} else setEditPreviousArmed(true)
+					return
+				}
 				reset()
 				return
 			}
 			if (key.backspace || key.delete) {
-				// Backspace on an empty line removes the last attachment (image first,
-				// then pasted text).
-				if (value.length === 0 && images.length > 0) {
-					setImages((p) => p.slice(0, -1))
+				// Backspace on an empty line removes the last durable attachment first,
+				// then pasted text.
+				if (value.length === 0 && attachments.length > 0) {
+					setAttachments((p) => p.slice(0, -1))
 					return
 				}
 				if (value.length === 0 && pastes.length > 0) {
@@ -181,7 +220,7 @@ export function Composer({
 			if (key.ctrl && input === 'v') {
 				const read = readClipboardImage()
 				if (read.kind === 'image') {
-					setImages((p) => [...p, read.image])
+					setAttachments((p) => [...p, read.image])
 				} else if (read.kind === 'empty') {
 					onNotice?.('No image on the clipboard. Copy one, then press Ctrl+V.')
 				} else {
@@ -209,14 +248,14 @@ export function Composer({
 	if (hidden) return null
 
 	const promptGlyph = disabled ? '…' : '>'
-	const showPlaceholder = !disabled && value.length === 0
+	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
 	return (
 		<Box flexDirection="column">
-			{pastes.length > 0 || images.length > 0 ? (
+			{pastes.length > 0 || attachments.length > 0 ? (
 				<Box flexDirection="column" paddingX={1} paddingBottom={1}>
-					{images.map((img, i) => (
-						<Text key={`img-${i}`} color={theme.accent.tool}>
-							⎘ Image #{i + 1} ({Math.round((img.data.length * 3) / 4 / 1024)} KB)
+					{attachments.map((attachment, i) => (
+						<Text key={`attachment-${i}`} color={theme.accent.tool}>
+							⎘ {attachmentLabel(attachment, i)}
 						</Text>
 					))}
 					{pastes.map((p, i) => (
@@ -235,6 +274,8 @@ export function Composer({
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
 						<Text color={theme.text.muted}>Type a message… (/help for commands)</Text>
+					) : editPreviousArmed ? (
+						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
 					) : (
 						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
 							{value}
@@ -262,4 +303,16 @@ export function Composer({
 			) : null}
 		</Box>
 	)
+}
+
+function attachmentLabel(attachment: MessageAttachment, index: number): string {
+	if (attachment.type === 'stored') {
+		const kind = attachment.kind === 'image' ? 'Image' : 'Document'
+		return `${kind} #${index + 1}${attachment.name ? ` — ${attachment.name}` : ''} (stored)`
+	}
+	const size = `${Math.round((attachment.data.length * 3) / 4 / 1024)} KB`
+	if (attachment.type === 'document') {
+		return `Document #${index + 1}${attachment.name ? ` — ${attachment.name}` : ''} (${size})`
+	}
+	return `Image #${index + 1} (${size})`
 }

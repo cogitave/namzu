@@ -16,8 +16,8 @@ import {
 	HostCommandRegistry,
 	kernelHostCommands,
 	type CostInfo,
-	type ImageAttachment,
 	type Message,
+	type MessageAttachment,
 	type MessageId,
 	type RunId,
 	createAssistantMessage,
@@ -55,7 +55,8 @@ import { checkUpdates } from '../integrations/updates.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { bottomSpacerRows } from './bottom-spacer.js'
 import { expandFileMentions } from './mentions.js'
-import { Composer } from './Composer.js'
+import { Composer, type ComposerDraft } from './Composer.js'
+import { EditPromptPicker } from './EditPromptPicker.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
 	NAMZU_MARK,
@@ -75,6 +76,7 @@ import {
 	type RecentConversation,
 	appendMessages,
 	forkConversation,
+	forkConversationBeforeUser,
 	listRecent,
 	loadConversation,
 	openSessions,
@@ -93,6 +95,7 @@ import {
 	probeAgentSession,
 } from './agent.js'
 import { ResumePicker } from './ResumePicker.js'
+import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
 	type SlashContext,
@@ -113,7 +116,7 @@ export interface AppProps {
 	readonly ctx: TuiContext
 }
 
-type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume'
+type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
 
 /**
  * The streaming assistant bubble, carried across events within one turn.
@@ -149,6 +152,49 @@ function latestAssistantOutput(messages: readonly Message[]): string | null {
 	return null
 }
 
+/** Build the transcript projection of exact model-visible history. */
+function projectConversation(
+	messages: readonly Message[],
+	nextId: () => string,
+	readableUserTexts: readonly string[] = [],
+): readonly TranscriptMessage[] {
+	let userOrdinal = 0
+	return messages.flatMap<TranscriptMessage>((message) => {
+		if (message.role === 'user') {
+			const readable = readableUserTexts[userOrdinal]
+			userOrdinal += 1
+			return [
+				{
+					id: nextId(),
+					role: 'user',
+					content: readable ?? message.content,
+				},
+			]
+		}
+		if (message.role === 'assistant') {
+			return [
+				{
+					id: nextId(),
+					role: 'assistant',
+					content: typeof message.content === 'string' ? message.content : '',
+				},
+			]
+		}
+		if (message.role === 'system' && isCompactionMessage(message.content)) {
+			return [
+				{
+					id: nextId(),
+					role: 'system',
+					content: 'Earlier turns are represented by the compacted summary below.',
+					glyph: '⌫',
+					detail: summaryDetail(message),
+				},
+			]
+		}
+		return []
+	})
+}
+
 /** A running tool tracked internally: the live row's fields plus what we need
  *  to commit it on completion (the tool name for matching, the call-time diff). */
 type RunningTool = ActiveTool & {
@@ -166,7 +212,7 @@ type RunningTool = ActiveTool & {
  */
 interface QueuedPrompt {
 	readonly text: string
-	readonly images?: readonly ImageAttachment[]
+	readonly attachments?: readonly MessageAttachment[]
 }
 
 /**
@@ -296,6 +342,11 @@ export function App({ ctx }: AppProps) {
 	const [compacting, setCompacting] = useState(false)
 	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
 	const [selectedResume, setSelectedResume] = useState<number>(0)
+	const [editList, setEditList] = useState<readonly EditablePrompt[]>([])
+	const [selectedEdit, setSelectedEdit] = useState<number>(0)
+	const editCommittedRef = useRef(false)
+	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
+	const composerDraftTokenRef = useRef(0)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
 	/** Identity of the turn allowed to notify when it settles. */
@@ -399,8 +450,8 @@ export function App({ ctx }: AppProps) {
 	 * so a turn cannot start while `/fork` is waiting for an already-attached disk
 	 * write to land.
 	 */
-	const conversationMutationRef = useRef<null | 'fork'>(null)
-	const [conversationMutation, setConversationMutation] = useState<null | 'fork'>(null)
+	const conversationMutationRef = useRef<null | 'fork' | 'edit'>(null)
+	const [conversationMutation, setConversationMutation] = useState<null | 'fork' | 'edit'>(null)
 	/**
 	 * Whether a conversation has been chosen and is still being read.
 	 *
@@ -1029,29 +1080,7 @@ export function App({ ctx }: AppProps) {
 			}
 			resumeCommittedRef.current = false
 			setPhase('ready')
-			const restored = msgs.flatMap<TranscriptMessage>((message) => {
-				if (message.role === 'user' || message.role === 'assistant') {
-					return [
-						{
-							id: nextId(),
-							role: message.role,
-							content: typeof message.content === 'string' ? message.content : '',
-						},
-					]
-				}
-				if (message.role === 'system' && isCompactionMessage(message.content)) {
-					return [
-						{
-							id: nextId(),
-							role: 'system' as const,
-							content: 'Earlier turns are represented by the compacted summary below.',
-							glyph: '⌫',
-							detail: summaryDetail(message),
-						},
-					]
-				}
-				return []
-			})
+			const restored = projectConversation(msgs, nextId)
 			// A queue can outlive its turn by one render: the turn has set idle and
 			// cleared `abortRef`, while the passive queue pump is paused behind this
 			// picker. `interruptTurn` correctly reports no RUNNING turn then, but an
@@ -1139,10 +1168,9 @@ export function App({ ctx }: AppProps) {
 	 *
 	 * Refused while a turn is running or still unwinding, rather than interrupted
 	 * like `/resume` does. The two look similar and are not: `/resume` LEAVES a
-	 * conversation,
-	 * so an interrupted reply landing in the one being left is where it
-	 * belongs. A fork stays here — the reply would land in the original, the
-	 * screen would go on showing it, and the copy would be missing the last
+	 * conversation, so an interrupted reply landing in the one being left is
+	 * where it belongs. A fork stays here — the reply would land in the original,
+	 * the screen would go on showing it, and the copy would be missing the last
 	 * thing the operator watched arrive.
 	 */
 	const doFork = useCallback(async () => {
@@ -1164,7 +1192,7 @@ export function App({ ctx }: AppProps) {
 		if (queuedRef.current.length > 0) {
 			pushMessage(
 				'system',
-				'Queued prompts have not run yet. Wait for them to finish, or press esc to discard them before forking.',
+				'Queued prompts have not run yet. Wait for them to finish before forking.',
 			)
 			return
 		}
@@ -1198,6 +1226,117 @@ export function App({ ctx }: AppProps) {
 			setConversationMutation(null)
 		}
 	}, [ensureSessions, hasUnsettledTurn, pushMessage])
+
+	/** Open the durable prompt picker after the composer's second empty Esc. */
+	const openPromptEditor = useCallback(() => {
+		if (conversationMutationRef.current || compactingRef.current) return
+		if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
+			pushMessage(
+				'system',
+				'A turn is still running or settling. Wait for its reply to be saved before editing earlier history.',
+			)
+			return
+		}
+		if (queuedRef.current.length > 0) {
+			pushMessage('system', 'Queued prompts must finish before an earlier prompt can be edited.')
+			return
+		}
+		const candidates = editablePrompts(modelHistoryRef.current, messages)
+		if (candidates.length === 0) {
+			pushMessage('system', 'No previous message to edit.')
+			return
+		}
+		setEditList(candidates)
+		setSelectedEdit(candidates.length - 1)
+		editCommittedRef.current = false
+		setPhase('edit')
+	}, [hasUnsettledTurn, messages, pushMessage, state])
+
+	/** Fork before the selected prompt, then reopen that prompt in the composer. */
+	const confirmPromptEdit = useCallback(
+		async (target: EditablePrompt) => {
+			if (editCommittedRef.current || conversationMutationRef.current) return
+			if (hasUnsettledTurn() || queuedRef.current.length > 0) {
+				setPhase('ready')
+				pushMessage(
+					'system',
+					'Conversation history changed while the prompt picker was open. Nothing was forked; open it again.',
+				)
+				return
+			}
+
+			editCommittedRef.current = true
+			conversationMutationRef.current = 'edit'
+			setConversationMutation('edit')
+			const generation = conversationGenRef.current
+			try {
+				const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+				const scope = scopeRef.current
+				if (!sessions || !scope) {
+					setPhase('ready')
+					pushMessage('system', 'Conversation history is unavailable in this folder.')
+					return
+				}
+				const source = scope.sessionId
+				await persistenceTailRef.current
+				if (
+					conversationGenRef.current !== generation ||
+					scope.sessionId !== source ||
+					hasUnsettledTurn(generation)
+				) {
+					throw new Error('the active conversation changed before the branch could be created')
+				}
+
+				const forked = await forkConversationBeforeUser(
+					sessions,
+					source,
+					target.userOrdinal,
+					target.message,
+				)
+				const readablePrefix = editList
+					.slice(0, target.userOrdinal)
+					.map((prompt) => prompt.displayText)
+
+				conversationGenRef.current += 1
+				activeTurnTokenRef.current = null
+				scope.sessionId = forked.id
+				modelHistoryRef.current = forked.messages
+				lastAssistantMessage.current = null
+				const persistedOutput = latestAssistantOutput(forked.messages)
+				lastCompletedOutputRef.current = persistedOutput
+					? { text: persistedOutput, provenance: 'persisted' }
+					: null
+
+				resetTranscript()
+				setMessages(projectConversation(forked.messages, nextId, readablePrefix))
+				composerDraftTokenRef.current += 1
+				setComposerDraft({
+					token: composerDraftTokenRef.current,
+					text: target.displayText,
+					...(forked.selected.attachments && forked.selected.attachments.length > 0
+						? { attachments: [...forked.selected.attachments] }
+						: {}),
+				})
+				setEditList([])
+				setPhase('ready')
+				pushMessage(
+					'system',
+					`Forked into "${forked.title}" before the selected prompt. Edit it below; ${source} is unchanged and remains in /resume.`,
+				)
+			} catch (err) {
+				setPhase('ready')
+				pushMessage(
+					'system',
+					`Could not edit the selected prompt: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			} finally {
+				editCommittedRef.current = false
+				conversationMutationRef.current = null
+				setConversationMutation(null)
+			}
+		},
+		[editList, ensureSessions, hasUnsettledTurn, nextId, pushMessage, resetTranscript],
+	)
 
 	// Bridge passed into session.send(): the agent calls this before a
 	// non-read-only tool batch; it parks until the user presses y/n/a.
@@ -1360,7 +1499,7 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const runTurn = useCallback(
-		async (text: string, images?: readonly ImageAttachment[]) => {
+		async (text: string, attachments?: readonly MessageAttachment[]) => {
 			if (!session || !session.hasProvider) {
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
@@ -1369,14 +1508,16 @@ export function App({ ctx }: AppProps) {
 			// the model receives the file contents inlined.
 			const { sendText, attached } = expandFileMentions(text, ctx.cwd)
 			const historyBeforeTurn = modelHistoryRef.current
-			const userMessage = createUserMessage(sendText, images)
+			const userMessage = createUserMessage(sendText, attachments)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
 
 			const metaParts: string[] = []
 			if (attached.length > 0)
 				metaParts.push(`${attached.length} file${attached.length > 1 ? 's' : ''} attached`)
-			if (images && images.length > 0)
-				metaParts.push(`${images.length} image${images.length > 1 ? 's' : ''}`)
+			if (attachments && attachments.length > 0)
+				metaParts.push(
+					`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`,
+				)
 			pushMessage(
 				'user',
 				text,
@@ -1562,11 +1703,13 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const handleSubmit = useCallback(
-		(value: string, images?: readonly ImageAttachment[]) => {
+		(value: string, attachments?: readonly MessageAttachment[]) => {
 			if (conversationMutationRef.current) {
+				const operation =
+					conversationMutationRef.current === 'fork' ? 'forked' : 'branched for prompt editing'
 				pushMessage(
 					'system',
-					'Conversation history is being forked. Wait for it to finish before sending another command or prompt.',
+					`Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`,
 				)
 				return
 			}
@@ -2044,7 +2187,9 @@ export function App({ ctx }: AppProps) {
 			// the transcript later cannot recover bytes whose composer chip is gone.
 			enqueueQueued({
 				text: outgoing,
-				...(images && images.length > 0 ? { images: [...images] } : {}),
+				...(attachments && attachments.length > 0
+					? { attachments: [...attachments] }
+					: {}),
 			})
 		},
 		[
@@ -2076,7 +2221,7 @@ export function App({ ctx }: AppProps) {
 		// have appended to the ref, and replacing from that old snapshot would
 		// erase it.
 		const next = dequeueQueued()
-		if (next !== undefined) void runTurn(next.text, next.images)
+		if (next !== undefined) void runTurn(next.text, next.attachments)
 	}, [state, phase, queued, dequeueQueued, runTurn])
 
 	// One-shot update check on launch.
@@ -2200,6 +2345,29 @@ export function App({ ctx }: AppProps) {
 			// and the second exits", with nothing on screen naming either.
 			if (phase === 'picker') {
 				if (key.ctrl && input === 'c') exit()
+				return
+			}
+			// Previous-prompt picker owns the keyboard. Esc keeps stepping toward
+			// older prompts, matching the second Esc that opened it; q is the cancel.
+			if (phase === 'edit') {
+				if (editCommittedRef.current) return
+				if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+					setEditList([])
+					setPhase('ready')
+					return
+				}
+				if (key.escape || key.leftArrow || key.upArrow) {
+					setSelectedEdit((index) => Math.max(0, index - 1))
+					return
+				}
+				if (key.rightArrow || key.downArrow) {
+					setSelectedEdit((index) => Math.min(editList.length - 1, index + 1))
+					return
+				}
+				if (key.return) {
+					const target = editList[selectedEdit]
+					if (target) void confirmPromptEdit(target)
+				}
 				return
 			}
 			// Resume picker owns the keyboard while open.
@@ -2366,6 +2534,8 @@ export function App({ ctx }: AppProps) {
 					<TrustPrompt cwd={ctx.cwd} />
 				) : phase === 'resume' ? (
 					<ResumePicker conversations={resumeList} selected={selectedResume} />
+				) : phase === 'edit' ? (
+					<EditPromptPicker prompts={editList} selected={selectedEdit} />
 				) : phase === 'picker' ? (
 					<Picker
 						detected={detected}
@@ -2443,6 +2613,11 @@ export function App({ ctx }: AppProps) {
 								escapeInterrupts={!compacting && (state === 'thinking' || state === 'tool')}
 								onSubmit={handleSubmit}
 								onNotice={(text) => pushMessage('system', text)}
+								onEditPrevious={openPromptEditor}
+								draftToRestore={composerDraft}
+								onDraftRestored={(token) =>
+									setComposerDraft((draft) => (draft?.token === token ? null : draft))
+								}
 								userCommands={userCommands}
 								history={history}
 							/>
@@ -2458,9 +2633,11 @@ export function App({ ctx }: AppProps) {
 						hint={
 							conversationMutation === 'fork'
 								? 'forking conversation — input is paused'
-								: compacting
-								? 'compacting conversation — input is paused'
-								: hintForPhase(phase, state, session?.hasProvider === true)
+								: conversationMutation === 'edit'
+									? 'branching before prompt — input is paused'
+									: compacting
+										? 'compacting conversation — input is paused'
+										: hintForPhase(phase, state, session?.hasProvider === true)
 						}
 						usage={usage}
 						context={context}
@@ -2597,6 +2774,7 @@ function hintForPhase(
 	// trust branch in the key handler above.
 	if (phase === 'trust') return 'y trust this folder · n / esc exit'
 	if (phase === 'resume') return '↑↓ navigate · enter resume · esc cancel'
+	if (phase === 'edit') return 'Esc / ← older · → newer · enter fork and edit · q cancel'
 	if (phase === 'probing') return 'discovering providers…'
 	// Esc does two different things here depending on how the picker was reached,
 	// so the hint says which. Naming Ctrl+C matters more here than anywhere else:
@@ -2611,7 +2789,7 @@ function hintForPhase(
 	// permission gate in the key handler above.
 	if (state === 'awaiting-permission') return 'y approve · n / esc reject · a approve all'
 	if (state !== 'idle') return 'agent is working — esc to interrupt'
-	return '/help · @file / Ctrl+V to attach · Ctrl+C ×2 to exit'
+	return '/help · Esc×2 edit previous · @file / Ctrl+V attach · Ctrl+C ×2 to exit'
 }
 
 /**

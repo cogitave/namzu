@@ -13,6 +13,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import {
 	DiskSessionStore,
 	type Message,
@@ -21,6 +22,7 @@ import {
 	type TenantId,
 	type TopicId,
 	UNKNOWN_TENANT_ID,
+	type UserMessage,
 	asProjectId,
 	asSessionId,
 	asTopicId,
@@ -322,9 +324,74 @@ export async function forkConversation(
 		throw new Error('There is nothing to fork yet — this conversation has no messages.')
 	}
 
-	const source = readTitles(s.root)[sourceId as string]?.title ?? conversationTitle(messages)
+	const { id, title } = await writeFork(s, sourceId, messages, messages)
+	return { id, title, copied: messages.length }
+}
+
+export interface ForkBeforeUserResult {
+	readonly id: SessionId
+	readonly title: string
+	/** Exact durable prefix copied into the fork. */
+	readonly messages: readonly Message[]
+	/** Exact durable user message the caller selected and may reopen. */
+	readonly selected: UserMessage
+}
+
+/**
+ * Fork immediately before one durable user message.
+ *
+ * `userOrdinal` is zero-based among user messages, not among every message.
+ * The expected message is a compare-and-swap guard: a picker selects from an
+ * in-memory history, then this helper reloads disk. If another write changed
+ * that position, it refuses BEFORE creating a session instead of branching at
+ * a boundary the operator did not select.
+ *
+ * An empty prefix is valid. Editing the first prompt creates an empty branch
+ * and restores that prompt to the composer; refusing it would make the most
+ * common first-turn correction the one prompt this feature cannot edit.
+ */
+export async function forkConversationBeforeUser(
+	s: CliSessions,
+	sourceId: SessionId,
+	userOrdinal: number,
+	expected: UserMessage,
+): Promise<ForkBeforeUserResult> {
+	if (!Number.isInteger(userOrdinal) || userOrdinal < 0) {
+		throw new Error('The selected user-message position is invalid.')
+	}
+
+	const messages = await loadConversation(s, sourceId)
+	let seen = -1
+	const messageIndex = messages.findIndex((message) => {
+		if (message.role !== 'user') return false
+		seen += 1
+		return seen === userOrdinal
+	})
+	const selected = messages[messageIndex]
+	if (messageIndex < 0 || selected?.role !== 'user') {
+		throw new Error('The selected user message no longer exists in this conversation.')
+	}
+	if (!isDeepStrictEqual(selected, expected)) {
+		throw new Error(
+			'The conversation changed after the prompt was selected. Nothing was forked; open the editor again from the current history.',
+		)
+	}
+
+	const prefix = messages.slice(0, messageIndex)
+	const { id, title } = await writeFork(s, sourceId, messages, prefix)
+	return { id, title, messages: prefix, selected }
+}
+
+/** Create and name one fork after every boundary decision has been validated. */
+async function writeFork(
+	s: CliSessions,
+	sourceId: SessionId,
+	sourceMessages: readonly Message[],
+	copiedMessages: readonly Message[],
+): Promise<{ id: SessionId; title: string }> {
+	const source = readTitles(s.root)[sourceId as string]?.title ?? conversationTitle(sourceMessages)
 	const id = await startConversation(s)
-	await appendMessages(s, id, messages)
+	await appendMessages(s, id, copiedMessages)
 	const title = nextForkName(
 		Object.fromEntries(
 			Object.entries(readTitles(s.root)).map(([key, value]) => [key, value.title]),
@@ -332,7 +399,7 @@ export async function forkConversation(
 		source,
 	)
 	setTitle(s, id, title)
-	return { id, title, copied: messages.length }
+	return { id, title }
 }
 
 /**
