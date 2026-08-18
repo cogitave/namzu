@@ -6,7 +6,7 @@
 
 import type { AuthorizationRule } from '@namzu/sdk'
 
-import type { SandboxConfig } from '../config/schema.js'
+import type { SandboxConfig, TuiConfig } from '../config/schema.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 
@@ -78,6 +78,8 @@ export interface TuiContext {
 	 * whichever way namzu was started.
 	 */
 	readonly sandbox?: SandboxConfig
+	/** Opted-in terminal notification settings from the resolved CLI config. */
+	readonly tui?: TuiConfig
 	/**
 	 * --verbose/--quiet/NAMZU_LOG_LEVEL and --log-format/NAMZU_LOG_FORMAT,
 	 * resolved once in `cli.ts` before the TUI launches. Optional for the

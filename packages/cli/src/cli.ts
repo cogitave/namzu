@@ -212,6 +212,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				logging: tuiCtx.logging,
 				...(tuiCtx.config.mcpServers ? { mcpServers: tuiCtx.config.mcpServers } : {}),
 				...(tuiCtx.config.sandbox ? { sandbox: tuiCtx.config.sandbox } : {}),
+				...(tuiCtx.config.tui ? { tui: tuiCtx.config.tui } : {}),
 			})
 			const code = await Promise.resolve(0)
 			setExitCode(code)

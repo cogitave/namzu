@@ -60,6 +60,34 @@ describe('loadConfig cascade', () => {
 	})
 })
 
+describe('terminal notification config', () => {
+	it('reads an event filter and explicit method from the project file', () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({
+				tui: { notifications: ['approval-required'], notificationMethod: 'bel' },
+			}),
+		)
+
+		expect(loadConfig({ home: tmpdir(), cwd, env: {} }).tui).toEqual({
+			notifications: ['approval-required'],
+			notificationMethod: 'bel',
+		})
+	})
+
+	it.each([
+		{ notifications: ['turn-complet'] },
+		{ notifications: 'yes' },
+		{ notifications: true, notificationMethod: 'desktop' },
+	])('does not turn on a different notification shape for invalid $notifications', (tui) => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ tui }))
+
+		expect(loadConfig({ home: tmpdir(), cwd, env: {} }).tui).toBeUndefined()
+	})
+})
+
 /**
  * A file that is not there is a default; a file that is there and cannot be
  * read is a refusal.

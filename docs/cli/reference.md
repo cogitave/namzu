@@ -224,6 +224,38 @@ Highest precedence first:
 6. `~/.namzu/config.yaml` — the user's
 7. Built-in defaults (`format: 'text'`, `quiet: false`)
 
+### Terminal notifications
+
+Terminal notifications are off unless the interactive UI opts in through the
+`tui` table:
+
+```json
+{
+  "tui": {
+    "notifications": ["turn-settled", "approval-required"],
+    "notificationMethod": "osc9"
+  }
+}
+```
+
+`notifications: true` enables both events. `false`, an empty list or an absent
+value enables neither; a list selects only the events it names. This setting has
+no environment-variable form, so a shell profile cannot start producing
+notifications without a config file showing that choice.
+
+`approval-required` is emitted when the approval prompt actually opens.
+`turn-settled` is emitted only after the last immediately queued turn settles,
+not between queued prompts. A normal end, an abnormal stop and a failure use
+different fixed messages; manually interrupted turns emit none. Switching
+conversations also revokes the abandoned turn's right to notify, even if its
+provider iterator unwinds later.
+
+The default method is `osc9`; `bel` writes a terminal bell instead. Both are
+content-free terminal requests: they include no prompt, answer, tool arguments
+or filenames, and start no host command. Neither protocol acknowledges display
+or sound, so a successful write means only that the request was sent. Terminal,
+multiplexer and remote-session policy may still ignore it.
+
 ### Profiles
 
 A profile is a named bundle of settings **inside** a config file, so the

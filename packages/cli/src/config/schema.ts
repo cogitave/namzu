@@ -17,6 +17,25 @@ export type ProfileConfig = Omit<NamzuCliConfig, 'profiles'>
 
 export type ProfilesConfig = Readonly<Record<string, ProfileConfig>>
 
+/** The two operator-visible moments the TUI can notify about. */
+export type TerminalNotificationEvent = 'turn-settled' | 'approval-required'
+
+/** Escape protocol used for an opted-in terminal notification. */
+export type TerminalNotificationMethod = 'osc9' | 'bel'
+
+export interface TuiConfig {
+	/**
+	 * Notify for TUI events through the terminal itself.
+	 *
+	 * Absent or `false` means off. `true` enables both events; a list enables
+	 * only the named events, and an empty list explicitly disables all of them.
+	 * No command is started and no conversation content is included.
+	 */
+	readonly notifications?: boolean | readonly TerminalNotificationEvent[]
+	/** Terminal protocol to write. Defaults to `osc9` when notifications are on. */
+	readonly notificationMethod?: TerminalNotificationMethod
+}
+
 export interface NamzuCliConfig {
 	/** Default output format when not overridden by --format. */
 	readonly format?: FormatName
@@ -86,6 +105,8 @@ export interface NamzuCliConfig {
 	 * something a default arranges.
 	 */
 	readonly telemetry?: TelemetryConfig
+	/** Interactive-terminal-only behaviour. Absent leaves notifications off. */
+	readonly tui?: TuiConfig
 }
 
 export interface TelemetryConfig {

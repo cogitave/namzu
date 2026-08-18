@@ -66,4 +66,10 @@ export {
 	type ConfigSource,
 	type LoadConfigOptions,
 } from './config/load.js'
-export { DEFAULT_CONFIG, type NamzuCliConfig } from './config/schema.js'
+export {
+	DEFAULT_CONFIG,
+	type NamzuCliConfig,
+	type TerminalNotificationEvent,
+	type TerminalNotificationMethod,
+	type TuiConfig,
+} from './config/schema.js'

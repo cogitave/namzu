@@ -28,7 +28,11 @@ import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { isFormatName } from '../output/index.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
-import type { ProfilesConfig, SessionExportRedactorName } from './schema.js'
+import type {
+	ProfilesConfig,
+	SessionExportRedactorName,
+	TerminalNotificationEvent,
+} from './schema.js'
 import { DEFAULT_CONFIG, type NamzuCliConfig } from './schema.js'
 
 export interface LoadConfigOptions {
@@ -448,6 +452,34 @@ const CONFIG_READERS: ConfigReaders = {
 			},
 		}
 	},
+	// TUI notifications are terminal escape writes only. Invalid nested values
+	// disable this whole optional feature rather than silently selecting a
+	// different event or protocol from the one the operator wrote.
+	tui: (v) => {
+		if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined
+		const raw = v as { notifications?: unknown; notificationMethod?: unknown }
+
+		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
+		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
+		else if (Array.isArray(raw.notifications)) {
+			if (
+				!raw.notifications.every(
+					(event): event is TerminalNotificationEvent =>
+						event === 'turn-settled' || event === 'approval-required',
+				)
+			)
+				return undefined
+			notifications = raw.notifications
+		} else if (raw.notifications !== undefined) return undefined
+
+		const method = raw.notificationMethod
+		if (method !== undefined && method !== 'osc9' && method !== 'bel') return undefined
+
+		return {
+			...(notifications !== undefined ? { notifications } : {}),
+			...(method !== undefined ? { notificationMethod: method } : {}),
+		}
+	},
 }
 
 /**
@@ -488,6 +520,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// nothing in the config file to show for it — the disclosure would be
 	// honest and the *reason* would be invisible.
 	telemetry: undefined,
+	// Terminal notifications are an interactive UI choice. An environment
+	// variable in a shell profile must not start producing them invisibly.
+	tui: undefined,
 }
 
 /** Which `NAMZU_*` variable actually set each field `readEnv` found. */

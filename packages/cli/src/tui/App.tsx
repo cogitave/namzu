@@ -41,6 +41,11 @@ import {
 	writePreferences,
 } from '../integrations/providers/index.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
+import {
+	type TerminalNotification,
+	terminalNotificationEnabled,
+	writeTerminalNotification,
+} from '../integrations/notifications/terminal.js'
 import { describeLoginOutcome, describeLoginStart, describeLogout } from './login-prompt.js'
 import { openInBrowser } from './open-browser.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
@@ -125,6 +130,8 @@ type StreamState = {
 	pending?: string
 	/** Only a normal run end makes this text the next `/copy` target. */
 	completed: boolean
+	/** Terminal notice earned by this turn, or null when it was interrupted. */
+	notification: TerminalNotification | null
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -254,6 +261,18 @@ export function App({ ctx }: AppProps) {
 	const settledRef = useRef<number>(0)
 	// Messages typed while a turn is running — auto-sent when it settles.
 	const [queued, setQueued] = useState<readonly string[]>([])
+	// Kept synchronous with the rendered queue so a turn's `finally` can decide
+	// whether it is truly the last turn. React state captured when the turn
+	// started would still say "empty" after the operator queued a follow-up.
+	const queuedRef = useRef<readonly string[]>([])
+	const replaceQueued = useCallback((next: readonly string[]) => {
+		queuedRef.current = next
+		setQueued(next)
+	}, [])
+	const enqueueQueued = useCallback(
+		(text: string) => replaceQueued([...queuedRef.current, text]),
+		[replaceQueued],
+	)
 	/** Manual compaction owns the conversation snapshot until its durable write lands. */
 	const compactingRef = useRef(false)
 	const [compacting, setCompacting] = useState(false)
@@ -261,6 +280,10 @@ export function App({ ctx }: AppProps) {
 	const [selectedResume, setSelectedResume] = useState<number>(0)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
+	/** Identity of the turn allowed to notify when it settles. */
+	const activeTurnTokenRef = useRef<object | null>(null)
+	/** A broken terminal notification is reported once, not after every turn. */
+	const notificationFailureShownRef = useRef(false)
 	/**
 	 * The sign-in attempt awaiting its authorization code, if any.
 	 *
@@ -400,6 +423,27 @@ export function App({ ctx }: AppProps) {
 			return id
 		},
 		[nextId],
+	)
+
+	const sendTerminalNotification = useCallback(
+		(notification: TerminalNotification) => {
+			if (!terminalNotificationEnabled(ctx.tui?.notifications, notification)) return
+			const result = writeTerminalNotification(
+				notification,
+				ctx.tui?.notificationMethod ?? 'osc9',
+				{ isTTY: stdout.isTTY, write: writeStdout },
+			)
+			if (result.kind === 'request-sent' || notificationFailureShownRef.current) return
+
+			notificationFailureShownRef.current = true
+			pushMessage(
+				'system',
+				result.kind === 'unavailable'
+					? `Terminal notifications are configured but unavailable — ${result.detail}. No further notification failures will be shown.`
+					: `Could not send a terminal notification request: ${result.detail}. No further notification failures will be shown.`,
+			)
+		},
+		[ctx.tui, pushMessage, stdout.isTTY, writeStdout],
 	)
 
 	const appendToMessage = useCallback((id: string, delta: string) => {
@@ -865,14 +909,15 @@ export function App({ ctx }: AppProps) {
 		const ac = abortRef.current
 		if (!ac) return false
 		ac.abort()
+		activeTurnTokenRef.current = null
 		// Dropped now so a second interrupt does not re-abort, and the queue with
 		// it: interrupting means stop, not "run the next one".
 		abortRef.current = null
-		setQueued([])
+		replaceQueued([])
 		clearActiveTools()
 		setState('idle')
 		return true
-	}, [clearActiveTools, resolvePermission])
+	}, [clearActiveTools, replaceQueued, resolvePermission])
 
 	/**
 	 * Load the chosen conversation into the transcript and continue in it.
@@ -961,6 +1006,7 @@ export function App({ ctx }: AppProps) {
 			})
 			const interrupted = interruptTurn()
 			conversationGenRef.current += 1
+			activeTurnTokenRef.current = null
 			resetTranscript()
 			setMessages(restored)
 			modelHistoryRef.current = msgs
@@ -1076,8 +1122,9 @@ export function App({ ctx }: AppProps) {
 				permissionOpenedAtRef.current = Date.now()
 				setPermission(req)
 				setState('awaiting-permission')
+				sendTerminalNotification({ kind: 'approval-required' })
 			}),
-		[],
+		[sendTerminalNotification],
 	)
 
 	// Render one agent event onto the transcript. Shared by the local turn loop
@@ -1208,11 +1255,18 @@ export function App({ ctx }: AppProps) {
 					// Missing remains a normal end for older producers, matching the
 					// headless command's compatibility rule.
 					st.completed = event.stopReason === undefined || event.stopReason === 'end_turn'
+					st.notification = {
+						kind: 'turn-settled',
+						outcome: st.completed ? 'completed' : 'stopped',
+					}
 					closeAssistant()
 					break
 				case 'error':
 					closeAssistant()
-					if (event.message !== 'aborted') pushMessage('system', `Error: ${event.message}`)
+					if (event.message !== 'aborted') {
+						st.notification = { kind: 'turn-settled', outcome: 'failed' }
+						pushMessage('system', `Error: ${event.message}`)
+					} else st.notification = null
 					break
 			}
 		},
@@ -1249,9 +1303,17 @@ export function App({ ctx }: AppProps) {
 			setState('thinking')
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
-			const st: StreamState = { assistantId: null, text: '', pending: '', completed: false }
+			const st: StreamState = {
+				assistantId: null,
+				text: '',
+				pending: '',
+				completed: false,
+				notification: null,
+			}
 			const ac = new AbortController()
+			const turnToken = {}
 			abortRef.current = ac
+			activeTurnTokenRef.current = turnToken
 			// Where this turn will be saved, and which transcript its rows belong
 			// to. Both fixed HERE, at the one moment they are knowable.
 			//
@@ -1265,12 +1327,27 @@ export function App({ ctx }: AppProps) {
 			const destination = scopeRef.current?.sessionId ?? null
 			const turnGeneration = conversationGenRef.current
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
+			const askPermission = ctx.skipPermissions
+				? undefined
+				: (req: PermissionRequest): Promise<PermissionDecision> => {
+						if (
+							!stillHere() ||
+							activeTurnTokenRef.current !== turnToken ||
+							ac.signal.aborted
+						) {
+							return Promise.resolve({
+								kind: 'reject',
+								feedback: 'Turn is no longer active.',
+							})
+						}
+						return onPermission(req)
+					}
 			try {
 				for await (const event of session.send(priorForSdk, {
 					signal: ac.signal,
 					// Bypass mode (--dangerously-skip-permissions / --yolo): omit the
 					// permission callback so every tool batch auto-approves.
-					onPermission: ctx.skipPermissions ? undefined : onPermission,
+					onPermission: askPermission,
 					extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 				})) {
 					// A turn the operator has left is consumed but not rendered: no row
@@ -1294,6 +1371,9 @@ export function App({ ctx }: AppProps) {
 				// the generation exists to stop — and it would be the more confusing
 				// half of it, because an abort reads as an error.
 				if (stillHere()) {
+					if (!ac.signal.aborted) {
+						st.notification = { kind: 'turn-settled', outcome: 'failed' }
+					}
 					// Flushed first: this path does not go through `applyEvent`, so
 					// without it the partial answer the model had produced before
 					// the failure would be discarded along with the turn.
@@ -1313,6 +1393,7 @@ export function App({ ctx }: AppProps) {
 				// cleanup at the moment it decided to stop; repeating it here would
 				// clear the state of whatever has started since.
 				if (stillHere()) {
+					const ownsTurn = activeTurnTokenRef.current === turnToken
 					modelHistoryRef.current = [...historyBeforeTurn, ...turn]
 					if (st.completed && st.text.trim().length > 0) {
 						lastCompletedOutputRef.current = {
@@ -1327,11 +1408,20 @@ export function App({ ctx }: AppProps) {
 					// could not fail, which teaches the next reader that the checks
 					// around it are decoration too.
 					abortRef.current = null
+					if (ownsTurn) activeTurnTokenRef.current = null
 					permissionResolveRef.current = null
 					permissionOpenedAtRef.current = null
 					setPermission(null)
 					clearActiveTools()
 					setState('idle')
+					if (
+						ownsTurn &&
+						!ac.signal.aborted &&
+						st.notification &&
+						queuedRef.current.length === 0
+					) {
+						sendTerminalNotification(st.notification)
+					}
 				}
 				// Persisted either way, and into the conversation this turn was
 				// started in — captured above, never re-read.
@@ -1365,7 +1455,19 @@ export function App({ ctx }: AppProps) {
 				}
 			}
 		},
-		[activeSkills, applyEvent, ctx.cwd, ctx.skipPermissions, finalizeMessage, onPermission, pushMessage, session],
+		[
+			activeSkills,
+			applyEvent,
+			clearActiveTools,
+			ctx.cwd,
+			ctx.skipPermissions,
+			finalizeMessage,
+			flushStream,
+			onPermission,
+			pushMessage,
+			sendTerminalNotification,
+			session,
+		],
 	)
 
 	const handleSubmit = useCallback(
@@ -1666,7 +1768,7 @@ export function App({ ctx }: AppProps) {
 							// review composed while a turn is in flight must not jump
 							// the queue, and must not be dropped either.
 							const text = reviewPrompt(diff.stat, diff.untracked)
-							if (state !== 'idle') setQueued((q) => [...q, text])
+							if (state !== 'idle') enqueueQueued(text)
 							else void runTurn(text, undefined)
 						})()
 						return
@@ -1839,12 +1941,12 @@ export function App({ ctx }: AppProps) {
 			// A turn is in flight → queue the message; it auto-sends when idle.
 			// (Queued messages are text-only; pasted images aren't carried.)
 			if (state !== 'idle') {
-				setQueued((q) => [...q, outgoing])
+				enqueueQueued(outgoing)
 				return
 			}
 			void runTurn(outgoing, images)
 		},
-		[activeSkills, doResume, exit, nextId, pushMessage, runTurn, slashCtx, state],
+		[activeSkills, doResume, enqueueQueued, exit, nextId, pushMessage, runTurn, slashCtx, state],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
@@ -1852,9 +1954,9 @@ export function App({ ctx }: AppProps) {
 	useEffect(() => {
 		if (state !== 'idle' || phase !== 'ready' || queued.length === 0 || abortRef.current) return
 		const [next, ...rest] = queued
-		setQueued(rest)
+		replaceQueued(rest)
 		if (next !== undefined) void runTurn(next)
-	}, [state, phase, queued, runTurn])
+	}, [state, phase, queued, replaceQueued, runTurn])
 
 	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.
