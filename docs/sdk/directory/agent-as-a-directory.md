@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-07T00:00:00Z
-lastReviewed: 2026-08-07
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
 resource: packages/sdk/src/directory/types.ts
 tags: [sdk, directory, agents, convention]
 ---
@@ -50,7 +50,8 @@ does not get to overrule the kernel about what a valid agent is.
 agent/
 ├── instructions.md     the system prompt, used verbatim
 ├── agent.ts            export default { model, temperature, maxIterations,
-│                         tokenBudget, timeoutMs, name, metadata } — all optional
+│                         tokenBudget, timeoutMs, streamIdleTimeoutMs, name,
+│                         metadata } — all optional
 ├── tools/              one file per tool, each default-exporting defineTool(...)
 ├── skills/             one folder per skill
 └── agents/             one folder per delegate, same shape, one level deep
@@ -64,6 +65,13 @@ difference: `tools/` holds **files**, while `skills/` and `agents/` hold
 helper: `export default { model: 'x' } satisfies DirectoryConfig` already gets
 the type checking one would provide, and the name would collide with the SDK's
 existing export. Read an environment variable inside the module if you need to.
+
+`streamIdleTimeoutMs` controls provider-stream silence through the same runtime
+bound as `runAgent`: it defaults to five minutes, while `0` is the explicit
+unbounded compatibility mode. It does not replace `timeoutMs`; that run bound
+is checked between iterations and cannot observe a provider iterator whose
+pending pull never returns. See [Provider stream idle bounds](../runtime/provider-stream-idle-bound.md)
+for the recovery and cancellation contract.
 
 ### What is deliberately not here
 
