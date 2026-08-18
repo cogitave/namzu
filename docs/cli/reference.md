@@ -62,7 +62,7 @@ Inside the session, grouped by the question each one answers:
 |---|---|
 | **What is going on** | `/status`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
-| **This conversation** | `/resume`, `/title`, `/fork`, `/compact`, `/copy`, `/export`, `/clear` |
+| **This conversation** | `/resume`, `/title`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
 | **Everything else** | `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
 
@@ -115,12 +115,23 @@ the earlier host-triggered pass with a summary built only from the newer run.
 The disk log remains append-only: one replacement record changes the projected
 conversation, and later turns append after it.
 
-The transcript is only the view of that history. Compaction remounts and trims
-the view so the summary is visible before the recent rows, while the model record
-keeps values the view cannot represent: expanded `@file` contents and image
-attachments remain in later turns after their readable token or composer chip is
-all that remains on screen. For the same reason, `/clear` clears the transcript,
-not the conversation context or its durable record.
+**`/clear` starts a fresh conversation and clears the terminal; `/new` starts the
+same fresh conversation without clearing the terminal.** In both cases the old
+conversation is unchanged and remains available through `/resume`, while the next
+provider request starts with no prior model history. `/new` leaves earlier rows
+visible only as scrollback and prints the boundary explicitly; those rows are not
+silently sent as context. A running turn is interrupted and saved back to the
+conversation where it started, and queued prompts for that conversation are
+discarded rather than carried across the boundary. The new durable conversation
+is created before any of that happens, so a failed store write leaves the current
+context and running turn intact.
+
+`/clear-screen` is the narrower display operation: it remounts an empty transcript
+without changing model context, durable history, or the active conversation. It
+exists for operators who want a clean terminal while continuing the same chat.
+The transcript is only a view of model history; expanded `@file` contents and
+image attachments can remain in that history after their readable token or
+composer chip has left the screen.
 
 The composer remains available while a turn runs. A submitted follow-up waits in
 FIFO order and carries the complete prompt, including pasted images, into the
@@ -133,10 +144,11 @@ its text was not intended for.
 sends the raw, unrendered Markdown through OSC 52 instead of reconstructing text
 from the screen or starting a host clipboard process. While a new answer is
 streaming, the previous normally completed answer remains the target; a cancelled,
-guarded or otherwise partial answer does not replace it. `/clear` and `/compact`
-keep the target. `/resume` replaces it with the newest non-empty assistant output
-in the resumed conversation, labelled as persisted because older durable records
-do not carry the stop reason needed to prove a normal completion.
+guarded or otherwise partial answer does not replace it. `/clear-screen` and
+`/compact` keep the target. `/clear` and `/new` clear it with the model context;
+`/resume` replaces it with the newest non-empty assistant output in the resumed
+conversation, labelled as persisted because older durable records do not carry
+the stop reason needed to prove a normal completion.
 
 The request is refused outside an interactive terminal and above 100,000 UTF-8
 bytes; oversized text is never truncated. OSC 52 has no portable acknowledgement,
@@ -150,8 +162,9 @@ to the exact user message before model execution begins. Export then reads the
 run's strictly parsed event log and the survivor snapshot whose event boundary
 matches that log. Raw assistant Markdown, model-visible tool calls and results,
 provider fallback and context-relief activity therefore remain available after
-`/clear`; inline attachment bytes are represented by name and media type rather
-than copied into the Markdown.
+`/clear-screen`; inline attachment bytes are represented by name and media type
+rather than copied into the Markdown. After `/clear` or `/new`, `/export` targets
+the fresh active conversation; resume the previous one to export its record.
 
 Bare `/export` writes `namzu-conversation-<session-id>.md` in the working
 directory; an argument selects another path. The writer publishes through a

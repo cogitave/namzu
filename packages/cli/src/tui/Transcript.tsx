@@ -36,7 +36,7 @@ export interface TranscriptProps {
 	 * time on its way back out.
 	 */
 	readonly settled: number
-	/** Bump to reset the static log (e.g. /clear, /resume). */
+	/** Bump to reset the static log (e.g. /clear, /clear-screen, /resume). */
 	readonly resetKey: number
 	/**
 	 * Header (banner) printed once as the first <Static> row. It must live

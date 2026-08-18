@@ -141,8 +141,16 @@ describe('runSlash', () => {
 		}
 	})
 
-	it('/clear returns a clear action', () => {
-		expect(runSlash('/clear', ctx)).toEqual({ kind: 'clear' })
+	it('/clear starts fresh and clears the screen', () => {
+		expect(runSlash('/clear', ctx)).toEqual({ kind: 'new-conversation', clearScreen: true })
+	})
+
+	it('/new starts fresh without clearing the screen', () => {
+		expect(runSlash('/new', ctx)).toEqual({ kind: 'new-conversation', clearScreen: false })
+	})
+
+	it('/clear-screen preserves the conversation behind the view', () => {
+		expect(runSlash('/clear-screen', ctx)).toEqual({ kind: 'clear-screen' })
 	})
 
 	it('/copy returns a copy action for App to resolve against completed output', () => {

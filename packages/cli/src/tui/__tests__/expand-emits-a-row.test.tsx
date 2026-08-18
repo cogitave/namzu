@@ -376,13 +376,13 @@ describe('/expand', () => {
 		expect(harness.lastFrame() ?? '').toContain('Nothing to expand yet')
 	})
 
-	it('forgets the numbers when /clear takes the rows away', async () => {
+	it('forgets the numbers when /clear-screen takes the rows away', async () => {
 		// A number outliving the row it names is this surface's own defect in
 		// miniature: `/expand 1` would print output the operator can no longer
 		// see anywhere, from a conversation they just cleared.
 		const harness = await twoCollapsedBlocks()
 
-		await submit(harness, '/clear')
+		await submit(harness, '/clear-screen')
 		await tick(80)
 		await submit(harness, '/expand 1')
 		await frameShows(harness.lastFrame, 'Nothing to expand yet')

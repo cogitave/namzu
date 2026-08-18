@@ -126,6 +126,7 @@ export interface AppProps {
 }
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
+type ConversationMutation = 'fork' | 'edit' | 'new'
 
 /**
  * The streaming assistant bubble, carried across events within one turn.
@@ -318,13 +319,13 @@ export function App({ ctx }: AppProps) {
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
-	// Bumped to reset the <Static> transcript log (on /clear and /resume).
+	// Bumped to reset the <Static> transcript log (on /clear, /clear-screen and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
 	/**
 	 * How many finalized rows have been printed to scrollback.
 	 *
 	 * The floor under the live window, carried between renders so the split can
-	 * only ever move forward. Reset with the static log itself — after `/clear`
+	 * only ever move forward. Reset with the static log itself — after a screen clear
 	 * nothing has been printed under the new log, and a floor left behind would
 	 * hold the window shut for the length of the next conversation.
 	 */
@@ -428,9 +429,9 @@ export function App({ ctx }: AppProps) {
 	 * are late: a turn captures the value at send time and renders nothing once
 	 * it stops matching.
 	 *
-	 * Bumped ONLY by `resumeConversation`. `/clear` resets the transcript too and
-	 * stays in the same conversation — its turn's rows are still that
-	 * conversation's rows and must keep arriving.
+	 * Bumped by every operation that changes the active conversation: resume,
+	 * fork/edit, `/clear`, and `/new`. `/clear-screen` only remounts the view and
+	 * deliberately leaves this value alone.
 	 */
 	const conversationGenRef = useRef<number>(0)
 	/**
@@ -461,8 +462,8 @@ export function App({ ctx }: AppProps) {
 	 * so a turn cannot start while `/fork` is waiting for an already-attached disk
 	 * write to land.
 	 */
-	const conversationMutationRef = useRef<null | 'fork' | 'edit'>(null)
-	const [conversationMutation, setConversationMutation] = useState<null | 'fork' | 'edit'>(null)
+	const conversationMutationRef = useRef<ConversationMutation | null>(null)
+	const [conversationMutation, setConversationMutation] = useState<ConversationMutation | null>(null)
 	/** Closes the same-tick input window while a verified export reads disk. */
 	const exportingRef = useRef(false)
 	/**
@@ -479,7 +480,8 @@ export function App({ ctx }: AppProps) {
 		return `m${idRef.current}`
 	}, [])
 	// Reset the transcript view: clear the terminal + remount <Static> so its
-	// already-printed lines don't linger above fresh content (/clear, /resume).
+	// already-printed lines don't linger above fresh content (/clear,
+	// /clear-screen, /resume).
 	//
 	// The block numbering resets with it and needs no separate step: the numbers
 	// live on the rows, so emptying `messages` takes them with it. A number that
@@ -1134,6 +1136,91 @@ export function App({ ctx }: AppProps) {
 	)
 
 	/**
+	 * Start a new conversation without deleting the one being left.
+	 *
+	 * The durable target is created first. `startConversation` can fail, and an
+	 * operator who asked for a new chat must not lose a running turn merely
+	 * because its empty successor could not be published. Once it exists, moving
+	 * the shared scope and advancing the generation are one synchronous boundary:
+	 * old events can still unwind and persist to their captured destination, but
+	 * they cannot render into or start an SDK run under the new conversation.
+	 *
+	 * A process whose initial persistence setup failed has no shared scope to
+	 * move. It still gets an honest in-memory context reset; the notice names that
+	 * it is not resumable instead of claiming a durable chat was created.
+	 */
+	const startFreshConversation = useCallback(
+		async (clearScreen: boolean) => {
+			if (conversationMutationRef.current) return
+			conversationMutationRef.current = 'new'
+			setConversationMutation('new')
+
+			const sourceScope = scopeRef.current
+			const sessions = sessionsRef.current
+			let targetSessionId: Awaited<ReturnType<typeof startConversation>> | null = null
+			try {
+				if (sourceScope) {
+					if (!sessions) throw new Error('the active conversation store is unavailable')
+					// Publish the recoverable destination before interrupting or clearing
+					// anything in the source conversation.
+					targetSessionId = await startConversation(sessions)
+				}
+
+				const discardedQueued = queuedRef.current.length
+				const interrupted = interruptTurn()
+				replaceQueued([])
+				conversationGenRef.current += 1
+				activeTurnTokenRef.current = null
+				modelHistoryRef.current = []
+				lastAssistantMessage.current = null
+				lastCompletedOutputRef.current = null
+				setContext(null)
+				if (sourceScope && targetSessionId) sourceScope.sessionId = targetSessionId
+
+				if (clearScreen) {
+					setMessages([])
+					resetTranscript()
+				}
+				pushMessage(
+					'system',
+					sourceScope && targetSessionId
+						? `Started a fresh conversation. The previous conversation is unchanged and remains in /resume.${
+							clearScreen
+								? ''
+								: ' Earlier rows above are display only and are not part of this conversation\'s model context.'
+						}`
+						: `Started a fresh in-memory conversation because durable session persistence is unavailable.${
+							clearScreen
+								? ''
+								: ' Earlier rows above are display only and are not part of this conversation\'s model context.'
+						}`,
+				)
+				if (discardedQueued > 0) {
+					pushMessage(
+						'system',
+						`Discarded ${discardedQueued} queued prompt${discardedQueued === 1 ? '' : 's'} from the conversation you left.`,
+					)
+				}
+				if (interrupted) {
+					pushMessage(
+						'system',
+						'The turn that was running was interrupted. Its reply so far is being saved to the conversation it started in; a tool call already dispatched was not undone.',
+					)
+				}
+			} catch (err) {
+				pushMessage(
+					'system',
+					`Could not start a fresh conversation: ${err instanceof Error ? err.message : String(err)}. The current conversation and any running turn are unchanged.`,
+				)
+			} finally {
+				conversationMutationRef.current = null
+				setConversationMutation(null)
+			}
+		},
+		[interruptTurn, pushMessage, replaceQueued, resetTranscript],
+	)
+
+	/**
 	 * `/title`: read or set the name this conversation appears under.
 	 *
 	 * A bare `/title` asks rather than clears. Erasing a name by pressing
@@ -1610,28 +1697,37 @@ export function App({ ctx }: AppProps) {
 				}
 			}
 			try {
-				for await (const event of session.send(priorForSdk, {
-					signal: ac.signal,
-					runId,
-					// Bypass mode (--dangerously-skip-permissions / --yolo): omit the
-					// permission callback so every tool batch auto-approves.
-					onPermission: askPermission,
-					extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
-				})) {
-					// A turn the operator has left is consumed but not rendered: no row
-					// from it lands in a transcript it has nothing to do with, and its
-					// text keeps accumulating so that what gets saved does not depend
-					// on exactly when the switch happened.
-					//
-					// How much arrives after the switch is a property of the SESSION,
-					// not of this loop. The built-in one checks the signal at the top of
-					// each iteration and returns after a single `error: aborted`, so in
-					// practice very little does. The accumulation is here so a session
-					// that notices later — a different implementation, a generator
-					// parked in a tool call — still saves a whole reply rather than one
-					// truncated at the moment the operator happened to leave.
-					if (stillHere()) applyEvent(event, st)
-					else if (event.kind === 'delta') st.text += event.text
+				// `recordTurnStarted` is an awaited durability boundary. A conversation
+				// switch can happen while it is pending and move the mutable RunScope
+				// captured by `createAgentSession`. Re-admit the turn here, immediately
+				// before the generator exists, or an abandoned prompt can initialize its
+				// reserved SDK run under the new conversation.
+				if (!ac.signal.aborted && stillHere() && activeTurnTokenRef.current === turnToken) {
+					for await (const event of session.send(priorForSdk, {
+						signal: ac.signal,
+						runId,
+						// Bypass mode (--dangerously-skip-permissions / --yolo): omit the
+						// permission callback so every tool batch auto-approves.
+						onPermission: askPermission,
+						extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
+					})) {
+						// A turn the operator has left is consumed but not rendered: no row
+						// from it lands in a transcript it has nothing to do with, and its
+						// text keeps accumulating so that what gets saved does not depend
+						// on exactly when the switch happened.
+						//
+						// How much arrives after the switch is a property of the SESSION,
+						// not of this loop. The built-in one checks the signal at the top of
+						// each iteration and returns after a single `error: aborted`, so in
+						// practice very little does. The accumulation is here so a session
+						// that notices later — a different implementation, a generator
+						// parked in a tool call — still saves a whole reply rather than one
+						// truncated at the moment the operator happened to leave.
+						if (stillHere()) applyEvent(event, st)
+						else if (event.kind === 'delta') st.text += event.text
+					}
+				} else {
+					st.outcome = 'cancelled'
 				}
 			} catch (err) {
 				// Reported only where it means something. In the conversation the
@@ -1771,7 +1867,11 @@ export function App({ ctx }: AppProps) {
 			}
 			if (conversationMutationRef.current) {
 				const operation =
-					conversationMutationRef.current === 'fork' ? 'forked' : 'branched for prompt editing'
+					conversationMutationRef.current === 'fork'
+						? 'forked'
+						: conversationMutationRef.current === 'edit'
+							? 'branched for prompt editing'
+							: 'moved to a fresh conversation'
 				pushMessage(
 					'system',
 					`Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`,
@@ -1790,9 +1890,12 @@ export function App({ ctx }: AppProps) {
 					case 'message':
 						pushMessage(slash.role, slash.content)
 						return
-					case 'clear':
+					case 'clear-screen':
 						setMessages([])
 						resetTranscript()
+						return
+					case 'new-conversation':
+						void startFreshConversation(slash.clearScreen)
 						return
 					case 'exit':
 						exit()
@@ -2323,6 +2426,7 @@ export function App({ ctx }: AppProps) {
 			nextId,
 			pushMessage,
 			slashCtx,
+			startFreshConversation,
 			state,
 		],
 	)
@@ -2757,9 +2861,11 @@ export function App({ ctx }: AppProps) {
 								? 'forking conversation — input is paused'
 								: conversationMutation === 'edit'
 									? 'branching before prompt — input is paused'
-									: compacting
-										? 'compacting conversation — input is paused'
-										: hintForPhase(phase, state, session?.hasProvider === true)
+									: conversationMutation === 'new'
+										? 'starting a fresh conversation — input is paused'
+										: compacting
+											? 'compacting conversation — input is paused'
+											: hintForPhase(phase, state, session?.hasProvider === true)
 						}
 						usage={usage}
 						context={context}

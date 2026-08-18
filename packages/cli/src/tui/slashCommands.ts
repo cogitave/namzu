@@ -38,7 +38,10 @@ import { isCompletionArgument } from './login-prompt.js'
 export type SlashAction =
 	| { kind: 'message'; role: 'system'; content: string }
 	| { kind: 'exit' }
-	| { kind: 'clear' }
+	/** Empty only the rendered terminal transcript; model context is unchanged. */
+	| { kind: 'clear-screen' }
+	/** Start a fresh conversation, optionally clearing the rendered transcript too. */
+	| { kind: 'new-conversation'; clearScreen: boolean }
 	| { kind: 'repick' }
 	| { kind: 'remember'; text: string }
 	| { kind: 'show-memory' }
@@ -495,8 +498,18 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'clear',
-		description: 'Clear the transcript.',
-		action: () => ({ kind: 'clear' }),
+		description: 'Clear the terminal and start a fresh conversation.',
+		action: () => ({ kind: 'new-conversation', clearScreen: true }),
+	},
+	{
+		name: 'new',
+		description: 'Start a fresh conversation without clearing the terminal.',
+		action: () => ({ kind: 'new-conversation', clearScreen: false }),
+	},
+	{
+		name: 'clear-screen',
+		description: 'Clear only the terminal transcript; keep this conversation context.',
+		action: () => ({ kind: 'clear-screen' }),
 	},
 	{
 		name: 'quit',

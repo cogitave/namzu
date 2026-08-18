@@ -16,7 +16,7 @@ export interface EditablePrompt {
  *
  * Durable history is the authority for where a fork may occur and for every
  * attachment. The transcript alone keeps one useful value persistence cannot:
- * the readable `@file` token before App expands it for the model. `/clear` can
+ * the readable `@file` token before App expands it for the model. `/clear-screen` can
  * remove an arbitrary prefix of transcript rows, and compaction can do the same,
  * so the two lists are paired from the newest end rather than by index zero.
  * A durable user with no surviving row falls back to the exact model-visible

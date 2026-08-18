@@ -171,7 +171,7 @@ it('refuses before the first normally completed assistant output', async () => {
 	expect(requested).toEqual([])
 })
 
-it('sends the exact raw Markdown and keeps it after /clear', async () => {
+it('sends the exact raw Markdown and keeps it after /clear-screen', async () => {
 	const raw = '# Result\n\n**bold** and `code`\n'
 	// Missing stop reason is the legacy normal-completion shape; it must remain
 	// copyable while non-normal reasons below stay excluded.
@@ -183,7 +183,7 @@ it('sends the exact raw Markdown and keeps it after /clear', async () => {
 	await tick(80)
 	await submit(harness, '/copy')
 	await frameShows(harness, 'Terminal, multiplexer or remote-session policy may ignore OSC 52')
-	await submit(harness, '/clear')
+	await submit(harness, '/clear-screen')
 	await submit(harness, '/copy')
 
 	await waitUntil(() => requested.length === 2)

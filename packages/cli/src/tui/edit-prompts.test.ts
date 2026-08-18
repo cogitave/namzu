@@ -23,7 +23,7 @@ describe('editable prompt projection', () => {
 		expect(prompt?.message.attachments).toEqual(durable.attachments)
 	})
 
-	it('pairs from the newest end after clear removes visible history', () => {
+	it('pairs from the newest end after clear-screen removes visible history', () => {
 		const old = createUserMessage('old expanded prompt')
 		const recent = createUserMessage('recent expanded prompt')
 		const prompts = editablePrompts(

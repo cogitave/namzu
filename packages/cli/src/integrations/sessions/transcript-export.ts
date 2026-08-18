@@ -118,6 +118,15 @@ export async function conversationMarkdown(
 			turn.started.runId,
 		)
 		if (!(await isDirectory(runDir))) {
+			if (turn.settled?.outcome === 'cancelled' && turn.settled.assistantText.length === 0) {
+				lines.push(
+					'## Activity',
+					'',
+					'Run was cancelled before model execution began; no SDK run record was published.',
+					'',
+				)
+				continue
+			}
 			if (turn.settled) {
 				throw unavailable(
 					'turn-run-mismatch',

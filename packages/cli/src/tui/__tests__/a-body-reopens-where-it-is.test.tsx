@@ -235,8 +235,8 @@ describe('the expand key, on a body that is still on screen', () => {
 		).toBeLessThanOrEqual(SAFETY_ROWS + 6)
 	}, 30_000)
 
-	it('still reaches the rows of the conversation after /clear', async () => {
-		// `/clear` empties the transcript and remounts the static log, and the
+	it('still reaches the rows of the conversation after /clear-screen', async () => {
+		// `/clear-screen` empties the transcript and remounts the static log, and the
 		// window has to come back with it.
 		//
 		// Honest about what this does NOT pin: dropping `settledRef` in
@@ -249,7 +249,7 @@ describe('the expand key, on a body that is still on screen', () => {
 		// cleared under it.
 		const screen = await aCollapsedBody()
 
-		screen.press('/clear')
+		screen.press('/clear-screen')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screenShows(screen, 'Type a message')

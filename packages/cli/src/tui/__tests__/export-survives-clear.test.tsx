@@ -1,4 +1,4 @@
-/** `/export` reads durable run evidence, not the transcript `/clear` removes. */
+/** `/export` reads durable run evidence, not the transcript `/clear-screen` removes. */
 
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -198,7 +198,7 @@ async function submit(stdin: { write: (text: string) => void }, text: string): P
 	stdin.write('\r')
 }
 
-it('exports raw model/tool history after /fork and /clear, then refuses to overwrite it', async () => {
+it('exports raw model/tool history after /fork and /clear-screen, then refuses to overwrite it', async () => {
 	const ctx: TuiContext = { cwd: root, version: '0.0.0-test' }
 	const harness = render(<App ctx={ctx} />)
 	mounted = harness
@@ -211,7 +211,7 @@ it('exports raw model/tool history after /fork and /clear, then refuses to overw
 	await waitFor(harness.lastFrame, 'Type a message')
 	await submit(harness.stdin, '/fork')
 	await waitFor(harness.lastFrame, 'Forked into')
-	await submit(harness.stdin, '/clear')
+	await submit(harness.stdin, '/clear-screen')
 	await tick(80)
 	expect(harness.lastFrame()).not.toContain('First **raw**.')
 

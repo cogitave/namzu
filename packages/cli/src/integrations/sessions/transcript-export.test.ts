@@ -388,6 +388,63 @@ describe('verified conversation Markdown', () => {
 		expect(projected.markdown).toContain('partial before cancel')
 	})
 
+	it('exports a turn cancelled at the host admission boundary before an SDK run existed', async () => {
+		const sessions = await openSessions(await cwd())
+		const sessionId = await startConversation(sessions)
+		const runId = generateRunId()
+		const user = createUserMessage('cancel before provider start')
+		const started = await sessions.turnEvidence?.recordTurnStarted({
+			sessionId,
+			runId,
+			displayText: 'cancel before provider start',
+			user,
+		})
+		if (!started) throw new Error('fixture requires production evidence store')
+		await sessions.turnEvidence?.recordTurnSettled({
+			sessionId,
+			turnId: started.turnId,
+			runId,
+			outcome: 'cancelled',
+			assistantText: '',
+		})
+		await appendMessages(sessions, sessionId, [user])
+
+		const projected = await conversationMarkdown(sessions, sessionId)
+
+		expect(projected.turns).toBe(1)
+		expect(projected.markdown).toContain('cancel before provider start')
+		expect(projected.markdown).toContain('cancelled before model execution began')
+	})
+
+	it('does not excuse a missing SDK run when the host claims any output or another outcome', async () => {
+		for (const settlement of [
+			{ outcome: 'failed' as const, assistantText: '' },
+			{ outcome: 'cancelled' as const, assistantText: 'unverified partial' },
+		]) {
+			const sessions = await openSessions(await cwd())
+			const sessionId = await startConversation(sessions)
+			const runId = generateRunId()
+			const user = createUserMessage('must have a run record')
+			const started = await sessions.turnEvidence?.recordTurnStarted({
+				sessionId,
+				runId,
+				displayText: 'must have a run record',
+				user,
+			})
+			if (!started) throw new Error('fixture requires production evidence store')
+			await sessions.turnEvidence?.recordTurnSettled({
+				sessionId,
+				turnId: started.turnId,
+				runId,
+				...settlement,
+			})
+
+			await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
+				reason: 'turn-run-mismatch',
+			})
+		}
+	})
+
 	it('refuses a fork until its copied prefix has stable source-turn lineage', async () => {
 		const sessions = await openSessions(await cwd())
 		const source = await startConversation(sessions)
