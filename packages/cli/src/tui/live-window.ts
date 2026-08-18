@@ -67,6 +67,8 @@ export interface LiveWindowInput {
 	readonly furnitureRows: number
 	/** How many rows have already settled into scrollback. The window never reaches back past this. */
 	readonly settled: number
+	/** Plain source mode prints complete detail bodies and has no glyph gutter. */
+	readonly raw?: boolean
 }
 
 export interface LiveWindow {
@@ -85,7 +87,14 @@ export interface LiveWindow {
  * content is indented by the two-column glyph gutter it renders beside, so a
  * long line is measured against the width it actually has.
  */
-function messageLines(message: TranscriptMessage, hasPrev: boolean): string[] {
+function messageLines(message: TranscriptMessage, hasPrev: boolean, raw: boolean): string[] {
+	if (raw) {
+		return [
+			...(hasPrev ? [''] : []),
+			`${message.content}${message.meta ? ` · ${message.meta}` : ''}`,
+			...(message.detail && message.detail.length > 0 ? ['', ...message.detail] : []),
+		]
+	}
 	return [
 		...(hasPrev && message.glyph !== '⎿' ? [''] : []),
 		`  ${message.content}`,
@@ -108,9 +117,12 @@ function messageLines(message: TranscriptMessage, hasPrev: boolean): string[] {
  * A pending row is excluded because it is not in the static log yet; the
  * spacer's `liveRows` covers the live region.
  */
-export function transcriptLines(messages: readonly TranscriptMessage[]): readonly string[] {
+export function transcriptLines(
+	messages: readonly TranscriptMessage[],
+	raw = false,
+): readonly string[] {
 	const finalized = messages.filter((m) => !m.pending)
-	return finalized.flatMap((message, i) => messageLines(message, i > 0))
+	return finalized.flatMap((message, i) => messageLines(message, i > 0, raw))
 }
 
 /**
@@ -135,8 +147,9 @@ function messageHeight(
 	message: TranscriptMessage,
 	hasPrev: boolean,
 	columns: number | undefined,
+	raw: boolean,
 ): number {
-	return estimateRenderedLines(messageLines(message, hasPrev), columns) + ROW_HEIGHT_ALLOWANCE
+	return estimateRenderedLines(messageLines(message, hasPrev, raw), columns) + ROW_HEIGHT_ALLOWANCE
 }
 
 /**
@@ -148,7 +161,7 @@ function messageHeight(
  * behaviour, and it is the safe direction.
  */
 export function liveWindow(input: LiveWindowInput): LiveWindow {
-	const { messages, rows, columns, furnitureRows, settled } = input
+	const { messages, rows, columns, furnitureRows, settled, raw = false } = input
 	const floor = Math.min(Math.max(settled, 0), messages.length)
 
 	if (rows === undefined || !Number.isFinite(rows)) return { settled: messages.length, rows: 0 }
@@ -160,7 +173,7 @@ export function liveWindow(input: LiveWindowInput): LiveWindow {
 	for (let i = messages.length - 1; i >= floor && held < MAX_LIVE_ROWS; i--) {
 		const message = messages[i]
 		if (!message) break
-		const next = height + messageHeight(message, i > 0, columns)
+		const next = height + messageHeight(message, i > 0, columns, raw)
 		if (next > budget) break
 		height = next
 		held += 1

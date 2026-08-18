@@ -158,6 +158,17 @@ describe('runSlash', () => {
 		expect(runSlash('/copy', ctx)).toEqual({ kind: 'copy' })
 	})
 
+	it('/raw toggles or selects plain transcript rendering and refuses unknown modes', () => {
+		expect(runSlash('/raw', ctx)).toEqual({ kind: 'raw', enabled: 'toggle' })
+		expect(runSlash('/raw on', ctx)).toEqual({ kind: 'raw', enabled: true })
+		expect(runSlash('/raw OFF', ctx)).toEqual({ kind: 'raw', enabled: false })
+		expect(runSlash('/raw maybe', ctx)).toEqual({
+			kind: 'message',
+			role: 'system',
+			content: 'Usage: /raw [on|off]',
+		})
+	})
+
 	it('/debug-config renders the launch-time winning source without a value', () => {
 		const r = runSlash(
 			'/debug-config',

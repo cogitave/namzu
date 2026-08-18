@@ -90,12 +90,6 @@
 			"reason": "the NDJSON stdout protocol documented at the top of this file — one JSON object per line for a host process to line-scan. The logger is silenced for the command's lifetime for exactly this reason: no stray log line may land on this channel."
 		},
 		{
-			"file": "packages/cli/src/tui/App.tsx",
-			"symbol": "process.stdout.write",
-			"count": 1,
-			"reason": "raw ANSI terminal control (clear screen + scrollback) on transcript reset — an escape sequence, not a diagnostic."
-		},
-		{
 			"file": "packages/cli/src/tui/index.tsx",
 			"symbol": "process.stdout.write",
 			"count": 1,

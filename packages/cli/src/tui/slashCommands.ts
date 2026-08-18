@@ -76,6 +76,8 @@ export type SlashAction =
 	| { kind: 'compact' }
 	/** Ask the terminal to copy the latest available assistant output. */
 	| { kind: 'copy' }
+	/** Toggle or explicitly select copy-friendly plain transcript rendering. */
+	| { kind: 'raw'; enabled: boolean | 'toggle' }
 	/** Write a verified, no-clobber Markdown projection of this conversation. */
 	| { kind: 'export'; path?: string }
 	/**
@@ -681,6 +683,21 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'copy',
 		description: 'Send the latest available assistant output to the terminal clipboard.',
 		action: () => ({ kind: 'copy' }),
+	},
+	{
+		name: 'raw',
+		description: 'Toggle copy-friendly plain transcript rendering: /raw [on|off].',
+		action: (_ctx, args) => {
+			const choice = args.join(' ').trim().toLowerCase()
+			if (choice.length === 0) return { kind: 'raw', enabled: 'toggle' }
+			if (choice === 'on') return { kind: 'raw', enabled: true }
+			if (choice === 'off') return { kind: 'raw', enabled: false }
+			return {
+				kind: 'message',
+				role: 'system',
+				content: 'Usage: /raw [on|off]',
+			}
+		},
 	},
 	{
 		name: 'export',

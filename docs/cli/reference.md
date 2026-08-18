@@ -62,7 +62,7 @@ Inside the session, grouped by the question each one answers:
 |---|---|
 | **What is going on** | `/status`, `/debug-config`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
-| **This conversation** | `/resume`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/export` |
+| **This conversation** | `/resume`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
 | **Everything else** | `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
 
@@ -189,6 +189,20 @@ bytes; oversized text is never truncated. OSC 52 has no portable acknowledgement
 so success means only that the request was sent. A terminal, multiplexer or remote
 session policy may still ignore it, and the UI says so rather than claiming the
 clipboard changed.
+
+**`/raw [on|off]` changes the retained transcript between rich and literal
+rendering.** Bare `/raw` toggles. Raw mode removes role glyphs and Markdown
+styling, preserves Markdown source markers, and prints complete tool bodies
+instead of collapse hints, so terminal selection does not have to reconstruct
+source from a decorated view. It does not change model context, persistence or
+the target of `/copy`.
+
+The mode applies to the whole retained transcript, not only to rows produced
+after the command. Switching it clears terminal scrollback, remounts the static
+log and replays those rows in the selected form; `/raw off` performs the same
+rebuild back to rich rendering. `/clear-screen` still removes the rendered rows,
+so raw mode cannot and does not resurrect a view the operator deliberately
+cleared.
 
 **`/export [path]` writes a verified Markdown conversation, not a rendering of
 the terminal.** Each new turn reserves its SDK run id and durably binds that id

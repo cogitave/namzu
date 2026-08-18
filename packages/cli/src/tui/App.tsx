@@ -305,6 +305,8 @@ export function App({ ctx }: AppProps) {
 		readonly provenance: 'normal-completion' | 'persisted'
 	} | null>(null)
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
+	/** Plain, copy-friendly rendering of the same retained transcript rows. */
+	const [rawOutput, setRawOutput] = useState(false)
 	/**
 	 * The conversation sent to the model, in the SDK's own lossless shape.
 	 *
@@ -536,13 +538,13 @@ export function App({ ctx }: AppProps) {
 	// can no longer see anywhere, which is the failure this surface is being
 	// cleaned of, one layer up.
 	const resetTranscript = useCallback(() => {
-		if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
+		if (stdout.isTTY) writeStdout('\x1b[2J\x1b[3J\x1b[H')
 		// The scrollback floor goes with the log it counted. <Static> is remounted
 		// by the key below and has emitted nothing again; a floor that survived
 		// would keep the next conversation's rows out of the live window.
 		settledRef.current = 0
 		setResetKey((k) => k + 1)
-	}, [])
+	}, [stdout.isTTY, writeStdout])
 
 	const pushMessage = useCallback(
 		(
@@ -955,6 +957,7 @@ export function App({ ctx }: AppProps) {
 		columns: process.stdout.columns,
 		furnitureRows: LIVE_FURNITURE_ROWS,
 		settled: settledRef.current,
+		raw: rawOutput,
 	})
 	settledRef.current = window.settled
 
@@ -967,7 +970,7 @@ export function App({ ctx }: AppProps) {
 			? bottomSpacerRows({
 					rows: process.stdout.rows,
 					columns: process.stdout.columns,
-					transcript: transcriptLines(finalized.slice(0, window.settled)),
+					transcript: transcriptLines(finalized.slice(0, window.settled), rawOutput),
 					liveRows: LIVE_FURNITURE_ROWS + window.rows,
 				})
 			: 0
@@ -2523,6 +2526,22 @@ export function App({ ctx }: AppProps) {
 						}
 						return
 					}
+					case 'raw': {
+						const enabled = slash.enabled === 'toggle' ? !rawOutput : slash.enabled
+						// Rows already emitted by <Static> cannot observe a new render
+						// function. Clear the terminal, reset its monotone floor and
+						// remount the retained rows so this is a transcript-wide mode,
+						// not a flag that reaches only future output.
+						setRawOutput(enabled)
+						resetTranscript()
+						pushMessage(
+							'system',
+							enabled
+								? 'Raw output mode on — transcript source is shown without Markdown styling or collapsed bodies.'
+								: 'Raw output mode off — rich transcript rendering restored.',
+						)
+						return
+					}
 					case 'export': {
 						const sessions = sessionsRef.current
 						const destination = scopeRef.current?.sessionId
@@ -2616,6 +2635,8 @@ export function App({ ctx }: AppProps) {
 			hasUnsettledTurn,
 			nextId,
 			pushMessage,
+			rawOutput,
+			resetTranscript,
 			slashCtx,
 			startFreshConversation,
 			state,
@@ -3098,6 +3119,7 @@ export function App({ ctx }: AppProps) {
 								state={state}
 								settled={window.settled}
 								resetKey={resetKey}
+								raw={rawOutput}
 								header={
 									phase === 'ready' ? (
 										<Banner

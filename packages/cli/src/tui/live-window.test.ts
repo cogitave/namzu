@@ -136,4 +136,44 @@ describe('transcriptLines', () => {
 		// pending row here would count it twice.
 		expect(transcriptLines([row({ pending: true, detail: ['a', 'b'] })])).toEqual([])
 	})
+
+	it('counts the whole plain body in raw mode instead of the rich collapsed projection', () => {
+		const detail = Array.from({ length: 12 }, (_, i) => `raw-detail-${i + 1}`)
+		const message = row({ content: '**literal**', detail, detailRef: 1 })
+
+		const rich = transcriptLines([message])
+		const raw = transcriptLines([message], true)
+
+		expect(rich).toContain('   … +6 lines · /expand 1')
+		expect(rich).not.toContain('   raw-detail-12')
+		expect(raw).toContain('raw-detail-12')
+		expect(raw).not.toContain('   … +6 lines · /expand 1')
+	})
+
+	it('uses the complete raw body when bounding the redrawable window', () => {
+		const messages = [
+			row({
+				content: 'tool output',
+				detail: Array.from({ length: 30 }, (_, i) => `raw-detail-${i + 1}`),
+			}),
+		]
+		const rich = liveWindow({
+			messages,
+			rows: 30,
+			columns: 80,
+			furnitureRows: FURNITURE,
+			settled: 0,
+		})
+		const raw = liveWindow({
+			messages,
+			rows: 30,
+			columns: 80,
+			furnitureRows: FURNITURE,
+			settled: 0,
+			raw: true,
+		})
+
+		expect(rich.settled).toBe(0)
+		expect(raw.settled).toBe(1)
+	})
 })

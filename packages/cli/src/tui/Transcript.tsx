@@ -38,6 +38,8 @@ export interface TranscriptProps {
 	readonly settled: number
 	/** Bump to reset the static log (e.g. /clear, /clear-screen, /resume). */
 	readonly resetKey: number
+	/** Render literal source text without glyphs, Markdown styling or collapsed bodies. */
+	readonly raw?: boolean
 	/**
 	 * Header (banner) printed once as the first <Static> row. It must live
 	 * inside <Static> — Ink writes static output to scrollback *above* the
@@ -65,6 +67,7 @@ export function Transcript({
 	state,
 	settled,
 	resetKey,
+	raw = false,
 	header,
 }: TranscriptProps) {
 	const spinner = useSpinner(state !== 'idle')
@@ -96,20 +99,32 @@ export function Transcript({
 				{(row) =>
 					row.kind === 'header' ? (
 						<Box key="header">{header}</Box>
+					) : raw ? (
+						<RawMessageRow key={row.message.id} message={row.message} prev={row.prev} />
 					) : (
 						<MessageRow key={row.message.id} message={row.message} prev={row.prev} spinner="" />
 					)
 				}
 			</Static>
-			{live.map((message, i) => (
-				<LiveRow
-					key={message.id}
-					message={message}
-					prev={messages[inScrollback + i - 1]}
-					spinner=""
-				/>
-			))}
-			{pending ? (
+			{live.map((message, i) =>
+				raw ? (
+					<RawMessageRow
+						key={message.id}
+						message={message}
+						prev={messages[inScrollback + i - 1]}
+					/>
+				) : (
+					<LiveRow
+						key={message.id}
+						message={message}
+						prev={messages[inScrollback + i - 1]}
+						spinner=""
+					/>
+				),
+			)}
+			{pending && raw ? (
+				<RawMessageRow message={pending} prev={messages[messages.length - 1]} />
+			) : pending ? (
 				<MessageRow
 					message={pending}
 					prev={messages[messages.length - 1]}
@@ -143,6 +158,34 @@ export function Transcript({
  * would be a prop that drives nothing.
  */
 const LiveRow = memo(MessageRow)
+
+/**
+ * Literal, selection-friendly transcript source.
+ *
+ * There is deliberately no role gutter or Markdown renderer here. The source
+ * is the value an operator is trying to select, so decorating it and asking
+ * them to reverse the decoration would reproduce the problem this mode solves.
+ * Tool bodies are shown whole: a mode named raw must not retain a rich-view
+ * truncation whose missing lines cannot be selected at all.
+ */
+function RawMessageRow({
+	message,
+	prev,
+}: {
+	readonly message: TranscriptMessage
+	readonly prev: TranscriptMessage | undefined
+}) {
+	const content = message.content.length > 0 ? message.content : message.pending ? '…' : ''
+	const text = [
+		`${content}${message.meta ? ` · ${message.meta}` : ''}`,
+		...(message.detail && message.detail.length > 0 ? ['', ...message.detail] : []),
+	].join('\n')
+	return (
+		<Box flexDirection="column" marginTop={prev ? 1 : 0}>
+			<Text wrap="wrap">{text}</Text>
+		</Box>
+	)
+}
 
 function MessageRow({
 	message,
