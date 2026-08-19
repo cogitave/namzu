@@ -6,7 +6,7 @@ import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { buildCompactionMessage, isCompactionMessage } from '../../../../compaction/summary.js'
-import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
+import { buildVerifiedSummaryWithBoundedProvider } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import { invariants } from '../../../../invariants/index.js'
@@ -593,7 +593,7 @@ export async function runCompactionCheck(
 		// to a cheap model while the bill is written against the expensive one
 		// is a mistake with no symptom.
 		const compactionModel = resolveTaskModel('compaction', ctx.taskRouter, ctx.runConfig.model)
-		compactedContent = await buildVerifiedSummary(
+		compactedContent = await buildVerifiedSummaryWithBoundedProvider(
 			manager,
 			olderMessages as Message[],
 			ctx.provider,
@@ -610,6 +610,7 @@ export async function runCompactionCheck(
 			// been accepted, validated and threaded through four types since it
 			// was added, and nothing ever consulted it.
 			compactionModel,
+			ctx.abortController.signal,
 		)
 	} else {
 		compactedContent = serializeState(manager.getState())

@@ -1,4 +1,5 @@
 import type { CompactionConfig } from '../config/runtime.js'
+import { resolveStreamIdleTimeoutMs } from '../provider/idle-timeout.js'
 import { NamzuError } from '../types/errors/index.js'
 import { toolResultToText } from '../types/message/content.js'
 import type { Message } from '../types/message/index.js'
@@ -14,7 +15,7 @@ import {
 import { WorkingStateManager } from './manager.js'
 import { planCompaction } from './plan.js'
 import { buildCompactionMessage, isCompactionMessage } from './summary.js'
-import { buildVerifiedSummary } from './verifier.js'
+import { type CompactionVerificationOptions, buildVerifiedSummary } from './verifier.js'
 
 /**
  * Compaction a host can ask for, rather than one that only happens to it.
@@ -39,12 +40,19 @@ export interface CompactionResult {
 	readonly summary: Message
 }
 
-export interface CompactNowInput {
+export interface CompactNowInput extends CompactionVerificationOptions {
 	readonly messages: readonly Message[]
 	readonly config: CompactionConfig
 	readonly provider: LLMProvider
 	readonly model?: string
 	readonly contextWindowTokens?: number
+}
+
+function admitManualCompaction(input: CompactionVerificationOptions): void {
+	input.signal?.throwIfAborted()
+	// Validate at the public boundary even when the history is too short to
+	// call the verifier. A malformed liveness policy is not a successful no-op.
+	resolveStreamIdleTimeoutMs(input.streamIdleTimeoutMs)
 }
 
 /** Assembles the new history from a plan's partition plus its summary. */
@@ -113,6 +121,7 @@ function populateWorkingState(
  * logged as a successful pass and shown to a user as work done.
  */
 export async function compactNow(input: CompactNowInput): Promise<CompactionResult | null> {
+	admitManualCompaction(input)
 	const window = resolveContextWindow(
 		input.contextWindowTokens ?? input.config.contextWindowTokens,
 		input.model,
@@ -140,6 +149,7 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 		input.config,
 		undefined,
 		input.model ?? '',
+		{ signal: input.signal, streamIdleTimeoutMs: input.streamIdleTimeoutMs },
 	)
 
 	const { messages, summary } = splice(plan.systemMessages, body, plan.recentMessages)
@@ -164,6 +174,7 @@ export interface CompactRegionInput extends CompactNowInput {
  * the caller can move it themselves.
  */
 export async function compactRegion(input: CompactRegionInput): Promise<CompactionResult | null> {
+	admitManualCompaction(input)
 	const { messages, start, end } = input
 
 	if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > messages.length) {
@@ -204,6 +215,7 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 		input.config,
 		undefined,
 		input.model ?? '',
+		{ signal: input.signal, streamIdleTimeoutMs: input.streamIdleTimeoutMs },
 	)
 
 	// Same cross-run ownership as compactNow: a selected region has been

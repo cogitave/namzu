@@ -1,5 +1,6 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
+import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import type { TokenUsage } from '../types/common/index.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider } from '../types/provider/interface.js'
@@ -54,6 +55,18 @@ function truncateMessages(messages: Message[], budget: number): string {
  */
 export type UsageSink = (usage: TokenUsage) => void
 
+/** Cancellation and stream-liveness policy for a compaction verifier call. */
+export interface CompactionVerificationOptions {
+	/** Stop before provider work starts, or close an in-flight verifier transport. */
+	readonly signal?: AbortSignal
+	/**
+	 * Milliseconds without a verifier chunk before the provider stream is
+	 * treated as stalled. Defaults to the SDK's finite shared bound. Set `0`
+	 * only for explicit unbounded compatibility.
+	 */
+	readonly streamIdleTimeoutMs?: number
+}
+
 export async function buildVerifiedSummary(
 	manager: WorkingStateManager,
 	olderMessages: Message[],
@@ -68,6 +81,58 @@ export async function buildVerifiedSummary(
 	 * failure surfaced as compaction killing the run it exists to save.
 	 */
 	model?: string,
+	options: CompactionVerificationOptions = {},
+): Promise<string> {
+	options.signal?.throwIfAborted()
+	const providerWithIdleBound = withStreamIdleTimeout(provider, {
+		idleTimeoutMs: resolveStreamIdleTimeoutMs(options.streamIdleTimeoutMs),
+	})
+	return await buildVerifiedSummaryWithProvider(
+		manager,
+		olderMessages,
+		providerWithIdleBound,
+		config,
+		onUsage,
+		model,
+		options.signal,
+	)
+}
+
+/**
+ * Query-only seam for a provider whose idle/retry/fallback order was already
+ * composed at run admission. Wrapping that chain again would put an idle
+ * timer around retry backoff and misclassify a healthy recovery pause as a
+ * stalled stream. This symbol is intentionally absent from the package barrel.
+ */
+export async function buildVerifiedSummaryWithBoundedProvider(
+	manager: WorkingStateManager,
+	olderMessages: Message[],
+	provider: LLMProvider,
+	config: CompactionConfig,
+	onUsage?: UsageSink,
+	model?: string,
+	signal?: AbortSignal,
+): Promise<string> {
+	signal?.throwIfAborted()
+	return await buildVerifiedSummaryWithProvider(
+		manager,
+		olderMessages,
+		provider,
+		config,
+		onUsage,
+		model,
+		signal,
+	)
+}
+
+async function buildVerifiedSummaryWithProvider(
+	manager: WorkingStateManager,
+	olderMessages: Message[],
+	provider: LLMProvider,
+	config: CompactionConfig,
+	onUsage?: UsageSink,
+	model?: string,
+	signal?: AbortSignal,
 ): Promise<string> {
 	const serialized = serializeState(manager.getState())
 
@@ -102,6 +167,7 @@ export async function buildVerifiedSummary(
 			messages: verificationMessages,
 			maxTokens: config.llmVerificationMaxTokens,
 			temperature: 0,
+			...(signal ? { signal } : {}),
 		}),
 	)
 

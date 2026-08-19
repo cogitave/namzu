@@ -38,6 +38,7 @@ function harness(taskRouter?: TaskRouterConfig): {
 		richStateThreshold: 1_000,
 	}
 	const modelsUsed: string[] = []
+	const abortController = new AbortController()
 
 	const ctx = {
 		compactionConfig: config,
@@ -62,6 +63,7 @@ function harness(taskRouter?: TaskRouterConfig): {
 				}
 			},
 		},
+		abortController,
 		log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 	} as unknown as IterationContext
 

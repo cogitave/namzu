@@ -1178,7 +1178,7 @@ export {
 // The gate is the reason this is a list rather than a fourth accident.
 export type { ResolvedContextWindow } from './compaction/context-window.js'
 export type { CompactRegionInput } from './compaction/manual.js'
-export type { UsageSink } from './compaction/verifier.js'
+export type { CompactionVerificationOptions, UsageSink } from './compaction/verifier.js'
 export type { PluginDiscoveryOptions } from './plugin/loader.js'
 export type { ProbeContextInput } from './probe/context.js'
 export type {

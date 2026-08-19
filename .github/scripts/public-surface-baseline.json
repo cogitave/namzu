@@ -1468,6 +1468,7 @@
         "CompactionConfigSchema",
         "CompactionResult",
         "CompactionStrategy",
+        "CompactionVerificationOptions",
         "CompletedToolRecord",
         "CompletionInbox",
         "CompletionMode",

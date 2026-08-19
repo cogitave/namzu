@@ -137,6 +137,27 @@ fused into the private signal passed to a cooperative driver, so it can close
 its metadata transport without either cancellation path aborting the caller's
 own controller.
 
+## Compaction verification
+
+Structured compaction can make a verifier model call before replacing older
+history. Inside `query()`, that call uses the run's already-composed provider
+chain and carries the run cancellation signal to the verifier transport. Stop
+therefore closes a pending verifier with the same cause and settles the run as
+cancelled.
+
+The query path deliberately does not wrap that chain a second time. Its order
+remains `fallback(retry(idle(provider)))`, so a server-directed retry wait is
+not measured as provider-stream silence by an outer timer. The idle bound
+applies to each provider attempt; retry backoff remains under the retry policy.
+
+The host-callable `buildVerifiedSummary`, `compactNow`, and `compactRegion`
+paths receive a raw provider instead. They apply the shared finite idle default
+themselves and accept `signal` plus `streamIdleTimeoutMs`. Set the latter to a
+positive integer to choose another per-chunk bound, or to `0` only when the host
+already owns an equivalent watchdog. Invalid values and an already-aborted
+signal are refused at manual-compaction admission, including when the selected
+history would otherwise produce a no-op.
+
 ## Evaluation judges
 
 `judgeScorer` is also a model-calling front door. It applies the shared finite
@@ -171,7 +192,9 @@ original provider object by identity.
 Inside `query()`, prefer `streamIdleTimeoutMs` on the run config. The runtime
 owns the retry/fallback order there and applies the bound to main turns,
 compaction calls, verification calls, and forced-final calls through one
-composition boundary. Query-owned advisor providers receive the same bound and
-run cancellation separately because they are not members of that chain.
+composition boundary. Query-owned compaction verification reuses that composed
+provider and adds only the run signal; host-triggered compaction wraps its raw
+provider locally. Query-owned advisor providers receive the same bound and run
+cancellation separately because they are not members of the main chain.
 `RouterAgent` applies the same config to its separate routing decision before
 it enters a delegate's `query()` boundary.

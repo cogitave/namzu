@@ -31,6 +31,7 @@ export {
 } from './extractor.js'
 
 export { buildVerifiedSummary } from './verifier.js'
+export type { CompactionVerificationOptions } from './verifier.js'
 
 export {
 	findDanglingMessages,
