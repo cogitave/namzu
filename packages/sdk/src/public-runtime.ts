@@ -681,7 +681,11 @@ export {
 	InvalidAgentCardError,
 	fetchAgentCard,
 } from './bridge/a2a/client.js'
-export type { A2ADelegateConfig, FetchLike } from './bridge/a2a/client.js'
+export type {
+	A2ADelegateConfig,
+	FetchAgentCardOptions,
+	FetchLike,
+} from './bridge/a2a/client.js'
 
 export {
 	mapRunToStreamEvent,

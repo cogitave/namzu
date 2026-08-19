@@ -1694,6 +1694,7 @@
         "FallbackResolver",
         "FallbackStrategy",
         "FencingToken",
+        "FetchAgentCardOptions",
         "FetchLike",
         "FileAction",
         "FileLock",

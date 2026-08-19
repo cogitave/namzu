@@ -418,6 +418,15 @@ AEP flows over three transports:
 - **SSE** (`bridge/sse/mapper.ts`) — cross-process over HTTP, for web UIs and remote observers.
 - **A2A** (`bridge/a2a/`) — cross-agent, for multi-agent meshes.
 
+The A2A client bounds both discovery and delegation independently of an
+injected transport's cooperation. Card discovery has a 30-second whole-request
+default; delegation has a ten-minute whole-operation default starting before
+remote task creation. Caller cancellation closes a private transport without
+aborting the caller's controller. Once a peer has returned a task id, the client
+also sends a separately bounded `tasks/cancel`; before that id exists it reports
+the remote outcome as unknown rather than claiming a cancellation it cannot
+prove. See [A2A client discovery and delegation bounds](integrations/a2a-client.md).
+
 Every transport emits the same `RunEvent` union. Every event carries `type` and `runId`; variants add only the identifiers and payload they need, such as `toolUseId`, `taskId`, `planId`, `parentRunId`, or `depth`. Topic, session, project and tenant correlation belongs to the run context and durable run metadata rather than being repeated on every event variant.
 
 AEP v1 is being finalized. Until the spec is stamped, treat the event shapes as semver-minor.

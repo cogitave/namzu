@@ -38,6 +38,14 @@ export type FetchLike = (
 	text(): Promise<string>
 }>
 
+export interface FetchAgentCardOptions {
+	readonly fetch: FetchLike
+	/** Cancels discovery; a pre-aborted signal starts no request. */
+	readonly signal?: AbortSignal
+	/** Whole fetch-and-body deadline. Defaults to 30 seconds; `0` opts out. */
+	readonly timeoutMs?: number
+}
+
 /** A peer that answered with something that is not an agent card. */
 export class InvalidAgentCardError extends Error {
 	readonly details: { url: string; reason: string }
@@ -75,6 +83,149 @@ export class A2ARequestError extends Error {
 
 const majorMinor = (version: string): string => version.split('.').slice(0, 2).join('.')
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+const DEFAULT_CARD_TIMEOUT_MS = 30_000
+const DEFAULT_POLL_MS = 1_000
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
+const PEER_CANCEL_GRACE_MS = 500
+
+function resolveTimerMs(
+	value: number | undefined,
+	fallback: number,
+	name: string,
+	allowZero: boolean,
+): number {
+	const resolved = value ?? fallback
+	const minimum = allowZero ? 0 : 1
+	if (!Number.isInteger(resolved) || resolved < minimum || resolved > MAX_TIMER_DELAY_MS) {
+		throw new RangeError(
+			`${name} must be an integer from ${minimum} to ${MAX_TIMER_DELAY_MS}; received ${String(resolved)}`,
+		)
+	}
+	return resolved
+}
+
+function timeoutError(message: string): Error {
+	const error = new Error(message)
+	error.name = 'TimeoutError'
+	return error
+}
+
+interface OperationCause {
+	readonly kind: 'caller' | 'timeout'
+	readonly reason: unknown
+}
+
+function taskIdOf(value: unknown): string | undefined {
+	if (typeof value !== 'object' || value === null || !Object.hasOwn(value, 'id')) return undefined
+	const id = (value as { readonly id?: unknown }).id
+	return typeof id === 'string' && id.length > 0 ? id : undefined
+}
+
+/** Internal control flow. Public callers receive the exact cause instead. */
+class OperationInterrupted {
+	constructor(readonly cause: OperationCause) {}
+}
+
+interface OperationBoundary {
+	readonly signal: AbortSignal
+	wait<T>(operation: Promise<T>): Promise<T>
+	throwIfStopped(): void
+	armTransportAbort(): void
+	abortTransport(): void
+	dispose(): void
+}
+
+/**
+ * One caller-owned cancellation plus one kernel-owned deadline.
+ *
+ * The promise race is intentional even though the signal is forwarded. A
+ * host can inject `FetchLike`, and accepting an AbortSignal does not prove it
+ * settles when that signal fires. The race settles Namzu independently while
+ * keeping the losing promise observed.
+ */
+function operationBoundary(options: {
+	readonly callerSignal?: AbortSignal
+	readonly timeoutMs: number
+	readonly timeoutMessage: string
+	readonly abortTransportInitially: boolean
+}): OperationBoundary {
+	options.callerSignal?.throwIfAborted()
+
+	const transport = new AbortController()
+	let cause: OperationCause | undefined
+	let transportAbortArmed = options.abortTransportInitially
+	let resolveStopped!: (cause: OperationCause) => void
+	const stopped = new Promise<OperationCause>((resolve) => {
+		resolveStopped = resolve
+	})
+
+	const stop = (next: OperationCause): void => {
+		if (cause !== undefined) return
+		cause = next
+		// Latch and resolve BEFORE aborting the transport. A fetch implementation
+		// may synchronously turn transport abort into a generic AbortError; that
+		// fallout must not erase whether the caller or the deadline stopped us.
+		resolveStopped(next)
+		if (transportAbortArmed && !transport.signal.aborted) {
+			transport.abort(next.reason)
+		}
+	}
+
+	const onCallerAbort = (): void => {
+		stop({ kind: 'caller', reason: options.callerSignal?.reason })
+	}
+	options.callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
+	// Abort events are not replayed. The first throw closes the ordinary
+	// pre-abort case; this second check closes a signal that changed while its
+	// listener was being installed by a non-standard implementation.
+	if (options.callerSignal?.aborted) onCallerAbort()
+
+	const timer =
+		options.timeoutMs > 0
+			? setTimeout(() => {
+					stop({ kind: 'timeout', reason: timeoutError(options.timeoutMessage) })
+				}, options.timeoutMs)
+			: undefined
+
+	return {
+		signal: transport.signal,
+		async wait<T>(operation: Promise<T>): Promise<T> {
+			if (cause !== undefined) throw new OperationInterrupted(cause)
+			const completed = operation.then(
+				(value) => ({ kind: 'value' as const, value, causeAtSettlement: cause }),
+				(error: unknown) => ({ kind: 'error' as const, error, causeAtSettlement: cause }),
+			)
+			const winner = await Promise.race([
+				completed,
+				stopped.then((stoppedCause) => ({ kind: 'stopped' as const, cause: stoppedCause })),
+			])
+			if (winner.kind === 'stopped') throw new OperationInterrupted(winner.cause)
+			// If transport.abort() made the operation reject first, the cause was
+			// already latched. Preserve it rather than leaking a generic AbortError.
+			if (winner.causeAtSettlement !== undefined) {
+				throw new OperationInterrupted(winner.causeAtSettlement)
+			}
+			if (winner.kind === 'error') throw winner.error
+			return winner.value
+		},
+		throwIfStopped(): void {
+			if (cause !== undefined) throw new OperationInterrupted(cause)
+		},
+		armTransportAbort(): void {
+			transportAbortArmed = true
+			if (cause !== undefined && !transport.signal.aborted) transport.abort(cause.reason)
+		},
+		abortTransport(): void {
+			if (!transport.signal.aborted) transport.abort(cause?.reason)
+		},
+		dispose(): void {
+			if (timer !== undefined) clearTimeout(timer)
+			options.callerSignal?.removeEventListener('abort', onCallerAbort)
+		},
+	}
+}
+
 /**
  * Read a peer's card, and refuse one this kernel cannot honestly use.
  *
@@ -91,51 +242,74 @@ const majorMinor = (version: string): string => version.split('.').slice(0, 2).j
  */
 export async function fetchAgentCard(
 	baseUrl: string,
-	opts: { readonly fetch: FetchLike; readonly signal?: AbortSignal },
+	opts: FetchAgentCardOptions,
 ): Promise<A2AAgentCard> {
-	const url = `${baseUrl.replace(/\/$/, '')}/.well-known/agent-card.json`
-	const response = await opts.fetch(url, {
-		method: 'GET',
-		headers: { accept: 'application/json' },
-		...(opts.signal ? { signal: opts.signal } : {}),
+	const timeoutMs = resolveTimerMs(
+		opts.timeoutMs,
+		DEFAULT_CARD_TIMEOUT_MS,
+		'fetchAgentCard timeoutMs',
+		true,
+	)
+	const boundary = operationBoundary({
+		callerSignal: opts.signal,
+		timeoutMs,
+		timeoutMessage: `A2A agent-card request timed out after ${timeoutMs}ms`,
+		abortTransportInitially: true,
 	})
-	if (!response.ok) {
-		throw new InvalidAgentCardError({ url, reason: `HTTP ${response.status}` })
-	}
-
-	let body: unknown
+	const url = `${baseUrl.replace(/\/$/, '')}/.well-known/agent-card.json`
 	try {
-		body = await response.json()
-	} catch (err) {
-		throw new InvalidAgentCardError({
-			url,
-			reason: err instanceof Error ? err.message : 'the body is not JSON',
-		})
-	}
+		boundary.throwIfStopped()
+		const response = await boundary.wait(
+			opts.fetch(url, {
+				method: 'GET',
+				headers: { accept: 'application/json' },
+				signal: boundary.signal,
+			}),
+		)
+		if (!response.ok) {
+			throw new InvalidAgentCardError({ url, reason: `HTTP ${response.status}` })
+		}
 
-	const card = body as Partial<A2AAgentCard>
-	// Checked by hand rather than through a schema, because there is no
-	// `A2AAgentCardSchema` in `contracts/a2a.ts` — the card is a type here
-	// and not a parser. Only the fields this client actually depends on are
-	// required; inventing requirements a peer does not owe us would refuse
-	// working peers.
-	if (typeof card?.name !== 'string' || !Array.isArray(card.supportedInterfaces)) {
-		throw new InvalidAgentCardError({ url, reason: 'no name, or no supportedInterfaces' })
+		let body: unknown
+		try {
+			body = await boundary.wait(response.json())
+		} catch (err) {
+			if (err instanceof OperationInterrupted) throw err
+			throw new InvalidAgentCardError({
+				url,
+				reason: err instanceof Error ? err.message : 'the body is not JSON',
+			})
+		}
+
+		const card = body as Partial<A2AAgentCard>
+		// Checked by hand rather than through a schema, because there is no
+		// `A2AAgentCardSchema` in `contracts/a2a.ts` — the card is a type here
+		// and not a parser. Only the fields this client actually depends on are
+		// required; inventing requirements a peer does not owe us would refuse
+		// working peers.
+		if (typeof card?.name !== 'string' || !Array.isArray(card.supportedInterfaces)) {
+			throw new InvalidAgentCardError({ url, reason: 'no name, or no supportedInterfaces' })
+		}
+		if (card.supportedInterfaces.length === 0) {
+			throw new InvalidAgentCardError({ url, reason: 'supportedInterfaces is empty' })
+		}
+		if (
+			card.protocolVersion &&
+			majorMinor(card.protocolVersion) !== majorMinor(A2A_PROTOCOL_VERSION)
+		) {
+			throw new A2AProtocolMismatchError({
+				url,
+				theirs: card.protocolVersion,
+				ours: A2A_PROTOCOL_VERSION,
+			})
+		}
+		return card as A2AAgentCard
+	} catch (err) {
+		if (err instanceof OperationInterrupted) throw err.cause.reason
+		throw err
+	} finally {
+		boundary.dispose()
 	}
-	if (card.supportedInterfaces.length === 0) {
-		throw new InvalidAgentCardError({ url, reason: 'supportedInterfaces is empty' })
-	}
-	if (
-		card.protocolVersion &&
-		majorMinor(card.protocolVersion) !== majorMinor(A2A_PROTOCOL_VERSION)
-	) {
-		throw new A2AProtocolMismatchError({
-			url,
-			theirs: card.protocolVersion,
-			ours: A2A_PROTOCOL_VERSION,
-		})
-	}
-	return card as A2AAgentCard
 }
 
 export interface A2ADelegateConfig {
@@ -147,12 +321,9 @@ export interface A2ADelegateConfig {
 	readonly headers?: Readonly<Record<string, string>>
 	/** How often to ask `tasks/get` while the peer is still working. */
 	readonly pollIntervalMs?: number
-	/** Give up on a delegation still running after this long. */
+	/** Give up on the whole delegation, including `message/send`, after this long. */
 	readonly timeoutMs?: number
 }
-
-const DEFAULT_POLL_MS = 1_000
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 
 /**
  * States this CLIENT will stop polling on — `TERMINAL_STATES` plus
@@ -226,8 +397,17 @@ export class A2ADelegate implements Delegate {
 	readonly capabilities: DelegateCapabilities
 
 	private readonly endpoint: string
+	private readonly pollIntervalMs: number
+	private readonly timeoutMs: number
 
 	constructor(private readonly config: A2ADelegateConfig) {
+		this.pollIntervalMs = resolveTimerMs(
+			config.pollIntervalMs,
+			DEFAULT_POLL_MS,
+			'pollIntervalMs',
+			false,
+		)
+		this.timeoutMs = resolveTimerMs(config.timeoutMs, DEFAULT_TIMEOUT_MS, 'timeoutMs', false)
 		this.id = config.id
 		const target = config.card.supportedInterfaces.find((i) => i.transport === 'jsonrpc')
 		if (!target) {
@@ -256,7 +436,7 @@ export class A2ADelegate implements Delegate {
 		}
 	}
 
-	private async rpc(method: A2AMethod, params: unknown, signal?: AbortSignal): Promise<unknown> {
+	private async rpc(method: A2AMethod, params: unknown, signal: AbortSignal): Promise<unknown> {
 		const response = await this.config.fetch(this.endpoint, {
 			method: 'POST',
 			headers: {
@@ -265,7 +445,7 @@ export class A2ADelegate implements Delegate {
 				...this.config.headers,
 			},
 			body: JSON.stringify({ jsonrpc: '2.0', id: `${method}-${this.id}`, method, params }),
-			...(signal ? { signal } : {}),
+			signal,
 		})
 		if (!response.ok) {
 			throw new A2ARequestError(`${method} failed with HTTP ${response.status}`, {
@@ -286,9 +466,70 @@ export class A2ADelegate implements Delegate {
 		return body.result
 	}
 
-	private parseTask(raw: unknown, method: A2AMethod): A2ATask {
+	/** Bounded best effort; cancellation is never allowed to create a second hang. */
+	private async cancelPeer(taskId: string): Promise<void> {
+		const boundary = operationBoundary({
+			timeoutMs: PEER_CANCEL_GRACE_MS,
+			timeoutMessage: `A2A tasks/cancel timed out after ${PEER_CANCEL_GRACE_MS}ms`,
+			abortTransportInitially: true,
+		})
+		try {
+			await boundary.wait(this.rpc('tasks/cancel', { id: taskId }, boundary.signal))
+		} catch {
+			// Best-effort courtesy on a path already unwinding. A refusal or an
+			// unreachable peer does not reverse the caller's stop or deadline.
+		} finally {
+			boundary.dispose()
+		}
+	}
+
+	/** A client-terminal state may still be live on the peer. */
+	private async settleKnownTask(task: A2ATask): Promise<DelegateResult> {
+		if (!TERMINAL_STATES.has(task.status.state)) await this.cancelPeer(task.id)
+		return toDelegateResult(task)
+	}
+
+	/**
+	 * Give an in-flight `message/send` one short chance to reveal its task id.
+	 *
+	 * Aborting that first transport immediately can abandon remote work while
+	 * claiming cancellation locally. A2A cannot address a task until the peer
+	 * returns its id, so this bounded grace is the only honest cleanup attempt.
+	 */
+	private async recoverInitialTask(
+		request: Promise<unknown>,
+	): Promise<{ readonly taskId?: string; readonly task?: A2ATask }> {
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const expired = new Promise<undefined>((resolve) => {
+			timer = setTimeout(() => resolve(undefined), PEER_CANCEL_GRACE_MS)
+		})
+		try {
+			const recovered = await Promise.race([
+				request.then(
+					(value) => value,
+					() => undefined,
+				),
+				expired,
+			])
+			if (recovered === undefined) return {}
+			const taskId = taskIdOf(recovered)
+			try {
+				const task = this.parseTask(recovered, 'message/send')
+				return { taskId: task.id, task }
+			} catch {
+				// The answer remains unusable, but a non-empty string id is enough
+				// authority to address `tasks/cancel`. Throwing that id away because
+				// an unrelated status/artifact field was malformed orphans work.
+				return taskId === undefined ? {} : { taskId }
+			}
+		} finally {
+			if (timer !== undefined) clearTimeout(timer)
+		}
+	}
+
+	private parseTask(raw: unknown, method: A2AMethod, expectedTaskId?: string): A2ATask {
 		const parsed = A2ATaskSchema.safeParse(raw)
-		if (!parsed.success) {
+		if (!parsed.success || taskIdOf(parsed.data) === undefined) {
 			// Validated rather than trusted. This is a foreign service's reply
 			// being turned into a result the model will read as an answer, and
 			// the difference between a malformed task and a task in a state we
@@ -297,6 +538,12 @@ export class A2ADelegate implements Delegate {
 				method,
 			})
 		}
+		if (expectedTaskId !== undefined && parsed.data.id !== expectedTaskId) {
+			throw new A2ARequestError(
+				`${method} returned task ${parsed.data.id} for requested task ${expectedTaskId}`,
+				{ method },
+			)
+		}
 		return parsed.data as A2ATask
 	}
 
@@ -304,66 +551,106 @@ export class A2ADelegate implements Delegate {
 		request: DelegateRequest,
 		opts: { readonly signal?: AbortSignal },
 	): Promise<DelegateResult> {
-		const sent = this.parseTask(
-			await this.rpc(
+		if (opts.signal?.aborted) return { status: 'cancelled' }
+		const boundary = operationBoundary({
+			callerSignal: opts.signal,
+			timeoutMs: this.timeoutMs,
+			timeoutMessage: `A2A delegation timed out after ${this.timeoutMs}ms`,
+			// `message/send` has not returned an addressable task id yet. Hold
+			// transport abort for one bounded cleanup attempt if cancellation wins.
+			abortTransportInitially: false,
+		})
+		let initialRequest: Promise<unknown> | undefined
+		let sent: A2ATask | undefined
+		let latest: A2ATask | undefined
+		let taskId: string | undefined
+		try {
+			boundary.throwIfStopped()
+			initialRequest = this.rpc(
 				'message/send',
 				{ message: { role: 'user', parts: [{ kind: 'text', text: request.prompt }] } },
-				// Deliberately NOT `opts.signal`. An abort must reach the peer as
-				// a `tasks/cancel`, and it cannot if the request that learns the
-				// task id is itself aborted — the delegation would be left
-				// running on the peer's side, billed, with nothing here holding
-				// an id that could stop it.
-			),
-			'message/send',
-		)
-
-		// The abort tells the PEER to stop. Aborting only our poll loop leaves
-		// the peer working and holding whatever the task holds; a cancel has
-		// to reach the side doing the work. Fire-and-forget with the failure
-		// swallowed: this is best-effort courtesy on a path that is already
-		// unwinding, and a peer that refuses the cancel must not turn the
-		// parent's cancellation into an exception.
-		const tellThePeer = () => {
-			void this.rpc('tasks/cancel', { id: sent.id }).catch(() => {})
-		}
-		opts.signal?.addEventListener('abort', tellThePeer, { once: true })
-		if (opts.signal?.aborted) tellThePeer()
-
-		try {
-			const deadline = Date.now() + (this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-			let task = sent
-			while (!WILL_NOT_PROGRESS.has(task.status.state)) {
-				if (opts.signal?.aborted) {
-					// The peer has been told. Reported as cancelled rather than
-					// polled to a terminal state, because the parent has stopped
-					// waiting and the answer is no longer wanted.
-					return { status: 'cancelled' }
-				}
-				if (Date.now() > deadline) {
-					return {
-						status: 'failed',
-						error: `The peer was still ${task.status.state} after ${this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms.`,
-					}
-				}
-				await sleep(this.config.pollIntervalMs ?? DEFAULT_POLL_MS, opts.signal)
-				task = this.parseTask(
-					await this.rpc('tasks/get', { id: sent.id }, opts.signal),
+				boundary.signal,
+			)
+			const initialReply = await boundary.wait(initialRequest)
+			taskId = taskIdOf(initialReply)
+			sent = this.parseTask(initialReply, 'message/send')
+			latest = sent
+			if (WILL_NOT_PROGRESS.has(latest.status.state)) return await this.settleKnownTask(latest)
+			// From this point onward the peer has given us an id. Abort pending
+			// poll transport immediately, then address the remote task separately.
+			boundary.armTransportAbort()
+			boundary.throwIfStopped()
+			while (!WILL_NOT_PROGRESS.has(latest.status.state)) {
+				await boundary.wait(sleep(this.pollIntervalMs, boundary.signal))
+				latest = this.parseTask(
+					await boundary.wait(this.rpc('tasks/get', { id: sent.id }, boundary.signal)),
 					'tasks/get',
+					sent.id,
 				)
 			}
-			return toDelegateResult(task)
+			return await this.settleKnownTask(latest)
+		} catch (err) {
+			if (!(err instanceof OperationInterrupted)) {
+				// A protocol/HTTP/body failure does not prove a task that was already
+				// accepted by the peer stopped. Once we know its id, clean it up
+				// under the same bounded best-effort path, then preserve the original
+				// failure for the caller.
+				if (
+					taskId !== undefined &&
+					(latest === undefined || !WILL_NOT_PROGRESS.has(latest.status.state))
+				) {
+					await this.cancelPeer(taskId)
+				}
+				throw err
+			}
+
+			if (sent === undefined && initialRequest !== undefined) {
+				const recovered = await this.recoverInitialTask(initialRequest)
+				sent = recovered.task
+				latest = sent
+				taskId = recovered.taskId
+				boundary.abortTransport()
+			}
+			if (
+				taskId !== undefined &&
+				(latest === undefined || !WILL_NOT_PROGRESS.has(latest.status.state))
+			) {
+				await this.cancelPeer(taskId)
+			}
+
+			if (err.cause.kind === 'caller') return { status: 'cancelled' }
+			return {
+				status: 'failed',
+				error:
+					sent === undefined
+						? `The peer did not return a task id before the ${this.timeoutMs}ms delegation deadline; its remote outcome is unknown.`
+						: `The peer was still ${latest?.status.state ?? sent.status.state} after ${this.timeoutMs}ms.`,
+			}
 		} finally {
-			opts.signal?.removeEventListener('abort', tellThePeer)
+			boundary.dispose()
 		}
 	}
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-	return new Promise((resolve) => {
-		const timer = setTimeout(resolve, ms)
-		signal?.addEventListener('abort', () => {
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+	signal.throwIfAborted()
+	return new Promise((resolve, reject) => {
+		let settled = false
+		const cleanup = (): void => signal.removeEventListener('abort', onAbort)
+		const onAbort = (): void => {
+			if (settled) return
+			settled = true
 			clearTimeout(timer)
+			cleanup()
+			reject(signal.reason)
+		}
+		const timer = setTimeout(() => {
+			if (settled) return
+			settled = true
+			cleanup()
 			resolve()
-		})
+		}, ms)
+		signal.addEventListener('abort', onAbort, { once: true })
+		if (signal.aborted) onAbort()
 	})
 }

@@ -60,3 +60,19 @@ or persist chunks after cancellation. `VectorStore.search` and `upsert` now
 receive the same optional operation context. The default pipelines also race
 those store promises against cancellation, so a non-cooperative custom store
 cannot leave the public query or ingestion call pending forever.
+
+A2A agent-card discovery now has a 30-second whole fetch-and-body default and
+accepts an optional caller signal and `timeoutMs`; set `timeoutMs: 0` to retain
+the former unbounded behavior. `A2ADelegate.timeoutMs` now starts before
+`message/send` and bounds the whole delegation instead of polling only. A
+pre-cancelled dispatch starts no remote work, pending fetch and body promises
+cannot hold `waitForTask`, and caller cancellation preserves its exact cause on
+the private transport. Poll and delegation timers are validated at
+construction. Once a safe task id exists, cancellation or timeout sends one
+independently bounded `tasks/cancel`; during initial task creation the client
+keeps a short cleanup grace and explicitly reports an unknown remote outcome if
+the peer never returns an addressable id. Poll replies are bound to that initial
+id, and transport or protocol failures after it is known make the same bounded
+cleanup attempt before the original failure is returned. An `input-required`
+task is also bounded-cancelled before the delegate reports that it cannot
+supply the requested input.

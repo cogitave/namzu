@@ -5,6 +5,7 @@
     "connectors-and-mcp",
     "plugins",
     "event-bridges",
+    "a2a-client",
     "agent-client-protocol"
   ]
 }
