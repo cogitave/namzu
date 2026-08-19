@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+timestamp: 2026-08-20T00:00:00Z
+lastReviewed: 2026-08-20
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -78,6 +78,24 @@ also bounded to three seconds, including custom drivers that ignore their
 cancellation signal. Cancelling subscription sign-in reaches the loopback
 listener and token exchange, and no credential is written after the attempt is
 withdrawn.
+
+Between turns and before a durable resume, a lapsed subscription token gets one
+30-second-bounded refresh attempt under that operation's cancellation signal.
+Concurrent operations in one session take this boundary in order and re-read
+the credential only when they reach its head, so an earlier success cannot be
+overwritten by a stale sibling. A credential in Namzu's own file is replaced
+only when it still exactly matches the value that authorized the refresh; an
+external rotation or logout wins. If that comparison cannot be published
+safely, the operation refuses instead of using an uncommitted token. A borrowed
+macOS Keychain credential is never overwritten: an external change wins, while
+an otherwise successful refresh remains local to the live session.
+
+Credential-file mutation is protected by an atomically published owner lock.
+A lock left by a crashed process is deliberately not stolen: pathname-based
+stale recovery cannot prove that the entry it removes still belongs to the
+owner it inspected. After proving that no Namzu process is using the store, the
+operator may remove `~/.namzu/credentials.json.lock` and retry; until then login,
+logout and token publication fail closed.
 
 **Naming a conversation is what makes `/resume` navigable.** Without a name, a
 conversation is listed by the first thing you typed in it — a reasonable default

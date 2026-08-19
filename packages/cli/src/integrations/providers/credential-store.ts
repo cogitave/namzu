@@ -46,12 +46,15 @@ import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import {
 	closeSync,
+	fsyncSync,
+	linkSync,
 	mkdirSync,
 	openSync,
 	readFileSync,
 	renameSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 	writeSync,
 } from 'node:fs'
 import { homedir, platform, tmpdir } from 'node:os'
@@ -68,6 +71,10 @@ export const CREDENTIALS_FILE_VERSION = 1 as const
 export class CredentialStoreError extends Error {
 	override readonly name = 'CredentialStoreError'
 }
+
+export type ConditionalCredentialWrite =
+	| { readonly replaced: true; readonly current: AgentOAuthCredential }
+	| { readonly replaced: false; readonly current: AgentOAuthCredential | null }
 
 export function credentialsPath(home: string = homedir()): string {
 	return join(home, '.namzu', 'credentials.json')
@@ -128,6 +135,37 @@ export function writeStoredSubscriptionCredential(
 ): string {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	return withCredentialStoreLock(path, () => writeStoredSubscriptionCredentialUnlocked(cred, path))
+}
+
+/**
+ * Replace exactly the credential a refresh was derived from.
+ *
+ * Comparison and rename happen under the same store-owned cross-process lock.
+ * A changed record is returned to the caller and is never overwritten. This is
+ * the durable authority boundary a post-network plain reread cannot provide:
+ * without the lock, another writer can still rotate the credential between
+ * the comparison and the rename.
+ */
+export function replaceStoredSubscriptionCredential(
+	expected: AgentOAuthCredential,
+	replacement: AgentOAuthCredential,
+	home: string = homedir(),
+): ConditionalCredentialWrite {
+	const path = credentialsPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	return withCredentialStoreLock(path, () => {
+		const current = readStoredSubscriptionCredential(home)
+		if (!sameCredential(current, expected)) return { replaced: false, current }
+		writeStoredSubscriptionCredentialUnlocked(replacement, path)
+		return { replaced: true, current: replacement }
+	})
+}
+
+function writeStoredSubscriptionCredentialUnlocked(
+	cred: AgentOAuthCredential,
+	path: string,
+): string {
 	const tmp = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
 	const body = `${JSON.stringify(
 		{
@@ -178,9 +216,104 @@ export function writeStoredSubscriptionCredential(
 
 /** Remove the stored credential. Absence is success. */
 export function clearStoredSubscriptionCredential(home: string = homedir()): void {
-	rmSync(credentialsPath(home), { force: true })
+	const path = credentialsPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	withCredentialStoreLock(path, () => rmSync(path, { force: true }))
 }
 
+function sameCredential(left: AgentOAuthCredential | null, right: AgentOAuthCredential): boolean {
+	if (!left) return false
+	if (
+		left.accessToken !== right.accessToken ||
+		left.refreshToken !== right.refreshToken ||
+		left.expiresAt !== right.expiresAt
+	) {
+		return false
+	}
+	const leftScopes = left.scopes ?? []
+	const rightScopes = right.scopes ?? []
+	return (
+		leftScopes.length === rightScopes.length &&
+		leftScopes.every((scope, index) => scope === rightScopes[index])
+	)
+}
+
+/**
+ * Run one synchronous store mutation with cross-process exclusion.
+ *
+ * The lock is held only across local read/rename work, never across a network
+ * request. A dead owner can leave a complete lock behind. It is deliberately
+ * not stolen automatically: pathname-based stale reclamation cannot prove it
+ * is unlinking the inode it inspected, so a delayed reclaimer can delete a new
+ * owner's lock and admit two writers. A present lock is a refusal until an
+ * operator proves no process owns the store and removes it.
+ */
+function withCredentialStoreLock<T>(path: string, operation: () => T): T {
+	const lockPath = `${path}.lock`
+	const token = `${process.pid}:${Date.now()}:${randomBytes(12).toString('hex')}`
+	const published = publishLockAtomically(lockPath, token)
+	if (!published.acquired) {
+		throw new CredentialStoreError(
+			`could not acquire the credential-store lock for ${path}: another owner or an unrecovered process lock is present (${published.error instanceof Error ? published.error.message : String(published.error)}). Refusing concurrent mutation; after proving no Namzu process is using this credential store, remove ${lockPath} and retry.`,
+		)
+	}
+
+	try {
+		return operation()
+	} finally {
+		// Do not remove a successor's lock if an external actor replaced the file.
+		try {
+			if (readFileSync(lockPath, 'utf8') === token) rmSync(lockPath, { force: true })
+		} catch {
+			// The mutation already has its result. A missing/replaced lock is not
+			// evidence that the credential itself failed to publish.
+		}
+	}
+}
+
+/**
+ * Publish a complete owner record at the canonical name in one filesystem op.
+ *
+ * Creating the canonical file and then writing its token has a fatal crash
+ * window: an empty lock names no owner and can never be reclaimed safely. The
+ * candidate is completed and synced first; `linkSync` is the exclusive claim.
+ * A pre-link crash can leave candidate debris, but it never blocks the store.
+ */
+function publishLockAtomically(
+	lockPath: string,
+	token: string,
+): { readonly acquired: true } | { readonly acquired: false; readonly error: unknown } {
+	const candidatePath = `${lockPath}.candidate.${process.pid}.${randomBytes(12).toString('hex')}`
+	let fd: number | undefined
+	try {
+		fd = openSync(candidatePath, 'wx', FILE_MODE)
+		writeFileSync(fd, token, 'utf8')
+		fsyncSync(fd)
+		closeSync(fd)
+		fd = undefined
+	} catch (error) {
+		if (fd !== undefined) closeSync(fd)
+		rmSync(candidatePath, { force: true })
+		throw new CredentialStoreError(
+			`could not prepare the credential-store lock: ${error instanceof Error ? error.message : String(error)}`,
+		)
+	}
+
+	try {
+		linkSync(candidatePath, lockPath)
+		return { acquired: true }
+	} catch (error) {
+		return { acquired: false, error }
+	} finally {
+		try {
+			rmSync(candidatePath, { force: true })
+		} catch {
+			// Candidate debris is non-canonical and cannot block another owner.
+			// Once the hard link succeeds, cleanup must not erase that acquisition
+			// result and skip the token-checked canonical release path.
+		}
+	}
+}
 /**
  * Make `path` readable and writable by its owner and by nobody else, and
  * PROVE it. Throws `CredentialStoreError` when the proof cannot be produced.

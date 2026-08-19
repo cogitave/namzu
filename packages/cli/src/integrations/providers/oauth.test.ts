@@ -2,24 +2,47 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Stub the Keychain write so an expired-token refresh under test never touches
 // the real macOS Keychain (this suite can run on the developer's own machine).
+const readKeychain = vi.hoisted(() => vi.fn(() => null))
+const writeKeychain = vi.hoisted(() => vi.fn(() => false))
 vi.mock('./keychain.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('./keychain.js')>()
-	return { ...actual, writeAgentKeychainCredential: vi.fn(() => false) }
+	return {
+		...actual,
+		readAgentKeychainCredential: readKeychain,
+		writeAgentKeychainCredential: writeKeychain,
+	}
 })
 
 const writeStored = vi.hoisted(() => vi.fn())
 const readStored = vi.hoisted(() => vi.fn(() => null))
+const replaceStored = vi.hoisted(() =>
+	vi.fn(
+		(
+			_expected: { accessToken: string },
+			replacement: {
+				accessToken: string
+				refreshToken?: string
+				expiresAt?: number
+			},
+		) => {
+			writeStored(replacement)
+			return { replaced: true, current: replacement }
+		},
+	),
+)
 vi.mock('./credential-store.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('./credential-store.js')>()
 	return {
 		...actual,
 		writeStoredSubscriptionCredential: writeStored,
 		readStoredSubscriptionCredential: readStored,
+		replaceStoredSubscriptionCredential: replaceStored,
 	}
 })
 
-import { writeAgentKeychainCredential } from './keychain.js'
 import {
+	CredentialPublicationError,
+	CredentialWithdrawnError,
 	ensureFreshAnthropicToken,
 	readSubscriptionCredential,
 	refreshAgentOAuthToken,
@@ -30,9 +53,24 @@ function mockFetch(impl: typeof fetch): void {
 }
 
 afterEach(() => {
+	vi.useRealTimers()
 	vi.unstubAllGlobals()
 	vi.clearAllMocks()
 })
+
+async function within<T>(operation: Promise<T>, ms = 250): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined
+	try {
+		return await Promise.race([
+			operation,
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(() => reject(new Error(`operation did not settle within ${ms}ms`)), ms)
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
+}
 
 function respondWithFreshToken(): void {
 	mockFetch(
@@ -57,51 +95,143 @@ describe('a refreshed credential is written back to its own store', () => {
 		await ensureFreshAnthropicToken('cc-stale', {
 			refreshToken: 'rt',
 			expiresAt: Date.now() - 1000,
+			scopes: ['account:read'],
 			origin: 'stored',
 		})
+		expect(replaceStored).toHaveBeenCalledWith(
+			expect.objectContaining({
+				accessToken: 'cc-stale',
+				scopes: ['account:read'],
+			}),
+			expect.objectContaining({ accessToken: 'cc-fresh' }),
+		)
 		expect(writeStored).toHaveBeenCalledWith(expect.objectContaining({ accessToken: 'cc-fresh' }))
-		expect(writeAgentKeychainCredential).not.toHaveBeenCalled()
+		expect(writeKeychain).not.toHaveBeenCalled()
 	})
 
-	it('to the borrowed Keychain entry when that is where it came from', async () => {
+	it('keeps a borrowed Keychain refresh session-local because its owner cannot join our CAS', async () => {
 		respondWithFreshToken()
-		await ensureFreshAnthropicToken('cc-stale', {
+		readKeychain.mockReturnValueOnce({
+			accessToken: 'cc-stale',
 			refreshToken: 'rt',
-			expiresAt: Date.now() - 1000,
+			expiresAt: 0,
+		} as never)
+		const token = await ensureFreshAnthropicToken('cc-stale', {
+			refreshToken: 'rt',
+			expiresAt: 0,
 			origin: 'keychain',
 		})
-		expect(writeAgentKeychainCredential).toHaveBeenCalled()
+		expect(token).toBe('cc-fresh')
+		expect(writeKeychain).not.toHaveBeenCalled()
 		expect(writeStored).not.toHaveBeenCalled()
 	})
 
-	it('to the Keychain when no origin is stated, which is what callers predating the store meant', async () => {
+	it('also leaves the borrowed Keychain untouched when an older caller omits origin', async () => {
 		respondWithFreshToken()
+		readKeychain.mockReturnValueOnce({
+			accessToken: 'cc-stale',
+			refreshToken: 'rt',
+			expiresAt: Date.now() - 1000,
+		} as never)
 		await ensureFreshAnthropicToken('cc-stale', {
 			refreshToken: 'rt',
 			expiresAt: Date.now() - 1000,
 		})
-		expect(writeAgentKeychainCredential).toHaveBeenCalled()
+		expect(writeKeychain).not.toHaveBeenCalled()
 		expect(writeStored).not.toHaveBeenCalled()
 	})
 
-	it('survives a store that refuses the write, keeping the token it already has', async () => {
+	it('uses a borrowed credential its owner rotated while the refresh was pending', async () => {
+		respondWithFreshToken()
+		readKeychain.mockReturnValueOnce({
+			accessToken: 'cc-keychain-winner',
+			refreshToken: 'rt-keychain-winner',
+			expiresAt: 99_999,
+		} as never)
+
+		const token = await ensureFreshAnthropicToken('cc-stale', {
+			refreshToken: 'rt',
+			expiresAt: 0,
+			origin: 'keychain',
+		})
+
+		expect(token).toBe('cc-keychain-winner')
+		expect(writeKeychain).not.toHaveBeenCalled()
+	})
+
+	it('uses a credential another owner rotated while refresh was pending', async () => {
+		respondWithFreshToken()
+		replaceStored.mockReturnValueOnce({
+			replaced: false,
+			current: {
+				accessToken: 'cc-external',
+				refreshToken: 'rt-external',
+				expiresAt: 99_999,
+			},
+		})
+
+		const token = await ensureFreshAnthropicToken('cc-stale', {
+			refreshToken: 'rt',
+			expiresAt: 0,
+			origin: 'stored',
+		})
+
+		expect(token).toBe('cc-external')
+		expect(writeStored).not.toHaveBeenCalled()
+	})
+
+	it('refuses when the owned credential was removed while refresh was pending', async () => {
+		respondWithFreshToken()
+		replaceStored.mockReturnValueOnce({
+			replaced: false,
+			current: null,
+		} as never)
+
+		await expect(
+			ensureFreshAnthropicToken('cc-stale', {
+				refreshToken: 'rt',
+				expiresAt: 0,
+				origin: 'stored',
+			}),
+		).rejects.toBeInstanceOf(CredentialWithdrawnError)
+		expect(writeStored).not.toHaveBeenCalled()
+	})
+
+	it('refuses when the borrowed credential disappears while refresh is pending', async () => {
+		respondWithFreshToken()
+		readKeychain.mockReturnValueOnce(null)
+
+		await expect(
+			ensureFreshAnthropicToken('cc-stale', {
+				refreshToken: 'rt',
+				expiresAt: 0,
+				origin: 'keychain',
+			}),
+		).rejects.toBeInstanceOf(CredentialWithdrawnError)
+		expect(writeKeychain).not.toHaveBeenCalled()
+	})
+
+	it('refuses when the owned store cannot prove conditional publication', async () => {
 		respondWithFreshToken()
 		writeStored.mockImplementationOnce(() => {
 			throw new Error('could not prove the file private')
 		})
-		const token = await ensureFreshAnthropicToken('cc-stale', {
-			refreshToken: 'rt',
-			expiresAt: Date.now() - 1000,
-			origin: 'stored',
-		})
-		expect(token).toBe('cc-fresh')
+		await expect(
+			ensureFreshAnthropicToken('cc-stale', {
+				refreshToken: 'rt',
+				expiresAt: Date.now() - 1000,
+				origin: 'stored',
+			}),
+		).rejects.toBeInstanceOf(CredentialPublicationError)
 	})
 })
 
 describe('readSubscriptionCredential', () => {
 	it("reads namzu's own store for a stored credential", () => {
 		readStored.mockReturnValueOnce({ accessToken: 'from-store' } as never)
-		expect(readSubscriptionCredential('stored')).toEqual({ accessToken: 'from-store' })
+		expect(readSubscriptionCredential('stored')).toEqual({
+			accessToken: 'from-store',
+		})
 	})
 
 	it("does not read namzu's store for a keychain credential", () => {
@@ -133,7 +263,9 @@ describe('refreshAgentOAuthToken', () => {
 	it('keeps the old refresh token when the response omits one', async () => {
 		mockFetch(
 			(async () =>
-				new Response(JSON.stringify({ access_token: 'cc-new' }), { status: 200 })) as typeof fetch,
+				new Response(JSON.stringify({ access_token: 'cc-new' }), {
+					status: 200,
+				})) as typeof fetch,
 		)
 		const cred = await refreshAgentOAuthToken('rt-old')
 		expect(cred?.accessToken).toBe('cc-new')
@@ -154,9 +286,129 @@ describe('refreshAgentOAuthToken', () => {
 
 	it('returns null when the payload lacks an access token', async () => {
 		mockFetch(
-			(async () => new Response(JSON.stringify({ foo: 'bar' }), { status: 200 })) as typeof fetch,
+			(async () =>
+				new Response(JSON.stringify({ foo: 'bar' }), {
+					status: 200,
+				})) as typeof fetch,
 		)
 		expect(await refreshAgentOAuthToken('rt')).toBeNull()
+	})
+
+	it('refuses a pre-aborted caller before starting fetch', async () => {
+		const fetchSpy = vi.fn()
+		mockFetch(fetchSpy as unknown as typeof fetch)
+		const controller = new AbortController()
+		const cause = new Error('turn was stopped before refresh')
+		controller.abort(cause)
+
+		await expect(refreshAgentOAuthToken('rt', controller.signal)).rejects.toBe(cause)
+		expect(fetchSpy).not.toHaveBeenCalled()
+	})
+
+	it('settles on caller cancellation when fetch ignores its signal', async () => {
+		let transportSignal: AbortSignal | undefined
+		mockFetch(((_url: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return new Promise<Response>(() => {})
+		}) as typeof fetch)
+		const controller = new AbortController()
+		const cause = new Error('run authority withdrawn')
+		const pending = refreshAgentOAuthToken('rt', controller.signal)
+		await vi.waitFor(() => expect(transportSignal).toBeDefined())
+
+		controller.abort(cause)
+
+		await expect(within(pending)).rejects.toBe(cause)
+		expect(transportSignal?.aborted).toBe(true)
+		expect(transportSignal?.reason).toBe(cause)
+	})
+
+	it('settles on caller cancellation when the response body ignores its signal', async () => {
+		let bodyStarted = false
+		mockFetch(
+			(async () =>
+				({
+					ok: true,
+					json: () => {
+						bodyStarted = true
+						return new Promise<never>(() => {})
+					},
+				}) as unknown as Response) as typeof fetch,
+		)
+		const controller = new AbortController()
+		const cause = new Error('body no longer belongs to a run')
+		const pending = refreshAgentOAuthToken('rt', controller.signal)
+		await vi.waitFor(() => expect(bodyStarted).toBe(true))
+
+		controller.abort(cause)
+
+		await expect(within(pending)).rejects.toBe(cause)
+	})
+
+	it('preserves the caller cause when fetch reports only a generic AbortError', async () => {
+		let transportSignal: AbortSignal | undefined
+		mockFetch(((_url: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return new Promise<Response>((_resolve, reject) => {
+				transportSignal?.addEventListener(
+					'abort',
+					() => reject(new DOMException('The operation was aborted.', 'AbortError')),
+					{ once: true },
+				)
+			})
+		}) as typeof fetch)
+		const controller = new AbortController()
+		const cause = new Error('exact stop cause')
+		const pending = refreshAgentOAuthToken('rt', controller.signal)
+		await vi.waitFor(() => expect(transportSignal).toBeDefined())
+
+		controller.abort(cause)
+
+		await expect(within(pending)).rejects.toBe(cause)
+	})
+
+	it('bounds an uncooperative refresh and keeps its best-effort null contract', async () => {
+		vi.useFakeTimers()
+		let transportSignal: AbortSignal | undefined
+		mockFetch(((_url: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return new Promise<Response>(() => {})
+		}) as typeof fetch)
+		const pending = refreshAgentOAuthToken('rt')
+		await vi.advanceTimersByTimeAsync(30_000)
+
+		await expect(pending).resolves.toBeNull()
+		expect(transportSignal?.aborted).toBe(true)
+		expect((transportSignal?.reason as Error | undefined)?.name).toBe('RefreshDeadlineError')
+	})
+
+	it('does not let a later caller abort relabel a deadline that won first', async () => {
+		vi.useFakeTimers()
+		mockFetch((async () => new Promise<Response>(() => {})) as typeof fetch)
+		const controller = new AbortController()
+		const pending = refreshAgentOAuthToken('rt', controller.signal)
+
+		vi.advanceTimersByTime(30_000)
+		controller.abort(new Error('late caller cancellation'))
+
+		await expect(pending).resolves.toBeNull()
+	})
+
+	it('refuses a body result that arrives together with caller cancellation', async () => {
+		const controller = new AbortController()
+		const cause = new Error('body result lost its owner')
+		mockFetch(
+			(async () =>
+				({
+					ok: true,
+					json: async () => {
+						controller.abort(cause)
+						return { access_token: 'cc-too-late' }
+					},
+				}) as unknown as Response) as typeof fetch,
+		)
+
+		await expect(refreshAgentOAuthToken('rt', controller.signal)).rejects.toBe(cause)
 	})
 })
 
@@ -175,12 +427,19 @@ describe('ensureFreshAnthropicToken', () => {
 	it('returns the current token when there is no refresh token', async () => {
 		const spy = vi.fn()
 		mockFetch(spy as unknown as typeof fetch)
-		const token = await ensureFreshAnthropicToken('cc-current', { expiresAt: 0 })
+		const token = await ensureFreshAnthropicToken('cc-current', {
+			expiresAt: 0,
+		})
 		expect(token).toBe('cc-current')
 		expect(spy).not.toHaveBeenCalled()
 	})
 
 	it('refreshes an expired token', async () => {
+		readKeychain.mockReturnValueOnce({
+			accessToken: 'cc-stale',
+			refreshToken: 'rt',
+			expiresAt: Date.now() - 1000,
+		} as never)
 		mockFetch(
 			(async () =>
 				new Response(JSON.stringify({ access_token: 'cc-fresh', expires_in: 3600 }), {
@@ -201,5 +460,37 @@ describe('ensureFreshAnthropicToken', () => {
 			expiresAt: Date.now() - 1000,
 		})
 		expect(token).toBe('cc-stale')
+	})
+
+	it('rechecks ownership after exchange resolution and before durable publication', async () => {
+		const controller = new AbortController()
+		const cause = new Error('turn stopped before credential publication')
+		mockFetch(
+			(async () =>
+				({
+					ok: true,
+					json: async () => ({
+						access_token: 'cc-too-late',
+						refresh_token: 'rt-too-late',
+						// Read while the inner exchange constructs its result, after its
+						// own post-body fence. The queued abort runs before the outer await
+						// continuation reaches the durable store.
+						get expires_in() {
+							queueMicrotask(() => controller.abort(cause))
+							return 3600
+						},
+					}),
+				}) as unknown as Response) as typeof fetch,
+		)
+
+		await expect(
+			ensureFreshAnthropicToken(
+				'cc-stale',
+				{ refreshToken: 'rt', expiresAt: 0, origin: 'stored' },
+				controller.signal,
+			),
+		).rejects.toBe(cause)
+		expect(writeStored).not.toHaveBeenCalled()
+		expect(writeKeychain).not.toHaveBeenCalled()
 	})
 })

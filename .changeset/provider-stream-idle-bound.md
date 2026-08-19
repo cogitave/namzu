@@ -151,3 +151,14 @@ leaves the screen. Late results cannot reopen an old model step, accept a
 credential, re-probe the application, or persist a subscription credential
 after cancellation. Model listing and credential probing both settle after a
 three-second bound even when a custom provider ignores its signal.
+
+Between-turn and durable-resume subscription refreshes now settle on caller
+cancellation and apply one 30-second bound across the token request and response
+body. Refreshes in one session are serialized and re-read their source at the
+head of the queue, preventing a later stale caller from downgrading a token
+published by an earlier one. Namzu's credential file uses an exact conditional
+replacement under a cross-process, atomically published lock; an external
+rotation or logout wins, and an uncertain publication refuses instead of using
+an uncommitted refresh. Borrowed macOS Keychain credentials are read-only: a
+changed or removed entry wins, and a successful refresh of an unchanged entry
+remains session-local.

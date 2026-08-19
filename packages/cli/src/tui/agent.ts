@@ -381,7 +381,10 @@ export interface AgentSession {
 	 * those call for opposite responses. Refusing is right; refusing quietly is
 	 * the failure this whole package keeps finding.
 	 */
-	readonly skippedInstructionFiles: readonly { readonly path: string; readonly reason: string }[]
+	readonly skippedInstructionFiles: readonly {
+		readonly path: string
+		readonly reason: string
+	}[]
 	/** External tool servers that connected, and how many tools each brought. */
 	readonly mcpConnected: readonly ConnectedMcpServer[]
 	/**
@@ -489,7 +492,33 @@ export interface AgentSessionContext {
 	 * that from `preferences` at the call site is the same lookup in a second
 	 * place.
 	 */
-	readonly credentialGap: { readonly providerId: ProviderId; readonly reason: string } | null
+	readonly credentialGap: {
+		readonly providerId: ProviderId
+		readonly reason: string
+	} | null
+}
+
+/**
+ * Let one caller stop waiting without cutting a shared queue in the middle.
+ *
+ * The queued operation remains chained and owns its own signal. This observer
+ * only settles the caller promptly; releasing a queue slot here would allow a
+ * later owner to overlap the operation still ahead of it.
+ */
+async function observeWithSignal<T>(operation: PromiseLike<T>, signal: AbortSignal): Promise<T> {
+	signal.throwIfAborted()
+	let rejectAbort: (reason: unknown) => void = () => {}
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject
+	})
+	const onAbort = () => rejectAbort(signal.reason)
+	signal.addEventListener('abort', onAbort, { once: true })
+	if (signal.aborted) onAbort()
+	try {
+		return await Promise.race([operation, aborted])
+	} finally {
+		signal.removeEventListener('abort', onAbort)
+	}
 }
 
 /**
@@ -508,7 +537,12 @@ export async function probeAgentSession(): Promise<AgentSessionContext> {
 				credentialGap: credentialGap(read.prefs, detected),
 			}
 		case 'missing':
-			return { preferences: null, needsRepickReason: null, detected, credentialGap: null }
+			return {
+				preferences: null,
+				needsRepickReason: null,
+				detected,
+				credentialGap: null,
+			}
 		case 'needs-repick':
 			return {
 				preferences: null,
@@ -758,7 +792,9 @@ export async function createAgentSession(
 		'namzu.provider.skipped_count': fallbackPlan.notices.length,
 	})
 	for (const notice of fallbackPlan.notices) {
-		cliLogger().warn(notice, { [EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.PROVIDER_RESOLVED })
+		cliLogger().warn(notice, {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.PROVIDER_RESOLVED,
+		})
 	}
 	let provider: LLMProvider
 	try {
@@ -776,30 +812,43 @@ export async function createAgentSession(
 	// changed. Gated on `det.oauth` so env / secrets credentials are never
 	// touched.
 	//
-	// `origin` decides WHICH store, and travels with the credential from
-	// discovery rather than being assumed here: namzu's own store and the
-	// borrowed Keychain entry both produce a refreshable credential, and reading
-	// one while writing the other would refresh forever without ever landing.
+	// `origin` decides WHICH publication rule applies, and travels with the
+	// credential from discovery rather than being assumed here: namzu's own
+	// store can be conditionally replaced; the borrowed Keychain entry is
+	// read-only and a refreshed value may live only in this session.
 	const subscriptionRefresh = primary.id === 'anthropic' && Boolean(det?.oauth)
 	const credentialOrigin = det?.oauth?.origin ?? 'keychain'
 	let currentToken = det?.apiKey
-	const refreshTokenIfNeeded = async (): Promise<void> => {
-		if (!subscriptionRefresh) return
+	let refreshTail: Promise<void> = Promise.resolve()
+	const performRefresh = async (signal?: AbortSignal): Promise<void> => {
+		signal?.throwIfAborted()
+		// Read only after this owner reaches the head. A sibling may have rotated
+		// the durable credential while we waited; reading before the queue would
+		// make its success invisible and permit a stale-token downgrade.
 		const cred = readSubscriptionCredential(credentialOrigin)
 		if (!cred) return
-		const fresh = await ensureFreshAnthropicToken(cred.accessToken, {
-			refreshToken: cred.refreshToken,
-			expiresAt: cred.expiresAt,
-			origin: credentialOrigin,
-		})
+		const fresh = await ensureFreshAnthropicToken(
+			cred.accessToken,
+			{
+				refreshToken: cred.refreshToken,
+				expiresAt: cred.expiresAt,
+				scopes: cred.scopes,
+				origin: credentialOrigin,
+			},
+			signal,
+		)
+		signal?.throwIfAborted()
 		if (fresh === currentToken) return
-		currentToken = fresh
 		try {
-			provider = constructProvider(
+			const refreshedProvider = constructProvider(
 				'anthropic',
 				{ ...(det as DetectedProvider), apiKey: fresh },
 				model,
 			)
+			// Publish the pair together. If construction fails, both old values
+			// remain live and the next operation can retry against the stored token.
+			provider = refreshedProvider
+			currentToken = fresh
 		} catch (err) {
 			// Keep the previous client; the turn may still 401 but won't crash.
 			// Silent until now — a client rebuild failing after a token refresh
@@ -811,6 +860,19 @@ export async function createAgentSession(
 				exceptionAttributes(err),
 			)
 		}
+	}
+	const refreshTokenIfNeeded = (signal?: AbortSignal): Promise<void> => {
+		if (!subscriptionRefresh) {
+			signal?.throwIfAborted()
+			return Promise.resolve()
+		}
+		signal?.throwIfAborted()
+		const queued = refreshTail.then(() => performRefresh(signal))
+		// Keep later owners behind this slot even if its caller stops observing it.
+		// The catch makes the private tail non-rejecting without changing the
+		// exact outcome returned to the owner below.
+		refreshTail = queued.catch(() => {})
+		return signal ? observeWithSignal(queued, signal) : queued
 	}
 	// Read ONCE, here, rather than per turn the way memory is.
 	//
@@ -1076,8 +1138,8 @@ export async function createAgentSession(
 			promptExemptToolNames(registry).filter((name) => !goalToolNames.has(name)),
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
-			// tokens and non-keychain credentials).
-			await refreshTokenIfNeeded()
+			// tokens and non-subscription credentials).
+			await refreshTokenIfNeeded(opts?.signal)
 			// namzu identity first (so it establishes who the agent is even when
 			// the credential layer prepends whatever prefix its token requires),
 			// then memory read fresh each turn, then the project's own
@@ -1178,7 +1240,7 @@ export async function createAgentSession(
 			// OAuth token has to be renewed before the provider is used, and the
 			// fallback chain has to be built AFTER that so its members do not
 			// hold a client the refresh just replaced.
-			await refreshTokenIfNeeded()
+			await refreshTokenIfNeeded(signal)
 			const memoryPrompt = composeMemoryPrompt(readMemory())
 			const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
 			const systemPrompt =
@@ -1272,8 +1334,10 @@ function planFallbacks(
 	detected: readonly DetectedProvider[],
 ): FallbackPlan {
 	const notices: string[] = []
-	const usable: Array<{ readonly choice: ProviderChoice; readonly det: DetectedProvider | null }> =
-		[]
+	const usable: Array<{
+		readonly choice: ProviderChoice
+		readonly det: DetectedProvider | null
+	}> = []
 
 	for (const [index, member] of members.entries()) {
 		if (index === 0) continue
@@ -1398,7 +1462,10 @@ export function constructProvider(
  * truth ("it did not answer in time") most changes what they should do next.
  */
 export type ModelListing =
-	| { readonly kind: 'ok'; readonly models: ReadonlyArray<{ id: string; name: string }> }
+	| {
+			readonly kind: 'ok'
+			readonly models: ReadonlyArray<{ id: string; name: string }>
+	  }
 	/** The driver does not implement `listModels`. */
 	| { readonly kind: 'unsupported' }
 	| { readonly kind: 'timeout' }
@@ -1475,11 +1542,17 @@ export async function describeProviderModels(
 			(operationSignal) => provider.listModels?.(operationSignal) ?? Promise.resolve([]),
 		)
 
-		return { kind: 'ok', models: models.map((m) => ({ id: m.id, name: m.name || m.id })) }
+		return {
+			kind: 'ok',
+			models: models.map((m) => ({ id: m.id, name: m.name || m.id })),
+		}
 	} catch (err) {
 		if (signal?.aborted) throw signal.reason
 		if (err instanceof PickerProviderTimeoutError) return { kind: 'timeout' }
-		return { kind: 'failed', reason: err instanceof Error ? err.message : String(err) }
+		return {
+			kind: 'failed',
+			reason: err instanceof Error ? err.message : String(err),
+		}
 	}
 }
 
@@ -1814,7 +1887,10 @@ async function* runTurn({
 				childSteps.length > 0 &&
 				mapped.kind === 'tool-end'
 			) {
-				yield { ...mapped, detail: [...(mapped.detail ?? []), ...asTree(childSteps)] }
+				yield {
+					...mapped,
+					detail: [...(mapped.detail ?? []), ...asTree(childSteps)],
+				}
 				childSteps.length = 0
 				continue
 			}
@@ -2068,7 +2144,10 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// timeout, a cancellation and a blocked output guardrail arrive. A
 			// consumer that reads this as success reports one for a run whose
 			// answer was refused.
-			return { kind: 'done', ...(event.stopReason ? { stopReason: event.stopReason } : {}) }
+			return {
+				kind: 'done',
+				...(event.stopReason ? { stopReason: event.stopReason } : {}),
+			}
 		case 'run_failed':
 			// The classification is now carried on the event rather than
 			// having been flattened away upstream. Shown because "rate
@@ -2094,7 +2173,11 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				shed: true,
 			}
 		case 'compaction_failed':
-			return { kind: 'context', text: describeCompactionFailure(event), shed: false }
+			return {
+				kind: 'context',
+				text: describeCompactionFailure(event),
+				shed: false,
+			}
 		default:
 			return null
 	}
@@ -2225,8 +2308,14 @@ function asTree(steps: readonly string[]): string[] {
  * the four deleted functions did for every tool.
  */
 const GENERIC_PRESENTER: ToolPresenter = {
-	presentCall: (_name, input) => ({ kind: 'generic', label: genericLabel(input) }),
-	presentResult: (_name, _input, result) => ({ kind: 'terminal', output: result.output ?? '' }),
+	presentCall: (_name, input) => ({
+		kind: 'generic',
+		label: genericLabel(input),
+	}),
+	presentResult: (_name, _input, result) => ({
+		kind: 'terminal',
+		output: result.output ?? '',
+	}),
 }
 
 /**
@@ -2404,7 +2493,9 @@ function logCapabilities(probes: readonly CapabilityProbe[]): void {
 	const summary = probes
 		.map((p) => `${p.specifier.split('/').pop()} ${p.state === 'present' ? 'yes' : 'no'}`)
 		.join(' · ')
-	log.info(summary, { [EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED })
+	log.info(summary, {
+		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED,
+	})
 	for (const probe of probes) {
 		if (probe.state === 'broken') {
 			log.error('Capability probe failed to load', {

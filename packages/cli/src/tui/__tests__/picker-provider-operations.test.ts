@@ -53,7 +53,9 @@ describe('picker provider operations', () => {
 		const cause = new Error('choice was already cancelled')
 		controller.abort(cause)
 
-		await expect(describeProviderModels(providerId, detected, controller.signal)).rejects.toBe(cause)
+		await expect(describeProviderModels(providerId, detected, controller.signal)).rejects.toBe(
+			cause,
+		)
 		await expect(verifyCredential(providerId, detected, controller.signal)).rejects.toBe(cause)
 		expect(ProviderRegistry.create).not.toHaveBeenCalled()
 	})

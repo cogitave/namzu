@@ -15,7 +15,10 @@ import { createAgentSession } from '../agent.js'
 
 vi.mock('../../integrations/subagents/runtime.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../../integrations/subagents/runtime.js')>()
-	return { ...actual, createSubagentRuntime: vi.fn(actual.createSubagentRuntime) }
+	return {
+		...actual,
+		createSubagentRuntime: vi.fn(actual.createSubagentRuntime),
+	}
 })
 
 vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
@@ -96,11 +99,13 @@ describe('agent.ts:713 — the token-refresh rebuild catch', () => {
 		// First `ProviderRegistry.create` call is the session's initial
 		// construction (must succeed so the session builds at all); the
 		// second is the refresh-triggered rebuild inside the catch under
-		// test, which is made to throw.
+		// test, which is made to throw. The third is the next operation's
+		// retry: a failed reconstruction must not publish the fresh token as if
+		// the provider holding it had also been published.
 		let calls = 0
 		const createSpy = vi.spyOn(ProviderRegistry, 'create').mockImplementation((() => {
 			calls++
-			if (calls > 1) throw new TypeError('rebuild boom')
+			if (calls === 2) throw new TypeError('rebuild boom')
 			return { provider: { id: 'anthropic' } }
 		}) as never)
 
@@ -129,6 +134,12 @@ describe('agent.ts:713 — the token-refresh rebuild catch', () => {
 				checkpointStore: {} as never,
 			})
 			.catch(() => {})
+		await s
+			.resumeDurable({
+				entry: { tenantId: 't', projectId: 'p', sessionId: 's' } as never,
+				checkpointStore: {} as never,
+			})
+			.catch(() => {})
 
 		const warned = records.find(
 			(r) =>
@@ -138,7 +149,7 @@ describe('agent.ts:713 — the token-refresh rebuild catch', () => {
 		expect(warned).toBeDefined()
 		expect(warned?.attributes['exception.type']).toBe('TypeError')
 		expect(warned?.attributes['exception.message']).toBe('rebuild boom')
-		expect(calls).toBeGreaterThan(1)
+		expect(calls).toBe(3)
 
 		createSpy.mockRestore()
 	})

@@ -20,6 +20,8 @@ export {
 } from './credential-store.js'
 export { OAUTH_SCOPES, REDIRECT_URI } from './identity.js'
 export {
+	CredentialPublicationError,
+	CredentialWithdrawnError,
 	type CredentialOrigin,
 	ensureFreshAnthropicToken,
 	type OAuthMetadata,
@@ -63,4 +65,8 @@ export {
 	type SdkProviderType,
 	unsupportedProviderMessage,
 } from './registry.js'
-export { ensureRegistered, isRegistered, resolveChainCapabilities } from './register.js'
+export {
+	ensureRegistered,
+	isRegistered,
+	resolveChainCapabilities,
+} from './register.js'

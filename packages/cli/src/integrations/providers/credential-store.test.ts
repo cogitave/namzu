@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	readdirSync,
 	statSync,
+	utimesSync,
 	writeFileSync,
 } from 'node:fs'
 import { platform, tmpdir } from 'node:os'
@@ -21,6 +22,7 @@ import {
 	currentUserSid,
 	readAclSddl,
 	readStoredSubscriptionCredential,
+	replaceStoredSubscriptionCredential,
 	writeStoredSubscriptionCredential,
 } from './credential-store.js'
 
@@ -39,7 +41,12 @@ afterEach(() => {
 describe('round trip', () => {
 	it('reads back exactly what was written', () => {
 		const at = writeStoredSubscriptionCredential(
-			{ accessToken: SECRET, refreshToken: REFRESH, expiresAt: 1234, scopes: ['a', 'b'] },
+			{
+				accessToken: SECRET,
+				refreshToken: REFRESH,
+				expiresAt: 1234,
+				scopes: ['a', 'b'],
+			},
 			home,
 		)
 		expect(at).toBe(credentialsPath(home))
@@ -84,12 +91,138 @@ describe('round trip', () => {
 		expect(raw).not.toContain('first')
 	})
 
+	it('conditionally replaces the exact credential a refresh used', () => {
+		const expected = {
+			accessToken: 'before',
+			refreshToken: 'refresh-before',
+			expiresAt: 1234,
+			scopes: ['one', 'two'],
+		}
+		const replacement = {
+			accessToken: 'after',
+			refreshToken: 'refresh-after',
+			expiresAt: 5678,
+			scopes: ['one', 'two'],
+		}
+		writeStoredSubscriptionCredential(expected, home)
+
+		expect(replaceStoredSubscriptionCredential(expected, replacement, home)).toEqual({
+			replaced: true,
+			current: replacement,
+		})
+		expect(readStoredSubscriptionCredential(home)).toEqual(replacement)
+	})
+
+	it('does not overwrite a credential another owner changed', () => {
+		const stale = {
+			accessToken: 'stale',
+			refreshToken: 'stale-refresh',
+			expiresAt: 1,
+		}
+		const winner = {
+			accessToken: 'winner',
+			refreshToken: 'winner-refresh',
+			expiresAt: 2,
+		}
+		const late = {
+			accessToken: 'late',
+			refreshToken: 'late-refresh',
+			expiresAt: 3,
+		}
+		writeStoredSubscriptionCredential(winner, home)
+		const before = readFileSync(credentialsPath(home), 'utf8')
+
+		expect(replaceStoredSubscriptionCredential(stale, late, home)).toEqual({
+			replaced: false,
+			current: winner,
+		})
+		expect(readFileSync(credentialsPath(home), 'utf8')).toBe(before)
+		expect(readStoredSubscriptionCredential(home)).toEqual(winner)
+	})
+
+	it('treats a scopes-only rotation as a different credential', () => {
+		const expected = {
+			accessToken: 'same-token',
+			refreshToken: 'same-refresh',
+			expiresAt: 1234,
+			scopes: ['old-scope'],
+		}
+		const winner = { ...expected, scopes: ['new-scope'] }
+		writeStoredSubscriptionCredential(winner, home)
+
+		expect(
+			replaceStoredSubscriptionCredential(
+				expected,
+				{ ...expected, accessToken: 'late-from-old-scope' },
+				home,
+			),
+		).toEqual({ replaced: false, current: winner })
+		expect(readStoredSubscriptionCredential(home)).toEqual(winner)
+	})
+
+	it('refuses every mutation while another live owner holds the store lock', () => {
+		const current = {
+			accessToken: 'held-current',
+			refreshToken: 'held-refresh',
+		}
+		writeStoredSubscriptionCredential(current, home)
+		const lockPath = `${credentialsPath(home)}.lock`
+		writeFileSync(lockPath, `${process.pid}:${Date.now()}:held-by-test`, {
+			mode: 0o600,
+		})
+
+		expect(() =>
+			replaceStoredSubscriptionCredential(current, { accessToken: 'conditional-intruder' }, home),
+		).toThrow(CredentialStoreError)
+		expect(() =>
+			writeStoredSubscriptionCredential({ accessToken: 'unconditional-intruder' }, home),
+		).toThrow(CredentialStoreError)
+		expect(() => clearStoredSubscriptionCredential(home)).toThrow(CredentialStoreError)
+		expect(readStoredSubscriptionCredential(home)).toEqual(current)
+	})
+
+	it('refuses to steal an old lock even when its recorded process is gone', () => {
+		const lockPath = `${credentialsPath(home)}.lock`
+		mkdirSync(dirname(lockPath), { recursive: true })
+		// A valid platform-range PID chosen far outside ordinary CI namespaces.
+		// If a host ever owns it, the store safely refuses and this fixture should
+		// choose another demonstrably absent process rather than weakening the rule.
+		const absentPid = 2_147_483_000
+		writeFileSync(lockPath, `${absentPid}:0:abandoned-by-test`, {
+			mode: 0o600,
+		})
+		utimesSync(lockPath, new Date(0), new Date(0))
+
+		expect(() =>
+			writeStoredSubscriptionCredential({ accessToken: 'after-abandoned-lock' }, home),
+		).toThrow(/after proving no Namzu process.*remove .*\.lock/s)
+		expect(readStoredSubscriptionCredential(home)).toBeNull()
+		expect(existsSync(lockPath)).toBe(true)
+	})
+
+	it('ignores an incomplete candidate left before atomic lock publication', () => {
+		const lockPath = `${credentialsPath(home)}.lock`
+		const abandonedCandidate = `${lockPath}.candidate.999.abandoned`
+		mkdirSync(dirname(lockPath), { recursive: true })
+		writeFileSync(abandonedCandidate, '', { mode: 0o600 })
+
+		expect(writeStoredSubscriptionCredential({ accessToken: 'after-candidate-crash' }, home)).toBe(
+			credentialsPath(home),
+		)
+		expect(readStoredSubscriptionCredential(home)?.accessToken).toBe('after-candidate-crash')
+		expect(existsSync(lockPath)).toBe(false)
+		// Pre-publication debris is harmless and may be removed by ordinary
+		// directory housekeeping; it is never mistaken for the canonical owner.
+		expect(existsSync(abandonedCandidate)).toBe(true)
+	})
+
 	it('leaves no temporary file behind', () => {
 		writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
 		// A leftover temp file would be a SECOND copy of the credential, and the
 		// one whose protection nothing re-checks after the rename.
 		const entries = readdirSync(dirname(credentialsPath(home)))
 		expect(entries.filter((e) => e.includes('.tmp.'))).toEqual([])
+		expect(entries.filter((e) => e.includes('.lock'))).toEqual([])
 	})
 })
 

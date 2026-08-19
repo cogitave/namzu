@@ -7,27 +7,27 @@
  * stale token before the session starts instead of surfacing it as an
  * authentication error.
  *
- * Non-throwing: any failure (no refresh token, network down, endpoint error)
- * returns the existing token unchanged — at worst the caller hits the same
- * 401 it would have hit anyway, never a crash.
+ * Best-effort for refresh failures: no refresh token, a network failure, an
+ * endpoint refusal or the private deadline all return the existing token.
+ * Caller cancellation is different: it revokes the operation that would use
+ * the token and is re-thrown with its exact cause.
  *
  * ## Where a refreshed token is written back
  *
  * There are two places a subscription credential can live and they are not
  * interchangeable, so `origin` says which one this credential came from and
- * the refreshed value goes back to the same place:
+ * therefore which publication rule applies:
  *
  *  - `'stored'` — namzu's own store, written by the login flow, present on
- *    every platform.
+ *    every platform. A refresh replaces only the exact credential it used.
  *  - `'keychain'` — a co-installed tool's macOS entry, which namzu reads but
- *    does not own.
+ *    does not own. A refresh is session-local and never writes that entry.
  *
  * `origin` is optional and defaults to `'keychain'` because that is the only
- * source that existed when this file was written, and a caller compiled
- * against the old shape must keep behaving as it did. Every namzu-owned
- * caller passes it explicitly; a credential that came from the login flow and
- * was written back to the Keychain would be a no-op off macOS, leaving the
- * real store holding a token that is refreshed again on every launch.
+ * source that existed when this file was written. Every namzu-owned caller
+ * passes it explicitly; a credential from the login flow misclassified as
+ * Keychain-origin would remain stale on disk and refresh again on every
+ * launch.
  */
 
 import { buildProbeContext, probe } from '@namzu/sdk'
@@ -36,17 +36,46 @@ import { SUBSCRIPTION_CREDENTIAL_REF } from './credential-provider.js'
 import {
 	credentialsPath,
 	readStoredSubscriptionCredential,
-	writeStoredSubscriptionCredential,
+	replaceStoredSubscriptionCredential,
 } from './credential-store.js'
 import { OAUTH_CLIENT_ID, OAUTH_TOKEN_URL } from './identity.js'
-import {
-	type AgentOAuthCredential,
-	readAgentKeychainCredential,
-	writeAgentKeychainCredential,
-} from './keychain.js'
+import { type AgentOAuthCredential, readAgentKeychainCredential } from './keychain.js'
 
 /** Refresh a few seconds early so an about-to-expire token isn't used. */
 const EXPIRY_SKEW_MS = 60_000
+
+/** One refresh request, including its response body, may hold a caller this long. */
+const REFRESH_DEADLINE_MS = 30_000
+
+class RefreshDeadlineError extends Error {
+	constructor() {
+		super(`The token endpoint did not answer within ${REFRESH_DEADLINE_MS}ms.`)
+		this.name = 'RefreshDeadlineError'
+	}
+}
+
+/**
+ * Settle independently of a foreign promise that may ignore its signal.
+ *
+ * Passing `signal` to fetch is cooperative. This race is the host-owned
+ * boundary that makes cancellation and the refresh deadline true even for a
+ * custom transport or response body that never settles.
+ */
+async function awaitWithSignal<T>(operation: PromiseLike<T>, signal: AbortSignal): Promise<T> {
+	signal.throwIfAborted()
+	let rejectAbort: (reason: unknown) => void = () => {}
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject
+	})
+	const onAbort = () => rejectAbort(signal.reason)
+	signal.addEventListener('abort', onAbort, { once: true })
+	if (signal.aborted) onAbort()
+	try {
+		return await Promise.race([operation, aborted])
+	} finally {
+		signal.removeEventListener('abort', onAbort)
+	}
+}
 
 /**
  * Re-read the current credential from the store it lives in.
@@ -70,42 +99,66 @@ export function readSubscriptionCredential(origin: CredentialOrigin): AgentOAuth
 	return origin === 'stored' ? readStoredSubscriptionCredential() : readAgentKeychainCredential()
 }
 
-/** Which store a subscription credential came from, and goes back to. */
+/** Which store a subscription credential came from and therefore who owns publication. */
 export type CredentialOrigin = 'stored' | 'keychain'
 
 export interface OAuthMetadata {
 	readonly refreshToken?: string
 	readonly expiresAt?: number
+	readonly scopes?: readonly string[]
 	/** Defaults to `'keychain'` — see the note at the top of this file. */
 	readonly origin?: CredentialOrigin
+}
+
+/** The credential that authorized a refresh was removed before publication. */
+export class CredentialWithdrawnError extends Error {
+	override readonly name = 'CredentialWithdrawnError'
+
+	constructor() {
+		super('The subscription credential was removed while it was being refreshed.')
+	}
+}
+
+/** The store could not prove whether the refresh still owned publication. */
+export class CredentialPublicationError extends Error {
+	override readonly name = 'CredentialPublicationError'
+
+	constructor(options?: ErrorOptions) {
+		super('The refreshed subscription credential could not be published safely.', options)
+	}
 }
 
 /**
  * Return a non-expired access token, refreshing first if the current one is
  * lapsed/about-to-lapse and a refresh token is available. On a successful
- * refresh the new credential is persisted back to its own store (best-effort).
+ * refresh a Namzu-owned credential is conditionally persisted. A borrowed
+ * Keychain credential is used only in memory because its owner cannot
+ * participate in our conditional-write boundary.
  */
 export async function ensureFreshAnthropicToken(
 	accessToken: string,
 	oauth: OAuthMetadata,
+	signal?: AbortSignal,
 ): Promise<string> {
+	signal?.throwIfAborted()
 	const fresh = oauth.expiresAt === undefined || oauth.expiresAt - Date.now() > EXPIRY_SKEW_MS
 	if (fresh) return accessToken
 	if (!oauth.refreshToken) return accessToken
 
-	const refreshed = await refreshAgentOAuthToken(oauth.refreshToken)
+	const refreshed = await refreshAgentOAuthToken(oauth.refreshToken, signal)
 	if (!refreshed) return accessToken
-	persistRefreshed(refreshed, oauth.origin ?? 'keychain')
-	return refreshed.accessToken
+	// The response body was the final foreign await. Re-check immediately at
+	// the durable boundary so a stopped run cannot rotate a credential later.
+	signal?.throwIfAborted()
+	const expected: AgentOAuthCredential = {
+		accessToken,
+		refreshToken: oauth.refreshToken,
+		expiresAt: oauth.expiresAt,
+		scopes: oauth.scopes,
+	}
+	return publishRefreshed(expected, refreshed, oauth.origin ?? 'keychain').accessToken
 }
 
-/**
- * Write a refreshed credential back to the store it came from.
- *
- * Best-effort in both arms, and for the same reason the refresh itself is:
- * the token is already in hand and usable for this session, so a store that
- * will not take it costs a re-refresh next launch, not the session.
- */
 /**
  * Say that a credential turned over, without saying what it turned into.
  *
@@ -127,40 +180,90 @@ function announceRotation(replaced: boolean): void {
 	)
 }
 
-function persistRefreshed(cred: AgentOAuthCredential, origin: CredentialOrigin): void {
+function publishRefreshed(
+	expected: AgentOAuthCredential,
+	refreshed: AgentOAuthCredential,
+	origin: CredentialOrigin,
+): AgentOAuthCredential {
 	if (origin === 'keychain') {
-		writeAgentKeychainCredential(cred)
-		return
+		// This entry belongs to another product, whose writer cannot participate
+		// in a Namzu lock or conditional update. Never overwrite it. A rotation
+		// that landed while the request was pending wins for this session; when it
+		// is unchanged, the refreshed token remains session-local.
+		const current = readAgentKeychainCredential()
+		if (!current) throw new CredentialWithdrawnError()
+		return !sameCredential(current, expected) ? current : refreshed
 	}
+	let result: ReturnType<typeof replaceStoredSubscriptionCredential>
 	try {
-		writeStoredSubscriptionCredential(cred)
-		// Announced only after the store proved the file private. A rotation
-		// event for a write that refused would have a reader chasing a
-		// credential turn-over that never happened.
-		announceRotation(cred.accessToken !== undefined)
-	} catch {
-		// The store refused to prove the file private and therefore wrote
-		// nothing. Deliberately silent: the message would be about a file, on
-		// a path the operator did not ask about, in the middle of a turn.
+		result = replaceStoredSubscriptionCredential(expected, refreshed)
+	} catch (error) {
+		// A busy lock may be an external rotation in progress. Falling back to
+		// A' here would turn a failed CAS into permission to ignore its winner.
+		throw new CredentialPublicationError({ cause: error })
 	}
+	if (!result.replaced) {
+		if (!result.current) throw new CredentialWithdrawnError()
+		return result.current
+	}
+	// Announced only after the store proved the file private. A rotation event
+	// for a write that refused would have a reader chasing a turn-over that
+	// never happened. Probe failure is observability failure, not permission to
+	// undo a credential that is already durably committed.
+	try {
+		announceRotation(refreshed.accessToken !== undefined)
+	} catch {
+		// The credential is already committed. Telemetry cannot roll it back.
+	}
+	return refreshed
+}
+
+function sameCredential(left: AgentOAuthCredential, right: AgentOAuthCredential): boolean {
+	if (
+		left.accessToken !== right.accessToken ||
+		left.refreshToken !== right.refreshToken ||
+		left.expiresAt !== right.expiresAt
+	) {
+		return false
+	}
+	const leftScopes = left.scopes ?? []
+	const rightScopes = right.scopes ?? []
+	return (
+		leftScopes.length === rightScopes.length &&
+		leftScopes.every((scope, index) => scope === rightScopes[index])
+	)
 }
 
 /** Exchange a refresh token for a new credential, or `null` on any failure. */
 export async function refreshAgentOAuthToken(
 	refreshToken: string,
+	signal?: AbortSignal,
 ): Promise<AgentOAuthCredential | null> {
+	signal?.throwIfAborted()
+	const requestController = new AbortController()
+	const timeoutCause = new RefreshDeadlineError()
+	const onCallerAbort = () => requestController.abort(signal?.reason)
+	signal?.addEventListener('abort', onCallerAbort, { once: true })
+	if (signal?.aborted) onCallerAbort()
+	const timer = setTimeout(() => requestController.abort(timeoutCause), REFRESH_DEADLINE_MS)
+
 	try {
-		const res = await fetch(OAUTH_TOKEN_URL, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				grant_type: 'refresh_token',
-				refresh_token: refreshToken,
-				client_id: OAUTH_CLIENT_ID,
+		const res = await awaitWithSignal(
+			fetch(OAUTH_TOKEN_URL, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					grant_type: 'refresh_token',
+					refresh_token: refreshToken,
+					client_id: OAUTH_CLIENT_ID,
+				}),
+				signal: requestController.signal,
 			}),
-		})
+			requestController.signal,
+		)
+		signal?.throwIfAborted()
 		if (!res.ok) return null
-		const data = (await res.json()) as {
+		const data = (await awaitWithSignal(res.json(), requestController.signal)) as {
 			access_token?: unknown
 			refresh_token?: unknown
 			expires_in?: unknown
@@ -173,6 +276,16 @@ export async function refreshAgentOAuthToken(
 				typeof data.expires_in === 'number' ? Date.now() + data.expires_in * 1_000 : undefined,
 		}
 	} catch {
+		// A cooperative transport may replace the request cause with a generic
+		// AbortError. The fused controller is the first-cause latch: only a caller
+		// reason that actually won is allowed to escape as cancellation. A later
+		// caller abort cannot relabel the private deadline.
+		if (signal?.aborted && requestController.signal.reason === signal.reason) {
+			throw signal.reason
+		}
 		return null
+	} finally {
+		clearTimeout(timer)
+		signal?.removeEventListener('abort', onCallerAbort)
 	}
 }
