@@ -3,6 +3,7 @@ import type {
 	MCPJsonRpcMessage,
 	MCPStdioTransportConfig,
 	MCPTransport,
+	MCPTransportSendOptions,
 } from '../../types/connector/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
@@ -244,10 +245,15 @@ export class StdioTransport implements MCPTransport {
 		this.errorHandlers = []
 	}
 
-	async send(message: MCPJsonRpcMessage): Promise<void> {
+	async send(message: MCPJsonRpcMessage, options?: MCPTransportSendOptions): Promise<void> {
+		options?.signal?.throwIfAborted()
 		if (!this.process?.stdin?.writable) {
 			throw new Error('StdioTransport: not connected or stdin not writable')
 		}
+		// No await lies between the checks and write, so a standard AbortSignal
+		// cannot change in this interval. Once written, MCP protocol
+		// `notifications/cancelled` is the cooperative cancellation mechanism.
+		options?.signal?.throwIfAborted()
 		const data = `${JSON.stringify(message)}\n`
 		this.process.stdin.write(data)
 	}

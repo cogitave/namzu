@@ -36,7 +36,8 @@ function client(over: Partial<MCPClient> = {}): MCPClient {
 	} as unknown as MCPClient
 }
 
-const ctx = {} as ToolContext
+const signal = new AbortController().signal
+const ctx = { abortSignal: signal } as ToolContext
 
 describe('a published prompt becomes a tool the model can call', () => {
 	it('is named apart from a tool of the same name', () => {
@@ -66,7 +67,7 @@ describe('a published prompt becomes a tool the model can call', () => {
 
 		await def.execute({ path: 'a.ts' }, ctx)
 
-		expect(c.getPrompt).toHaveBeenCalledWith('summarize', { path: 'a.ts' })
+		expect(c.getPrompt).toHaveBeenCalledWith('summarize', { path: 'a.ts' }, { signal })
 	})
 
 	it('reads as a lookup, not as an action', () => {
@@ -97,6 +98,28 @@ describe('a published prompt becomes a tool the model can call', () => {
 		// around; ending the run over it is the wrong trade.
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('server went away')
+	})
+
+	it('does not turn withdrawn run authority into an ordinary prompt failure', async () => {
+		const caller = new AbortController()
+		const reason = new Error('operator stopped prompt lookup')
+		const def = mcpPromptToToolDefinition(
+			PROMPT,
+			client({
+				getPrompt: vi.fn(async (_name, _args, options) => {
+					caller.abort(reason)
+					options?.signal?.throwIfAborted()
+					throw new Error('unreachable')
+				}),
+			} as Partial<MCPClient>),
+			'files',
+		)
+
+		await expect(
+			def.execute({ path: 'a.ts' }, {
+				abortSignal: caller.signal,
+			} as ToolContext),
+		).rejects.toBe(reason)
 	})
 })
 

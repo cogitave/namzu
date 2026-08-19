@@ -74,10 +74,27 @@ export interface MCPJsonRpcMessage {
 	error?: MCPJsonRpcError
 }
 
+/** Authority for one MCP JSON-RPC request. */
+export interface MCPRequestOptions {
+	/**
+	 * Cancels the local wait and asks the peer to stop the correlated request.
+	 *
+	 * The peer notification is best effort: rejection proves that Namzu stopped
+	 * waiting, not that an already-started remote side effect was rolled back.
+	 */
+	readonly signal?: AbortSignal
+}
+
+/** Authority for one transport write and any response body it consumes. */
+export interface MCPTransportSendOptions {
+	/** A pre-aborted signal starts no transport work. */
+	readonly signal?: AbortSignal
+}
+
 export interface MCPTransport {
 	connect(): Promise<void>
 	close(): Promise<void>
-	send(message: MCPJsonRpcMessage): Promise<void>
+	send(message: MCPJsonRpcMessage, options?: MCPTransportSendOptions): Promise<void>
 	onMessage(handler: (message: MCPJsonRpcMessage) => void): void
 	onClose(handler: () => void): void
 	onError(handler: (error: Error) => void): void

@@ -123,10 +123,12 @@ export function mcpPromptToToolDefinition(
 		isDestructive: () => false,
 		isConcurrencySafe: () => true,
 
-		async execute(input: unknown, _context: ToolContext): Promise<ToolResult> {
+		async execute(input: unknown, context: ToolContext): Promise<ToolResult> {
 			const args = (input ?? {}) as Record<string, string>
 			try {
-				const result = await client.getPrompt(prompt.name, args)
+				const result = await client.getPrompt(prompt.name, args, {
+					signal: context.abortSignal,
+				})
 				return {
 					success: true,
 					output: renderPromptMessages(
@@ -137,6 +139,10 @@ export function mcpPromptToToolDefinition(
 					),
 				}
 			} catch (err) {
+				// Cancellation belongs to the run, not to the remote prompt. Turning
+				// it into an ordinary failed tool result would let the executor treat
+				// a withdrawn operation as one the model may route around.
+				if (context.abortSignal?.aborted) throw context.abortSignal.reason
 				// Returned to the MODEL rather than thrown. A prompt that
 				// cannot be fetched — a server that went away, an argument it
 				// rejected — is something the agent can work around, and

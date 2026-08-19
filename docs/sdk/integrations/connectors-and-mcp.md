@@ -458,7 +458,7 @@ The current SDK exports these client transport shapes:
 | `http-sse` | The MCP server is reachable over an HTTP-plus-SSE endpoint |
 | `streamable_http` | The server speaks the Streamable HTTP transport |
 
-### Request deadlines
+### Request deadlines and cancellation
 
 Every JSON-RPC round trip is bounded by `requestTimeoutMs` (default 30s):
 
@@ -472,11 +472,55 @@ const client = new MCPClient({
 })
 ```
 
+The client and both HTTP transport deadlines must be positive platform-range
+integers. A transport may deliberately use a shorter `timeoutMs` than the
+client round-trip deadline; whichever deadline wins is reported with its exact
+`TimeoutError` and asks the peer to cancel the correlated request.
+
 This matters most on `stdio` — the default for local servers — where a
 wedged server would otherwise leave callers pending forever with no error
 and no `run_failed`: not a crash, just a process that stopped. In-flight
 requests are also rejected when the transport closes or errors, not only
 on an explicit `disconnect()`.
+
+Direct MCP operations accept an `MCPRequestOptions` signal. The generated MCP
+tool and prompt-as-tool adapters pass the run-owned tool signal automatically:
+
+```ts
+import type { MCPClient } from '@namzu/sdk'
+
+declare const client: MCPClient
+
+const controller = new AbortController()
+
+const result = await client.callTool(
+  'search',
+  { query: 'bounded work' },
+  { signal: controller.signal },
+)
+```
+
+A pre-aborted signal starts no request. Once a JSON-RPC request has been
+issued, cancellation or deadline expiry chooses one local terminal cause,
+cleans up that request synchronously, and then:
+
+1. stops the local wait with the caller's exact reason
+2. aborts a distinct private HTTP transport signal and removes the pending id
+3. makes a bounded, best-effort `notifications/cancelled` request carrying
+   that id
+
+The third step is a request to stop, not an acknowledgement. A remote tool may
+already have performed a side effect, and a server may ignore or race the
+notification; do not treat local cancellation as proof that remote work was
+rolled back. Over stdio, a pre-aborted send writes no bytes, but after a request
+line is written the protocol notification is the only cooperative stop signal.
+
+HTTP sends and response-body reads use the same operation authority. Closing a
+transport aborts its active sends. Reconnect starts a new generation: held
+responses and SSE events from the old generation cannot update the new session
+id or reach its handlers, and only a successful `initialize` response may set
+the Streamable HTTP session id. A failed best-effort cancellation remains a
+per-request failure and cannot reject concurrent sibling calls.
 
 A server-initiated request the client does not implement
 (`sampling/createMessage`, `elicitation/create`, `roots/list`) is answered

@@ -164,8 +164,11 @@ describe('mcpToolToToolDefinition', () => {
 			client,
 			's',
 		)
-		const result = await tool.execute({ q: 'hi' }, {} as ToolContext)
-		expect(client.callTool).toHaveBeenCalledWith('search', { q: 'hi' })
+		const signal = new AbortController().signal
+		const result = await tool.execute({ q: 'hi' }, {
+			abortSignal: signal,
+		} as ToolContext)
+		expect(client.callTool).toHaveBeenCalledWith('search', { q: 'hi' }, { signal })
 		expect(result.success).toBe(true)
 		// `toContain`, not `toBe`: the server's text is now framed as the
 		// server's words on its way to the model, so an exact match would be

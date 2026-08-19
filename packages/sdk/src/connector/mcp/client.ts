@@ -9,6 +9,7 @@ import type {
 	MCPLifecycleEvent,
 	MCPPromptDefinition,
 	MCPPromptMessage,
+	MCPRequestOptions,
 	MCPResource,
 	MCPResourceTemplate,
 	MCPServerCapabilities,
@@ -23,6 +24,7 @@ import { generateMCPClientId } from '../../utils/id.js'
 import type { LogAttributes } from '../../utils/log/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
+import { validateConnectorTimeoutMs } from '../http-operation.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { StreamableHttpTransport } from './streamable-http.js'
@@ -39,6 +41,9 @@ import { VERSION } from '../../version.js'
 /** Runaway guard for a server whose cursor never ends. */
 const MAX_LIST_PAGES = 100
 
+/** A cancellation notification must never become the next unbounded wait. */
+const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
+
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
 
 export class MCPClient {
@@ -53,18 +58,26 @@ export class MCPClient {
 		string | number,
 		{
 			resolve: (value: unknown) => void
-			reject: (reason: Error) => void
+			reject: (reason: unknown) => void
+			abort: (reason: unknown) => void
 		}
 	>()
 	private nextRequestId = 1
 	private notificationHandlers: Array<(method: string, params?: Record<string, unknown>) => void> =
 		[]
 	private lifecycleListeners: MCPEventListener[] = []
+	/** Best-effort protocol cancellations still belong to this connection generation. */
+	private cancellationControllers = new Set<AbortController>()
 	private log: Logger
 	private readonly config: MCPClientConfig
+	private readonly requestTimeoutMs: number
 
 	constructor(config: MCPClientConfig) {
 		this.config = config
+		this.requestTimeoutMs = validateConnectorTimeoutMs(
+			config.requestTimeoutMs ?? DEFAULT_MCP_REQUEST_TIMEOUT_MS,
+			'MCPClient requestTimeoutMs',
+		)
 		this.id = config.id ?? generateMCPClientId()
 		// Built BEFORE the transport, not after: `createTransport` threads
 		// `this.log` into whichever transport it constructs (LOG-10), so the
@@ -87,12 +100,14 @@ export class MCPClient {
 			this.transport.onMessage((msg) => this.handleMessage(msg))
 			this.transport.onClose(() => {
 				this.status = 'disconnected'
+				this.abortCancellations(new Error('MCP transport closed'))
 				this.log.info('MCP transport closed')
 				this.emitLifecycle({ type: 'mcp_client_disconnected', clientId: this.id })
 				this.rejectAllPending(`MCP transport to "${this.config.serverName}" closed`)
 			})
 			this.transport.onError((err) => {
 				this.status = 'error'
+				this.abortCancellations(err)
 				this.error = err.message
 				this.log.error('MCP transport error', { 'exception.message': err.message })
 				this.emitLifecycle({ type: 'mcp_client_error', clientId: this.id, error: err.message })
@@ -153,6 +168,8 @@ export class MCPClient {
 	}
 
 	async disconnect(): Promise<void> {
+		const reason = new Error('MCPClient disconnecting')
+		this.abortCancellations(reason)
 		if (this.status === 'disconnected') return
 
 		this.rejectAllPending('MCPClient disconnecting')
@@ -180,28 +197,36 @@ export class MCPClient {
 		}
 	}
 
-	async listTools(): Promise<MCPToolDefinition[]> {
+	async listTools(options?: MCPRequestOptions): Promise<MCPToolDefinition[]> {
 		this.requireConnected()
-		return await this.listAllPages('tools/list', 'tools')
+		return await this.listAllPages('tools/list', 'tools', options)
 	}
 
-	async callTool(name: string, args?: Record<string, unknown>): Promise<MCPToolResult> {
+	async callTool(
+		name: string,
+		args?: Record<string, unknown>,
+		options?: MCPRequestOptions,
+	): Promise<MCPToolResult> {
 		this.requireConnected()
-		const result = (await this.request('tools/call', {
-			name,
-			arguments: args ?? {},
-		})) as MCPToolResult
+		const result = (await this.request(
+			'tools/call',
+			{
+				name,
+				arguments: args ?? {},
+			},
+			options,
+		)) as MCPToolResult
 		return result
 	}
 
-	async listResources(): Promise<MCPResource[]> {
+	async listResources(options?: MCPRequestOptions): Promise<MCPResource[]> {
 		this.requireConnected()
-		return await this.listAllPages('resources/list', 'resources')
+		return await this.listAllPages('resources/list', 'resources', options)
 	}
 
-	async readResource(uri: string): Promise<MCPContentBlock[]> {
+	async readResource(uri: string, options?: MCPRequestOptions): Promise<MCPContentBlock[]> {
 		this.requireConnected()
-		const result = (await this.request('resources/read', { uri })) as {
+		const result = (await this.request('resources/read', { uri }, options)) as {
 			contents: MCPContentBlock[]
 		}
 		return result.contents
@@ -220,9 +245,9 @@ export class MCPClient {
 	 * of it being generic: a server that pages its prompts does not get
 	 * silently truncated to page one the way the tool list once was.
 	 */
-	async listPrompts(): Promise<MCPPromptDefinition[]> {
+	async listPrompts(options?: MCPRequestOptions): Promise<MCPPromptDefinition[]> {
 		this.requireConnected()
-		return await this.listAllPages('prompts/list', 'prompts')
+		return await this.listAllPages('prompts/list', 'prompts', options)
 	}
 
 	/**
@@ -237,21 +262,26 @@ export class MCPClient {
 	async getPrompt(
 		name: string,
 		args?: Record<string, string>,
+		options?: MCPRequestOptions,
 	): Promise<{ description?: string; messages: MCPPromptMessage[] }> {
 		this.requireConnected()
-		const result = (await this.request('prompts/get', {
-			name,
-			arguments: args ?? {},
-		})) as { description?: string; messages?: MCPPromptMessage[] }
+		const result = (await this.request(
+			'prompts/get',
+			{
+				name,
+				arguments: args ?? {},
+			},
+			options,
+		)) as { description?: string; messages?: MCPPromptMessage[] }
 		return {
 			...(result.description !== undefined ? { description: result.description } : {}),
 			messages: result.messages ?? [],
 		}
 	}
 
-	async listResourceTemplates(): Promise<MCPResourceTemplate[]> {
+	async listResourceTemplates(options?: MCPRequestOptions): Promise<MCPResourceTemplate[]> {
 		this.requireConnected()
-		return await this.listAllPages('resources/templates/list', 'resourceTemplates')
+		return await this.listAllPages('resources/templates/list', 'resourceTemplates', options)
 	}
 
 	/**
@@ -271,15 +301,20 @@ export class MCPClient {
 	 * until the process dies. Hitting it is loud, because a silently
 	 * truncated catalogue is the failure being fixed here.
 	 */
-	private async listAllPages<T>(method: string, field: string): Promise<T[]> {
+	private async listAllPages<T>(
+		method: string,
+		field: string,
+		options?: MCPRequestOptions,
+	): Promise<T[]> {
 		const items: T[] = []
 		let cursor: string | undefined
 
 		for (let page = 1; ; page++) {
-			const result = (await this.request(method, cursor === undefined ? {} : { cursor })) as Record<
-				string,
-				unknown
-			>
+			const result = (await this.request(
+				method,
+				cursor === undefined ? {} : { cursor },
+				options,
+			)) as Record<string, unknown>
 
 			const batch = result[field]
 			if (Array.isArray(batch)) items.push(...(batch as T[]))
@@ -364,7 +399,13 @@ export class MCPClient {
 	 * server hung the whole run with no error and no `run_failed`: not a
 	 * crash, just a process that stopped.
 	 */
-	private async request(method: string, params: Record<string, unknown>): Promise<unknown> {
+	private request(
+		method: string,
+		params: Record<string, unknown>,
+		options?: MCPRequestOptions,
+	): Promise<unknown> {
+		// Refuse before allocating an id or asking the transport to do work.
+		options?.signal?.throwIfAborted()
 		const id = this.nextRequestId++
 		const message: MCPJsonRpcMessage = {
 			jsonrpc: '2.0',
@@ -372,40 +413,150 @@ export class MCPClient {
 			method,
 			params,
 		}
-		const timeoutMs = this.config.requestTimeoutMs ?? DEFAULT_MCP_REQUEST_TIMEOUT_MS
-
-		return new Promise<unknown>((resolve, reject) => {
-			const timer = setTimeout(() => {
-				this.pendingRequests.delete(id)
-				this.log.warn('MCP request timed out', {
-					'namzu.connector.server': this.config.serverName,
-					'namzu.connector.method': method,
-					'namzu.connector.timeout_ms': timeoutMs,
-				})
-				reject(
-					new Error(
-						`MCP request "${method}" to "${this.config.serverName}" timed out after ${timeoutMs}ms`,
-					),
-				)
-			}, timeoutMs)
-
-			this.pendingRequests.set(id, {
-				resolve: (value) => {
-					clearTimeout(timer)
-					resolve(value)
-				},
-				reject: (err) => {
-					clearTimeout(timer)
-					reject(err)
-				},
-			})
-
-			this.transport.send(message).catch((err) => {
-				clearTimeout(timer)
-				this.pendingRequests.delete(id)
-				reject(err)
-			})
+		const transportController = new AbortController()
+		let issued = false
+		let settled = false
+		let resolvePublic!: (value: unknown) => void
+		let rejectPublic!: (reason: unknown) => void
+		const result = new Promise<unknown>((resolve, reject) => {
+			resolvePublic = resolve
+			rejectPublic = reject
 		})
+
+		type Terminal = 'response' | 'failure' | 'caller' | 'timeout' | 'transport_closed'
+		const entry = {
+			resolve: (value: unknown) => settle('response', value),
+			reject: (reason: unknown) => settle('failure', reason),
+			abort: (reason: unknown) => settle('transport_closed', reason),
+		}
+		const onCallerAbort = (): void => {
+			settle('caller', options?.signal?.reason)
+		}
+		const cleanup = (): void => {
+			clearTimeout(timer)
+			options?.signal?.removeEventListener('abort', onCallerAbort)
+			if (this.pendingRequests.get(id) === entry) this.pendingRequests.delete(id)
+		}
+		const settle = (terminal: Terminal, value: unknown): boolean => {
+			if (settled) return false
+			settled = true
+			// The terminal winner owns cleanup synchronously. In particular, a
+			// response delivered from inside transport.send removes the abort
+			// listener before that same send call can observe a later abort.
+			cleanup()
+
+			if (terminal === 'response') {
+				resolvePublic(value)
+				return true
+			}
+
+			rejectPublic(value)
+			if (terminal === 'caller' || terminal === 'timeout' || terminal === 'transport_closed') {
+				// Latch public settlement before aborting transport. An abort listener
+				// may synchronously reject send() with a generic AbortError; it no
+				// longer owns this request and cannot replace the first cause.
+				transportController.abort(value)
+			}
+			if (issued && method !== 'initialize' && (terminal === 'caller' || terminal === 'timeout')) {
+				this.sendCancellation(
+					id,
+					terminal === 'caller' ? 'Caller cancelled request' : 'Request deadline expired',
+				)
+			}
+			return true
+		}
+		const settleSendFailure = (reason: unknown): void => {
+			// An HTTP transport may have a deliberately shorter deadline than
+			// the JSON-RPC round-trip deadline. It is still a request timeout:
+			// the peer may be working after this local POST wait ended, so the
+			// correlated protocol cancellation remains required.
+			if (reason instanceof Error && reason.name === 'TimeoutError') {
+				settle('timeout', reason)
+				return
+			}
+			entry.reject(reason)
+		}
+
+		this.pendingRequests.set(id, entry)
+		const timer = setTimeout(() => {
+			const error = new Error(
+				`MCP request "${method}" to "${this.config.serverName}" timed out after ${this.requestTimeoutMs}ms`,
+			)
+			error.name = 'TimeoutError'
+			this.log.warn('MCP request timed out', {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.method': method,
+				'namzu.connector.timeout_ms': this.requestTimeoutMs,
+			})
+			settle('timeout', error)
+		}, this.requestTimeoutMs)
+		options?.signal?.addEventListener('abort', onCallerAbort, { once: true })
+		// AbortSignal events are not replayed. This closes the listener-install
+		// race before the request is issued.
+		if (options?.signal?.aborted) {
+			onCallerAbort()
+			return result
+		}
+
+		try {
+			issued = true
+			const sending = this.transport.send(message, {
+				signal: transportController.signal,
+			})
+			void sending.catch((err) => {
+				settleSendFailure(err)
+			})
+		} catch (err) {
+			settleSendFailure(err)
+		}
+
+		return result
+	}
+
+	/** Ask the peer to stop without letting cleanup become another hanging request. */
+	private sendCancellation(id: string | number, reason: string): void {
+		const controller = new AbortController()
+		this.cancellationControllers.add(controller)
+		const timer = setTimeout(() => {
+			const error = new Error('MCP cancellation notification timed out')
+			error.name = 'TimeoutError'
+			controller.abort(error)
+			this.cancellationControllers.delete(controller)
+		}, CANCEL_NOTIFICATION_TIMEOUT_MS)
+		timer.unref?.()
+		let sending: Promise<void>
+		try {
+			sending = this.transport.send(
+				{
+					jsonrpc: '2.0',
+					method: 'notifications/cancelled',
+					params: { requestId: id, reason },
+				},
+				{ signal: controller.signal },
+			)
+		} catch (err) {
+			clearTimeout(timer)
+			this.cancellationControllers.delete(controller)
+			this.log.debug('Failed to send MCP cancellation notification', {
+				'exception.message': toErrorMessage(err),
+			})
+			return
+		}
+		void sending
+			.catch((err) => {
+				this.log.debug('Failed to send MCP cancellation notification', {
+					'exception.message': toErrorMessage(err),
+				})
+			})
+			.finally(() => {
+				clearTimeout(timer)
+				this.cancellationControllers.delete(controller)
+			})
+	}
+
+	private abortCancellations(reason: unknown): void {
+		for (const controller of this.cancellationControllers) controller.abort(reason)
+		this.cancellationControllers.clear()
 	}
 
 	/**
@@ -422,10 +573,9 @@ export class MCPClient {
 			'namzu.connector.count': this.pendingRequests.size,
 			'namzu.connector.reason': reason,
 		})
-		for (const [, pending] of this.pendingRequests) {
-			pending.reject(new Error(reason))
+		for (const pending of [...this.pendingRequests.values()]) {
+			pending.abort(new Error(reason))
 		}
-		this.pendingRequests.clear()
 	}
 
 	private async notify(method: string, params: Record<string, unknown>): Promise<void> {
@@ -441,7 +591,6 @@ export class MCPClient {
 		if (message.id !== undefined) {
 			const pending = this.pendingRequests.get(message.id)
 			if (pending) {
-				this.pendingRequests.delete(message.id)
 				if (message.error) {
 					pending.reject(new Error(`MCP error ${message.error.code}: ${message.error.message}`))
 				} else {

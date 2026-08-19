@@ -452,8 +452,10 @@ export function mcpToolToToolDefinition(
 		isConcurrencySafe: () => true,
 		provenance: { server: serverName, readOnlyHintTrusted },
 
-		async execute(input: unknown, _context: ToolContext): Promise<ToolResult> {
-			const result = await client.callTool(tool.name, input as Record<string, unknown>)
+		async execute(input: unknown, context: ToolContext): Promise<ToolResult> {
+			const result = await client.callTool(tool.name, input as Record<string, unknown>, {
+				signal: context.abortSignal,
+			})
 			return frameServerResult(mcpToolResultToToolResult(result), serverName, tool.name)
 		},
 	}

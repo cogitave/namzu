@@ -2,9 +2,13 @@ import type {
 	MCPHttpSseTransportConfig,
 	MCPJsonRpcMessage,
 	MCPTransport,
+	MCPTransportSendOptions,
 } from '../../types/connector/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
+import { ConnectorHttpOperation, validateConnectorTimeoutMs } from '../http-operation.js'
+
+const DEFAULT_TIMEOUT_MS = 30_000
 
 /**
  * Trim trailing slashes without a regex.
@@ -27,9 +31,12 @@ export class HttpSseTransport implements MCPTransport {
 	private errorHandlers: Array<(error: Error) => void> = []
 	private connected = false
 	private abortController: AbortController | null = null
+	private generation = 0
+	private activeSends = new Set<AbortController>()
 	private sseUrl: string
 	private postUrl: string
 	private log: Logger
+	private readonly timeoutMs: number
 
 	constructor(
 		private readonly config: MCPHttpSseTransportConfig,
@@ -38,6 +45,10 @@ export class HttpSseTransport implements MCPTransport {
 		const base = stripTrailingSlashes(config.url)
 		this.sseUrl = `${base}/sse`
 		this.postUrl = `${base}/message`
+		this.timeoutMs = validateConnectorTimeoutMs(
+			config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+			'HttpSseTransport timeoutMs',
+		)
 		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'connector/mcp/http-sse' })
 	}
 
@@ -45,13 +56,18 @@ export class HttpSseTransport implements MCPTransport {
 		if (this.connected) return
 
 		this.abortController = new AbortController()
-		await this.startSSE()
+		const generation = ++this.generation
 		this.connected = true
+		await this.startSSE(generation, this.abortController.signal)
 		this.log.info('HttpSseTransport connected', { 'namzu.mcp.url': this.config.url })
 	}
 
 	async close(): Promise<void> {
 		this.connected = false
+		this.generation++
+		const reason = new Error('HttpSseTransport closed')
+		for (const controller of this.activeSends) controller.abort(reason)
+		this.activeSends.clear()
 		this.abortController?.abort()
 		this.abortController = null
 		for (const handler of this.closeHandlers) handler()
@@ -74,24 +90,30 @@ export class HttpSseTransport implements MCPTransport {
 		this.errorHandlers = []
 	}
 
-	async send(message: MCPJsonRpcMessage): Promise<void> {
+	async send(message: MCPJsonRpcMessage, options?: MCPTransportSendOptions): Promise<void> {
 		if (!this.connected) {
 			throw new Error('HttpSseTransport: not connected')
 		}
 
-		const controller = new AbortController()
-		const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs ?? 30_000)
+		const owned = this.beginSend(options?.signal)
+		const operation = new ConnectorHttpOperation(
+			owned.controller.signal,
+			this.timeoutMs,
+			'HTTP-SSE MCP send',
+		)
 
 		try {
-			const response = await fetch(this.postUrl, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					...this.config.headers,
-				},
-				body: JSON.stringify(message),
-				signal: controller.signal,
-			})
+			const response = await operation.run(() =>
+				fetch(this.postUrl, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						...this.config.headers,
+					},
+					body: JSON.stringify(message),
+					signal: operation.signal,
+				}),
+			)
 
 			if (!response.ok) {
 				throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -99,11 +121,16 @@ export class HttpSseTransport implements MCPTransport {
 
 			const contentType = response.headers.get('content-type') ?? ''
 			if (contentType.includes('application/json')) {
-				const body = (await response.json()) as MCPJsonRpcMessage
-				for (const handler of this.messageHandlers) handler(body)
+				const body = (await operation.run(() => response.json())) as MCPJsonRpcMessage
+				this.assertCurrent(owned.generation, operation)
+				for (const handler of [...this.messageHandlers]) {
+					this.assertCurrent(owned.generation, operation)
+					handler(body)
+				}
 			}
 		} finally {
-			clearTimeout(timeout)
+			operation.close()
+			owned.dispose()
 		}
 	}
 
@@ -123,9 +150,45 @@ export class HttpSseTransport implements MCPTransport {
 		return this.connected
 	}
 
-	private async startSSE(): Promise<void> {
-		this.listenSSE().catch((err) => {
-			if (this.connected) {
+	private beginSend(signal: AbortSignal | undefined): {
+		readonly controller: AbortController
+		readonly generation: number
+		dispose(): void
+	} {
+		signal?.throwIfAborted()
+		const controller = new AbortController()
+		const onAbort = (): void => controller.abort(signal?.reason)
+		signal?.addEventListener('abort', onAbort, { once: true })
+		if (signal?.aborted) onAbort()
+		if (controller.signal.aborted) {
+			signal?.removeEventListener('abort', onAbort)
+			controller.signal.throwIfAborted()
+		}
+		this.activeSends.add(controller)
+		return {
+			controller,
+			generation: this.generation,
+			dispose: () => {
+				signal?.removeEventListener('abort', onAbort)
+				this.activeSends.delete(controller)
+			},
+		}
+	}
+
+	private assertCurrent(generation: number, operation: ConnectorHttpOperation): void {
+		operation.throwIfStopped()
+		if (!this.connected || generation !== this.generation) {
+			throw new Error('HTTP-SSE MCP response belongs to a closed connection generation')
+		}
+	}
+
+	private isCurrent(generation: number): boolean {
+		return this.connected && generation === this.generation
+	}
+
+	private async startSSE(generation: number, signal: AbortSignal): Promise<void> {
+		this.listenSSE(generation, signal).catch((err) => {
+			if (this.connected && generation === this.generation) {
 				this.log.error('SSE stream error', { 'exception.message': String(err) })
 				for (const handler of this.errorHandlers)
 					handler(err instanceof Error ? err : new Error(String(err)))
@@ -133,13 +196,13 @@ export class HttpSseTransport implements MCPTransport {
 		})
 	}
 
-	private async listenSSE(): Promise<void> {
+	private async listenSSE(generation: number, signal: AbortSignal): Promise<void> {
 		const response = await fetch(this.sseUrl, {
 			headers: {
 				Accept: 'text/event-stream',
 				...this.config.headers,
 			},
-			signal: this.abortController?.signal,
+			signal,
 		})
 
 		if (!response.ok || !response.body) {
@@ -150,21 +213,26 @@ export class HttpSseTransport implements MCPTransport {
 		const decoder = new TextDecoder()
 		let buffer = ''
 
-		while (this.connected) {
+		while (this.isCurrent(generation)) {
 			const { done, value } = await reader.read()
 			if (done) break
+			if (!this.isCurrent(generation)) break
 
 			buffer += decoder.decode(value, { stream: true })
 			const events = buffer.split('\n\n')
 			buffer = events.pop() ?? ''
 
 			for (const event of events) {
+				if (!this.isCurrent(generation)) return
 				const dataLine = event.split('\n').find((line) => line.startsWith('data: '))
 				if (!dataLine) continue
 				const data = dataLine.slice(6)
 				try {
 					const message = JSON.parse(data) as MCPJsonRpcMessage
-					for (const handler of this.messageHandlers) handler(message)
+					for (const handler of [...this.messageHandlers]) {
+						if (!this.isCurrent(generation)) return
+						handler(message)
+					}
 				} catch {
 					this.log.warn('HttpSseTransport: invalid SSE data', {
 						'namzu.mcp.data_head': data.slice(0, 100),

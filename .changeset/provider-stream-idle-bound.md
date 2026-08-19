@@ -113,3 +113,23 @@ a second argument. IPv4-mapped IPv6 literals are canonicalized back to their
 IPv4 address before range checks, closing the hexadecimal mapped loopback and
 link-local bypass; the full IPv6 link-local and multicast ranges are also
 refused.
+
+MCP request methods now accept optional cancellation authority, and generated
+MCP tool and prompt adapters forward the run-owned tool signal. A pre-aborted
+request starts no transport work; a pending request preserves the caller's
+exact cause, aborts a private transport, removes its correlated pending id, and
+makes a one-second best-effort `notifications/cancelled` attempt. The
+notification does not prove that an already-started remote side effect stopped.
+Paged list calls recheck the same signal before each page.
+
+`MCPClient.requestTimeoutMs` and HTTP MCP transport `timeoutMs` values must now
+be positive platform-range integers. A shorter transport deadline remains a
+request-timeout terminal and emits the same correlated cancellation. HTTP
+fetches and response-body reads share operation authority; disconnect owns
+active requests and cancellation cleanup. Reconnects fence late POST responses
+and SSE batches from prior generations, clear Streamable session state, and
+accept session ids only from successful `initialize` responses. Per-send
+failure no longer marks a Streamable client connection-wide errored or rejects
+unrelated concurrent calls. `MCPTransport.send` now accepts optional
+`MCPTransportSendOptions`; custom transports should refuse pre-aborted work and
+stop their per-send I/O when its signal fires.
