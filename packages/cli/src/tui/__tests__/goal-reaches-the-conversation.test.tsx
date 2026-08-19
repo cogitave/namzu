@@ -142,11 +142,16 @@ it('writes /goal to the active Session and admits automatic work only there', as
 	)
 	await until(() => sends === 1, 'the armed goal never admitted its automatic turn')
 	const reopened = await openSessions(root)
-	expect(await reopened.goals.getGoal(source, reopened.tenantId)).toMatchObject({
-		sessionId: source,
-		objective: 'finish the durable release',
-		phase: 'complete',
-	})
+	await vi.waitFor(
+		async () => {
+			expect(await reopened.goals.getGoal(source, reopened.tenantId)).toMatchObject({
+				sessionId: source,
+				objective: 'finish the durable release',
+				phase: 'complete',
+			})
+		},
+		{ timeout: 4_000 },
+	)
 	expect(sends).toBe(1)
 
 	await submit(harness, '/new')
