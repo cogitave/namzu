@@ -7,6 +7,7 @@ import type {
 	ConnectorExecuteResult,
 	ConnectorInstance,
 	ConnectorLifecycleEvent,
+	ConnectorOperationOptions,
 	ConnectorStatus,
 } from '../../types/connector/index.js'
 import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
@@ -26,6 +27,57 @@ export interface ConnectorManagerConfig {
 	 * same as before this field existed.
 	 */
 	log?: Logger
+}
+
+type Settled<T> = { kind: 'fulfilled'; value: T } | { kind: 'rejected'; reason: unknown }
+
+async function settleWithSignal<T>(
+	operation: Promise<T>,
+	signal: AbortSignal | undefined,
+	acceptAfterAbort?: (value: T) => boolean,
+): Promise<T> {
+	if (!signal) return operation
+	const settled: Promise<Settled<T>> = operation.then(
+		(value) => ({ kind: 'fulfilled', value }),
+		(reason) => ({ kind: 'rejected', reason }),
+	)
+	let onAbort: (() => void) | undefined
+	const aborted = new Promise<{ kind: 'aborted' }>((resolve) => {
+		onAbort = () => resolve({ kind: 'aborted' })
+		if (signal.aborted) {
+			onAbort()
+			return
+		}
+		signal.addEventListener('abort', onAbort, { once: true })
+	})
+
+	try {
+		const winner = await Promise.race([settled, aborted])
+		if (winner.kind !== 'aborted') {
+			if (winner.kind === 'rejected') throw winner.reason
+			if (signal.aborted && !acceptAfterAbort?.(winner.value)) throw signal.reason
+			return winner.value
+		}
+
+		// A cooperative connector can preserve richer phase information (for
+		// example response headers received but body unavailable). Give its abort
+		// continuation one event-loop turn before abandoning an uncooperative
+		// custom connector with the caller's reason.
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const grace = await Promise.race([
+			settled,
+			new Promise<{ kind: 'grace_elapsed' }>((resolve) => {
+				timer = setTimeout(() => resolve({ kind: 'grace_elapsed' }), 0)
+			}),
+		]).finally(() => {
+			if (timer !== undefined) clearTimeout(timer)
+		})
+		if (grace.kind === 'fulfilled' && acceptAfterAbort?.(grace.value)) return grace.value
+		if (grace.kind === 'rejected') throw grace.reason
+		throw signal.reason
+	} finally {
+		if (onAbort) signal.removeEventListener('abort', onAbort)
+	}
 }
 
 export class ConnectorManager {
@@ -128,10 +180,14 @@ export class ConnectorManager {
 		}
 	}
 
-	async healthCheck(instanceId: ConnectorInstanceId): Promise<boolean> {
+	async healthCheck(
+		instanceId: ConnectorInstanceId,
+		options?: ConnectorOperationOptions,
+	): Promise<boolean> {
 		const connector = this.getConnectorOrThrow(instanceId)
+		if (options?.signal?.aborted) return false
 		try {
-			return await connector.healthCheck()
+			return await settleWithSignal(connector.healthCheck(options), options?.signal)
 		} catch {
 			return false
 		}
@@ -140,6 +196,15 @@ export class ConnectorManager {
 	async execute(params: ConnectorExecuteParams): Promise<ConnectorExecuteResult> {
 		const instance = this.getInstanceOrThrow(params.instanceId)
 		const connector = this.getConnectorOrThrow(params.instanceId)
+		if (params.signal?.aborted) {
+			return {
+				success: false,
+				output: null,
+				error: `Connector execution was cancelled before it started: ${toErrorMessage(params.signal.reason)}. No remote request was started; retry is safe.`,
+				durationMs: 0,
+				metadata: { remoteOutcome: 'not_started', retrySafety: 'safe' },
+			}
+		}
 
 		if (instance.status !== 'connected') {
 			return {
@@ -153,7 +218,13 @@ export class ConnectorManager {
 		this.emit({ type: 'action_executing', instanceId: params.instanceId, method: params.method })
 		const start = performance.now()
 		try {
-			const result = await connector.execute(params.method, params.input)
+			const result = await settleWithSignal(
+				connector.execute(params.method, params.input, { signal: params.signal }),
+				params.signal,
+				(result) =>
+					result.metadata?.remoteOutcome === 'response_received' ||
+					(!result.success && result.metadata?.remoteOutcome !== undefined),
+			)
 			instance.lastUsedAt = Date.now()
 			this.emit({
 				type: 'action_completed',
@@ -176,8 +247,13 @@ export class ConnectorManager {
 			return {
 				success: false,
 				output: null,
-				error: `Execution failed: ${message}`,
+				error: params.signal?.aborted
+					? `Connector execution was interrupted: ${message}. The remote outcome is unknown; do not automatically retry.`
+					: `Execution failed: ${message}`,
 				durationMs,
+				...(params.signal?.aborted
+					? { metadata: { remoteOutcome: 'unknown' as const, retrySafety: 'unknown' as const } }
+					: {}),
 			}
 		}
 	}

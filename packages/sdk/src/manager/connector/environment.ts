@@ -10,6 +10,7 @@ import type {
 	ConnectorExecuteResult,
 	ConnectorInstance,
 	ConnectorLifecycleEvent,
+	ConnectorOperationOptions,
 	CredentialVault,
 	EnvironmentDescriptor,
 	ExecutionContextConfig,
@@ -205,9 +206,10 @@ export class EnvironmentConnectorManager {
 	async healthCheck(
 		envId: EnvironmentId,
 		instanceId: import('../../types/ids/index.js').ConnectorInstanceId,
+		options?: ConnectorOperationOptions,
 	): Promise<boolean> {
 		const state = this.getEnvironmentOrThrow(envId)
-		return state.manager.healthCheck(instanceId)
+		return state.manager.healthCheck(instanceId, options)
 	}
 
 	listInstances(envId: EnvironmentId): ConnectorInstance[] {

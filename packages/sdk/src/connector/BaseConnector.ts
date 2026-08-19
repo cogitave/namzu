@@ -7,6 +7,7 @@ import type {
 	ConnectorExecuteResult,
 	ConnectorLifecycle,
 	ConnectorMethod,
+	ConnectorOperationOptions,
 } from '../types/connector/index.js'
 import type { ConnectorId } from '../types/ids/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
@@ -33,8 +34,12 @@ export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifec
 
 	abstract connect(config: TConfig, auth?: AuthConfig): Promise<void>
 	abstract disconnect(): Promise<void>
-	abstract healthCheck(): Promise<boolean>
-	abstract execute(method: string, input: unknown): Promise<ConnectorExecuteResult>
+	abstract healthCheck(options?: ConnectorOperationOptions): Promise<boolean>
+	abstract execute(
+		method: string,
+		input: unknown,
+		options?: ConnectorOperationOptions,
+	): Promise<ConnectorExecuteResult>
 
 	toDefinition(): ConnectorDefinition<TConfig> {
 		return {

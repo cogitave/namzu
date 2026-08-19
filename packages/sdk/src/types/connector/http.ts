@@ -1,9 +1,12 @@
+import type { ConnectorRemoteOutcome, ConnectorRetrySafety } from './definition.js'
+
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
 
 export interface HttpConnectorConfig {
 	baseUrl: string
 	defaultHeaders?: Record<string, string>
 	timeoutMs?: number
+	maxResponseBytes?: number
 }
 
 export interface HttpRequestInput {
@@ -19,4 +22,8 @@ export interface HttpResponseOutput {
 	statusText: string
 	headers: Record<string, string>
 	body: unknown
+	bodyAvailable?: boolean
+	bodyError?: string
+	remoteOutcome?: ConnectorRemoteOutcome
+	retrySafety?: ConnectorRetrySafety
 }

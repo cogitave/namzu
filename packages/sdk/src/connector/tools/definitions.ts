@@ -3,6 +3,7 @@ import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
 import { defineTool } from '../../tools/defineTool.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { parseConnectorInstanceId } from '../../utils/id.js'
+import { connectorToolError } from './result.js'
 
 export interface ConnectorToolConfig {
 	manager: ConnectorManager
@@ -28,7 +29,7 @@ export function createConnectorExecuteTool(config: ConnectorToolConfig): ToolDef
 		destructive: false,
 		concurrencySafe: true,
 
-		async execute(input) {
+		async execute(input, context) {
 			const instanceId = parseConnectorInstanceId(String(input.instance_id))
 			const instance = config.manager.getInstance(instanceId)
 
@@ -52,13 +53,15 @@ export function createConnectorExecuteTool(config: ConnectorToolConfig): ToolDef
 				instanceId,
 				method: input.method,
 				input: input.input,
+				signal: context.abortSignal,
 			})
 
 			if (!result.success) {
 				return {
 					success: false,
 					output: '',
-					error: result.error ?? 'Connector execution failed',
+					error: connectorToolError(result),
+					data: { output: result.output, metadata: result.metadata },
 				}
 			}
 

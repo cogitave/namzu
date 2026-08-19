@@ -76,3 +76,25 @@ id, and transport or protocol failures after it is known make the same bounded
 cleanup attempt before the original failure is returned. An `input-required`
 task is also bounded-cancelled before the delegate reports that it cannot
 supply the requested input.
+
+Connector execution now carries optional operation authority through the
+manager, every connector-tool adapter, real query runs, tenant/environment
+facades, health checks, and `MCPConnectorBridge.callTool`. Custom connectors
+receive the signal; if they ignore it, the manager settles with an honest
+unknown remote outcome and rejects a late success that does not identify a
+received response. A tenant call cancelled before admission no longer spends a
+rate-limit slot.
+
+`HttpConnector` and `WebhookConnector` now apply one validated 30-second
+fetch-and-body deadline and a streaming 2 MiB response limit by default. Set
+positive `timeoutMs` and `maxResponseBytes` values to choose different bounds.
+Cancellation, deadline, or response-size failure aborts only the private
+transport/body reader and preserves the caller's exact cause. Result metadata
+distinguishes `not_started`, `unknown`, and `response_received`, includes retry
+safety, and keeps a received status visible when its body is unavailable.
+
+Dynamic HTTP paths and webhook URL overrides must remain on the configured
+origin. Model-authored routing headers are refused, redirects are not followed,
+and 3xx responses are no longer reported as success. Configure a separate
+connector instance for each authorized origin; callers that previously used a
+cross-origin webhook override must migrate to that instance.

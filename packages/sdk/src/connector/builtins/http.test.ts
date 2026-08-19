@@ -23,7 +23,8 @@
  *       was passed.
  *     - Parses response JSON when `content-type: application/json`,
  *       else text.
- *     - `success: true` iff status in [200, 400). Metadata includes
+ *     - `success: true` iff status in [200, 300). Manual redirects are
+ *       returned as incomplete rather than followed across the configured origin. Metadata includes
  *       status + statusText.
  */
 
@@ -57,10 +58,39 @@ describe('HttpConnector', () => {
 	})
 
 	afterEach(() => {
+		vi.useRealTimers()
 		vi.restoreAllMocks()
 	})
 
 	describe('connect + disconnect', () => {
+		it.each([0, -1, 1.5, 2_147_483_648, Number.POSITIVE_INFINITY])(
+			'refuses invalid timeout %s at connect',
+			async (timeoutMs) => {
+				const c = new HttpConnector()
+				await expect(c.connect({ baseUrl: 'https://api.example.com', timeoutMs })).rejects.toThrow(
+					/timeoutMs/,
+				)
+			},
+		)
+
+		it.each([0, -1, 1.5, 2_147_483_648, Number.POSITIVE_INFINITY])(
+			'refuses invalid response byte limit %s at connect',
+			async (maxResponseBytes) => {
+				const c = new HttpConnector()
+				await expect(
+					c.connect({ baseUrl: 'https://api.example.com', maxResponseBytes }),
+				).rejects.toThrow(/maxResponseBytes/)
+			},
+		)
+
+		it.each(['file:///tmp/x', 'ftp://api.example.com/x'])(
+			'refuses non-HTTP base URL %s',
+			async (baseUrl) => {
+				const c = new HttpConnector()
+				await expect(c.connect({ baseUrl })).rejects.toThrow(/http/)
+			},
+		)
+
 		it('strips trailing slashes from baseUrl', async () => {
 			const c = new HttpConnector()
 			await c.connect({ baseUrl: 'https://api.example.com//', timeoutMs: 30_000 })
@@ -92,6 +122,26 @@ describe('HttpConnector', () => {
 	})
 
 	describe('auth resolution', () => {
+		it.each(['Host', 'hOsT', 'Proxy-Authorization', 'proxy-connection'])(
+			'refuses model-authored routing header %s before attaching configured auth',
+			async (header) => {
+				const c = new HttpConnector()
+				await c.connect(
+					{ baseUrl: 'https://api.example.com' },
+					{ type: 'bearer', credentials: { token: 'must-not-leave' } },
+				)
+
+				await expect(
+					c.execute('request', {
+						method: 'GET',
+						path: '/resource',
+						headers: { [header]: 'evil.internal' },
+					}),
+				).rejects.toThrow(/cannot set routing header/)
+				expect(fetchMock).not.toHaveBeenCalled()
+			},
+		)
+
 		it('api_key default header name = X-API-Key', async () => {
 			const c = new HttpConnector()
 			await c.connect(
@@ -236,16 +286,275 @@ describe('HttpConnector', () => {
 			const c = new HttpConnector()
 			expect(await c.healthCheck()).toBe(false)
 		})
+
+		it('settles and aborts a non-cooperative health transport when the caller stops', async () => {
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com' })
+			let transportSignal: AbortSignal | undefined
+			fetchMock.mockImplementationOnce(
+				(_url, init: RequestInit) =>
+					new Promise(() => {
+						transportSignal = init.signal as AbortSignal
+					}),
+			)
+			const caller = new AbortController()
+			const pending = c.healthCheck({ signal: caller.signal })
+			const reason = new Error('health cancelled')
+			caller.abort(reason)
+
+			expect(await pending).toBe(false)
+			expect(transportSignal).not.toBe(caller.signal)
+			expect(transportSignal?.aborted).toBe(true)
+			expect(transportSignal?.reason).toBe(reason)
+		})
 	})
 
 	describe('execute', () => {
-		it('returns success:true for 2xx + 3xx responses', async () => {
+		it.each(['https://outside.example/path', '//outside.example/path', '\\\\outside.example/path'])(
+			'refuses cross-origin path %s before attaching credentials or fetching',
+			async (path) => {
+				const c = new HttpConnector()
+				await c.connect(
+					{ baseUrl: 'https://api.example.com' },
+					{ type: 'bearer', credentials: { token: 'secret' } },
+				)
+
+				await expect(c.execute('request', { method: 'GET', path })).rejects.toThrow(
+					/configured connector origin/,
+				)
+				expect(fetchMock).not.toHaveBeenCalled()
+			},
+		)
+
+		it('allows a same-origin absolute path and disables automatic redirects', async () => {
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com/base' })
+			fetchMock.mockResolvedValueOnce(makeResponse({ status: 302, body: '' }))
+
+			await c.execute('request', {
+				method: 'GET',
+				path: 'https://api.example.com/other',
+			})
+
+			expect(fetchMock).toHaveBeenCalledWith(
+				'https://api.example.com/other',
+				expect.objectContaining({ redirect: 'manual' }),
+			)
+		})
+
+		it('a pre-aborted operation starts no fetch and reports a safe retry', async () => {
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com' })
+			const reason = new Error('stopped before request')
+			const signal = AbortSignal.abort(reason)
+
+			const result = await c.execute('request', { method: 'POST', path: 'thing' }, { signal })
+
+			expect(fetchMock).not.toHaveBeenCalled()
+			expect(result.success).toBe(false)
+			expect(result.metadata).toMatchObject({
+				remoteOutcome: 'not_started',
+				retrySafety: 'safe',
+			})
+		})
+
+		it('bounds a fetch that ignores its signal and reports an unsafe unknown POST outcome', async () => {
+			vi.useFakeTimers()
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com', timeoutMs: 5 })
+			let transportSignal: AbortSignal | undefined
+			fetchMock.mockImplementationOnce(
+				(_url, init: RequestInit) =>
+					new Promise((resolve) => {
+						transportSignal = init.signal as AbortSignal
+						setTimeout(
+							() => resolve(makeResponse({ status: 200, body: { arrived: 'too late' } })),
+							50,
+						)
+					}),
+			)
+
+			const pending = c.execute('request', { method: 'POST', path: 'thing', body: { a: 1 } })
+			await vi.advanceTimersByTimeAsync(50)
+			const result = await pending
+
+			expect(result.metadata).toMatchObject({
+				remoteOutcome: 'unknown',
+				retrySafety: 'unsafe',
+				bodyAvailable: false,
+			})
+			expect(result.error).toMatch(/do not automatically retry/i)
+			expect(transportSignal?.aborted).toBe(true)
+			expect(transportSignal?.reason).toMatchObject({ name: 'TimeoutError' })
+		})
+
+		it('keeps a received 202 when its body never settles and marks retry unsafe', async () => {
+			vi.useFakeTimers()
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com', timeoutMs: 5 })
+			fetchMock.mockResolvedValueOnce({
+				...makeResponse({ status: 202, statusText: 'Accepted' }),
+				json: () =>
+					new Promise((resolve) => {
+						setTimeout(() => resolve({ arrived: 'too late' }), 50)
+					}),
+			})
+
+			const pending = c.execute('request', { method: 'POST', path: 'jobs', body: { a: 1 } })
+			await vi.advanceTimersByTimeAsync(50)
+			const result = await pending
+			const output = result.output as Record<string, unknown>
+
+			expect(result.success).toBe(true)
+			expect(output).toMatchObject({
+				status: 202,
+				bodyAvailable: false,
+				remoteOutcome: 'response_received',
+				retrySafety: 'unsafe',
+			})
+			expect(result.metadata).toMatchObject({
+				status: 202,
+				bodyAvailable: false,
+				remoteOutcome: 'response_received',
+				retrySafety: 'unsafe',
+			})
+		})
+
+		it('shares one deadline between response headers and the body', async () => {
+			vi.useFakeTimers()
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com', timeoutMs: 5 })
+			fetchMock.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						setTimeout(
+							() =>
+								resolve({
+									...makeResponse({ status: 200 }),
+									json: () =>
+										new Promise((resolveBody) => {
+											setTimeout(() => resolveBody({ arrived: 'after total deadline' }), 4)
+										}),
+								}),
+							4,
+						)
+					}),
+			)
+
+			const pending = c.execute('request', { method: 'GET', path: 'slow-parts' })
+			await vi.advanceTimersByTimeAsync(8)
+			const result = await pending
+
+			expect(result.metadata).toMatchObject({
+				remoteOutcome: 'response_received',
+				bodyAvailable: false,
+			})
+			expect(result.output).toMatchObject({ body: null, bodyAvailable: false })
+		})
+
+		it('cancels a chunked body above its byte limit without losing the received response', async () => {
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com', maxResponseBytes: 5 })
+			let transportSignal: AbortSignal | undefined
+			let streamCancelReason: unknown
+			fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+				transportSignal = init.signal as AbortSignal
+				return Promise.resolve(
+					new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode('1234'))
+								controller.enqueue(new TextEncoder().encode('5678'))
+								setTimeout(() => {
+									try {
+										controller.close()
+									} catch {
+										// The bounded reader already cancelled the source.
+									}
+								}, 25)
+							},
+							cancel(reason) {
+								streamCancelReason = reason
+							},
+						}),
+						{
+							status: 200,
+							headers: { 'content-type': 'text/plain', 'content-length': '1' },
+						},
+					),
+				)
+			})
+
+			const result = await c.execute('request', { method: 'GET', path: 'chunked' })
+			const output = result.output as Record<string, unknown>
+
+			expect(result.success).toBe(true)
+			expect(result.metadata).toMatchObject({
+				remoteOutcome: 'response_received',
+				retrySafety: 'safe',
+				bodyAvailable: false,
+			})
+			expect(output.bodyError).toMatch(/5-byte limit/)
+			expect(streamCancelReason).toMatchObject({ name: 'ResponseSizeError' })
+			expect(transportSignal?.aborted).toBe(true)
+			expect(transportSignal?.reason).toMatchObject({ name: 'ResponseSizeError' })
+		})
+
+		it('accepts a response body exactly at the configured byte limit', async () => {
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com', maxResponseBytes: 5 })
+			let transportSignal: AbortSignal | undefined
+			fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+				transportSignal = init.signal as AbortSignal
+				return Promise.resolve(
+					new Response('12345', {
+						status: 200,
+						headers: { 'content-type': 'text/plain' },
+					}),
+				)
+			})
+
+			const result = await c.execute('request', { method: 'GET', path: 'exact-limit' })
+
+			expect(result.metadata).toMatchObject({ bodyAvailable: true })
+			expect(result.output).toMatchObject({ body: '12345', bodyAvailable: true })
+			expect(transportSignal?.aborted).toBe(false)
+		})
+
+		it('returns success:true for a 2xx response', async () => {
 			const c = new HttpConnector()
 			await c.connect({ baseUrl: 'https://api.example.com' })
 			fetchMock.mockResolvedValueOnce(makeResponse({ status: 200, body: { ok: 1 } }))
 			const result = await c.execute('request', { method: 'GET', path: 'thing' })
 			expect(result.success).toBe(true)
 			expect(result.output).toMatchObject({ status: 200 })
+		})
+
+		it('reports a manual redirect as incomplete instead of claiming success', async () => {
+			const c = new HttpConnector()
+			await c.connect({ baseUrl: 'https://api.example.com' })
+			fetchMock.mockResolvedValueOnce(
+				makeResponse({
+					status: 302,
+					statusText: 'Found',
+					headers: {
+						'content-type': 'text/plain',
+						location: 'https://outside.example/next',
+					},
+					body: '',
+				}),
+			)
+
+			const result = await c.execute('request', { method: 'GET', path: 'redirect' })
+
+			expect(result.success).toBe(false)
+			expect(result.metadata).toMatchObject({
+				remoteOutcome: 'response_received',
+				retrySafety: 'safe',
+				status: 302,
+			})
+			expect(result.error).toMatch(/redirect was not followed/i)
+			expect(result.error).toContain('https://outside.example/next')
 		})
 
 		it('returns success:false for 4xx / 5xx responses', async () => {

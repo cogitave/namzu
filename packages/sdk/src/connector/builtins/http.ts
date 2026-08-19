@@ -3,18 +3,49 @@ import type {
 	AuthConfig,
 	ConnectionType,
 	ConnectorExecuteResult,
+	ConnectorExecutionMetadata,
 	ConnectorMethod,
+	ConnectorOperationOptions,
 	HttpConnectorConfig,
+	HttpMethod,
 	HttpRequestInput,
 	HttpResponseOutput,
 } from '../../types/connector/index.js'
 import { asConnectorId } from '../../utils/id.js'
 import { BaseConnector } from '../BaseConnector.js'
+import {
+	CONNECTOR_HEALTH_TIMEOUT_MS,
+	ConnectorHttpOperation,
+	DEFAULT_CONNECTOR_MAX_RESPONSE_BYTES,
+	DEFAULT_CONNECTOR_REQUEST_TIMEOUT_MS,
+	readConnectorResponseBody,
+	requireHttpUrl,
+	requireSafeConnectorInputHeaders,
+	requireSameOrigin,
+	validateConnectorMaxResponseBytes,
+	validateConnectorTimeoutMs,
+} from '../http-operation.js'
 
 const HttpConnectorConfigSchema = z.object({
-	baseUrl: z.string().url(),
+	baseUrl: z
+		.string()
+		.url()
+		.refine((value) => /^https?:/i.test(value), 'baseUrl must use http: or https:'),
 	defaultHeaders: z.record(z.string()).optional(),
-	timeoutMs: z.number().positive().optional().default(30_000),
+	maxResponseBytes: z
+		.number()
+		.int()
+		.positive()
+		.max(2_147_483_647)
+		.optional()
+		.default(DEFAULT_CONNECTOR_MAX_RESPONSE_BYTES),
+	timeoutMs: z
+		.number()
+		.int()
+		.positive()
+		.max(2_147_483_647)
+		.optional()
+		.default(DEFAULT_CONNECTOR_REQUEST_TIMEOUT_MS),
 })
 
 const HttpRequestInputSchema = z.object({
@@ -63,15 +94,25 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 	]
 
 	private baseUrl = ''
+	private baseOrigin = ''
 	private defaultHeaders: Record<string, string> = {}
-	private timeoutMs = 30_000
+	private timeoutMs = DEFAULT_CONNECTOR_REQUEST_TIMEOUT_MS
+	private maxResponseBytes = DEFAULT_CONNECTOR_MAX_RESPONSE_BYTES
 
 	async connect(config: HttpConnectorConfig, auth?: AuthConfig): Promise<void> {
-		this.config = config
+		const validated = HttpConnectorConfigSchema.parse(config)
+		const baseUrl = stripTrailingSlashes(validated.baseUrl)
+		const parsedBase = requireHttpUrl(baseUrl, 'HttpConnector baseUrl')
+		this.config = validated
 		this.auth = auth
-		this.baseUrl = stripTrailingSlashes(config.baseUrl)
-		this.defaultHeaders = config.defaultHeaders ?? {}
-		this.timeoutMs = config.timeoutMs ?? 30_000
+		this.baseUrl = baseUrl
+		this.baseOrigin = parsedBase.origin
+		this.defaultHeaders = { ...(validated.defaultHeaders ?? {}) }
+		this.timeoutMs = validateConnectorTimeoutMs(validated.timeoutMs, 'HttpConnector timeoutMs')
+		this.maxResponseBytes = validateConnectorMaxResponseBytes(
+			validated.maxResponseBytes,
+			'HttpConnector maxResponseBytes',
+		)
 
 		if (auth) {
 			Object.assign(this.defaultHeaders, this.resolveAuthHeaders(auth))
@@ -84,45 +125,57 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 		this.config = null
 		this.auth = undefined
 		this.baseUrl = ''
+		this.baseOrigin = ''
 		this.defaultHeaders = {}
 		this.log.info('HTTP connector disconnected')
 	}
 
-	async healthCheck(): Promise<boolean> {
+	async healthCheck(options?: ConnectorOperationOptions): Promise<boolean> {
 		if (!this.baseUrl) return false
+		let operation: ConnectorHttpOperation | undefined
 		try {
-			const controller = new AbortController()
-			const timeout = setTimeout(() => controller.abort(), 5_000)
-			const response = await fetch(this.baseUrl, {
-				method: 'HEAD',
-				signal: controller.signal,
-			})
-			clearTimeout(timeout)
+			operation = new ConnectorHttpOperation(
+				options?.signal,
+				CONNECTOR_HEALTH_TIMEOUT_MS,
+				'HTTP connector health check',
+			)
+			const response = await operation.wait(
+				fetch(this.baseUrl, {
+					method: 'HEAD',
+					redirect: 'manual',
+					signal: operation.signal,
+				}),
+			)
 			return response.ok || response.status < 500
 		} catch {
 			return false
+		} finally {
+			operation?.close()
 		}
 	}
 
-	async execute(method: string, input: unknown): Promise<ConnectorExecuteResult> {
+	async execute(
+		method: string,
+		input: unknown,
+		options?: ConnectorOperationOptions,
+	): Promise<ConnectorExecuteResult> {
 		this.requireMethod(method)
 		const validated = this.validateInput(this.requireMethod(method), input) as HttpRequestInput
-
-		const { result, durationMs } = await this.measureExecution(() => this.doRequest(validated))
-
-		return {
-			success: result.status >= 200 && result.status < 400,
-			output: result,
-			durationMs,
-			metadata: {
-				status: result.status,
-				statusText: result.statusText,
-			},
+		const startedAt = performance.now()
+		if (options?.signal?.aborted) {
+			return this.notStarted(validated.method, options.signal.reason, startedAt)
 		}
+		return this.doRequest(validated, options, startedAt)
 	}
 
-	private async doRequest(input: HttpRequestInput): Promise<HttpResponseOutput> {
+	private async doRequest(
+		input: HttpRequestInput,
+		options: ConnectorOperationOptions | undefined,
+		startedAt: number,
+	): Promise<ConnectorExecuteResult> {
 		const url = new URL(input.path, `${this.baseUrl}/`)
+		requireSameOrigin(url.toString(), this.baseOrigin, 'HttpConnector request URL')
+		requireSafeConnectorInputHeaders(input.headers, 'HttpConnector request headers')
 		if (input.query) {
 			for (const [key, value] of Object.entries(input.query)) {
 				url.searchParams.set(key, value)
@@ -134,43 +187,159 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 			...input.headers,
 		}
 
-		if (input.body && !headers['content-type'] && !headers['Content-Type']) {
+		if (input.body !== undefined && !headers['content-type'] && !headers['Content-Type']) {
 			headers['Content-Type'] = 'application/json'
 		}
 
-		const controller = new AbortController()
-		const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
+		let operation: ConnectorHttpOperation | undefined
 
 		try {
-			const response = await fetch(url.toString(), {
-				method: input.method,
-				headers,
-				body: input.body !== undefined ? JSON.stringify(input.body) : undefined,
-				signal: controller.signal,
-			})
+			try {
+				operation = new ConnectorHttpOperation(
+					options?.signal,
+					this.timeoutMs,
+					`HTTP connector ${input.method}`,
+				)
+			} catch (error) {
+				return this.notStarted(input.method, error, startedAt)
+			}
+			let response: Response
+			try {
+				response = await operation.wait(
+					fetch(url.toString(), {
+						method: input.method,
+						headers,
+						body: input.body !== undefined ? JSON.stringify(input.body) : undefined,
+						redirect: 'manual',
+						signal: operation.signal,
+					}),
+				)
+			} catch (error) {
+				return this.unknownOutcome(input.method, error, startedAt)
+			}
 
 			const responseHeaders: Record<string, string> = {}
 			response.headers.forEach((value, key) => {
 				responseHeaders[key] = value
 			})
 
+			const retrySafety = this.retrySafety(input.method)
+			const metadata: ConnectorExecutionMetadata = {
+				status: response.status,
+				statusText: response.statusText,
+				remoteOutcome: 'response_received',
+				retrySafety,
+				bodyAvailable: true,
+			}
 			let body: unknown
-			const contentType = response.headers.get('content-type') ?? ''
-			if (contentType.includes('application/json')) {
-				body = await response.json()
-			} else {
-				body = await response.text()
+			try {
+				body = await readConnectorResponseBody(response, operation, this.maxResponseBytes)
+			} catch (error) {
+				const bodyError = `Response body unavailable: ${this.errorText(error)}`
+				const output: HttpResponseOutput = {
+					status: response.status,
+					statusText: response.statusText,
+					headers: responseHeaders,
+					body: null,
+					bodyAvailable: false,
+					bodyError,
+					remoteOutcome: 'response_received',
+					retrySafety,
+				}
+				metadata.bodyAvailable = false
+				return {
+					success: response.status >= 200 && response.status < 300,
+					output,
+					...(response.status < 200 || response.status >= 300
+						? { error: this.statusError(response, retrySafety, true) }
+						: {}),
+					durationMs: this.duration(startedAt),
+					metadata,
+				}
 			}
 
-			return {
+			const output: HttpResponseOutput = {
 				status: response.status,
 				statusText: response.statusText,
 				headers: responseHeaders,
 				body,
+				bodyAvailable: true,
+				remoteOutcome: 'response_received',
+				retrySafety,
+			}
+			return {
+				success: response.status >= 200 && response.status < 300,
+				output,
+				...(response.status < 200 || response.status >= 300
+					? { error: this.statusError(response, retrySafety, false) }
+					: {}),
+				durationMs: this.duration(startedAt),
+				metadata,
 			}
 		} finally {
-			clearTimeout(timeout)
+			operation?.close()
 		}
+	}
+
+	private notStarted(
+		method: HttpMethod,
+		reason: unknown,
+		startedAt: number,
+	): ConnectorExecuteResult {
+		return {
+			success: false,
+			output: null,
+			error: `HTTP ${method} was cancelled before it started: ${this.errorText(reason)}. No remote request was started; retry is safe.`,
+			durationMs: this.duration(startedAt),
+			metadata: { remoteOutcome: 'not_started', retrySafety: 'safe', bodyAvailable: false },
+		}
+	}
+
+	private unknownOutcome(
+		method: HttpMethod,
+		error: unknown,
+		startedAt: number,
+	): ConnectorExecuteResult {
+		const retrySafety = this.retrySafety(method)
+		const advice =
+			retrySafety === 'safe'
+				? `Retry is safe because ${method} is a safe HTTP method.`
+				: 'Do not automatically retry this request; it may duplicate a remote side effect.'
+		return {
+			success: false,
+			output: null,
+			error: `HTTP ${method} produced no response: ${this.errorText(error)}. The remote outcome is unknown. ${advice}`,
+			durationMs: this.duration(startedAt),
+			metadata: { remoteOutcome: 'unknown', retrySafety, bodyAvailable: false },
+		}
+	}
+
+	private statusError(
+		response: Response,
+		retrySafety: 'safe' | 'unsafe',
+		bodyMissing: boolean,
+	): string {
+		const retry =
+			retrySafety === 'safe'
+				? 'Retry is safe for this HTTP method.'
+				: 'Do not automatically retry; the remote side effect may already have happened.'
+		if (response.status >= 300 && response.status < 400) {
+			const location = response.headers.get('location')
+			return `HTTP ${response.status}: ${response.statusText}. The redirect was not followed because connector requests cannot leave their configured origin.${location ? ` Location: ${location}.` : ''} ${retry}`
+		}
+		return `HTTP ${response.status}: ${response.statusText}.${bodyMissing ? ' The response body was unavailable.' : ''} ${retry}`
+	}
+
+	private retrySafety(method: HttpMethod): 'safe' | 'unsafe' {
+		return method === 'GET' || method === 'HEAD' ? 'safe' : 'unsafe'
+	}
+
+	private duration(startedAt: number): number {
+		return Math.round(performance.now() - startedAt)
+	}
+
+	private errorText(error: unknown): string {
+		return error instanceof Error ? error.message : String(error)
 	}
 
 	private resolveAuthHeaders(auth: AuthConfig): Record<string, string> {

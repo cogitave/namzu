@@ -8,6 +8,7 @@ import type {
 	ConnectorExecuteResult,
 	ConnectorInstance,
 	ConnectorLifecycleEvent,
+	ConnectorOperationOptions,
 	CredentialVault,
 	TenantDescriptor,
 	TenantRateLimitConfig,
@@ -239,6 +240,11 @@ export class TenantConnectorManager {
 		params: ConnectorExecuteParams,
 	): Promise<ConnectorExecuteResult> {
 		const state = this.getTenantOrThrow(tenantId)
+		// A caller that has already withdrawn authority did not attempt a remote
+		// operation and must not spend the tenant's next admission slot. Delegate
+		// first so the ordinary manager still validates the instance and returns
+		// the canonical not-started phase result.
+		if (params.signal?.aborted) return state.manager.execute(params)
 
 		if (!this.checkRateLimit(state, params.instanceId)) {
 			return {
@@ -252,9 +258,13 @@ export class TenantConnectorManager {
 		return state.manager.execute(params)
 	}
 
-	async healthCheck(tenantId: TenantId, instanceId: ConnectorInstanceId): Promise<boolean> {
+	async healthCheck(
+		tenantId: TenantId,
+		instanceId: ConnectorInstanceId,
+		options?: ConnectorOperationOptions,
+	): Promise<boolean> {
 		const state = this.getTenantOrThrow(tenantId)
-		return state.manager.healthCheck(instanceId)
+		return state.manager.healthCheck(instanceId, options)
 	}
 
 	async removeInstance(tenantId: TenantId, instanceId: ConnectorInstanceId): Promise<void> {

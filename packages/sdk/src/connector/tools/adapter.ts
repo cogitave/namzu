@@ -4,6 +4,7 @@ import type { ConnectorMethod } from '../../types/connector/index.js'
 import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import { parseConnectorInstanceId } from '../../utils/id.js'
+import { connectorToolError } from './result.js'
 
 export function connectorMethodToTool(
 	connectorId: ConnectorId,
@@ -23,18 +24,19 @@ export function connectorMethodToTool(
 		isDestructive: () => false,
 		isConcurrencySafe: () => true,
 
-		async execute(input: unknown, _context: ToolContext): Promise<ToolResult> {
+		async execute(input: unknown, context: ToolContext): Promise<ToolResult> {
 			const result = await manager.execute({
 				instanceId,
 				method: method.name,
 				input,
+				signal: context.abortSignal,
 			})
 
 			return {
 				success: result.success,
 				output: result.success ? JSON.stringify(result.output, null, 2) : '',
 				data: result.output,
-				error: result.error,
+				error: result.success ? undefined : connectorToolError(result),
 			}
 		},
 	}
@@ -87,7 +89,7 @@ export function createConnectorRouterTool(
 		isDestructive: () => false,
 		isConcurrencySafe: () => true,
 
-		async execute(input: ConnectorRouterInput, _context: ToolContext): Promise<ToolResult> {
+		async execute(input: ConnectorRouterInput, context: ToolContext): Promise<ToolResult> {
 			const instanceId = parseConnectorInstanceId(String(input.instanceId))
 			const instance = manager.getInstance(instanceId)
 			if (!instance) {
@@ -110,13 +112,14 @@ export function createConnectorRouterTool(
 				instanceId,
 				method: input.method,
 				input: input.input,
+				signal: context.abortSignal,
 			})
 
 			return {
 				success: result.success,
 				output: result.success ? JSON.stringify(result.output, null, 2) : '',
 				data: result.output,
-				error: result.error,
+				error: result.success ? undefined : connectorToolError(result),
 			}
 		},
 	}

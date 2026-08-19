@@ -1,10 +1,12 @@
 import { zodToJsonSchema } from 'zod-to-json-schema'
+import { connectorToolError } from '../../../connector/tools/result.js'
 import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
 import type {
 	ConnectorDefinition,
 	ConnectorExecuteResult,
 	ConnectorInstance,
 	ConnectorMethod,
+	ConnectorOperationOptions,
 	MCPConnectorBridgeToolMapping,
 	MCPJsonSchema,
 	MCPToolDefinition,
@@ -51,7 +53,11 @@ export class MCPConnectorBridge {
 		return tools
 	}
 
-	async callTool(name: string, args?: Record<string, unknown>): Promise<MCPToolResult> {
+	async callTool(
+		name: string,
+		args?: Record<string, unknown>,
+		options?: ConnectorOperationOptions,
+	): Promise<MCPToolResult> {
 		const mapping = this.mappings.find((m) => m.mcpToolName === name)
 		if (!mapping) {
 			return {
@@ -64,6 +70,7 @@ export class MCPConnectorBridge {
 			instanceId: mapping.instanceId,
 			method: mapping.methodName,
 			input: args ?? {},
+			signal: options?.signal,
 		})
 
 		return this.connectorResultToMCPResult(result)
@@ -119,7 +126,7 @@ export class MCPConnectorBridge {
 		}
 
 		return {
-			content: [{ type: 'text', text: result.error ?? 'Unknown error' }],
+			content: [{ type: 'text', text: connectorToolError(result) }],
 			isError: true,
 		}
 	}

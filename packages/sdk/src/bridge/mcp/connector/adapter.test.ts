@@ -198,7 +198,20 @@ describe('MCPConnectorBridge.callTool', () => {
 		bridge.listTools()
 		const result = await bridge.callTool(`namzu_${CID}_request`)
 		expect(result.isError).toBe(true)
-		expect(result.content[0]).toEqual({ type: 'text', text: 'Unknown error' })
+		expect(result.content[0]).toEqual({ type: 'text', text: 'Connector execution failed' })
+	})
+
+	it('forwards an optional bridge caller signal to connector execution', async () => {
+		const manager = makeManager({
+			execute: vi.fn(async () => ({ success: true, output: 'ok', durationMs: 1 })),
+		})
+		const bridge = new MCPConnectorBridge({ manager })
+		bridge.listTools()
+		const signal = new AbortController().signal
+
+		await bridge.callTool(`namzu_${CID}_request`, {}, { signal })
+
+		expect(manager.execute).toHaveBeenCalledWith(expect.objectContaining({ signal }))
 	})
 
 	it('carries the explicit error message when manager provides one', async () => {
@@ -213,6 +226,25 @@ describe('MCPConnectorBridge.callTool', () => {
 		bridge.listTools()
 		const result = await bridge.callTool(`namzu_${CID}_request`)
 		expect(result.content[0]).toEqual({ type: 'text', text: 'timeout' })
+	})
+
+	it('exposes unknown remote outcome retry refusal through MCP', async () => {
+		const manager = makeManager()
+		vi.mocked(manager.execute).mockResolvedValueOnce({
+			success: false,
+			output: null,
+			durationMs: 1,
+			error: 'transport stopped',
+			metadata: { remoteOutcome: 'unknown', retrySafety: 'unsafe' },
+		})
+		const bridge = new MCPConnectorBridge({ manager })
+		bridge.listTools()
+		const result = await bridge.callTool(`namzu_${CID}_request`)
+
+		expect(result.content[0]).toEqual({
+			type: 'text',
+			text: 'transport stopped The remote outcome is unknown; do not automatically retry.',
+		})
 	})
 
 	it('passes empty args through as {} when invoked without a second arg', async () => {

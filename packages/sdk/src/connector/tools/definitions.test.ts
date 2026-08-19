@@ -111,6 +111,23 @@ describe('createConnectorExecuteTool', () => {
 		expect(result.error).toBe('timeout')
 	})
 
+	it('makes a generic unknown remote outcome and retry refusal visible to the model', async () => {
+		const manager = makeManager()
+		vi.mocked(manager.execute).mockResolvedValueOnce({
+			success: false,
+			output: null,
+			durationMs: 1,
+			error: 'transport stopped',
+			metadata: { remoteOutcome: 'unknown', retrySafety: 'unsafe' },
+		})
+		const tool = createConnectorExecuteTool({ manager })
+		const result = await tool.execute({ instance_id: IID, method: 'request', input: {} }, ctx)
+
+		expect(result.error).toBe(
+			'transport stopped The remote outcome is unknown; do not automatically retry.',
+		)
+	})
+
 	it('passes through string outputs as-is', async () => {
 		const manager = makeManager()
 		vi.mocked(manager.execute).mockResolvedValueOnce({
@@ -136,6 +153,24 @@ describe('createConnectorExecuteTool', () => {
 		const result = await tool.execute({ instance_id: IID, method: 'request', input: {} }, ctx)
 		expect(result.output).toBe(JSON.stringify({ answer: 42 }, null, 2))
 		expect(result.data).toEqual({ durationMs: 15, metadata: { region: 'us-east-1' } })
+	})
+
+	it('forwards the tool invocation signal into connector execution', async () => {
+		const manager = makeManager()
+		vi.mocked(manager.execute).mockResolvedValueOnce({
+			success: true,
+			output: 'ok',
+			durationMs: 1,
+		})
+		const signal = new AbortController().signal
+		const tool = createConnectorExecuteTool({ manager })
+
+		await tool.execute({ instance_id: IID, method: 'request', input: {} }, {
+			...ctx,
+			abortSignal: signal,
+		} as ToolContext)
+
+		expect(manager.execute).toHaveBeenCalledWith(expect.objectContaining({ signal }))
 	})
 })
 

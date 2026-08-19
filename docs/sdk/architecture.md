@@ -344,7 +344,7 @@ opt-out, validation, and recovery rules.
 
 ### 16. Connectors (`connector/`)
 
-A connector is how an agent reaches external systems. `connector/BaseConnector.ts` is the abstract base; `connector/mcp/` implements MCP connectors in both `stdio` and `http` transports with a `client.ts` and an `adapter.ts` that turns MCP tools into Namzu `ToolDefinition`s; `connector/builtins/` ships the built-in connectors (HTTP, shell, etc.). WHERE a call runs is not a connector concern and does not live here: all five execution backends are in `execution/`, and a connector is one caller of one. Plugin contributions can register connectors at runtime.
+A connector is how an agent reaches external systems. `connector/BaseConnector.ts` is the abstract base; `connector/mcp/` implements MCP connectors in both `stdio` and `http` transports with a `client.ts` and an `adapter.ts` that turns MCP tools into Namzu `ToolDefinition`s; `connector/builtins/` ships the built-in connectors (HTTP, shell, etc.). Connector execution carries operation authority separately from model-authored input. The manager bounds a custom connector that ignores cancellation and refuses to turn an unphased late completion into success; the HTTP built-ins additionally own a private transport signal, one fetch-and-body deadline, a streaming response-byte budget, and a configured-origin credential boundary. See [Connectors and MCP](integrations/connectors-and-mcp.md#operation-authority-and-finite-http-waits) for result phases and retry semantics. WHERE a call runs is not a connector concern and does not live here: all five execution backends are in `execution/`, and a connector is one caller of one. Plugin contributions can register connectors at runtime.
 
 ### 17. Prompt Cache Integration
 

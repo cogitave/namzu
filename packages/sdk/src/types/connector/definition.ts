@@ -51,7 +51,24 @@ export interface ConnectorInstance {
 	error?: string
 }
 
-export interface ConnectorExecuteParams {
+/** What the client can establish about a connector side effect. */
+export type ConnectorRemoteOutcome = 'not_started' | 'unknown' | 'response_received'
+
+/** Whether repeating the connector call can be recommended without duplicating a side effect. */
+export type ConnectorRetrySafety = 'safe' | 'unsafe' | 'unknown'
+
+export interface ConnectorOperationOptions {
+	/** The authority for this operation. A pre-aborted signal starts no connector work. */
+	signal?: AbortSignal
+}
+
+export interface ConnectorExecutionMetadata extends Record<string, unknown> {
+	remoteOutcome?: ConnectorRemoteOutcome
+	retrySafety?: ConnectorRetrySafety
+	bodyAvailable?: boolean
+}
+
+export interface ConnectorExecuteParams extends ConnectorOperationOptions {
 	instanceId: ConnectorInstanceId
 	method: string
 	input: unknown
@@ -62,14 +79,18 @@ export interface ConnectorExecuteResult {
 	output: unknown
 	error?: string
 	durationMs: number
-	metadata?: Record<string, unknown>
+	metadata?: ConnectorExecutionMetadata
 }
 
 export interface ConnectorLifecycle<TConfig = unknown> {
 	connect(config: TConfig, auth?: AuthConfig): Promise<void>
 	disconnect(): Promise<void>
-	healthCheck(): Promise<boolean>
-	execute(method: string, input: unknown): Promise<ConnectorExecuteResult>
+	healthCheck(options?: ConnectorOperationOptions): Promise<boolean>
+	execute(
+		method: string,
+		input: unknown,
+		options?: ConnectorOperationOptions,
+	): Promise<ConnectorExecuteResult>
 }
 
 export type ConnectorLifecycleEvent =

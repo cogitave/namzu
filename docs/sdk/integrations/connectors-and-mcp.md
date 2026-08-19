@@ -7,7 +7,7 @@ diataxis: how-to
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-05
+lastReviewed: 2026-08-19
 tags: [sdk]
 ---
 
@@ -80,6 +80,7 @@ const docsApi = await manager.createInstance(
     options: {
       baseUrl: 'https://api.example.com',
       timeoutMs: 15_000,
+      maxResponseBytes: 1024 * 1024,
     },
   },
   httpConnector,
@@ -114,6 +115,7 @@ const result = await manager.execute({
     method: 'GET',
     path: '/status',
   },
+  signal: AbortSignal.timeout(10_000),
 })
 
 console.log(result.success)
@@ -126,6 +128,81 @@ This is useful for:
 - diagnostics
 - admin backends
 - boot-time validation before tools are exposed to a model
+
+### Operation authority and finite HTTP waits
+
+`ConnectorExecuteParams.signal` belongs to the operation, not to its input
+payload. The generic connector tool, per-method tools, router tool, and a real
+query all forward the run-owned signal. Direct callers can pass their own as in
+the example above; health checks accept the same shape:
+
+```ts
+import type { ConnectorInstance, ConnectorManager } from '@namzu/sdk'
+
+declare const manager: ConnectorManager
+declare const docsApi: ConnectorInstance
+
+const controller = new AbortController()
+const healthy = await manager.healthCheck(docsApi.id, {
+  signal: controller.signal,
+})
+```
+
+`HttpConnector` and `WebhookConnector` apply these defaults:
+
+| Boundary | Default | Scope |
+| --- | ---: | --- |
+| `timeoutMs` | 30,000 ms | one clock shared by fetch and response-body reads |
+| `maxResponseBytes` | 2 MiB | bytes counted from the response stream before JSON/text parsing |
+| health check | 5,000 ms | the complete HEAD request |
+
+Both values must be positive integers in the platform range. The response byte
+limit is enforced while streaming; `Content-Length` is only an early refusal,
+because chunked or dishonest responses can omit or understate it. Crossing the
+limit cancels both the body reader and the connector-owned transport. The
+connector never aborts the controller supplied by its caller.
+
+The manager also bounds custom connectors that ignore their signal. Such a
+connector receives `ConnectorOperationOptions`, but cancellation cannot prove
+that its remote side effect stopped. The manager therefore returns an unknown
+remote outcome and refuses a late, unphased success. A custom connector that
+has received response headers can preserve that stronger fact with
+`metadata.remoteOutcome: 'response_received'`.
+
+### Origin and credential boundary
+
+The built-in HTTP connectors attach host-configured defaults and credentials
+only after enforcing the configured origin:
+
+- an HTTP `path` may be relative or an absolute URL on `baseUrl`'s origin
+- a webhook `url` override may change the path, but not the configured origin
+- redirects are returned, never followed automatically; every 3xx result is a
+  failure and includes its `Location` when present
+- model-authored `Host`, `Proxy-Authorization`, and `Proxy-Connection` headers
+  are refused before fetch
+
+To send to another origin, configure and authorize another connector instance.
+Do not use a per-call URL override as an origin router.
+
+### Remote outcome and retry safety
+
+Local cancellation and remote cancellation are different facts. Every built-in
+HTTP result exposes the phase in `metadata` (and in its structured output when
+a response exists):
+
+| `remoteOutcome` | Meaning | Retry guidance |
+| --- | --- | --- |
+| `not_started` | authority was withdrawn before fetch | safe |
+| `unknown` | no response arrived before cancellation/deadline | GET/HEAD are safe; mutating HTTP methods and webhooks are unsafe |
+| `response_received` | response status/headers arrived | use the status; a webhook remains unsafe to repeat |
+
+A received 2xx remains a successful remote response even when its body times
+out, exceeds the byte limit, or fails to parse. In that case
+`bodyAvailable: false`, `body: null`, and `bodyError` explain what was lost;
+the known status is not collapsed into a generic timeout. Connector tool and
+MCP bridge errors add missing phase/retry guidance to the text the model sees.
+Never automatically retry a result marked `retrySafety: 'unsafe'` or
+`'unknown'`.
 
 ## 5. Expose Connectors as Namzu Tools
 
@@ -465,6 +542,21 @@ Which transport you can hand `start()` is the thing to understand clearly:
 - there is no inbound HTTP transport, so an HTTP-hosted MCP server still has to be plumbed by an app shell, framework adapter, or plugin runtime that owns that layer
 
 So over stdio the bridge and server run as they ship; over HTTP they stay building blocks and your host process decides how inbound traffic reaches them.
+
+When the host has cancellation authority, the bridge accepts it explicitly:
+
+```ts
+import type { MCPConnectorBridge } from '@namzu/sdk'
+
+declare const bridge: MCPConnectorBridge
+declare const name: string
+declare const args: Record<string, unknown>
+
+const controller = new AbortController()
+const result = await bridge.callTool(name, args, {
+  signal: controller.signal,
+})
+```
 
 ## 10. Conversion Helpers
 

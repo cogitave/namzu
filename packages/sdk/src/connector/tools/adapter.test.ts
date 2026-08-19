@@ -127,6 +127,38 @@ describe('connectorMethodToTool', () => {
 		expect(result.output).toBe('')
 		expect(result.error).toBe('boom')
 	})
+
+	it('execute exposes unknown remote outcome retry refusal', async () => {
+		const manager = makeManager()
+		vi.mocked(manager.execute).mockResolvedValueOnce({
+			success: false,
+			output: null,
+			durationMs: 5,
+			error: 'transport stopped',
+			metadata: { remoteOutcome: 'unknown', retrySafety: 'unsafe' },
+		})
+		const tool = connectorMethodToTool(CID, IID1, makeMethod('request'), manager)
+		const result = await tool.execute({}, ctx)
+
+		expect(result.error).toBe(
+			'transport stopped The remote outcome is unknown; do not automatically retry.',
+		)
+	})
+
+	it('execute forwards the per-method tool signal', async () => {
+		const manager = makeManager()
+		vi.mocked(manager.execute).mockResolvedValueOnce({
+			success: true,
+			output: 'ok',
+			durationMs: 1,
+		})
+		const signal = new AbortController().signal
+		const tool = connectorMethodToTool(CID, IID1, makeMethod('request'), manager)
+
+		await tool.execute({}, { ...ctx, abortSignal: signal } as ToolContext)
+
+		expect(manager.execute).toHaveBeenCalledWith(expect.objectContaining({ signal }))
+	})
 })
 
 describe('connectorInstanceToTools', () => {
@@ -220,5 +252,43 @@ describe('createConnectorRouterTool', () => {
 		)
 		expect(result.success).toBe(true)
 		expect(result.data).toBe('hello')
+	})
+
+	it('router exposes unknown remote outcome retry refusal', async () => {
+		const manager = makeManager()
+		vi.mocked(manager.execute).mockResolvedValueOnce({
+			success: false,
+			output: null,
+			durationMs: 1,
+			error: 'transport stopped',
+			metadata: { remoteOutcome: 'unknown', retrySafety: 'unsafe' },
+		})
+		const tool = createConnectorRouterTool(manager)
+		const result = await tool.execute(
+			{ connectorId: CID, instanceId: IID1, method: 'request', input: {} },
+			ctx,
+		)
+
+		expect(result.error).toBe(
+			'transport stopped The remote outcome is unknown; do not automatically retry.',
+		)
+	})
+
+	it('router execution forwards the tool invocation signal', async () => {
+		const manager = makeManager()
+		vi.mocked(manager.execute).mockResolvedValueOnce({
+			success: true,
+			output: 'hello',
+			durationMs: 1,
+		})
+		const signal = new AbortController().signal
+		const tool = createConnectorRouterTool(manager)
+
+		await tool.execute({ connectorId: CID, instanceId: IID1, method: 'request', input: {} }, {
+			...ctx,
+			abortSignal: signal,
+		} as ToolContext)
+
+		expect(manager.execute).toHaveBeenCalledWith(expect.objectContaining({ signal }))
 	})
 })
