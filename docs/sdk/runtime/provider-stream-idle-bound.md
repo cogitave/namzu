@@ -137,6 +137,28 @@ fused into the private signal passed to a cooperative driver, so it can close
 its metadata transport without either cancellation path aborting the caller's
 own controller.
 
+## Evaluation judges
+
+`judgeScorer` is also a model-calling front door. It applies the shared finite
+stream-idle default even when its `score()` method is called directly. Set
+`streamIdleTimeoutMs` in `JudgeScorerConfig` to choose another per-chunk bound,
+or set `0` for explicit unbounded compatibility.
+
+Inside `runExperiment`, `timeoutMs` is one wall-clock budget for the whole
+case: the run closure and every scorer share it. A stalled run becomes a failed
+case; a scorer that exhausts the remainder is recorded as unavailable, so a
+case with no other measurement is inconclusive and later cases still run. The
+harness races non-cooperative work independently and passes the same deadline
+signal to `Scorer.score`; the built-in judge carries it through its private
+idle wrapper to the provider transport without aborting the case controller.
+
+Omitting `timeoutMs` leaves the case budget unbounded. A configured value must
+be an integer from `1` through the platform timer maximum
+(`2,147,483,647`); zero, negative, fractional, non-finite, and over-range values
+are refused before any case starts. The case deadline and the judge idle bound
+measure different things: total case wall time versus silence between judge
+chunks.
+
 ## Direct provider composition
 
 Hosts that consume a provider outside `query()` can apply

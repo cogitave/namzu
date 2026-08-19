@@ -1,3 +1,4 @@
+import { getEventListeners } from 'node:events'
 import { describe, expect, it } from 'vitest'
 
 import { runExperiment } from '../experiment.js'
@@ -102,12 +103,14 @@ describe('the signal handed to run', () => {
 		// A spurious abort after the work is done would train a closure to
 		// ignore the signal entirely.
 		let aborted = false
+		let retainedSignal: AbortSignal | undefined
 		await runExperiment({
 			name: 'deadline',
 			cases: [{ name: 'fast', input: null }],
 			scorers: [scorer],
 			timeoutMs: 5_000,
 			run: async (_input, _case, signal) => {
+				retainedSignal = signal
 				signal.addEventListener('abort', () => {
 					aborted = true
 				})
@@ -116,6 +119,9 @@ describe('the signal handed to run', () => {
 		})
 
 		expect(aborted).toBe(false)
+		// The host is allowed to retain the public signal after returning.
+		// The harness must not leave its private expiry promise attached to it.
+		expect(getEventListeners(retainedSignal as AbortSignal, 'abort')).toHaveLength(1)
 	})
 })
 
@@ -144,4 +150,26 @@ describe('a suite with no deadline set', () => {
 
 		expect(report.cases[0]?.run.error).toBe('broken case')
 	})
+})
+
+describe('the case deadline is a real platform timer', () => {
+	it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1.5, 2_147_483_648])(
+		'refuses %s before invoking a case',
+		async (timeoutMs) => {
+			let calls = 0
+			await expect(
+				runExperiment({
+					name: 'invalid deadline',
+					cases: [{ name: 'must not start', input: null }],
+					scorers: [scorer],
+					timeoutMs,
+					run: async () => {
+						calls++
+						return emptyRun()
+					},
+				}),
+			).rejects.toThrow(/timeoutMs must be an integer from 1 to 2147483647, or omitted/)
+			expect(calls).toBe(0)
+		},
+	)
 })

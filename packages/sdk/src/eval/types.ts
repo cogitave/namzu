@@ -98,7 +98,13 @@ export type ScorerSeverity = 'gate' | 'soft'
 
 export interface Scorer {
 	name: string
-	score(run: EvalRun, evalCase: EvalCase): Score | Promise<Score>
+	/**
+	 * Produce one measurement. `runExperiment` passes the case's shared
+	 * deadline signal, which covers both execution and every scorer. A pure
+	 * scorer may ignore it; a scorer that owns I/O should carry it to that
+	 * transport so timed-out work is stopped rather than merely abandoned.
+	 */
+	score(run: EvalRun, evalCase: EvalCase, signal?: AbortSignal): Score | Promise<Score>
 	/** See {@link ScorerSeverity}. Default `soft`. */
 	severity?: ScorerSeverity
 	/**

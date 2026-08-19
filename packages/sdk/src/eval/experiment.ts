@@ -10,6 +10,8 @@ import type {
 import type { ScoreUncertainty } from './uncertainty.js'
 import { describeUncertainty, uncertaintyOf } from './uncertainty.js'
 
+const MAX_CASE_TIMEOUT_MS = 2_147_483_647
+
 export interface ExperimentConfig<TInput = unknown> {
 	name: string
 	cases: readonly EvalCase<TInput>[]
@@ -22,18 +24,18 @@ export interface ExperimentConfig<TInput = unknown> {
 	 */
 	run: (input: TInput, evalCase: EvalCase<TInput>, signal: AbortSignal) => Promise<EvalRun>
 	/**
-	 * Deadline for a single case. Unset means no deadline.
+	 * Wall-clock deadline for one case, including execution and every
+	 * scorer. Unset means no deadline.
 	 *
-	 * `executeCase` used to be a bare await, so a `run` closure that never
-	 * settled blocked its worker and `runExperiment` never returned — no
-	 * report, no partial results, nothing to read. The documented path
-	 * inherits deadlines from the runtime it drives, so the residual is a
-	 * closure that does not go through `query()` and a mid-iteration
-	 * provider stall the between-iterations guard cannot see. Both are
-	 * reachable, and neither is the suite's fault to absorb silently.
+	 * A non-cooperative `run` closure or scorer is detached by an independent
+	 * race, so it cannot hold the suite forever. The same signal is passed to
+	 * both phases; I/O-owning scorers should forward it to their transport,
+	 * as `judgeScorer` does.
 	 *
-	 * A timed-out case is REPORTED and the suite continues, exactly like a
-	 * case that threw: forty cases should not be lost to one that hung.
+	 * A run that exhausts the budget is reported as failed. A scorer that
+	 * exhausts the remainder is unavailable, making an otherwise unjudged
+	 * case inconclusive. Either way the suite continues: forty cases should
+	 * not be lost to one operation that hung.
 	 */
 	timeoutMs?: number
 	/** Mean score a case must reach to count as passed. Default 1. */
@@ -61,6 +63,7 @@ export async function runExperiment<TInput>(
 	const startedAt = Date.now()
 	const threshold = config.passThreshold ?? 1
 	const concurrency = Math.max(1, config.concurrency ?? 1)
+	const timeoutMs = validateCaseTimeoutMs(config.timeoutMs)
 
 	const results: CaseResult[] = new Array(config.cases.length)
 	let cursor = 0
@@ -71,71 +74,7 @@ export async function runExperiment<TInput>(
 			const evalCase = config.cases[index]
 			if (!evalCase) return
 
-			const run = await executeCase(config, evalCase)
-			const scorers = evalCase.scorers ?? config.scorers
-			const scores: Record<string, Score> = {}
-
-			// Scores are keyed by name, so two scorers sharing one collapse:
-			// the mean's denominator becomes the count of distinct NAMES and
-			// the surviving score is whichever ran last. Two
-			// `containsScorer(...)` instances are both called 'contains', so
-			// this is easy to hit by accident and silently halves the
-			// evidence. Ambiguous results are worse than a loud failure.
-			const seen = new Set<string>()
-			for (const scorer of scorers) {
-				if (seen.has(scorer.name)) {
-					throw new Error(
-						`Duplicate scorer name "${scorer.name}" for case "${evalCase.name}". Scores are keyed by name, so the second would overwrite the first and the case mean would be computed over the wrong denominator. Give each scorer a distinct name.`,
-					)
-				}
-				seen.add(scorer.name)
-				scores[scorer.name] = await safeScore(scorer, run, evalCase)
-			}
-
-			// Only scores that were actually produced count — an unavailable
-			// scorer leaves the denominator alone rather than dragging the
-			// mean toward zero with a measurement that never happened.
-			const values = Object.values(scores)
-				.filter((s) => s.unavailable !== true)
-				.map((s) => s.score)
-			const mean = values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length
-
-			// A gate miss fails the case whatever the mean says. Averaging a
-			// hard check together with a fuzzy one lets three good scores
-			// carry a zero: trajectory 0 + completion 1 + contains 1 +
-			// judge 1 averages to 0.75 and reports passed at a threshold of
-			// 0.75 — the exact regression the harness exists to catch,
-			// reported green. An UNAVAILABLE gate does not fail the case;
-			// it did not judge the run at all, which is the inconclusive
-			// path, not a failure.
-			const failedGates = scorers
-				.filter((s) => s.severity === 'gate')
-				.filter((s) => {
-					const score = scores[s.name]
-					if (!score || score.unavailable === true) return false
-					return score.score < (s.threshold ?? threshold)
-				})
-				.map((s) => s.name)
-
-			const status: CaseStatus =
-				Object.keys(scores).length > 0 && values.length === 0
-					? 'inconclusive'
-					: failedGates.length > 0
-						? 'failed'
-						: mean >= threshold
-							? 'passed'
-							: 'failed'
-			const result: CaseResult = {
-				case: evalCase.name,
-				run,
-				scores,
-				mean,
-				status,
-				passed: status === 'passed',
-				// Named, not just counted: "failed" with a mean of 0.75 sends
-				// somebody to read four scores and guess which one mattered.
-				...(failedGates.length > 0 ? { failedGates } : {}),
-			}
+			const result = await evaluateCase(config, evalCase, threshold, timeoutMs)
 			results[index] = result
 			config.onCaseFinish?.(result)
 		}
@@ -165,6 +104,138 @@ export async function runExperiment<TInput>(
 	}
 }
 
+function validateCaseTimeoutMs(value: number | undefined): number | undefined {
+	if (value === undefined) return undefined
+	if (!Number.isInteger(value) || value < 1 || value > MAX_CASE_TIMEOUT_MS) {
+		throw new RangeError(
+			`timeoutMs must be an integer from 1 to ${MAX_CASE_TIMEOUT_MS}, or omitted; received ${String(value)}`,
+		)
+	}
+	return value
+}
+
+interface CaseDeadline {
+	readonly signal: AbortSignal
+	race<T>(work: Promise<T>): Promise<T>
+	dispose(): void
+}
+
+/** One wall-clock budget shared by execution and every scorer for a case. */
+function openCaseDeadline(timeoutMs: number | undefined): CaseDeadline {
+	const controller = new AbortController()
+	let timer: ReturnType<typeof setTimeout> | undefined
+	let expiry: Promise<never> | undefined
+	let onAbort: (() => void) | undefined
+
+	if (timeoutMs !== undefined && timeoutMs > 0) {
+		expiry = new Promise<never>((_resolve, reject) => {
+			onAbort = () => reject(controller.signal.reason)
+			controller.signal.addEventListener('abort', onAbort, { once: true })
+		})
+		// A case can settle just before its timer. Keep the deadline promise
+		// observed independently so a same-tick expiry cannot become an
+		// unhandled rejection while the scope is being disposed.
+		void expiry.catch(() => {})
+		timer = setTimeout(
+			() => controller.abort(new Error(`case timed out after ${timeoutMs}ms`)),
+			timeoutMs,
+		)
+	}
+
+	return {
+		signal: controller.signal,
+		async race<T>(work: Promise<T>): Promise<T> {
+			if (!expiry) return await work
+			// A non-cooperative run or scorer may reject after the deadline won.
+			// Observe that loser without making suite settlement depend on it.
+			void work.catch(() => {})
+			return await Promise.race([work, expiry])
+		},
+		dispose() {
+			clearTimeout(timer)
+			if (onAbort) controller.signal.removeEventListener('abort', onAbort)
+		},
+	}
+}
+
+async function evaluateCase<TInput>(
+	config: ExperimentConfig<TInput>,
+	evalCase: EvalCase<TInput>,
+	threshold: number,
+	timeoutMs: number | undefined,
+): Promise<CaseResult> {
+	const deadline = openCaseDeadline(timeoutMs)
+	try {
+		const run = await executeCase(config, evalCase, deadline)
+		const scorers = evalCase.scorers ?? config.scorers
+		const scores: Record<string, Score> = {}
+
+		// Scores are keyed by name, so two scorers sharing one collapse:
+		// the mean's denominator becomes the count of distinct NAMES and
+		// the surviving score is whichever ran last. Two
+		// `containsScorer(...)` instances are both called 'contains', so
+		// this is easy to hit by accident and silently halves the
+		// evidence. Ambiguous results are worse than a loud failure.
+		const seen = new Set<string>()
+		for (const scorer of scorers) {
+			if (seen.has(scorer.name)) {
+				throw new Error(
+					`Duplicate scorer name "${scorer.name}" for case "${evalCase.name}". Scores are keyed by name, so the second would overwrite the first and the case mean would be computed over the wrong denominator. Give each scorer a distinct name.`,
+				)
+			}
+			seen.add(scorer.name)
+			scores[scorer.name] = await safeScore(scorer, run, evalCase, deadline)
+		}
+
+		// Only scores that were actually produced count — an unavailable
+		// scorer leaves the denominator alone rather than dragging the
+		// mean toward zero with a measurement that never happened.
+		const values = Object.values(scores)
+			.filter((s) => s.unavailable !== true)
+			.map((s) => s.score)
+		const mean = values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length
+
+		// A gate miss fails the case whatever the mean says. Averaging a
+		// hard check together with a fuzzy one lets three good scores
+		// carry a zero: trajectory 0 + completion 1 + contains 1 +
+		// judge 1 averages to 0.75 and reports passed at a threshold of
+		// 0.75 — the exact regression the harness exists to catch,
+		// reported green. An UNAVAILABLE gate does not fail the case;
+		// it did not judge the run at all, which is the inconclusive
+		// path, not a failure.
+		const failedGates = scorers
+			.filter((s) => s.severity === 'gate')
+			.filter((s) => {
+				const score = scores[s.name]
+				if (!score || score.unavailable === true) return false
+				return score.score < (s.threshold ?? threshold)
+			})
+			.map((s) => s.name)
+
+		const status: CaseStatus =
+			Object.keys(scores).length > 0 && values.length === 0
+				? 'inconclusive'
+				: failedGates.length > 0
+					? 'failed'
+					: mean >= threshold
+						? 'passed'
+						: 'failed'
+		return {
+			case: evalCase.name,
+			run,
+			scores,
+			mean,
+			status,
+			passed: status === 'passed',
+			// Named, not just counted: "failed" with a mean of 0.75 sends
+			// somebody to read four scores and guess which one mattered.
+			...(failedGates.length > 0 ? { failedGates } : {}),
+		}
+	} finally {
+		deadline.dispose()
+	}
+}
+
 /**
  * A case that throws is a RESULT, not a crash. An eval suite whose first
  * broken case aborts the run tells you nothing about the other forty.
@@ -172,38 +243,12 @@ export async function runExperiment<TInput>(
 async function executeCase<TInput>(
 	config: ExperimentConfig<TInput>,
 	evalCase: EvalCase<TInput>,
+	deadline: CaseDeadline,
 ): Promise<EvalRun> {
 	const startedAt = Date.now()
-	const controller = new AbortController()
-	const timeoutMs = config.timeoutMs
-	// The signal is handed to `run` so a closure that drives `query()` can
-	// pass it through and actually stop working. A closure that ignores it
-	// is merely detached rather than stopped — the same bargain every other
-	// deadline in the SDK makes — but the SUITE is unblocked either way,
-	// which is the part that was missing.
-	const timer =
-		timeoutMs !== undefined && timeoutMs > 0
-			? setTimeout(
-					() => controller.abort(new Error(`case timed out after ${timeoutMs}ms`)),
-					timeoutMs,
-				)
-			: undefined
-
-	const deadline =
-		timer === undefined
-			? undefined
-			: new Promise<never>((_resolve, reject) => {
-					controller.signal.addEventListener('abort', () => reject(controller.signal.reason), {
-						once: true,
-					})
-				})
-
 	try {
-		const work = config.run(evalCase.input, evalCase, controller.signal)
-		// A rejection of the loser must never surface as an unhandled
-		// rejection after the race has already been decided.
-		if (deadline) work.catch(() => {})
-		return await (deadline ? Promise.race([work, deadline]) : work)
+		const work = config.run(evalCase.input, evalCase, deadline.signal)
+		return await deadline.race(work)
 	} catch (err) {
 		return {
 			output: null,
@@ -217,16 +262,16 @@ async function executeCase<TInput>(
 			durationMs: Date.now() - startedAt,
 			error: err instanceof Error ? err.message : String(err),
 		}
-	} finally {
-		// Only the timer needs clearing. Aborting here would fire a spurious
-		// signal at a `run` that has already settled — the deadline branch
-		// has aborted already, and every other path is done.
-		clearTimeout(timer)
 	}
 }
 
 /** A throwing scorer scores zero with the throw as its reason. */
-async function safeScore(scorer: Scorer, run: EvalRun, evalCase: EvalCase): Promise<Score> {
+async function safeScore(
+	scorer: Scorer,
+	run: EvalRun,
+	evalCase: EvalCase,
+	deadline: CaseDeadline,
+): Promise<Score> {
 	// A run that THREW scores zero, whatever the scorer would have said.
 	// `executeCase` catches the failure and returns an empty run, and an
 	// empty run walks straight into every scorer's happy path:
@@ -239,7 +284,11 @@ async function safeScore(scorer: Scorer, run: EvalRun, evalCase: EvalCase): Prom
 	}
 
 	try {
-		return await scorer.score(run, evalCase)
+		deadline.signal.throwIfAborted()
+		// Defer invocation into the promise so a synchronous scorer throw is
+		// raced and observed by the same path as an asynchronous rejection.
+		const work = Promise.resolve().then(() => scorer.score(run, evalCase, deadline.signal))
+		return await deadline.race(work)
 	} catch (err) {
 		// UNAVAILABLE, not zero. A scorer that threw did not judge the run
 		// badly — it failed to judge it at all, and the two call for

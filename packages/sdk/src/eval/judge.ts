@@ -1,4 +1,5 @@
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
+import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { EvalCase, EvalRun, Score, Scorer } from './types.js'
 
@@ -60,6 +61,12 @@ export interface JudgeScorerConfig {
 	 * truncation rather than the run.
 	 */
 	maxOutputChars?: number
+	/**
+	 * Milliseconds without a judge chunk before its provider stream is
+	 * treated as stalled. Defaults to the SDK's finite provider-stream idle
+	 * bound. Set `0` only for explicit unbounded compatibility.
+	 */
+	streamIdleTimeoutMs?: number
 }
 
 const DEFAULT_SCALE = 4
@@ -198,6 +205,9 @@ function buildPrompt(
 
 export function judgeScorer(config: JudgeScorerConfig): Scorer {
 	const scale = config.scale ?? DEFAULT_SCALE
+	const provider = withStreamIdleTimeout(config.provider, {
+		idleTimeoutMs: resolveStreamIdleTimeoutMs(config.streamIdleTimeoutMs),
+	})
 	if (!Number.isInteger(scale) || scale < 1) {
 		throw new Error(`judgeScorer: scale must be a positive integer, got ${scale}`)
 	}
@@ -209,15 +219,16 @@ export function judgeScorer(config: JudgeScorerConfig): Scorer {
 
 	return {
 		name: config.name ?? 'judge',
-		async score(run: EvalRun, evalCase: EvalCase): Promise<Score> {
+		async score(run: EvalRun, evalCase: EvalCase, signal?: AbortSignal): Promise<Score> {
 			const response = await collectChatCompletion(
-				config.provider.chatStream({
+				provider.chatStream({
 					model: config.model,
 					messages: [{ role: 'user', content: buildPrompt(config, run, evalCase, scale) }],
 					// The same run must grade the same way twice, or a
 					// regression cannot be told from sampling noise.
 					temperature: 0,
 					maxTokens: 512,
+					...(signal ? { signal } : {}),
 				}),
 			)
 

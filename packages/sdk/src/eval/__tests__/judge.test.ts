@@ -217,6 +217,17 @@ describe('a judge that cannot judge', () => {
 			judgeScorer({ provider: fakeProvider('{}'), model: 'm', rubric: RUBRIC, scale: 0 }),
 		).toThrow(/positive integer/)
 	})
+
+	it('refuses a nonsense stream idle bound before starting a judge request', () => {
+		expect(() =>
+			judgeScorer({
+				provider: fakeProvider('{}'),
+				model: 'm',
+				rubric: RUBRIC,
+				streamIdleTimeoutMs: -1,
+			}),
+		).toThrow(/streamIdleTimeoutMs must be an integer/)
+	})
 })
 
 describe('a broken judge is not a bad run', () => {
