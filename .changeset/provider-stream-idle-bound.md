@@ -98,3 +98,18 @@ origin. Model-authored routing headers are refused, redirects are not followed,
 and 3xx responses are no longer reported as success. Configure a separate
 connector instance for each authorized origin; callers that previously used a
 cross-origin webhook override must migrate to that instance.
+
+`GuardedFetchProvider` now applies one validated 30-second deadline across DNS
+resolution, every manually admitted redirect fetch, and the final response
+body, while preserving a caller's exact cancellation cause on a private
+transport signal. Its 2 MiB default response cap is enforced from streamed
+bytes rather than after `response.text()` allocates the whole body; overflow
+cancels the reader and returns a valid UTF-8 prefix. Redirect bodies are
+cancelled when abandoned, and a spent redirect budget causes no DNS lookup for
+the next target. Set positive `timeoutMs` and `maxBytes` values or a
+non-negative integer `maxRedirects` to choose other bounds. Custom
+`GuardedFetchConfig.resolve` functions may now accept the operation signal as
+a second argument. IPv4-mapped IPv6 literals are canonicalized back to their
+IPv4 address before range checks, closing the hexadecimal mapped loopback and
+link-local bypass; the full IPv6 link-local and multicast ranges are also
+refused.

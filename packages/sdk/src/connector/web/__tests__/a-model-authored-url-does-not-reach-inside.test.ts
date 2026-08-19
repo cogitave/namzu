@@ -50,6 +50,21 @@ const PUBLIC = async () => ['93.184.216.34']
 const provider = (over: Partial<ConstructorParameters<typeof GuardedFetchProvider>[0]> = {}) =>
 	new GuardedFetchProvider({ ...over })
 
+async function settleWithin<T>(promise: Promise<T>, milliseconds = 500): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined
+	return Promise.race([
+		promise,
+		new Promise<never>((_resolve, reject) => {
+			timer = setTimeout(
+				() => reject(new Error(`guarded fetch did not settle within ${milliseconds}ms`)),
+				milliseconds,
+			)
+		}),
+	]).finally(() => {
+		if (timer) clearTimeout(timer)
+	})
+}
+
 describe('an address inside the host is refused before the request', () => {
 	it('refuses loopback by literal', async () => {
 		const { fn, asked } = recordingFetch(reply('secret'))
@@ -66,9 +81,21 @@ describe('an address inside the host is refused before the request', () => {
 		const { fn } = recordingFetch(reply('creds'))
 
 		await expect(
-			provider({ fetch: fn }).fetch({ url: 'http://169.254.169.254/latest/meta-data/' }),
+			provider({ fetch: fn }).fetch({
+				url: 'http://169.254.169.254/latest/meta-data/',
+			}),
 		).rejects.toThrow(/inside this host/)
 	})
+
+	it.each(['http://[::ffff:127.0.0.1]/', 'http://[::ffff:a9fe:a9fe]/'])(
+		'refuses canonical IPv4-mapped IPv6 before fetch: %s',
+		async (url) => {
+			const { fn, asked } = recordingFetch(reply('secret'))
+
+			await expect(provider({ fetch: fn }).fetch({ url })).rejects.toThrow(WebFetchRefusedError)
+			expect(asked).toEqual([])
+		},
+	)
 
 	it('refuses a public NAME that resolves inside', async () => {
 		// A hostname check alone is bypassed by any name whose A record points
@@ -90,7 +117,10 @@ describe('an address inside the host is refused before the request', () => {
 		const { fn } = recordingFetch(reply('x'))
 
 		await expect(
-			provider({ fetch: fn, resolve: async () => ['93.184.216.34', '127.0.0.1'] }).fetch({
+			provider({
+				fetch: fn,
+				resolve: async () => ['93.184.216.34', '127.0.0.1'],
+			}).fetch({
 				url: 'http://mixed.example/',
 			}),
 		).rejects.toThrow(WebFetchRefusedError)
@@ -101,7 +131,10 @@ describe('an address inside the host is refused before the request', () => {
 		// test above and be useless.
 		const { fn } = recordingFetch(reply('page'))
 
-		const result = await provider({ fetch: fn, resolve: async () => ['93.184.216.34'] }).fetch({
+		const result = await provider({
+			fetch: fn,
+			resolve: async () => ['93.184.216.34'],
+		}).fetch({
 			url: 'http://example.com/',
 		})
 
@@ -130,7 +163,10 @@ describe('an address inside the host is refused before the request', () => {
 		// decision a host makes explicitly rather than inherits.
 		const { fn, asked } = recordingFetch(reply('ok'))
 
-		const result = await provider({ fetch: fn, allowPrivateAddresses: true }).fetch({
+		const result = await provider({
+			fetch: fn,
+			allowPrivateAddresses: true,
+		}).fetch({
 			url: 'http://127.0.0.1:8080/health',
 		})
 
@@ -163,10 +199,22 @@ describe('the address rules, written out', () => {
 		}
 	})
 
-	it('covers IPv6, including the mapped spelling of an IPv4 address', () => {
+	it('covers IPv6, including canonical mapped and full link-local spellings', () => {
 		// A guard that checked only IPv4 is bypassed by a name with a AAAA
 		// record, and `::ffff:127.0.0.1` is loopback wearing an IPv6 spelling.
-		for (const address of ['::1', 'fe80::1', 'fc00::1', 'fd12::3', '::ffff:127.0.0.1']) {
+		for (const address of [
+			'::1',
+			'fe80::1',
+			'fe80::1%lo0',
+			'fe90::1',
+			'febf::1',
+			'fc00::1',
+			'fd12::3',
+			'ff02::1',
+			'::ffff:127.0.0.1',
+			'::ffff:7f00:1',
+			'::ffff:a9fe:a9fe',
+		]) {
 			expect(isPrivateAddress(address)).toBe(true)
 		}
 		expect(isPrivateAddress('2606:4700:4700::1111')).toBe(false)
@@ -212,7 +260,9 @@ describe('a redirect is re-checked, every hop', () => {
 		})
 
 		await expect(
-			provider({ fetch: fn, resolve: PUBLIC }).fetch({ url: 'https://example.com/' }),
+			provider({ fetch: fn, resolve: PUBLIC }).fetch({
+				url: 'https://example.com/',
+			}),
 		).rejects.toThrow(/redirect/i)
 		// The first hop was fetched; the second was never sent.
 		expect(asked).toEqual(['https://example.com/'])
@@ -222,7 +272,10 @@ describe('a redirect is re-checked, every hop', () => {
 		// An unresolved relative target would be checked as a different URL
 		// than the one actually followed.
 		const { fn, asked } = recordingFetch({
-			'https://example.com/a': reply('', { status: 302, headers: { location: '/b' } }),
+			'https://example.com/a': reply('', {
+				status: 302,
+				headers: { location: '/b' },
+			}),
 			'https://example.com/b': reply('arrived'),
 		})
 
@@ -237,7 +290,10 @@ describe('a redirect is re-checked, every hop', () => {
 
 	it('stops at the redirect limit rather than looping', async () => {
 		const { fn } = recordingFetch(
-			reply('', { status: 302, headers: { location: 'https://example.com/next' } }),
+			reply('', {
+				status: 302,
+				headers: { location: 'https://example.com/next' },
+			}),
 		)
 
 		await expect(
@@ -312,7 +368,11 @@ describe('a body too large is cut, and says so', () => {
 		// from a document whose second half it never saw.
 		const { fn } = recordingFetch(reply('x'.repeat(5000)))
 
-		const result = await provider({ fetch: fn, maxBytes: 100, resolve: PUBLIC }).fetch({
+		const result = await provider({
+			fetch: fn,
+			maxBytes: 100,
+			resolve: PUBLIC,
+		}).fetch({
 			url: 'https://example.com/',
 		})
 
@@ -323,7 +383,11 @@ describe('a body too large is cut, and says so', () => {
 	it('does not claim truncation for a page that fit', async () => {
 		const { fn } = recordingFetch(reply('short'))
 
-		const result = await provider({ fetch: fn, maxBytes: 100, resolve: PUBLIC }).fetch({
+		const result = await provider({
+			fetch: fn,
+			maxBytes: 100,
+			resolve: PUBLIC,
+		}).fetch({
 			url: 'https://example.com/',
 		})
 
@@ -339,7 +403,11 @@ describe('a host can block names of its own', () => {
 		const { fn, asked } = recordingFetch(reply('x'))
 
 		await expect(
-			provider({ fetch: fn, blockedHosts: ['intranet.example'], resolve: PUBLIC }).fetch({
+			provider({
+				fetch: fn,
+				blockedHosts: ['intranet.example'],
+				resolve: PUBLIC,
+			}).fetch({
 				url: 'https://intranet.example/wiki',
 			}),
 		).rejects.toThrow(/blocks this name/)
@@ -360,7 +428,9 @@ describe('the two properties a fake fetch can only observe directly', () => {
 			return reply('ok')
 		}) as unknown as typeof globalThis.fetch
 
-		await provider({ fetch: fn, resolve: PUBLIC }).fetch({ url: 'https://example.com/' })
+		await provider({ fetch: fn, resolve: PUBLIC }).fetch({
+			url: 'https://example.com/',
+		})
 
 		expect(seen?.redirect).toBe('manual')
 	})
@@ -372,8 +442,308 @@ describe('the two properties a fake fetch can only observe directly', () => {
 		const { fn, asked } = recordingFetch(reply('x'))
 
 		await expect(
-			provider({ fetch: fn, resolve: async () => [] }).fetch({ url: 'http://nowhere.example/' }),
+			provider({ fetch: fn, resolve: async () => [] }).fetch({
+				url: 'http://nowhere.example/',
+			}),
 		).rejects.toThrow(/no addresses/)
 		expect(asked).toEqual([])
+	})
+})
+
+describe('one run-owned operation bounds resolution, fetch, and body reads', () => {
+	type ByteReadResult =
+		| { readonly done: false; readonly value: Uint8Array }
+		| { readonly done: true; readonly value?: undefined }
+
+	it('refuses a pre-aborted caller before DNS or fetch', async () => {
+		const resolve = vi.fn(PUBLIC)
+		const fetch = vi.fn(async () => reply('must not run')) as unknown as typeof globalThis.fetch
+		const caller = new AbortController()
+		const reason = new Error('operator already stopped the web fetch')
+		caller.abort(reason)
+
+		await expect(
+			provider({ fetch, resolve }).fetch({
+				url: 'https://example.com/',
+				signal: caller.signal,
+			}),
+		).rejects.toBe(reason)
+		expect(resolve).not.toHaveBeenCalled()
+		expect(fetch).not.toHaveBeenCalled()
+	})
+
+	it('passes a private signal to a resolver and preserves the caller cause', async () => {
+		let markStarted: (() => void) | undefined
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve
+		})
+		let resolverSignal: AbortSignal | undefined
+		const resolve = vi.fn((_hostname: string, signal?: AbortSignal) => {
+			resolverSignal = signal
+			markStarted?.()
+			return new Promise<readonly string[]>(() => {})
+		})
+		const fetch = vi.fn(async () => reply('must not run')) as unknown as typeof globalThis.fetch
+		const caller = new AbortController()
+		const pending = provider({ fetch, resolve, timeoutMs: 1_000 }).fetch({
+			url: 'https://example.com/',
+			signal: caller.signal,
+		})
+
+		await started
+		const reason = new Error('operator stopped DNS admission')
+		caller.abort(reason)
+
+		await expect(settleWithin(pending)).rejects.toBe(reason)
+		expect(resolverSignal).toBeDefined()
+		expect(resolverSignal).not.toBe(caller.signal)
+		expect(resolverSignal?.aborted).toBe(true)
+		expect(resolverSignal?.reason).toBe(reason)
+		expect(fetch).not.toHaveBeenCalled()
+	})
+
+	it('settles a fetch that ignores its deadline signal', async () => {
+		let transportSignal: AbortSignal | undefined
+		const fetch = vi.fn((_input: unknown, init?: RequestInit) => {
+			transportSignal = init?.signal as AbortSignal
+			return new Promise<Response>(() => {})
+		}) as unknown as typeof globalThis.fetch
+
+		await expect(
+			settleWithin(
+				provider({ fetch, allowPrivateAddresses: true, timeoutMs: 10 }).fetch({
+					url: 'https://example.com/',
+				}),
+			),
+		).rejects.toMatchObject({
+			name: 'TimeoutError',
+			message: expect.stringContaining('10ms'),
+		})
+		expect(transportSignal?.aborted).toBe(true)
+		expect(transportSignal?.reason).toMatchObject({ name: 'TimeoutError' })
+	})
+
+	it('settles and cancels a body reader that ignores the transport signal', async () => {
+		const cancel = vi.fn(async () => {})
+		const releaseLock = vi.fn()
+		const response = {
+			status: 200,
+			headers: new Headers({ 'content-type': 'text/plain' }),
+			body: {
+				getReader: () => ({
+					read: () => new Promise<ByteReadResult>(() => {}),
+					cancel,
+					releaseLock,
+				}),
+			},
+		} as unknown as Response
+		const fetch = vi.fn(async () => response) as unknown as typeof globalThis.fetch
+
+		await expect(
+			settleWithin(
+				provider({ fetch, allowPrivateAddresses: true, timeoutMs: 10 }).fetch({
+					url: 'https://example.com/',
+				}),
+			),
+		).rejects.toMatchObject({ name: 'TimeoutError' })
+		expect(cancel).toHaveBeenCalledTimes(1)
+		expect(releaseLock).toHaveBeenCalledTimes(1)
+	})
+
+	it('lets an abort beat an oversized chunk fulfilled in the same turn', async () => {
+		const caller = new AbortController()
+		const reason = new Error('operator stopped during the body read')
+		const cancel = vi.fn(async () => {})
+		const response = {
+			status: 200,
+			headers: new Headers({ 'content-type': 'text/plain' }),
+			body: {
+				getReader: () => ({
+					read: () => {
+						caller.abort(reason)
+						return Promise.resolve({
+							done: false as const,
+							value: new TextEncoder().encode('overflow'),
+						})
+					},
+					cancel,
+					releaseLock: vi.fn(),
+				}),
+			},
+		} as unknown as Response
+		const fetch = vi.fn(async () => response) as unknown as typeof globalThis.fetch
+
+		await expect(
+			provider({ fetch, allowPrivateAddresses: true, maxBytes: 4 }).fetch({
+				url: 'https://example.com/',
+				signal: caller.signal,
+			}),
+		).rejects.toBe(reason)
+		expect(cancel).toHaveBeenCalledTimes(1)
+	})
+})
+
+describe('the byte limit is enforced while the response is streaming', () => {
+	type ByteReadResult =
+		| { readonly done: false; readonly value: Uint8Array }
+		| { readonly done: true; readonly value?: undefined }
+
+	function responseFromReads(
+		reads: ByteReadResult[],
+		headers: Record<string, string> = {},
+	): {
+		response: Response
+		cancel: ReturnType<typeof vi.fn>
+		text: ReturnType<typeof vi.fn>
+	} {
+		const cancel = vi.fn(async () => {})
+		const text = vi.fn(async () => 'the full body path must not run')
+		const pending = [...reads]
+		const response = {
+			status: 200,
+			headers: new Headers({ 'content-type': 'text/plain', ...headers }),
+			body: {
+				getReader: () => ({
+					read: async () => pending.shift() ?? { done: true as const, value: undefined },
+					cancel,
+					releaseLock: vi.fn(),
+				}),
+			},
+			text,
+		} as unknown as Response
+		return { response, cancel, text }
+	}
+
+	it('counts actual chunks, retains only the prefix, and cancels on overflow', async () => {
+		const { response, cancel, text } = responseFromReads(
+			[{ done: false, value: new TextEncoder().encode('abcdefghij') }],
+			{ 'content-length': '1' },
+		)
+		const fetch = vi.fn(async () => response) as unknown as typeof globalThis.fetch
+
+		const result = await provider({
+			fetch,
+			allowPrivateAddresses: true,
+			maxBytes: 4,
+		}).fetch({
+			url: 'https://example.com/',
+		})
+
+		expect(result).toMatchObject({ body: 'abcd', truncated: true })
+		expect(cancel).toHaveBeenCalledTimes(1)
+		expect(text).not.toHaveBeenCalled()
+	})
+
+	it('does not call an exact-limit body truncated after observing EOF', async () => {
+		const { response, cancel } = responseFromReads([
+			{ done: false, value: new TextEncoder().encode('abcd') },
+			{ done: true, value: undefined },
+		])
+		const fetch = vi.fn(async () => response) as unknown as typeof globalThis.fetch
+
+		const result = await provider({
+			fetch,
+			allowPrivateAddresses: true,
+			maxBytes: 4,
+		}).fetch({
+			url: 'https://example.com/',
+		})
+
+		expect(result).toMatchObject({ body: 'abcd', truncated: false })
+		expect(cancel).not.toHaveBeenCalled()
+	})
+
+	it('returns a valid UTF-8 prefix when the cap cuts a code point', async () => {
+		const { response } = responseFromReads([{ done: false, value: new TextEncoder().encode('éé') }])
+		const fetch = vi.fn(async () => response) as unknown as typeof globalThis.fetch
+
+		const result = await provider({
+			fetch,
+			allowPrivateAddresses: true,
+			maxBytes: 3,
+		}).fetch({
+			url: 'https://example.com/',
+		})
+
+		expect(result.body).toBe('é')
+		expect(result.body).not.toContain('�')
+		expect(result.truncated).toBe(true)
+	})
+})
+
+describe('redirect admission spends no work after the hop budget', () => {
+	it('cancels the redirect body and never resolves its forbidden next target', async () => {
+		const cancel = vi.fn(async () => {})
+		const response = {
+			status: 302,
+			headers: new Headers({ location: 'https://must-not-resolve.example/' }),
+			body: { cancel },
+		} as unknown as Response
+		const fetch = vi.fn(async () => response) as unknown as typeof globalThis.fetch
+		const resolve = vi.fn(PUBLIC)
+
+		await expect(
+			provider({ fetch, resolve, maxRedirects: 0 }).fetch({
+				url: 'https://example.com/',
+			}),
+		).rejects.toMatchObject({ details: { reason: 'redirect-limit' } })
+		expect(resolve).toHaveBeenCalledTimes(1)
+		expect(resolve).toHaveBeenCalledWith('example.com', expect.any(AbortSignal))
+		expect(cancel).toHaveBeenCalledTimes(1)
+	})
+
+	it('uses the same operation signal across redirect DNS and fetch phases', async () => {
+		const signals: AbortSignal[] = []
+		const resolve = vi.fn((_hostname: string, signal?: AbortSignal) => {
+			if (signal) signals.push(signal)
+			return signals.length === 1
+				? Promise.resolve(PUBLIC())
+				: new Promise<readonly string[]>(() => {})
+		})
+		const fetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+			if (init?.signal) signals.push(init.signal)
+			return {
+				status: 302,
+				headers: new Headers({ location: '/next' }),
+				body: { cancel: async () => {} },
+			} as unknown as Response
+		}) as unknown as typeof globalThis.fetch
+
+		await expect(
+			settleWithin(
+				provider({ fetch, resolve, timeoutMs: 10 }).fetch({
+					url: 'https://example.com/',
+				}),
+			),
+		).rejects.toMatchObject({ name: 'TimeoutError' })
+		expect(signals).toHaveLength(3)
+		expect(signals.every((signal) => signal === signals[0])).toBe(true)
+		expect(signals[0]?.aborted).toBe(true)
+	})
+})
+
+describe('resource limits are admitted when the provider is built', () => {
+	it.each([
+		[{ timeoutMs: 0 }, /timeoutMs must be an integer from 1/],
+		[{ timeoutMs: 1.5 }, /timeoutMs must be an integer from 1/],
+		[{ maxBytes: 0 }, /maxBytes must be an integer from 1/],
+		[{ maxBytes: Number.NaN }, /maxBytes must be an integer from 1/],
+		[{ maxRedirects: -1 }, /maxRedirects must be a non-negative safe integer/],
+		[{ maxRedirects: 1.5 }, /maxRedirects must be a non-negative safe integer/],
+	] as const)('refuses %j', (config, message) => {
+		expect(() => new GuardedFetchProvider(config)).toThrow(message)
+	})
+
+	it('allows zero redirects while retaining direct fetches', async () => {
+		const { fn } = recordingFetch(reply('direct'))
+		const result = await provider({
+			fetch: fn,
+			resolve: PUBLIC,
+			maxRedirects: 0,
+		}).fetch({
+			url: 'https://example.com/',
+		})
+
+		expect(result.body).toBe('direct')
 	})
 })

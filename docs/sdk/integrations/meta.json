@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "connectors-and-mcp",
+    "guarded-web-fetch",
     "plugins",
     "event-bridges",
     "a2a-client",

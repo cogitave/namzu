@@ -118,7 +118,9 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 			Object.assign(this.defaultHeaders, this.resolveAuthHeaders(auth))
 		}
 
-		this.log.info('HTTP connector connected', { 'namzu.connector.base_url': this.baseUrl })
+		this.log.info('HTTP connector connected', {
+			'namzu.connector.base_url': this.baseUrl,
+		})
 	}
 
 	async disconnect(): Promise<void> {
@@ -139,11 +141,12 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 				CONNECTOR_HEALTH_TIMEOUT_MS,
 				'HTTP connector health check',
 			)
-			const response = await operation.wait(
+			const activeOperation = operation
+			const response = await activeOperation.run(() =>
 				fetch(this.baseUrl, {
 					method: 'HEAD',
 					redirect: 'manual',
-					signal: operation.signal,
+					signal: activeOperation.signal,
 				}),
 			)
 			return response.ok || response.status < 500
@@ -205,13 +208,14 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 			}
 			let response: Response
 			try {
-				response = await operation.wait(
+				const activeOperation = operation
+				response = await activeOperation.run(() =>
 					fetch(url.toString(), {
 						method: input.method,
 						headers,
 						body: input.body !== undefined ? JSON.stringify(input.body) : undefined,
 						redirect: 'manual',
-						signal: operation.signal,
+						signal: activeOperation.signal,
 					}),
 				)
 			} catch (error) {
@@ -291,7 +295,11 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 			output: null,
 			error: `HTTP ${method} was cancelled before it started: ${this.errorText(reason)}. No remote request was started; retry is safe.`,
 			durationMs: this.duration(startedAt),
-			metadata: { remoteOutcome: 'not_started', retrySafety: 'safe', bodyAvailable: false },
+			metadata: {
+				remoteOutcome: 'not_started',
+				retrySafety: 'safe',
+				bodyAvailable: false,
+			},
 		}
 	}
 

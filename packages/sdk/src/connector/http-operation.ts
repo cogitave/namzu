@@ -102,7 +102,7 @@ export async function readConnectorResponseBody(
 	// Response-shaped test doubles; there are no remote bytes to stream when
 	// the platform reports `body === null`.
 	if (!response.body) {
-		return operation.wait(
+		return operation.run(() =>
 			contentType.includes('application/json') ? response.json() : response.text(),
 		)
 	}
@@ -112,7 +112,7 @@ export async function readConnectorResponseBody(
 	let totalBytes = 0
 	try {
 		while (true) {
-			const { done, value } = await operation.wait(reader.read())
+			const { done, value } = await operation.run(() => reader.read())
 			if (done) break
 			totalBytes += value.byteLength
 			if (totalBytes > maxBytes) {
@@ -162,8 +162,14 @@ export class ConnectorHttpOperation {
 		this.aborted = new Promise<never>((_resolve, reject) => {
 			this.rejectAbort = reject
 		})
+		// Cancellation may arrive between construction and the first `wait`.
+		// Keep that owned rejection observed even when the next `run` refuses
+		// before attaching a race handler.
+		void this.aborted.catch(() => undefined)
 		this.onCallerAbort = callerSignal ? () => this.stop(callerSignal.reason) : undefined
-		callerSignal?.addEventListener('abort', this.onCallerAbort as () => void, { once: true })
+		callerSignal?.addEventListener('abort', this.onCallerAbort as () => void, {
+			once: true,
+		})
 		this.timer = setTimeout(() => this.stop(timeoutError(label, timeoutMs)), timeoutMs)
 	}
 
@@ -172,8 +178,14 @@ export class ConnectorHttpOperation {
 	}
 
 	async wait<T>(operation: Promise<T>): Promise<T> {
+		this.throwIfStopped()
 		try {
-			return await Promise.race([operation, this.aborted])
+			const result = await Promise.race([operation, this.aborted])
+			// A foreign promise and caller abort can settle in the same turn. The
+			// promise race may pick the value first even though authority has
+			// already been withdrawn; never publish that late value as success.
+			this.throwIfStopped()
+			return result
 		} catch (error) {
 			if (
 				this.hasCause &&
@@ -184,6 +196,22 @@ export class ConnectorHttpOperation {
 			}
 			throw error
 		}
+	}
+
+	/**
+	 * Check authority before starting foreign work, then again after it wins.
+	 *
+	 * Passing an already-created promise to `wait()` cannot prevent the work
+	 * that created it from starting. Callers use this thunk form at every
+	 * network, resolver and stream boundary where admission matters.
+	 */
+	async run<T>(start: () => Promise<T>): Promise<T> {
+		this.throwIfStopped()
+		return this.wait(start())
+	}
+
+	throwIfStopped(): void {
+		this.signal.throwIfAborted()
 	}
 
 	close(): void {

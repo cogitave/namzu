@@ -98,7 +98,9 @@ export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 			this.defaultHeaders.Authorization = `Bearer ${auth.credentials.token}`
 		}
 
-		this.log.info('Webhook connector connected', { 'namzu.connector.url': this.url })
+		this.log.info('Webhook connector connected', {
+			'namzu.connector.url': this.url,
+		})
 	}
 
 	async disconnect(): Promise<void> {
@@ -120,11 +122,12 @@ export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 				CONNECTOR_HEALTH_TIMEOUT_MS,
 				'Webhook connector health check',
 			)
-			const response = await operation.wait(
+			const activeOperation = operation
+			const response = await activeOperation.run(() =>
 				fetch(this.url, {
 					method: 'HEAD',
 					redirect: 'manual',
-					signal: operation.signal,
+					signal: activeOperation.signal,
 				}),
 			)
 			return response.ok || response.status < 500
@@ -184,13 +187,14 @@ export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 			}
 			let response: Response
 			try {
-				response = await operation.wait(
+				const activeOperation = operation
+				response = await activeOperation.run(() =>
 					fetch(targetUrl, {
 						method: 'POST',
 						headers,
 						body: bodyStr,
 						redirect: 'manual',
-						signal: operation.signal,
+						signal: activeOperation.signal,
 					}),
 				)
 			} catch (error) {
@@ -260,7 +264,11 @@ export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 			output: null,
 			error: `Webhook POST was cancelled before it started: ${this.errorText(reason)}. No remote request was started; retry is safe.`,
 			durationMs: this.duration(startedAt),
-			metadata: { remoteOutcome: 'not_started', retrySafety: 'safe', bodyAvailable: false },
+			metadata: {
+				remoteOutcome: 'not_started',
+				retrySafety: 'safe',
+				bodyAvailable: false,
+			},
 		}
 	}
 
@@ -270,7 +278,11 @@ export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 			output: null,
 			error: `Webhook POST produced no response: ${this.errorText(error)}. The remote outcome is unknown. Do not automatically retry this request; it may duplicate a delivery.`,
 			durationMs: this.duration(startedAt),
-			metadata: { remoteOutcome: 'unknown', retrySafety: 'unsafe', bodyAvailable: false },
+			metadata: {
+				remoteOutcome: 'unknown',
+				retrySafety: 'unsafe',
+				bodyAvailable: false,
+			},
 		}
 	}
 

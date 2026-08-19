@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-10T00:00:00Z
-lastReviewed: 2026-08-10
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
 tags: [computer-use, sdk]
 ---
 
@@ -31,6 +31,7 @@ It does not include:
 
 - `LsTool` — not a default: directory listing is `bash` + `glob`, and a third way to list a directory is a third thing for the model to choose between. Still exported for hosts that explicitly want it.
 - `SearchToolsTool` — not a default: it exists for progressive disclosure, which a host opts into. Still exported for hosts that explicitly want it.
+- `WebFetchTool` and `WebSearchTool` — require host-supplied web providers and explicit network authorization.
 - `createStructuredOutputTool()` — requires a schema per use case.
 - `createComputerUseTool()` — requires a `ComputerUseHost`.
 
@@ -46,6 +47,8 @@ It does not include:
 | `GrepTool` | `grep` | `analysis` | `file_read` | Yes | Search file contents by regex |
 | `LsTool` | `Ls` | `filesystem` | `file_read` | Yes | List directory contents (off-canonical, opt-in) |
 | `SearchToolsTool` | `search_tools` | `analysis` | none | Yes | Activate deferred tools by query (off-canonical, opt-in) |
+| `WebFetchTool` | `web_fetch` | `network` | `network_access` | Yes | Fetch one HTTP(S) URL through the configured guarded provider |
+| `WebSearchTool` | `web_search` | `network` | `network_access` | Yes | Query the configured search provider |
 
 ## 3. Path Resolution Rules
 
@@ -226,6 +229,22 @@ Notes:
 - not in `getBuiltinTools()` defaults — it serves progressive disclosure, which a host opts into. Available via direct export.
 - depends on `toolRegistry` being present in tool context
 - keeps the active tool surface smaller until needed
+
+### 4.9 `web_fetch` and `web_search` (opt-in)
+
+Purpose:
+
+- fetch or discover public web content through a host-configured provider
+
+Notes:
+
+- neither tool is part of `getBuiltinTools()`; a host registers the tool and
+  supplies `web.fetch` or `web.search` to the run
+- both are network-category tools requiring `network_access`
+- `web_fetch` forwards the run cancellation signal to its provider
+- use the shipped `GuardedFetchProvider` for URL and address refusal, redirect
+  admission, a whole-operation deadline, and streaming response limits; see
+  [Guard model-authored web fetches](../integrations/guarded-web-fetch.md)
 
 ## 5. Registering Built-Ins
 

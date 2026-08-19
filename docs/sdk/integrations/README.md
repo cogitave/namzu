@@ -20,6 +20,7 @@ This folder groups the SDK surfaces that let Namzu connect to external systems, 
 | Page | Purpose |
 | --- | --- |
 | [Connectors and MCP](./connectors-and-mcp.md) | Connector lifecycle, remote MCP tool consumption, and MCP publishing helpers |
+| [Guard model-authored web fetches](./guarded-web-fetch.md) | SSRF refusal, operation deadlines, redirects, and streaming body limits for `web_fetch` |
 | [Plugins and MCP Servers](./plugins.md) | Plugin discovery, namespaced tools, hooks, and plugin-managed MCP servers |
 | [Event Bridges](./event-bridges.md) | SSE and A2A event mapping for wire-level interoperability |
 | [A2A Client](./a2a-client.md) | Peer discovery, delegation deadlines, cancellation, and remote-task cleanup |
@@ -29,13 +30,15 @@ This folder groups the SDK surfaces that let Namzu connect to external systems, 
 Use these pages in this order:
 
 1. start with [Connectors and MCP](./connectors-and-mcp.md) if you are integrating external systems
-2. move to [Plugins and MCP Servers](./plugins.md) if integrations are plugin-driven
-3. use [Event Bridges](./event-bridges.md) if runtime events must be exposed to external clients
-4. use [A2A Client](./a2a-client.md) when Namzu discovers or delegates to a remote peer
+2. use [Guard model-authored web fetches](./guarded-web-fetch.md) when a model may choose outbound URLs
+3. move to [Plugins and MCP Servers](./plugins.md) if integrations are plugin-driven
+4. use [Event Bridges](./event-bridges.md) if runtime events must be exposed to external clients
+5. use [A2A Client](./a2a-client.md) when Namzu discovers or delegates to a remote peer
 
 ## Related
 
 - [Connectors and MCP](./connectors-and-mcp.md)
+- [Guard model-authored web fetches](./guarded-web-fetch.md)
 - [Plugins and MCP Servers](./plugins.md)
 - [Event Bridges](./event-bridges.md)
 - [A2A Client](./a2a-client.md)

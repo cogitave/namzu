@@ -2,6 +2,13 @@ import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 
 import {
+	ConnectorHttpOperation,
+	DEFAULT_CONNECTOR_MAX_RESPONSE_BYTES,
+	DEFAULT_CONNECTOR_REQUEST_TIMEOUT_MS,
+	validateConnectorMaxResponseBytes,
+	validateConnectorTimeoutMs,
+} from '../http-operation.js'
+import {
 	type WebFetchProvider,
 	WebFetchRefusedError,
 	type WebFetchRequest,
@@ -28,8 +35,6 @@ import {
 const ALLOWED_SCHEMES = new Set(['http:', 'https:'])
 
 const DEFAULT_MAX_REDIRECTS = 5
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
-const DEFAULT_TIMEOUT_MS = 30_000
 
 /**
  * Headers this never forwards, whatever the caller asked for.
@@ -72,7 +77,7 @@ export interface GuardedFetchConfig {
 	 * a host uses to pin resolution — see `assertAllowed` for the rebinding
 	 * gap this cannot close on its own.
 	 */
-	readonly resolve?: (hostname: string) => Promise<readonly string[]>
+	readonly resolve?: (hostname: string, signal?: AbortSignal) => Promise<readonly string[]>
 }
 
 /**
@@ -100,23 +105,53 @@ export function isPrivateAddress(address: string): boolean {
 	}
 	if (kind === 6) {
 		const lower = address.toLowerCase().replace(/^\[|\]$/g, '')
-		if (lower === '::1' || lower === '::') return true
-		if (lower.startsWith('fe80')) return true // link-local
-		if (/^f[cd]/.test(lower)) return true // unique-local fc00::/7
-		// An IPv4-mapped address (::ffff:127.0.0.1) is an IPv4 address
-		// wearing an IPv6 spelling, and refusing it needs the IPv4 rules.
-		const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-		if (mapped?.[1]) return isPrivateAddress(mapped[1])
+		// `net.isIP` accepts scoped link-local values such as `fe80::1%lo0`,
+		// while the URL parser intentionally does not. The zone names an
+		// interface, not an address bit, so remove it before canonicalising.
+		const zoneAt = lower.indexOf('%')
+		const unscoped = zoneAt === -1 ? lower : lower.slice(0, zoneAt)
+		// Canonicalise before testing mapped addresses. `new URL()` turns the
+		// dotted spelling `::ffff:127.0.0.1` into `::ffff:7f00:1`; checking only
+		// a dotted suffix would therefore accept the exact value this provider
+		// receives from a model-authored URL.
+		const canonical = new URL(`http://[${unscoped}]/`).hostname.slice(1, -1)
+		if (canonical === '::1' || canonical === '::') return true
+		const mapped = canonical.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+		if (mapped?.[1] && mapped[2]) {
+			const high = Number.parseInt(mapped[1], 16)
+			const low = Number.parseInt(mapped[2], 16)
+			return isPrivateAddress(`${high >>> 8}.${high & 0xff}.${low >>> 8}.${low & 0xff}`)
+		}
+		const firstHextet = Number.parseInt(canonical.split(':', 1)[0] ?? '0', 16)
+		if ((firstHextet & 0xffc0) === 0xfe80) return true // link-local fe80::/10
+		if ((firstHextet & 0xfe00) === 0xfc00) return true // unique-local fc00::/7
+		if ((firstHextet & 0xff00) === 0xff00) return true // multicast ff00::/8
 		return false
 	}
 	return false
 }
 
 export class GuardedFetchProvider implements WebFetchProvider {
-	constructor(private readonly config: GuardedFetchConfig = {}) {}
+	private readonly timeoutMs: number
+	private readonly maxBytes: number
+	private readonly maxRedirects: number
 
-	private get maxRedirects(): number {
-		return this.config.maxRedirects ?? DEFAULT_MAX_REDIRECTS
+	constructor(private readonly config: GuardedFetchConfig = {}) {
+		this.timeoutMs = validateConnectorTimeoutMs(
+			config.timeoutMs ?? DEFAULT_CONNECTOR_REQUEST_TIMEOUT_MS,
+			'GuardedFetchProvider timeoutMs',
+		)
+		this.maxBytes = validateConnectorMaxResponseBytes(
+			config.maxBytes ?? DEFAULT_CONNECTOR_MAX_RESPONSE_BYTES,
+			'GuardedFetchProvider maxBytes',
+		)
+		const maxRedirects = config.maxRedirects ?? DEFAULT_MAX_REDIRECTS
+		if (!Number.isSafeInteger(maxRedirects) || maxRedirects < 0) {
+			throw new Error(
+				`GuardedFetchProvider maxRedirects must be a non-negative safe integer; received ${String(maxRedirects)}`,
+			)
+		}
+		this.maxRedirects = maxRedirects
 	}
 
 	/**
@@ -128,7 +163,8 @@ export class GuardedFetchProvider implements WebFetchProvider {
 	 * `302 -> http://169.254.169.254/`, and a fetch that validated only what
 	 * the caller typed follows it happily.
 	 */
-	private async assertAllowed(rawUrl: string): Promise<URL> {
+	private async assertAllowed(rawUrl: string, operation: ConnectorHttpOperation): Promise<URL> {
+		operation.throwIfStopped()
 		let url: URL
 		try {
 			url = new URL(rawUrl)
@@ -157,7 +193,10 @@ export class GuardedFetchProvider implements WebFetchProvider {
 			})
 		}
 
-		if (this.config.allowPrivateAddresses === true) return url
+		if (this.config.allowPrivateAddresses === true) {
+			operation.throwIfStopped()
+			return url
+		}
 
 		// RESOLVED, not just parsed. A hostname check alone is bypassed by any
 		// name whose A record points inside — which is a thing anyone can set
@@ -176,8 +215,12 @@ export class GuardedFetchProvider implements WebFetchProvider {
 			addresses = [hostname]
 		} else {
 			try {
-				addresses = await resolve(hostname)
+				addresses = await operation.run(() => resolve(hostname, operation.signal))
 			} catch (err) {
+				// A caller cancellation or this operation's deadline is not a DNS
+				// policy refusal. Preserve the exact first cause rather than wrapping
+				// it as though the hostname itself were unsafe.
+				operation.throwIfStopped()
 				// REFUSE. `.catch(() => [])` was the first version of this line
 				// and it is fail-open: an empty list satisfies the loop below,
 				// so a name nobody could resolve was treated as a name with no
@@ -204,58 +247,67 @@ export class GuardedFetchProvider implements WebFetchProvider {
 				)
 			}
 		}
+		operation.throwIfStopped()
 		return url
 	}
 
 	async fetch(request: WebFetchRequest): Promise<WebFetchResult> {
 		const doFetch = this.config.fetch ?? globalThis.fetch
-		const timeoutMs = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS
-		const maxBytes = this.config.maxBytes ?? DEFAULT_MAX_BYTES
-
-		const headers: Record<string, string> = {}
-		for (const [key, value] of Object.entries(request.headers ?? {})) {
-			if (!STRIPPED_HEADERS.has(key.toLowerCase())) headers[key] = value
-		}
-
-		const timer = new AbortController()
-		const deadline = setTimeout(() => timer.abort(), timeoutMs)
-		// Both: the caller's cancel and our own deadline. Honouring only one
-		// leaves the other unable to stop a fetch that has stopped being
-		// wanted.
-		request.signal?.addEventListener('abort', () => timer.abort(), { once: true })
+		const operation = new ConnectorHttpOperation(
+			request.signal,
+			this.timeoutMs,
+			`Web fetch "${request.url}"`,
+		)
 
 		try {
-			const redirects: string[] = []
-			let current = await this.assertAllowed(request.url)
+			const headers: Record<string, string> = {}
+			for (const [key, value] of Object.entries(request.headers ?? {})) {
+				if (!STRIPPED_HEADERS.has(key.toLowerCase())) headers[key] = value
+			}
 
-			for (let hop = 0; ; hop++) {
-				if (hop > this.maxRedirects) {
-					throw new WebFetchRefusedError(
-						`Refused after ${this.maxRedirects} redirects from "${request.url}".`,
-						{ url: request.url, reason: 'redirect-limit' },
-					)
-				}
+			const redirects: string[] = []
+			let redirectsFollowed = 0
+			let current = await this.assertAllowed(request.url, operation)
+
+			for (;;) {
+				operation.throwIfStopped()
 				redirects.push(current.toString())
 
 				// `manual`, so every hop comes back here to be checked. Letting
 				// the platform follow redirects is exactly the hole this class
 				// exists to close: it would land on the final URL having never
 				// asked whether that URL was allowed.
-				const response = await doFetch(current, {
-					headers,
-					redirect: 'manual',
-					signal: timer.signal,
-				})
+				const response = await operation.run(() =>
+					doFetch(current, {
+						headers,
+						redirect: 'manual',
+						signal: operation.signal,
+					}),
+				)
 
 				const location = response.headers.get('location')
 				if (response.status >= 300 && response.status < 400 && location) {
+					// The budget is about redirects FOLLOWED. Refuse before parsing or
+					// resolving the forbidden next target, so a spent budget cannot be
+					// turned into one last DNS query.
+					if (redirectsFollowed >= this.maxRedirects) {
+						cancelResponseBody(response, new Error('redirect limit reached'))
+						operation.throwIfStopped()
+						throw new WebFetchRefusedError(
+							`Refused after ${this.maxRedirects} redirects from "${request.url}".`,
+							{ url: request.url, reason: 'redirect-limit' },
+						)
+					}
 					// Resolved against the current URL, because a `Location` may
 					// be relative — and a relative one that is not resolved would
 					// be checked as a different URL than the one followed.
 					const next = new URL(location, current)
+					cancelResponseBody(response, new Error('following redirect'))
+					operation.throwIfStopped()
 					try {
-						current = await this.assertAllowed(next.toString())
+						current = await this.assertAllowed(next.toString(), operation)
 					} catch (err) {
+						operation.throwIfStopped()
 						if (err instanceof WebFetchRefusedError) {
 							throw new WebFetchRefusedError(
 								`A redirect from "${current.toString()}" pointed at "${next.toString()}", which was refused: ${err.message}`,
@@ -264,13 +316,13 @@ export class GuardedFetchProvider implements WebFetchProvider {
 						}
 						throw err
 					}
+					redirectsFollowed++
 					continue
 				}
 
-				const text = await response.text()
-				const truncated = Buffer.byteLength(text) > maxBytes
-				const body = truncated ? Buffer.from(text).subarray(0, maxBytes).toString('utf8') : text
+				const { body, truncated } = await readCappedResponseText(response, operation, this.maxBytes)
 				const contentType = response.headers.get('content-type') ?? undefined
+				operation.throwIfStopped()
 
 				return {
 					url: current.toString(),
@@ -282,7 +334,95 @@ export class GuardedFetchProvider implements WebFetchProvider {
 				}
 			}
 		} finally {
-			clearTimeout(deadline)
+			operation.close()
 		}
+	}
+}
+
+async function readCappedResponseText(
+	response: Response,
+	operation: ConnectorHttpOperation,
+	maxBytes: number,
+): Promise<{ body: string; truncated: boolean }> {
+	// Native fetch exposes a byte stream whenever bytes exist. This fallback
+	// keeps Response-shaped host doubles compatible while still racing their
+	// text promise and applying the same byte semantics after it settles.
+	if (!response.body) {
+		const text = await operation.run(() => response.text())
+		const bytes = new TextEncoder().encode(text)
+		if (bytes.byteLength <= maxBytes) {
+			operation.throwIfStopped()
+			return { body: text, truncated: false }
+		}
+		operation.throwIfStopped()
+		return {
+			body: decodeUtf8Prefix(bytes.slice(0, maxBytes), true),
+			truncated: true,
+		}
+	}
+
+	const reader = response.body.getReader()
+	const chunks: Uint8Array[] = []
+	let totalBytes = 0
+	let truncated = false
+	try {
+		for (;;) {
+			const { done, value } = await operation.run(() => reader.read())
+			if (done) break
+			if (value.byteLength === 0) continue
+
+			const remaining = maxBytes - totalBytes
+			if (value.byteLength > remaining) {
+				// Copy the retained prefix. `subarray` would keep an arbitrarily
+				// large hostile chunk's backing buffer alive through the result.
+				if (remaining > 0) chunks.push(value.slice(0, remaining))
+				totalBytes += remaining
+				truncated = true
+				cancelReader(reader, new Error(`web response exceeded ${maxBytes} bytes`))
+				operation.throwIfStopped()
+				break
+			}
+
+			chunks.push(value)
+			totalBytes += value.byteLength
+		}
+	} catch (error) {
+		cancelReader(reader, error)
+		throw error
+	} finally {
+		reader.releaseLock()
+	}
+
+	operation.throwIfStopped()
+	const bytes = new Uint8Array(totalBytes)
+	let offset = 0
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset)
+		offset += chunk.byteLength
+	}
+	return { body: decodeUtf8Prefix(bytes, truncated), truncated }
+}
+
+function decodeUtf8Prefix(bytes: Uint8Array, truncated: boolean): string {
+	const decoder = new TextDecoder()
+	// Streaming decode deliberately omits the final flush for a truncated
+	// prefix. That drops an incomplete trailing code point instead of showing
+	// the model a synthetic replacement character that was never in the page.
+	return decoder.decode(bytes, { stream: truncated })
+}
+
+function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>, reason: unknown): void {
+	try {
+		void Promise.resolve(reader.cancel(reason)).catch(() => undefined)
+	} catch {
+		// Cleanup must not replace the operation's real outcome.
+	}
+}
+
+function cancelResponseBody(response: Response, reason: unknown): void {
+	try {
+		void Promise.resolve(response.body?.cancel(reason)).catch(() => undefined)
+	} catch {
+		// Cleanup must not turn a redirect refusal into a transport failure.
 	}
 }
