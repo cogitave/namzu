@@ -2,6 +2,7 @@ import { DEFAULT_RETRIEVAL_CONFIG } from '../constants/rag/index.js'
 import type { KnowledgeBaseId } from '../types/ids/index.js'
 import type {
 	EmbeddingProvider,
+	RAGOperationOptions,
 	RetrievalConfig,
 	RetrievalQuery,
 	RetrievalResult,
@@ -10,6 +11,7 @@ import type {
 	VectorSearchResult,
 	VectorStore,
 } from '../types/rag/index.js'
+import { awaitRAGOperation } from './operation.js'
 
 export { DEFAULT_RETRIEVAL_CONFIG }
 
@@ -24,7 +26,9 @@ export class DefaultRetriever implements Retriever {
 		query: RetrievalQuery,
 		scope: TenantScope,
 		knowledgeBaseId?: KnowledgeBaseId,
+		options?: RAGOperationOptions,
 	): Promise<RetrievalResult> {
+		options?.signal?.throwIfAborted()
 		const startTime = Date.now()
 		const effectiveConfig = { ...this.config, ...query.config }
 		const expandedQuery = this.expandQuery(query)
@@ -33,13 +37,31 @@ export class DefaultRetriever implements Retriever {
 
 		switch (effectiveConfig.mode) {
 			case 'vector':
-				chunks = await this.vectorSearch(expandedQuery, scope, knowledgeBaseId, effectiveConfig)
+				chunks = await this.vectorSearch(
+					expandedQuery,
+					scope,
+					knowledgeBaseId,
+					effectiveConfig,
+					options,
+				)
 				break
 			case 'keyword':
-				chunks = await this.keywordSearch(expandedQuery, scope, knowledgeBaseId, effectiveConfig)
+				chunks = await this.keywordSearch(
+					expandedQuery,
+					scope,
+					knowledgeBaseId,
+					effectiveConfig,
+					options,
+				)
 				break
 			case 'hybrid':
-				chunks = await this.hybridSearch(expandedQuery, scope, knowledgeBaseId, effectiveConfig)
+				chunks = await this.hybridSearch(
+					expandedQuery,
+					scope,
+					knowledgeBaseId,
+					effectiveConfig,
+					options,
+				)
 				break
 			default: {
 				const _exhaustive: never = effectiveConfig.mode
@@ -70,16 +92,24 @@ export class DefaultRetriever implements Retriever {
 		scope: TenantScope,
 		knowledgeBaseId: KnowledgeBaseId | undefined,
 		config: RetrievalConfig,
+		options?: RAGOperationOptions,
 	): Promise<VectorSearchResult[]> {
-		const embedding = await this.embeddingProvider.embedQuery(query)
-		return this.vectorStore.search({
+		const embedding = options
+			? await this.embeddingProvider.embedQuery(query, options)
+			: await this.embeddingProvider.embedQuery(query)
+		options?.signal?.throwIfAborted()
+		const storeQuery = {
 			embedding,
 			topK: config.topK,
 			tenantId: scope.tenantId,
 			...(scope.namespace !== undefined ? { namespace: scope.namespace } : {}),
 			knowledgeBaseId,
 			minScore: config.minScore,
-		})
+		}
+		const search = options
+			? this.vectorStore.search(storeQuery, options)
+			: this.vectorStore.search(storeQuery)
+		return awaitRAGOperation(search, options?.signal)
 	}
 
 	private async keywordSearch(
@@ -87,16 +117,24 @@ export class DefaultRetriever implements Retriever {
 		scope: TenantScope,
 		knowledgeBaseId: KnowledgeBaseId | undefined,
 		config: RetrievalConfig,
+		options?: RAGOperationOptions,
 	): Promise<VectorSearchResult[]> {
-		const embedding = await this.embeddingProvider.embedQuery(query)
-		const vectorResults = await this.vectorStore.search({
+		const embedding = options
+			? await this.embeddingProvider.embedQuery(query, options)
+			: await this.embeddingProvider.embedQuery(query)
+		options?.signal?.throwIfAborted()
+		const storeQuery = {
 			embedding,
 			topK: config.topK * 2,
 			tenantId: scope.tenantId,
 			...(scope.namespace !== undefined ? { namespace: scope.namespace } : {}),
 			knowledgeBaseId,
 			minScore: 0,
-		})
+		}
+		const search = options
+			? this.vectorStore.search(storeQuery, options)
+			: this.vectorStore.search(storeQuery)
+		const vectorResults = await awaitRAGOperation(search, options?.signal)
 
 		const queryTerms = this.tokenize(query)
 
@@ -123,12 +161,25 @@ export class DefaultRetriever implements Retriever {
 		scope: TenantScope,
 		knowledgeBaseId: KnowledgeBaseId | undefined,
 		config: RetrievalConfig,
+		options?: RAGOperationOptions,
 	): Promise<VectorSearchResult[]> {
 		const alpha = config.hybridAlpha ?? 0.7
 
 		const [vectorResults, keywordResults] = await Promise.all([
-			this.vectorSearch(query, scope, knowledgeBaseId, { ...config, topK: config.topK * 2 }),
-			this.keywordSearch(query, scope, knowledgeBaseId, { ...config, topK: config.topK * 2 }),
+			this.vectorSearch(
+				query,
+				scope,
+				knowledgeBaseId,
+				{ ...config, topK: config.topK * 2 },
+				options,
+			),
+			this.keywordSearch(
+				query,
+				scope,
+				knowledgeBaseId,
+				{ ...config, topK: config.topK * 2 },
+				options,
+			),
 		])
 
 		const scoreMap = new Map<string, { chunk: VectorSearchResult['chunk']; score: number }>()

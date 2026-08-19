@@ -1,6 +1,7 @@
 import type { ChunkId, DocumentId, KnowledgeBaseId, TenantId } from '../types/ids/index.js'
 import type {
 	Chunk,
+	RAGOperationOptions,
 	VectorSearchResult,
 	VectorStore,
 	VectorStoreQuery,
@@ -9,13 +10,18 @@ import type {
 export class InMemoryVectorStore implements VectorStore {
 	private chunks: Map<ChunkId, Chunk> = new Map()
 
-	async upsert(chunks: Chunk[]): Promise<void> {
+	async upsert(chunks: Chunk[], options?: RAGOperationOptions): Promise<void> {
+		options?.signal?.throwIfAborted()
 		for (const chunk of chunks) {
 			this.chunks.set(chunk.id, chunk)
 		}
 	}
 
-	async search(query: VectorStoreQuery): Promise<VectorSearchResult[]> {
+	async search(
+		query: VectorStoreQuery,
+		options?: RAGOperationOptions,
+	): Promise<VectorSearchResult[]> {
+		options?.signal?.throwIfAborted()
 		const candidates: VectorSearchResult[] = []
 
 		for (const chunk of this.chunks.values()) {

@@ -1,4 +1,5 @@
 import type { ChunkId, DocumentId, KnowledgeBaseId, TenantId } from '../ids/index.js'
+import type { RAGOperationOptions } from './scope.js'
 import type { Chunk } from './storage.js'
 
 export interface VectorSearchResult {
@@ -27,8 +28,10 @@ export interface VectorStoreQuery {
 }
 
 export interface VectorStore {
-	upsert(chunks: Chunk[]): Promise<void>
-	search(query: VectorStoreQuery): Promise<VectorSearchResult[]>
+	/** Persist chunks, stopping owned I/O when the operation is cancelled. */
+	upsert(chunks: Chunk[], options?: RAGOperationOptions): Promise<void>
+	/** Search chunks, stopping owned I/O when the operation is cancelled. */
+	search(query: VectorStoreQuery, options?: RAGOperationOptions): Promise<VectorSearchResult[]>
 	delete(chunkIds: ChunkId[]): Promise<void>
 	deleteByDocument(documentId: DocumentId): Promise<void>
 	deleteByKnowledgeBase(knowledgeBaseId: KnowledgeBaseId, tenantId: TenantId): Promise<void>

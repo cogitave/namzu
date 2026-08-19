@@ -22,7 +22,7 @@ export function createRAGTool(config: RAGToolConfig) {
 		destructive: false,
 		concurrencySafe: true,
 
-		async execute(input) {
+		async execute(input, toolContext) {
 			const kbId =
 				(input.knowledge_base_id === undefined
 					? undefined
@@ -39,10 +39,13 @@ export function createRAGTool(config: RAGToolConfig) {
 				}
 			}
 
-			const result = await kb.query({
+			const query = {
 				text: input.query,
 				config: { topK: input.top_k ?? config.topK ?? 5 },
-			})
+			}
+			const result = toolContext.abortSignal
+				? await kb.query(query, { signal: toolContext.abortSignal })
+				: await kb.query(query)
 
 			if (result.chunks.length === 0) {
 				return {

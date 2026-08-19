@@ -208,3 +208,74 @@ describe('DefaultRetriever — config merge', () => {
 		expect(store.search).toHaveBeenCalledWith(expect.objectContaining({ topK: 1 }))
 	})
 })
+
+describe('DefaultRetriever — operation cancellation', () => {
+	it.each(['vector', 'keyword', 'hybrid'] as const)(
+		'forwards one signal through %s embedding and store calls',
+		async (mode) => {
+			const embedder = makeEmbedder()
+			const store = makeStore([])
+			const retriever = new DefaultRetriever(store, embedder, { mode, topK: 3 })
+			const controller = new AbortController()
+
+			await retriever.retrieve({ text: 'cancel-aware' }, scope, KB, {
+				signal: controller.signal,
+			})
+
+			const expectedCalls = mode === 'hybrid' ? 2 : 1
+			expect(embedder.embedQuery).toHaveBeenCalledTimes(expectedCalls)
+			for (const call of vi.mocked(embedder.embedQuery).mock.calls) {
+				expect(call).toEqual(['cancel-aware', { signal: controller.signal }])
+			}
+			for (const call of vi.mocked(store.search).mock.calls) {
+				expect(call[1]).toEqual({ signal: controller.signal })
+			}
+		},
+	)
+
+	it.each(['vector', 'keyword', 'hybrid'] as const)(
+		'does not start %s search with custom embeddings that arrived after cancellation',
+		async (mode) => {
+			const releases: Array<(embedding: number[]) => void> = []
+			const embedder: EmbeddingProvider = {
+				...makeEmbedder(),
+				embedQuery: vi.fn(
+					() =>
+						new Promise<number[]>((resolve) => {
+							releases.push(resolve)
+						}),
+				),
+			}
+			const store = makeStore([])
+			const retriever = new DefaultRetriever(store, embedder, { mode, topK: 3 })
+			const controller = new AbortController()
+			const pending = retriever.retrieve({ text: 'late' }, scope, KB, {
+				signal: controller.signal,
+			})
+			const reason = new Error('retrieval authority withdrawn')
+
+			expect(releases).toHaveLength(mode === 'hybrid' ? 2 : 1)
+			controller.abort(reason)
+			for (const release of releases) release([1, 0, 0])
+
+			await expect(pending).rejects.toBe(reason)
+			expect(store.search).not.toHaveBeenCalled()
+		},
+	)
+
+	it('refuses pre-cancelled retrieval before invoking a custom embedder', async () => {
+		const embedder = makeEmbedder()
+		const store = makeStore([])
+		const controller = new AbortController()
+		const reason = new Error('retrieval never admitted')
+		controller.abort(reason)
+
+		await expect(
+			new DefaultRetriever(store, embedder).retrieve({ text: 'never' }, scope, KB, {
+				signal: controller.signal,
+			}),
+		).rejects.toBe(reason)
+		expect(embedder.embedQuery).not.toHaveBeenCalled()
+		expect(store.search).not.toHaveBeenCalled()
+	})
+})

@@ -37,3 +37,26 @@ fallback. Public `buildVerifiedSummary`, `compactNow`, and `compactRegion`
 calls bound raw provider silence themselves and accept optional `signal` and
 `streamIdleTimeoutMs`; malformed values and pre-cancelled manual work are
 refused before provider work or a no-op result.
+
+HTTP embedding batches now have a 30-second whole-request default, including
+response-body reads, where the previous default could wait forever. Set
+`requestTimeoutMs: 0` on `HttpEmbeddingProvider` to keep the former unbounded
+behavior. Invalid timeout values and non-positive or fractional `batchSize`
+or `dimensions` values are refused at construction instead of silently
+disabling the bound or entering a non-progressing batch loop. Successful HTTP
+responses must contain exactly one unique, in-range result per input and finite
+vectors of the configured dimension; malformed or incomplete batches are
+refused atomically instead of reaching ingestion with missing embeddings.
+
+Public RAG operations accept optional cancellation context. The shipped
+`knowledge_search` tool forwards its run-owned signal through
+`KnowledgeBase`, retrieval or ingestion, and the embedding provider. The HTTP
+provider preserves the caller's exact cancellation reason while aborting only
+its private fetch transport. Custom embedding providers receive the signal as
+a cooperative request; callers still own their wait boundary if a custom
+implementation ignores it. Default retrieval and ingestion recheck authority
+after that custom call settles, so a late result cannot start a vector search
+or persist chunks after cancellation. `VectorStore.search` and `upsert` now
+receive the same optional operation context. The default pipelines also race
+those store promises against cancellation, so a non-cooperative custom store
+cannot leave the public query or ingestion call pending forever.

@@ -6,6 +6,7 @@ import type {
 	IngestionResult,
 	KnowledgeBase,
 	KnowledgeBaseConfig,
+	RAGOperationOptions,
 	RetrievalConfig,
 	RetrievalQuery,
 	RetrievalResult,
@@ -54,16 +55,24 @@ export class DefaultKnowledgeBase implements KnowledgeBase {
 		this.retriever = new DefaultRetriever(vectorStore, embeddingProvider, retrievalConfig)
 	}
 
-	async ingest(content: string, metadata: DocumentMetadata = {}): Promise<IngestionResult> {
-		return this.ingestion.ingest(content, metadata, this.scope, this.id)
+	async ingest(
+		content: string,
+		metadata: DocumentMetadata = {},
+		options?: RAGOperationOptions,
+	): Promise<IngestionResult> {
+		return options
+			? this.ingestion.ingest(content, metadata, this.scope, this.id, options)
+			: this.ingestion.ingest(content, metadata, this.scope, this.id)
 	}
 
 	async remove(documentId: DocumentId): Promise<void> {
 		return this.ingestion.remove(documentId)
 	}
 
-	async query(query: RetrievalQuery): Promise<RetrievalResult> {
-		return this.retriever.retrieve(query, this.scope, this.id)
+	async query(query: RetrievalQuery, options?: RAGOperationOptions): Promise<RetrievalResult> {
+		return options
+			? this.retriever.retrieve(query, this.scope, this.id, options)
+			: this.retriever.retrieve(query, this.scope, this.id)
 	}
 
 	async clear(): Promise<void> {

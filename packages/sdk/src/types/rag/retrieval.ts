@@ -1,6 +1,6 @@
 import type { KnowledgeBaseId } from '../ids/index.js'
 import type { ProjectId } from '../session/ids.js'
-import type { TenantScope } from './scope.js'
+import type { RAGOperationOptions, TenantScope } from './scope.js'
 import type { VectorSearchResult } from './vector.js'
 
 export type RetrievalMode = 'vector' | 'keyword' | 'hybrid'
@@ -48,5 +48,6 @@ export interface Retriever {
 		query: RetrievalQuery,
 		scope: TenantScope,
 		knowledgeBaseId?: KnowledgeBaseId,
+		options?: RAGOperationOptions,
 	): Promise<RetrievalResult>
 }

@@ -1,5 +1,5 @@
 import type { DocumentId, KnowledgeBaseId } from '../ids/index.js'
-import type { DocumentMetadata, TenantScope } from './scope.js'
+import type { DocumentMetadata, RAGOperationOptions, TenantScope } from './scope.js'
 
 export interface IngestionResult {
 	documentId: DocumentId
@@ -14,6 +14,7 @@ export interface IngestionPipeline {
 		metadata: DocumentMetadata,
 		scope: TenantScope,
 		knowledgeBaseId: KnowledgeBaseId,
+		options?: RAGOperationOptions,
 	): Promise<IngestionResult>
 
 	remove(documentId: DocumentId): Promise<void>

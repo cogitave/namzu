@@ -5,6 +5,11 @@ export interface TenantScope {
 	namespace?: string
 }
 
+/** Cancellation shared by one public RAG operation and its downstream I/O. */
+export interface RAGOperationOptions {
+	readonly signal?: AbortSignal
+}
+
 export interface DocumentMetadata {
 	source?: string
 	title?: string

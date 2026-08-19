@@ -281,9 +281,17 @@ Together these give Namzu durable execution without requiring a database. Runs r
 RAG is a full kernel subsystem, not a bolt-on. The pipeline:
 
 - `rag/chunking.ts` — text chunking strategies (configurable by `ChunkingConfig`).
-- `rag/embedding.ts` — the `EmbeddingProvider` abstraction. Providers are BYOK and swappable.
+- `rag/embedding.ts` — the `EmbeddingProvider` abstraction. Providers are BYOK and swappable. The
+  shipped HTTP implementation bounds each batch, including its response-body read, to 30 seconds
+  by default. Public RAG operations carry cancellation as operation context rather than query data;
+  `createRAGTool` forwards the run's tool signal through the knowledge base and retriever to that
+  transport. Retrieval and ingestion recheck authority after a host-supplied embedder settles, so a
+  late custom result cannot start a store read or write after cancellation.
 - `rag/ingestion.ts` — end-to-end ingest: document → chunks → embeddings → vector store.
-- `rag/vector-store.ts` — the `VectorStore` interface, tenant-scoped via `TenantId`. Bring your own backend (pgvector, Pinecone, an in-memory impl for tests).
+- `rag/vector-store.ts` — the `VectorStore` interface, tenant-scoped via `TenantId`. Search and
+  upsert receive the same operation cancellation context, and the default pipelines bound their wait
+  even when a host store ignores it. Bring your own backend (pgvector, Pinecone, an in-memory impl
+  for tests).
 - `rag/knowledge-base.ts` — a named collection of documents with metadata and config.
 - `rag/retriever.ts` — the retrieval query path: vector, keyword (BM25) or hybrid, with configurable top-k and score threshold. Hybrid normalises both rankings before blending them by `hybridAlpha`. **There is no rerank stage.** This line used to promise one; there was no rerank stage behind it and no setting to turn it on, so a reader could configure for it and receive nothing.
 - `rag/context-assembler.ts` — turns retrieval hits into prompt-ready context windows.

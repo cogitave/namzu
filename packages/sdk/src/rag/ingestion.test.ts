@@ -19,17 +19,22 @@
  *   - `remove(documentId)` delegates to `vectorStore.deleteByDocument`.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import type { DocumentId, KnowledgeBaseId, TenantId } from '../types/ids/index.js'
 import type { Chunk, EmbeddingProvider, TenantScope, VectorStore } from '../types/rag/index.js'
 
+import { HttpEmbeddingProvider } from './embedding.js'
 import { DefaultIngestionPipeline } from './ingestion.js'
 
 const KB = 'kb_1' as KnowledgeBaseId
 const TENANT = 't_1' as TenantId
 const scope: TenantScope = { tenantId: TENANT }
+
+afterEach(() => {
+	vi.unstubAllGlobals()
+})
 
 function makeVectorStore(): VectorStore {
 	return {
@@ -98,6 +103,80 @@ describe('DefaultIngestionPipeline — ingest', () => {
 		const a = await pipeline.ingest('alpha', {}, scope, KB)
 		const b = await pipeline.ingest('beta', {}, scope, KB)
 		expect(a.documentId).not.toBe(b.documentId)
+	})
+
+	it('forwards operation cancellation to the embedding provider', async () => {
+		const embedder = makeEmbedder()
+		const pipeline = new DefaultIngestionPipeline(makeVectorStore(), embedder)
+		const controller = new AbortController()
+
+		await pipeline.ingest('alpha', {}, scope, KB, { signal: controller.signal })
+
+		expect(embedder.embed).toHaveBeenCalledWith(['alpha'], { signal: controller.signal })
+	})
+
+	it('does not persist a custom embedder result that arrived after cancellation', async () => {
+		let release: ((embeddings: number[][]) => void) | undefined
+		const embedder: EmbeddingProvider = {
+			...makeEmbedder(),
+			embed: vi.fn(
+				() =>
+					new Promise<number[][]>((resolve) => {
+						release = resolve
+					}),
+			),
+		}
+		const store = makeVectorStore()
+		const pipeline = new DefaultIngestionPipeline(store, embedder)
+		const controller = new AbortController()
+		const pending = pipeline.ingest('alpha', {}, scope, KB, { signal: controller.signal })
+		const reason = new Error('ingestion authority withdrawn')
+
+		controller.abort(reason)
+		release?.([[1, 0, 0]])
+
+		await expect(pending).rejects.toBe(reason)
+		expect(store.upsert).not.toHaveBeenCalled()
+	})
+
+	it('refuses pre-cancelled empty work before treating it as a no-op', async () => {
+		const embedder = makeEmbedder()
+		const store = makeVectorStore()
+		const controller = new AbortController()
+		const reason = new Error('ingestion never admitted')
+		controller.abort(reason)
+
+		await expect(
+			new DefaultIngestionPipeline(store, embedder).ingest(' ', {}, scope, KB, {
+				signal: controller.signal,
+			}),
+		).rejects.toBe(reason)
+		expect(embedder.embed).not.toHaveBeenCalled()
+		expect(store.upsert).not.toHaveBeenCalled()
+	})
+
+	it('does not persist chunks when the HTTP provider omits an embedding index', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({ data: [{ index: 0, embedding: [1] }] }),
+			}),
+		)
+		const store = makeVectorStore()
+		const pipeline = new DefaultIngestionPipeline(
+			store,
+			new HttpEmbeddingProvider({
+				apiKey: 'k',
+				model: 'm',
+				baseUrl: 'https://embeddings.test/v1',
+				dimensions: 1,
+			}),
+			{ strategy: 'fixed', chunkSize: 2, chunkOverlap: 0 },
+		)
+
+		await expect(pipeline.ingest('abcd', {}, scope, KB)).rejects.toThrow(/1 vectors for 2 inputs/)
+		expect(store.upsert).not.toHaveBeenCalled()
 	})
 })
 

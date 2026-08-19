@@ -28,7 +28,7 @@ export type {
 
 export { TextChunker, DEFAULT_CHUNKING_CONFIG } from './chunking.js'
 
-export { HttpEmbeddingProvider } from './embedding.js'
+export { DEFAULT_EMBEDDING_REQUEST_TIMEOUT_MS, HttpEmbeddingProvider } from './embedding.js'
 
 export { InMemoryVectorStore, cosineSimilarity } from './vector-store.js'
 

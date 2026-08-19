@@ -164,4 +164,16 @@ describe('createRAGTool', () => {
 		await tool.execute({ query: 'hi', top_k: 3 }, ctx)
 		expect(kb.query).toHaveBeenCalledWith(expect.objectContaining({ config: { topK: 3 } }))
 	})
+
+	it('forwards the tool invocation signal to knowledge retrieval', async () => {
+		const kb = makeKB({ chunks: [], query: 'hi', mode: 'vector', durationMs: 1 })
+		const tool = createRAGTool({ knowledgeBases: new Map([[KB_A, kb]]) })
+		const controller = new AbortController()
+
+		await tool.execute({ query: 'hi' }, { ...ctx, abortSignal: controller.signal } as ToolContext)
+
+		expect(kb.query).toHaveBeenCalledWith(expect.objectContaining({ text: 'hi' }), {
+			signal: controller.signal,
+		})
+	})
 })

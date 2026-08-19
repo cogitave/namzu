@@ -78,6 +78,46 @@ describe('DefaultKnowledgeBase', () => {
 		expect(chunks[0]?.tenantId).toBe(TENANT)
 	})
 
+	it('forwards ingest cancellation to the embedding operation', async () => {
+		const embedder = makeEmbedder()
+		const kb = new DefaultKnowledgeBase(
+			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			makeVectorStore(),
+			embedder,
+		)
+		const controller = new AbortController()
+
+		await kb.ingest('hello world', {}, { signal: controller.signal })
+
+		expect(embedder.embed).toHaveBeenCalledWith(expect.any(Array), {
+			signal: controller.signal,
+		})
+	})
+
+	it('settles cancelled ingestion even when a custom store leaves upsert pending', async () => {
+		const vs = makeVectorStore()
+		vs.upsert = vi.fn(() => new Promise<never>(() => {}))
+		const kb = new DefaultKnowledgeBase(
+			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			vs,
+			makeEmbedder(),
+		)
+		const controller = new AbortController()
+		const pending = kb.ingest('hello world', {}, { signal: controller.signal })
+
+		await vi.waitFor(() => expect(vs.upsert).toHaveBeenCalledTimes(1))
+		expect(vi.mocked(vs.upsert).mock.calls[0]?.[1]).toEqual({ signal: controller.signal })
+		const reason = new Error('ingestion store wait cancelled')
+		controller.abort(reason)
+
+		await expect(
+			Promise.race([
+				pending,
+				new Promise((resolve) => setTimeout(() => resolve('still pending'), 100)),
+			]),
+		).rejects.toBe(reason)
+	})
+
 	it('remove delegates to vectorStore.deleteByDocument', async () => {
 		const vs = makeVectorStore()
 		const kb = new DefaultKnowledgeBase({ name: 'kb', tenantId: TENANT }, vs, makeEmbedder())
@@ -102,5 +142,29 @@ describe('DefaultKnowledgeBase', () => {
 		const out = await kb.query({ text: 'hi' })
 		expect(out.mode).toBeDefined()
 		expect(vs.search).toHaveBeenCalled()
+	})
+
+	it('settles cancelled queries even when a custom store leaves search pending', async () => {
+		const vs = makeVectorStore()
+		vs.search = vi.fn(() => new Promise<never>(() => {}))
+		const kb = new DefaultKnowledgeBase(
+			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			vs,
+			makeEmbedder(),
+		)
+		const controller = new AbortController()
+		const pending = kb.query({ text: 'hi' }, { signal: controller.signal })
+
+		await vi.waitFor(() => expect(vs.search).toHaveBeenCalledTimes(1))
+		expect(vi.mocked(vs.search).mock.calls[0]?.[1]).toEqual({ signal: controller.signal })
+		const reason = new Error('retrieval store wait cancelled')
+		controller.abort(reason)
+
+		await expect(
+			Promise.race([
+				pending,
+				new Promise((resolve) => setTimeout(() => resolve('still pending'), 100)),
+			]),
+		).rejects.toBe(reason)
 	})
 })

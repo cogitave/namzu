@@ -6,11 +6,13 @@ import type {
 	EmbeddingProvider,
 	IngestionPipeline,
 	IngestionResult,
+	RAGOperationOptions,
 	TenantScope,
 	VectorStore,
 } from '../types/rag/index.js'
 import { generateChunkId, generateDocumentId } from '../utils/id.js'
 import { DEFAULT_CHUNKING_CONFIG, TextChunker } from './chunking.js'
+import { awaitRAGOperation } from './operation.js'
 
 export class DefaultIngestionPipeline implements IngestionPipeline {
 	private readonly chunker: TextChunker
@@ -30,7 +32,9 @@ export class DefaultIngestionPipeline implements IngestionPipeline {
 		metadata: DocumentMetadata,
 		scope: TenantScope,
 		knowledgeBaseId: KnowledgeBaseId,
+		options?: RAGOperationOptions,
 	): Promise<IngestionResult> {
+		options?.signal?.throwIfAborted()
 		const startTime = Date.now()
 		const documentId = generateDocumentId()
 
@@ -40,7 +44,14 @@ export class DefaultIngestionPipeline implements IngestionPipeline {
 		}
 
 		const texts = chunkContents.map((c) => c.content)
-		const embeddings = await this.embeddingProvider.embed(texts)
+		const embeddings = options
+			? await this.embeddingProvider.embed(texts, options)
+			: await this.embeddingProvider.embed(texts)
+		// A custom provider may accept the signal yet settle successfully after
+		// cancellation. Its cooperation is outside the kernel's control; whether
+		// Namzu now persists those late results is not. Recheck before the first
+		// state-changing store call.
+		options?.signal?.throwIfAborted()
 
 		const now = Date.now()
 		const chunks: Chunk[] = chunkContents.map((cc, i) => ({
@@ -57,7 +68,10 @@ export class DefaultIngestionPipeline implements IngestionPipeline {
 			createdAt: now,
 		}))
 
-		await this.vectorStore.upsert(chunks)
+		const upsert = options
+			? this.vectorStore.upsert(chunks, options)
+			: this.vectorStore.upsert(chunks)
+		await awaitRAGOperation(upsert, options?.signal)
 
 		const totalTokens = chunks.reduce((sum, c) => sum + c.tokenCount, 0)
 		return {
