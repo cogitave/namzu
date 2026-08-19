@@ -52,7 +52,8 @@ export interface LLMProvider {
 	 */
 	chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk>
 
-	listModels?(): Promise<ModelInfo[]>
+	/** Optional cancellation belongs to the surface asking for this menu. */
+	listModels?(signal?: AbortSignal): Promise<ModelInfo[]>
 
 	/**
 	 * Establish whether this credential actually works. Resolves if it does,
@@ -87,7 +88,7 @@ export interface LLMProvider {
 	 * as a bad key would tell an operator on broken wifi to go and rotate a
 	 * credential that is fine.
 	 */
-	probeCredential?(): Promise<void>
+	probeCredential?(signal?: AbortSignal): Promise<void>
 
 	/**
 	 * Is this driver able to serve traffic? A summary bit; `doctorCheck` is

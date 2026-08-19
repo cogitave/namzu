@@ -239,12 +239,16 @@ export class OllamaProvider implements LLMProvider {
 	 * can mean here. Declared so the answer comes from the driver rather than
 	 * from a listing call that happened to throw.
 	 */
-	async probeCredential(): Promise<void> {
+	async probeCredential(signal?: AbortSignal): Promise<void> {
+		signal?.throwIfAborted()
 		await this.client.list()
+		signal?.throwIfAborted()
 	}
 
-	async listModels(): Promise<ModelInfo[]> {
+	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
+		signal?.throwIfAborted()
 		const resp = await this.client.list()
+		signal?.throwIfAborted()
 		return resp.models.map((m) => ({
 			id: m.name,
 			name: m.name,

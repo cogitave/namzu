@@ -31,7 +31,16 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 
 /** Whether the probe finds a saved provider (so a session comes up). */
 let withSession = true
+let emptyDetection = false
 let exited = false
+let probeCalls = 0
+let detectedProviders: readonly DetectedProvider[]
+let writePrefs = vi.fn()
+let beginLogin: typeof import('../../integrations/providers/index.js').beginSubscriptionLogin =
+	async () => {
+		throw new Error('sign-in was not arranged by this test')
+	}
+let createSession: typeof import('../agent.js').createAgentSession
 
 const DETECTED = [
 	{
@@ -41,12 +50,57 @@ const DETECTED = [
 			defaultModel: 'a-default-model',
 			requiresApiKey: true,
 			envVars: ['A_KEY'],
+			constructible: true,
 		},
 		source: { kind: 'env', envName: 'A_KEY' },
 		apiKey: 'not-a-real-key',
 		alternatives: [],
 	} as unknown as DetectedProvider,
 ]
+
+const DETECTED_B = {
+	entry: {
+		id: 'deepseek',
+		label: 'B Provider',
+		defaultModel: 'b-default-model',
+		requiresApiKey: true,
+		envVars: ['B_KEY'],
+		constructible: true,
+	},
+	source: { kind: 'env', envName: 'B_KEY' },
+	apiKey: 'also-not-a-real-key',
+	alternatives: [],
+} as unknown as DetectedProvider
+
+function sessionFixture(providerSummary = 'a-provider', close = vi.fn()): AgentSession {
+	return {
+		hasProvider: true,
+		sandbox: { unconfined: true, enforced: [], required: [] },
+		compact: async () => null,
+		providerSummary,
+		modelSummary: 'a-model',
+		toolNames: () => [],
+		errorHint: null,
+		errorKind: null,
+		instructionFiles: [],
+		skippedInstructionFiles: [],
+		mcpConnected: [],
+		mcpFailed: [],
+		agentIds: [],
+		configNotices: [],
+		// The TUI never resumes a durable run; a stub that answered would
+		// make a resume look reachable from here.
+		resumeDurable: async () => {
+			throw new Error('not used by the TUI')
+		},
+		close,
+		approvalLatched: () => false,
+		promptExemptTools: () => [],
+		send: async function* (): AsyncIterable<AgentEvent> {
+			yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+		},
+	}
+}
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -59,43 +113,32 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 
+vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../integrations/providers/index.js')>()
+	return {
+		...actual,
+		writePreferences: (...args: Parameters<typeof actual.writePreferences>) => writePrefs(...args),
+		beginSubscriptionLogin: (
+			...args: Parameters<typeof actual.beginSubscriptionLogin>
+		): ReturnType<typeof actual.beginSubscriptionLogin> => beginLogin(...args),
+	}
+})
+
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	return {
 		...actual,
-		probeAgentSession: async () => ({
-			preferences: withSession ? PREFS : null,
-			needsRepickReason: null,
-			detected: DETECTED,
-		}),
+		probeAgentSession: async () => {
+			probeCalls += 1
+			return {
+				preferences: withSession ? PREFS : null,
+				needsRepickReason: null,
+				detected: emptyDetection ? [] : detectedProviders,
+			}
+		},
 		describeProviderModels: async () => ({ kind: 'ok' as const, models: [] }),
-		createAgentSession: async (): Promise<AgentSession> => ({
-			hasProvider: true,
-				sandbox: { unconfined: true, enforced: [], required: [] },
-				compact: async () => null,
-			providerSummary: 'a-provider',
-			modelSummary: 'a-model',
-			toolNames: () => [],
-			errorHint: null,
-			errorKind: null,
-			instructionFiles: [],
-			skippedInstructionFiles: [],
-			mcpConnected: [],
-			mcpFailed: [],
-			agentIds: [],
-			configNotices: [],
-			// The TUI never resumes a durable run; a stub that answered would
-			// make a resume look reachable from here.
-			resumeDurable: async () => {
-				throw new Error('not used by the TUI')
-			},
-			close: async () => {},
-			approvalLatched: () => false,
-			promptExemptTools: () => [],
-			send: async function* (): AsyncIterable<AgentEvent> {
-				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
-			},
-		}),
+		verifyCredential: async () => ({ kind: 'verified' as const }),
+		createAgentSession: (...args: Parameters<typeof createSession>) => createSession(...args),
 	}
 })
 
@@ -130,6 +173,14 @@ const ctx: TuiContext = { cwd: '/w', version: '0.0.0-test' }
 const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
 const mounted: { unmount: () => void }[] = []
 
+function deferred<T>() {
+	let resolve: (value: T) => void = () => {}
+	const promise = new Promise<T>((done) => {
+		resolve = done
+	})
+	return { promise, resolve }
+}
+
 /**
  * Wait for the app to ask Ink to exit, or give up.
  *
@@ -162,6 +213,14 @@ async function frameShows(
 beforeEach(() => {
 	exited = false
 	withSession = true
+	emptyDetection = false
+	probeCalls = 0
+	detectedProviders = DETECTED
+	writePrefs = vi.fn()
+	createSession = async (prefs) => sessionFixture(`${prefs.providers[0]?.id ?? 'none'}-provider`)
+	beginLogin = async () => {
+		throw new Error('sign-in was not arranged by this test')
+	}
 })
 
 afterEach(() => {
@@ -190,14 +249,154 @@ async function pickerFromModelCommand() {
 }
 
 /** First run: no saved provider, so the picker is the first screen. */
-async function pickerOnFirstRun() {
+async function pickerOnFirstRun(expected = 'Choose a provider') {
 	withSession = false
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness.lastFrame, 'Choose a provider')
-	expect(harness.lastFrame(), 'the picker never opened').toContain('Choose a provider')
+	await frameShows(harness.lastFrame, expected)
+	expect(harness.lastFrame(), 'the picker never opened').toContain(expected)
 	return harness
 }
+
+describe('publishing a picker selection', () => {
+	it('keeps the newest session when an older construction settles last', async () => {
+		withSession = false
+		detectedProviders = [...DETECTED, DETECTED_B]
+		const a = deferred<AgentSession>()
+		const b = deferred<AgentSession>()
+		const closeA = vi.fn(async () => {})
+		const closeB = vi.fn(async () => {})
+		const constructed: string[] = []
+		createSession = async (prefs) => {
+			const id = prefs.providers[0]?.id ?? 'none'
+			constructed.push(id)
+			return id === 'openai' ? a.promise : b.promise
+		}
+		const { stdin, lastFrame } = await pickerOnFirstRun()
+
+		// Start A, then back out while its session construction is still pending.
+		stdin.write('\r')
+		await frameShows(lastFrame, 'Choose a model')
+		stdin.write('\r')
+		await vi.waitFor(() => expect(constructed).toEqual(['openai']))
+		stdin.write('\x1B')
+		await frameShows(lastFrame, 'Choose a provider')
+
+		// Select B and let the newer construction publish first.
+		stdin.write('\x1B[B')
+		await tick()
+		stdin.write('\r')
+		await frameShows(lastFrame, 'Choose a model')
+		stdin.write('\r')
+		await vi.waitFor(() => expect(constructed).toEqual(['openai', 'deepseek']))
+		b.resolve(sessionFixture('b-session', closeB))
+		await frameShows(lastFrame, 'Connected to b-session')
+		expect(lastFrame()).toContain('Connected to b-session')
+
+		// A is no longer the owner. Its late object is disposed, not published over B.
+		a.resolve(sessionFixture('a-session', closeA))
+		await vi.waitFor(() => expect(closeA).toHaveBeenCalledTimes(1))
+		expect(closeB).not.toHaveBeenCalled()
+		expect(lastFrame()).toContain('Connected to b-session')
+		expect(lastFrame()).not.toContain('Connected to a-session')
+		expect(writePrefs.mock.calls.at(-1)?.[0]).toMatchObject({
+			providers: [{ id: 'deepseek' }],
+		})
+	})
+
+	it('keeps the current session when the selected session cannot be constructed', async () => {
+		detectedProviders = [...DETECTED, DETECTED_B]
+		const closeA = vi.fn(async () => {})
+		const failure = new Error('required sandbox unavailable')
+		createSession = async (prefs) => {
+			const id = prefs.providers[0]?.id
+			if (id === 'deepseek') throw failure
+			return sessionFixture('a-session', closeA)
+		}
+		const { stdin, lastFrame } = await pickerFromModelCommand()
+
+		stdin.write('\x1B[B')
+		await tick()
+		stdin.write('\r')
+		await frameShows(lastFrame, 'Choose a model')
+		stdin.write('\r')
+		await frameShows(lastFrame, failure.message)
+
+		expect(lastFrame()).toContain('Could not start the selected provider')
+		expect(lastFrame()).toContain(failure.message)
+		expect(closeA).not.toHaveBeenCalled()
+
+		// Back through the model step, then out of /model to the still-live A.
+		stdin.write('\x1B')
+		await frameShows(lastFrame, 'Choose a provider')
+		stdin.write('\x1B')
+		await frameShows(lastFrame, 'Type a message')
+		expect(lastFrame()).toContain('a-session')
+		expect(closeA).not.toHaveBeenCalled()
+	})
+
+	it('does not replace a working session with a provider-less candidate', async () => {
+		detectedProviders = [...DETECTED, DETECTED_B]
+		const closeA = vi.fn(async () => {})
+		const closeB = vi.fn(async () => {})
+		const unavailable = 'B provider is unavailable'
+		createSession = async (prefs) => {
+			const id = prefs.providers[0]?.id
+			if (id !== 'deepseek') return sessionFixture('a-session', closeA)
+			return {
+				...sessionFixture('b-session', closeB),
+				hasProvider: false,
+				errorHint: unavailable,
+			}
+		}
+		const { stdin, lastFrame } = await pickerFromModelCommand()
+
+		stdin.write('\x1B[B')
+		await tick()
+		stdin.write('\r')
+		await frameShows(lastFrame, 'Choose a model')
+		stdin.write('\r')
+		await frameShows(lastFrame, unavailable)
+
+		expect(lastFrame()).toContain(unavailable)
+		expect(closeB).toHaveBeenCalledTimes(1)
+		expect(closeA).not.toHaveBeenCalled()
+
+		stdin.write('\x1B')
+		await frameShows(lastFrame, 'Choose a provider')
+		stdin.write('\x1B')
+		await frameShows(lastFrame, 'Type a message')
+		expect(lastFrame()).toContain('a-session')
+		expect(closeA).not.toHaveBeenCalled()
+	})
+
+	it('disposes a typed-credential session when its picker operation is withdrawn', async () => {
+		withSession = false
+		emptyDetection = true
+		const candidate = deferred<AgentSession>()
+		const closeCandidate = vi.fn(async () => {})
+		let constructionStarted = false
+		createSession = async () => {
+			constructionStarted = true
+			return candidate.promise
+		}
+		const { stdin, lastFrame } = await pickerOnFirstRun('No providers detected')
+
+		stdin.write('k')
+		await frameShows(lastFrame, 'Paste a credential')
+		stdin.write('sk-ant-api03-notarealkey-0123beef')
+		await tick()
+		stdin.write('\r')
+		await vi.waitFor(() => expect(constructionStarted).toBe(true))
+
+		stdin.write('\x1B')
+		await frameShows(lastFrame, 'Choose a provider')
+		candidate.resolve(sessionFixture('late-credential-session', closeCandidate))
+		await vi.waitFor(() => expect(closeCandidate).toHaveBeenCalledTimes(1))
+
+		expect(lastFrame()).not.toContain('Connected to late-credential-session')
+	})
+})
 
 describe('cancelling the picker opened by /model', () => {
 	it('returns to the session that was already running', async () => {
@@ -239,6 +438,50 @@ describe('cancelling the picker on first run', () => {
 		await exitedWithin()
 
 		expect(exited, 'esc on the first-run picker did not exit').toBe(true)
+	})
+
+	it('cancels a sign-in whose handle arrives after the picker was left', async () => {
+		emptyDetection = true
+		let release: (login: Awaited<ReturnType<typeof beginLogin>>) => void = () => {}
+		let pickerSignal: AbortSignal | undefined
+		const pendingStart = new Promise<Awaited<ReturnType<typeof beginLogin>>>((resolve) => {
+			release = resolve
+		})
+		const cancel = vi.fn()
+		const waitForCallback = vi.fn(() =>
+			Promise.resolve({
+				ok: true as const,
+				credential: { accessToken: 'not-a-real-token' },
+				storedAt: '/not/written',
+			}),
+		)
+		beginLogin = (options = {}) => {
+			pickerSignal = options.signal
+			return pendingStart
+		}
+		const { stdin, lastFrame } = await pickerOnFirstRun('No providers detected')
+
+		await tick(80)
+		stdin.write('l')
+		await vi.waitFor(() => expect(pickerSignal).toBeDefined())
+		stdin.write('\x1B')
+		await exitedWithin()
+		expect(pickerSignal?.aborted).toBe(true)
+
+		release({
+			url: 'https://example.test/authorize',
+			redirectUri: 'http://127.0.0.1/callback',
+			loopback: true,
+			waitForCallback,
+			completeWithPastedCode: async () => ({ ok: false, reason: 'not used' }),
+			cancel,
+		})
+		await tick(80)
+
+		expect(cancel).toHaveBeenCalledTimes(1)
+		expect(waitForCallback).not.toHaveBeenCalled()
+		expect(probeCalls, 'a cancelled login re-probed the machine').toBe(1)
+		expect(lastFrame()).not.toContain('example.test')
 	})
 })
 

@@ -10,7 +10,7 @@
  *     carrying any aggregated `usage` from the last chunk that
  *     supplied one) or `provider_call_failed` (on a thrown error).
  *   - `callId` is unique per call and correlates start/completed/failed.
- *   - Optional methods (`listModels`, `healthCheck`, `doctorCheck`)
+ *   - Optional methods (`listModels`, `probeCredential`, `healthCheck`, `doctorCheck`)
  *     are forwarded when present on the inner provider.
  */
 

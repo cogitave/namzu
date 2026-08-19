@@ -192,13 +192,19 @@ describe('the credential prompt', () => {
 		await flush()
 
 		expect(onCredential).toHaveBeenCalledTimes(1)
-		const [cred, disposition] = onCredential.mock.calls[0] as [DetectedProvider, string]
+		const [cred, disposition, signal] = onCredential.mock.calls[0] as [
+			DetectedProvider,
+			string,
+			AbortSignal,
+		]
 		expect(cred.apiKey).toBe(KEY)
 		expect(cred.source).toEqual({ kind: 'session' })
 		// The sentence the operator reads afterwards says it again.
 		expect(disposition).toContain('this session only')
 		expect(disposition).not.toContain(KEY)
+		expect(signal.aborted).toBe(false)
 		unmount()
+		expect(signal.aborted).toBe(true)
 	})
 
 	it('escapes back out without keeping anything', async () => {
@@ -214,5 +220,58 @@ describe('the credential prompt', () => {
 		expect(lastFrame()).not.toContain(KEY)
 		expect(onCredential).not.toHaveBeenCalled()
 		unmount()
+	})
+
+	it('withdraws a check that was already in flight', async () => {
+		let finish: (result: { kind: 'verified' }) => void = () => {}
+		let seenSignal: AbortSignal | undefined
+		const pending = new Promise<{ kind: 'verified' }>((resolve) => {
+			finish = resolve
+		})
+		const { lastFrame, stdin, unmount, onCredential } = open({
+			verify: (_id, _credential, signal) => {
+				seenSignal = signal
+				return pending
+			},
+		})
+
+		stdin.write('k')
+		await flush()
+		stdin.write(KEY)
+		await flush()
+		stdin.write('\r')
+		await flush()
+		expect(lastFrame()).toContain('Checking')
+
+		stdin.write('\x1B')
+		await flush()
+		expect(seenSignal?.aborted).toBe(true)
+		expect(lastFrame()).toContain('No providers detected')
+
+		finish({ kind: 'verified' })
+		await flush()
+		expect(onCredential, 'a cancelled credential was accepted later').not.toHaveBeenCalled()
+		expect(lastFrame()).toContain('No providers detected')
+		unmount()
+	})
+
+	it('aborts a pending check when the picker unmounts', async () => {
+		let seenSignal: AbortSignal | undefined
+		const { stdin, unmount } = open({
+			verify: (_id, _credential, signal) => {
+				seenSignal = signal
+				return new Promise(() => {})
+			},
+		})
+
+		stdin.write('k')
+		await flush()
+		stdin.write(KEY)
+		await flush()
+		stdin.write('\r')
+		await flush()
+		unmount()
+
+		expect(seenSignal?.aborted).toBe(true)
 	})
 })

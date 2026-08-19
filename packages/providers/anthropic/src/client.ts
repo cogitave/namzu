@@ -1056,12 +1056,15 @@ export class AnthropicProvider implements LLMProvider {
 		}
 	}
 
-	async listModels(): Promise<ModelInfo[]> {
+	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
+		signal?.throwIfAborted()
 		try {
 			// Models API shipped in SDK ~0.32+. Feature-detect via unknown cast so we
 			// don't depend on the SDK's surface-level shape in a version-brittle way.
 			const clientLike = this.client as unknown as {
-				models?: { list?: (opts: { limit: number }) => Promise<unknown> }
+				models?: {
+					list?: (opts: { limit: number }, request?: { signal?: AbortSignal }) => Promise<unknown>
+				}
 			}
 			const models = clientLike.models
 			if (typeof models?.list !== 'function') {
@@ -1072,9 +1075,10 @@ export class AnthropicProvider implements LLMProvider {
 			// TypeError on EVERY call — which the catch below swallowed, so this
 			// listing never once reached the network and the hardcoded models
 			// were not a fallback but the only answer this method could give.
-			const page = (await models.list({ limit: 100 })) as {
+			const page = (await models.list({ limit: 100 }, signal ? { signal } : undefined)) as {
 				data?: Array<{ id?: string; display_name?: string; type?: string }>
 			}
+			signal?.throwIfAborted()
 			const data = page?.data ?? []
 			if (data.length === 0) return this.knownModels()
 			return data.map((m) => ({
@@ -1086,6 +1090,7 @@ export class AnthropicProvider implements LLMProvider {
 				supportsStreaming: true,
 			}))
 		} catch {
+			if (signal?.aborted) throw signal.reason
 			return this.knownModels()
 		}
 	}
@@ -1101,9 +1106,12 @@ export class AnthropicProvider implements LLMProvider {
 	 * An SDK too old to expose `models.list` throws rather than passing, so the
 	 * caller reports unverifiable — nothing was asked, so nothing is known.
 	 */
-	async probeCredential(): Promise<void> {
+	async probeCredential(signal?: AbortSignal): Promise<void> {
+		signal?.throwIfAborted()
 		const clientLike = this.client as unknown as {
-			models?: { list?: (opts: { limit: number }) => Promise<unknown> }
+			models?: {
+				list?: (opts: { limit: number }, request?: { signal?: AbortSignal }) => Promise<unknown>
+			}
 		}
 		const models = clientLike.models
 		if (typeof models?.list !== 'function') {
@@ -1112,7 +1120,8 @@ export class AnthropicProvider implements LLMProvider {
 		// Called ON the namespace. Pulling the method into a bare variable and
 		// invoking it loses `this`, and the SDK reads `this._client` — which is
 		// how the sibling `listModels` came to never execute at all.
-		await models.list({ limit: 1 })
+		await models.list({ limit: 1 }, signal ? { signal } : undefined)
+		signal?.throwIfAborted()
 	}
 
 	private knownModels(): ModelInfo[] {

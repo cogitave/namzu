@@ -311,8 +311,13 @@ export class OpenRouterProvider implements LLMProvider {
 	 * requires the credential and returns its metadata, so a 401 here means the
 	 * key is genuinely refused.
 	 */
-	async probeCredential(): Promise<void> {
-		const response = await fetch(`${this.baseUrl}/key`, { headers: this.getHeaders() })
+	async probeCredential(signal?: AbortSignal): Promise<void> {
+		signal?.throwIfAborted()
+		const response = await fetch(`${this.baseUrl}/key`, {
+			headers: this.getHeaders(),
+			...(signal ? { signal } : {}),
+		})
+		signal?.throwIfAborted()
 		if (!response.ok) {
 			const err = new Error(`Credential check failed: ${response.status}`) as Error & {
 				status?: number
@@ -374,6 +379,7 @@ export class OpenRouterProvider implements LLMProvider {
 	private contextWindows?: Map<string, number>
 
 	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
+		signal?.throwIfAborted()
 		const response = await fetch(`${this.baseUrl}/models`, {
 			headers: this.getHeaders(),
 			...(signal ? { signal } : {}),
@@ -392,6 +398,7 @@ export class OpenRouterProvider implements LLMProvider {
 				pricing?: { prompt: string; completion: string }
 			}>
 		}
+		signal?.throwIfAborted()
 
 		return data.data.map((m) => ({
 			id: m.id,

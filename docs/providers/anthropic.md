@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
 resource: packages/providers/anthropic/src/index.ts
 tags: [provider, anthropic, reference]
 ---
@@ -106,6 +106,14 @@ for await (const chunk of provider.chatStream({
 
 In practice you rarely call the driver directly — the kernel's run loop does,
 and hands you events. This is the shape when you do.
+
+## Model menu and credential probe
+
+`listModels(signal)` builds a menu and may fall back to the driver's known
+catalogue when the vendor listing is unavailable. `probeCredential(signal)` is
+separate and never uses that fallback: it must make an authenticated request or
+throw, because a menu is not evidence that a credential worked. Both optional
+signals reach the vendor request and are rechecked before a result is returned.
 
 ## Extended thinking
 

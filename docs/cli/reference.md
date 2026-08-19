@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-18T00:00:00Z
-lastReviewed: 2026-08-18
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -69,6 +69,15 @@ Inside the session, grouped by the question each one answers:
 Commands the kernel's own registry contributes are merged in beside them; a name
 claimed by both raises an error rather than letting one silently shadow the
 other.
+
+The provider picker owns the asynchronous work started by the current choice.
+Escaping, choosing again or leaving the screen cancels model discovery,
+credential verification and subscription sign-in; a result that arrives later
+cannot reopen a model list or accept a credential. Listing and verification are
+also bounded to three seconds, including custom drivers that ignore their
+cancellation signal. Cancelling subscription sign-in reaches the loopback
+listener and token exchange, and no credential is written after the attempt is
+withdrawn.
 
 **Naming a conversation is what makes `/resume` navigable.** Without a name, a
 conversation is listed by the first thing you typed in it — a reasonable default

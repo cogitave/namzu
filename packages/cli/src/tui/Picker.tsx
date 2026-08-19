@@ -8,7 +8,7 @@
  */
 
 import { Box, Text, useInput } from 'ink'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
 	ALL_PROVIDER_IDS,
@@ -34,7 +34,10 @@ export interface PickerProps {
 	readonly currentProvider?: string | null
 	/** The model in force, so re-opening starts on it rather than the default. */
 	readonly currentModel?: string | null
-	readonly onSubmit: (selection: { provider: string; model?: string }) => void
+	readonly onSubmit: (
+		selection: { provider: string; model?: string },
+		signal: AbortSignal,
+	) => void
 	readonly onCancel: () => void
 	/**
 	 * Seam for tests: how the picker asks a provider what it has.
@@ -46,12 +49,17 @@ export interface PickerProps {
 	readonly describeModels?: (
 		id: ProviderId,
 		det: DetectedProvider,
+		signal?: AbortSignal,
 	) => Promise<ModelListing>
 	/**
 	 * A credential the operator typed, with the sentence describing what was
 	 * done with it. Absent means this picker cannot take one.
 	 */
-	readonly onCredential?: (credential: DetectedProvider, disposition: string) => void
+	readonly onCredential?: (
+		credential: DetectedProvider,
+		disposition: string,
+		signal: AbortSignal,
+	) => void
 	/**
 	 * Start a subscription sign-in from this screen. Absent means this picker
 	 * cannot start one.
@@ -64,7 +72,7 @@ export interface PickerProps {
 	 * sources it scans, offered a key to paste, and said to restart, while a
 	 * working sign-in sat one unreachable keystroke away.
 	 */
-	readonly onLogin?: () => void
+	readonly onLogin?: (signal: AbortSignal) => void
 	/**
 	 * Seam for tests: how a typed key is checked. Defaulted to the real thing,
 	 * so no production caller knows this exists.
@@ -136,6 +144,44 @@ export function Picker({
 	keyEntryFor,
 	notice,
 }: PickerProps) {
+	/**
+	 * The one foreign operation still allowed to publish into this picker.
+	 *
+	 * A promise is not cancelled by unmounting the component that started it.
+	 * The generation prevents a late result from writing state or invoking an
+	 * external callback; the controller releases cooperative transports as soon
+	 * as the operator changes their mind.
+	 */
+	const operationGenerationRef = useRef(0)
+	const operationRef = useRef<{ generation: number; controller: AbortController } | null>(null)
+	const invalidateOperation = useCallback(() => {
+		operationGenerationRef.current += 1
+		operationRef.current?.controller.abort(new Error('The picker operation was cancelled.'))
+		operationRef.current = null
+	}, [])
+	const beginOperation = useCallback(() => {
+		invalidateOperation()
+		const operation = {
+			generation: operationGenerationRef.current,
+			controller: new AbortController(),
+		}
+		operationRef.current = operation
+		return operation
+	}, [invalidateOperation])
+	const ownsOperation = useCallback(
+		(operation: { generation: number; controller: AbortController }): boolean =>
+			operationRef.current === operation &&
+			operationGenerationRef.current === operation.generation &&
+			!operation.controller.signal.aborted,
+		[],
+	)
+	const finishOperation = useCallback(
+		(operation: { generation: number; controller: AbortController }) => {
+			if (operationRef.current === operation) operationRef.current = null
+		},
+		[],
+	)
+	useEffect(() => invalidateOperation, [invalidateOperation])
 	const initialIndex =
 		(currentProvider !== null && currentProvider !== undefined
 			? detected.findIndex((d) => d.entry.id === currentProvider)
@@ -179,9 +225,24 @@ export function Picker({
 		// function the session layer picks the wire header with, so the sentence
 		// on screen cannot disagree with the request that follows it.
 		const kind = classifyCredential(entry, state.value)
-		const verification = await verify(entry.id, cred)
+		const operation = beginOperation()
+		let verification: Awaited<ReturnType<typeof verify>>
+		try {
+			verification = await verify(entry.id, cred, operation.controller.signal)
+		} catch {
+			if (!ownsOperation(operation)) return
+			finishOperation(operation)
+			setKeyEntry({
+				...state,
+				status: 'typing',
+				problem: 'The credential check failed before the provider answered. Nothing was stored.',
+			})
+			return
+		}
+		if (!ownsOperation(operation)) return
 
 		if (verification.kind === 'rejected') {
+			finishOperation(operation)
 			// Stays on the screen with the key intact so a one-character typo is
 			// fixable. The reason is the provider's, never the key.
 			setKeyEntry({
@@ -191,7 +252,13 @@ export function Picker({
 			})
 			return
 		}
-		onCredential?.(cred, describeDisposition(entry, verification, kind))
+		// Keep this generation owned through App's session construction. Esc or
+		// another choice aborts it, so a late session cannot replace the newer one.
+		onCredential?.(
+			cred,
+			describeDisposition(entry, verification, kind),
+			operation.controller.signal,
+		)
 	}
 
 	useInput((input, key) => {
@@ -199,6 +266,7 @@ export function Picker({
 		// is part of a secret, so nothing here may fall through to a shortcut.
 		if (keyEntry) {
 			if (key.escape) {
+				invalidateOperation()
 				setKeyEntry(null)
 				return
 			}
@@ -236,7 +304,17 @@ export function Picker({
 		// sitting beside it — the letters do not collide, and navigation is
 		// arrows and digits.
 		if ((detected.length === 0 || keyEntryFor) && onLogin && (input === 'l' || input === 'L')) {
-			onLogin()
+			const operation = beginOperation()
+			try {
+				onLogin(operation.controller.signal)
+			} catch (error) {
+				if (ownsOperation(operation)) {
+					finishOperation(operation)
+					setErrorHint(
+						`Could not start sign-in: ${error instanceof Error ? error.message : String(error)}`,
+					)
+				}
+			}
 			return
 		}
 
@@ -247,6 +325,7 @@ export function Picker({
 		) {
 			const target = keyEntryTarget(keyEntryFor)
 			if (target) {
+				invalidateOperation()
 				setKeyEntry({ entry: target, value: '', status: 'typing' })
 			} else {
 				setErrorHint('No provider here takes a typed credential.')
@@ -258,9 +337,11 @@ export function Picker({
 			// From the model step, back to the provider list rather than out of
 			// the picker: escape should undo one decision, not two.
 			if (modelPhase) {
+				invalidateOperation()
 				setModelPhase(null)
 				return
 			}
+			invalidateOperation()
 			onCancel()
 			return
 		}
@@ -282,7 +363,11 @@ export function Picker({
 					setErrorHint('No model available.')
 					return
 				}
-				onSubmit({ provider: modelPhase.provider.entry.id, model: chosen.id })
+				const operation = beginOperation()
+				onSubmit(
+					{ provider: modelPhase.provider.entry.id, model: chosen.id },
+					operation.controller.signal,
+				)
 				return
 			}
 			const n = Number.parseInt(input, 10)
@@ -316,13 +401,28 @@ export function Picker({
 			// Ask the provider what it has, then show the model step. The list is
 			// raced against 3s inside `describeProviderModels`, so this resolves
 			// either way and the step always has at least the default.
+			const operation = beginOperation()
 			setModelPhase({ provider: current, step: undefined })
 			setCursor(0)
-			void describeModels(current.entry.id, current).then((listing) => {
-				const step = modelStep(current.entry.defaultModel, listing, currentModel ?? undefined)
-				setModelPhase({ provider: current, step })
-				setCursor(step.initialIndex)
-			})
+			void describeModels(current.entry.id, current, operation.controller.signal)
+				.then((listing) => {
+					if (!ownsOperation(operation)) return
+					finishOperation(operation)
+					const step = modelStep(current.entry.defaultModel, listing, currentModel ?? undefined)
+					setModelPhase({ provider: current, step })
+					setCursor(step.initialIndex)
+				})
+				.catch((error: unknown) => {
+					if (!ownsOperation(operation)) return
+					finishOperation(operation)
+					const step = modelStep(
+						current.entry.defaultModel,
+						{ kind: 'failed', reason: error instanceof Error ? error.message : String(error) },
+						currentModel ?? undefined,
+					)
+					setModelPhase({ provider: current, step })
+					setCursor(step.initialIndex)
+				})
 			return
 		}
 		// Numeric quick-select.
@@ -387,12 +487,15 @@ export function Picker({
 
 	if (modelPhase) {
 		return (
-			<ModelStepView
-				providerLabel={modelPhase.provider.entry.label}
-				step={modelPhase.step}
-				cursor={cursor}
-				errorHint={errorHint}
-			/>
+			<Box flexDirection="column">
+				{noticeBox}
+				<ModelStepView
+					providerLabel={modelPhase.provider.entry.label}
+					step={modelPhase.step}
+					cursor={cursor}
+					errorHint={errorHint}
+				/>
+			</Box>
 		)
 	}
 

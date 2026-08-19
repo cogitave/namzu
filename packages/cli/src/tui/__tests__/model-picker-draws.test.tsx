@@ -131,7 +131,10 @@ describe('the model step', () => {
 
 		expect(onSubmit).toHaveBeenCalledTimes(1)
 		expect(onSubmit.mock.calls[0]?.[0]).toEqual({ provider: 'openai', model: 'model-two' })
+		const signal = onSubmit.mock.calls[0]?.[1] as AbortSignal
+		expect(signal.aborted).toBe(false)
 		unmount()
+		expect(signal.aborted).toBe(true)
 	})
 })
 
@@ -185,6 +188,77 @@ describe('while the list is still loading', () => {
 		await flush()
 		expect(lastFrame()).toContain('Model One')
 		unmount()
+	})
+
+	it('does not reopen after escape when the old listing arrives', async () => {
+		let release: (value: ModelListing) => void = () => {}
+		let seenSignal: AbortSignal | undefined
+		const pending = new Promise<ModelListing>((resolve) => {
+			release = resolve
+		})
+		const { lastFrame, stdin, unmount } = open({
+			describeModels: (_id, _detected, signal) => {
+				seenSignal = signal
+				return pending
+			},
+		})
+
+		stdin.write('\r')
+		await flush()
+		stdin.write('\x1B')
+		await flush()
+		expect(seenSignal?.aborted).toBe(true)
+		expect(lastFrame()).toContain('Choose a provider')
+
+		release(listing)
+		await flush()
+		expect(lastFrame()).toContain('Choose a provider')
+		expect(lastFrame()).not.toContain('Choose a model')
+		unmount()
+	})
+
+	it('lets the newest listing publish when an older one settles last', async () => {
+		const releases: Array<(value: ModelListing) => void> = []
+		const signals: AbortSignal[] = []
+		const { lastFrame, stdin, unmount } = open({
+			describeModels: (_id, _detected, signal) => {
+				if (signal) signals.push(signal)
+				return new Promise<ModelListing>((resolve) => releases.push(resolve))
+			},
+		})
+
+		stdin.write('\r')
+		await flush()
+		stdin.write('\x1B')
+		await flush()
+		stdin.write('\r')
+		await flush()
+		expect(signals[0]?.aborted).toBe(true)
+		expect(signals[1]?.aborted).toBe(false)
+
+		releases[1]?.({ kind: 'ok', models: [{ id: 'new-model', name: 'Newest Model' }] })
+		await flush()
+		expect(lastFrame()).toContain('Newest Model')
+
+		releases[0]?.({ kind: 'ok', models: [{ id: 'old-model', name: 'Old Model' }] })
+		await flush()
+		expect(lastFrame()).toContain('Newest Model')
+		expect(lastFrame()).not.toContain('Old Model')
+		unmount()
+	})
+
+	it('aborts listing when the picker unmounts', async () => {
+		let seenSignal: AbortSignal | undefined
+		const { stdin, unmount } = open({
+			describeModels: (_id, _detected, signal) => {
+				seenSignal = signal
+				return new Promise(() => {})
+			},
+		})
+		stdin.write('\r')
+		await flush()
+		unmount()
+		expect(seenSignal?.aborted).toBe(true)
 	})
 })
 

@@ -198,8 +198,12 @@ export function withStreamIdleTimeout(
 			return provider.retryDefaults
 		},
 		chatStream,
-		...(provider.listModels ? { listModels: () => provider.listModels?.() } : {}),
-		...(provider.probeCredential ? { probeCredential: () => provider.probeCredential?.() } : {}),
+		...(provider.listModels
+			? { listModels: (signal?: AbortSignal) => provider.listModels?.(signal) }
+			: {}),
+		...(provider.probeCredential
+			? { probeCredential: (signal?: AbortSignal) => provider.probeCredential?.(signal) }
+			: {}),
 		...(provider.healthCheck
 			? { healthCheck: (model?: string) => provider.healthCheck?.(model) }
 			: {}),

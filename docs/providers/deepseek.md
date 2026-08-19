@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
 resource: packages/providers/deepseek/src/client.ts
 tags: [provider, deepseek, reasoning, reference]
 ---
@@ -52,6 +52,9 @@ pnpm add @namzu/sdk @namzu/deepseek
 `deepseek-chat` and `deepseek-reasoner` were **discontinued on 2026-07-24**.
 They are not aliases any more; a config carrying either resolves to nothing.
 The live model listing returns exactly the two names above.
+Both that listing and the authenticated credential probe accept an optional
+`AbortSignal`, which is passed to the underlying request and rechecked before a
+result is published.
 
 ## Thinking mode
 

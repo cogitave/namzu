@@ -1404,6 +1404,50 @@ export type ModelListing =
 	| { readonly kind: 'timeout' }
 	| { readonly kind: 'failed'; readonly reason: string }
 
+const PICKER_PROVIDER_DEADLINE_MS = 3_000
+
+class PickerProviderTimeoutError extends Error {
+	constructor() {
+		super(`The provider did not answer within ${PICKER_PROVIDER_DEADLINE_MS}ms.`)
+		this.name = 'PickerProviderTimeoutError'
+	}
+}
+
+/** Bound a picker side-call even when a third-party provider ignores abort. */
+async function runPickerProviderOperation<T>(
+	signal: AbortSignal | undefined,
+	operation: (operationSignal: AbortSignal) => Promise<T>,
+): Promise<T> {
+	signal?.throwIfAborted()
+	const controller = new AbortController()
+	const timeoutCause = new PickerProviderTimeoutError()
+	let rejectBoundary: (cause: unknown) => void = () => {}
+	const boundary = new Promise<never>((_resolve, reject) => {
+		rejectBoundary = reject
+	})
+	const onCallerAbort = () => {
+		controller.abort(signal?.reason)
+		rejectBoundary(signal?.reason)
+	}
+	signal?.addEventListener('abort', onCallerAbort, { once: true })
+	const timer = setTimeout(() => {
+		controller.abort(timeoutCause)
+		rejectBoundary(timeoutCause)
+	}, PICKER_PROVIDER_DEADLINE_MS)
+
+	try {
+		return await Promise.race([operation(controller.signal), boundary])
+	} catch (error) {
+		// Cooperative transports may replace the owner cause with AbortError.
+		if (signal?.aborted) throw signal.reason
+		if (controller.signal.aborted && controller.signal.reason === timeoutCause) throw timeoutCause
+		throw error
+	} finally {
+		clearTimeout(timer)
+		signal?.removeEventListener('abort', onCallerAbort)
+	}
+}
+
 /**
  * Ask a detected provider what models it has.
  *
@@ -1413,25 +1457,28 @@ export type ModelListing =
 export async function describeProviderModels(
 	id: ProviderId,
 	det: DetectedProvider,
+	signal?: AbortSignal,
 ): Promise<ModelListing> {
 	try {
+		signal?.throwIfAborted()
 		// constructProvider calls ProviderRegistry.create, which throws
 		// "Unsupported provider type" until the vendor package has registered
 		// itself. The run path registers lazily via ensureRegistered; the
 		// listing path must do the same or every provider returns nothing.
 		await ensureRegistered(id)
+		signal?.throwIfAborted()
 		const provider = constructProvider(id, det, det.entry.defaultModel)
 		if (typeof provider.listModels !== 'function') return { kind: 'unsupported' }
 
-		const TIMEOUT = Symbol('timeout')
-		const timeout = new Promise<typeof TIMEOUT>((resolve) =>
-			setTimeout(() => resolve(TIMEOUT), 3000),
+		const models = await runPickerProviderOperation(
+			signal,
+			(operationSignal) => provider.listModels?.(operationSignal) ?? Promise.resolve([]),
 		)
-		const models = await Promise.race([provider.listModels(), timeout])
-		if (models === TIMEOUT) return { kind: 'timeout' }
 
 		return { kind: 'ok', models: models.map((m) => ({ id: m.id, name: m.name || m.id })) }
 	} catch (err) {
+		if (signal?.aborted) throw signal.reason
+		if (err instanceof PickerProviderTimeoutError) return { kind: 'timeout' }
 		return { kind: 'failed', reason: err instanceof Error ? err.message : String(err) }
 	}
 }
@@ -1439,11 +1486,11 @@ export async function describeProviderModels(
 /**
  * Check a key the operator just typed, without spending a turn.
  *
- * Uses the provider's own `listModels` where it has one: a successful listing
- * is proof the credential authenticates, and it costs nothing. A driver without
+ * Uses the provider's declared `probeCredential` operation. A driver without
  * one cannot be checked cheaply, and that is reported as `unverifiable` rather
  * than dressed up as success — claiming a check that did not happen is the
- * failure this whole surface is built to avoid.
+ * failure this whole surface is built to avoid. A model catalogue is
+ * deliberately not substituted: a menu is not evidence that a key worked.
  *
  * The key never appears in the returned reason. Provider errors are passed
  * through, and a driver that echoes a credential into its own error message
@@ -1453,9 +1500,12 @@ export async function describeProviderModels(
 export async function verifyCredential(
 	id: ProviderId,
 	det: DetectedProvider,
+	signal?: AbortSignal,
 ): Promise<{ kind: 'verified' } | { kind: 'unverifiable' } | { kind: 'rejected'; reason: string }> {
 	try {
+		signal?.throwIfAborted()
 		await ensureRegistered(id)
+		signal?.throwIfAborted()
 		const provider = constructProvider(id, det, det.entry.defaultModel)
 		// Declared, never inferred. A driver without a probe is unverifiable —
 		// including one added years from now by someone who never reads this.
@@ -1464,9 +1514,14 @@ export async function verifyCredential(
 		// behind a hardcoded catalogue and one because its listing endpoint does
 		// not authenticate at all.
 		if (typeof provider.probeCredential !== 'function') return { kind: 'unverifiable' }
-		await provider.probeCredential()
+		await runPickerProviderOperation(
+			signal,
+			(operationSignal) => provider.probeCredential?.(operationSignal) ?? Promise.resolve(),
+		)
 		return { kind: 'verified' }
 	} catch (err) {
+		if (signal?.aborted) throw signal.reason
+		if (err instanceof PickerProviderTimeoutError) return { kind: 'unverifiable' }
 		// The server answered and said no, versus nothing was learned. Collapsing
 		// these would tell an operator on broken wifi to rotate a key that is fine.
 		if (isCredentialRejection(err)) {

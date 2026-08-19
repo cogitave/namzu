@@ -1,5 +1,10 @@
 ---
 '@namzu/sdk': major
+'@namzu/cli': patch
+'@namzu/anthropic': patch
+'@namzu/deepseek': patch
+'@namzu/ollama': patch
+'@namzu/openai': patch
 '@namzu/openrouter': patch
 ---
 
@@ -133,3 +138,16 @@ failure no longer marks a Streamable client connection-wide errored or rejects
 unrelated concurrent calls. `MCPTransport.send` now accepts optional
 `MCPTransportSendOptions`; custom transports should refuse pre-aborted work and
 stop their per-send I/O when its signal fires.
+
+Provider model listings and credential probes now accept optional cancellation
+signals. Retry, fallback, stream-idle and instrumentation decorators preserve
+that authority, and every bundled CLI driver forwards it to the underlying
+transport where supported or refuses a result that arrived after cancellation.
+Existing zero-argument provider implementations remain valid.
+
+The interactive provider picker now cancels model discovery, credential checks
+and subscription sign-in when the operator backs out, supersedes the work, or
+leaves the screen. Late results cannot reopen an old model step, accept a
+credential, re-probe the application, or persist a subscription credential
+after cancellation. Model listing and credential probing both settle after a
+three-second bound even when a custom provider ignores its signal.

@@ -383,12 +383,16 @@ export class OpenAIProvider implements LLMProvider {
 	 * question has to say so — otherwise it is reported unverifiable, which is
 	 * the honest default and would be a regression here.
 	 */
-	async probeCredential(): Promise<void> {
-		await this.client.models.list()
+	async probeCredential(signal?: AbortSignal): Promise<void> {
+		signal?.throwIfAborted()
+		await this.client.models.list(signal ? { signal } : undefined)
+		signal?.throwIfAborted()
 	}
 
-	async listModels(): Promise<ModelInfo[]> {
-		const page = await this.client.models.list()
+	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
+		signal?.throwIfAborted()
+		const page = await this.client.models.list(signal ? { signal } : undefined)
+		signal?.throwIfAborted()
 		return page.data.map((m) => ({
 			id: m.id,
 			name: m.id,

@@ -101,6 +101,8 @@ export interface SubscriptionLoginOptions {
 	 * container — passes false and skips a bind that would only ever time out.
 	 */
 	readonly loopback?: boolean
+	/** Authority of the surface that started this attempt. */
+	readonly signal?: AbortSignal
 }
 
 /**
@@ -115,6 +117,12 @@ export interface SubscriptionLoginOptions {
 export async function beginSubscriptionLogin(
 	options: SubscriptionLoginOptions = {},
 ): Promise<SubscriptionLogin> {
+	options.signal?.throwIfAborted()
+	const cancelController = new AbortController()
+	const attemptSignal = options.signal
+		? AbortSignal.any([options.signal, cancelController.signal])
+		: cancelController.signal
+	const exchangeOptions: SubscriptionLoginOptions = { ...options, signal: attemptSignal }
 	const verifier = base64Url(randomBytes(32))
 	const challenge = base64Url(createHash('sha256').update(verifier).digest())
 	// An independent value, not the verifier reused.
@@ -126,7 +134,8 @@ export async function beginSubscriptionLogin(
 	// the verifier.
 	const state = base64Url(randomBytes(16))
 
-	const listener = options.loopback === false ? null : await openLoopback(state)
+	const listener = options.loopback === false ? null : await openLoopback(state, attemptSignal)
+	attemptSignal.throwIfAborted()
 
 	let settled = false
 	const exchangeOnce = async (code: string, seenState: string): Promise<LoginOutcome> => {
@@ -139,7 +148,7 @@ export async function beginSubscriptionLogin(
 			}
 		}
 		settled = true
-		return exchange(code, state, verifier, options)
+		return exchange(code, state, verifier, exchangeOptions)
 	}
 
 	return {
@@ -173,7 +182,10 @@ export async function beginSubscriptionLogin(
 			}
 			return exchangeOnce(parsed.code, parsed.state ?? state)
 		},
-		cancel: () => listener?.close(),
+		cancel: () => {
+			cancelController.abort(new Error('The sign-in attempt was cancelled.'))
+			listener?.close()
+		},
 	}
 }
 
@@ -219,6 +231,29 @@ function authorizeUrl(challenge: string, state: string): string {
 }
 
 /**
+ * Bound a foreign promise even when its implementation ignores `signal`.
+ *
+ * Supplying an AbortSignal to fetch is only a cooperation request. A custom
+ * transport or response body can keep its promise pending after abort, so the
+ * caller also owns this independent settlement boundary.
+ */
+async function awaitWithSignal<T>(operation: PromiseLike<T>, signal: AbortSignal): Promise<T> {
+	signal.throwIfAborted()
+	let rejectAbort: (reason: unknown) => void = () => {}
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject
+	})
+	const onAbort = () => rejectAbort(signal.reason)
+	signal.addEventListener('abort', onAbort, { once: true })
+	if (signal.aborted) onAbort()
+	try {
+		return await Promise.race([operation, aborted])
+	} finally {
+		signal.removeEventListener('abort', onAbort)
+	}
+}
+
+/**
  * Exchange the code, and store the result only once it is whole.
  *
  * The store write is the LAST thing. A response missing an access token, a
@@ -231,23 +266,39 @@ async function exchange(
 	verifier: string,
 	options: SubscriptionLoginOptions,
 ): Promise<LoginOutcome> {
+	const cancelled = (): LoginOutcome => ({
+		ok: false,
+		reason: 'The sign-in was cancelled before it could be stored. Nothing was stored.',
+	})
+	if (options.signal?.aborted) return cancelled()
 	const fetchFn = options.fetch ?? globalThis.fetch
+	const deadline = AbortSignal.timeout(30_000)
+	const requestSignal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline
+	const timedOut = (): LoginOutcome => ({
+		ok: false,
+		reason: 'The sign-in service did not answer within 30 seconds. Nothing was stored.',
+	})
 	let res: Response
 	try {
-		res = await fetchFn(OAUTH_TOKEN_URL, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json', accept: 'application/json' },
-			body: JSON.stringify({
-				grant_type: 'authorization_code',
-				client_id: OAUTH_CLIENT_ID,
-				code,
-				state,
-				redirect_uri: REDIRECT_URI,
-				code_verifier: verifier,
+		res = await awaitWithSignal(
+			fetchFn(OAUTH_TOKEN_URL, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				body: JSON.stringify({
+					grant_type: 'authorization_code',
+					client_id: OAUTH_CLIENT_ID,
+					code,
+					state,
+					redirect_uri: REDIRECT_URI,
+					code_verifier: verifier,
+				}),
+				signal: requestSignal,
 			}),
-			signal: AbortSignal.timeout(30_000),
-		})
+			requestSignal,
+		)
 	} catch (err) {
+		if (options.signal?.aborted) return cancelled()
+		if (deadline.aborted) return timedOut()
 		// The MESSAGE of a transport error is safe (a hostname, a timeout); the
 		// body of a response is not, and there is none here.
 		return {
@@ -255,6 +306,7 @@ async function exchange(
 			reason: `Could not reach the sign-in service (${err instanceof Error ? err.message : String(err)}). Nothing was stored.`,
 		}
 	}
+	if (options.signal?.aborted) return cancelled()
 	if (!res.ok) {
 		// The status, never the body. A token endpoint answers failures with a
 		// document that can contain the very thing this module must not leak.
@@ -265,14 +317,17 @@ async function exchange(
 	}
 	let data: { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown }
 	try {
-		data = (await res.json()) as typeof data
+		data = (await awaitWithSignal(res.json(), requestSignal)) as typeof data
 	} catch {
+		if (options.signal?.aborted) return cancelled()
+		if (deadline.aborted) return timedOut()
 		return {
 			ok: false,
 			reason:
 				'The sign-in service answered with something that is not a token. Nothing was stored.',
 		}
 	}
+	if (options.signal?.aborted) return cancelled()
 	if (typeof data.access_token !== 'string' || data.access_token.length === 0) {
 		return {
 			ok: false,
@@ -290,6 +345,10 @@ async function exchange(
 	}
 	let storedAt: string
 	try {
+		// The last foreign await was response-body parsing. Re-check ownership at
+		// the durable boundary so a surface that withdrew the attempt cannot get
+		// a credential file later. The synchronous write is the success terminal.
+		if (options.signal?.aborted) return cancelled()
 		storedAt = writeStoredSubscriptionCredential(credential, options.home)
 	} catch (err) {
 		// The store refused to prove the file private, so there is no file. Say
@@ -315,7 +374,8 @@ interface Loopback {
  * is no loopback interface. None of those is fatal, because the paste path
  * does not need this.
  */
-async function openLoopback(expectedState: string): Promise<Loopback | null> {
+async function openLoopback(expectedState: string, signal?: AbortSignal): Promise<Loopback | null> {
+	signal?.throwIfAborted()
 	let settle: (v: { code: string; state: string; error?: string } | null) => void = () => {}
 	const received = new Promise<{ code: string; state: string; error?: string } | null>((r) => {
 		let done = false
@@ -357,19 +417,52 @@ async function openLoopback(expectedState: string): Promise<Loopback | null> {
 		settle({ code, state })
 	})
 
-	const bound = await new Promise<boolean>((resolve) => {
-		server.once('error', () => resolve(false))
-		server.listen(SUBSCRIPTION_REDIRECT_PORT, '127.0.0.1', () => resolve(true))
+	let bindOwned = true
+	let closeOwned = false
+	let abortBind: (() => void) | undefined
+	const close = () => {
+		if (closeOwned) return
+		closeOwned = true
+		settle(null)
+		try {
+			server.close()
+		} catch {
+			// A cancellation can win before `listen()` owns a handle. There is no
+			// resource to close in that branch, and the bind promise is rejected.
+		}
+	}
+	const bound = await new Promise<boolean>((resolve, reject) => {
+		const finish = (value: boolean) => {
+			if (!bindOwned) return
+			bindOwned = false
+			resolve(value)
+		}
+		abortBind = () => {
+			if (!bindOwned) return
+			bindOwned = false
+			close()
+			reject(signal?.reason)
+		}
+		signal?.addEventListener('abort', abortBind, { once: true })
+		server.once('error', () => finish(false))
+		server.listen(SUBSCRIPTION_REDIRECT_PORT, '127.0.0.1', () => finish(true))
+		if (signal?.aborted) abortBind()
 	})
+	if (abortBind) signal?.removeEventListener('abort', abortBind)
 	if (!bound) {
-		server.close()
+		close()
 		return null
 	}
+	if (signal?.aborted) {
+		close()
+		throw signal.reason
+	}
+	signal?.addEventListener('abort', close, { once: true })
 	return {
 		received,
 		close: () => {
-			settle(null)
-			server.close()
+			signal?.removeEventListener('abort', close)
+			close()
 		},
 	}
 }

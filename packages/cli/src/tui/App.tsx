@@ -415,7 +415,15 @@ export function App({ ctx }: AppProps) {
 	 * which the code that comes back cannot be exchanged for anything.
 	 */
 	const loginRef = useRef<SubscriptionLogin | null>(null)
-	const runProbeRef = useRef<(() => Promise<void>) | null>(null)
+	const loginAbortCleanupRef = useRef<(() => void) | null>(null)
+	const cancelPendingLogin = useCallback(() => {
+		loginAbortCleanupRef.current?.()
+		loginAbortCleanupRef.current = null
+		loginRef.current?.cancel()
+		loginRef.current = null
+	}, [])
+	const runProbeRef = useRef<((signal?: AbortSignal) => Promise<void>) | null>(null)
+	useEffect(() => cancelPendingLogin, [cancelPendingLogin])
 	/**
 	 * The session currently holding resources, so a re-hydration can release the
 	 * one it replaces. A `/model` switch builds a new session, and a tool
@@ -662,8 +670,14 @@ export function App({ ctx }: AppProps) {
 	}, [ctx.cwd])
 
 	const hydrateSession = useCallback(
-		async (prefs: Preferences, detectedNow: readonly DetectedProvider[]) => {
+		async (
+			prefs: Preferences,
+			detectedNow: readonly DetectedProvider[],
+			signal?: AbortSignal,
+		) => {
+			if (signal?.aborted) return
 			const scope = await ensureSessions()
+			if (signal?.aborted) return
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: ctx.cwd,
@@ -672,6 +686,20 @@ export function App({ ctx }: AppProps) {
 				...(ctx.mcpServers ? { mcpServers: ctx.mcpServers } : {}),
 				...(ctx.sandbox ? { sandbox: ctx.sandbox } : {}),
 			})
+			if (signal?.aborted) {
+				void s.close()
+				return
+			}
+			if (signal !== undefined && !s.hasProvider) {
+				const reason = s.errorHint ?? 'The selected provider could not start.'
+				try {
+					await s.close()
+				} catch {
+					// The construction refusal is the actionable cause. A failed cleanup
+					// must not turn it into a commit of this unusable candidate.
+				}
+				throw new Error(reason)
+			}
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
 			// for the rest of the TUI's life.
@@ -773,13 +801,14 @@ export function App({ ctx }: AppProps) {
 				const outcome = await pending.completeWithPastedCode(pasted)
 				pending.cancel()
 				loginRef.current = null
+				loginAbortCleanupRef.current?.()
+				loginAbortCleanupRef.current = null
 				pushMessage('system', describeLoginOutcome(outcome))
 				if (outcome.ok) await runProbeRef.current?.()
 				return
 			}
 
-			loginRef.current?.cancel()
-			loginRef.current = null
+			cancelPendingLogin()
 			let start: SubscriptionLogin
 			try {
 				start = await beginSubscriptionLogin()
@@ -807,6 +836,8 @@ export function App({ ctx }: AppProps) {
 			const outcome = await waiting
 			if (loginRef.current !== start) return // superseded, or finished by paste
 			loginRef.current = null
+			loginAbortCleanupRef.current?.()
+			loginAbortCleanupRef.current = null
 			start.cancel()
 			// A cancelled listener resolves to a refusal, and saying "sign-in
 			// failed" when the operator finished it another way would be a lie
@@ -815,7 +846,7 @@ export function App({ ctx }: AppProps) {
 			pushMessage('system', describeLoginOutcome(outcome))
 			if (outcome.ok) await runProbeRef.current?.()
 		},
-		[pushMessage],
+		[cancelPendingLogin, pushMessage],
 	)
 
 	/**
@@ -833,19 +864,36 @@ export function App({ ctx }: AppProps) {
 	 * no-browser case is handed to `namzu login`, which reads the pasted
 	 * address from standard input and exists for exactly that machine.
 	 */
-	const startLoginFromPicker = useCallback(async () => {
-		loginRef.current?.cancel()
-		loginRef.current = null
+	const startLoginFromPicker = useCallback(async (signal: AbortSignal) => {
+		if (signal.aborted) return
+		cancelPendingLogin()
 		let start: SubscriptionLogin
 		try {
-			start = await beginSubscriptionLogin()
+			start = await beginSubscriptionLogin({ signal })
 		} catch (err) {
+			if (signal.aborted) return
 			setPickerNotice(
 				`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
 			)
 			return
 		}
+		if (signal.aborted) {
+			start.cancel()
+			return
+		}
 		loginRef.current = start
+		const cancelForPicker = () => {
+			if (loginRef.current === start) loginRef.current = null
+			if (loginAbortCleanupRef.current === cleanup) loginAbortCleanupRef.current = null
+			start.cancel()
+		}
+		const cleanup = () => signal.removeEventListener('abort', cancelForPicker)
+		loginAbortCleanupRef.current = cleanup
+		signal.addEventListener('abort', cancelForPicker, { once: true })
+		if (signal.aborted) {
+			cancelForPicker()
+			return
+		}
 		setPickerNotice(
 			describeLoginStart({
 				url: start.url,
@@ -861,17 +909,21 @@ export function App({ ctx }: AppProps) {
 		const waiting = start.waitForCallback()
 		if (!waiting) return
 		const outcome = await waiting
-		if (loginRef.current !== start) return
+		if (loginRef.current !== start || signal.aborted) return
 		loginRef.current = null
+		cleanup()
+		loginAbortCleanupRef.current = null
 		start.cancel()
 		if (!outcome.ok && outcome.reason.includes('cancelled')) return
 		setPickerNotice(describeLoginOutcome(outcome))
-		if (outcome.ok) await runProbeRef.current?.()
-	}, [])
+		if (outcome.ok) await runProbeRef.current?.(signal)
+	}, [cancelPendingLogin])
 
-	const runProbe = useCallback(async () => {
+	const runProbe = useCallback(async (signal?: AbortSignal) => {
 		try {
+			if (signal?.aborted) return
 			const probe = await probeAgentSession()
+			if (signal?.aborted) return
 			setDetected(probe.detected)
 			if (probe.needsRepickReason) {
 				pushMessage('system', probe.needsRepickReason)
@@ -897,11 +949,12 @@ export function App({ ctx }: AppProps) {
 				return
 			}
 			if (probe.preferences) {
-				await hydrateSession(probe.preferences, probe.detected)
+				await hydrateSession(probe.preferences, probe.detected, signal)
 				return
 			}
 			setPhase('picker')
 		} catch (err) {
+			if (signal?.aborted) return
 			setPhase('unhealthy')
 			pushMessage(
 				'system',
@@ -2799,6 +2852,27 @@ export function App({ ctx }: AppProps) {
 		})
 	}, [phase, ctx.version, pushMessage])
 
+	const hydrateFromPicker = useCallback(
+		async (
+			prefs: Preferences,
+			detectedNow: readonly DetectedProvider[],
+			signal: AbortSignal,
+		): Promise<void> => {
+			try {
+				await hydrateSession(prefs, detectedNow, signal)
+			} catch (err) {
+				// A superseded choice no longer owns even its failure message. Its
+				// eventual session object is disposed inside `hydrateSession`; a live
+				// choice stays on the picker with the actionable construction error.
+				if (signal.aborted) return
+				setPickerNotice(
+					`Could not start the selected provider: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		},
+		[hydrateSession],
+	)
+
 	/**
 	 * A credential the operator typed. Held in memory for this process only.
 	 *
@@ -2808,7 +2882,7 @@ export function App({ ctx }: AppProps) {
 	 * a preference pointing at a credential that will not exist next launch.
 	 */
 	const handleTypedCredential = useCallback(
-		(credential: DetectedProvider, disposition: string) => {
+		(credential: DetectedProvider, disposition: string, signal: AbortSignal) => {
 			const next = [credential, ...detected.filter((d) => d.entry.id !== credential.entry.id)]
 			setDetected(next)
 			setKeyEntryFor(null)
@@ -2830,13 +2904,13 @@ export function App({ ctx }: AppProps) {
 							providers: [{ id: credential.entry.id as ProviderId }],
 							subagents: { active: [] },
 						}
-			void hydrateSession(prefs, next)
+			void hydrateFromPicker(prefs, next, signal)
 		},
-		[detected, hydrateSession, pushMessage],
+		[detected, hydrateFromPicker, pushMessage],
 	)
 
 	const handlePickerSubmit = useCallback(
-		(selection: { provider: string; model?: string }) => {
+		(selection: { provider: string; model?: string }, signal: AbortSignal) => {
 			// One member for now. The picker builds a longer chain in a later
 			// change; the shape it writes into is already the chain.
 			const prefs: Preferences = {
@@ -2860,9 +2934,9 @@ export function App({ ctx }: AppProps) {
 				)
 				return
 			}
-			void hydrateSession(prefs, detected)
+			void hydrateFromPicker(prefs, detected, signal)
 		},
-		[detected, hydrateSession, pushMessage],
+		[detected, hydrateFromPicker, pushMessage],
 	)
 
 	/**
@@ -3106,7 +3180,7 @@ export function App({ ctx }: AppProps) {
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
 						onCredential={handleTypedCredential}
-						onLogin={() => void startLoginFromPicker()}
+						onLogin={(signal) => void startLoginFromPicker(signal)}
 						keyEntryFor={keyEntryFor}
 						notice={pickerNotice}
 					/>

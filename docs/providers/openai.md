@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
 resource: packages/providers/openai/src/index.ts
 tags: [provider, openai, reference]
 ---
@@ -273,6 +273,10 @@ the concrete class. `doctorCheck`, `effortLevelsFor` and `resolveContextWindow` 
 not implemented here, and are absent rather than stubbed — the runtime tells
 "this driver cannot answer" from "it answered nothing", and a stub would
 destroy that distinction.
+
+`listModels` and `probeCredential` both accept an optional `AbortSignal` and
+pass it to the vendor request. Provider decorators preserve that same signal,
+so a picker or host that withdraws the side-call also closes its transport.
 
 ## OpenAI-compatible endpoints
 

@@ -199,7 +199,9 @@ import type { OpenRouterProvider } from '@namzu/openrouter'
 
 declare const driver: OpenRouterProvider
 
-await driver.probeCredential() // resolves if the key is accepted, throws if not
+const controller = new AbortController()
+await driver.probeCredential(controller.signal)
+// resolves if the key is accepted, throws if not
 ```
 
 It calls `GET /key`, which requires the credential. The obvious alternative was
@@ -208,7 +210,8 @@ whatsoever — a typo, the wrong clipboard entry, a revoked key — came back wi
 the full catalogue and was reported as verified. Nothing was wrong with the
 menu; a menu was simply never evidence about a key. The thrown error carries the
 HTTP `status`, so a caller can separate a genuine `401` from a timeout that
-taught it nothing.
+taught it nothing. The optional signal is passed to `GET /key`, just as the
+listing signal is passed to `GET /models`.
 
 ## Configuration
 

@@ -249,7 +249,12 @@ export function withProviderRetry(
 			return provider.capabilities
 		},
 		chatStream,
-		...(provider.listModels ? { listModels: () => provider.listModels?.() } : {}),
+		...(provider.listModels
+			? { listModels: (signal?: AbortSignal) => provider.listModels?.(signal) }
+			: {}),
+		...(provider.probeCredential
+			? { probeCredential: (signal?: AbortSignal) => provider.probeCredential?.(signal) }
+			: {}),
 		// The model is forwarded, not dropped. A wrapper that swallowed it would
 		// leave the wrapped driver probing whatever it probes with no argument
 		// — which for at least one driver is "nothing", so the check would come

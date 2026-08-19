@@ -43,6 +43,7 @@ export function wrapProviderWithProbes(
 		id: provider.id,
 		name: provider.name,
 		listModels: provider.listModels?.bind(provider),
+		probeCredential: provider.probeCredential?.bind(provider),
 		healthCheck: provider.healthCheck?.bind(provider),
 
 		async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

@@ -382,7 +382,12 @@ export function withProviderFallback(
 			return first.provider.capabilities
 		},
 		chatStream,
-		...(first.provider.listModels ? { listModels: () => first.provider.listModels?.() } : {}),
+		...(first.provider.listModels
+			? { listModels: (signal?: AbortSignal) => first.provider.listModels?.(signal) }
+			: {}),
+		...(first.provider.probeCredential
+			? { probeCredential: (signal?: AbortSignal) => first.provider.probeCredential?.(signal) }
+			: {}),
 		// Forwarded for the reason `retry.ts` forwards it: a wrapper that drops
 		// the model turns a probe the caller could answer into one it cannot.
 		...(first.provider.healthCheck

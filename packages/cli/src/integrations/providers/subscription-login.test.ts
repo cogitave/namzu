@@ -48,6 +48,23 @@ function stubEndpoint(status: number, body: unknown) {
 	return { fetchFn, seen }
 }
 
+async function settlesWithin<T>(promise: Promise<T>, milliseconds = 250): Promise<T> {
+	let timeout: ReturnType<typeof setTimeout> | undefined
+	try {
+		return await Promise.race([
+			promise,
+			new Promise<never>((_resolve, reject) => {
+				timeout = setTimeout(
+					() => reject(new Error(`operation did not settle within ${milliseconds}ms`)),
+					milliseconds,
+				)
+			}),
+		])
+	} finally {
+		if (timeout) clearTimeout(timeout)
+	}
+}
+
 const GOOD = { access_token: ACCESS, refresh_token: REFRESH, expires_in: 28_800 }
 
 describe('the authorization request', () => {
@@ -224,6 +241,167 @@ describe('a failed sign-in leaves nothing behind', () => {
 		expect(seen.url).toBeUndefined()
 		noCredentialOnDisk()
 	})
+
+	it('when cancellation wins while the token body is still being read', async () => {
+		const controller = new AbortController()
+		const cause = new Error('operator left the picker')
+		let releaseBody: (value: typeof GOOD) => void = () => {}
+		const body = new Promise<typeof GOOD>((resolve) => {
+			releaseBody = resolve
+		})
+		let transportSignal: AbortSignal | undefined
+		const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return {
+				ok: true,
+				status: 200,
+				json: () => body,
+			} as Response
+		}) as typeof fetch
+		const login = await beginSubscriptionLogin({
+			home,
+			loopback: false,
+			fetch: fetchFn,
+			signal: controller.signal,
+		})
+		const state = new URL(login.url).searchParams.get('state') as string
+		const completion = login.completeWithPastedCode(`${CODE}#${state}`)
+		await vi.waitFor(() => expect(transportSignal).toBeDefined())
+
+		controller.abort(cause)
+		expect(transportSignal?.aborted).toBe(true)
+
+		const outcome = await settlesWithin(completion)
+		expect(outcome).toMatchObject({ ok: false })
+		expect(outcome.ok ? '' : outcome.reason).toContain('cancelled')
+		releaseBody(GOOD)
+		await Promise.resolve()
+		noCredentialOnDisk()
+	})
+
+	it('settles after cancellation even when the token request ignores its signal forever', async () => {
+		const controller = new AbortController()
+		const cause = new Error('operator left during request')
+		let transportSignal: AbortSignal | undefined
+		const fetchFn = ((_url: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return new Promise<Response>(() => {})
+		}) as typeof fetch
+		const login = await beginSubscriptionLogin({
+			home,
+			loopback: false,
+			fetch: fetchFn,
+			signal: controller.signal,
+		})
+		const state = new URL(login.url).searchParams.get('state') as string
+		const completion = login.completeWithPastedCode(`${CODE}#${state}`)
+		await vi.waitFor(() => expect(transportSignal).toBeDefined())
+
+		controller.abort(cause)
+		expect(transportSignal?.aborted).toBe(true)
+		expect(transportSignal?.reason).toBe(cause)
+
+		const outcome = await settlesWithin(completion)
+		expect(outcome).toMatchObject({ ok: false })
+		expect(outcome.ok ? '' : outcome.reason).toContain('cancelled')
+		noCredentialOnDisk()
+	})
+
+	it('settles after cancellation even when the token body ignores its signal forever', async () => {
+		const controller = new AbortController()
+		const cause = new Error('operator left during response body')
+		let transportSignal: AbortSignal | undefined
+		let bodyStarted = false
+		const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return {
+				ok: true,
+				status: 200,
+				json: () => {
+					bodyStarted = true
+					return new Promise<never>(() => {})
+				},
+			} as unknown as Response
+		}) as typeof fetch
+		const login = await beginSubscriptionLogin({
+			home,
+			loopback: false,
+			fetch: fetchFn,
+			signal: controller.signal,
+		})
+		const state = new URL(login.url).searchParams.get('state') as string
+		const completion = login.completeWithPastedCode(`${CODE}#${state}`)
+		await vi.waitFor(() => expect(bodyStarted).toBe(true))
+
+		controller.abort(cause)
+		expect(transportSignal?.aborted).toBe(true)
+		expect(transportSignal?.reason).toBe(cause)
+
+		const outcome = await settlesWithin(completion)
+		expect(outcome).toMatchObject({ ok: false })
+		expect(outcome.ok ? '' : outcome.reason).toContain('cancelled')
+		noCredentialOnDisk()
+	})
+
+	it('owns cancellation even when the surface supplied no signal', async () => {
+		let transportSignal: AbortSignal | undefined
+		let bodyStarted = false
+		const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return {
+				ok: true,
+				status: 200,
+				json: () => {
+					bodyStarted = true
+					return new Promise<never>(() => {})
+				},
+			} as unknown as Response
+		}) as typeof fetch
+		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const state = new URL(login.url).searchParams.get('state') as string
+		const completion = login.completeWithPastedCode(`${CODE}#${state}`)
+		await vi.waitFor(() => expect(bodyStarted).toBe(true))
+
+		login.cancel()
+		expect(transportSignal?.aborted).toBe(true)
+
+		const outcome = await settlesWithin(completion)
+		expect(outcome).toMatchObject({ ok: false })
+		expect(outcome.ok ? '' : outcome.reason).toContain('cancelled')
+		noCredentialOnDisk()
+	})
+
+	it('rechecks cancellation at the credential-store boundary', async () => {
+		const controller = new AbortController()
+		const cause = new Error('operator withdrew storage authority')
+		const body = {
+			get access_token() {
+				controller.abort(cause)
+				return ACCESS
+			},
+			refresh_token: REFRESH,
+			expires_in: 28_800,
+		}
+		const fetchFn = (async () =>
+			({
+				ok: true,
+				status: 200,
+				json: async () => body,
+			}) as Response) as typeof fetch
+		const login = await beginSubscriptionLogin({
+			home,
+			loopback: false,
+			fetch: fetchFn,
+			signal: controller.signal,
+		})
+		const state = new URL(login.url).searchParams.get('state') as string
+
+		const outcome = await login.completeWithPastedCode(`${CODE}#${state}`)
+		expect(controller.signal.reason).toBe(cause)
+		expect(outcome).toMatchObject({ ok: false })
+		expect(outcome.ok ? '' : outcome.reason).toContain('cancelled')
+		noCredentialOnDisk()
+	})
 })
 
 /**
@@ -303,6 +481,24 @@ describe('no token is ever printed, logged, or put in a message', () => {
 })
 
 describe('waitForCallback', () => {
+	it('does no work for a caller that already withdrew the attempt', async () => {
+		const controller = new AbortController()
+		const cause = new Error('already cancelled')
+		controller.abort(cause)
+
+		await expect(beginSubscriptionLogin({ home, signal: controller.signal })).rejects.toBe(cause)
+		expect(readStoredSubscriptionCredential(home)).toBeNull()
+	})
+
+	it('releases a loopback bind cancelled before its handle is returned', async () => {
+		const controller = new AbortController()
+		const cause = new Error('cancelled during bind')
+		const pending = beginSubscriptionLogin({ home, signal: controller.signal })
+		controller.abort(cause)
+
+		await expect(pending).rejects.toBe(cause)
+	})
+
 	it('is null when no loopback listener was arranged, so nothing awaits forever', async () => {
 		const login = await beginSubscriptionLogin({ home, loopback: false })
 		expect(login.loopback).toBe(false)
@@ -321,6 +517,17 @@ describe('waitForCallback', () => {
 		const pending = login.waitForCallback() as Promise<{ ok: boolean }>
 		login.cancel()
 		expect((await pending).ok).toBe(false)
+	})
+
+	it('lets the caller signal cancel a live listener', async () => {
+		const controller = new AbortController()
+		const login = await beginSubscriptionLogin({ home, signal: controller.signal })
+		if (!login.loopback) return
+		const pending = login.waitForCallback() as Promise<{ ok: boolean; reason?: string }>
+		controller.abort(new Error('left picker'))
+		const outcome = await pending
+		expect(outcome.ok).toBe(false)
+		expect(outcome.reason).toContain('cancelled')
 	})
 
 	it('does not bind twice — a second attempt degrades to paste-only', async () => {

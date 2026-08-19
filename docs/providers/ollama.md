@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-19T00:00:00Z
+lastReviewed: 2026-08-19
 resource: packages/providers/ollama/src/index.ts
 tags: [provider, ollama, reference]
 ---
@@ -309,6 +309,12 @@ the concrete class. `doctorCheck`, `effortLevelsFor` and `resolveContextWindow`
 are not implemented here, and are absent rather than stubbed — the runtime
 tells "this driver cannot answer" from "it answered nothing", and a stub would
 destroy that distinction.
+
+`listModels` and `probeCredential` accept an optional `AbortSignal`. The vendor
+client's listing method has no signal parameter, so this driver checks authority
+before the call and again before publishing its result; the CLI additionally
+owns an independent deadline, so an uncooperative local call cannot hold the
+picker open.
 
 ## If you would rather not carry the vendor client
 
