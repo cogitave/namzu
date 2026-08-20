@@ -6,8 +6,8 @@ type: Explanation
 diataxis: explanation
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -133,6 +133,25 @@ Detection runs the real confinement rather than asking a binary its version: a h
 This matters because the failure it guards against is silent. If a run requires a control the host cannot enforce, `assertIsolation` **refuses to start it** rather than proceeding at a weaker tier: a security control that is accepted and then quietly not applied is worse than one that was never offered, because the caller stops looking. Use `isolationOf`, `missingIsolation` and `describeIsolation` to ask what you are actually getting before you rely on it.
 
 The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) lets you supply a stronger provider without touching the rest of the kernel. The kernel enforces memory, timeout, and max-process limits on top of whatever the sandbox gives you.
+
+Sandbox lifetime belongs to the run, including the waits at both ends. Creation
+receives a fused signal carrying run cancellation and the remaining wall-clock
+timeout, and is raced independently against both, so a provider that ignores
+its signal can pin neither Stop nor the run deadline. A deadline before the
+first model request settles the run with `stopReason: 'timeout'`. A handle
+returned after authority is withdrawn is never published to tools; the kernel
+releases it once under a fresh teardown owner. This proves cleanup for every
+handle the provider returns. It cannot identify a remote allocation that
+committed behind a lost response before the service disclosed its id — such a
+protocol needs a client-owned reconciliation key or a fleet reaper.
+
+Teardown does not reuse the already-aborted run signal. `Sandbox.destroy`
+receives a fresh signal and `sandboxTeardownTimeoutMs` independently bounds how
+long the run waits; the default is 30 seconds and `0` explicitly restores the
+former unbounded wait. The same provider and option are carried by `runAgent`
+and Reactive/Supervisor agent configs. `sandbox_destroyed` reaches event consumers only after teardown
+actually settles; a failure or deadline is logged without retracting the run's
+answer or reporting a destruction that was not established.
 
 Background jobs are a separate host-process capability, not a mode of sandbox execution. `BackgroundJobRegistry` can be supplied to an unsandboxed run, where `bash` may start work that outlives its tool call and the run later tears that work down. A run that creates a sandbox does not expose that host registry in `ToolContext`, and `bash run_in_background` refuses with that reason. Otherwise changing only `run_in_background` would move the same command from `sandbox.exec()` to a host child process and turn a scheduling option into an isolation bypass. A sandboxed persistent process requires a backend that owns both its lifetime and its confinement; the host registry does not claim to be one.
 

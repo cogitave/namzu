@@ -31,6 +31,7 @@ import {
 	ReactiveAgent,
 	type ReactiveAgentConfig,
 	type RunEvent,
+	type SandboxProvider,
 	SessionSummaryMaterializer,
 	type TaskScheduler,
 	type ToolDefinition,
@@ -67,6 +68,10 @@ export interface SubagentRuntimeOptions {
 	/** Build the sub-agent's tool registry (its own working set). */
 	readonly buildTools: () => ToolRegistryContract
 	readonly authorizationGate?: AuthorizationGateConfig
+	/** Use the same execution boundary the parent session reports. */
+	readonly sandboxProvider?: SandboxProvider
+	/** Bound child teardown with the parent's operator-selected value. */
+	readonly sandboxTeardownTimeoutMs?: number
 	/** A fresh drain cursor over the session's shared project-policy state. */
 	readonly projectInstructionContext?: () => ProjectInstructionContext
 	/**
@@ -314,6 +319,10 @@ function buildDefinition(
 					? { projectInstructionContext: opts.projectInstructionContext() }
 					: {}),
 				...(opts.authorizationGate ? { authorizationGate: opts.authorizationGate } : {}),
+				...(opts.sandboxProvider ? { sandboxProvider: opts.sandboxProvider } : {}),
+				...(opts.sandboxTeardownTimeoutMs !== undefined
+					? { sandboxTeardownTimeoutMs: opts.sandboxTeardownTimeoutMs }
+					: {}),
 			}
 		},
 	}

@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/sandbox/src/index.ts
 tags: [sandbox, isolation, reference]
 ---
@@ -116,9 +116,28 @@ const provider = createSandboxProvider({
 ```
 
 Either object goes to the kernel as `sandboxProvider` — the field is on
-`QueryParams` (so `query` and `drainQuery` take it) and on
-`ReactiveAgentConfig`. The kernel calls `provider.create()` before the iteration
-loop and `sandbox.destroy()` when the run ends.
+`QueryParams` (so `query` and `drainQuery` take it), `runAgent`, and the
+Reactive/Supervisor agent configs. The kernel calls `provider.create()` before
+the iteration loop and `sandbox.destroy()` when the run ends.
+
+Both calls carry lifecycle authority. `SandboxCreateConfig.signal` is a fused
+operation signal carrying run cancellation and the run's remaining wall-clock
+timeout; the built-in backends stop readiness/control-plane waits and reconcile
+a known container, resource name or sandbox id before refusing. If that setup
+ignores the signal, the kernel's independent race still settles the run with
+`stopReason: 'timeout'` before model work begins. `SandboxDestroyOptions.signal`
+belongs to a separate teardown owner, so cleanup can continue after the run
+signal has already fired and can still be bounded by the host. The SDK waits 30
+seconds by default (`sandboxTeardownTimeoutMs`) and accepts `0` as the explicit
+unbounded compatibility mode.
+
+That signal is a transport and publication boundary, not proof of remote
+rollback. The container and standby backends know their allocation name before
+the create call and can issue best-effort removal after interruption. The
+microVM create response is what supplies its sandbox id; if the service commits
+and loses that response, the caller has no truthful delete target. Deployments
+using that protocol need an ordinary fleet reaper, and cancellation reports the
+unresolved outcome instead of claiming it was cleaned up.
 
 **The layout is bound at construction, not per call**, and the type enforces it:
 a container-tier config without one does not compile. Layouts are per task —

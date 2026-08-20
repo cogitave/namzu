@@ -480,7 +480,11 @@ const CONFIG_READERS: ConfigReaders = {
 	// failure this whole change exists to remove.
 	sandbox: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
-		const raw = v as { enabled?: unknown; requireIsolation?: unknown }
+		const raw = v as {
+			enabled?: unknown
+			requireIsolation?: unknown
+			teardownTimeoutMs?: unknown
+		}
 		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
 			return invalidConfigValue(context, ['enabled'], 'must be a boolean')
 		}
@@ -498,12 +502,27 @@ const CONFIG_READERS: ConfigReaders = {
 				'must be one of "filesystem", "network", or "process"',
 			)
 		}
+		if (
+			raw.teardownTimeoutMs !== undefined &&
+			(!Number.isInteger(raw.teardownTimeoutMs) ||
+				(raw.teardownTimeoutMs as number) < 0 ||
+				(raw.teardownTimeoutMs as number) > 2_147_483_647)
+		) {
+			return invalidConfigValue(
+				context,
+				['teardownTimeoutMs'],
+				'must be an integer from 0 to 2147483647',
+			)
+		}
 		return {
 			...(raw.enabled !== undefined ? { enabled: raw.enabled } : {}),
 			...(requireIsolation !== undefined
 				? {
 						requireIsolation: requireIsolation as readonly ('filesystem' | 'network' | 'process')[],
 					}
+				: {}),
+			...(raw.teardownTimeoutMs !== undefined
+				? { teardownTimeoutMs: raw.teardownTimeoutMs as number }
 				: {}),
 		}
 	},

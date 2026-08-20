@@ -57,6 +57,7 @@ export class OperationDeadline {
 	constructor(
 		timeoutMs: number,
 		readonly label: string,
+		private readonly callerSignal?: AbortSignal,
 	) {
 		assertTimerValue(`${label} timeout`, timeoutMs)
 		this.expiresAt = performance.now() + timeoutMs
@@ -67,12 +68,26 @@ export class OperationDeadline {
 	}
 
 	async run<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+		this.callerSignal?.throwIfAborted()
 		const remaining = this.remainingMs()
 		if (remaining <= 0) throw new OperationDeadlineExpired(this.label)
 
 		const controller = new AbortController()
 		const expired = new OperationDeadlineExpired(this.label)
 		let timer: ReturnType<typeof setTimeout> | undefined
+		let onCallerAbort: (() => void) | undefined
+		const cancelled = this.callerSignal
+			? new Promise<never>((_resolve, reject) => {
+					onCallerAbort = () => {
+						const reason = this.callerSignal?.reason
+						controller.abort(reason)
+						reject(reason)
+					}
+					this.callerSignal?.addEventListener('abort', onCallerAbort, {
+						once: true,
+					})
+				})
+			: undefined
 		const expiry = new Promise<never>((_resolve, reject) => {
 			timer = setTimeout(() => {
 				controller.abort(expired)
@@ -82,9 +97,10 @@ export class OperationDeadline {
 		const pending = Promise.resolve().then(() => operation(controller.signal))
 
 		try {
-			const value = await Promise.race([pending, expiry])
+			const value = await Promise.race(cancelled ? [pending, expiry, cancelled] : [pending, expiry])
 			// Publication fence: a foreign promise that settles at the boundary
 			// does not get to turn an already-expired attempt into readiness.
+			if (this.callerSignal?.aborted) throw this.callerSignal.reason
 			if (controller.signal.aborted || this.remainingMs() <= 0) {
 				controller.abort(expired)
 				throw expired
@@ -92,6 +108,7 @@ export class OperationDeadline {
 			return value
 		} finally {
 			if (timer !== undefined) clearTimeout(timer)
+			if (onCallerAbort) this.callerSignal?.removeEventListener('abort', onCallerAbort)
 		}
 	}
 

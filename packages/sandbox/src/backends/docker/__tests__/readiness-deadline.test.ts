@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,7 +24,7 @@ beforeEach(() => {
 			'  network) printf "false\\n" ;;',
 			'  run) printf "container-id\\n" ;;',
 			'  inspect) printf "65534\\n" ;;',
-			'  rm) printf "rm\\n" >> "${NAMZU_TEST_DOCKER_LOG:?}"; if [ "${NAMZU_TEST_HOLD_DOCKER_RM:-}" = "1" ]; then sleep 30; fi ;;',
+			'  rm) printf "rm\\n" >> "${NAMZU_TEST_DOCKER_LOG:?}"; if [ "${NAMZU_TEST_HOLD_DOCKER_RM:-}" = "1" ]; then sleep 1; fi ;;',
 			'  *) exit 2 ;;',
 			'esac',
 		].join('\n'),
@@ -85,5 +85,49 @@ describe('docker worker readiness deadline', () => {
 		)
 		expect(cleanupCalls()).toBe(1)
 		expect(performance.now() - startedAt).toBeLessThan(1_750)
+	})
+
+	it('lets caller cancellation stop readiness and reconciles the known container name', async () => {
+		let markHealthStarted!: () => void
+		const healthStarted = new Promise<void>((resolve) => {
+			markHealthStarted = resolve
+		})
+		let healthSignal: AbortSignal | undefined
+		globalThis.fetch = vi.fn(async (_input, init) => {
+			healthSignal = init?.signal ?? undefined
+			markHealthStarted()
+			return await new Promise<Response>(() => undefined)
+		}) as typeof fetch
+		const caller = new AbortController()
+		const pending = backend(100).create({
+			workingDirectory: workDir,
+			signal: caller.signal,
+		})
+
+		await healthStarted
+		const reason = new Error('operator stopped docker allocation')
+		caller.abort(reason)
+
+		await expect(pending).rejects.toBe(reason)
+		expect(healthSignal?.aborted).toBe(true)
+		expect(healthSignal?.reason).toBe(reason)
+		expect(cleanupCalls()).toBe(1)
+	})
+
+	it('passes teardown authority to a held docker rm child', async () => {
+		globalThis.fetch = vi.fn(async () => new Response('ok', { status: 200 })) as typeof fetch
+		const sandbox = await backend().create({ workingDirectory: workDir })
+		process.env.NAMZU_TEST_HOLD_DOCKER_RM = '1'
+		const owner = new AbortController()
+		const startedAt = performance.now()
+		const pending = sandbox.destroy({ signal: owner.signal })
+		while (!existsSync(dockerLog) || !readFileSync(dockerLog, 'utf8').includes('rm')) {
+			await new Promise((resolve) => setTimeout(resolve, 0))
+		}
+		owner.abort(new Error('teardown deadline'))
+
+		await pending
+		expect(owner.signal.aborted).toBe(true)
+		expect(performance.now() - startedAt).toBeLessThan(500)
 	})
 })

@@ -31,7 +31,14 @@ function backend(timeoutMs = 25) {
 	})
 }
 
-function stubClaim(options: { holdDelete?: boolean; holdIp?: boolean } = {}): {
+function stubClaim(
+	options: {
+		deleteSafetyMs?: number
+		holdDelete?: boolean
+		holdIp?: boolean
+		ready?: boolean
+	} = {},
+): {
 	healthSignal: () => AbortSignal | undefined
 	ipSignal: () => AbortSignal | undefined
 	deleteSignal: () => AbortSignal | undefined
@@ -49,7 +56,10 @@ function stubClaim(options: { holdDelete?: boolean; holdIp?: boolean } = {}): {
 				JSON.stringify({
 					properties: options.holdIp
 						? { provisioningState: 'Creating' }
-						: { provisioningState: 'Succeeded', ipAddress: { ip: '10.0.0.8' } },
+						: {
+								provisioningState: 'Succeeded',
+								ipAddress: { ip: '10.0.0.8' },
+							},
 				}),
 				{ status: 200, headers: { 'content-type': 'application/json' } },
 			)
@@ -60,6 +70,7 @@ function stubClaim(options: { holdDelete?: boolean; holdIp?: boolean } = {}): {
 		}
 		if (url === 'http://10.0.0.8:2024/healthz') {
 			healthSignal = init?.signal ?? undefined
+			if (options.ready) return new Response('ok', { status: 200 })
 			return await new Promise<Response>(() => undefined)
 		}
 		if (url.startsWith('https://management.azure.com') && method === 'DELETE') {
@@ -67,7 +78,17 @@ function stubClaim(options: { holdDelete?: boolean; holdIp?: boolean } = {}): {
 			deleteSignal = init?.signal ?? undefined
 			if (!options.holdDelete) return new Response(null, { status: 204 })
 			return await new Promise<Response>((_resolve, reject) => {
-				deleteSignal?.addEventListener('abort', () => reject(deleteSignal?.reason), { once: true })
+				const safety = options.deleteSafetyMs
+					? setTimeout(() => reject(new Error('test safety release')), options.deleteSafetyMs)
+					: undefined
+				deleteSignal?.addEventListener(
+					'abort',
+					() => {
+						if (safety !== undefined) clearTimeout(safety)
+						reject(deleteSignal?.reason)
+					},
+					{ once: true },
+				)
 			})
 		}
 		return new Response('unexpected', { status: 500 })
@@ -115,6 +136,37 @@ describe('standby worker readiness deadline', () => {
 		expect(observed.deleteCalls()).toBe(1)
 		expect(observed.deleteSignal()?.aborted).toBe(true)
 		expect(performance.now() - startedAt).toBeLessThan(1_750)
+	})
+
+	it('lets caller cancellation stop readiness and reconciles the known ARM name', async () => {
+		const observed = stubClaim()
+		const caller = new AbortController()
+		const pending = backend(100).create({
+			workingDirectory: '/workspace',
+			signal: caller.signal,
+		})
+		while (!observed.healthSignal()) await new Promise((resolve) => setTimeout(resolve, 0))
+		const reason = new Error('operator stopped standby allocation')
+		caller.abort(reason)
+
+		await expect(pending).rejects.toBe(reason)
+		expect(observed.healthSignal()?.aborted).toBe(true)
+		expect(observed.healthSignal()?.reason).toBe(reason)
+		expect(observed.deleteCalls()).toBe(1)
+	})
+
+	it('passes teardown authority to a held ARM DELETE', async () => {
+		const observed = stubClaim({ ready: true, holdDelete: true, deleteSafetyMs: 100 })
+		const sandbox = await backend().create({ workingDirectory: '/workspace' })
+		const owner = new AbortController()
+		const pending = sandbox.destroy({ signal: owner.signal })
+		while (observed.deleteCalls() === 0) await new Promise((resolve) => setTimeout(resolve, 0))
+		const reason = new Error('teardown deadline')
+		owner.abort(reason)
+
+		await expect(pending).rejects.toBe(reason)
+		expect(observed.deleteSignal()?.reason).toBe(reason)
+		expect(observed.deleteCalls()).toBe(1)
 	})
 
 	it('validates readiness before requesting a token or contacting ARM', () => {

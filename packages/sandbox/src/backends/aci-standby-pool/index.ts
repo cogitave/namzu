@@ -44,6 +44,7 @@ import type {
 	ContainerSandboxMountSource,
 	ResolvedContainerSandboxLayout,
 	Sandbox,
+	SandboxDestroyOptions,
 	SandboxEnvironment,
 	SandboxExecOptions,
 	SandboxExecResult,
@@ -235,7 +236,10 @@ function buildAzureFileVolumesFromLayout(layout: ResolvedContainerSandboxLayout)
 	let counter = 0
 
 	function add(
-		mount: { readonly source: ContainerSandboxMountSource; readonly containerPath: string },
+		mount: {
+			readonly source: ContainerSandboxMountSource
+			readonly containerPath: string
+		},
 		label: string,
 		readOnly: boolean,
 	): void {
@@ -415,6 +419,7 @@ async function spawnAciSandbox(
 	options: SandboxBackendOptions,
 	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
 ): Promise<Sandbox> {
+	options.signal?.throwIfAborted()
 	assertEnforceable(options)
 	assertNotPubliclyAddressed(config)
 	const id = generateSandboxId()
@@ -464,8 +469,23 @@ async function spawnAciSandbox(
 
 	let claimed: ArmContainerGroup | undefined
 	try {
-		claimed = await armCall<ArmContainerGroup>(armUrl, 'PUT', config.getArmToken, body)
+		claimed = await armCall<ArmContainerGroup>(
+			armUrl,
+			'PUT',
+			config.getArmToken,
+			body,
+			options.signal,
+		)
 	} catch (err) {
+		// The resource name is client-owned even when ARM never returns the
+		// claim response. Best-effort reconciliation is therefore possible.
+		// ARM still owns the create/delete ordering semantics; a resource that
+		// commits after this DELETE needs the deployment's normal resource reaper.
+		if (options.signal?.aborted) {
+			await runFailureCleanup(async (signal) => {
+				await armCall(armUrl, 'DELETE', config.getArmToken, undefined, signal)
+			})
+		}
 		throw new Error(
 			`aci-standby-pool: failed to claim from pool — ${err instanceof Error ? err.message : String(err)}`,
 		)
@@ -473,7 +493,11 @@ async function spawnAciSandbox(
 
 	const initialIp = claimed?.properties?.ipAddress?.ip
 	let ip = initialIp
-	const readinessDeadline = new OperationDeadline(readiness.timeoutMs, 'aci-standby-pool readiness')
+	const readinessDeadline = new OperationDeadline(
+		readiness.timeoutMs,
+		'aci-standby-pool readiness',
+		options.signal,
+	)
 	try {
 		if (!ip) {
 			ip = await pollForRunningIp(
@@ -542,7 +566,11 @@ async function spawnAciSandbox(
 				if (!res.ok) {
 					throw new Error(`read-file failed: HTTP ${res.status} ${await res.text()}`)
 				}
-				const json = (await res.json()) as { ok: boolean; content?: string; error?: string }
+				const json = (await res.json()) as {
+					ok: boolean
+					content?: string
+					error?: string
+				}
 				if (!json.ok || typeof json.content !== 'string') {
 					throw new Error(json.error ?? 'read-file: no content')
 				}
@@ -553,7 +581,7 @@ async function spawnAciSandbox(
 				return await listFilesViaWorker(baseUrl, rootPath)
 			},
 
-			async destroy(): Promise<void> {
+			async destroy(options?: SandboxDestroyOptions): Promise<void> {
 				status = 'destroyed'
 				// ARM DELETE — let failures propagate. The Vandal-side
 				// lifecycle wraps this in its own try/catch with logging,
@@ -563,7 +591,7 @@ async function spawnAciSandbox(
 				// the WARM side topped up; that has nothing to do with
 				// cleaning up a CLAIMED instance, which is exclusively the
 				// claimer's responsibility.
-				await armCall(armUrl, 'DELETE', config.getArmToken)
+				await armCall(armUrl, 'DELETE', config.getArmToken, undefined, options?.signal)
 			},
 		}
 	} catch (err) {

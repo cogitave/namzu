@@ -34,6 +34,7 @@ import {
 	SANDBOX_DEFAULT_TRANSCRIPTS_PATH,
 	SANDBOX_DEFAULT_UPLOADS_PATH,
 	type Sandbox,
+	type SandboxDestroyOptions,
 	type SandboxEnvironment,
 	type SandboxExecOptions,
 	type SandboxExecResult,
@@ -393,6 +394,7 @@ async function spawnDockerSandbox(
 	options: SandboxBackendOptions,
 	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
 ): Promise<Sandbox> {
+	options.signal?.throwIfAborted()
 	const resolvedLayout = config.layout
 	const id = generateSandboxId()
 	const docker = config.dockerBinary ?? DEFAULT_DOCKER_BINARY
@@ -404,7 +406,13 @@ async function spawnDockerSandbox(
 	let egressProxy: RunningEgressProxy | undefined
 	if (needsEgressProxy(options.egress) && options.egress) {
 		const policy = options.egress
-		egressProxy = await new EgressProxy(egressProxyOptions(config, policy)).listen()
+		try {
+			egressProxy = await new EgressProxy(egressProxyOptions(config, policy)).listen()
+			options.signal?.throwIfAborted()
+		} catch (error) {
+			await egressProxy?.close().catch(() => undefined)
+			throw error
+		}
 	}
 
 	const hostReachability = config.hostReachability ?? 'host-port'
@@ -424,7 +432,7 @@ async function spawnDockerSandbox(
 			network,
 			hostReachability,
 			options.egress,
-			await inspectNetworkInternalFlag(docker, network),
+			await inspectNetworkInternalFlag(docker, network, options.signal),
 		)
 	} catch (err) {
 		// The allowlist kinds start a proxy above, and this is outside the
@@ -442,12 +450,13 @@ async function spawnDockerSandbox(
 	// the EACCES bug in sibling-container setups (the consumer owns
 	// the host filesystem, the spawned backend can't reach it from
 	// inside its own container's mount namespace). Clean break.
-	let containerStarted = false
-
 	async function cleanupOnFailure(signal: AbortSignal) {
-		const removeContainer = containerStarted
-			? runOnceQuiet(docker, ['rm', '-f', containerName], signal)
-			: Promise.resolve()
+		// The name is known before `docker run`. Remove by name even when the
+		// client process was interrupted before it reported success: the daemon
+		// may already have committed the container. This is best-effort
+		// reconciliation; an external daemon that commits after this delete still
+		// needs its ordinary label/name reaper.
+		const removeContainer = runOnceQuiet(docker, ['rm', '-f', containerName], signal)
 		// The proxy starts BEFORE the container and its only other close is
 		// in `destroy()`, which a create that never returned can never
 		// reach. So every failure between the two — a daemon that is down, a
@@ -563,19 +572,27 @@ async function spawnDockerSandbox(
 
 		args.push(config.image)
 
-		await runOnce(docker, args)
-		containerStarted = true
-
+		await runOnce(docker, args, options.signal)
 		if (hostReachability === 'host-port') {
-			hostPort = await readMappedPort(docker, containerName)
+			hostPort = await readMappedPort(docker, containerName, options.signal)
 			baseUrl = `http://127.0.0.1:${hostPort}`
-			await waitForWorkerReady(baseUrl, readiness.timeoutMs, readiness.pollIntervalMs)
+			await waitForWorkerReady(
+				baseUrl,
+				readiness.timeoutMs,
+				readiness.pollIntervalMs,
+				options.signal,
+			)
 		} else {
 			// container-network: connect by container DNS name on the
 			// shared bridge. No host port to read; the SDK consumer is
 			// itself a container on the same bridge.
 			baseUrl = `http://${containerName}:${WORKER_PORT_INSIDE_CONTAINER}`
-			await waitForWorkerReady(baseUrl, readiness.timeoutMs, readiness.pollIntervalMs)
+			await waitForWorkerReady(
+				baseUrl,
+				readiness.timeoutMs,
+				readiness.pollIntervalMs,
+				options.signal,
+			)
 		}
 	} catch (err) {
 		await runFailureCleanup(cleanupOnFailure)
@@ -663,7 +680,11 @@ async function spawnDockerSandbox(
 			if (!res.ok) {
 				throw new Error(`read-file failed: HTTP ${res.status} ${await res.text()}`)
 			}
-			const json = (await res.json()) as { ok: boolean; content?: string; error?: string }
+			const json = (await res.json()) as {
+				ok: boolean
+				content?: string
+				error?: string
+			}
 			if (!json.ok || typeof json.content !== 'string') {
 				throw new Error(json.error ?? 'read-file: no content')
 			}
@@ -674,9 +695,9 @@ async function spawnDockerSandbox(
 			return await listFilesViaWorker(baseUrl, rootPath)
 		},
 
-		async destroy(): Promise<void> {
+		async destroy(options?: SandboxDestroyOptions): Promise<void> {
 			status = 'destroyed'
-			await runOnceQuiet(docker, ['rm', '-f', containerName])
+			await runOnceQuiet(docker, ['rm', '-f', containerName], options?.signal)
 			// The proxy holds real credentials and a live allowlist. Leaving
 			// it listening after the sandbox it was filtering for is gone
 			// means a loopback port that still stamps a token onto anything
@@ -698,13 +719,21 @@ async function spawnDockerSandbox(
  * process could grab it in the meantime). Letting Docker
  * allocate and reading the mapping back is race-free.
  */
-async function readMappedPort(docker: string, containerName: string): Promise<number> {
-	const inspectOutput = await runOnce(docker, [
-		'inspect',
-		'--format',
-		`{{(index (index .NetworkSettings.Ports "${WORKER_PORT_INSIDE_CONTAINER}/tcp") 0).HostPort}}`,
-		containerName,
-	])
+async function readMappedPort(
+	docker: string,
+	containerName: string,
+	signal?: AbortSignal,
+): Promise<number> {
+	const inspectOutput = await runOnce(
+		docker,
+		[
+			'inspect',
+			'--format',
+			`{{(index (index .NetworkSettings.Ports "${WORKER_PORT_INSIDE_CONTAINER}/tcp") 0).HostPort}}`,
+			containerName,
+		],
+		signal,
+	)
 	const port = Number(inspectOutput.trim())
 	if (!Number.isInteger(port) || port <= 0 || port > 65535) {
 		throw withHint(
@@ -895,8 +924,9 @@ async function waitForWorkerReady(
 	baseUrl: string,
 	timeoutMs: number,
 	pollMs: number,
+	signal?: AbortSignal,
 ): Promise<void> {
-	const deadline = new OperationDeadline(timeoutMs, 'docker worker readiness')
+	const deadline = new OperationDeadline(timeoutMs, 'docker worker readiness', signal)
 	let lastError: unknown
 	while (deadline.remainingMs() > 0) {
 		try {
@@ -928,22 +958,40 @@ async function waitForWorkerReady(
 	)
 }
 
-function runOnce(binary: string, args: string[]): Promise<string> {
+function runOnce(binary: string, args: string[], signal?: AbortSignal): Promise<string> {
 	return new Promise((resolve, reject) => {
+		signal?.throwIfAborted()
 		const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] })
 		let stdout = ''
 		let stderr = ''
+		let settled = false
+		const finish = (error?: unknown, value?: string) => {
+			if (settled) return
+			settled = true
+			signal?.removeEventListener('abort', abort)
+			child.removeAllListeners('error')
+			child.removeAllListeners('close')
+			if (error !== undefined) reject(error)
+			else resolve(value ?? '')
+		}
+		const abort = () => {
+			child.kill('SIGKILL')
+			child.unref()
+			finish(signal?.reason ?? new Error('operation aborted'))
+		}
 		child.stdout.on('data', (chunk: Buffer) => {
 			stdout += chunk.toString('utf8')
 		})
 		child.stderr.on('data', (chunk: Buffer) => {
 			stderr += chunk.toString('utf8')
 		})
-		child.on('error', reject)
+		child.on('error', (error) => finish(error))
 		child.on('close', (code) => {
-			if (code === 0) resolve(stdout.trim())
-			else reject(new Error(`${binary} ${args.join(' ')} exited ${code}: ${stderr.trim()}`))
+			if (code === 0) finish(undefined, stdout.trim())
+			else finish(new Error(`${binary} ${args.join(' ')} exited ${code}: ${stderr.trim()}`))
 		})
+		if (signal?.aborted) abort()
+		else signal?.addEventListener('abort', abort, { once: true })
 	})
 }
 
@@ -956,10 +1004,19 @@ function runOnce(binary: string, args: string[]): Promise<string> {
  * a boundary" — instead of surfacing a docker CLI error that says nothing
  * about the egress policy that prompted the lookup.
  */
-async function inspectNetworkInternalFlag(docker: string, network: string): Promise<string> {
+async function inspectNetworkInternalFlag(
+	docker: string,
+	network: string,
+	signal?: AbortSignal,
+): Promise<string> {
 	try {
-		return await runOnce(docker, ['network', 'inspect', '--format', '{{.Internal}}', network])
+		return await runOnce(
+			docker,
+			['network', 'inspect', '--format', '{{.Internal}}', network],
+			signal,
+		)
 	} catch {
+		signal?.throwIfAborted()
 		return ''
 	}
 }

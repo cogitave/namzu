@@ -73,6 +73,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				tools: config.tools,
 				...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
 				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
+				...(config.sandboxTeardownTimeoutMs !== undefined
+					? { sandboxTeardownTimeoutMs: config.sandboxTeardownTimeoutMs }
+					: {}),
 				// Working-memory / compaction seam (optional; absent => unchanged run path).
 				...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
 				...(config.workingMemoryProvider

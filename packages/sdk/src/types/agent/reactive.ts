@@ -64,6 +64,8 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	 * on top of the provider keeps the underlying container alive.
 	 */
 	sandboxProvider?: SandboxProvider
+	/** See {@link QueryParams.sandboxTeardownTimeoutMs}. */
+	sandboxTeardownTimeoutMs?: number
 
 	/**
 	 * Optional structured-compaction config. Omitted ⇒ byte-identical run path

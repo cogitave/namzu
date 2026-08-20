@@ -29,6 +29,7 @@ import type { SandboxId } from '../../types/ids/index.js'
 import type {
 	Sandbox,
 	SandboxCreateConfig,
+	SandboxDestroyOptions,
 	SandboxEnvironment,
 	SandboxExecOptions,
 	SandboxExecResult,
@@ -668,7 +669,7 @@ class LocalSandbox implements Sandbox {
 		return entries
 	}
 
-	async destroy(): Promise<void> {
+	async destroy(_options?: SandboxDestroyOptions): Promise<void> {
 		if (this._status === 'destroyed') {
 			return
 		}
@@ -847,12 +848,17 @@ export class LocalSandboxProvider implements SandboxProvider {
 	}
 
 	async create(config?: SandboxCreateConfig): Promise<Sandbox> {
+		config?.signal?.throwIfAborted()
 		const id = generateSandboxId()
 
 		// mkdtemp is in node:fs/promises but requires an async import-style usage.
 		// We use the same pattern: create a unique dir under os.tmpdir().
 		const { mkdtemp } = await import('node:fs/promises')
 		const rawDir = await mkdtemp(join(tmpdir(), SANDBOX_TEMP_DIR_PREFIX))
+		if (config?.signal?.aborted) {
+			await rm(rawDir, { recursive: true, force: true })
+			throw config.signal.reason
+		}
 		// Canonicalize — macOS symlinks like /var → /private/var must be resolved
 		const rootDir = canonicalizePath(rawDir)
 

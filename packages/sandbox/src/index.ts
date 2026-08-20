@@ -469,6 +469,8 @@ export interface SandboxBackend {
  * shape.
  */
 export interface SandboxBackendOptions {
+	/** Run authority for allocation/readiness. See `SandboxCreateConfig.signal`. */
+	readonly signal?: AbortSignal
 	readonly workingDirectory: string
 	readonly egress?: EgressPolicy
 	readonly timeoutMs?: number
@@ -547,6 +549,7 @@ export function createSandboxProvider(config: SandboxProviderConfig): SandboxPro
 		environment: 'basic',
 		async create(perCall?: SandboxCreateConfig): Promise<Sandbox> {
 			return await backend.create({
+				...(perCall?.signal !== undefined ? { signal: perCall.signal } : {}),
 				workingDirectory: perCall?.workingDirectory ?? '/workspace',
 				...(config.defaultEgress !== undefined ? { egress: config.defaultEgress } : {}),
 				...(perCall?.timeoutMs !== undefined

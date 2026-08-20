@@ -48,6 +48,7 @@ import https from 'node:https'
 
 import type {
 	Sandbox,
+	SandboxDestroyOptions,
 	SandboxEnvironment,
 	SandboxExecOptions,
 	SandboxExecResult,
@@ -344,8 +345,10 @@ async function spawnFirecrackerSandbox(
 	options: SandboxBackendOptions,
 	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
 ): Promise<Sandbox> {
+	options.signal?.throwIfAborted()
 	const endpoint = config.orchestratorEndpoint
 	const egressAllowlist = await resolveEgressAllowlist(options)
+	options.signal?.throwIfAborted()
 	const createBody: OrchestratorCreateRequest = {
 		...(config.template !== undefined ? { template: config.template } : {}),
 		...(config.agentSnapshot !== undefined ? { agentSnapshot: config.agentSnapshot } : {}),
@@ -367,11 +370,17 @@ async function spawnFirecrackerSandbox(
 			config.getToken,
 			createBody,
 			config.controlPlaneMtls,
+			options.signal,
 		)
 	} catch (err) {
+		const interrupted = options.signal?.aborted
 		throw new Error(
 			`firecracker: failed to create microVM sandbox — ${
 				err instanceof Error ? err.message : String(err)
+			}${
+				interrupted
+					? '; allocation outcome is unresolved because the orchestrator did not return a sandboxId — the deployment fleet reaper must reconcile it'
+					: ''
 			}`,
 			{ cause: err },
 		)
@@ -415,12 +424,13 @@ async function spawnFirecrackerSandbox(
 	}
 
 	try {
+		options.signal?.throwIfAborted()
 		// Readiness fence: the orchestrator's resume returns BEFORE the
 		// guest agent has reseeded entropy and re-listened on vsock. Stop
 		// the clock on the agent's healthz, exactly as the HTTP backends
 		// wait on `/healthz` — never on the orchestrator's 2xx, which
 		// fires before the guest runs (§5 clock semantics).
-		await transport.waitForReady(readiness.timeoutMs, readiness.pollIntervalMs)
+		await transport.waitForReady(readiness.timeoutMs, readiness.pollIntervalMs, options.signal)
 	} catch (err) {
 		// Best-effort orchestrator teardown so a readiness failure does not
 		// orphan a microVM/netns/UFFD handler. The fleet reaper backstops a
@@ -500,13 +510,13 @@ async function spawnFirecrackerSandbox(
 			return entries
 		},
 
-		async destroy(): Promise<void> {
+		async destroy(options?: SandboxDestroyOptions): Promise<void> {
 			status = 'destroyed'
 			// Let the orchestrator DELETE failure propagate — the
 			// Vandal-side lifecycle wraps this with logging, and a
 			// swallowed error here means orphaned microVMs (and their
 			// netns / UFFD handlers) pile up with no observability handle.
-			await destroy()
+			await destroy(options?.signal)
 		},
 	}
 }

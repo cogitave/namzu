@@ -225,6 +225,7 @@ export {
 } from './provider/idle-timeout.js'
 export type { WithStreamIdleTimeoutOptions } from './provider/idle-timeout.js'
 export { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from './runtime/query/request-rich-content.js'
+export { DEFAULT_SANDBOX_TEARDOWN_TIMEOUT_MS } from './runtime/query/sandbox-lifecycle.js'
 
 export { isTrustedReadOnly } from './tools/trusted-read-only.js'
 export {

@@ -582,8 +582,12 @@ export class VsockAgentTransport {
 	 * (which already carries connect retry) — used by the backend's
 	 * post-create readiness fence.
 	 */
-	async waitForReady(timeoutMs: number, pollIntervalMs: number): Promise<void> {
-		const deadline = new OperationDeadline(timeoutMs, 'firecracker agent readiness')
+	async waitForReady(
+		timeoutMs: number,
+		pollIntervalMs: number,
+		signal?: AbortSignal,
+	): Promise<void> {
+		const deadline = new OperationDeadline(timeoutMs, 'firecracker agent readiness', signal)
 		let lastErr: unknown
 		while (deadline.remainingMs() > 0) {
 			try {

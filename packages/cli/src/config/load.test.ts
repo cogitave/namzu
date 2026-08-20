@@ -151,6 +151,8 @@ describe('semantic validation of known file settings', () => {
 		[{ sandbox: { enabled: 'yes' } }, 'sandbox.enabled'],
 		[{ sandbox: { requireIsolation: 'filesystem' } }, 'sandbox.requireIsolation'],
 		[{ sandbox: { requireIsolation: ['filesystem', 'memory'] } }, 'sandbox.requireIsolation[1]'],
+		[{ sandbox: { teardownTimeoutMs: -1 } }, 'sandbox.teardownTimeoutMs'],
+		[{ sandbox: { teardownTimeoutMs: 1.5 } }, 'sandbox.teardownTimeoutMs'],
 		[
 			{ telemetry: { sessionExport: { destination: 'out.jsonl', redactors: 'secrets' } } },
 			'telemetry.sessionExport.redactors',

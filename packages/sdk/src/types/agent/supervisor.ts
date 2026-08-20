@@ -177,6 +177,8 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * + children share one ephemeral container per task.
 	 */
 	sandboxProvider?: SandboxProvider
+	/** See {@link import('../../runtime/query/index.js').QueryParams.sandboxTeardownTimeoutMs}. */
+	sandboxTeardownTimeoutMs?: number
 
 	/**
 	 * Optional structured-compaction config. When omitted, `query()` never

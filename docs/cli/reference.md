@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -575,7 +575,7 @@ valid.
 | `permissionChecks` | list of `{ tool, input, expect }` | Checks the compiled permission table at startup and reports each mismatch or malformed entry |
 | `profiles` | name → config mapping | Select with `--profile` or `NAMZU_PROFILE`; a profile cannot contain `profiles` |
 | `mcpServers` | name → `{ command, args }` or `{ url }` | Tools arrive prefixed with the server's name |
-| `sandbox` | `{ enabled?, requireIsolation? }` | `enabled` defaults to **on**. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start |
+| `sandbox` | `{ enabled?, requireIsolation?, teardownTimeoutMs? }` | `enabled` defaults to **on**. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start. `teardownTimeoutMs` defaults to `30000`; `0` restores the former unbounded wait |
 | `telemetry` | `{ sessionExport?: { destination, eventTypes?, redactors? } }` | Writes run events to a JSONL file. `redactors: []` means no redaction and has to be written to mean it |
 | `tui` | `{ notifications?, notificationMethod? }` | Interactive notifications; events are `turn-settled` / `approval-required`, method is `osc9` / `bel` |
 
@@ -584,6 +584,12 @@ deliberately not: a variable in a shell profile could otherwise start exporting
 conversation content with nothing in the config file to show for it. Separately,
 `NAMZU_LOG_LEVEL` and `NAMZU_LOG_FORMAT` govern the log records on stderr rather
 than this config, and `--verbose` / `--quiet` on the command line beat them.
+
+The resolved sandbox is session-scoped: ordinary turns, delegated child agents
+and durable resumes use the same provider and teardown bound. Delegating or
+resuming a run therefore cannot drop from the session's isolation boundary to
+host execution. Set `sandbox.enabled` to `false` only when host execution is the
+intended policy for every path.
 
 ```json
 {
@@ -594,7 +600,10 @@ than this config, and `--verbose` / `--quiet` on the command line beat them.
   "mcpServers": {
     "tickets": { "command": "node", "args": ["./tickets-server.js"] }
   },
-  "sandbox": { "requireIsolation": ["filesystem", "network"] }
+  "sandbox": {
+    "requireIsolation": ["filesystem", "network"],
+    "teardownTimeoutMs": 30000
+  }
 }
 ```
 

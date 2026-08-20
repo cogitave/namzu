@@ -385,6 +385,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					// came from — only `ReactiveAgent` was passing it.
 					...(config.structuredOutput ? { structuredOutput: config.structuredOutput } : {}),
 					...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
+					...(config.sandboxTeardownTimeoutMs !== undefined
+						? { sandboxTeardownTimeoutMs: config.sandboxTeardownTimeoutMs }
+						: {}),
 					// Working-memory / compaction seam (optional; absent => unchanged
 					// run path, byte-identical for every existing consumer).
 					...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),

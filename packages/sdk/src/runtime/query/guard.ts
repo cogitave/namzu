@@ -87,6 +87,18 @@ export class GuardCoordinator {
 		return Math.max(0, finalizeAt - (Date.now() - this.startTime))
 	}
 
+	/**
+	 * Wall-clock left before the run's hard timeout.
+	 *
+	 * Setup work that happens before the first iteration cannot rely on
+	 * {@link beforeIteration}: there is no iteration boundary to sample while
+	 * that work is pending. Callers use this value to put the same run-owned
+	 * deadline around such work instead of inventing a second clock.
+	 */
+	remainingUntilTimeoutMs(): number {
+		return Math.max(0, this.limitConfig.timeoutMs - (Date.now() - this.startTime))
+	}
+
 	beforeIteration(runMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {
 		const limitState = {
 			aborted: abortSignal.aborted,

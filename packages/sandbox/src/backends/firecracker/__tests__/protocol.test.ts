@@ -3,7 +3,7 @@
  * speak, and the `pickBackend` routing for `microvm:self-hosted`.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { SandboxBackendNotImplementedError, createSandboxProvider } from '../../../index.js'
 import { ExecResultAccumulator, parseExecLine } from '../protocol.js'
@@ -71,5 +71,23 @@ describe('pickBackend — microvm:self-hosted', () => {
 				backend: { tier: 'microvm', service: 'self-hosted' },
 			} as never),
 		).toThrow(SandboxBackendNotImplementedError)
+	})
+
+	it('forwards per-create cancellation through the public provider factory', async () => {
+		const getToken = vi.fn(async () => 'tok')
+		const provider = createSandboxProvider({
+			backend: {
+				tier: 'microvm',
+				service: 'self-hosted',
+				orchestratorEndpoint: 'https://orchestrator.test',
+				getToken,
+			},
+		})
+		const caller = new AbortController()
+		const reason = new Error('allocation authority withdrawn')
+		caller.abort(reason)
+
+		await expect(provider.create({ signal: caller.signal })).rejects.toBe(reason)
+		expect(getToken).not.toHaveBeenCalled()
 	})
 })

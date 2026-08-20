@@ -176,6 +176,11 @@ export interface SandboxConfig {
 	 * a refusal instead of a surprise.
 	 */
 	readonly requireIsolation?: readonly ('filesystem' | 'network' | 'process')[]
+	/**
+	 * How long a completed or cancelled run waits for sandbox teardown.
+	 * Defaults to 30 seconds. Set to `0` to preserve the former unbounded wait.
+	 */
+	readonly teardownTimeoutMs?: number
 }
 
 export const DEFAULT_CONFIG: NamzuCliConfig = Object.freeze({

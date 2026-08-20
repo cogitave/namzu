@@ -263,7 +263,20 @@ export interface Sandbox {
 	 * MAY throw for other I/O failures.
 	 */
 	listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]>
-	destroy(): Promise<void>
+	/**
+	 * Release every resource owned by this sandbox.
+	 *
+	 * The signal belongs to a fresh teardown operation, not to the run that is
+	 * already ending. Implementations should stop their teardown transport and
+	 * settle promptly when it aborts. Hosts may still impose an independent
+	 * wait bound because a third-party implementation can ignore the signal.
+	 */
+	destroy(options?: SandboxDestroyOptions): Promise<void>
+}
+
+/** Authority for a teardown operation owned independently of the ending run. */
+export interface SandboxDestroyOptions {
+	readonly signal?: AbortSignal
 }
 
 // ---------------------------------------------------------------------------
@@ -439,6 +452,15 @@ export interface ResolvedContainerSandboxLayout {
 // ---------------------------------------------------------------------------
 
 export interface SandboxCreateConfig {
+	/**
+	 * Withdraws authority to publish the allocation to the run.
+	 *
+	 * Providers should stop their transport and reconcile any resource they can
+	 * identify. This signal is not, by itself, proof that a remote allocation
+	 * was rolled back: a service that commits before returning its identifier
+	 * still needs a client-owned reconciliation key or an external reaper.
+	 */
+	readonly signal?: AbortSignal
 	readonly workingDirectory?: string
 	readonly env?: Record<string, string>
 	readonly timeoutMs?: number

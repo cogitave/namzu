@@ -1044,6 +1044,10 @@ export async function createAgentSession(
 		const sub = await createSubagentRuntime({
 			cwd,
 			model,
+			...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
+			...(options.sandbox?.teardownTimeoutMs !== undefined
+				? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
+				: {}),
 			// A sub-agent works in the same repository and writes the same code,
 			// so it is bound by the same instructions. Without this the parent
 			// honours the project's rules and every task it delegates quietly
@@ -1270,6 +1274,9 @@ export async function createAgentSession(
 					onRunEvent: options.onRunEvent,
 					childSteps,
 					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
+					...(options.sandbox?.teardownTimeoutMs !== undefined
+						? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
+						: {}),
 				})
 			} finally {
 				if (
@@ -1303,6 +1310,10 @@ export async function createAgentSession(
 				authorizationGate: gateFor(options.rules),
 				compactionConfig: COMPACTION_CONFIG,
 				projectInstructionContext: projectInstructions.createRunContext(),
+				...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
+				...(options.sandbox?.teardownTimeoutMs !== undefined
+					? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
+					: {}),
 				// NOT `emergencySave`, unlike a turn. The manager is a singleton
 				// whose `attach` detaches whoever held it before, so a caller
 				// resuming several runs in one process would leave only the last
@@ -1820,6 +1831,8 @@ interface RunTurnParams {
 	 * is what every turn did before the CLI built one.
 	 */
 	readonly sandboxProvider?: SandboxProvider
+	/** Operator-selected sandbox teardown bound; absent uses the kernel default. */
+	readonly sandboxTeardownTimeoutMs?: number
 }
 
 async function* runTurn({
@@ -1843,6 +1856,7 @@ async function* runTurn({
 	taskGateway,
 	childSteps,
 	sandboxProvider,
+	sandboxTeardownTimeoutMs,
 	onRunEvent,
 }: RunTurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
@@ -1870,6 +1884,7 @@ async function* runTurn({
 			// path that runs every top-level turn. The sub-agent path called
 			// `gateFor` and this one did not.
 			...(sandboxProvider ? { sandboxProvider } : {}),
+			...(sandboxTeardownTimeoutMs !== undefined ? { sandboxTeardownTimeoutMs } : {}),
 			authorizationGate: gateFor(rules),
 			compactionConfig: COMPACTION_CONFIG,
 			// The CLI owns its process end to end, so it can safely hand the

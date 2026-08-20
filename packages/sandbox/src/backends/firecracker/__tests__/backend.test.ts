@@ -97,7 +97,11 @@ function stubOrchestrator(handle: WireSandboxAgentHandle): {
 		calls.push({ url, method, body })
 		if (method === 'POST' && url.endsWith('/sandboxes')) {
 			return new Response(
-				JSON.stringify({ sandboxId: 'sbx_fc_test', agent: handle, rootDir: workDir }),
+				JSON.stringify({
+					sandboxId: 'sbx_fc_test',
+					agent: handle,
+					rootDir: workDir,
+				}),
 				{ status: 200, headers: { 'content-type': 'application/json' } },
 			)
 		}
@@ -185,7 +189,11 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 			getToken: async () => 'tok',
 			readyTimeoutMs: 300,
 			readyPollIntervalMs: 50,
-			transport: { connectRetryBudgetMs: 100, connectTimeoutMs: 80, connectRetryIntervalMs: 30 },
+			transport: {
+				connectRetryBudgetMs: 100,
+				connectTimeoutMs: 80,
+				connectRetryIntervalMs: 30,
+			},
 		})
 		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
 			/did not become ready/,
@@ -242,6 +250,54 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		// Health timeout + the package-owned one-second cleanup grace, with
 		// ample scheduler tolerance. The old code never settled at all.
 		expect(performance.now() - startedAt).toBeLessThan(1_750)
+	})
+
+	it('interrupts a held create transport and reports the unidentified remote outcome', async () => {
+		let markStarted!: () => void
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve
+		})
+		let createSignal: AbortSignal | undefined
+		let deleteCalls = 0
+		globalThis.fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+			if (init?.method === 'DELETE') {
+				deleteCalls += 1
+				return new Response(null, { status: 204 })
+			}
+			createSignal = init?.signal ?? undefined
+			markStarted()
+			return await new Promise<Response>((_resolve, reject) => {
+				const safety = setTimeout(() => reject(new Error('test safety release')), 100)
+				createSignal?.addEventListener(
+					'abort',
+					() => {
+						clearTimeout(safety)
+						reject(createSignal?.reason)
+					},
+					{ once: true },
+				)
+			})
+		}) as typeof fetch
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+		})
+		const caller = new AbortController()
+		const pending = backend.create({
+			workingDirectory: workDir,
+			signal: caller.signal,
+		})
+
+		await started
+		const reason = new Error('operator stopped allocation')
+		caller.abort(reason)
+
+		await expect(pending).rejects.toThrow(/allocation outcome is unresolved/)
+		expect(createSignal).toBe(caller.signal)
+		expect(createSignal?.reason).toBe(reason)
+		// No server-minted id arrived, so manufacturing a DELETE target would be
+		// a lie. The actionable error names the fleet reaper that owns this case.
+		expect(deleteCalls).toBe(0)
 	})
 
 	it('validates readiness before requesting an orchestrator token', () => {

@@ -6,11 +6,13 @@ import {
 	type LLMProvider,
 	LocalTaskScheduler,
 	type ProjectInstructionContext,
+	type ReactiveAgentConfig,
+	type SandboxProvider,
 	type ToolContext,
 	createProjectInstructionMessage,
 } from '@namzu/sdk'
 
-import { createSubagentRuntime } from '../runtime.js'
+import { GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
 
 /**
  * A delegated run belongs inside the turn that asked for it.
@@ -38,7 +40,11 @@ function toolContext(parentSpan?: ToolContext['parentSpan']): ToolContext {
 }
 
 async function buildAgentTool(
-	extra: { projectInstructionContext?: () => ProjectInstructionContext } = {},
+	extra: {
+		projectInstructionContext?: () => ProjectInstructionContext
+		sandboxProvider?: SandboxProvider
+		sandboxTeardownTimeoutMs?: number
+	} = {},
 ) {
 	const created: Record<string, unknown>[] = []
 	const registered: AgentDefinition[] = []
@@ -183,5 +189,21 @@ describe('a sub-agent is bound by the project it works in', () => {
 			| { projectInstructionContext?: ProjectInstructionContext }
 			| undefined
 		expect(config?.projectInstructionContext).toBeUndefined()
+	})
+})
+
+describe('a sub-agent stays inside the parent session boundary', () => {
+	it('carries the exact sandbox provider and teardown bound into its agent config', async () => {
+		const sandboxProvider = { id: 'same-boundary' } as SandboxProvider
+		const { registered } = await buildAgentTool({
+			sandboxProvider,
+			sandboxTeardownTimeoutMs: 37,
+		})
+
+		const general = registered.find((definition) => definition.info.id === GENERAL_PURPOSE_SUBAGENT)
+		const config = (await general?.configBuilder?.({})) as ReactiveAgentConfig | undefined
+
+		expect(config?.sandboxProvider).toBe(sandboxProvider)
+		expect(config?.sandboxTeardownTimeoutMs).toBe(37)
 	})
 })

@@ -138,6 +138,11 @@ import {
 	recoverCompletedCalls,
 	unansweredToolCalls,
 } from './resume-pending.js'
+import {
+	acquireSandbox,
+	resolveSandboxTeardownTimeoutMs,
+	teardownSandbox,
+} from './sandbox-lifecycle.js'
 import type { SteeringChannel } from './steering.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
@@ -727,6 +732,16 @@ export interface QueryParams {
 
 	sandboxProvider?: SandboxProvider
 
+	/**
+	 * Maximum time the run waits for sandbox teardown, in milliseconds.
+	 *
+	 * Defaults to 30 seconds. A fresh private signal is passed to `destroy()`;
+	 * the run also races the returned promise so an implementation that ignores
+	 * cancellation cannot pin `drainQuery()`. Set `0` to retain an unbounded
+	 * teardown wait.
+	 */
+	sandboxTeardownTimeoutMs?: number
+
 	invocationState?: InvocationState
 
 	/**
@@ -966,6 +981,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const maxRequestRichContentBytes = resolveMaxRequestRichContentBytes(
 		params.runConfig.maxRequestRichContentBytes,
 	)
+	const sandboxTeardownTimeoutMs = resolveSandboxTeardownTimeoutMs(params.sandboxTeardownTimeoutMs)
 	// Persist the EFFECTIVE value, not only an override. A run replayed after a
 	// later release must be able to explain which liveness policy settled it;
 	// an absent field whose meaning follows the currently-installed default
@@ -2191,12 +2207,54 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						details: { workspace: 'working-directory' },
 					})
 				}
-				sandbox = await params.sandboxProvider.create({
-					...(rootAtCwd ? { workingDirectory: ctx.cwd } : {}),
-					timeoutMs: runConfig.sandbox?.timeoutMs,
-					memoryLimitMb: runConfig.sandbox?.memoryLimitMb,
-					maxProcesses: runConfig.sandbox?.maxProcesses,
+				const acquisition = await acquireSandbox({
+					provider: params.sandboxProvider,
+					config: {
+						...(rootAtCwd ? { workingDirectory: ctx.cwd } : {}),
+						timeoutMs: runConfig.sandbox?.timeoutMs,
+						memoryLimitMb: runConfig.sandbox?.memoryLimitMb,
+						maxProcesses: runConfig.sandbox?.maxProcesses,
+					},
+					signal: ctx.abortController.signal,
+					timeoutMs: guard.remainingUntilTimeoutMs(),
+					teardownTimeoutMs: sandboxTeardownTimeoutMs,
+					onLateTeardown: (result) => {
+						if (result.kind === 'destroyed') {
+							ctx.log.info('Late sandbox allocation was destroyed after the run stopped', {
+								[NAMZU.RUN_ID]: ctx.runId,
+							})
+							return
+						}
+						ctx.log.error('Late sandbox allocation did not stop cleanly', {
+							[NAMZU.RUN_ID]: ctx.runId,
+							...errorAttributes(result.error),
+						})
+					},
 				})
+				if (acquisition.kind !== 'created') {
+					if (acquisition.createPending) {
+						ctx.log.warn(
+							'Sandbox creation was unsettled when the run stopped; any returned handle will be released, but a remote allocation hidden behind a lost response requires provider-side reconciliation or a fleet reaper',
+							{
+								[NAMZU.RUN_ID]: ctx.runId,
+								'namzu.sandbox.provider_id': params.sandboxProvider.id,
+							},
+						)
+					}
+					if (acquisition.kind === 'cancelled') {
+						ctx.runMgr.markCancelled()
+					} else {
+						ctx.runMgr.setStopReason('timeout')
+						ctx.log.warn('Sandbox creation exhausted the run timeout', {
+							[NAMZU.RUN_ID]: ctx.runId,
+							'namzu.sandbox.provider_id': params.sandboxProvider.id,
+							...errorAttributes(acquisition.error),
+						})
+					}
+					yield* resultAssembler.completeRun(rootSpan)
+					return await resultAssembler.finalize()
+				}
+				sandbox = acquisition.sandbox
 				toolExecutor.setSandbox(sandbox)
 
 				await eventTranslator.emitEvent({
@@ -2442,19 +2500,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// --- Sandbox lifecycle: destroy after run ---
 			if (sandbox) {
 				const sandboxId = sandbox.id
-				try {
-					await sandbox.destroy()
+				const teardown = await teardownSandbox(sandbox, sandboxTeardownTimeoutMs)
+				if (teardown.kind === 'destroyed') {
 					await eventTranslator.emitEvent({
 						type: 'sandbox_destroyed',
 						runId: ctx.runId,
 						sandboxId,
 					})
+					yield* eventTranslator.drainPending()
 					ctx.log.info('Sandbox destroyed', { 'namzu.sandbox.id': sandboxId })
-				} catch (destroyErr) {
+				} else {
 					ctx.log.error('Sandbox destroy failed', {
 						'namzu.sandbox.id': sandboxId,
-						'exception.message':
-							destroyErr instanceof Error ? destroyErr.message : String(destroyErr),
+						...errorAttributes(teardown.error),
 					})
 				}
 			}

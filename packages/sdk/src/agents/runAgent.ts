@@ -6,6 +6,7 @@ import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
 import type { Run, RunEventListener } from '../types/run/index.js'
+import type { SandboxProvider } from '../types/sandbox/index.js'
 import type { Skill } from '../types/skills/index.js'
 import type { StructuredOutputConfig } from '../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
@@ -63,6 +64,10 @@ export interface RunAgentOptions extends AgentIdentity {
 	model: string
 
 	tools?: ToolRegistryContract
+	/** Execute sandbox-aware tools inside this provider's boundary. */
+	sandboxProvider?: SandboxProvider
+	/** Sandbox teardown wait; defaults to 30 seconds and `0` is unbounded. */
+	sandboxTeardownTimeoutMs?: number
 
 	/**
 	 * Skills to put in front of the model.
@@ -245,6 +250,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 		{
 			provider: options.provider,
 			tools: options.tools ?? new ToolRegistry(),
+			...(options.sandboxProvider ? { sandboxProvider: options.sandboxProvider } : {}),
+			...(options.sandboxTeardownTimeoutMs !== undefined
+				? { sandboxTeardownTimeoutMs: options.sandboxTeardownTimeoutMs }
+				: {}),
 			messages,
 			workingDirectory: options.workingDirectory ?? process.cwd(),
 			runConfig: {
