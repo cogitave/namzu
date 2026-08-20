@@ -226,6 +226,13 @@ describe('when effort rides along', () => {
 		expect(resolveEffort('high', { type: 'enabled' }, opus45)).toBe('high')
 	})
 
+	it.each(['none', 'minimal', 'ultra'] as const)(
+		'does not leak the foreign %s level onto this provider wire',
+		(effort) => {
+			expect(resolveEffort(effort, { type: 'adaptive' }, adaptiveOnly)).toBeUndefined()
+		},
+	)
+
 	it('takes every level on a current model', () => {
 		const opus5 = resolveThinkingCapability('claude-opus-5')
 		for (const level of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {

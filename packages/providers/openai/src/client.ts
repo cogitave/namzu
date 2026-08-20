@@ -4,12 +4,12 @@ import type {
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
+	ReasoningEffort,
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
 import { assertThinkingUnsupported } from '@namzu/sdk'
-import type { ThinkingConfig } from '@namzu/sdk'
 import { toolResultToText } from '@namzu/sdk'
 import {
 	ProviderRequestError,
@@ -21,6 +21,7 @@ import { attributionHeaders } from '@namzu/sdk'
 import OpenAI from 'openai'
 import type {
 	ChatCompletionContentPart,
+	ChatCompletionCreateParamsStreaming,
 	ChatCompletionMessageParam,
 	ChatCompletionTool,
 	ChatCompletionToolChoiceOption,
@@ -38,6 +39,90 @@ export const OPENAI_CAPABILITIES: ProviderCapabilities = {
 	supportsFunctionCalling: true,
 	supportsVision: true,
 	supportsDocuments: true,
+}
+
+const GPT_5_EFFORT = [
+	'minimal',
+	'low',
+	'medium',
+	'high',
+] as const satisfies readonly ReasoningEffort[]
+const GPT_5_1_EFFORT = [
+	'none',
+	'low',
+	'medium',
+	'high',
+] as const satisfies readonly ReasoningEffort[]
+const GPT_5_2_TO_5_5_EFFORT = [
+	'none',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+] as const satisfies readonly ReasoningEffort[]
+const GPT_5_6_EFFORT = [
+	'none',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+] as const satisfies readonly ReasoningEffort[]
+
+/**
+ * Exact reasoning-effort levels published for a recognized OpenAI model id.
+ *
+ * `undefined` is deliberately different from an empty array. This driver also
+ * serves compatible endpoints with model identifiers OpenAI does not publish;
+ * claiming that such a model has no effort levels would be as false as claiming
+ * that it accepts every level in the SDK vocabulary.
+ */
+export function openAIReasoningEffortLevels(model: string): readonly ReasoningEffort[] | undefined {
+	const normalized = model.toLowerCase()
+	if (/^gpt-5\.6(?:-(?:sol|terra|luna))?(?:-\d{4}-\d{2}-\d{2})?$/.test(normalized)) {
+		return GPT_5_6_EFFORT
+	}
+	if (/^gpt-5\.5(?:-\d{4}-\d{2}-\d{2})?$/.test(normalized)) {
+		return GPT_5_2_TO_5_5_EFFORT
+	}
+	if (/^gpt-5\.4(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/.test(normalized)) {
+		return GPT_5_2_TO_5_5_EFFORT
+	}
+	if (/^gpt-5\.2(?:-\d{4}-\d{2}-\d{2})?$/.test(normalized)) {
+		return GPT_5_2_TO_5_5_EFFORT
+	}
+	if (/^gpt-5\.1(?:-\d{4}-\d{2}-\d{2})?$/.test(normalized)) {
+		return GPT_5_1_EFFORT
+	}
+	if (/^gpt-5(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/.test(normalized)) {
+		return GPT_5_EFFORT
+	}
+	return undefined
+}
+
+function assertOpenAIReasoningEffort(model: string, effort: ReasoningEffort | undefined): void {
+	if (effort === undefined) return
+	const supported = openAIReasoningEffortLevels(model)
+	if (supported === undefined || supported.includes(effort)) return
+	throw new Error(
+		`OpenAIProvider: effort "${effort}" is not supported by model "${model}". Supported levels: ${supported.join(', ')}. Choose one of those levels or omit \`effort\`.`,
+	)
+}
+
+/**
+ * Add the current effort vocabulary without widening any other vendor field.
+ *
+ * The installed vendor client declaration predates `max`, while the current
+ * API model catalogue already publishes it for GPT-5.6. `ultra` remains valid
+ * only for an unknown compatible endpoint here: every recognized official
+ * model rejects it above before this bounded cast is reached.
+ */
+function withReasoningEffort(
+	request: Omit<ChatCompletionCreateParamsStreaming, 'reasoning_effort'>,
+	effort: ReasoningEffort | undefined,
+): ChatCompletionCreateParamsStreaming {
+	if (effort === undefined) return request
+	return { ...request, reasoning_effort: effort } as ChatCompletionCreateParamsStreaming
 }
 
 type OpenAIFinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'function_call'
@@ -112,7 +197,7 @@ export function assertThinkingSupported(params: {
 	// moved to the SDK where a new driver inherits it instead of re-deciding
 	// it. Kept as a named export because it is one, and removing it would
 	// break a caller for no gain.
-	assertThinkingUnsupported('OpenAIProvider', params as { thinking?: ThinkingConfig })
+	assertThinkingUnsupported('OpenAIProvider', { thinking: params.thinking })
 }
 
 /**
@@ -286,26 +371,30 @@ export class OpenAIProvider implements LLMProvider {
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
 		assertThinkingSupported(params)
+		assertOpenAIReasoningEffort(model, params.effort)
 
 		let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
 		try {
 			stream = await this.client.chat.completions.create(
-				{
-					model,
-					messages: toOpenAIMessages(params.messages),
-					stream: true,
-					stream_options: { include_usage: true },
-					tools: toOpenAITools(params),
-					tool_choice: formatToolChoice(params.toolChoice),
-					parallel_tool_calls: params.parallelToolCalls,
-					temperature: params.temperature,
-					max_tokens: params.maxTokens,
-					top_p: params.topP,
-					frequency_penalty: params.frequencyPenalty,
-					presence_penalty: params.presencePenalty,
-					stop: params.stop,
-					response_format: params.responseFormat,
-				},
+				withReasoningEffort(
+					{
+						model,
+						messages: toOpenAIMessages(params.messages),
+						stream: true,
+						stream_options: { include_usage: true },
+						tools: toOpenAITools(params),
+						tool_choice: formatToolChoice(params.toolChoice),
+						parallel_tool_calls: params.parallelToolCalls,
+						temperature: params.temperature,
+						max_tokens: params.maxTokens,
+						top_p: params.topP,
+						frequency_penalty: params.frequencyPenalty,
+						presence_penalty: params.presencePenalty,
+						stop: params.stop,
+						response_format: params.responseFormat,
+					},
+					params.effort,
+				),
 				// Per-request abort: a Stop tears the in-flight SSE request down.
 				{ signal: params.signal },
 			)

@@ -173,6 +173,8 @@ What each one is claiming:
   content part carrying a base64 data URI, with the message text first.
 - **Documents.** A document attachment becomes a `file` part — not an image
   part with a different media type, which is what it used to be.
+- **Reasoning effort.** `params.effort` becomes the Chat Completions
+  `reasoning_effort` field after the selected model's published set is checked.
 
 Two more shapes are worth knowing because they are not flags. Tool result
 messages are text-only on this wire, so a structured result degrades through
@@ -184,13 +186,37 @@ comes from the vendor's prompt-token detail, and `cacheWriteTokens` is always
 
 This driver emits no per-tool `toolCallEnd` boundary; the orchestrator infers
 tool completion from the end of the stream. It emits no reasoning deltas and no
-citation deltas either — which is not a gap to work around but the reason two
-requests are refused outright, below.
+citation deltas either. Effort still changes how much work the model does; it
+does not claim that this Chat Completions driver can return the model's hidden
+reasoning blocks.
+
+## Reasoning effort
+
+Effort is model-specific and validated before the vendor client is called:
+
+| Recognized model family | Accepted levels |
+|---|---|
+| GPT-5, including mini/nano and snapshots | `minimal`, `low`, `medium`, `high` |
+| GPT-5.1 and snapshots | `none`, `low`, `medium`, `high` |
+| GPT-5.2, GPT-5.4 and GPT-5.5 aliases/snapshots | `none`, `low`, `medium`, `high`, `xhigh` |
+| GPT-5.6 Sol/Terra/Luna and the `gpt-5.6` alias | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
+
+A level outside a recognized model's set refuses before transport and names
+the accepted alternatives. `ultra` is in the kernel's cross-provider
+vocabulary because a Codex thread can name it; none of the recognized Chat
+Completions model sets above currently accepts it.
+
+`openAIReasoningEffortLevels(model)` exposes the same table and returns
+`undefined` for an unknown id. Unknown is not an empty set: `baseURL` may point
+at a compatible endpoint with its own model vocabulary, so an explicit effort
+for such an id is passed through and that endpoint remains the authority that
+accepts or refuses it. Omitting `effort` omits `reasoning_effort` from the
+request entirely.
 
 ## What it refuses
 
 The kernel's rule is that a capability accepted and then quietly not applied is
-worse than one that errors, because the caller stops looking. Four requests
+worse than one that errors, because the caller stops looking. Three requests
 throw here instead of being dropped:
 
 - **`thinking: { type: 'enabled' | 'adaptive' }`** — this driver does not
@@ -198,9 +224,6 @@ throw here instead of being dropped:
   completion with an empty reasoning list, which reads as "the model did not
   reason" rather than "nobody asked it to". `{ type: 'disabled' }` and an
   absent field are accepted, because off is the state the driver is already in.
-- **`effort`** — refused on the same reasoning, and it is the quieter failure
-  of the two: a run someone believes they paid for at `max` would be
-  indistinguishable from one at the model's default, including on the bill.
 - **A document attachment with `citations: true`** — this request format has no
   way to carry citations back, and answering without them removes exactly the
   checkability that was asked for.
@@ -269,10 +292,12 @@ ships.
 
 All three are optional members of `LLMProvider`, so call them through the
 optional chain (`await provider.probeCredential?.()`) unless you are holding
-the concrete class. `doctorCheck`, `effortLevelsFor` and `resolveContextWindow` are
-not implemented here, and are absent rather than stubbed — the runtime tells
-"this driver cannot answer" from "it answered nothing", and a stub would
-destroy that distinction.
+the concrete class. `doctorCheck`, the generic `effortLevelsFor`, and
+`resolveContextWindow` are not implemented here, and are absent rather than
+stubbed. The provider-specific `openAIReasoningEffortLevels` has the extra
+`undefined` state needed for an unknown compatible-endpoint model; returning an
+empty array through the generic method would falsely say that model has no
+effort levels.
 
 `listModels` and `probeCredential` both accept an optional `AbortSignal` and
 pass it to the vendor request. Provider decorators preserve that same signal,

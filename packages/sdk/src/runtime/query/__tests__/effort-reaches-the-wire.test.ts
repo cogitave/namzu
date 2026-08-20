@@ -7,6 +7,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import type { ReasoningEffort } from '../../../types/provider/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
 import { drainQuery } from '../index.js'
 
@@ -65,6 +66,15 @@ describe('an effort level set on the run reaches the provider', () => {
 		expect(provider.requests.length).toBeGreaterThan(0)
 		expect(provider.requests[0]?.effort).toBe('max')
 	})
+
+	it.each(['none', 'ultra'] as const satisfies readonly ReasoningEffort[])(
+		'forwards the expanded vocabulary boundary %s unchanged',
+		async (effort) => {
+			const provider = await run({ effort }, [{ text: 'done' }])
+
+			expect(provider.requests[0]?.effort).toBe(effort)
+		},
+	)
 
 	it('is absent when nobody asked for one', async () => {
 		// Not `undefined`-valued but genuinely absent: a present key carrying

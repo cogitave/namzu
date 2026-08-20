@@ -22,5 +22,5 @@ export function registerOpenAI(options?: RegisterOptions): void {
 	ProviderRegistry.register('openai', OpenAIProvider, OPENAI_CAPABILITIES, options)
 }
 
-export { OPENAI_CAPABILITIES, OpenAIProvider } from './client.js'
+export { OPENAI_CAPABILITIES, OpenAIProvider, openAIReasoningEffortLevels } from './client.js'
 export type { OpenAIConfig, OpenAIProviderConfig } from './types.js'

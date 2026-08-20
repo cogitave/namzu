@@ -342,6 +342,7 @@
       "runtime": [
         "OPENAI_CAPABILITIES",
         "OpenAIProvider",
+        "openAIReasoningEffortLevels",
         "registerOpenAI"
       ],
       "declared": [
@@ -349,6 +350,7 @@
         "OpenAIConfig",
         "OpenAIProvider",
         "OpenAIProviderConfig",
+        "openAIReasoningEffortLevels",
         "registerOpenAI"
       ],
       "deprecated": []

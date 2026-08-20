@@ -135,9 +135,12 @@ export interface LLMProvider {
 	 *
 	 * There are three states and they mean different things:
 	 *
-	 * - **method absent** — this driver has no effort concept at all. Setting
-	 *   `effort` on a run using it is refused, not ignored, so a caller should
-	 *   offer no control rather than a disabled one.
+	 * - **method absent** — this driver cannot enumerate the model's levels.
+	 *   That may mean it has no effort concept, or that it accepts compatible
+	 *   endpoint model identifiers whose capabilities are not knowable here. A
+	 *   caller should not fabricate a picker; an explicitly configured effort
+	 *   is still mapped, refused, or resolved under the driver's documented
+	 *   policy.
 	 * - **empty array** — the driver implements effort and THIS model has no
 	 *   levels. A real answer, not a missing one.
 	 * - **non-empty** — offer exactly these, and nothing else.

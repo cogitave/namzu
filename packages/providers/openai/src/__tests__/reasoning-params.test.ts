@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import type { ChatCompletionParams, ReasoningEffort } from '@namzu/sdk'
+import { describe, expect, it, vi } from 'vitest'
 
-import { OPENAI_CAPABILITIES, assertThinkingSupported } from '../client.js'
+import {
+	OPENAI_CAPABILITIES,
+	OpenAIProvider,
+	assertThinkingSupported,
+	openAIReasoningEffortLevels,
+} from '../client.js'
 
 /**
  * This driver does not implement extended thinking, and used to accept the
@@ -55,6 +61,139 @@ describe('asking for it to be off is honoured as a no-op', () => {
 
 	it('accepts a call that says nothing about thinking', () => {
 		expect(() => assertThinkingSupported({})).not.toThrow()
+	})
+})
+
+function providerWithCapturedRequest(): {
+	readonly provider: OpenAIProvider
+	readonly create: ReturnType<typeof vi.fn>
+} {
+	const provider = new OpenAIProvider({ apiKey: 'test-key' })
+	const create = vi.fn(async (_body: Record<string, unknown>) =>
+		(async function* () {
+			yield {
+				id: 'msg_done',
+				choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+				usage: { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
+			}
+		})(),
+	)
+	;(provider as unknown as { client: unknown }).client = {
+		chat: { completions: { create } },
+	}
+	return { provider, create }
+}
+
+async function send(
+	provider: OpenAIProvider,
+	params: Pick<ChatCompletionParams, 'model' | 'effort' | 'thinking'>,
+): Promise<void> {
+	for await (const _chunk of provider.chatStream({
+		...params,
+		messages: [{ role: 'user', content: 'reason about this' }],
+	})) {
+		// Drain the provider stream so the captured body is the production call.
+	}
+}
+
+describe('reasoning effort reaches the Chat Completions wire', () => {
+	const accepted = [
+		['gpt-5.2', 'none'],
+		['gpt-5', 'minimal'],
+		['gpt-5.2', 'low'],
+		['gpt-5.2', 'medium'],
+		['gpt-5.2', 'high'],
+		['gpt-5.2', 'xhigh'],
+		['gpt-5.6-sol', 'max'],
+		['gateway/future-model', 'ultra'],
+	] as const satisfies readonly (readonly [string, ReasoningEffort])[]
+
+	it.each(accepted)('maps %s effort %s exactly', async (model, effort) => {
+		const { provider, create } = providerWithCapturedRequest()
+
+		await send(provider, { model, effort })
+
+		expect(create).toHaveBeenCalledTimes(1)
+		expect(create.mock.calls[0]?.[0]).toMatchObject({ model, reasoning_effort: effort })
+	})
+
+	it('omits the wire key entirely when nobody selected an effort', async () => {
+		const { provider, create } = providerWithCapturedRequest()
+
+		await send(provider, { model: 'gpt-5.2' })
+
+		expect(create).toHaveBeenCalledTimes(1)
+		expect(create.mock.calls[0]?.[0]).not.toHaveProperty('reasoning_effort')
+	})
+})
+
+describe('recognized models refuse levels their published set does not contain', () => {
+	const refused = [
+		['gpt-5.2', 'minimal'],
+		['gpt-5.2', 'max'],
+		['gpt-5.2', 'ultra'],
+		['gpt-5', 'none'],
+		['gpt-5', 'xhigh'],
+		['gpt-5.6-sol', 'minimal'],
+		['gpt-5.6-sol', 'ultra'],
+	] as const satisfies readonly (readonly [string, ReasoningEffort])[]
+
+	it.each(refused)('refuses %s effort %s before transport', async (model, effort) => {
+		const { provider, create } = providerWithCapturedRequest()
+
+		await expect(send(provider, { model, effort })).rejects.toThrow(
+			new RegExp(`effort "${effort}" is not supported by model "${model}"`),
+		)
+		expect(create).not.toHaveBeenCalled()
+	})
+
+	it('still refuses unsupported extended thinking before an otherwise valid effort request', async () => {
+		const { provider, create } = providerWithCapturedRequest()
+
+		await expect(
+			send(provider, {
+				model: 'gpt-5.2',
+				effort: 'high',
+				thinking: { type: 'adaptive' },
+			}),
+		).rejects.toThrow(/does not implement thinking/i)
+		expect(create).not.toHaveBeenCalled()
+	})
+})
+
+describe('published model effort sets are exact and unknown stays unknown', () => {
+	it('distinguishes the model generations and their snapshots', () => {
+		expect(openAIReasoningEffortLevels('gpt-5-2025-08-07')).toEqual([
+			'minimal',
+			'low',
+			'medium',
+			'high',
+		])
+		expect(openAIReasoningEffortLevels('gpt-5.1-2025-11-13')).toEqual([
+			'none',
+			'low',
+			'medium',
+			'high',
+		])
+		expect(openAIReasoningEffortLevels('gpt-5.2')).toEqual([
+			'none',
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+		])
+		expect(openAIReasoningEffortLevels('gpt-5.6-terra')).toEqual([
+			'none',
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max',
+		])
+	})
+
+	it('does not turn an unknown compatible-endpoint model into a false empty set', () => {
+		expect(openAIReasoningEffortLevels('gateway/future-model')).toBeUndefined()
 	})
 })
 

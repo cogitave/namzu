@@ -127,7 +127,7 @@ Tools do not execute in the host process. What that buys you **depends on the ti
 
 `linux-bwrap` is the tier that does remount, and so is the first on that platform entitled to claim the control. It builds a mount table holding the sandbox root read-write, the system paths a binary needs read-only, private `/proc`, `/dev` and `/tmp`, and nothing else — a host path is **absent** rather than unreadable, which is the difference between a boundary and a permission bit. The interpreter's own prefix is bound read-only, because a runtime installed outside the distribution's packages is otherwise not there at all and the failure reads as a broken command rather than as the sandbox working.
 
-Detection runs the real confinement rather than asking a binary its version: a host with the tooling present and unprivileged user namespaces disabled falls through to the weaker tier instead of claiming a control it cannot deliver.
+Detection runs the real confinement rather than asking a binary its version: a host with the tooling present and unprivileged user namespaces disabled falls through to the weaker tier instead of claiming a control it cannot deliver. The probe uses the same direct child-process boundary as a real command and requires the current runtime to return an exact stdout sentinel; a shell that can launch a wrapper does not prove the application can drive it or receive its output. The provider resolves the wrapper only from fixed system locations, canonicalizes its absolute path, and keeps that exact path for execution. A sandbox or command-level `PATH` override therefore applies only to the inner command and cannot replace the already-verified `bwrap`, `unshare`, or seatbelt wrapper with an unconfined lookalike.
 
 This matters because the failure it guards against is silent. If a run requires a control the host cannot enforce, `assertIsolation` **refuses to start it** rather than proceeding at a weaker tier: a security control that is accepted and then quietly not applied is worse than one that was never offered, because the caller stops looking. Use `isolationOf`, `missingIsolation` and `describeIsolation` to ask what you are actually getting before you rely on it.
 
@@ -333,6 +333,15 @@ The kernel does not render a UI for this — it emits events and exposes a typed
 An LLM provider implements a narrow interface: given a typed request, return a typed response (streaming or not) and propagate normalized usage, cost, and cache telemetry. Concrete providers live in dedicated sibling packages — `@namzu/anthropic`, `@namzu/bedrock`, `@namzu/http`, `@namzu/lmstudio`, `@namzu/ollama`, `@namzu/openai`, `@namzu/openrouter` — each calling `ProviderRegistry.register('<vendor>', Class, capabilities)` via a `register<Vendor>()` helper. The kernel itself ships only the `LLMProvider` interface, the `ProviderRegistry`, and a pre-registered `MockLLMProvider` for tests and offline work. `provider/telemetry/` normalizes provider-specific response fields (`cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_discount`, Bedrock equivalents) into a single kernel-wide telemetry shape.
 
 `ProviderRegistry` is the single entry point. `ProviderRegistry.create({ type, ... })` returns `{ provider, capabilities }`; TypeScript module augmentation from each provider package gives type-narrowed config. Providers are stateless enough to be shared across runs.
+
+`ReasoningEffort` is a cross-provider intent vocabulary, not a promise that
+every model accepts every member. It includes the distinct `none` and
+`minimal` levels used by different model generations and the current upper
+`max` and `ultra` names. A driver with no effort wire refuses a requested
+value; a driver with model-specific support resolves the selected model's
+documented set. An absent `effortLevelsFor` means the driver cannot enumerate
+that set — including when it accepts arbitrary compatible-endpoint model ids —
+not that a host may assume every level or none of them.
 
 The runtime composes each provider as `fallback(retry(idle(provider)))`. The
 idle layer bounds time between chunks rather than total request duration,

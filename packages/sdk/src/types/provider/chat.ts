@@ -73,14 +73,19 @@ export interface ChatCompletionParams {
 	 * default the runtime received blocks it then discarded. Neither half
 	 * was expressible.
 	 *
-	 * Drivers that do not support it ignore the field.
+	 * A driver that has no extended-thinking wire must refuse `enabled` and
+	 * `adaptive` rather than return an ordinary answer that looks honoured.
+	 * `disabled` may be accepted as an explicit no-op by a driver that was
+	 * already going to leave thinking off.
 	 */
 	thinking?: ThinkingConfig
 
 	/**
 	 * How much work to put into the response. See {@link ReasoningEffort}.
 	 *
-	 * Drivers that do not support it ignore the field.
+	 * A driver with no effort concept must refuse the field rather than silently
+	 * use the model default. Drivers whose accepted levels vary by model resolve
+	 * that narrower set according to their documented provider policy.
 	 */
 	effort?: ReasoningEffort
 }
@@ -142,8 +147,24 @@ export interface ThinkingConfig {
  * In adaptive mode it is the primary depth lever — low effort may skip
  * thinking entirely on easy input. In manual mode `budgetTokens` sets depth
  * and effort does not move it.
+ *
+ * This union describes caller intent, not a claim that every provider or model
+ * accepts every level. For example, `minimal` and `none` are distinct levels on
+ * different compatible model generations, `max` is available only on newer
+ * families, and `ultra` can be a host-level value rather than a model wire
+ * capability. A provider must resolve the selected model's actual set before
+ * transport or leave the vendor to refuse an unknown compatible-endpoint
+ * extension explicitly.
  */
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type ReasoningEffort =
+	| 'none'
+	| 'minimal'
+	| 'low'
+	| 'medium'
+	| 'high'
+	| 'xhigh'
+	| 'max'
+	| 'ultra'
 
 export interface ChatCompletionResponse {
 	id: string

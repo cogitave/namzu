@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ReasoningEffort } from '../../types/provider/index.js'
 
 import { assertThinkingUnsupported } from '../thinking-support.js'
 
@@ -56,5 +57,24 @@ describe('a driver that cannot think says so', () => {
 
 	it('does nothing when the caller said nothing', () => {
 		expect(() => assertThinkingUnsupported('TestProvider', {})).not.toThrow()
+	})
+})
+
+describe('a driver with no effort wire refuses the whole public vocabulary', () => {
+	const levels = [
+		'none',
+		'minimal',
+		'low',
+		'medium',
+		'high',
+		'xhigh',
+		'max',
+		'ultra',
+	] as const satisfies readonly ReasoningEffort[]
+
+	it.each(levels)('refuses %s instead of silently using the model default', (effort) => {
+		expect(() => assertThinkingUnsupported('TestProvider', { effort })).toThrow(
+			new RegExp(`requested at "${effort}"`),
+		)
 	})
 })
