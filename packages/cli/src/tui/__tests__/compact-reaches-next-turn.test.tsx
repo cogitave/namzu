@@ -19,6 +19,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { type Screen, renderToScreen } from './support/screen.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 const SUMMARY_TEXT = 'SUMMARY_ONLY_FROM_COMPACTION'
@@ -36,17 +37,40 @@ let recentConversations: Array<{
 	count: number
 }> = []
 let compactCalls = 0
+let compactReturnsNull = false
 let appendCalls = 0
 let replaceShouldFail = false
+let holdReplacement = false
+let replaceEntered = 0
+let replacementWait: Promise<void> = Promise.resolve()
+let releaseReplacement: () => void = () => {}
+let rejectReplacement: (reason?: unknown) => void = () => {}
 let holdAppend = false
 let appendWait: Promise<void> = Promise.resolve()
 let releaseAppend: () => void = () => {}
 let turnWait: Promise<void> | null = null
 let releaseTurn: () => void = () => {}
+let reportContextUsage = false
+
+const ZERO_USAGE = {
+	promptTokens: 0,
+	completionTokens: 0,
+	totalTokens: 0,
+	cachedTokens: 0,
+	cacheWriteTokens: 0,
+}
+let compactionUsage = ZERO_USAGE
 
 function resetAppendGate(): void {
 	appendWait = new Promise<void>((resolve) => {
 		releaseAppend = resolve
+	})
+}
+
+function resetReplacementGate(): void {
+	replacementWait = new Promise<void>((resolve, reject) => {
+		releaseReplacement = resolve
+		rejectReplacement = reject
 	})
 }
 
@@ -67,6 +91,8 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 		if (holdAppend) await appendWait
 	},
 	replaceConversation: async (_s: unknown, _id: string, messages: readonly Message[]) => {
+		replaceEntered += 1
+		if (holdReplacement) await replacementWait
 		if (replaceShouldFail) throw new Error('REPLACEMENT_DID_NOT_LAND')
 		replacements.push([...messages])
 	},
@@ -110,14 +136,31 @@ vi.mock('../agent.js', async (importOriginal) => {
 			promptExemptTools: () => [],
 			compact: async (messages) => {
 				compactCalls += 1
+				if (compactReturnsNull) return null
 				// The SDK pins host-triggered summaries because no run-scoped
 				// WorkingStateManager exists between turns to reproduce them.
 				const summary = { ...createSystemMessage(SUMMARY_TEXT), retain: true }
-				return { messages: [summary, ...messages.slice(-2)], shed: 1, summary }
+				return {
+					messages: [summary, ...messages.slice(-2)],
+					shed: 1,
+					summary,
+					usage: compactionUsage,
+				}
 			},
 			send: async function* (messages): AsyncIterable<AgentEvent> {
 				sent.push([...messages])
 				yield { kind: 'delta', text: `answer-${sent.length}` } as AgentEvent
+				if (reportContextUsage) {
+					yield {
+						kind: 'usage',
+						totalTokens: 9_500,
+						cost: { totalCost: 0.19, cacheDiscount: 0, unpricedTokens: 0 },
+						contextTokens: 95_000,
+						contextMeasuredBy: 'provider',
+						contextWindowTokens: 100_000,
+						windowSource: 'provider',
+					} as AgentEvent
+				}
 				if (turnWait) await turnWait
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 			},
@@ -129,6 +172,7 @@ const { App } = await import('../App.js')
 const ctx: TuiContext = { cwd: '/w', version: '0.0.0-test' }
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms))
 const mounted: { unmount: () => void }[] = []
+const mountedScreens: Screen[] = []
 
 beforeEach(() => {
 	sent.length = 0
@@ -138,19 +182,28 @@ beforeEach(() => {
 	loadedConversation = []
 	recentConversations = []
 	compactCalls = 0
+	compactReturnsNull = false
 	appendCalls = 0
 	replaceShouldFail = false
+	holdReplacement = false
+	replaceEntered = 0
+	resetReplacementGate()
 	holdAppend = false
 	resetAppendGate()
 	turnWait = null
 	releaseTurn = () => {}
+	reportContextUsage = false
+	compactionUsage = ZERO_USAGE
 })
 
-afterEach(() => {
+afterEach(async () => {
 	releaseAppend()
+	releaseReplacement()
 	releaseTurn()
 	for (const harness of mounted) harness.unmount()
 	mounted.length = 0
+	for (const screen of mountedScreens) await screen.unmount()
+	mountedScreens.length = 0
 	vi.restoreAllMocks()
 })
 
@@ -175,6 +228,30 @@ async function submit(harness: { stdin: { write: (value: string) => void } }, te
 async function waitUntil(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
 	const started = performance.now()
 	while (!predicate() && performance.now() - started < timeoutMs) await tick(20)
+}
+
+async function waitForScreen(
+	screen: Screen,
+	predicate: () => boolean,
+	attempts = 120,
+): Promise<void> {
+	for (let i = 0; i < attempts && !predicate(); i++) await screen.waitForRender()
+	expect(predicate()).toBe(true)
+}
+
+async function submitToScreen(screen: Screen, text: string): Promise<void> {
+	screen.press(text)
+	await screen.waitForRender()
+	screen.press('\r')
+	await screen.waitForRender()
+}
+
+function visibleScreen(screen: Screen): string {
+	return screen.viewport().join('\n')
+}
+
+function fullScreen(screen: Screen): string {
+	return screen.scrollback().join('\n')
 }
 
 it('puts the compacted summary in the next model request and the durable conversation', async () => {
@@ -244,6 +321,91 @@ it('restores a persisted compaction summary as model history', async () => {
 		),
 		'the summary loaded from disk was discarded before the next model request',
 	).toBe(true)
+})
+
+it('publishes the new status and summary only after durable compaction settles', async () => {
+	reportContextUsage = true
+	holdReplacement = true
+	compactionUsage = {
+		promptTokens: 1_200,
+		completionTokens: 34,
+		totalTokens: 1_234,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+	}
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
+	mountedScreens.push(screen)
+	await waitForScreen(screen, () => fullScreen(screen).includes('Connected to a-provider'))
+
+	await submitToScreen(screen, 'question before durable compaction')
+	await waitForScreen(
+		screen,
+		() => fullScreen(screen).includes('answer-1') && visibleScreen(screen).includes('95%'),
+	)
+
+	await submitToScreen(screen, '/compact')
+	await waitForScreen(screen, () => replaceEntered === 1)
+	expect(visibleScreen(screen), 'the old measurement vanished before its history changed').toContain(
+		'95%',
+	)
+	expect(fullScreen(screen)).toContain('question before durable compaction')
+	expect(fullScreen(screen)).toContain('answer-1')
+	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
+
+	releaseReplacement()
+	await waitForScreen(screen, () => fullScreen(screen).includes('Compacted 1 earlier message'))
+	expect(fullScreen(screen)).toContain('Verifier used 1,234 tokens.')
+	expect(visibleScreen(screen), 'the gauge still described the superseded history').not.toContain(
+		'95%',
+	)
+})
+
+it('never clears the old status while a durable replacement is pending or rejected', async () => {
+	reportContextUsage = true
+	holdReplacement = true
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
+	mountedScreens.push(screen)
+	await waitForScreen(screen, () => fullScreen(screen).includes('Connected to a-provider'))
+
+	await submitToScreen(screen, 'question before rejected compaction')
+	await waitForScreen(
+		screen,
+		() => fullScreen(screen).includes('answer-1') && visibleScreen(screen).includes('95%'),
+	)
+	await submitToScreen(screen, '/compact')
+	await waitForScreen(screen, () => replaceEntered === 1)
+	expect(visibleScreen(screen)).toContain('95%')
+	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
+
+	rejectReplacement(new Error('REPLACEMENT_DID_NOT_LAND'))
+	await waitForScreen(screen, () => fullScreen(screen).includes('REPLACEMENT_DID_NOT_LAND'))
+	expect(visibleScreen(screen), 'a rejected publication erased the still-current gauge').toContain(
+		'95%',
+	)
+	expect(fullScreen(screen)).toContain('question before rejected compaction')
+	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
+})
+
+it('keeps the current status when compaction has nothing to replace', async () => {
+	reportContextUsage = true
+	compactReturnsNull = true
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
+	mountedScreens.push(screen)
+	await waitForScreen(screen, () => fullScreen(screen).includes('Connected to a-provider'))
+
+	await submitToScreen(screen, 'short conversation')
+	await waitForScreen(
+		screen,
+		() => fullScreen(screen).includes('answer-1') && visibleScreen(screen).includes('95%'),
+	)
+	await submitToScreen(screen, '/compact')
+	await waitForScreen(screen, () => fullScreen(screen).includes('adding a summary would save no messages'))
+
+	expect(visibleScreen(screen), 'a no-op changed the measurement of unchanged history').toContain(
+		'95%',
+	)
+	expect(replaceEntered).toBe(0)
+	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
 })
 
 it('keeps the live history unchanged when its durable replacement fails', async () => {

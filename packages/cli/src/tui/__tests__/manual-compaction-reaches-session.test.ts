@@ -84,6 +84,13 @@ describe('manual compaction reaches a real agent session', () => {
 			expect(result.summary.retain).toBe(true)
 			expect(String(result.summary.content)).toContain(oldFact)
 			expect(result.shed).toBeGreaterThan(0)
+			expect(result.usage).toEqual({
+				promptTokens: 0,
+				completionTokens: 0,
+				totalTokens: 0,
+				cachedTokens: 0,
+				cacheWriteTokens: 0,
+			})
 		} finally {
 			await session.close()
 		}

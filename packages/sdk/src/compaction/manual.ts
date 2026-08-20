@@ -1,5 +1,7 @@
 import type { CompactionConfig } from '../config/runtime.js'
+import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { resolveStreamIdleTimeoutMs } from '../provider/idle-timeout.js'
+import { type TokenUsage, accumulateTokenUsage } from '../types/common/index.js'
 import { NamzuError } from '../types/errors/index.js'
 import { toolResultToText } from '../types/message/content.js'
 import type { Message } from '../types/message/index.js'
@@ -39,6 +41,14 @@ export interface CompactionResult {
 	readonly shed: number
 	/** The summary that replaced them, as it appears in `messages`. */
 	readonly summary: Message
+	/**
+	 * Tokens spent by this host-triggered pass's optional verifier call.
+	 *
+	 * A zero record means no verifier model call ran. The manual path has no
+	 * `RunManager` to account for side-channel usage, so returning it is the
+	 * only way a host can include that real provider work in its own ledger.
+	 */
+	readonly usage: TokenUsage
 }
 
 export interface CompactNowInput extends CompactionVerificationOptions {
@@ -160,18 +170,21 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 
 	const manager = new WorkingStateManager(input.config)
 	populateWorkingState(manager, plan.olderMessages, input.config)
+	let usage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
 	const body = await buildVerifiedSummary(
 		manager,
 		[...plan.olderMessages],
 		input.provider,
 		input.config,
-		undefined,
+		(reported) => {
+			usage = accumulateTokenUsage(usage, reported)
+		},
 		input.model ?? '',
 		{ signal: input.signal, streamIdleTimeoutMs: input.streamIdleTimeoutMs },
 	)
 
 	const { messages, summary } = splice(preservedSystem, body, retainedOlder, plan.recentMessages)
-	return { messages, shed: input.messages.length - messages.length, summary }
+	return { messages, shed: input.messages.length - messages.length, summary, usage }
 }
 
 export interface CompactRegionInput extends CompactNowInput {
@@ -235,12 +248,15 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 
 	const manager = new WorkingStateManager(input.config)
 	populateWorkingState(manager, messages.slice(start, end), input.config)
+	let usage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
 	const body = await buildVerifiedSummary(
 		manager,
 		messages.slice(start, end),
 		input.provider,
 		input.config,
-		undefined,
+		(reported) => {
+			usage = accumulateTokenUsage(usage, reported)
+		},
 		input.model ?? '',
 		{ signal: input.signal, streamIdleTimeoutMs: input.streamIdleTimeoutMs },
 	)
@@ -264,5 +280,5 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 		})
 	}
 
-	return { messages: out, shed: messages.length - out.length, summary }
+	return { messages: out, shed: messages.length - out.length, summary, usage }
 }

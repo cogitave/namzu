@@ -158,6 +158,11 @@ already owns an equivalent watchdog. Invalid values and an already-aborted
 signal are refused at manual-compaction admission, including when the selected
 history would otherwise produce a no-op.
 
+`compactNow` and `compactRegion` also return the exact `TokenUsage` reported by
+that verifier. A zero record means the pass needed no verifier request. These
+functions run outside a query and therefore have no run ledger to charge; the
+result is the accounting handoff to the host that asked for the work.
+
 ## Evaluation judges
 
 `judgeScorer` is also a model-calling front door. It applies the shared finite

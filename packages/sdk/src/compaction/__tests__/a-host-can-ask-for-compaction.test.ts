@@ -79,7 +79,50 @@ describe('a host can ask for compaction', () => {
 		expect(String(result.summary.content)).toContain('question 0')
 		expect(result.shed).toBe(messages.length - result.messages.length)
 		expect(result.shed).toBeGreaterThan(0)
+		expect(result.usage).toEqual({
+			promptTokens: 0,
+			completionTokens: 0,
+			totalTokens: 0,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		})
 	})
+
+	it.each(['whole history', 'selected region'] as const)(
+		'reports verifier usage for %s compaction',
+		async (mode) => {
+			const spent = {
+				promptTokens: 1_200,
+				completionTokens: 35,
+				totalTokens: 1_235,
+				cachedTokens: 400,
+				cacheWriteTokens: 12,
+			}
+			const p = new MockLLMProvider({ turns: [{ text: 'COMPLETE', usage: spent }] })
+			const messages = history(8)
+			const verification = config({
+				llmVerification: true,
+				llmVerificationMaxTokens: 128,
+				convoTextBudget: 4_000,
+			})
+
+			const result =
+				mode === 'whole history'
+					? await compactNow({ messages, config: verification, provider: p, model: 'mock-model' })
+					: await compactRegion({
+							messages,
+							start: 1,
+							end: 7,
+							config: verification,
+							provider: p,
+							model: 'mock-model',
+						})
+
+			expect(result).not.toBeNull()
+			expect(result?.usage).toEqual(spent)
+			expect(p.requests).toHaveLength(1)
+		},
+	)
 
 	it('uses the token boundary rather than an inactive message-count minimum', async () => {
 		const messages = Array.from({ length: 4 }, (_, index) =>

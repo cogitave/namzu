@@ -2584,9 +2584,9 @@ export function App({ ctx }: AppProps) {
 						compactingRef.current = true
 						setCompacting(true)
 						setState('thinking')
-						// Fire-and-forget, the same shape `feedback` above uses and for
-						// the same reason: this switch is synchronous and the work is a
-						// model call. The transcript reports the outcome either way.
+						// Fire-and-forget, the same shape `feedback` above uses: this
+						// switch is synchronous while compaction and its optional
+						// verifier are asynchronous. The transcript reports the outcome.
 						void (async () => {
 							try {
 								// The same lossless record `runTurn` reads — including an earlier
@@ -2599,7 +2599,7 @@ export function App({ ctx }: AppProps) {
 									// operator asked on purpose.
 									pushMessage(
 										'system',
-										'Nothing to compact yet — this conversation is short enough that a summary would cost a model call and save nothing.',
+										'Nothing to compact yet — this conversation is short enough that adding a summary would save no messages.',
 									)
 									return
 								}
@@ -2614,6 +2614,11 @@ export function App({ ctx }: AppProps) {
 									await replaceConversation(sessions, destination, result.messages)
 								}
 								modelHistoryRef.current = result.messages
+								// The old gauge measured the history that was just replaced.
+								// Clear it only after the durable projection and live model
+								// history agree; until then the old measurement is still the
+								// truthful one. The next run publishes a fresh measurement.
+								setContext(null)
 
 								// How many user/assistant turns survived the pass.
 								// `keepRecentRows` explains why the transcript is trimmed
@@ -2632,6 +2637,10 @@ export function App({ ctx }: AppProps) {
 										id: `compact-${Date.now()}`,
 										role: 'system',
 										content: `Compacted ${result.shed} earlier message(s) into a summary.${
+											result.usage.totalTokens > 0
+												? ` Verifier used ${result.usage.totalTokens.toLocaleString('en-US')} tokens.`
+												: ''
+										}${
 											sessions && destination
 												? ''
 												: ' Conversation persistence is unavailable, so this compacted history lasts only for this process.'

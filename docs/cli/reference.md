@@ -156,7 +156,11 @@ The summary remains model-visible if that next turn itself needs automatic
 overflow relief; a context-reduction retry cannot replace state inherited from
 the earlier host-triggered pass with a summary built only from the newer run.
 The disk log remains append-only: one replacement record changes the projected
-conversation, and later turns append after it.
+conversation, and later turns append after it. Until that durable replacement
+lands, the existing transcript and its context-fill gauge remain authoritative.
+After publication the old gauge disappears with the superseded history; the
+next model request supplies a fresh context measurement rather than the shell
+presenting the pre-compaction percentage as current.
 
 **`/goal` is durable operator control for what this conversation should
 achieve.** `/goal <objective>` creates one, bare `/goal` inspects it, and
