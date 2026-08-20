@@ -17,6 +17,7 @@ import { memo, useRef } from 'react'
 
 import { type BlockCache, createBlockCache } from './markdown-block-cache.js'
 import { type InlineSpan, type MdBlock, parseInline } from './markdownParser.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 const CODE_COLOR = theme.status.ok
@@ -43,7 +44,7 @@ export interface MarkdownProps {
 export function Markdown({ text, color = theme.text.primary }: MarkdownProps) {
 	const cache = useRef<BlockCache>(undefined)
 	cache.current ??= createBlockCache()
-	const blocks = cache.current.parse(text)
+	const blocks = cache.current.parse(terminalDisplayText(text))
 	return (
 		<Box flexDirection="column">
 			{blocks.map((block, i) => (

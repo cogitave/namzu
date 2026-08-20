@@ -11,6 +11,7 @@ import type { ReactNode } from 'react'
 import { memo, useEffect, useState } from 'react'
 
 import { Markdown } from './Markdown.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage } from './types.js'
 
@@ -38,7 +39,7 @@ export interface TranscriptProps {
 	readonly settled: number
 	/** Bump to reset the static log (e.g. /clear, /clear-screen, /resume). */
 	readonly resetKey: number
-	/** Render literal source text without glyphs, Markdown styling or collapsed bodies. */
+	/** Render selection-friendly source with terminal controls exposed as visible escapes. */
 	readonly raw?: boolean
 	/**
 	 * Header (banner) printed once as the first <Static> row. It must live
@@ -160,13 +161,16 @@ export function Transcript({
 const LiveRow = memo(MessageRow)
 
 /**
- * Literal, selection-friendly transcript source.
+ * Selection-friendly transcript source.
  *
  * There is deliberately no role gutter or Markdown renderer here. The source
  * is the value an operator is trying to select, so decorating it and asking
  * them to reverse the decoration would reproduce the problem this mode solves.
- * Tool bodies are shown whole: a mode named raw must not retain a rich-view
- * truncation whose missing lines cannot be selected at all.
+ * Source control bytes remain in the conversation, but their terminal view is
+ * an explicit `\\u{....}` literal — raw means no Markdown/decorations, not that
+ * model text receives terminal authority. Tool bodies are shown whole: a mode
+ * named raw must not retain a rich-view truncation whose missing lines cannot
+ * be selected at all.
  */
 function RawMessageRow({
 	message,
@@ -175,10 +179,13 @@ function RawMessageRow({
 	readonly message: TranscriptMessage
 	readonly prev: TranscriptMessage | undefined
 }) {
-	const content = message.content.length > 0 ? message.content : message.pending ? '…' : ''
+	const content =
+		message.content.length > 0 ? terminalDisplayText(message.content) : message.pending ? '…' : ''
 	const text = [
-		`${content}${message.meta ? ` · ${message.meta}` : ''}`,
-		...(message.detail && message.detail.length > 0 ? ['', ...message.detail] : []),
+		`${content}${message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''}`,
+		...(message.detail && message.detail.length > 0
+			? ['', ...message.detail.map(terminalDisplayText)]
+			: []),
 	].join('\n')
 	return (
 		<Box flexDirection="column" marginTop={prev ? 1 : 0}>
@@ -196,6 +203,10 @@ function MessageRow({
 	readonly prev: TranscriptMessage | undefined
 	readonly spinner: string
 }) {
+	// Assistant content is projected inside <Markdown>, its actual renderer.
+	// The other roles flow straight into Ink here and need the projection now.
+	const content =
+		message.role === 'assistant' ? message.content : terminalDisplayText(message.content)
 	const glyph = message.pending ? spinner : (message.glyph ?? glyphForRole(message.role))
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
@@ -213,13 +224,15 @@ function MessageRow({
 					</Text>
 				</Box>
 				<Box flexGrow={1}>
-					{message.role === 'assistant' && message.content.length > 0 ? (
+					{message.role === 'assistant' && content.length > 0 ? (
 						<Markdown text={message.content} color={contentColorForRole(message.role)} />
 					) : (
 						<Text color={contentColorForRole(message.role)} wrap="wrap">
-							{message.content}
-							{message.meta ? <Text color={theme.text.muted}> · {message.meta}</Text> : null}
-							{message.pending && message.content.length === 0 ? (
+							{content}
+							{message.meta ? (
+								<Text color={theme.text.muted}> · {terminalDisplayText(message.meta)}</Text>
+							) : null}
+							{message.pending && content.length === 0 ? (
 								<Text color={theme.text.muted}>…</Text>
 							) : null}
 						</Text>
@@ -268,7 +281,7 @@ function DetailBlock({
 	/** The number `/expand` takes for this block, when it has one. */
 	readonly detailRef: number | undefined
 }) {
-	const { shown, hidden } = splitDetail(lines, expanded)
+	const { shown, hidden } = splitDetail(lines.map(terminalDisplayText), expanded)
 	// A dim left rule (`▏`) under the gutter frames the output as a block,
 	// so tool output is visibly not the assistant speaking.
 	const Rule = () => (
@@ -342,7 +355,10 @@ function splitDetail(
 export function renderedDetailLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
 	if (!lines || lines.length === 0) return []
-	const { shown, hidden } = splitDetail(lines, message.detailExpanded === true)
+	const { shown, hidden } = splitDetail(
+		lines.map(terminalDisplayText),
+		message.detailExpanded === true,
+	)
 	// Indented by the gutter this block actually renders inside: `paddingLeft={1}`
 	// plus the two-column `▏` rule. Those columns are not available to the text,
 	// so measuring a body line against the full terminal width under-counts how

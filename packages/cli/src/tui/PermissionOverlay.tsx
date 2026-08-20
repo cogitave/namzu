@@ -10,6 +10,7 @@
 import { Box, Text } from 'ink'
 
 import type { PermissionToolCall } from './agent.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 export interface PermissionOverlayProps {
@@ -35,26 +36,31 @@ export function PermissionOverlay({ toolCalls }: PermissionOverlayProps) {
 				⚠ namzu wants to run {toolCalls.length === 1 ? 'a tool' : `${toolCalls.length} tools`}
 			</Text>
 			<Box flexDirection="column" paddingTop={1}>
-				{toolCalls.map((tc) => (
-					<Box key={tc.id} flexDirection="column" paddingBottom={1}>
-						<Text>
-							<Text color={theme.accent.tool} bold>
-								⚙ {tc.name}
+				{toolCalls.map((tc) => {
+					const name = terminalDisplayText(tc.name)
+					const summary = terminalDisplayText(tc.summary)
+					const preview = tc.preview?.map(terminalDisplayText)
+					return (
+						<Box key={tc.id} flexDirection="column" paddingBottom={1}>
+							<Text>
+								<Text color={theme.accent.tool} bold>
+									⚙ {name}
+								</Text>
+								<Text color={theme.text.secondary}> {summary}</Text>
+								{tc.isDestructive ? <Text color={theme.status.error}> (destructive)</Text> : null}
 							</Text>
-							<Text color={theme.text.secondary}> {tc.summary}</Text>
-							{tc.isDestructive ? <Text color={theme.status.error}> (destructive)</Text> : null}
-						</Text>
-						{tc.preview && tc.preview.length > 0 ? (
-							<Box flexDirection="column" paddingLeft={2}>
-								{tc.preview.map((line, i) => (
-									<Text key={`${tc.id}-${i}`} color={previewColor(line)}>
-										{line}
-									</Text>
-								))}
-							</Box>
-						) : null}
-					</Box>
-				))}
+							{preview && preview.length > 0 ? (
+								<Box flexDirection="column" paddingLeft={2}>
+									{preview.map((line, i) => (
+										<Text key={`${tc.id}-${i}`} color={previewColor(line)}>
+											{line}
+										</Text>
+									))}
+								</Box>
+							) : null}
+						</Box>
+					)
+				})}
 			</Box>
 			{/* Every key that decides this prompt, and what each one decides.
 			    `Ctrl+C` was missing, and it is the only one with a DIFFERENT

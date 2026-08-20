@@ -9,6 +9,7 @@
 import { Box, Text } from 'ink'
 import { useEffect, useState } from 'react'
 
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 export interface ActiveTool {
@@ -42,7 +43,7 @@ export function LiveActivity({ activeTools, thinking }: LiveActivityProps) {
 							<Text color={theme.accent.tool}>{spinner}</Text>
 						</Box>
 						<Text color={theme.text.secondary} wrap="truncate-end">
-							{t.label}
+							{terminalDisplayText(t.label)}
 							<Text color={theme.text.muted}> · {formatElapsed(now - t.startedAt)}</Text>
 						</Text>
 					</Box>

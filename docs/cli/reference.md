@@ -282,8 +282,12 @@ clipboard changed.
 rendering.** Bare `/raw` toggles. Raw mode removes role glyphs and Markdown
 styling, preserves Markdown source markers, and prints complete tool bodies
 instead of collapse hints, so terminal selection does not have to reconstruct
-source from a decorated view. It does not change model context, persistence or
-the target of `/copy`.
+source from a decorated view. C0/C1 terminal controls, lone carriage returns,
+Unicode line separators and invisible directional formatting are painted as
+visible ASCII `\u{....}` literals in both rich and raw modes. Newlines, tabs and
+ordinary Unicode remain readable. This projection is terminal-only: model
+context, permission/tool request objects, persistence, export and the target of
+`/copy` retain the exact source.
 
 The mode applies to the whole retained transcript, not only to rows produced
 after the command. Switching it clears terminal scrollback, remounts the static
@@ -291,6 +295,11 @@ log and replays those rows in the selected form; `/raw off` performs the same
 rebuild back to rich rendering. `/clear-screen` still removes the rendered rows,
 so raw mode cannot and does not resurrect a view the operator deliberately
 cleared.
+
+The same projection applies before agent-authored tool text reaches the
+permission overlay or the live activity row. A proposed command or write
+preview therefore cannot ring, overwrite or reorder the consent screen before
+the operator decides; the underlying request being approved is not rewritten.
 
 **`/export [path]` writes a verified Markdown conversation, not a rendering of
 the terminal.** Each new turn reserves its SDK run id and durably binds that id

@@ -43,6 +43,7 @@
 
 import { renderedDetailLines } from './Transcript.js'
 import { SAFETY_ROWS, estimateRenderedLines } from './bottom-spacer.js'
+import { terminalDisplayText } from './terminal-display.js'
 import type { TranscriptMessage } from './types.js'
 
 /**
@@ -88,16 +89,20 @@ export interface LiveWindow {
  * long line is measured against the width it actually has.
  */
 function messageLines(message: TranscriptMessage, hasPrev: boolean, raw: boolean): string[] {
+	const content = terminalDisplayText(message.content)
+	const meta = message.meta ? terminalDisplayText(message.meta) : ''
 	if (raw) {
 		return [
 			...(hasPrev ? [''] : []),
-			`${message.content}${message.meta ? ` · ${message.meta}` : ''}`,
-			...(message.detail && message.detail.length > 0 ? ['', ...message.detail] : []),
+			`${content}${meta ? ` · ${meta}` : ''}`,
+			...(message.detail && message.detail.length > 0
+				? ['', ...message.detail.map(terminalDisplayText)]
+				: []),
 		]
 	}
 	return [
 		...(hasPrev && message.glyph !== '⎿' ? [''] : []),
-		`  ${message.content}`,
+		`  ${content}`,
 		...renderedDetailLines(message),
 	]
 }

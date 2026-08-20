@@ -2714,7 +2714,7 @@ export function App({ ctx }: AppProps) {
 						pushMessage(
 							'system',
 							enabled
-								? 'Raw output mode on — transcript source is shown without Markdown styling or collapsed bodies.'
+								? 'Raw output mode on — transcript source is shown without Markdown styling or collapsed bodies; terminal controls remain visible escapes.'
 								: 'Raw output mode off — rich transcript rendering restored.',
 						)
 						return
