@@ -105,6 +105,7 @@ import {
 } from './agent.js'
 import { ResumePicker } from './ResumePicker.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
+import { planTurnPublication } from './conversation-history.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
 	type SlashContext,
@@ -144,6 +145,8 @@ type ConversationMutation = 'fork' | 'edit' | 'new'
 type StreamState = {
 	assistantId: string | null
 	text: string
+	/** Exact provider-visible conversation state returned by the settled kernel run. */
+	conversationMessages?: readonly Message[]
 	pending?: string
 	/** Only a normal run end makes this text the next `/copy` target. */
 	completed: boolean
@@ -1850,6 +1853,7 @@ export function App({ ctx }: AppProps) {
 			const st: StreamState = {
 				assistantId: null,
 				text: '',
+				conversationMessages: undefined,
 				pending: '',
 				completed: false,
 				outcome: null,
@@ -1966,6 +1970,11 @@ export function App({ ctx }: AppProps) {
 						// permission callback so every tool batch auto-approves.
 						onPermission: askPermission,
 						extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
+						onConversationMessages: (messages) => {
+							// State-only: opaque reasoning/signatures must reach the next
+							// provider and durable store without becoming transcript text.
+							st.conversationMessages = messages
+						},
 					})) {
 						// A turn the operator has left is consumed but not rendered: no row
 						// from it lands in a transcript it has nothing to do with, and its
@@ -2006,12 +2015,21 @@ export function App({ ctx }: AppProps) {
 					pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 				}
 			} finally {
-				// One turn shape, used by both the next provider request and the durable
-				// store. The visible transcript keeps the operator's readable `@file`
-				// token; this message keeps what was actually sent, including expanded
-				// contents and attachments.
-				const turn: Message[] = goalRound && !evidenceReady ? [] : [userMessage]
-				if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
+				// Prefer the kernel's settled conversation projection: it retains opaque
+				// reasoning, citations and complete tool turns that the visible delta
+				// stream cannot reconstruct. A fake/legacy session that does not publish
+				// one keeps the old text-only shape. The visible transcript still keeps
+				// the operator's readable `@file` token; both persistence paths keep what
+				// was actually sent, including expanded contents and attachments.
+				const fallbackTurn: Message[] = goalRound && !evidenceReady ? [] : [userMessage]
+				if (st.text.trim().length > 0) fallbackTurn.push(createAssistantMessage(st.text))
+				const conversationMessages =
+					goalRound && !evidenceReady ? undefined : st.conversationMessages
+				const publication = conversationMessages
+					? planTurnPublication(historyBeforeTurn, userMessage, conversationMessages)
+					: ({ kind: 'append', messages: fallbackTurn } as const)
+				const nextModelHistory =
+					conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn]
 				if (goalRound && (ac.signal.aborted || st.outcome !== 'completed')) {
 					goalActivation.disarm(goalRound.sessionId, goalRound)
 					wakeGoalDriver()
@@ -2030,7 +2048,7 @@ export function App({ ctx }: AppProps) {
 					if (shouldPauseQueued && abnormalTerminal) {
 						setQueuePause({ outcome: abnormalTerminal.outcome })
 					}
-					modelHistoryRef.current = [...historyBeforeTurn, ...turn]
+					modelHistoryRef.current = nextModelHistory
 					if (st.completed && st.text.trim().length > 0) {
 						lastCompletedOutputRef.current = {
 							text: st.text,
@@ -2075,7 +2093,11 @@ export function App({ ctx }: AppProps) {
 				// conversation, because there is no other channel and it is news they
 				// need. Naming the conversation is what keeps it from reading as a
 				// fault of the one in front of them.
-				if (turnSessions && destination && (turn.length > 0 || evidenceTurn)) {
+				if (
+					turnSessions &&
+					destination &&
+					(publication.kind === 'replace' || publication.messages.length > 0 || evidenceTurn)
+				) {
 					persistenceTailRef.current = persistenceTailRef.current.then(async () => {
 						if (evidenceTurn && turnSessions.turnEvidence) {
 							try {
@@ -2096,7 +2118,11 @@ export function App({ ctx }: AppProps) {
 							}
 						}
 						try {
-							if (turn.length > 0) await appendMessages(turnSessions, destination, turn)
+							if (publication.kind === 'replace') {
+								await replaceConversation(turnSessions, destination, publication.messages)
+							} else if (publication.messages.length > 0) {
+								await appendMessages(turnSessions, destination, publication.messages)
+							}
 						} catch (err) {
 							if (goalRound) {
 								goalActivation.disarm(goalRound.sessionId, goalRound)

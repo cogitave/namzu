@@ -12,6 +12,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	resolveConversation: vi.fn(async () => 'conv-1' as never),
 	loadConversation: vi.fn(async () => []),
 	appendMessages: vi.fn(async () => undefined),
+	replaceConversation: vi.fn(async () => undefined),
 }))
 
 const trusted = { value: true }

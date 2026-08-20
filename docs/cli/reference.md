@@ -197,6 +197,20 @@ The transcript is only a view of model history; expanded `@file` contents and
 image attachments can remain in that history after their readable token or
 composer chip has left the screen.
 
+Model history is published from the kernel's settled conversation projection,
+not reconstructed from the text the terminal happened to render. Provider
+reasoning blocks (including signatures and encrypted opaque payloads),
+citations, assistant tool calls and their results therefore survive the next
+turn, restart, `/resume` and `/fork` exactly. Opaque reasoning is not shown in
+the interactive transcript and is not added to `run-stream`'s live NDJSON event
+channel. `namzu history --session`, whose contract is the raw model-visible
+message array, includes it. Fresh identity, environment, memory, project and
+skill system prompts are request context rather than conversation state: they
+are rebuilt per turn and never copied into durable session history. A plain
+user/assistant turn appends normally; a structural tool sequence or in-run
+compaction is published as one atomic replacement so a crash cannot expose half
+a provider turn.
+
 The composer remains available while a turn runs. A submitted follow-up waits in
 FIFO order and carries the complete prompt, including pasted images, into the
 provider request and durable conversation; queueing never reduces it to display
@@ -347,6 +361,12 @@ than read aloud to the model, which is the worst available response to a typo.
 rather than ignored. Neither ever falls back to starting a fresh conversation:
 somebody who asked for a specific one and got a new one that looks the same finds
 out several turns later, having already acted on it.
+
+With `--session`, `run-stream` persists the same exact settled conversation
+projection as the interactive UI. Its stdout remains the live `AgentEvent`
+protocol; opaque provider history is stored for the next turn and is available
+through `namzu history --session`, but is never invented as an extra stream
+event.
 
 **`--gate` is the unattended-operator flag.** The run is not allowed to settle
 until every gate command exits `0`. A failure comes back to the model as the next

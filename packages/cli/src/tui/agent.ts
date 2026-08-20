@@ -122,6 +122,7 @@ import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
+import { projectRunConversation } from './conversation-history.js'
 
 export type AgentEvent =
 	| {
@@ -280,6 +281,15 @@ export interface SendOptions {
 	 * merged after the persistent memory block.
 	 */
 	readonly extraSystem?: string
+	/**
+	 * Receives the settled conversation projection exactly as the kernel will
+	 * replay it on a later turn.
+	 *
+	 * Kept out of `AgentEvent`: `run-stream` writes every event to NDJSON, while
+	 * this history may contain opaque reasoning signatures/encrypted blocks that
+	 * belong in provider context and durable state, never a rendered stream.
+	 */
+	readonly onConversationMessages?: (messages: readonly Message[]) => void
 }
 
 /** What {@link AgentSession.resumeDurable} needs that the session does not hold. */
@@ -1868,38 +1878,57 @@ async function* runTurn({
 			signal,
 			...scope,
 		})
-		for await (const event of events) {
-			// Before the abort check and before `toAgentEvent`: a session
-			// cancelled mid-turn still produced the events up to that point, and
-			// they are the interesting ones. Every event, not just the ones the
-			// TUI renders — an export that only saw what the screen showed would
-			// be a recording of the interface rather than of the session.
-			onRunEvent?.(event)
-			if (signal?.aborted) {
-				yield { kind: 'error', message: 'aborted' }
-				return
-			}
-			const mapped = toAgentEvent(event, presenter)
-			if (!mapped) continue
-			// On an `Agent` delegation finishing, attach the sub-agent's tool
-			// steps (collected via the gateway while the call blocked) as a
-			// `├─/└─` tree under its result, then reset for the next delegation.
-			// (Don't clear on tool_executing: the parent's events can be buffered
-			// and pulled only after the child already ran, which would wipe it.)
-			if (
-				event.type === 'tool_completed' &&
-				event.toolName === 'Agent' &&
-				childSteps.length > 0 &&
-				mapped.kind === 'tool-end'
-			) {
-				yield {
-					...mapped,
-					detail: [...(mapped.detail ?? []), ...asTree(childSteps)],
+		let settled = false
+		try {
+			while (true) {
+				const next = await events.next()
+				if (next.done) {
+					settled = true
+					// A Run contains its fresh static/dynamic system floor as well as the
+					// conversation. Only the latter crosses this host seam. Compaction
+					// summaries survive because they ARE conversation state; arbitrary
+					// system prompts are rebuilt fresh on every send and stay private to it.
+					opts?.onConversationMessages?.(projectRunConversation(next.value.messages))
+					return
 				}
-				childSteps.length = 0
-				continue
+				const event = next.value
+				// Before the abort check and before `toAgentEvent`: a session
+				// cancelled mid-turn still produced the events up to that point, and
+				// they are the interesting ones. Every event, not just the ones the
+				// TUI renders — an export that only saw what the screen showed would
+				// be a recording of the interface rather than of the session.
+				onRunEvent?.(event)
+				if (signal?.aborted) {
+					yield { kind: 'error', message: 'aborted' }
+					return
+				}
+				const mapped = toAgentEvent(event, presenter)
+				if (!mapped) continue
+				// On an `Agent` delegation finishing, attach the sub-agent's tool
+				// steps (collected via the gateway while the call blocked) as a
+				// `├─/└─` tree under its result, then reset for the next delegation.
+				// (Don't clear on tool_executing: the parent's events can be buffered
+				// and pulled only after the child already ran, which would wipe it.)
+				if (
+					event.type === 'tool_completed' &&
+					event.toolName === 'Agent' &&
+					childSteps.length > 0 &&
+					mapped.kind === 'tool-end'
+				) {
+					yield {
+						...mapped,
+						detail: [...(mapped.detail ?? []), ...asTree(childSteps)],
+					}
+					childSteps.length = 0
+					continue
+				}
+				yield mapped
 			}
-			yield mapped
+		} finally {
+			// Manual iteration is what exposes the generator's Run return value.
+			// Preserve `for await`'s other guarantee too: a consumer that stops
+			// early must close the live query instead of abandoning its transport.
+			if (!settled) await events.return(undefined as never)
 		}
 	} catch (err) {
 		yield {

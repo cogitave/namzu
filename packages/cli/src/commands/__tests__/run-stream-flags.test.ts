@@ -18,6 +18,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	resolveConversation: vi.fn(async () => null),
 	loadConversation: vi.fn(async () => []),
 	appendMessages: vi.fn(async () => undefined),
+	replaceConversation: vi.fn(async () => undefined),
 }))
 
 // Stubbed so a turn can be driven to completion without a credential, and so

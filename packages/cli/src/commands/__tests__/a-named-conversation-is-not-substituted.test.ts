@@ -26,11 +26,13 @@
  * turn the user watched arrive, with nothing connecting the two.
  */
 
+import { type Message, createAssistantMessage } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	appendMessages,
 	openSessions,
+	replaceConversation,
 	resolveConversation,
 } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
@@ -42,6 +44,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	resolveConversation: vi.fn(async () => 'conv-1' as never),
 	loadConversation: vi.fn(async () => []),
 	appendMessages: vi.fn(async () => undefined),
+	replaceConversation: vi.fn(async () => undefined),
 }))
 
 vi.mock('../../integrations/trust/store.js', () => ({
@@ -62,8 +65,14 @@ vi.mock('../../tui/agent.js', () => ({
 			// A reply the operator watches arrive. It is what makes the silent
 			// persistence failure a lie rather than merely a gap: the words were
 			// on screen, so the turn plainly happened.
-			send: async function* () {
+			send: async function* (messages: readonly Message[], options) {
 				yield { kind: 'delta', text: 'an answer' } as never
+				options?.onConversationMessages?.([
+					...messages,
+					createAssistantMessage('an answer', undefined, [
+						{ type: 'redacted_thinking', encrypted: 'OPAQUE_RUN_STREAM_STATE' },
+					]),
+				])
 			},
 		}),
 	),
@@ -111,9 +120,11 @@ beforeEach(() => {
 	vi.mocked(openSessions).mockClear()
 	vi.mocked(resolveConversation).mockClear()
 	vi.mocked(appendMessages).mockClear()
+	vi.mocked(replaceConversation).mockClear()
 	vi.mocked(openSessions).mockImplementation(async () => ({}) as never)
 	vi.mocked(resolveConversation).mockImplementation(async () => 'conv-1' as never)
 	vi.mocked(appendMessages).mockImplementation(async () => undefined)
+	vi.mocked(replaceConversation).mockImplementation(async () => undefined)
 })
 
 afterEach(() => {
@@ -205,5 +216,18 @@ describe('when the turn cannot be saved', () => {
 
 		expect(out).toContain('an answer')
 		expect(out, 'reported a failure on the success path').not.toContain('not saved')
+	})
+
+	it('persists exact opaque assistant state without writing it to NDJSON', async () => {
+		const out = await run(['--session', 'k', 'hello'])
+		const persisted = vi.mocked(appendMessages).mock.calls.at(-1)?.[2]
+
+		expect(persisted?.[1]).toMatchObject({
+			role: 'assistant',
+			content: 'an answer',
+			reasoning: [{ type: 'redacted_thinking', encrypted: 'OPAQUE_RUN_STREAM_STATE' }],
+		})
+		expect(replaceConversation).not.toHaveBeenCalled()
+		expect(out).not.toContain('OPAQUE_RUN_STREAM_STATE')
 	})
 })

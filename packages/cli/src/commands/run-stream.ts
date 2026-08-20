@@ -9,9 +9,11 @@
  *
  * History: with `--session <key>` the turn is bound to a persisted
  * conversation in the cwd's `.namzu` store (keyed by the embedder's own
- * session id), so prior turns are loaded as context and the new
- * user+assistant pair is appended — that's what lets a reopened session show
- * its past messages (`namzu history --session <key>`). Without `--session`,
+ * session id), so prior turns are loaded as context and the kernel's exact
+ * settled conversation projection is published — including opaque reasoning
+ * and complete tool turns, excluding its fresh per-run system floor. That's
+ * what lets a reopened session show and replay its past messages (`namzu
+ * history --session <key>`). Without `--session`,
  * prior history may be supplied on stdin as a JSON `Message[]` and nothing is
  * persisted (stateless one-shot).
  *
@@ -63,12 +65,14 @@ import {
 	appendMessages,
 	loadConversation,
 	openSessions,
+	replaceConversation,
 	resolveConversation,
 } from '../integrations/sessions/store.js'
 import { contextLogging, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
+import { planTurnPublication } from '../tui/conversation-history.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import {
@@ -386,8 +390,14 @@ export const runStreamCommand: CommandDef = {
 		const messages: Message[] = [...prior, userMessage]
 
 		let assistantText = ''
+		let conversationMessages: readonly Message[] | undefined
 		try {
-			for await (const event of session.send(messages, extraSystem ? { extraSystem } : undefined)) {
+			for await (const event of session.send(messages, {
+				...(extraSystem ? { extraSystem } : {}),
+				onConversationMessages: (settled) => {
+					conversationMessages = settled
+				},
+			})) {
 				if (event.kind === 'delta') assistantText += event.text
 				write(event)
 			}
@@ -420,12 +430,21 @@ export const runStreamCommand: CommandDef = {
 		// later reads are now incomplete.
 		if (cli && conversationId) {
 			try {
-				const assistant: Message = {
-					role: 'assistant',
-					content: assistantText,
-					timestamp: Date.now(),
-				} as Message
-				await appendMessages(cli, conversationId as never, [userMessage, assistant])
+				if (conversationMessages) {
+					const publication = planTurnPublication(prior, userMessage, conversationMessages)
+					if (publication.kind === 'replace') {
+						await replaceConversation(cli, conversationId as never, publication.messages)
+					} else {
+						await appendMessages(cli, conversationId as never, publication.messages)
+					}
+				} else {
+					const assistant: Message = {
+						role: 'assistant',
+						content: assistantText,
+						timestamp: Date.now(),
+					} as Message
+					await appendMessages(cli, conversationId as never, [userMessage, assistant])
+				}
 			} catch (err) {
 				write({
 					kind: 'notice',
