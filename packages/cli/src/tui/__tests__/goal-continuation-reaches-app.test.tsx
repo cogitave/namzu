@@ -55,12 +55,11 @@ let sendImplementation: SendImplementation = async function* () {
 const notificationRequests: TerminalNotification[] = []
 
 vi.mock('../../integrations/notifications/terminal.js', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('../../integrations/notifications/terminal.js')>()
+	const actual =
+		await importOriginal<typeof import('../../integrations/notifications/terminal.js')>()
 	return {
 		...actual,
-		writeTerminalNotification: (
-			notification: TerminalNotification,
-		): TerminalNotificationResult => {
+		writeTerminalNotification: (notification: TerminalNotification): TerminalNotificationResult => {
 			notificationRequests.push(notification)
 			return { kind: 'request-sent' }
 		},
@@ -71,8 +70,12 @@ vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
 	trustDir: () => {},
 }))
-vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
-vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
+vi.mock('../../integrations/updates.js', () => ({
+	checkUpdates: async () => [],
+}))
+vi.mock('../../user-commands/store.js', () => ({
+	discoverUserCommands: () => [],
+}))
 
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
@@ -141,7 +144,10 @@ afterEach(() => {
 	}
 })
 
-function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+function deferred(): {
+	readonly promise: Promise<void>
+	readonly resolve: () => void
+} {
 	let resolve!: () => void
 	return {
 		promise: new Promise<void>((done) => {
@@ -182,7 +188,13 @@ async function mountedApp(prefix: string, tui?: TuiContext['tui']) {
 	roots.push(root)
 	const harness = render(
 		<App
-			ctx={{ cwd: root, version: '0.0.0-test', ...(tui ? { tui } : {}) } as TuiContext}
+			ctx={
+				{
+					cwd: root,
+					version: '0.0.0-test',
+					...(tui ? { tui } : {}),
+				} as TuiContext
+			}
 		/>,
 	)
 	mounted.push(harness)
@@ -195,7 +207,10 @@ async function complete(bound: BoundSession, authority: GoalRoundAuthority): Pro
 }
 
 it('continues across admitted rounds, completes through run authority, and persists provenance', async () => {
-	const calls: Array<{ readonly messages: readonly Message[]; readonly options?: SendOptions }> = []
+	const calls: Array<{
+		readonly messages: readonly Message[]
+		readonly options?: SendOptions
+	}> = []
 	sendImplementation = async function* (messages, options, bound) {
 		calls.push({ messages, ...(options ? { options } : {}) })
 		const authority = options?.goalRound
@@ -221,22 +236,31 @@ it('continues across admitted rounds, completes through run authority, and persi
 			message.role === 'user' && message.source?.type === 'goal-round',
 	)
 	expect(goalUsers.map((message) => message.source)).toEqual([
-		expect.objectContaining({ objective: 'finish the verified release', round: 1 }),
-		expect.objectContaining({ objective: 'finish the verified release', round: 2 }),
+		expect.objectContaining({
+			objective: 'finish the verified release',
+			round: 1,
+		}),
+		expect.objectContaining({
+			objective: 'finish the verified release',
+			round: 2,
+		}),
 	])
 	expect(calls.map((call) => call.options?.goalRound?.round)).toEqual([1, 2])
 	expect(await sessions.goals.getGoal(sessionId, sessions.tenantId)).toMatchObject({
 		phase: 'complete',
 		roundsAdmitted: 2,
 	})
-	expect((await listRecent(sessions)).find((conversation) => conversation.id === sessionId)?.title).toBe(
-		'finish the verified release',
-	)
+	expect(
+		(await listRecent(sessions)).find((conversation) => conversation.id === sessionId)?.title,
+	).toBe('finish the verified release')
 	expect(harness.frames.join('\n')).toContain('Goal round 2 / 256')
 	expect(harness.frames.join('\n')).not.toContain('Admitted session goal round')
 
 	await submit(harness, '/new')
-	await until(() => scope?.sessionId !== sessionId, 'the fresh conversation never replaced the source')
+	await until(
+		() => scope?.sessionId !== sessionId,
+		'the fresh conversation never replaced the source',
+	)
 	await submit(harness, '/resume')
 	await until(
 		() => (harness.lastFrame() ?? '').includes('Resume a conversation'),
@@ -312,11 +336,11 @@ it('keeps a human prompt ahead of a goal admission that returns later', async ()
 		'FIFO was not persisted',
 	)
 	const durable = await loadConversation(sessions, sessionId)
-	expect(durable.filter((message) => message.role === 'user').map((message) => message.source?.type ?? 'human')).toEqual([
-		'human',
-		'human',
-		'goal-round',
-	])
+	expect(
+		durable
+			.filter((message) => message.role === 'user')
+			.map((message) => message.source?.type ?? 'human'),
+	).toEqual(['human', 'human', 'goal-round'])
 })
 
 it('does not start an admitted old-conversation round after /new crosses the boundary', async () => {
@@ -408,6 +432,33 @@ it('disarms after an abnormal turn and requires an explicit /goal resume', async
 	await until(() => calls === 2, 'explicit resume did not admit another round')
 	await tick(100)
 	expect(calls).toBe(2)
+})
+
+it('does not let an abnormal automatic goal round pause queued human work', async () => {
+	const goalEntered = deferred()
+	const releaseGoal = deferred()
+	const order: string[] = []
+	sendImplementation = async function* (_messages, options) {
+		if (options?.goalRound) {
+			order.push('goal')
+			goalEntered.resolve()
+			await releaseGoal.promise
+			yield { kind: 'error', message: 'goal provider failed' }
+			return
+		}
+		order.push('human')
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
+
+	const { harness } = await mountedApp('namzu-goal-app-human-after-failure-')
+	await submit(harness, '/goal fail without owning the human queue')
+	await goalEntered.promise
+	await submit(harness, 'independent operator work')
+	releaseGoal.resolve()
+	await until(() => order.length === 2, 'the failed goal round paused independent human work')
+
+	expect(order).toEqual(['goal', 'human'])
+	expect(harness.frames.join('\n')).not.toContain('paused after a failed turn')
 })
 
 it('durably blocks at the configured cap instead of starting an unbounded turn', async () => {

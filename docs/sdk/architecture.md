@@ -427,7 +427,7 @@ also sends a separately bounded `tasks/cancel`; before that id exists it reports
 the remote outcome as unknown rather than claiming a cancellation it cannot
 prove. See [A2A client discovery and delegation bounds](integrations/a2a-client.md).
 
-Every transport emits the same `RunEvent` union. Every event carries `type` and `runId`; variants add only the identifiers and payload they need, such as `toolUseId`, `taskId`, `planId`, `parentRunId`, or `depth`. Topic, session, project and tenant correlation belongs to the run context and durable run metadata rather than being repeated on every event variant.
+Every transport emits the same `RunEvent` union. Every event carries `type` and `runId`; variants add only the identifiers and payload they need, such as `toolUseId`, `taskId`, `planId`, `parentRunId`, or `depth`. Topic, session, project and tenant correlation belongs to the run context and durable run metadata rather than being repeated on every event variant. When explicit capability negotiation allows degradation, the run emits `capability_warning` for unsupported tools, images, or documents before the affected provider request settles, so hosts can explain the boundary instead of relying on logs or a later transport error.
 
 AEP v1 is being finalized. Until the spec is stamped, treat the event shapes as semver-minor.
 

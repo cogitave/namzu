@@ -1954,6 +1954,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 				yield* eventTranslator.drainPending()
 			}
+			if (documentMessageCount > 0) {
+				await eventTranslator.emitEvent({
+					type: 'capability_warning',
+					runId: ctx.runMgr.id,
+					capability: 'documents',
+					providerId: params.provider.id,
+					message: `Provider '${params.provider.id}' does not support documents — document attachments on ${documentMessageCount} user message(s) will not reach the model.`,
+				})
+				yield* eventTranslator.drainPending()
+			}
 
 			if (params.pluginManager) {
 				const hookResults = await params.pluginManager.executeHooks(

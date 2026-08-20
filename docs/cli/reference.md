@@ -202,7 +202,18 @@ FIFO order and carries the complete prompt, including pasted images, into the
 provider request and durable conversation; queueing never reduces it to display
 text. Interrupting the active turn or switching conversations drops those whole
 queued prompts together, so an attachment cannot be stranded and sent somewhere
-its text was not intended for.
+its text was not intended for. When a human turn fails or stops abnormally, work
+already queued behind it pauses instead of running against a missing premise. A
+new model-bound message, or a successfully published provider/model selection,
+explicitly resumes the same FIFO; an automatic goal-round failure does not pause
+independent human input. The terminal-settled notification fires at the pause
+boundary because no queued work is immediately continuing.
+
+Provider capability mismatches are transcript events, not log-only diagnostics.
+Unsupported tools, images, and documents are named before the provider degrades
+or refuses the turn, including the provider that made the declaration. This is
+why a PDF or pasted image rejection reads as a capability boundary rather than
+as an unexplained model failure.
 
 **`/copy` asks the terminal to copy the latest available assistant output.** It
 sends the raw, unrendered Markdown through OSC 52 instead of reconstructing text

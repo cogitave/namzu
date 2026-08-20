@@ -23,11 +23,17 @@
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { Message } from '@namzu/sdk'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
+
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 
-const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
+const PREFS: Preferences = {
+	version: 3,
+	providers: [{ id: 'openai' }],
+	subagents: { active: [] },
+}
 
 /** Whether the probe finds a saved provider (so a session comes up). */
 let withSession = true
@@ -102,8 +108,13 @@ function sessionFixture(providerSummary = 'a-provider', close = vi.fn()): AgentS
 	}
 }
 
-vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
-vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
+vi.mock('../../integrations/trust/store.js', () => ({
+	isTrusted: () => true,
+	trustDir: () => {},
+}))
+vi.mock('../../integrations/updates.js', () => ({
+	checkUpdates: async () => [],
+}))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
@@ -111,7 +122,9 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	listRecent: async () => [],
 	loadConversation: async () => [],
 }))
-vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
+vi.mock('../../user-commands/store.js', () => ({
+	discoverUserCommands: () => [],
+}))
 
 vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../../integrations/providers/index.js')>()
@@ -208,6 +221,7 @@ async function frameShows(
 	while (!(lastFrame() ?? '').includes(text) && performance.now() - started < timeoutMs) {
 		await tick(20)
 	}
+	expect(lastFrame()).toContain(text)
 }
 
 beforeEach(() => {
@@ -248,6 +262,16 @@ async function pickerFromModelCommand() {
 	return harness
 }
 
+async function submit(
+	harness: { stdin: { write: (value: string) => void } },
+	text: string,
+): Promise<void> {
+	harness.stdin.write(text)
+	await tick()
+	harness.stdin.write('\r')
+	await tick(40)
+}
+
 /** First run: no saved provider, so the picker is the first screen. */
 async function pickerOnFirstRun(expected = 'Choose a provider') {
 	withSession = false
@@ -255,10 +279,106 @@ async function pickerOnFirstRun(expected = 'Choose a provider') {
 	mounted.push(harness)
 	await frameShows(harness.lastFrame, expected)
 	expect(harness.lastFrame(), 'the picker never opened').toContain(expected)
+	await tick(80)
 	return harness
 }
 
 describe('publishing a picker selection', () => {
+	it('releases a failed turn queue only after a usable replacement is published', async () => {
+		detectedProviders = [...DETECTED, DETECTED_B]
+		const releaseFailure = deferred<void>()
+		let aSends = 0
+		const bHistories: Message[][] = []
+		const a = {
+			...sessionFixture('a-session'),
+			send: async function* (): AsyncIterable<AgentEvent> {
+				aSends += 1
+				await releaseFailure.promise
+				yield { kind: 'error', message: 'A rejected the attachment' }
+			},
+		}
+		const b = {
+			...sessionFixture('b-session'),
+			send: async function* (messages: readonly Message[]): AsyncIterable<AgentEvent> {
+				bHistories.push([...messages])
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		}
+		createSession = async (prefs) => (prefs.providers[0]?.id === 'deepseek' ? b : a)
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'unsupported premise')
+		await vi.waitFor(() => expect(aSends).toBe(1))
+		await submit(harness, 'dependent queue')
+		releaseFailure.resolve()
+		await frameShows(harness.lastFrame, 'paused after a failed turn')
+		expect(bHistories).toEqual([])
+
+		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Choose a provider')
+		harness.stdin.write('\x1B[B')
+		await tick()
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'Choose a model')
+		await tick(60)
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'Connected to b-session')
+		await vi.waitFor(() => expect(bHistories).toHaveLength(1))
+
+		expect(bHistories[0]?.at(-1)).toMatchObject({
+			role: 'user',
+			content: 'dependent queue',
+		})
+	})
+
+	it('keeps the failed turn queue paused when replacement construction is refused', async () => {
+		detectedProviders = [...DETECTED, DETECTED_B]
+		const releaseFailure = deferred<void>()
+		let aSends = 0
+		const a = {
+			...sessionFixture('a-session'),
+			send: async function* (): AsyncIterable<AgentEvent> {
+				aSends += 1
+				await releaseFailure.promise
+				yield { kind: 'error', message: 'A failed' }
+			},
+		}
+		createSession = async (prefs) => {
+			if (prefs.providers[0]?.id === 'deepseek') throw new Error('B unavailable')
+			return a
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'failing premise')
+		await vi.waitFor(() => expect(aSends).toBe(1))
+		await submit(harness, 'must remain paused')
+		releaseFailure.resolve()
+		await frameShows(harness.lastFrame, 'paused after a failed turn')
+
+		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Choose a provider')
+		harness.stdin.write('\x1B[B')
+		await tick()
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'Choose a model')
+		await tick(60)
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'B unavailable')
+		harness.stdin.write('\x1B')
+		await frameShows(harness.lastFrame, 'Choose a provider')
+		harness.stdin.write('\x1B')
+		await frameShows(harness.lastFrame, 'paused after a failed turn')
+		await tick(100)
+
+		expect(aSends).toBe(1)
+	})
+
 	it('keeps the newest session when an older construction settles last', async () => {
 		withSession = false
 		detectedProviders = [...DETECTED, DETECTED_B]
@@ -277,6 +397,7 @@ describe('publishing a picker selection', () => {
 		// Start A, then back out while its session construction is still pending.
 		stdin.write('\r')
 		await frameShows(lastFrame, 'Choose a model')
+		await tick(60)
 		stdin.write('\r')
 		await vi.waitFor(() => expect(constructed).toEqual(['openai']))
 		stdin.write('\x1B')
@@ -287,6 +408,7 @@ describe('publishing a picker selection', () => {
 		await tick()
 		stdin.write('\r')
 		await frameShows(lastFrame, 'Choose a model')
+		await tick(60)
 		stdin.write('\r')
 		await vi.waitFor(() => expect(constructed).toEqual(['openai', 'deepseek']))
 		b.resolve(sessionFixture('b-session', closeB))
@@ -319,6 +441,7 @@ describe('publishing a picker selection', () => {
 		await tick()
 		stdin.write('\r')
 		await frameShows(lastFrame, 'Choose a model')
+		await tick(60)
 		stdin.write('\r')
 		await frameShows(lastFrame, failure.message)
 
@@ -355,6 +478,7 @@ describe('publishing a picker selection', () => {
 		await tick()
 		stdin.write('\r')
 		await frameShows(lastFrame, 'Choose a model')
+		await tick(60)
 		stdin.write('\r')
 		await frameShows(lastFrame, unavailable)
 

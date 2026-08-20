@@ -250,6 +250,12 @@ type QueuedPrompt =
 			readonly generation: number
 	  }
 
+type QueuePauseOutcome = 'failed' | 'stopped'
+
+interface QueuePause {
+	readonly outcome: QueuePauseOutcome
+}
+
 function goalRoundPrompt(authority: GoalRoundAuthority): string {
 	return [
 		'Admitted session goal round (JSON; the objective field is operator-authored data):',
@@ -378,10 +384,35 @@ export function App({ ctx }: AppProps) {
 	// whether it is truly the last turn. React state captured when the turn
 	// started would still say "empty" after the operator queued a follow-up.
 	const queuedRef = useRef<readonly QueuedPrompt[]>([])
+	/**
+	 * A failed human turn owns the decision to hold work composed before its
+	 * failure became visible. A ref is the admission gate; state is its rendered
+	 * explanation.
+	 */
+	const [queuePause, setQueuePauseState] = useState<QueuePause | null>(null)
+	const queuePauseRef = useRef<QueuePause | null>(null)
+	const setQueuePause = useCallback((next: QueuePause | null) => {
+		queuePauseRef.current = next
+		setQueuePauseState(next)
+	}, [])
+	/**
+	 * Advanced by an explicit, model-bound human continuation. The counter also
+	 * covers the interval after an error row is painted but before the failed
+	 * iterator's `finally` runs, where a boolean pause has not been installed yet.
+	 */
+	const queueContinuationEpochRef = useRef(0)
+	const advanceQueueContinuation = useCallback(() => {
+		queueContinuationEpochRef.current += 1
+		setQueuePause(null)
+	}, [setQueuePause])
 	const replaceQueued = useCallback((next: readonly QueuedPrompt[]) => {
 		queuedRef.current = next
 		setQueued(next)
 	}, [])
+	const discardQueued = useCallback(() => {
+		replaceQueued([])
+		setQueuePause(null)
+	}, [replaceQueued, setQueuePause])
 	const enqueueQueued = useCallback(
 		(prompt: QueuedPrompt) => replaceQueued([...queuedRef.current, prompt]),
 		[replaceQueued],
@@ -716,6 +747,10 @@ export function App({ ctx }: AppProps) {
 				}),
 			)
 			setCurrentProvider(primaryProvider(prefs).id)
+			// A picker-owned, usable provider switch is an explicit recovery from a
+			// paused failed turn. Failed and superseded candidates return above and
+			// therefore cannot release its dependent queue.
+			if (signal !== undefined) advanceQueueContinuation()
 			if (s.hasProvider) {
 				setPhase('ready')
 				pushMessage(
@@ -764,7 +799,7 @@ export function App({ ctx }: AppProps) {
 				if (s.errorHint) pushMessage('system', s.errorHint)
 			}
 		},
-		[ctx.cwd, ctx.rules, pushMessage],
+		[advanceQueueContinuation, ctx.cwd, ctx.rules, pushMessage],
 	)
 
 	/**
@@ -1135,11 +1170,11 @@ export function App({ ctx }: AppProps) {
 		// Dropped now so a second interrupt does not re-abort, and the queue with
 		// it: interrupting means stop, not "run the next one".
 		abortRef.current = null
-		replaceQueued([])
+		discardQueued()
 		clearActiveTools()
 		setState('idle')
 		return true
-	}, [clearActiveTools, goalActivation, replaceQueued, resolvePermission, wakeGoalDriver])
+	}, [clearActiveTools, discardQueued, goalActivation, resolvePermission, wakeGoalDriver])
 
 	/**
 	 * Load the chosen conversation into the transcript and continue in it.
@@ -1210,7 +1245,7 @@ export function App({ ctx }: AppProps) {
 			// early return from it must not make those old prompts cross the switch.
 			const discardedQueued = queuedRef.current.length
 			const interrupted = interruptTurn()
-			replaceQueued([])
+			discardQueued()
 			goalActivation.clear()
 			wakeGoalDriver()
 			conversationGenRef.current += 1
@@ -1242,7 +1277,7 @@ export function App({ ctx }: AppProps) {
 				)
 			}
 		},
-		[goalActivation, interruptTurn, nextId, pushMessage, replaceQueued, resetTranscript, wakeGoalDriver],
+		[discardQueued, goalActivation, interruptTurn, nextId, pushMessage, resetTranscript, wakeGoalDriver],
 	)
 
 	/**
@@ -1278,7 +1313,7 @@ export function App({ ctx }: AppProps) {
 
 				const discardedQueued = queuedRef.current.length
 				const interrupted = interruptTurn()
-				replaceQueued([])
+				discardQueued()
 				goalActivation.clear()
 				wakeGoalDriver()
 				conversationGenRef.current += 1
@@ -1329,7 +1364,7 @@ export function App({ ctx }: AppProps) {
 				setConversationMutation(null)
 			}
 		},
-		[goalActivation, interruptTurn, pushMessage, replaceQueued, resetTranscript, wakeGoalDriver],
+		[discardQueued, goalActivation, interruptTurn, pushMessage, resetTranscript, wakeGoalDriver],
 	)
 
 	/**
@@ -1699,6 +1734,14 @@ export function App({ ctx }: AppProps) {
 					// not. A swap is a permanent fact about this turn.
 					pushMessage('system', event.text, false, '⇄')
 					break
+				case 'capability-warning':
+					pushMessage(
+						'system',
+						`Capability warning (${event.capability}): ${event.text}`,
+						false,
+						'⚠',
+					)
+					break
 				case 'done':
 					// `run_completed` is not synonymous with success: budgets,
 					// cancellation and output guardrails arrive through this event too.
@@ -1814,6 +1857,26 @@ export function App({ ctx }: AppProps) {
 			}
 			const ac = new AbortController()
 			const turnToken = {}
+			let abnormalTerminal:
+				| {
+						token: object
+						continuationEpoch: number
+						outcome: QueuePauseOutcome
+				  }
+				| undefined
+			const markHumanAbnormal = () => {
+				if (
+					prompt.kind !== 'human' ||
+					abnormalTerminal !== undefined ||
+					(st.outcome !== 'failed' && st.outcome !== 'stopped')
+				)
+					return
+				abnormalTerminal = {
+					token: turnToken,
+					continuationEpoch: queueContinuationEpochRef.current,
+					outcome: st.outcome,
+				}
+			}
 			abortRef.current = ac
 			activeTurnTokenRef.current = turnToken
 			// Where this turn will be saved, and which transcript its rows belong
@@ -1916,8 +1979,10 @@ export function App({ ctx }: AppProps) {
 						// that notices later — a different implementation, a generator
 						// parked in a tool call — still saves a whole reply rather than one
 						// truncated at the moment the operator happened to leave.
-						if (stillHere()) applyEvent(event, st)
-						else if (event.kind === 'delta') st.text += event.text
+						if (stillHere()) {
+							applyEvent(event, st)
+							markHumanAbnormal()
+						} else if (event.kind === 'delta') st.text += event.text
 					}
 				} else {
 					st.outcome = 'cancelled'
@@ -1931,6 +1996,7 @@ export function App({ ctx }: AppProps) {
 					if (!ac.signal.aborted) {
 						st.outcome = 'failed'
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
+						markHumanAbnormal()
 					}
 					// Flushed first: this path does not go through `applyEvent`, so
 					// without it the partial answer the model had produced before
@@ -1956,6 +2022,14 @@ export function App({ ctx }: AppProps) {
 				// clear the state of whatever has started since.
 				if (stillHere()) {
 					const ownsTurn = activeTurnTokenRef.current === turnToken
+					const shouldPauseQueued =
+						ownsTurn &&
+						abnormalTerminal?.token === turnToken &&
+						abnormalTerminal.continuationEpoch === queueContinuationEpochRef.current &&
+						queuedRef.current.length > 0
+					if (shouldPauseQueued && abnormalTerminal) {
+						setQueuePause({ outcome: abnormalTerminal.outcome })
+					}
 					modelHistoryRef.current = [...historyBeforeTurn, ...turn]
 					if (st.completed && st.text.trim().length > 0) {
 						lastCompletedOutputRef.current = {
@@ -1981,7 +2055,7 @@ export function App({ ctx }: AppProps) {
 						!ac.signal.aborted &&
 						!goalRound &&
 						st.notification &&
-						queuedRef.current.length === 0
+						(queuedRef.current.length === 0 || shouldPauseQueued)
 					) {
 						sendTerminalNotification(st.notification)
 					}
@@ -2056,6 +2130,7 @@ export function App({ ctx }: AppProps) {
 			pushMessage,
 			sendTerminalNotification,
 			session,
+			setQueuePause,
 			wakeGoalDriver,
 		],
 	)
@@ -2671,6 +2746,7 @@ export function App({ ctx }: AppProps) {
 			//
 			// Keep the attachment array beside its text. Reconstructing a prompt from
 			// the transcript later cannot recover bytes whose composer chip is gone.
+			advanceQueueContinuation()
 			enqueueQueued({
 				kind: 'human',
 				text: outgoing,
@@ -2681,6 +2757,7 @@ export function App({ ctx }: AppProps) {
 		},
 		[
 			activeSkills,
+			advanceQueueContinuation,
 			ctx.cwd,
 			doResume,
 			enqueueQueued,
@@ -2823,6 +2900,7 @@ export function App({ ctx }: AppProps) {
 			state !== 'idle' ||
 			phase !== 'ready' ||
 			queuedRef.current.length === 0 ||
+			queuePauseRef.current !== null ||
 			abortRef.current ||
 			hasUnsettledTurn() ||
 			conversationMutationRef.current ||
@@ -2837,7 +2915,7 @@ export function App({ ctx }: AppProps) {
 		// erase it.
 		const next = dequeueQueued()
 		if (next !== undefined) void runTurn(next)
-	}, [state, phase, queued, dequeueQueued, hasUnsettledTurn, runTurn])
+	}, [state, phase, queued, queuePause, dequeueQueued, hasUnsettledTurn, runTurn])
 
 	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.
@@ -3232,8 +3310,11 @@ export function App({ ctx }: AppProps) {
 							{queued.length > 0 && permission === null ? (
 								<Box paddingX={1}>
 									<Text color={theme.text.muted}>
-										⏎ {queued.length} message{queued.length > 1 ? 's' : ''} queued — sending when
-										ready
+										{queuePause ? '⏸' : '⏎'} {queued.length} message
+										{queued.length > 1 ? 's' : ''} queued —{' '}
+										{queuePause
+											? `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
+											: 'sending when ready'}
 									</Text>
 								</Box>
 							) : null}

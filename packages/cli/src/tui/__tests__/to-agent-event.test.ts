@@ -22,6 +22,29 @@ const presenter = createToolPresenter(new ToolRegistry())
 const runId = 'run_test' as RunId
 
 describe('toAgentEvent carries the stop reason across', () => {
+	it.each(['tools', 'vision', 'documents'] as const)(
+		'carries a %s capability warning without turning it into a terminal error',
+		(capability) => {
+			const mapped = toAgentEvent(
+				{
+					type: 'capability_warning',
+					runId,
+					capability,
+					providerId: 'deepseek',
+					message: `cannot serve ${capability}`,
+				},
+				presenter,
+			)
+
+			expect(mapped).toEqual({
+				kind: 'capability-warning',
+				capability,
+				text: `cannot serve ${capability}`,
+			})
+			expect(mapped?.kind).not.toBe('error')
+		},
+	)
+
 	it('passes a non-normal stop through to the done event', () => {
 		const mapped = toAgentEvent(
 			{
@@ -202,7 +225,12 @@ describe('the three decline causes get three sentences', () => {
 describe('toAgentEvent labels a delegation with the label it required', () => {
 	const executing = (toolName: string, input: unknown) =>
 		toAgentEvent(
-			{ type: 'tool_executing', toolName, toolUseId: 'tu_1', input } as RunEvent,
+			{
+				type: 'tool_executing',
+				toolName,
+				toolUseId: 'tu_1',
+				input,
+			} as RunEvent,
 			presenter,
 		)
 
@@ -217,7 +245,10 @@ describe('toAgentEvent labels a delegation with the label it required', () => {
 	})
 
 	it('does not render the arguments as JSON', () => {
-		const mapped = executing('Agent', { description: 'Audit the auth flow', prompt: 'x' })
+		const mapped = executing('Agent', {
+			description: 'Audit the auth flow',
+			prompt: 'x',
+		})
 
 		expect((mapped as { summary: string }).summary).not.toContain('{')
 		expect((mapped as { summary: string }).summary).not.toContain('prompt')
@@ -227,7 +258,10 @@ describe('toAgentEvent labels a delegation with the label it required', () => {
 		// `description` is the LAST fallback. A tool with a real subject keeps
 		// it, so adding this key cannot quietly relabel the tools that already
 		// summarised correctly.
-		const mapped = executing('bash', { command: 'ls -la', description: 'list files' })
+		const mapped = executing('bash', {
+			command: 'ls -la',
+			description: 'list files',
+		})
 
 		expect(mapped).toMatchObject({ summary: 'ls -la' })
 	})

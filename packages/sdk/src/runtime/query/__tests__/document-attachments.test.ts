@@ -5,6 +5,7 @@ import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import type { MessageAttachment } from '../../../types/message/index.js'
 import type { ChatCompletionParams, ProviderCapabilities } from '../../../types/provider/index.js'
+import type { RunEvent } from '../../../types/run/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -46,27 +47,48 @@ function runWith(opts: {
 	capabilities?: ProviderCapabilities
 	strict?: boolean
 }) {
+	const events: RunEvent[] = []
 	const provider = new MockLLMProvider({
 		turns: [{ text: 'read it' }],
 		...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
 	})
 
-	const settled = drainQuery({
-		provider,
-		tools: new ToolRegistry(),
-		agentId: 'a',
-		agentName: 'A',
-		messages: [{ role: 'user', content: 'answer from the file', attachments: opts.attachments }],
-		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
-		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
-		topicId: generateTopicId(),
-		tenantId: generateTenantId(),
-		...(opts.strict ? { strictCapabilities: true } : {}),
-	})
+	const settled = drainQuery(
+		{
+			provider,
+			tools: new ToolRegistry(),
+			agentId: 'a',
+			agentName: 'A',
+			messages: [
+				{
+					role: 'user',
+					content: 'answer from the file',
+					attachments: opts.attachments,
+				},
+			],
+			workingDirectory: process.cwd(),
+			runConfig: {
+				model: 'mock',
+				tokenBudget: 100_000,
+				timeoutMs: 30_000,
+				maxIterations: 2,
+			},
+			projectId: generateProjectId(),
+			sessionId: generateSessionId(),
+			topicId: generateTopicId(),
+			tenantId: generateTenantId(),
+			...(opts.strict ? { strictCapabilities: true } : {}),
+		},
+		(event) => {
+			events.push(event)
+		},
+	)
 
-	return { settled, requests: provider.requests as ChatCompletionParams[] }
+	return {
+		events,
+		settled,
+		requests: provider.requests as ChatCompletionParams[],
+	}
 }
 
 describe('a user message that carries a document', () => {
@@ -86,6 +108,30 @@ describe('a user message that carries a document', () => {
 				strict: true,
 			}).settled,
 		).rejects.toThrow(/supportsDocuments: false/)
+	})
+
+	it('emits the document mismatch before terminal settlement when degradation is allowed', async () => {
+		const { events, settled } = runWith({
+			attachments: [PDF],
+			capabilities: capabilities({ supportsDocuments: false }),
+		})
+		await settled
+
+		const warningIndex = events.findIndex(
+			(event) => event.type === 'capability_warning' && event.capability === 'documents',
+		)
+		const terminalIndex = events.findIndex(
+			(event) => event.type === 'run_completed' || event.type === 'run_failed',
+		)
+		expect(warningIndex, 'the document mismatch existed only in the logger').toBeGreaterThan(-1)
+		expect(terminalIndex, 'the fixture never reached a terminal run event').toBeGreaterThan(-1)
+		expect(warningIndex).toBeLessThan(terminalIndex)
+		expect(events[warningIndex]).toMatchObject({
+			type: 'capability_warning',
+			capability: 'documents',
+			providerId: 'mock',
+		})
+		expect((events[warningIndex] as { message: string }).message).toContain('document')
 	})
 
 	it('does not fire the document check for an image', async () => {
@@ -119,8 +165,9 @@ describe('a driver that declares nothing', () => {
 
 	it('keeps its own answer when it declares one', () => {
 		expect(
-			resolveProviderCapabilities({ capabilities: capabilities({ supportsDocuments: false }) })
-				.supportsDocuments,
+			resolveProviderCapabilities({
+				capabilities: capabilities({ supportsDocuments: false }),
+			}).supportsDocuments,
 		).toBe(false)
 	})
 })

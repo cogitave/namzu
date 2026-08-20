@@ -223,6 +223,11 @@ export type AgentEvent =
 	 * which is the defect class this package keeps removing.
 	 */
 	| { readonly kind: 'provider-fallback'; readonly text: string }
+	| {
+			readonly kind: 'capability-warning'
+			readonly capability: Extract<RunEvent, { type: 'capability_warning' }>['capability']
+			readonly text: string
+	  }
 	| { readonly kind: 'task'; readonly subject: string; readonly status: string }
 	/**
 	 * The turn ended without throwing — which is not the same as succeeding.
@@ -2130,6 +2135,12 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			}
 		case 'provider_fallback':
 			return { kind: 'provider-fallback', text: describeFallback(event) }
+		case 'capability_warning':
+			return {
+				kind: 'capability-warning',
+				capability: event.capability,
+				text: event.message,
+			}
 		case 'task_created':
 			return { kind: 'task', subject: event.subject, status: event.status }
 		case 'task_updated':
