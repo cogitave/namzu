@@ -31,8 +31,7 @@ function controller(): ProjectInstructionContext {
 	return {
 		prepareInitialSnapshot: () =>
 			createProjectInstructionMessage('front-door policy sentinel', ['AGENTS.md']),
-		observeToolResult: () => {},
-		takeSnapshotUpdate: () => undefined,
+		observeToolResult: () => undefined,
 	}
 }
 

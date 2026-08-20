@@ -7,7 +7,10 @@ Add a host-owned live project-instruction context to the SDK. Queries and all
 agent front doors can rebuild a retained snapshot before the first provider
 request, observe completed top-level and nested registry executions, and
 durably replace that snapshot after a complete tool batch without creating a
-human continuation. Project-instruction messages carry bounded canonical
+human continuation. Callbacks receive the run cancellation signal and accepted
+message prefix; each returned snapshot is committed before the next observation
+begins, so cancellation retains accepted policy state while rejecting an
+unfinished suffix. Project-instruction messages carry bounded canonical
 project-relative `AGENTS.md` provenance and survive compaction.
 
 BREAKING: the CLI now represents repository instructions as scoped, retained

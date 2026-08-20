@@ -108,7 +108,10 @@ async function drive(cwd: string): Promise<{ systemPrompt: string; projectPrompt
 	if (!context?.prepareInitialSnapshot) {
 		throw new Error('query() did not receive the live project-instruction context')
 	}
-	const snapshot = await context.prepareInitialSnapshot(messages)
+	const snapshot = await context.prepareInitialSnapshot({
+		messages,
+		signal: new AbortController().signal,
+	})
 	return {
 		systemPrompt: String(call?.systemPrompt ?? ''),
 		projectPrompt: snapshot?.content ?? '',
@@ -197,9 +200,10 @@ describe("the project's instructions", () => {
 			projectInstructionContext?: ProjectInstructionContext
 		}
 		const childPrompt = config.systemPrompt ?? ''
-		const snapshot = await config.projectInstructionContext?.prepareInitialSnapshot?.([
-			{ role: 'user', content: 'work', timestamp: 0 },
-		])
+		const snapshot = await config.projectInstructionContext?.prepareInitialSnapshot?.({
+			messages: [{ role: 'user', content: 'work', timestamp: 0 }],
+			signal: new AbortController().signal,
+		})
 		expect(snapshot?.content).toContain('Never use a default export.')
 		expect(
 			childPrompt,

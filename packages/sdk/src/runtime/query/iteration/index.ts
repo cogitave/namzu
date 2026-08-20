@@ -45,7 +45,6 @@ import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
-import { replaceProjectInstructionSnapshot } from '../project-instructions.js'
 import {
 	DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 	projectRequestRichContent,
@@ -1028,7 +1027,6 @@ export class IterationOrchestrator {
 					}
 
 					const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
-					await this.flushProjectInstructionSnapshot()
 
 					// The step record is built even for a rejected batch: a run that
 					// spent a turn getting its tools refused still spent the tokens,
@@ -1342,24 +1340,6 @@ export class IterationOrchestrator {
 		} finally {
 			this.settleOutstandingWork()
 		}
-	}
-
-	/**
-	 * Persist live policy without creating a conversational continuation.
-	 *
-	 * This sits immediately after the complete tool-result batch and before
-	 * every terminal/stop/checkpoint decision. Reusing `deliverInbound()` would
-	 * lose the update when one of those decisions ends the run, while moving
-	 * that human queue earlier would consume a continuation the model never saw.
-	 */
-	private async flushProjectInstructionSnapshot(): Promise<void> {
-		const controller = this.ctx.projectInstructionContext
-		if (!controller) return
-		const snapshot = await controller.takeSnapshotUpdate()
-		if (snapshot === undefined) return
-		this.ctx.runMgr.replaceMessages(
-			replaceProjectInstructionSnapshot(this.ctx.runMgr.messages, snapshot),
-		)
 	}
 
 	/**

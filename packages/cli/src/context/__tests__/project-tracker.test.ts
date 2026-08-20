@@ -41,7 +41,21 @@ function observation(
 }
 
 async function initial(context: ProjectInstructionContext, messages: readonly Message[] = []) {
-	return await context.prepareInitialSnapshot?.(messages)
+	return await context.prepareInitialSnapshot?.({
+		messages,
+		signal: new AbortController().signal,
+	})
+}
+
+async function observe(
+	context: ProjectInstructionContext,
+	result: ToolResultObservation,
+	messages: readonly Message[],
+) {
+	return await context.observeToolResult(result, {
+		messages,
+		signal: new AbortController().signal,
+	})
 }
 
 describe('ProjectInstructionTracker', () => {
@@ -62,12 +76,16 @@ describe('ProjectInstructionTracker', () => {
 		const tracker = new ProjectInstructionTracker(repo)
 		const context = tracker.createRunContext()
 
-		expect((await initial(context))?.source).toEqual({
+		const baseline = await initial(context)
+		expect(baseline?.source).toEqual({
 			type: 'project-instructions',
 			files: ['AGENTS.md'],
 		})
-		await context.observeToolResult(observation('read', 'packages/a/file.ts'))
-		const update = await context.takeSnapshotUpdate()
+		const update = await observe(
+			context,
+			observation('read', 'packages/a/file.ts'),
+			baseline ? [baseline] : [],
+		)
 
 		expect(update?.source).toEqual({
 			type: 'project-instructions',
@@ -83,15 +101,20 @@ describe('ProjectInstructionTracker', () => {
 		writeFileSync(join(repo, 'AGENTS.md'), 'Rule A.')
 		const tracker = new ProjectInstructionTracker(repo)
 		const context = tracker.createRunContext()
-		await initial(context)
+		const baseline = await initial(context)
 
 		writeFileSync(join(repo, 'AGENTS.md'), 'Rule B.')
-		await context.observeToolResult(observation('edit', 'AGENTS.md'))
-		expect((await context.takeSnapshotUpdate())?.content).toContain('Rule B.')
+		const updated = await observe(
+			context,
+			observation('edit', 'AGENTS.md'),
+			baseline ? [baseline] : [],
+		)
+		expect(updated?.content).toContain('Rule B.')
 
 		writeFileSync(join(repo, 'AGENTS.md'), '')
-		await context.observeToolResult(observation('write', 'AGENTS.md'))
-		expect(await context.takeSnapshotUpdate()).toBeNull()
+		expect(
+			await observe(context, observation('write', 'AGENTS.md'), updated ? [updated] : []),
+		).toBeNull()
 		expect(tracker.instructionFiles).toEqual([])
 	})
 
@@ -119,18 +142,29 @@ describe('ProjectInstructionTracker', () => {
 		const tracker = new ProjectInstructionTracker(repo)
 		const parent = tracker.createRunContext()
 		const child = tracker.createRunContext()
-		await initial(parent)
-		await initial(child)
+		const parentBaseline = await initial(parent)
+		const childBaseline = await initial(child)
 
-		await child.observeToolResult(observation('read', 'pkg/file.ts'))
-		expect((await child.takeSnapshotUpdate())?.content).toContain('Package policy.')
+		expect(
+			(
+				await observe(
+					child,
+					observation('read', 'pkg/file.ts'),
+					childBaseline ? [childBaseline] : [],
+				)
+			)?.content,
+		).toContain('Package policy.')
 		// The parent compares shared state on its next actual tool result; the
-		// child's read did not consume the parent's cursor.
-		await parent.observeToolResult({
-			...observation('read', 'pkg/file.ts'),
-			toolName: 'Agent',
-		})
-		expect((await parent.takeSnapshotUpdate())?.content).toContain('Package policy.')
+		// child's read did not change the parent's durable-message cursor.
+		const parentUpdate = await observe(
+			parent,
+			{
+				...observation('read', 'pkg/file.ts'),
+				toolName: 'Agent',
+			},
+			parentBaseline ? [parentBaseline] : [],
+		)
+		expect(parentUpdate?.content).toContain('Package policy.')
 	})
 
 	it('ignores failed file operations', async () => {
@@ -140,11 +174,11 @@ describe('ProjectInstructionTracker', () => {
 		writeFileSync(join(pkg, 'file.ts'), 'x')
 		const tracker = new ProjectInstructionTracker(repo)
 		const context = tracker.createRunContext()
-		await initial(context)
+		const baseline = await initial(context)
 
-		await context.observeToolResult(observation('read', 'pkg/file.ts', false))
-
-		expect(await context.takeSnapshotUpdate()).toBeUndefined()
+		expect(
+			await observe(context, observation('read', 'pkg/file.ts', false), baseline ? [baseline] : []),
+		).toBeUndefined()
 		expect(tracker.instructionFiles).toEqual([])
 	})
 })

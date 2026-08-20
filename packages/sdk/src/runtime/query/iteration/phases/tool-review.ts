@@ -2,6 +2,10 @@ import type { AuthorizationGate } from '../../../../authorization/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
 import type { ToolCallDenials } from '../../executor.js'
+import {
+	awaitProjectInstructionCallback,
+	replaceProjectInstructionSnapshot,
+} from '../../project-instructions.js'
 import { attachRepeatNotice } from '../../repeat-call.js'
 import { attachSteering } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
@@ -100,13 +104,28 @@ export async function* runToolReview(
 		for (const msg of attachRepeatNotice(attachSteering(batch.messages, ctx.steering), notices)) {
 			ctx.runMgr.pushMessage(msg)
 		}
-		// The tool-result messages are already durable before host policy is
-		// allowed to react. If the observer refuses, the run may fail, but it does
-		// not leave an unanswered assistant tool call in history. Nested registry
-		// dispatches are carried in the same batch observation list.
+		// The complete tool-result batch is already in history before host policy
+		// may react, so a replacement cannot split provider-required adjacency.
+		// Commit each accepted observation before entering the next one. A single
+		// batch-end drain loses the accepted prefix when a later observer aborts.
+		// Nested registry dispatches are carried in this same ordered list.
 		if (ctx.projectInstructionContext) {
 			for (const observation of batch.observations) {
-				await ctx.projectInstructionContext.observeToolResult(observation)
+				const signal = ctx.abortController.signal
+				const snapshot = await awaitProjectInstructionCallback(signal, () =>
+					ctx.projectInstructionContext?.observeToolResult(observation, {
+						messages: [...ctx.runMgr.messages],
+						signal,
+					}),
+				)
+				// Callback settlement and snapshot publication are distinct
+				// microtasks. Authority may be withdrawn between them.
+				signal.throwIfAborted()
+				if (snapshot !== undefined) {
+					ctx.runMgr.replaceMessages(
+						replaceProjectInstructionSnapshot(ctx.runMgr.messages, snapshot),
+					)
+				}
 			}
 		}
 	}

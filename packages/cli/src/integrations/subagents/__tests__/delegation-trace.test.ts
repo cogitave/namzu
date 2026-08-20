@@ -124,8 +124,7 @@ describe('a sub-agent is bound by the project it works in', () => {
 	const INSTRUCTIONS = '## Project instructions\n\nNever use a default export.'
 	const projectInstructionContext = () => ({
 		prepareInitialSnapshot: () => createProjectInstructionMessage(INSTRUCTIONS, ['AGENTS.md']),
-		observeToolResult: () => {},
-		takeSnapshotUpdate: () => undefined,
+		observeToolResult: () => undefined,
 	})
 
 	it('gives the general-purpose sub-agent the block', async () => {
@@ -135,7 +134,11 @@ describe('a sub-agent is bound by the project it works in', () => {
 		const config = (await general?.configBuilder?.({})) as
 			| { projectInstructionContext?: ProjectInstructionContext }
 			| undefined
-		const snapshot = await config?.projectInstructionContext?.prepareInitialSnapshot?.([])
+		const signal = new AbortController().signal
+		const snapshot = await config?.projectInstructionContext?.prepareInitialSnapshot?.({
+			messages: [],
+			signal,
+		})
 		expect(snapshot?.content).toContain('Never use a default export.')
 	})
 
@@ -162,7 +165,11 @@ describe('a sub-agent is bound by the project it works in', () => {
 			projectInstructionContext?: ProjectInstructionContext
 		}
 		const prompt = String(config.systemPrompt ?? '')
-		const snapshot = await config.projectInstructionContext?.prepareInitialSnapshot?.([])
+		const signal = new AbortController().signal
+		const snapshot = await config.projectInstructionContext?.prepareInitialSnapshot?.({
+			messages: [],
+			signal,
+		})
 		expect(prompt).toContain('You are a security auditor')
 		expect(prompt).toContain('Never fabricate.')
 		expect(snapshot?.content).toContain('Never use a default export.')

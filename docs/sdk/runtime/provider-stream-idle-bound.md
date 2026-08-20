@@ -199,9 +199,12 @@ cancellation separately because they are not members of the main chain.
 `RouterAgent` applies the same config to its separate routing decision before
 it enters a delegate's `query()` boundary.
 
-Live project-instruction preparation and its post-tool durable snapshot flush
+Live project-instruction preparation and its post-tool snapshot publications
 are host callbacks, not provider streams. They run outside this composition:
 before request one and immediately after a complete tool-result batch,
-respectively. They neither reset the provider silence timer nor create a model
-continuation, so a terminal batch can persist context without opening another
-provider request.
+respectively. The runtime passes them its cancellation signal and races even a
+non-cooperative callback against withdrawal. Each accepted observation is
+published before the next callback starts, so cancellation retains the
+accepted prefix and rejects the unfinished suffix. These callbacks neither
+reset the provider silence timer nor create a model continuation, so a terminal
+batch can persist context without opening another provider request.

@@ -114,27 +114,16 @@ export class ProjectInstructionTracker {
 		return this.snapshot()
 	}
 
-	/** A separate cursor per run prevents one child from draining another's state. */
+	/** Each run's durable messages are its cursor over the shared discovered state. */
 	createRunContext(): ProjectInstructionContext {
-		let published = this.snapshotKey()
-		let pending: UserMessage | null | undefined
 		return {
-			prepareInitialSnapshot: (messages) => {
-				const snapshot = this.prepareSnapshot(messages)
-				published = this.snapshotKey()
-				pending = undefined
-				return snapshot
-			},
-			observeToolResult: (observation) => {
+			prepareInitialSnapshot: ({ messages }) => this.prepareSnapshot(messages),
+			observeToolResult: (observation, { messages }) => {
 				this.observe(observation)
-				const next = this.snapshotKey()
-				if (next !== published) pending = this.snapshot()
-			},
-			takeSnapshotUpdate: () => {
-				const update = pending
-				if (update !== undefined) published = this.snapshotKey()
-				pending = undefined
-				return update
+				const snapshot = this.snapshot()
+				return this.snapshotKey(snapshot) === this.snapshotKeyFromMessages(messages)
+					? undefined
+					: snapshot
 			},
 		}
 	}
@@ -261,8 +250,21 @@ export class ProjectInstructionTracker {
 			: null
 	}
 
-	private snapshotKey(): string {
-		const snapshot = this.snapshot()
+	private snapshotKey(snapshot: UserMessage | null): string {
 		return snapshot ? JSON.stringify([snapshot.source, snapshot.content]) : 'null'
+	}
+
+	private snapshotKeyFromMessages(messages: readonly Message[]): string {
+		for (let index = messages.length - 1; index >= 0; index -= 1) {
+			const message = messages[index]
+			if (
+				message?.role === 'user' &&
+				message.source?.type === 'project-instructions' &&
+				isProjectInstructionMessageSource(message.source)
+			) {
+				return this.snapshotKey(message)
+			}
+		}
+		return 'null'
 	}
 }

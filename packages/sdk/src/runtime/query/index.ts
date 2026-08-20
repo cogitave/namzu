@@ -69,6 +69,7 @@ import type { InvocationState } from '../../types/invocation/index.js'
 import {
 	type AssistantMessage,
 	type Message,
+	type UserMessage,
 	createSystemMessage,
 } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
@@ -118,6 +119,7 @@ import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
 import {
 	type ProjectInstructionContext,
+	awaitProjectInstructionCallback,
 	collapseProjectInstructionSnapshots,
 	replaceProjectInstructionSnapshot,
 } from './project-instructions.js'
@@ -1162,8 +1164,28 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(await resolveAttachments(seeded, params.attachmentStore)),
 	]
 	if (params.projectInstructionContext?.prepareInitialSnapshot) {
-		const snapshot =
-			await params.projectInstructionContext.prepareInitialSnapshot(resolvedInitialMessages)
+		const preparationSignal = params.signal ?? new AbortController().signal
+		let snapshot: UserMessage | null | undefined
+		try {
+			const prepared = await awaitProjectInstructionCallback(preparationSignal, () =>
+				params.projectInstructionContext?.prepareInitialSnapshot?.({
+					messages: [...resolvedInitialMessages],
+					signal: preparationSignal,
+				}),
+			)
+			// The callback promise can settle, remove its listener, and queue this
+			// continuation immediately before a queued abort. Publication is a
+			// separate authority boundary, so fence it too.
+			preparationSignal.throwIfAborted()
+			snapshot = prepared
+		} catch (error) {
+			// This callback runs before RunContext owns its child controller. A
+			// caller cancellation here still belongs to the run: publish no late
+			// snapshot and let the context below settle the normal cancelled Run.
+			// Compare the exact reason: a callback failure that won first must not
+			// be erased merely because cancellation arrived before this catch ran.
+			if (!preparationSignal.aborted || error !== preparationSignal.reason) throw error
+		}
 		if (snapshot !== undefined) {
 			resolvedInitialMessages = replaceProjectInstructionSnapshot(
 				resolvedInitialMessages,

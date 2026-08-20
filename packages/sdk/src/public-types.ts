@@ -126,7 +126,9 @@ export type {
 
 export type { QueryParams } from './runtime/query/index.js'
 export type {
+	ProjectInstructionCallbackContext,
 	ProjectInstructionContext,
+	ProjectInstructionSnapshotUpdate,
 	ToolResultObservation,
 } from './runtime/query/project-instructions.js'
 export type {
