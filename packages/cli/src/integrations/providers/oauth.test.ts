@@ -42,6 +42,7 @@ vi.mock('./credential-store.js', async (importOriginal) => {
 
 import {
 	CredentialPublicationError,
+	CredentialRefreshRejectedError,
 	CredentialWithdrawnError,
 	ensureFreshAnthropicToken,
 	readSubscriptionCredential,
@@ -277,6 +278,42 @@ describe('refreshAgentOAuthToken', () => {
 		expect(await refreshAgentOAuthToken('rt')).toBeNull()
 	})
 
+	it('classifies a standard 400 invalid_grant as a permanent secret-free refusal', async () => {
+		const secret = 'DO_NOT_ECHO_REFRESH_BODY'
+		mockFetch(
+			(async () =>
+				new Response(
+					JSON.stringify({
+						error: 'INVALID_GRANT',
+						error_description: secret,
+					}),
+					{ status: 400 },
+				)) as typeof fetch,
+		)
+
+		const error = await refreshAgentOAuthToken('rt-secret').catch((caught: unknown) => caught)
+
+		expect(error).toBeInstanceOf(CredentialRefreshRejectedError)
+		expect(error).toMatchObject({ code: 'invalid_grant' })
+		expect(String(error)).toContain('Sign in again with /login')
+		expect(String(error)).not.toContain(secret)
+		expect(String(error)).not.toContain('rt-secret')
+	})
+
+	it('keeps another 400 code transient and retryable', async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ error: 'invalid_request' }), {
+					status: 400,
+				}),
+		)
+		mockFetch(fetchSpy as typeof fetch)
+
+		await expect(refreshAgentOAuthToken('rt')).resolves.toBeNull()
+		await expect(refreshAgentOAuthToken('rt')).resolves.toBeNull()
+		expect(fetchSpy).toHaveBeenCalledTimes(2)
+	})
+
 	it('returns null when fetch throws', async () => {
 		mockFetch((async () => {
 			throw new Error('network down')
@@ -337,6 +374,29 @@ describe('refreshAgentOAuthToken', () => {
 		)
 		const controller = new AbortController()
 		const cause = new Error('body no longer belongs to a run')
+		const pending = refreshAgentOAuthToken('rt', controller.signal)
+		await vi.waitFor(() => expect(bodyStarted).toBe(true))
+
+		controller.abort(cause)
+
+		await expect(within(pending)).rejects.toBe(cause)
+	})
+
+	it('settles on caller cancellation while reading a non-2xx classification body', async () => {
+		let bodyStarted = false
+		mockFetch(
+			(async () =>
+				({
+					ok: false,
+					status: 400,
+					json: () => {
+						bodyStarted = true
+						return new Promise<never>(() => {})
+					},
+				}) as unknown as Response) as typeof fetch,
+		)
+		const controller = new AbortController()
+		const cause = new Error('classification body lost its owner')
 		const pending = refreshAgentOAuthToken('rt', controller.signal)
 		await vi.waitFor(() => expect(bodyStarted).toBe(true))
 
@@ -460,6 +520,22 @@ describe('ensureFreshAnthropicToken', () => {
 			expiresAt: Date.now() - 1000,
 		})
 		expect(token).toBe('cc-stale')
+	})
+
+	it('does not turn invalid_grant into permission to use the stale token', async () => {
+		mockFetch(
+			(async () =>
+				new Response(JSON.stringify({ error: 'invalid_grant' }), {
+					status: 400,
+				})) as typeof fetch,
+		)
+
+		await expect(
+			ensureFreshAnthropicToken('cc-stale', {
+				refreshToken: 'rt',
+				expiresAt: Date.now() - 1000,
+			}),
+		).rejects.toBeInstanceOf(CredentialRefreshRejectedError)
 	})
 
 	it('rechecks ownership after exchange resolution and before durable publication', async () => {

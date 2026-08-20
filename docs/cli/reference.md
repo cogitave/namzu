@@ -90,6 +90,15 @@ safely, the operation refuses instead of using an uncommitted token. A borrowed
 macOS Keychain credential is never overwritten: an external change wins, while
 an otherwise successful refresh remains local to the live session.
 
+An authorization server response of `400 invalid_grant` is not retried as a
+transient outage. It means that exact refresh grant is no longer usable, so the
+operation refuses before provider work and tells the operator to sign in again.
+The live session remembers that refusal for the exact credential instead of
+calling the endpoint on every turn; a newly signed-in or externally rotated
+credential clears the condition by identity. Removing the authoritative
+credential also refuses later sends and durable resumes — the provider object
+left in process memory is not authority to keep using a logged-out token.
+
 Credential-file mutation is protected by an atomically published owner lock.
 A lock left by a crashed process is deliberately not stolen: pathname-based
 stale recovery cannot prove that the entry it removes still belongs to the

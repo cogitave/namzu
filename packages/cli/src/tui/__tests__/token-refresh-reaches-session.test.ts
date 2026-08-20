@@ -10,6 +10,7 @@ import { ProviderRegistry, createUserMessage } from '@namzu/sdk'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	CredentialPublicationError,
+	CredentialRefreshRejectedError,
 	CredentialWithdrawnError,
 	PROVIDER_REGISTRY,
 	type Preferences,
@@ -252,6 +253,124 @@ describe('a run owns the token refresh that precedes it', () => {
 })
 
 describe('one session publishes refresh state in order', () => {
+	it('caches invalid_grant for the exact credential across send and resume', async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ error: 'invalid_grant' }), {
+					status: 400,
+				}),
+		)
+		vi.stubGlobal('fetch', fetchSpy)
+		const agent = await session()
+
+		const send = agent
+			.send([createUserMessage('first attempt')])
+			[Symbol.asyncIterator]()
+			.next()
+		await expect(send).rejects.toBeInstanceOf(CredentialRefreshRejectedError)
+		await expect(
+			agent.resumeDurable({
+				entry: durableEntry('same-rejected-grant'),
+				checkpointStore: {} as never,
+			}),
+		).rejects.toBeInstanceOf(CredentialRefreshRejectedError)
+
+		expect(fetchSpy).toHaveBeenCalledTimes(1)
+		expect(runCalls.queries).toEqual([])
+		expect(runCalls.resumes).toEqual([])
+		expect(constructedTokens).toEqual(['cc-old'])
+	})
+
+	it('shares one permanent refresh refusal across concurrent owners', async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ error: 'INVALID_GRANT' }), {
+					status: 400,
+				}),
+		)
+		vi.stubGlobal('fetch', fetchSpy)
+		const agent = await session()
+
+		const send = agent
+			.send([createUserMessage('concurrent send')])
+			[Symbol.asyncIterator]()
+			.next()
+		const resume = agent.resumeDurable({
+			entry: durableEntry('concurrent-rejected-grant'),
+			checkpointStore: {} as never,
+		})
+
+		await expect(send).rejects.toBeInstanceOf(CredentialRefreshRejectedError)
+		await expect(resume).rejects.toBeInstanceOf(CredentialRefreshRejectedError)
+		expect(fetchSpy).toHaveBeenCalledTimes(1)
+		expect(runCalls.queries).toEqual([])
+		expect(runCalls.resumes).toEqual([])
+	})
+
+	it('lets a fresh authoritative credential bypass an older permanent refusal', async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ error: 'invalid_grant' }), {
+					status: 400,
+				}),
+		)
+		vi.stubGlobal('fetch', fetchSpy)
+		const agent = await session()
+		const first = agent
+			.send([createUserMessage('old grant')])
+			[Symbol.asyncIterator]()
+			.next()
+		await expect(first).rejects.toBeInstanceOf(CredentialRefreshRejectedError)
+
+		stored.current = {
+			accessToken: 'cc-new-login',
+			refreshToken: 'rt-new-login',
+			expiresAt: Date.now() + 3_600_000,
+		}
+		await agent.resumeDurable({
+			entry: durableEntry('after-new-login'),
+			checkpointStore: {} as never,
+		})
+
+		expect(fetchSpy).toHaveBeenCalledTimes(1)
+		expect(constructedTokens).toEqual(['cc-old', 'cc-new-login'])
+		expect(runCalls.resumes.map(providerToken)).toEqual(['cc-new-login'])
+	})
+
+	it('treats deletion after invalid_grant as withdrawal, never as a cache miss', async () => {
+		const fetchSpy = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ error: 'invalid_grant' }), {
+					status: 400,
+				}),
+		)
+		vi.stubGlobal('fetch', fetchSpy)
+		const agent = await session()
+		const first = agent
+			.send([createUserMessage('grant will be withdrawn')])
+			[Symbol.asyncIterator]()
+			.next()
+		await expect(first).rejects.toBeInstanceOf(CredentialRefreshRejectedError)
+
+		stored.current = null
+		const second = agent
+			.send([createUserMessage('must not use memory token')])
+			[Symbol.asyncIterator]()
+			.next()
+		await expect(second).rejects.toBeInstanceOf(CredentialWithdrawnError)
+		await expect(
+			agent.resumeDurable({
+				entry: durableEntry('after-withdrawal'),
+				checkpointStore: {} as never,
+			}),
+		).rejects.toBeInstanceOf(CredentialWithdrawnError)
+
+		expect(fetchSpy).toHaveBeenCalledTimes(1)
+		expect(runCalls.queries).toEqual([])
+		expect(runCalls.resumes).toEqual([])
+		expect(constructedTokens).toEqual(['cc-old'])
+	})
+
 	it('refuses an unproven CAS and lets the next operation adopt its durable winner', async () => {
 		const fetchSpy = vi.fn(
 			async () =>

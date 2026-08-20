@@ -95,6 +95,9 @@ import {
 	connectMcpServers,
 } from '../integrations/mcp/servers.js'
 import {
+	type AgentOAuthCredential,
+	CredentialRefreshRejectedError,
+	CredentialWithdrawnError,
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
 	type Preferences,
@@ -115,6 +118,7 @@ import {
 	readPreferences,
 	readSubscriptionCredential,
 	resolveChainCapabilities,
+	sameOAuthCredential,
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
@@ -835,23 +839,54 @@ export async function createAgentSession(
 	const credentialOrigin = det?.oauth?.origin ?? 'keychain'
 	let currentToken = det?.apiKey
 	let refreshTail: Promise<void> = Promise.resolve()
+	let rejectedRefresh:
+		| {
+				readonly credential: AgentOAuthCredential
+				readonly error: CredentialRefreshRejectedError
+		  }
+		| undefined
 	const performRefresh = async (signal?: AbortSignal): Promise<void> => {
 		signal?.throwIfAborted()
 		// Read only after this owner reaches the head. A sibling may have rotated
 		// the durable credential while we waited; reading before the queue would
 		// make its success invisible and permit a stale-token downgrade.
 		const cred = readSubscriptionCredential(credentialOrigin)
-		if (!cred) return
-		const fresh = await ensureFreshAnthropicToken(
-			cred.accessToken,
-			{
-				refreshToken: cred.refreshToken,
-				expiresAt: cred.expiresAt,
-				scopes: cred.scopes,
-				origin: credentialOrigin,
-			},
-			signal,
-		)
+		// This store is the authority for the whole session. Its absence is a
+		// credential withdrawal, not permission to keep using the client object
+		// that happens to remain in memory after logout or another process's clear.
+		if (!cred) throw new CredentialWithdrawnError()
+		if (rejectedRefresh && sameOAuthCredential(rejectedRefresh.credential, cred)) {
+			throw rejectedRefresh.error
+		}
+		// A different non-null credential is an external winner (usually a fresh
+		// login). The old grant's refusal says nothing about this one.
+		rejectedRefresh = undefined
+		let fresh: string
+		try {
+			fresh = await ensureFreshAnthropicToken(
+				cred.accessToken,
+				{
+					refreshToken: cred.refreshToken,
+					expiresAt: cred.expiresAt,
+					scopes: cred.scopes,
+					origin: credentialOrigin,
+				},
+				signal,
+			)
+		} catch (error) {
+			if (error instanceof CredentialRefreshRejectedError) {
+				// Cache only if the same credential is still authoritative after the
+				// network wait. A concurrent login must not inherit the old grant's
+				// permanent classification.
+				signal?.throwIfAborted()
+				const current = readSubscriptionCredential(credentialOrigin)
+				if (!current) throw new CredentialWithdrawnError()
+				if (sameOAuthCredential(current, cred)) {
+					rejectedRefresh = { credential: cred, error }
+				}
+			}
+			throw error
+		}
 		signal?.throwIfAborted()
 		if (fresh === currentToken) return
 		try {

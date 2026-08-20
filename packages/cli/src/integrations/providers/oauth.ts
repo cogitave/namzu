@@ -7,10 +7,12 @@
  * stale token before the session starts instead of surfacing it as an
  * authentication error.
  *
- * Best-effort for refresh failures: no refresh token, a network failure, an
- * endpoint refusal or the private deadline all return the existing token.
- * Caller cancellation is different: it revokes the operation that would use
- * the token and is re-thrown with its exact cause.
+ * Best-effort for transient refresh failures: no refresh token, a network
+ * failure, an ordinary endpoint refusal or the private deadline all return the
+ * existing token. `invalid_grant` is different: the authorization grant is no
+ * longer usable, so sending the expired access token or retrying the same
+ * refresh on every turn cannot recover. It is a typed refusal. Caller
+ * cancellation also escapes with its exact cause.
  *
  * ## Where a refreshed token is written back
  *
@@ -128,6 +130,16 @@ export class CredentialPublicationError extends Error {
 	}
 }
 
+/** The authorization server says this exact refresh grant cannot be used again. */
+export class CredentialRefreshRejectedError extends Error {
+	override readonly name = 'CredentialRefreshRejectedError'
+	readonly code = 'invalid_grant' as const
+
+	constructor() {
+		super('The subscription refresh token is no longer usable. Sign in again with /login.')
+	}
+}
+
 /**
  * Return a non-expired access token, refreshing first if the current one is
  * lapsed/about-to-lapse and a refresh token is available. On a successful
@@ -192,7 +204,7 @@ function publishRefreshed(
 		// is unchanged, the refreshed token remains session-local.
 		const current = readAgentKeychainCredential()
 		if (!current) throw new CredentialWithdrawnError()
-		return !sameCredential(current, expected) ? current : refreshed
+		return !sameOAuthCredential(current, expected) ? current : refreshed
 	}
 	let result: ReturnType<typeof replaceStoredSubscriptionCredential>
 	try {
@@ -218,7 +230,11 @@ function publishRefreshed(
 	return refreshed
 }
 
-function sameCredential(left: AgentOAuthCredential, right: AgentOAuthCredential): boolean {
+/** Exact credential identity used by refresh publication and the live-session refusal cache. */
+export function sameOAuthCredential(
+	left: AgentOAuthCredential,
+	right: AgentOAuthCredential,
+): boolean {
 	if (
 		left.accessToken !== right.accessToken ||
 		left.refreshToken !== right.refreshToken ||
@@ -234,7 +250,13 @@ function sameCredential(left: AgentOAuthCredential, right: AgentOAuthCredential)
 	)
 }
 
-/** Exchange a refresh token for a new credential, or `null` on any failure. */
+/**
+ * Exchange a refresh token for a new credential.
+ *
+ * Transient/unclassified failures return `null`. A standards-defined
+ * `400 invalid_grant` throws {@link CredentialRefreshRejectedError}; retrying
+ * the same grant is not recovery.
+ */
 export async function refreshAgentOAuthToken(
 	refreshToken: string,
 	signal?: AbortSignal,
@@ -262,7 +284,17 @@ export async function refreshAgentOAuthToken(
 			requestController.signal,
 		)
 		signal?.throwIfAborted()
-		if (!res.ok) return null
+		if (!res.ok) {
+			if (res.status === 400) {
+				const failure = (await awaitWithSignal(res.json(), requestController.signal)) as {
+					error?: unknown
+				}
+				if (typeof failure?.error === 'string' && failure.error.toLowerCase() === 'invalid_grant') {
+					throw new CredentialRefreshRejectedError()
+				}
+			}
+			return null
+		}
 		const data = (await awaitWithSignal(res.json(), requestController.signal)) as {
 			access_token?: unknown
 			refresh_token?: unknown
@@ -275,7 +307,8 @@ export async function refreshAgentOAuthToken(
 			expiresAt:
 				typeof data.expires_in === 'number' ? Date.now() + data.expires_in * 1_000 : undefined,
 		}
-	} catch {
+	} catch (error) {
+		if (error instanceof CredentialRefreshRejectedError) throw error
 		// A cooperative transport may replace the request cause with a generic
 		// AbortError. The fused controller is the first-cause latch: only a caller
 		// reason that actually won is allowed to escape as cancellation. A later

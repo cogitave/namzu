@@ -21,12 +21,14 @@ export {
 export { OAUTH_SCOPES, REDIRECT_URI } from './identity.js'
 export {
 	CredentialPublicationError,
+	CredentialRefreshRejectedError,
 	CredentialWithdrawnError,
 	type CredentialOrigin,
 	ensureFreshAnthropicToken,
 	type OAuthMetadata,
 	readSubscriptionCredential,
 	refreshAgentOAuthToken,
+	sameOAuthCredential,
 } from './oauth.js'
 export {
 	beginSubscriptionLogin,
