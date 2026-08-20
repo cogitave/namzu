@@ -107,6 +107,9 @@ export interface CoordinatorToolsOptions {
 	pendingAnswers?: PendingAnswers
 }
 
+/** Internal identity shared by the builder and the agent authority boundary. */
+export const ASK_USER_QUESTION_TOOL_NAME = 'ask_user_question' as const
+
 const approvePlanStepSchema = z.object({
 	description: z.string().describe('What this step does'),
 	agent_id: z
@@ -1472,7 +1475,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		const parkRunId = runId
 		const parkHandler = resumeHandler
 		const askUserQuestion = defineTool({
-			name: 'ask_user_question',
+			name: ASK_USER_QUESTION_TOOL_NAME,
 			description:
 				'Ask the user ONE question ONLY when you are blocked on a decision that is genuinely theirs to make — one you cannot resolve from their request, your tools, the files you can read, or sensible defaults. The question must be the genuinely undecidable thing in THIS task. Never ask for information a tool can discover (do not ask what you can read, list, or search), never re-ask what the conversation already answers, and never ask meta-questions like "Shall I proceed?" — plan ratification goes through approve_plan. Provide 2-4 genuinely distinct options derived from the actual context — concrete paths, never generic placeholders (for example, asked to prepare a presentation, ask "Who is the audience?" with options like Board / Engineering team / Customer); keep labels short (1-5 words) and give each option a one-line description of what practically changes if it is chosen. Put your recommended option FIRST and append " (Recommended)" to its label. Set multiSelect: true only when several options can apply at once. A free-text "Something else" escape hatch is always shown automatically — do not add your own "Other" option. Ask ONE question per call and prefer at most one question per assistant turn; if several decisions block you, ask only the ones that materially change your next actions, in sequence — most work needs at most 2-3 questions, so prefer proceeding on stated defaults over interrogating the user. Never invent answers or synthetic content on the user\'s behalf unless they explicitly asked for a random/test scenario. The answer arrives as this tool\'s result; if the result says the user did not answer, do not ask this or any other question again — proceed on your best judgment without assuming consent.',
 			inputSchema: z

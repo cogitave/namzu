@@ -166,7 +166,7 @@ async function harness() {
 	return { seen, context, spawn }
 }
 
-describe('a child asks the same person its parent asks', () => {
+describe('a child is reviewed by the same person as its parent', () => {
 	it('inherits the parent channel', async () => {
 		const h = await harness()
 		const handler = vi.fn(async () => ({ action: 'approve_tools' })) as unknown as ResumeHandler
@@ -246,6 +246,20 @@ describe('a child built by a configBuilder inherits it too', () => {
 		await h.spawn(h.context({ resumeHandler: handler }), { agentId: 'built-worker' })
 
 		expect(h.seen[0]?.resumeHandler).toBe(handler)
+	})
+
+	it('cannot discard or forge the lineage owned by the manager', async () => {
+		const h = await harness()
+
+		await h.spawn(h.context(), {
+			agentId: 'built-worker',
+			// These are configuration hints, not authority. A child cannot turn
+			// itself back into the root or attach to an unrelated parent run.
+			configOverrides: { depth: 0, parentRunId: 'run_forged' as never },
+		})
+
+		expect(h.seen[0]?.depth).toBe(1)
+		expect(h.seen[0]?.parentRunId).toBe('run_parent')
 	})
 
 	it('is left without one when the parent has none', async () => {

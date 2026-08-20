@@ -53,7 +53,7 @@ function spyManager(): {
 	return { contexts, manager }
 }
 
-async function runSupervisor(resumeHandler?: ResumeHandler) {
+async function runSupervisor(resumeHandler?: ResumeHandler, depth?: number) {
 	const { contexts, manager } = spyManager()
 	const agent = new SupervisorAgent({
 		id: 'supervisor',
@@ -103,6 +103,7 @@ async function runSupervisor(resumeHandler?: ResumeHandler) {
 				projectId: 'prj_sup',
 				tenantId: 'tnt_sup',
 				...(resumeHandler ? { resumeHandler } : {}),
+				...(depth !== undefined ? { depth } : {}),
 			} as never,
 		)
 		.catch(() => undefined)
@@ -127,5 +128,17 @@ describe('a supervisor hands its decision channel to the workers it launches', (
 		// Absent still means the worker auto-approves, which is what every
 		// worker did before any of this.
 		expect(contexts[0]?.resumeHandler).toBeUndefined()
+	})
+
+	it('preserves its delegated depth in the context used for the next spawn', async () => {
+		const handler = vi.fn(async () => ({ action: 'approve_tools' })) as unknown as ResumeHandler
+
+		const contexts = await runSupervisor(handler, 2)
+
+		// AgentManager increments this value when it constructs the child. If
+		// the supervisor reset the context to zero, every nested supervisor
+		// would create another depth-one worker and the recursion cap would
+		// never observe the real ancestry.
+		expect(contexts[0]?.depth).toBe(2)
 	})
 })

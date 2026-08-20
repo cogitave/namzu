@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolNameCollisionError, ToolRegistry } from '../../registry/tool/execute.js'
 import { defineTool } from '../../tools/defineTool.js'
+import type { ResumeHandler } from '../../types/hitl/index.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
 
 /**
@@ -56,6 +57,8 @@ async function runWith(options: {
 	hostTools?: string[]
 	runtimeToolOverrides?: Record<string, 'active' | 'deferred' | 'disabled'>
 	allowDelegation?: boolean
+	resumeHandler?: ResumeHandler
+	depth?: number
 }) {
 	const agent = new SupervisorAgent({
 		id: 'supervisor',
@@ -95,6 +98,8 @@ async function runWith(options: {
 			topicId: 'top_sup',
 			projectId: 'prj_sup',
 			tenantId: 'tnt_sup',
+			...(options.resumeHandler ? { resumeHandler: options.resumeHandler } : {}),
+			...(options.depth !== undefined ? { depth: options.depth } : {}),
 		} as never,
 	)
 
@@ -148,6 +153,36 @@ describe('supervisor coordinator-tool registration', () => {
 		// Overwriting also leaves the name present, so a membership check
 		// alone passes against the very behaviour this replaces.
 		expect(describedAs('create_task')).toBe(HOST_TOOL_DESCRIPTION)
+	})
+
+	it('offers the human-question tool to the root supervisor', async () => {
+		const resumeHandler = vi.fn(async () => ({ action: 'approve_tools' })) as ResumeHandler
+
+		const omitted = await runWith({ resumeHandler })
+		const explicit = await runWith({ resumeHandler, depth: 0 })
+
+		expect(omitted.names).toContain('ask_user_question')
+		expect(explicit.names).toContain('ask_user_question')
+	})
+
+	it('does not offer the human-question tool to a delegated supervisor', async () => {
+		const resumeHandler = vi.fn(async () => ({ action: 'approve_tools' })) as ResumeHandler
+
+		const { names } = await runWith({ resumeHandler, depth: 1 })
+
+		expect(names).not.toContain('ask_user_question')
+	})
+
+	it('removes a same-named host tool from a delegated supervisor too', async () => {
+		const resumeHandler = vi.fn(async () => ({ action: 'approve_tools' })) as ResumeHandler
+
+		const { names } = await runWith({
+			resumeHandler,
+			depth: 1,
+			hostTools: ['ask_user_question'],
+		})
+
+		expect(names).not.toContain('ask_user_question')
 	})
 })
 

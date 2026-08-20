@@ -188,7 +188,7 @@ export interface BaseAgentConfig {
 
 	/**
 	 * Where this agent takes a decision it cannot make alone — a tool that
-	 * needs approval, a question for a human, a plan to sign off.
+	 * needs approval, a root-agent question for a human, a plan to sign off.
 	 *
 	 * Declared HERE, on the base config, rather than only on the agent
 	 * shapes that happened to want it. `AgentManager` builds a child as a
@@ -207,8 +207,9 @@ export interface BaseAgentConfig {
 	 * had a human review `write` at the top level and never see the same
 	 * `write` issued one hop down.
 	 *
-	 * Absent still means auto-approve, so a host that never wired one is
-	 * unaffected.
+	 * A delegated agent inherits this channel for review but does not gain the
+	 * root-only `ask_user_question` tool. Absent still means auto-approve, so a
+	 * host that never wired one is unaffected.
 	 */
 	resumeHandler?: ResumeHandler
 }

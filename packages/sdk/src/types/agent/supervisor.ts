@@ -138,6 +138,10 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * handler that surfaces the `tool_review_requested` RunEvent to
 	 * the user and resolves the returned promise once the user
 	 * approves, rejects, or modifies the call.
+	 *
+	 * The root supervisor also uses this channel for `ask_user_question`.
+	 * Delegated supervisors keep the review channel but do not publish that
+	 * interactive tool; their root owns operator questions.
 	 */
 	resumeHandler?: ResumeHandler
 

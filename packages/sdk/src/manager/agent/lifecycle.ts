@@ -410,6 +410,13 @@ export class AgentManager {
 			}
 		}
 
+		// Lineage is assigned by the spawning manager, not proposed by the
+		// child definition. A fixed configBuilder can ignore its inputs and
+		// configOverrides is caller-authored; neither may turn a child back
+		// into depth zero or attach it to a different parent run.
+		childConfig.parentRunId = context.parentRunId
+		childConfig.depth = context.depth + 1
+
 		// Stamped AFTER the builder, for the fourth time and the same reason:
 		// a `configBuilder` is written by whoever registered the agent and
 		// cannot forward a field it was never told about. A scope applied

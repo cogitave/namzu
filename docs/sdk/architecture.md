@@ -158,7 +158,7 @@ These exist because the moment you have more than one agent running in parallel 
 - Allocates a slice of the parent's token budget, timeout budget, and cost budget to the child
 - Creates a child `AbortController` linked to the parent's
 - Builds a child config via the agent definition's `configBuilder(factoryOptions)`
-- Stamps the child with `parentAgentId`, `parentRunId`, `topicId`, and `depth`
+- Stamps the child with manager-owned `parentRunId` and `depth` **after** the builder returns, so a fixed builder or per-call override cannot turn a child back into the root; `topicId`, project, tenant, and child session scope are stamped at the same boundary
 - Registers the child task in an internal `TaskRegistry` keyed by `TaskId`
 - Emits `agent_pending` on the bus with parent/child/depth metadata
 - Forwards every child event to the parent's run listener so the supervisor sees what its subtree is doing
@@ -393,7 +393,7 @@ Four patterns ship in the kernel. They are not mandatory — you can write your 
 - **`ReactiveAgent`** — the canonical agent loop. Prompt → LLM → tool call(s) → iterate → stop. Handles token budget, cost limit, timeout, max iterations, HITL injection, progressive tool disclosure, compaction, and checkpointing automatically.
 - **`PipelineAgent`** — deterministic sequential steps. Each step is a typed function; output of step N is input of step N+1. Rolls back on failure. Useful for ETL, RAG ingestion, multi-stage document processing.
 - **`RouterAgent`** — an LLM classifies the input and delegates to the best-suited agent from a configured set of candidates, with a fallback. Useful for intent routing in customer support, dispatcher bots, and multi-expert systems.
-- **`SupervisorAgent`** — a coordinator that spawns and orchestrates a set of specialized child agents. Tracks the full parent/child/depth hierarchy, aggregates results, handles partial failures, and honors the shared budget tracker.
+- **`SupervisorAgent`** — a coordinator that spawns and orchestrates a set of specialized child agents. Tracks the full parent/child/depth hierarchy, aggregates results, handles partial failures, and honors the shared budget tracker. Only the depth-zero/root supervisor publishes `ask_user_question`; delegated supervisors retain the same human review channel for tool authorization but cannot open competing operator prompts.
 
 All four sit on top of the same lifecycle manager, the same limit checker, the same bus, the same verification gate. Switching patterns does not change what safety or durability the kernel provides.
 

@@ -6,8 +6,8 @@ type: Guide
 diataxis: explanation
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-10T00:00:00Z
-lastReviewed: 2026-08-10
+timestamp: 2026-08-20T00:00:00Z
+lastReviewed: 2026-08-20
 tags: [computer-use, sdk]
 ---
 
@@ -277,6 +277,13 @@ it can decide what to do without one.
 Before this, the pause machinery was reachable from exactly four
 kernel-owned points: the plan gate, the tool-review gate, the iteration
 cadence, and the built-in `ask_user_question` tool.
+
+`ask_user_question` is published only to a depth-zero/root
+`SupervisorAgent`. A delegated supervisor cannot receive it, including from a
+pre-registered host tool with the same name. Its inherited `resumeHandler`
+still serves tool review: removing operator questions from workers must not
+turn REVIEW-tier calls into unattended approvals. The root receives the
+worker's result and owns any follow-up question to the operator.
 
 ## 4. Register Tools
 

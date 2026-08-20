@@ -4,7 +4,7 @@ import { drainQuery } from '../runtime/query/index.js'
 import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-park.js'
 import { CompletionInbox } from '../scheduler/completion-inbox.js'
 import { LocalTaskScheduler } from '../scheduler/local.js'
-import { buildCoordinatorTools } from '../tools/coordinator/index.js'
+import { ASK_USER_QUESTION_TOOL_NAME, buildCoordinatorTools } from '../tools/coordinator/index.js'
 import type {
 	AgentInput,
 	AgentMetadata,
@@ -151,17 +151,19 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				parentRunId: runId,
 				parentAgentId: this.metadata.id,
 				parentAbortController: this.abortController,
-				depth: 0,
+				// This context describes the CURRENT supervisor. AgentManager owns
+				// the increment when it constructs the child. Resetting a delegated
+				// supervisor to zero here made every grandchild depth one again.
+				depth: config.depth ?? 0,
 				budgetTracker: {
 					total: config.tokenBudget,
 					remaining: config.tokenBudget,
 				},
 				factoryOptions: mergedFactoryOptions,
-				// The supervisor already hands this to its OWN run and its own
-				// coordinator tools; handing it to the spawn context is what
-				// makes a worker ask the same person the supervisor asks.
-				// Without it the two disagreed: the supervisor paused for a
-				// human and the workers it launched approved themselves.
+				// The supervisor already hands this to its OWN run. Handing it to
+				// the spawn context makes a worker's REVIEW-tier calls reach the
+				// same person. It does not grant the root-only question tool.
+				// Without the handler, workers silently auto-approved themselves.
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				tenantId,
 				topicId,
@@ -210,6 +212,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		// runs again — which is how a leak of one listener per run becomes a leak
 		// of one per ATTEMPT.
 		try {
+			const isRootAgent = (config.depth ?? 0) === 0
 			const coordinatorToolDefs = buildCoordinatorTools({
 				gateway,
 				completionInbox,
@@ -224,10 +227,11 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				taskStore: input.taskStore,
 				runId,
 				getPlanManager: () => planManagerRef,
-				// With a resume handler present the coordinator surface gains
-				// ask_user_question — the model can park the run on a question
-				// routed through the same HITL channel as plan approvals.
-				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+				// A human-question tool belongs only to the root agent. The handler
+				// itself still reaches `drainQuery` below: delegated REVIEW-tier
+				// tool calls must keep asking the operator instead of falling back
+				// to unattended auto-approval.
+				...(isRootAgent && config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				questionParks,
 				pendingAnswers,
 				...(config.onPlanApproved ? { onPlanApproved: config.onPlanApproved } : {}),
@@ -236,6 +240,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			const tools = new ToolRegistry()
 			if (config.tools) {
 				for (const tool of config.tools.getAll()) {
+					// The boundary is semantic, not an implementation detail of the
+					// built-in builder. A host registry containing the same capability
+					// must not reopen it for a delegated agent.
+					if (!isRootAgent && tool.name === ASK_USER_QUESTION_TOOL_NAME) continue
 					tools.register(tool, config.tools.getAvailability(tool.name))
 				}
 			}

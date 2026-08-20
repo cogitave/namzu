@@ -42,8 +42,12 @@ export interface AgentTaskContext {
 	factoryOptions?: AgentFactoryOptions
 
 	/**
-	 * The parent's channel to whoever can answer a decision it cannot make
-	 * alone, handed down so a child asks the same person.
+	 * The parent's channel to whoever reviews decisions it cannot make alone,
+	 * handed down so a child's REVIEW-tier tool calls reach the same person.
+	 * This does not grant a delegated agent the `ask_user_question` tool:
+	 * interactive questions are a root-agent capability, while authorization
+	 * review must remain inherited to avoid unattended auto-approval below the
+	 * root.
 	 *
 	 * Passed as the function itself, which works because delegation is
 	 * in-process: `LocalTaskScheduler` is the only `TaskScheduler` in the tree.
