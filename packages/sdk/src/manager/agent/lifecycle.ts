@@ -388,6 +388,7 @@ export class AgentManager {
 				tokenBudget: allocatedTokens,
 				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
 				streamIdleTimeoutMs: options.configOverrides?.streamIdleTimeoutMs,
+				maxRequestRichContentBytes: options.configOverrides?.maxRequestRichContentBytes,
 				temperature: options.configOverrides?.temperature,
 				parentSpan: options.configOverrides?.parentSpan,
 				maxIterations: options.configOverrides?.maxIterations,

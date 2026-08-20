@@ -10,6 +10,7 @@ import { DEFAULT_STREAM_IDLE_TIMEOUT_MS } from '../provider/idle-timeout.js'
 import { MOCK_CAPABILITIES } from '../provider/mock-register.js'
 import { DEFAULT_PROVIDER_RETRY } from '../provider/retry.js'
 import { DEFAULT_TOOL_CONCURRENCY, DEFAULT_TOOL_TIMEOUT_MS } from '../runtime/query/executor.js'
+import { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from '../runtime/query/request-rich-content.js'
 import { DEFAULT_MAX_TOOL_OUTPUT_CHARS } from '../runtime/query/tool-output-budget.js'
 
 /**
@@ -74,6 +75,10 @@ describe('a run cannot be killed by one bad response', () => {
 })
 
 describe('a run cannot blow its own context', () => {
+	it('bounds the accumulated inline image and document request payload', () => {
+		expect(DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES).toBe(24 * 1024 * 1024)
+	})
+
 	it('tool output is capped, and the cap is a fraction of a small window', () => {
 		// `read` returned whole files, `bash` allowed a 100 MB buffer: a 2 MB
 		// lockfile became ~500k tokens in one tool_result.

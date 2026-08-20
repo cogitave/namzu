@@ -29,6 +29,12 @@ export const RunConfigSchema = z
 		maxResponseTokens: z.number().int().positive().optional(),
 		timeoutMs: z.number().int().positive().max(3_600_000).optional(),
 		streamIdleTimeoutMs: z.number().int().nonnegative().max(3_600_000).optional(),
+		maxRequestRichContentBytes: z
+			.number()
+			.int()
+			.nonnegative()
+			.max(Number.MAX_SAFE_INTEGER)
+			.optional(),
 		permissionMode: z.enum(['plan', 'auto']).optional(),
 		systemPrompt: z.string().min(1).max(100_000).optional(),
 	})

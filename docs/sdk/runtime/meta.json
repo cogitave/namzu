@@ -2,6 +2,7 @@
   "title": "Runtime",
   "pages": [
     "checkpoint-store-conformance",
-    "provider-stream-idle-bound"
+    "provider-stream-idle-bound",
+    "request-rich-content-budget"
   ]
 }

@@ -45,6 +45,10 @@ import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
+import {
+	DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+	projectRequestRichContent,
+} from '../request-rich-content.js'
 import { formatSteeringNote } from '../steering.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
@@ -431,9 +435,13 @@ export class IterationOrchestrator {
 					const stepPreamble = [step.system, stepSkills, policyNotice, ...turnSections]
 						.filter(Boolean)
 						.join('\n\n')
-					const messages = stepPreamble
+					const requestHistory = stepPreamble
 						? [...baseMessages, createSystemMessage(stepPreamble)]
 						: [...baseMessages]
+					const messages = projectRequestRichContent(
+						requestHistory,
+						this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+					)
 
 					// What the model is about to be ASKED, recorded when it
 					// changed. `run_started` carries one system prompt and tool
@@ -1895,12 +1903,16 @@ export class IterationOrchestrator {
 		})
 
 		try {
-			const finalMessages = [
+			const finalHistory = [
 				...this.ctx.runMgr.messages,
 				createUserMessage(
 					`[SYSTEM] Run is ending due to ${reason}. You MUST provide a final response now summarizing all your findings and work so far. Do not use any tools.`,
 				),
 			]
+			const finalMessages = projectRequestRichContent(
+				finalHistory,
+				this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+			)
 
 			// Same cache discipline as the forced-final iteration: keep the
 			// tools param identical to prior iterations (cache prefix intact,

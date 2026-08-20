@@ -18,6 +18,16 @@ export interface AgentRunConfig {
 	 * milliseconds accepted by the platform timer.
 	 */
 	streamIdleTimeoutMs?: number
+	/**
+	 * Maximum accumulated inline image/document payload on one provider request.
+	 *
+	 * Defaults to 24 MiB. The budget is shared by user attachments and rich
+	 * tool-result blocks. When history exceeds it, the provider-bound projection
+	 * replaces the oldest values with model-visible omission markers; the run's
+	 * canonical messages and durable evidence remain unchanged. Set `0` to keep
+	 * the prior unbounded behaviour.
+	 */
+	maxRequestRichContentBytes?: number
 	maxResponseTokens?: number
 
 	/**

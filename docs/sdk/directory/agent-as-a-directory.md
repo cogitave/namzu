@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+timestamp: 2026-08-20T00:00:00Z
+lastReviewed: 2026-08-20
 resource: packages/sdk/src/directory/types.ts
 tags: [sdk, directory, agents, convention]
 ---
@@ -50,8 +50,9 @@ does not get to overrule the kernel about what a valid agent is.
 agent/
 ├── instructions.md     the system prompt, used verbatim
 ├── agent.ts            export default { model, temperature, maxIterations,
-│                         tokenBudget, timeoutMs, streamIdleTimeoutMs, name,
-│                         metadata } — all optional
+│                         tokenBudget, timeoutMs, streamIdleTimeoutMs,
+│                         maxRequestRichContentBytes, name, metadata }
+│                         — all optional
 ├── tools/              one file per tool, each default-exporting defineTool(...)
 ├── skills/             one folder per skill
 └── agents/             one folder per delegate, same shape, one level deep
@@ -72,6 +73,12 @@ unbounded compatibility mode. It does not replace `timeoutMs`; that run bound
 is checked between iterations and cannot observe a provider iterator whose
 pending pull never returns. See [Provider stream idle bounds](../runtime/provider-stream-idle-bound.md)
 for the recovery and cancellation contract.
+
+`maxRequestRichContentBytes` controls the accumulated inline images and
+documents sent on one model request. It defaults to 24 MiB; `0` is the explicit
+unbounded compatibility mode. See [Provider request rich-content
+budgets](../runtime/request-rich-content-budget.md) for projection and history
+preservation semantics.
 
 ### What is deliberately not here
 

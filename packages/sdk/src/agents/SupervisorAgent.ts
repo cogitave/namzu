@@ -310,6 +310,11 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 						...(config.streamIdleTimeoutMs !== undefined
 							? { streamIdleTimeoutMs: config.streamIdleTimeoutMs }
 							: {}),
+						...(config.maxRequestRichContentBytes !== undefined
+							? {
+									maxRequestRichContentBytes: config.maxRequestRichContentBytes,
+								}
+							: {}),
 						maxIterations: config.maxIterations,
 						temperature: config.temperature,
 						env: config.env,

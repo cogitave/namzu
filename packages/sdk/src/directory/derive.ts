@@ -67,6 +67,11 @@ export function deriveRunOptions(
 		...(manifest.config.streamIdleTimeoutMs !== undefined
 			? { streamIdleTimeoutMs: manifest.config.streamIdleTimeoutMs }
 			: {}),
+		...(manifest.config.maxRequestRichContentBytes !== undefined
+			? {
+					maxRequestRichContentBytes: manifest.config.maxRequestRichContentBytes,
+				}
+			: {}),
 		...(input.identity ?? {}),
 		...(input.overrides ?? {}),
 	}

@@ -115,6 +115,7 @@ export interface RunConfig {
 	maxResponseTokens?: number
 	timeoutMs?: number
 	streamIdleTimeoutMs?: number
+	maxRequestRichContentBytes?: number
 	permissionMode?: ApiPermissionMode
 
 	systemPrompt?: string

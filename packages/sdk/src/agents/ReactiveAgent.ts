@@ -121,6 +121,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 					...(config.streamIdleTimeoutMs !== undefined
 						? { streamIdleTimeoutMs: config.streamIdleTimeoutMs }
 						: {}),
+					...(config.maxRequestRichContentBytes !== undefined
+						? { maxRequestRichContentBytes: config.maxRequestRichContentBytes }
+						: {}),
 					maxIterations: config.maxIterations,
 					temperature: config.temperature,
 					maxResponseTokens: config.maxResponseTokens,

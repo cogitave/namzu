@@ -76,7 +76,7 @@ describe('a derived supervisor always has a budget and a clock', () => {
 			tree({
 				...MINIMAL,
 				'agent.js':
-					'export default { model: "m", tokenBudget: 1234, timeoutMs: 5678, streamIdleTimeoutMs: 9012 }',
+					'export default { model: "m", tokenBudget: 1234, timeoutMs: 5678, streamIdleTimeoutMs: 9012, maxRequestRichContentBytes: 3456 }',
 			}),
 		)
 		const { config } = deriveSupervisorOptions(manifest, { provider, agentManager })
@@ -84,6 +84,7 @@ describe('a derived supervisor always has a budget and a clock', () => {
 		expect(config.tokenBudget).toBe(1234)
 		expect(config.timeoutMs).toBe(5678)
 		expect(config.streamIdleTimeoutMs).toBe(9012)
+		expect(config.maxRequestRichContentBytes).toBe(3456)
 	})
 
 	it('lets an override win over both', async () => {

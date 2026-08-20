@@ -168,6 +168,8 @@ export interface DirectoryConfig {
 	readonly timeoutMs?: number
 	/** Maximum provider-stream silence in milliseconds; `0` disables the bound. */
 	readonly streamIdleTimeoutMs?: number
+	/** Accumulated inline image/document bytes per provider request; `0` disables. */
+	readonly maxRequestRichContentBytes?: number
 	/** Names the agent in traces and events when declared. */
 	readonly name?: string
 	/** Free-form labels for an inspector. Never interpreted by this package. */

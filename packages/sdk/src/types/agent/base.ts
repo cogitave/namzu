@@ -20,6 +20,8 @@ export interface BaseAgentConfig {
 	timeoutMs: number
 	/** See {@link import('../run/config.js').AgentRunConfig.streamIdleTimeoutMs}. */
 	streamIdleTimeoutMs?: number
+	/** See {@link import('../run/config.js').AgentRunConfig.maxRequestRichContentBytes}. */
+	maxRequestRichContentBytes?: number
 	maxIterations?: number
 	temperature?: number
 	maxResponseTokens?: number

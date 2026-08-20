@@ -138,6 +138,11 @@ export function deriveSupervisorOptions(
 		...(manifest.config.streamIdleTimeoutMs !== undefined
 			? { streamIdleTimeoutMs: manifest.config.streamIdleTimeoutMs }
 			: {}),
+		...(manifest.config.maxRequestRichContentBytes !== undefined
+			? {
+					maxRequestRichContentBytes: manifest.config.maxRequestRichContentBytes,
+				}
+			: {}),
 		...(manifest.config.temperature !== undefined
 			? { temperature: manifest.config.temperature }
 			: {}),

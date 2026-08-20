@@ -99,6 +99,8 @@ export interface RunAgentOptions extends AgentIdentity {
 	timeoutMs?: number
 	/** Maximum provider-stream silence; defaults to five minutes. `0` disables. */
 	streamIdleTimeoutMs?: number
+	/** Accumulated inline image/document bytes per provider request. `0` disables. */
+	maxRequestRichContentBytes?: number
 	temperature?: number
 
 	/**
@@ -243,6 +245,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 				timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 				...(options.streamIdleTimeoutMs !== undefined
 					? { streamIdleTimeoutMs: options.streamIdleTimeoutMs }
+					: {}),
+				...(options.maxRequestRichContentBytes !== undefined
+					? { maxRequestRichContentBytes: options.maxRequestRichContentBytes }
 					: {}),
 				...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
 				...(options.thinking ? { thinking: options.thinking } : {}),

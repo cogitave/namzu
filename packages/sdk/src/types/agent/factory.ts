@@ -47,6 +47,7 @@ export interface AgentFactoryOptions {
 	tokenBudget?: number
 	timeoutMs?: number
 	streamIdleTimeoutMs?: number
+	maxRequestRichContentBytes?: number
 	temperature?: number
 	maxResponseTokens?: number
 	env?: Record<string, string>

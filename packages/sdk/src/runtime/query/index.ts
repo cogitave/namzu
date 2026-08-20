@@ -113,6 +113,7 @@ import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { PendingAnswers, QuestionParkBinding } from './question-park.js'
 import { RepeatCallTracker } from './repeat-call.js'
+import { resolveMaxRequestRichContentBytes } from './request-rich-content.js'
 import { ResultAssembler } from './result.js'
 import {
 	type PendingResumePlan,
@@ -878,11 +879,18 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const promptCache = params.promptCache
 	const taskScheduler = params.taskScheduler
 	const streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(params.runConfig.streamIdleTimeoutMs)
+	const maxRequestRichContentBytes = resolveMaxRequestRichContentBytes(
+		params.runConfig.maxRequestRichContentBytes,
+	)
 	// Persist the EFFECTIVE value, not only an override. A run replayed after a
 	// later release must be able to explain which liveness policy settled it;
 	// an absent field whose meaning follows the currently-installed default
 	// would rewrite that evidence at read time.
-	const runConfig: AgentRunConfig = { ...params.runConfig, streamIdleTimeoutMs }
+	const runConfig: AgentRunConfig = {
+		...params.runConfig,
+		streamIdleTimeoutMs,
+		maxRequestRichContentBytes,
+	}
 
 	// The run's one correlated logger, built before anything below needs
 	// one — the migration check, the retry/fallback wrappers and `ctx`

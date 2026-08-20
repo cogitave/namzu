@@ -202,6 +202,7 @@ export type { AppIdentity } from './provider/attribution.js'
 
 export { DEFAULT_STREAM_IDLE_TIMEOUT_MS, withStreamIdleTimeout } from './provider/idle-timeout.js'
 export type { WithStreamIdleTimeoutOptions } from './provider/idle-timeout.js'
+export { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from './runtime/query/request-rich-content.js'
 
 export { isTrustedReadOnly } from './tools/trusted-read-only.js'
 export {

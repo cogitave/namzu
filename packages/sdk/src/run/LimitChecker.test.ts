@@ -35,4 +35,12 @@ describe('token budget limits', () => {
 		expect(RunConfigSchema.parse({ streamIdleTimeoutMs: 0 }).streamIdleTimeoutMs).toBe(0)
 		expect(() => RunConfigSchema.parse({ streamIdleTimeoutMs: -1 })).toThrow()
 	})
+
+	it('accepts an explicit rich-content opt-out but refuses invalid byte budgets', () => {
+		expect(
+			RunConfigSchema.parse({ maxRequestRichContentBytes: 0 }).maxRequestRichContentBytes,
+		).toBe(0)
+		expect(() => RunConfigSchema.parse({ maxRequestRichContentBytes: -1 })).toThrow()
+		expect(() => RunConfigSchema.parse({ maxRequestRichContentBytes: 1.5 })).toThrow()
+	})
 })

@@ -546,6 +546,25 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		expect(seen[0]?.streamIdleTimeoutMs).toBe(1234)
 	})
 
+	it('carries a child-specific rich-content request bound through the bare config path', async () => {
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-rich-bound', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const options = buildOptions('child-rich-bound', harness.parentSession.id, harness.projectId)
+		options.configOverrides = { maxRequestRichContentBytes: 4321 }
+
+		const task = await harness.manager.sendMessage(
+			options,
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		expect(seen[0]?.maxRequestRichContentBytes).toBe(4321)
+	})
+
 	it('does not derive the child deadline from the TOKEN budget', async () => {
 		// The fallback used to be `context.budgetTracker.remaining` — a token
 		// count read as milliseconds. It hid for so long because a six-figure
