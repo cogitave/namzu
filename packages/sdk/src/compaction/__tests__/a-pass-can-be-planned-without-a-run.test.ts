@@ -63,6 +63,26 @@ describe('a compaction pass can be planned without a run', () => {
 		expect(result).toEqual({ kind: 'skip', reason: 'no_system_floor' })
 	})
 
+	it('partitions the exact minimum host history without a pre-existing floor', () => {
+		const messages = [user('older'), user('recent one'), asst('recent two')]
+		const result = planCompaction({
+			messages,
+			config: config(),
+			contextWindowTokens: 100_000,
+			estimatedTokens: 90_000,
+			force: true,
+			allowNoSystemFloor: true,
+			skipToolResultClear: true,
+		})
+
+		expect(result.kind).toBe('plan')
+		if (result.kind !== 'plan') return
+		expect(result.systemMessages).toEqual([])
+		expect(result.olderMessages).toEqual([messages[0]])
+		expect(result.recentMessages).toEqual(messages.slice(1))
+		expect([...result.olderMessages, ...result.recentMessages]).toEqual(messages)
+	})
+
 	it('refuses a history shorter than the recent window plus a floor', () => {
 		const result = plan([sys('s'), user('a')])
 

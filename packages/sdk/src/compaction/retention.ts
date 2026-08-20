@@ -24,15 +24,18 @@ const isAssistantWithCalls = (m: Message): m is AssistantMessage =>
 
 /**
  * Indices of every message protected by a `retain` marker, expanded across
- * tool pairs.
+ * provider-valid turns.
  *
  * Transitive by necessity, not politeness. A `tool_result` whose
- * `tool_use` was dropped is rejected by the provider outright, so pinning
- * half a pair would turn a retention request into a broken next turn. So:
- * a pinned tool result pulls in the assistant turn that issued the call,
- * and a pinned assistant turn pulls in EVERY result answering it — the
- * second hop matters, because an assistant turn with three calls and one
- * surviving result is the same dangling error in the other direction.
+ * `tool_use` was dropped is rejected by the provider outright, and a
+ * compacted conversation whose first non-system message is an assistant
+ * turn is rejected before the pair is even considered. Pinning half a pair
+ * — or the pair without its user turn boundary — would therefore turn a
+ * retention request into a broken next turn. A pinned tool result pulls in
+ * the assistant turn that issued the call; a pinned assistant turn pulls in
+ * the user message that opened its turn and EVERY result answering it. The
+ * second result hop matters, because an assistant turn with three calls and
+ * one surviving result is the same dangling error in the other direction.
  */
 export function findRetainedIndices(messages: readonly Message[]): Set<number> {
 	const retained = new Set<number>()
@@ -43,10 +46,19 @@ export function findRetainedIndices(messages: readonly Message[]): Set<number> {
 
 	const assistantOfCall = new Map<string, number>()
 	const resultsOfAssistant = new Map<number, number[]>()
+	const userOfAssistant = new Map<number, number>()
 
+	let currentUser: number | undefined
 	for (let i = 0; i < messages.length; i++) {
 		const message = messages[i]
-		if (!message || !isAssistantWithCalls(message)) continue
+		if (!message) continue
+		if (message.role === 'user') {
+			currentUser = i
+			continue
+		}
+		if (message.role !== 'assistant') continue
+		if (currentUser !== undefined) userOfAssistant.set(i, currentUser)
+		if (!isAssistantWithCalls(message)) continue
 		for (const call of message.toolCalls ?? []) {
 			assistantOfCall.set(call.id, i)
 		}
@@ -79,6 +91,9 @@ export function findRetainedIndices(messages: readonly Message[]): Set<number> {
 
 		if (message.role === 'tool') {
 			add(assistantOfCall.get((message as ToolMessage).toolCallId))
+		}
+		if (message.role === 'assistant') {
+			add(userOfAssistant.get(index))
 		}
 		for (const sibling of resultsOfAssistant.get(index) ?? []) {
 			add(sibling)

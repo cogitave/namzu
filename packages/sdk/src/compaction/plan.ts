@@ -30,7 +30,7 @@ import { clearStaleToolResults } from './tool-result-editing.js'
 export type CompactionSkipReason =
 	/** Fewer messages than the recent window plus a floor — nothing to move. */
 	| 'too_few_messages'
-	/** No leading `system` message, so there is no permanent floor to keep. */
+	/** An in-run pass has no leading `system` message to use as its permanent floor. */
 	| 'no_system_floor'
 	/** Every candidate boundary would split a tool-call pair. */
 	| 'no_safe_cut'
@@ -61,6 +61,15 @@ export interface CompactionPlanInput {
 	readonly contextWindowTokens: number
 	readonly estimatedTokens: number
 	readonly force?: boolean
+	/**
+	 * Let a host-created pass establish its own retained summary floor.
+	 *
+	 * This is deliberately separate from `force`: a provider overflow can
+	 * force the threshold decision without changing the live run's prompt
+	 * invariant, while a host may own a durable user/assistant-only history
+	 * that has no system floor yet.
+	 */
+	readonly allowNoSystemFloor?: boolean
 	/**
 	 * Skip the tool-result pre-pass and go straight to the boundary search.
 	 *
@@ -158,16 +167,34 @@ export function planCompaction(input: CompactionPlanInput): CompactionPlan {
 	}
 
 	const messages = input.messages
-	if (messages.length < config.keepRecentMessages + 2) {
-		return { kind: 'skip', reason: 'too_few_messages' }
-	}
-
 	const systemMessages: Message[] = []
 	for (const msg of messages) {
 		if (msg.role !== 'system') break
 		systemMessages.push(msg)
 	}
-	if (systemMessages.length === 0) return { kind: 'skip', reason: 'no_system_floor' }
+
+	// Count and token retention are different boundary policies. In count
+	// mode the configured tail plus one older message must fit after the
+	// floor. Token mode does not consult keepRecentMessages at all; it only
+	// needs one older and one recent message before the token walk and safe
+	// boundary search can make the real decision.
+	//
+	// Preserve the old short-history ordering for a run with no floor: until
+	// a host explicitly allows a floorless pass, one notional system message
+	// remains part of the admission minimum and `no_system_floor` follows it.
+	const floorForAdmission =
+		systemMessages.length > 0 ? systemMessages.length : input.allowNoSystemFloor ? 0 : 1
+	const minimumMessages =
+		config.keepRecentTokens === undefined
+			? floorForAdmission + config.keepRecentMessages + 1
+			: floorForAdmission + 2
+	if (messages.length < minimumMessages) {
+		return { kind: 'skip', reason: 'too_few_messages' }
+	}
+
+	if (systemMessages.length === 0 && !input.allowNoSystemFloor) {
+		return { kind: 'skip', reason: 'no_system_floor' }
+	}
 
 	// Tool-pair atomicity. A naive cut at `length - keepRecentMessages` can
 	// land BETWEEN an assistant-with-toolCalls (dropped into `older`) and its

@@ -14,6 +14,7 @@ import {
 } from './extractor.js'
 import { WorkingStateManager } from './manager.js'
 import { planCompaction } from './plan.js'
+import { findRetainedIndices } from './retention.js'
 import { buildCompactionMessage, isCompactionMessage } from './summary.js'
 import { type CompactionVerificationOptions, buildVerifiedSummary } from './verifier.js'
 
@@ -56,9 +57,20 @@ function admitManualCompaction(input: CompactionVerificationOptions): void {
 }
 
 /** Assembles the new history from a plan's partition plus its summary. */
+function preservedSystemFloor(systemMessages: readonly Message[]): Message[] {
+	// A replaceable in-run summary may be superseded. A pinned summary may not:
+	// `retain` is the public promise that compaction leaves the message alone,
+	// and a prior manual summary is opaque state rather than redundant prose.
+	return systemMessages.filter(
+		(m) =>
+			!isCompactionMessage(typeof m.content === 'string' ? m.content : null) || m.retain === true,
+	)
+}
+
 function splice(
-	systemMessages: readonly Message[],
+	preservedSystem: readonly Message[],
 	summaryBody: string,
+	retainedOlder: readonly Message[],
 	recentMessages: readonly Message[],
 ): { messages: Message[]; summary: Message } {
 	// A host-triggered pass has no run-scoped WorkingStateManager to carry the
@@ -66,14 +78,7 @@ function splice(
 	// has rebuilt equivalent state, this message is the only surviving record
 	// of what the pass removed.
 	const summary = { ...buildCompactionMessage(summaryBody), retain: true }
-	// A replaceable in-run summary may be superseded. A pinned summary may not:
-	// `retain` is the public promise that compaction leaves the message alone,
-	// and a prior manual summary is opaque state rather than redundant prose.
-	const preserved = systemMessages.filter(
-		(m) =>
-			!isCompactionMessage(typeof m.content === 'string' ? m.content : null) || m.retain === true,
-	)
-	return { messages: [...preserved, summary, ...recentMessages], summary }
+	return { messages: [...preservedSystem, summary, ...retainedOlder, ...recentMessages], summary }
 }
 
 /** Build the state a host-triggered pass is about to replace. */
@@ -136,9 +141,22 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 		contextWindowTokens: window.tokens,
 		estimatedTokens: window.tokens,
 		force: true,
+		allowNoSystemFloor: true,
 		skipToolResultClear: true,
 	})
 	if (plan.kind !== 'plan') return null
+
+	const retained = findRetainedIndices(input.messages)
+	const retainedOlder = plan.olderMessages.filter((_, offset) =>
+		retained.has(plan.systemMessages.length + offset),
+	)
+	const preservedSystem = preservedSystemFloor(plan.systemMessages)
+	const projectedLength =
+		preservedSystem.length + 1 + retainedOlder.length + plan.recentMessages.length
+	// Decide before building a summary (and before a possible verifier call).
+	// A pinned older message remains verbatim, so replacing one removable
+	// message with one summary has shed nothing and must be reported as a no-op.
+	if (input.messages.length - projectedLength < 1) return null
 
 	const manager = new WorkingStateManager(input.config)
 	populateWorkingState(manager, plan.olderMessages, input.config)
@@ -152,7 +170,7 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 		{ signal: input.signal, streamIdleTimeoutMs: input.streamIdleTimeoutMs },
 	)
 
-	const { messages, summary } = splice(plan.systemMessages, body, plan.recentMessages)
+	const { messages, summary } = splice(preservedSystem, body, retainedOlder, plan.recentMessages)
 	return { messages, shed: input.messages.length - messages.length, summary }
 }
 
@@ -206,6 +224,15 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 		}
 	}
 
+	const retained = findRetainedIndices(messages)
+	const retainedSelected = messages
+		.slice(start, end)
+		.filter((_, offset) => retained.has(start + offset))
+	// The replacement summary itself costs one slot. If the selected region
+	// contains no additional removable message, the honest result is a no-op
+	// and no verifier/provider work is authorized.
+	if (end - start - retainedSelected.length - 1 < 1) return null
+
 	const manager = new WorkingStateManager(input.config)
 	populateWorkingState(manager, messages.slice(start, end), input.config)
 	const body = await buildVerifiedSummary(
@@ -221,7 +248,7 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 	// Same cross-run ownership as compactNow: a selected region has been
 	// replaced outside a run, so its only surviving account is pinned.
 	const summary = { ...buildCompactionMessage(body), retain: true }
-	const out = [...messages.slice(0, start), summary, ...messages.slice(end)]
+	const out = [...messages.slice(0, start), summary, ...retainedSelected, ...messages.slice(end)]
 
 	// Checked after the splice, not only before it. The edges being
 	// individually safe does not make the RESULT valid — a span whose

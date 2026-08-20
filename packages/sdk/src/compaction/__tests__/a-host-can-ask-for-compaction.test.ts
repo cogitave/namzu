@@ -59,6 +59,40 @@ function callPair(id: string): Message[] {
 }
 
 describe('a host can ask for compaction', () => {
+	it('compacts the user/assistant-only history a host actually persists', async () => {
+		const messages = history(5).filter((message) => message.role !== 'system')
+
+		const result = await compactNow({ messages, config: config(), provider: provider() })
+
+		expect(result).not.toBeNull()
+		if (!result) return
+		expect(result.messages[0]).toEqual(result.summary)
+		expect(result.summary.role).toBe('system')
+		expect(result.summary.retain).toBe(true)
+		expect(String(result.summary.content)).toContain('question 0')
+		expect(result.shed).toBe(messages.length - result.messages.length)
+		expect(result.shed).toBeGreaterThan(0)
+	})
+
+	it('uses the token boundary rather than an inactive message-count minimum', async () => {
+		const messages = Array.from({ length: 4 }, (_, index) =>
+			createUserMessage(`turn ${index}: ${'large '.repeat(100)}`),
+		)
+		const tail = messages.at(-1)
+
+		const result = await compactNow({
+			messages,
+			config: config({ keepRecentMessages: 100, keepRecentTokens: 160 }),
+			provider: provider(),
+		})
+
+		expect(result).not.toBeNull()
+		if (!result) return
+		expect(result.messages.at(-1)).toEqual(tail)
+		expect(result.messages.filter((message) => message === tail)).toHaveLength(1)
+		expect(result.shed).toBeGreaterThan(0)
+	})
+
 	it('sheds messages and leaves a valid history behind', async () => {
 		const messages = history(20)
 
@@ -134,6 +168,79 @@ describe('a host can ask for compaction', () => {
 		expect(messages).toEqual(before)
 	})
 
+	it('keeps a pinned older user message byte-for-byte instead of paraphrasing it away', async () => {
+		const messages = history(8)
+		const pinned: Message = {
+			...createUserMessage('the exact account instruction', [
+				{ data: 'aW1hZ2UtYnl0ZXM=', mediaType: 'image/png' },
+			]),
+			cacheHint: 'cache',
+			retain: true,
+		}
+		messages[1] = pinned
+		const before = structuredClone(messages)
+
+		const result = await compactNow({ messages, config: config(), provider: provider() })
+
+		expect(result).not.toBeNull()
+		if (!result) return
+		const summaryIndex = result.messages.indexOf(result.summary)
+		const pinnedIndex = result.messages.findIndex((message) => message === pinned)
+		expect(pinnedIndex).toBeGreaterThan(summaryIndex)
+		expect(result.messages[pinnedIndex]).toEqual(pinned)
+		expect(messages).toEqual(before)
+		expect(result.shed).toBe(messages.length - result.messages.length)
+	})
+
+	it('keeps the whole pinned tool exchange in the older window', async () => {
+		const pair = callPair('pinned-tool')
+		const turnUser = createUserMessage('run the pinned probe')
+		const pinnedResult = { ...pair[1], retain: true }
+		const messages: Message[] = [
+			createSystemMessage('s'),
+			turnUser,
+			pair[0] as Message,
+			pinnedResult as Message,
+			createUserMessage('discard one'),
+			createAssistantMessage('discard two'),
+			createUserMessage('recent one'),
+			createAssistantMessage('recent two'),
+		]
+
+		const result = await compactNow({
+			messages,
+			config: config({ keepRecentMessages: 2 }),
+			provider: provider(),
+		})
+
+		expect(result).not.toBeNull()
+		if (!result) return
+		const summaryIndex = result.messages.indexOf(result.summary)
+		const preserved = result.messages.slice(summaryIndex + 1, summaryIndex + 4)
+		expect(preserved).toEqual([turnUser, pair[0], pinnedResult])
+		expect(result.messages.find((message) => message.role !== 'system')?.role).toBe('user')
+		expect(findDanglingMessages([...result.messages]).isValid).toBe(true)
+	})
+
+	it('returns null before summary work when every older message must survive', async () => {
+		const p = provider()
+		const spy = vi.spyOn(p, 'chatStream')
+		const messages: Message[] = [
+			{ ...createUserMessage('pinned older'), retain: true },
+			createUserMessage('recent one'),
+			createAssistantMessage('recent two'),
+		]
+
+		await expect(
+			compactNow({
+				messages,
+				config: config({ keepRecentMessages: 2, llmVerification: true }),
+				provider: p,
+			}),
+		).resolves.toBeNull()
+		expect(spy).not.toHaveBeenCalled()
+	})
+
 	it('refuses a region whose edge splits a tool pair, naming the index', async () => {
 		// Snapping the edge to the nearest safe one would summarise a
 		// DIFFERENT span than the caller asked for, and they picked those
@@ -174,6 +281,60 @@ describe('a host can ask for compaction', () => {
 		expect(String(result.messages[1]?.content)).toContain('question 0')
 		expect(result.summary.retain).toBe(true)
 		expect(result.messages[2]).toEqual(messages[5])
+	})
+
+	it('preserves pinned messages and their tool pair inside an exact region', async () => {
+		const pair = callPair('region-tool')
+		const turnUser = createUserMessage('regional invariant')
+		const pinnedTool = { ...pair[1], retain: true }
+		const messages: Message[] = [
+			createSystemMessage('s'),
+			turnUser,
+			pair[0] as Message,
+			pinnedTool as Message,
+			createUserMessage('discard A'),
+			createAssistantMessage('discard B'),
+			createUserMessage('after region'),
+		]
+
+		const result = await compactRegion({
+			messages,
+			start: 1,
+			end: 6,
+			config: config(),
+			provider: provider(),
+		})
+
+		expect(result).not.toBeNull()
+		if (!result) return
+		expect(result.messages.slice(2, 5)).toEqual([turnUser, pair[0], pinnedTool])
+		expect(result.messages.find((message) => message.role !== 'system')?.role).toBe('user')
+		expect(result.messages[5]).toEqual(messages[6])
+		expect(result.shed).toBe(messages.length - result.messages.length)
+		expect(result.shed).toBe(1)
+		expect(findDanglingMessages([...result.messages]).isValid).toBe(true)
+	})
+
+	it('returns null before provider work when a region has no net shed', async () => {
+		const p = provider()
+		const spy = vi.spyOn(p, 'chatStream')
+		const messages = [
+			createSystemMessage('s'),
+			{ ...createUserMessage('pinned'), retain: true },
+			createAssistantMessage('replaceable'),
+			createUserMessage('after'),
+		]
+
+		await expect(
+			compactRegion({
+				messages,
+				start: 1,
+				end: 3,
+				config: config({ llmVerification: true }),
+				provider: p,
+			}),
+		).resolves.toBeNull()
+		expect(spy).not.toHaveBeenCalled()
 	})
 
 	it('refuses a range that is not inside the history', async () => {

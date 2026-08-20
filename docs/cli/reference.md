@@ -134,7 +134,10 @@ open the picker again against the current conversation.
 **`/compact` replaces the older model-visible history with a summary.** It is
 refused while a turn is running or an interrupted turn is still settling, and
 input stays paused until the summary and its durable replacement have both
-landed. The next turn receives that summary; leaving and returning through
+landed. A fresh conversation has user and assistant history but no prior system
+floor; the command creates that floor from its retained summary instead of
+declining the conversation shape the TUI itself stores. The next turn receives
+that summary; leaving and returning through
 `/resume` receives the same history rather than restoring the superseded turns.
 The summary remains model-visible if that next turn itself needs automatic
 overflow relief; a context-reduction retry cannot replace state inherited from

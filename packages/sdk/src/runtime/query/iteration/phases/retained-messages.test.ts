@@ -152,6 +152,7 @@ describe('a pinned half of a tool pair', () => {
 		// Half a pair is not a smaller history — a `tool_use` with no
 		// `tool_result` is rejected outright on the next turn.
 		expect(findDanglingMessages(messages).isValid).toBe(true)
+		expect(messages.find((message) => message.role !== 'system')?.role).toBe('user')
 		expect(messages.some((m) => asText(m.content) === CONSTRAINT)).toBe(true)
 	})
 
@@ -160,6 +161,7 @@ describe('a pinned half of a tool pair', () => {
 		await runCompactionCheck(makeCtx(messages))
 
 		expect(findDanglingMessages(messages).isValid).toBe(true)
+		expect(messages.find((message) => message.role !== 'system')?.role).toBe('user')
 		expect(messages.some((m) => m.role === 'assistant' && m.toolCalls?.length)).toBe(true)
 	})
 

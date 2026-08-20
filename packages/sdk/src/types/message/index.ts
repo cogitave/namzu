@@ -158,10 +158,12 @@ export interface BaseMessage {
 	 * one") therefore aged out at the same rate as chatter, and no
 	 * positional rule could express it.
 	 *
-	 * Protection is transitive across a tool pair: pinning a
-	 * `tool_result` also pins the assistant turn that called it, and
-	 * pinning that turn pins every result answering it. Half a pair is not
-	 * a smaller history, it is one the provider rejects.
+	 * Protection is transitive across a provider-valid turn: pinning an
+	 * assistant message also pins the user message that opened its turn;
+	 * pinning a `tool_result` additionally pins the assistant turn that called
+	 * it, and pinning that call pins every result answering it. Half a pair,
+	 * or an assistant-first retained tail, is not a smaller history — it is
+	 * one the provider rejects.
 	 *
 	 * Pinned turns are exempt from the reclaim that keeps a long run
 	 * alive, so this is a budget the setter spends. Nothing caps it: a cap
