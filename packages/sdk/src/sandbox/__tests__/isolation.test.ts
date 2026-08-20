@@ -149,6 +149,7 @@ describe('the provider', () => {
 	// platform check answer for this one.
 	const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
 	let spawnedCommands: string[] = []
+	let spawnedEnvironments: Record<string, string>[] = []
 	let probedInnerCommands: string[] = []
 
 	afterAll(() => {
@@ -158,9 +159,13 @@ describe('the provider', () => {
 		vi.resetModules()
 	})
 
-	async function providerWith(environment: SandboxEnvironment) {
+	async function providerWith(
+		environment: SandboxEnvironment,
+		platform: NodeJS.Platform = environment === 'macos-seatbelt' ? 'darwin' : 'linux',
+	) {
 		vi.resetModules()
 		spawnedCommands = []
+		spawnedEnvironments = []
 		probedInnerCommands = []
 		const wanted =
 			environment === 'linux-bwrap'
@@ -184,8 +189,13 @@ describe('the provider', () => {
 				await vi.importActual<typeof import('node:child_process')>('node:child_process')
 			return {
 				...actual,
-				spawn: (command: string) => {
+				spawn: (
+					command: string,
+					_args: readonly string[],
+					options?: { readonly env?: Record<string, string> },
+				) => {
 					spawnedCommands.push(command)
+					spawnedEnvironments.push({ ...(options?.env ?? {}) })
 					const child = new EventEmitter() as EventEmitter & {
 						pid: number
 						stdout: PassThrough
@@ -220,11 +230,18 @@ describe('the provider', () => {
 				},
 			}
 		})
-		Object.defineProperty(process, 'platform', {
-			value: environment === 'macos-seatbelt' ? 'darwin' : 'linux',
-			configurable: true,
-		})
+		Object.defineProperty(process, 'platform', { value: platform, configurable: true })
 		return await import('../provider/local.js')
+	}
+
+	function preserveEnv(names: readonly string[]): () => void {
+		const previous = new Map(names.map((name) => [name, process.env[name]]))
+		return () => {
+			for (const [name, value] of previous) {
+				if (value === undefined) delete process.env[name]
+				else process.env[name] = value
+			}
+		}
 	}
 
 	const logger = () => {
@@ -287,6 +304,67 @@ describe('the provider', () => {
 			expect(spawnedCommands).toEqual(['/usr/bin/bwrap'])
 		} finally {
 			await sandbox.destroy()
+		}
+	})
+
+	it('hands a Windows child its startup plumbing with one explicit PATH winner', async () => {
+		const names = ['WinDir', 'SystemRoot', 'ComSpec', 'Path', 'NAMZU_TEST_SANDBOX_SECRET']
+		const restoreEnv = preserveEnv(names)
+		process.env.WinDir = 'C:\\Windows'
+		process.env.SystemRoot = 'C:\\Windows'
+		process.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe'
+		process.env.Path = 'C:\\ambient'
+		process.env.NAMZU_TEST_SANDBOX_SECRET = 'must-not-travel'
+
+		try {
+			const { LocalSandboxProvider } = await providerWith('basic', 'win32')
+			const sandbox = await new LocalSandboxProvider(logger() as never).create({
+				env: { Path: 'C:\\configured' },
+			})
+			try {
+				await sandbox.exec('cmd.exe', ['/c', 'exit 0'], {
+					env: { PATH: 'C:\\per-call' },
+				})
+				const env = spawnedEnvironments.at(-1)
+				expect(env).toMatchObject({
+					WinDir: 'C:\\Windows',
+					SystemRoot: 'C:\\Windows',
+					ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+					PATH: 'C:\\per-call',
+				})
+				expect(Object.keys(env ?? {}).filter((key) => key.toUpperCase() === 'PATH')).toEqual([
+					'PATH',
+				])
+				expect(env).not.toHaveProperty('NAMZU_TEST_SANDBOX_SECRET')
+			} finally {
+				await sandbox.destroy()
+			}
+		} finally {
+			restoreEnv()
+		}
+	})
+
+	it('does not widen the Linux sandbox with Windows-only ambient names', async () => {
+		const names = ['TERM', 'APPDATA', 'WINDIR']
+		const restoreEnv = preserveEnv(names)
+		process.env.TERM = 'xterm-test'
+		process.env.APPDATA = 'credential-sentinel'
+		process.env.WINDIR = 'windows-sentinel'
+
+		try {
+			const { LocalSandboxProvider } = await providerWith('basic', 'linux')
+			const sandbox = await new LocalSandboxProvider(logger() as never).create()
+			try {
+				await sandbox.exec('node', ['-e', '0'])
+				const env = spawnedEnvironments.at(-1)
+				expect(env?.TERM).toBe('xterm-test')
+				expect(env).not.toHaveProperty('APPDATA')
+				expect(env).not.toHaveProperty('WINDIR')
+			} finally {
+				await sandbox.destroy()
+			}
+		} finally {
+			restoreEnv()
 		}
 	})
 })

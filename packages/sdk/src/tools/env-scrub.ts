@@ -20,11 +20,13 @@
  * still reach the command.
  *
  * The actual boundary is the sandbox, where the inherited set is an allowlist
- * (`SANDBOX_SAFE_ENV_KEYS`, seven keys) rather than a denylist. An allowlist
- * is correct there because a sandbox is a fresh environment; it is wrong on
- * the host path, where the same agent is expected to run `pnpm test`, `make`
- * and `docker build`, all of which need far more than seven variables. So the
- * host path gets the weaker control on purpose, and says so.
+ * (the local sandbox's bounded core-process keys) rather than a denylist. Its
+ * Windows branch includes the system-root, command-interpreter and profile
+ * plumbing a working Windows child needs; it still carries no ambient
+ * credential keys. An allowlist is correct there because a sandbox is a fresh
+ * environment; it is wrong on the host path, where the same agent is expected
+ * to run `pnpm test`, `make` and `docker build`, all of which need far more
+ * variables. So the host path gets the weaker control on purpose, and says so.
  *
  * ## Why this exists at all
  *

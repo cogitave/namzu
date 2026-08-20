@@ -40,6 +40,11 @@ import type {
 } from '../../types/sandbox/index.js'
 import { generateSandboxId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
+import {
+	WINDOWS_CORE_ENV_KEYS,
+	applyEnvironmentOverrides,
+	pickEnvironmentEntries,
+} from '../../utils/process-environment.js'
 import { assertIsolation, describeIsolation } from '../isolation.js'
 import type { PtyLoader } from '../terminal.js'
 
@@ -505,21 +510,14 @@ function buildSafeEnv(
 	configEnv?: Record<string, string>,
 	optsEnv?: Record<string, string>,
 ): Record<string, string> {
-	const env: Record<string, string> = {}
+	const allowed =
+		process.platform === 'win32'
+			? [...SANDBOX_SAFE_ENV_KEYS, ...WINDOWS_CORE_ENV_KEYS]
+			: SANDBOX_SAFE_ENV_KEYS
+	const env = pickEnvironmentEntries(allowed)
 
-	for (const key of SANDBOX_SAFE_ENV_KEYS) {
-		const value = process.env[key]
-		if (value !== undefined) {
-			env[key] = value
-		}
-	}
-
-	if (configEnv) {
-		Object.assign(env, configEnv)
-	}
-	if (optsEnv) {
-		Object.assign(env, optsEnv)
-	}
+	applyEnvironmentOverrides(env, configEnv)
+	applyEnvironmentOverrides(env, optsEnv)
 
 	return env
 }

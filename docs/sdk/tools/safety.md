@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-05
+lastReviewed: 2026-08-21
 tags: [computer-use, sdk]
 ---
 
@@ -280,6 +280,16 @@ Several built-in tools are sandbox-aware:
 When a sandbox is present in `ToolContext`, those tools route through sandbox APIs instead of touching the host environment directly.
 
 This is why the sandbox is a real operational layer and not just a documentation concept.
+
+The local sandbox launches a fresh child environment rather than copying the
+host's. On POSIX it inherits only the existing path, home, shell, locale and
+terminal plumbing. On Windows it additionally preserves the non-secret core
+variables a working child needs for executable lookup, system DLLs, the command
+interpreter, profile and temporary storage, including `PATHEXT`, `SystemRoot`,
+`ComSpec`, and `WINDIR`. Windows names are compared case-insensitively, so an
+explicit session or per-call `Path` replaces ambient `PATH` instead of reaching
+`spawn` as a second, accidental winner. Explicit values still override ambient
+core values; unnamed ambient variables, including credentials, remain absent.
 
 ## 8. Built-In Tool Safety Signals
 

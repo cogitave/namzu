@@ -74,6 +74,38 @@ describe('the environment a stdio server is handed', () => {
 		expect(env[TOKEN]).toBe('literal-wins')
 		expect(env.PATH).toBe('/opt/bin')
 	})
+
+	it('keeps the existing MCP base policy distinct from the sandbox policy', () => {
+		const env = buildChildEnv(
+			{},
+			{
+				PATH: '/usr/bin',
+				TERM: 'xterm-must-not-reach-piped-server',
+				APPDATA: 'existing-mcp-appdata',
+				WINDIR: 'existing-mcp-windir',
+			},
+		)
+
+		expect(env).toMatchObject({
+			PATH: '/usr/bin',
+			APPDATA: 'existing-mcp-appdata',
+			WINDIR: 'existing-mcp-windir',
+		})
+		expect(env).not.toHaveProperty('TERM')
+	})
+
+	it('gives a differently-cased literal one deterministic Windows override', () => {
+		const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+		Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+		try {
+			const env = buildChildEnv({ env: { Path: 'C:\\literal' } }, { PATH: 'C:\\ambient' })
+
+			expect(Object.keys(env).filter((key) => key.toUpperCase() === 'PATH')).toEqual(['Path'])
+			expect(env.Path).toBe('C:\\literal')
+		} finally {
+			if (realPlatform) Object.defineProperty(process, 'platform', realPlatform)
+		}
+	})
 })
 
 describe('the transport actually spawns with that environment', () => {
@@ -101,14 +133,22 @@ describe('the transport actually spawns with that environment', () => {
 				'  hasSecret: process.env.NAMZU_TEST_PARENT_SECRET !== undefined,',
 				'  hasToken: process.env.NAMZU_TEST_GRANTED_TOKEN !== undefined,',
 				'  hasPath: process.env.PATH !== undefined,',
+				'  hasTerm: process.env.TERM !== undefined,',
+				'  hasAppData: process.env.APPDATA === "existing-mcp-appdata",',
+				'  hasWinDir: process.env.WINDIR === "existing-mcp-windir",',
 				'}',
 				'process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: answer }) + "\\n")',
 			].join('\n'),
 			'utf-8',
 		)
 
+		const ambient = [SECRET, TOKEN, 'TERM', 'APPDATA', 'WINDIR'] as const
+		const previous = new Map(ambient.map((name) => [name, process.env[name]]))
 		process.env[SECRET] = 'sk-live-must-not-travel'
 		process.env[TOKEN] = 'granted-value'
+		process.env.TERM = 'xterm-must-not-reach-piped-server'
+		process.env.APPDATA = 'existing-mcp-appdata'
+		process.env.WINDIR = 'existing-mcp-windir'
 
 		const transport = new StdioTransport({
 			type: 'stdio',
@@ -124,14 +164,23 @@ describe('the transport actually spawns with that environment', () => {
 			})
 		})
 
-		await transport.connect()
-		const answer = await reported
-		await transport.close()
-		process.env[SECRET] = undefined
-		process.env[TOKEN] = undefined
+		let answer: Record<string, boolean>
+		try {
+			await transport.connect()
+			answer = await reported
+		} finally {
+			await transport.close()
+			for (const [name, value] of previous) {
+				if (value === undefined) delete process.env[name]
+				else process.env[name] = value
+			}
+		}
 
 		expect(answer.hasPath).toBe(true)
 		expect(answer.hasToken).toBe(true)
 		expect(answer.hasSecret).toBe(false)
+		expect(answer.hasTerm).toBe(false)
+		expect(answer.hasAppData).toBe(true)
+		expect(answer.hasWinDir).toBe(true)
 	})
 })

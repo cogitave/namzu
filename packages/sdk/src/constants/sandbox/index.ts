@@ -17,8 +17,9 @@ export const SANDBOX_TEMP_DIR_PREFIX = 'namzu-sbx-'
 export const SANDBOX_KILL_GRACE_MS = 3_000
 
 /**
- * Environment variable keys that are safe to pass into sandboxes.
- * Everything else is stripped.
+ * Base environment keys that are safe to pass into local sandboxes.
+ * Windows adds its non-secret core process fragment at the spawn boundary;
+ * everything else ambient is stripped on every platform.
  */
 export const SANDBOX_SAFE_ENV_KEYS = new Set([
 	'PATH',
