@@ -1,5 +1,6 @@
 import { ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
+import type { ProjectInstructionContext } from '../runtime/query/project-instructions.js'
 import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
@@ -138,6 +139,8 @@ export interface RunAgentOptions extends AgentIdentity {
 
 	signal?: AbortSignal
 	listener?: RunEventListener
+	/** Live project policy for hosts that discover nested instruction scopes. */
+	projectInstructionContext?: ProjectInstructionContext
 }
 
 export interface RunAgentResult {
@@ -229,7 +232,13 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 
 	const messages: Message[] =
 		typeof options.prompt === 'string'
-			? [{ role: 'user', content: options.prompt, timestamp: Date.now() } as Message]
+			? [
+					{
+						role: 'user',
+						content: options.prompt,
+						timestamp: Date.now(),
+					} as Message,
+				]
 			: options.prompt
 
 	const run = await drainQuery(
@@ -266,10 +275,18 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			...(options.verificationGate ? { verificationGate: options.verificationGate } : {}),
 			...(options.authorizationGate ? { authorizationGate: options.authorizationGate } : {}),
 			...(options.structuredOutput ? { structuredOutput: options.structuredOutput } : {}),
+			...(options.projectInstructionContext
+				? { projectInstructionContext: options.projectInstructionContext }
+				: {}),
 			...identity,
 		},
 		options.listener,
 	)
 
-	return { output: run.result, structuredOutput: run.structuredOutput, run, identity }
+	return {
+		output: run.result,
+		structuredOutput: run.structuredOutput,
+		run,
+		identity,
+	}
 }

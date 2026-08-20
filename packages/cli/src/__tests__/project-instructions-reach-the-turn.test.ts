@@ -3,9 +3,9 @@
  *
  * The chain is
  *
- *   AGENTS.md on disk → loadProjectInstructions() → createAgentSession()
- *                     → the systemPrompt query() is called with
- *                     → and, separately, the sub-agent definition's prompt
+ *   AGENTS.md on disk → live tracker → createAgentSession()
+ *                     → query() projectInstructionContext
+ *                     → and, separately, the sub-agent config's context
  *
  * and the reason this test starts at a real file rather than at the loader is
  * that a loader test passes with every hop after it deleted. The composed
@@ -27,7 +27,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
-import { type AgentDefinition, AgentRegistry } from '@namzu/sdk'
+import {
+	type AgentDefinition,
+	AgentRegistry,
+	type Message,
+	type ProjectInstructionContext,
+} from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 
@@ -91,36 +96,47 @@ async function openSessionIn(cwd: string) {
 	return createAgentSession(prefs, detectedAnthropic(), { cwd })
 }
 
-async function drive(cwd: string): Promise<string> {
+async function drive(cwd: string): Promise<{ systemPrompt: string; projectPrompt: string }> {
 	const session = await openSessionIn(cwd)
-	for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
+	const messages: Message[] = [{ role: 'user', content: 'hi', timestamp: 0 }]
+	for await (const _ of session.send(messages)) {
 		// drain
 	}
 	expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
-	return String(queryCalls[0]?.systemPrompt ?? '')
+	const call = queryCalls[0]
+	const context = call?.projectInstructionContext as ProjectInstructionContext | undefined
+	if (!context?.prepareInitialSnapshot) {
+		throw new Error('query() did not receive the live project-instruction context')
+	}
+	const snapshot = await context.prepareInitialSnapshot(messages)
+	return {
+		systemPrompt: String(call?.systemPrompt ?? ''),
+		projectPrompt: snapshot?.content ?? '',
+	}
 }
 
 describe("the project's instructions", () => {
-	it('are in the system prompt the turn is actually run with', async () => {
+	it('reach the retained project-context snapshot the turn is actually run with', async () => {
 		writeFileSync(join(pkg, 'AGENTS.md'), '# House rules\n\nNever use a default export.')
 
-		const systemPrompt = await drive(pkg)
+		const { projectPrompt, systemPrompt } = await drive(pkg)
 
-		expect(systemPrompt).toContain('Never use a default export.')
+		expect(projectPrompt).toContain('Never use a default export.')
+		expect(systemPrompt).not.toContain('Never use a default export.')
 	})
 
 	it('carry the whole ancestor chain, nearest last', async () => {
 		writeFileSync(join(repo, 'AGENTS.md'), 'Repository rule: commits are signed.')
 		writeFileSync(join(pkg, 'AGENTS.md'), 'Package rule: this package is generated.')
 
-		const systemPrompt = await drive(pkg)
+		const { projectPrompt } = await drive(pkg)
 
-		expect(systemPrompt).toContain('Repository rule: commits are signed.')
-		expect(systemPrompt).toContain('Package rule: this package is generated.')
+		expect(projectPrompt).toContain('Repository rule: commits are signed.')
+		expect(projectPrompt).toContain('Package rule: this package is generated.')
 		expect(
-			systemPrompt.indexOf('Repository rule'),
+			projectPrompt.indexOf('Repository rule'),
 			'the nearer file has to come last or its override never takes effect',
-		).toBeLessThan(systemPrompt.indexOf('Package rule'))
+		).toBeLessThan(projectPrompt.indexOf('Package rule'))
 	})
 
 	it('do not displace the identity block or the memory that was already there', async () => {
@@ -131,20 +147,17 @@ describe("the project's instructions", () => {
 		// rules to a file it found on disk.
 		writeFileSync(join(pkg, 'AGENTS.md'), 'Never use a default export.')
 
-		const systemPrompt = await drive(pkg)
+		const { systemPrompt, projectPrompt } = await drive(pkg)
 
 		expect(systemPrompt).toContain('You are namzu')
 		expect(systemPrompt).toContain('CRITICAL — never fabricate')
-		expect(
-			systemPrompt.indexOf('You are namzu'),
-			'instructions read off a working directory must not precede the rules they cannot rewrite',
-		).toBeLessThan(systemPrompt.indexOf('Never use a default export.'))
+		expect(projectPrompt).toContain('Never use a default export.')
 	})
 
 	it('add nothing to the prompt when the project declares none', async () => {
-		const systemPrompt = await drive(pkg)
+		const { systemPrompt, projectPrompt } = await drive(pkg)
 
-		expect(systemPrompt).not.toContain('Project instructions')
+		expect(projectPrompt).toBe('')
 		// The loader returns `null` for "no file", and the composition is a join
 		// over a list. Drop the filter that removes the empty slots and the
 		// literal four characters `null` are sent to the model between the
@@ -179,9 +192,15 @@ describe("the project's instructions", () => {
 		// `systemPrompt` is on the config the builder produces, not on the
 		// definition: the definition is what a reader would reach for and it
 		// carries no prompt at all.
-		const config = (await general.configBuilder({})) as { systemPrompt?: string }
+		const config = (await general.configBuilder({})) as {
+			systemPrompt?: string
+			projectInstructionContext?: ProjectInstructionContext
+		}
 		const childPrompt = config.systemPrompt ?? ''
-		expect(childPrompt).toContain('Never use a default export.')
+		const snapshot = await config.projectInstructionContext?.prepareInitialSnapshot?.([
+			{ role: 'user', content: 'work', timestamp: 0 },
+		])
+		expect(snapshot?.content).toContain('Never use a default export.')
 		expect(
 			childPrompt,
 			"a delegated task must keep its own guardrails as well as the project's",

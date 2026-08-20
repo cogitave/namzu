@@ -126,6 +126,10 @@ export type {
 
 export type { QueryParams } from './runtime/query/index.js'
 export type {
+	ProjectInstructionContext,
+	ToolResultObservation,
+} from './runtime/query/project-instructions.js'
+export type {
 	PromptCacheConfig,
 	PromptCacheInput,
 } from './runtime/query/prompt-cache.js'

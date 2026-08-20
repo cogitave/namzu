@@ -1,5 +1,6 @@
 import {
 	createAssistantMessage,
+	createProjectInstructionMessage,
 	createSystemMessage,
 	createToolMessage,
 	createUserMessage,
@@ -31,6 +32,24 @@ describe('a settled Run is projected back into host conversation coordinates', (
 			]),
 		).toEqual([summary, user, assistant])
 	})
+
+	it('keeps a retained project snapshot in durable conversation coordinates', () => {
+		const policy = createProjectInstructionMessage('nested policy', [
+			'AGENTS.md',
+			'packages/a/AGENTS.md',
+		])
+		const human = createUserMessage('continue')
+		const assistant = createAssistantMessage('done')
+
+		expect(
+			projectRunConversation([
+				createSystemMessage('fresh identity and environment floor'),
+				policy,
+				human,
+				assistant,
+			]),
+		).toEqual([policy, human, assistant])
+	})
 })
 
 describe('a projected turn is published without structural tears', () => {
@@ -51,7 +70,11 @@ describe('a projected turn is published without structural tears', () => {
 		const prior = [createUserMessage('old')]
 		const user = createUserMessage('inspect')
 		const call = createAssistantMessage(null, [
-			{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{}' } },
+			{
+				id: 'call_1',
+				type: 'function',
+				function: { name: 'read', arguments: '{}' },
+			},
 		])
 		const result = createToolMessage('contents', 'call_1')
 		const answer = createAssistantMessage('done')
@@ -76,6 +99,19 @@ describe('a projected turn is published without structural tears', () => {
 			user,
 			createAssistantMessage('new answer'),
 		]
+
+		expect(planTurnPublication(prior, user, projected)).toEqual({
+			kind: 'replace',
+			messages: projected,
+		})
+	})
+
+	it('atomically publishes an injected project snapshot with its human turn', () => {
+		const prior = [createUserMessage('old'), createAssistantMessage('old answer')]
+		const policy = createProjectInstructionMessage('current policy', ['AGENTS.md'])
+		const user = createUserMessage('new')
+		const assistant = createAssistantMessage('new answer')
+		const projected = [...prior, policy, user, assistant]
 
 		expect(planTurnPublication(prior, user, projected)).toEqual({
 			kind: 'replace',

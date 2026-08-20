@@ -131,6 +131,16 @@ is completed exactly once. Hosts receive `message_history_repaired` with source
 and counts before the model call; conversation and tool content stay out of the
 event.
 
+Hosts that discover scoped repository policy can supply a
+`ProjectInstructionContext` to `query`, `runAgent`, `ReactiveAgent`, or
+`SupervisorAgent`. Its first-request snapshot is structurally tagged and
+retained; completed registry calls, including nested dispatch, can publish a
+replacement immediately after the complete tool-result batch. This channel
+does not create a human continuation, so a terminal tool or stop predicate
+cannot strand the update. Canonical project-relative `AGENTS.md` provenance
+survives compaction and lets a reconstructed host re-read disk authority rather
+than trusting persisted policy text.
+
 `TopicManager` is the lifecycle authority for the durable subject above a
 session. Supply it to agent and handoff dependencies as `topicManager`; spawn
 and handoff then share the same archived-topic gate. Hosts can distinguish

@@ -5,7 +5,9 @@ import {
 	AgentRegistry,
 	type LLMProvider,
 	LocalTaskScheduler,
+	type ProjectInstructionContext,
 	type ToolContext,
+	createProjectInstructionMessage,
 } from '@namzu/sdk'
 
 import { createSubagentRuntime } from '../runtime.js'
@@ -29,10 +31,15 @@ import { createSubagentRuntime } from '../runtime.js'
 const fakeSpan = { __brand: 'span' } as unknown as NonNullable<ToolContext['parentSpan']>
 
 function toolContext(parentSpan?: ToolContext['parentSpan']): ToolContext {
-	return { runId: 'run_test', ...(parentSpan ? { parentSpan } : {}) } as unknown as ToolContext
+	return {
+		runId: 'run_test',
+		...(parentSpan ? { parentSpan } : {}),
+	} as unknown as ToolContext
 }
 
-async function buildAgentTool(extra: { projectInstructions?: string } = {}) {
+async function buildAgentTool(
+	extra: { projectInstructionContext?: () => ProjectInstructionContext } = {},
+) {
 	const created: Record<string, unknown>[] = []
 	const registered: AgentDefinition[] = []
 
@@ -92,7 +99,11 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 		const { agentTool, created } = await buildAgentTool()
 
 		await agentTool.execute(
-			{ description: 'audit', prompt: 'do a thing', role: 'You are an auditor' },
+			{
+				description: 'audit',
+				prompt: 'do a thing',
+				role: 'You are an auditor',
+			},
 			toolContext(fakeSpan),
 		)
 
@@ -111,20 +122,34 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
  */
 describe('a sub-agent is bound by the project it works in', () => {
 	const INSTRUCTIONS = '## Project instructions\n\nNever use a default export.'
+	const projectInstructionContext = () => ({
+		prepareInitialSnapshot: () => createProjectInstructionMessage(INSTRUCTIONS, ['AGENTS.md']),
+		observeToolResult: () => {},
+		takeSnapshotUpdate: () => undefined,
+	})
 
 	it('gives the general-purpose sub-agent the block', async () => {
-		const { registered } = await buildAgentTool({ projectInstructions: INSTRUCTIONS })
+		const { registered } = await buildAgentTool({ projectInstructionContext })
 
 		const general = registered.find((d) => d.info.id === 'general-purpose')
-		const config = (await general?.configBuilder?.({})) as { systemPrompt?: string } | undefined
-		expect(config?.systemPrompt).toContain('Never use a default export.')
+		const config = (await general?.configBuilder?.({})) as
+			| { projectInstructionContext?: ProjectInstructionContext }
+			| undefined
+		const snapshot = await config?.projectInstructionContext?.prepareInitialSnapshot?.([])
+		expect(snapshot?.content).toContain('Never use a default export.')
 	})
 
 	it('gives a specialist defined at call time the same block', async () => {
-		const { agentTool, registered } = await buildAgentTool({ projectInstructions: INSTRUCTIONS })
+		const { agentTool, registered } = await buildAgentTool({
+			projectInstructionContext,
+		})
 
 		await agentTool.execute(
-			{ description: 'audit', prompt: 'do a thing', role: 'You are a security auditor' },
+			{
+				description: 'audit',
+				prompt: 'do a thing',
+				role: 'You are a security auditor',
+			},
 			toolContext(),
 		)
 
@@ -132,24 +157,24 @@ describe('a sub-agent is bound by the project it works in', () => {
 		if (!specialist?.configBuilder) {
 			throw new Error('no dynamic specialist was registered — this test proves nothing')
 		}
-		const prompt = String(
-			((await specialist.configBuilder({})) as { systemPrompt?: string }).systemPrompt ?? '',
-		)
+		const config = (await specialist.configBuilder({})) as {
+			systemPrompt?: string
+			projectInstructionContext?: ProjectInstructionContext
+		}
+		const prompt = String(config.systemPrompt ?? '')
+		const snapshot = await config.projectInstructionContext?.prepareInitialSnapshot?.([])
 		expect(prompt).toContain('You are a security auditor')
 		expect(prompt).toContain('Never fabricate.')
-		expect(prompt).toContain('Never use a default export.')
-		// Order is the containment: a persona and a project file are both text
-		// the model can influence, and both sit after the guardrails.
-		expect(prompt.indexOf('Never fabricate.')).toBeLessThan(
-			prompt.indexOf('Never use a default export.'),
-		)
+		expect(snapshot?.content).toContain('Never use a default export.')
 	})
 
 	it('adds nothing when the project declares none', async () => {
 		const { registered } = await buildAgentTool()
 
 		const general = registered.find((d) => d.info.id === 'general-purpose')
-		const config = (await general?.configBuilder?.({})) as { systemPrompt?: string } | undefined
-		expect(config?.systemPrompt).not.toContain('Project instructions')
+		const config = (await general?.configBuilder?.({})) as
+			| { projectInstructionContext?: ProjectInstructionContext }
+			| undefined
+		expect(config?.projectInstructionContext).toBeUndefined()
 	})
 })

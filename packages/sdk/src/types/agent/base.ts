@@ -1,3 +1,4 @@
+import type { ProjectInstructionContext } from '../../runtime/query/project-instructions.js'
 import type { Logger } from '../../utils/logger.js'
 import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
@@ -60,6 +61,9 @@ export interface BaseAgentConfig {
 	 * until the run ended.
 	 */
 	inboundMessages?: () => import('../message/index.js').Message[]
+
+	/** Live project policy, flushed independently of human continuation text. */
+	projectInstructionContext?: ProjectInstructionContext
 
 	allowedTools?: readonly string[]
 

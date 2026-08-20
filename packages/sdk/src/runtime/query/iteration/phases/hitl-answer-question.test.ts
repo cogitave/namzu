@@ -96,7 +96,7 @@ describe('runToolReview answer_question case', () => {
 			toolExecutor: {
 				executeBatch: async () => {
 					batches += 1
-					return { messages: [], results: [] }
+					return { messages: [], results: [], observations: [] }
 				},
 			},
 		} as unknown as IterationContext

@@ -198,3 +198,10 @@ provider locally. Query-owned advisor providers receive the same bound and run
 cancellation separately because they are not members of the main chain.
 `RouterAgent` applies the same config to its separate routing decision before
 it enters a delegate's `query()` boundary.
+
+Live project-instruction preparation and its post-tool durable snapshot flush
+are host callbacks, not provider streams. They run outside this composition:
+before request one and immediately after a complete tool-result batch,
+respectively. They neither reset the provider silence timer nor create a model
+continuation, so a terminal batch can persist context without opening another
+provider request.

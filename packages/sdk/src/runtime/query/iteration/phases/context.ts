@@ -37,6 +37,7 @@ import type { CheckpointManager } from '../../checkpoint.js'
 import type { EmitEvent } from '../../events.js'
 import type { ToolExecutor } from '../../executor.js'
 import type { GuardCoordinator } from '../../guard.js'
+import type { ProjectInstructionContext } from '../../project-instructions.js'
 import type { RepeatCallTracker } from '../../repeat-call.js'
 import type { SteeringChannel } from '../../steering.js'
 import type { ToolGrantSet } from '../../tool-grants.js'
@@ -180,6 +181,9 @@ export interface IterationContext {
 	 * after tool results and before the next turn.
 	 */
 	readonly inboundMessages?: () => readonly import('../../../../types/message/index.js').Message[]
+
+	/** Live project policy; separate from human inbound continuation. */
+	readonly projectInstructionContext?: ProjectInstructionContext
 
 	readonly workingStateManager?: WorkingStateManager
 

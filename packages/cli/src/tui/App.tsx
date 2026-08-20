@@ -33,6 +33,8 @@ import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import { join, relative } from 'node:path'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { visibleProjectInstructionPath } from '../context/project-path.js'
+
 import {
 	beginSubscriptionLogin,
 	clearStoredSubscriptionCredential,
@@ -172,7 +174,7 @@ function latestAssistantOutput(messages: readonly Message[]): string | null {
 }
 
 /** Build the transcript projection of exact model-visible history. */
-function projectConversation(
+export function projectConversation(
 	messages: readonly Message[],
 	nextId: () => string,
 	readableUserTexts: readonly string[] = [],
@@ -180,6 +182,19 @@ function projectConversation(
 	let userOrdinal = 0
 	return messages.flatMap<TranscriptMessage>((message) => {
 		if (message.role === 'user') {
+			if (message.source?.type === 'project-instructions') {
+				return [
+					{
+						id: nextId(),
+						role: 'system',
+						content: 'Project instructions',
+						glyph: '◇',
+						detail: message.source.files.map(
+							(file) => `In force: ${visibleProjectInstructionPath(file)}`,
+						),
+					},
+				]
+			}
 			if (message.source?.type === 'goal-round') {
 				return [
 					{

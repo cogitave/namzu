@@ -87,7 +87,9 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 
 	let projectId: ProjectId | undefined
 	try {
-		const ptr = JSON.parse(readFileSync(pointerPath, 'utf8')) as { projectId?: string }
+		const ptr = JSON.parse(readFileSync(pointerPath, 'utf8')) as {
+			projectId?: string
+		}
 		// Prefix-checked, and a bad pointer is treated exactly like a stale one:
 		// the next lines already drop a projectId whose directory is gone, so a
 		// hand-edited `cli.json` takes the same path instead of carrying a
@@ -105,7 +107,9 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 		const project = await store.createProject({ tenantId: TENANT, name: 'namzu CLI' }, TENANT)
 		projectId = project.id
 		mkdirSync(root, { recursive: true })
-		writeFileSync(pointerPath, `${JSON.stringify({ projectId }, null, 2)}\n`, { mode: 0o600 })
+		writeFileSync(pointerPath, `${JSON.stringify({ projectId }, null, 2)}\n`, {
+			mode: 0o600,
+		})
 	}
 	return {
 		store,
@@ -214,7 +218,10 @@ export async function replaceConversation(
 	const existing = await loadConversation(s, sessionId)
 	const titles = readTitles(s.root)
 	if (titles[sessionId as string] === undefined) {
-		titles[sessionId as string] = { title: conversationTitle(existing), named: false }
+		titles[sessionId as string] = {
+			title: conversationTitle(existing),
+			named: false,
+		}
 		writeTitles(s.root, titles)
 	}
 	await s.store.replaceMessages(sessionId, messages, s.tenantId)
@@ -353,7 +360,9 @@ export async function forkConversation(
 		throw new Error('There is nothing to fork yet — this conversation has no messages.')
 	}
 
-	const { id, title } = await writeFork(s, sourceId, messages, messages, { kind: 'all' })
+	const { id, title } = await writeFork(s, sourceId, messages, messages, {
+		kind: 'all',
+	})
 	return { id, title, copied: messages.length }
 }
 
@@ -592,7 +601,7 @@ export function nextForkName(taken: Record<string, string>, source: string): str
 
 function conversationTitle(messages: readonly Message[]): string {
 	const firstHuman = messages.find(
-		(message) => message.role === 'user' && message.source?.type !== 'goal-round',
+		(message) => message.role === 'user' && message.source === undefined,
 	)
 	const firstGoal = messages.find(
 		(message) => message.role === 'user' && message.source?.type === 'goal-round',

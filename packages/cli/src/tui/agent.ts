@@ -38,6 +38,7 @@ import {
 	type LogAttributes,
 	type Message,
 	type ProjectId,
+	type ProjectInstructionContext,
 	type PromoteMemory,
 	type ProviderChainMember,
 	ProviderRegistry,
@@ -81,7 +82,7 @@ import { join } from 'node:path'
 import type { SandboxConfig } from '../config/schema.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
-import { loadProjectInstructions } from '../context/project.js'
+import { ProjectInstructionTracker } from '../context/project-tracker.js'
 import {
 	type ResolvedSandbox,
 	type SandboxSummary,
@@ -388,13 +389,14 @@ export interface AgentSession {
 	 */
 	readonly errorKind: 'invocation' | 'environment' | null
 	/**
-	 * Absolute paths of the `AGENTS.md` files whose text is in this session's
-	 * system prompt — outermost first, exactly the set that was injected.
+	 * Absolute paths of the `AGENTS.md` files in the session's current retained
+	 * project-policy snapshot — outermost first, exactly the set now in force.
 	 *
-	 * Reported so a surface can tell the user which project instructions are in
-	 * force. A user who cannot see this has no way to distinguish "namzu read my
-	 * conventions and disagreed" from "namzu never saw them", and those call for
-	 * opposite responses.
+	 * This is live: a successful file operation can discover a nested scope or
+	 * reload an edited file without reconnecting. Reported so a surface can tell
+	 * the user which project instructions are in force. A user who cannot see
+	 * this has no way to distinguish "namzu read my conventions and disagreed"
+	 * from "namzu never saw them", and those call for opposite responses.
 	 */
 	readonly instructionFiles: readonly string[]
 	/**
@@ -929,16 +931,10 @@ export async function createAgentSession(
 		refreshTail = queued.catch(() => {})
 		return signal ? observeWithSignal(queued, signal) : queued
 	}
-	// Read ONCE, here, rather than per turn the way memory is.
-	//
-	// Memory is re-read every turn because `/remember` writes to it mid-session,
-	// so a stale read would drop a fact the user just saved. Nothing in namzu
-	// writes an instructions file, and reading once buys a property worth more
-	// than the freshness: `instructionFiles` is then exactly the set whose text
-	// went into the prompt, for the whole life of the session. Re-reading per
-	// turn would make the line a surface prints at connect time a claim about
-	// the past. An edited file takes effect on the next session.
-	const projectInstructions = loadProjectInstructions(cwd)
+	// Session-owned discovery with one drain cursor per run. A child shares the
+	// discovered scopes without being able to consume the parent's update, and
+	// an edit takes effect in this session rather than only after reconnecting.
+	const projectInstructions = new ProjectInstructionTracker(cwd)
 	// Before the registry, because a `requireIsolation` this machine cannot
 	// meet throws here — and failing before the session is built is the
 	// difference between "namzu refused to start" and a half-constructed
@@ -1053,7 +1049,7 @@ export async function createAgentSession(
 			// honours the project's rules and every task it delegates quietly
 			// does not — the worse half of the feature, because the delegating
 			// turn reports success either way.
-			...(projectInstructions.prompt ? { projectInstructions: projectInstructions.prompt } : {}),
+			projectInstructionContext: () => projectInstructions.createRunContext(),
 			// Same argument as the instructions, one step further: a sub-agent that
 			// does not know what day it is dates a changelog entry from a training
 			// cut-off, and the parent reports the delegation as successful.
@@ -1173,8 +1169,12 @@ export async function createAgentSession(
 				.map((t) => t.name)
 				.filter((name) => !goalToolNames.has(name)),
 		agentIds: allowedAgentIds,
-		instructionFiles: projectInstructions.files.map((f) => f.path),
-		skippedInstructionFiles: projectInstructions.skipped,
+		get instructionFiles() {
+			return projectInstructions.instructionFiles
+		},
+		get skippedInstructionFiles() {
+			return projectInstructions.skippedInstructionFiles
+		},
 		mcpConnected: mcp.connected,
 		mcpFailed: mcp.failed,
 		configNotices: [
@@ -1197,29 +1197,19 @@ export async function createAgentSession(
 			await refreshTokenIfNeeded(opts?.signal)
 			// namzu identity first (so it establishes who the agent is even when
 			// the credential layer prepends whatever prefix its token requires),
-			// then memory read fresh each turn, then the project's own
-			// instructions, then per-turn extra (active skills).
+			// then memory and per-turn extra context. Project instructions are a
+			// separate retained user-context snapshot prepared by the controller;
+			// that is what lets nested scopes be replaced and persisted safely.
 			//
-			// Project instructions sit AFTER the identity block deliberately, and
-			// the order is the containment: they are text off the disk of
-			// whatever directory the agent was pointed at, so the rules they must
-			// not be able to rewrite are established before they are read.
-			//
-			// The environment block is read fresh every turn, unlike the project
-			// instructions, because both facts in it can change WHILE the session
+			// The environment block is read fresh every turn because both facts in it
+			// can change WHILE the session
 			// runs — midnight passes, and the agent checks out a branch itself.
 			// Its text only changes when a fact changes, so it costs a prompt-cache
 			// miss exactly when a hit would have been a stale claim.
 			const memoryPrompt = composeMemoryPrompt(readMemory())
 			const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
 			const systemPrompt =
-				[
-					NAMZU_IDENTITY,
-					environmentPrompt,
-					memoryPrompt,
-					projectInstructions.prompt,
-					opts?.extraSystem,
-				]
+				[NAMZU_IDENTITY, environmentPrompt, memoryPrompt, opts?.extraSystem]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
 			let capturedAuthority: GoalRoundAuthority | undefined
@@ -1274,6 +1264,7 @@ export async function createAgentSession(
 					taskStore,
 					systemPrompt,
 					messages,
+					projectInstructionContext: projectInstructions.createRunContext(),
 					opts,
 					taskGateway: subagentGateway,
 					onRunEvent: options.onRunEvent,
@@ -1299,7 +1290,7 @@ export async function createAgentSession(
 			const memoryPrompt = composeMemoryPrompt(readMemory())
 			const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
 			const systemPrompt =
-				[NAMZU_IDENTITY, environmentPrompt, memoryPrompt, projectInstructions.prompt]
+				[NAMZU_IDENTITY, environmentPrompt, memoryPrompt]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
 
@@ -1311,6 +1302,7 @@ export async function createAgentSession(
 				...(subagentGateway ? { taskGateway: subagentGateway } : {}),
 				authorizationGate: gateFor(options.rules),
 				compactionConfig: COMPACTION_CONFIG,
+				projectInstructionContext: projectInstructions.createRunContext(),
 				// NOT `emergencySave`, unlike a turn. The manager is a singleton
 				// whose `attach` detaches whoever held it before, so a caller
 				// resuming several runs in one process would leave only the last
@@ -1817,6 +1809,7 @@ interface RunTurnParams {
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
 	readonly messages: readonly Message[]
+	readonly projectInstructionContext: ProjectInstructionContext
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskScheduler | undefined
 	/** See {@link AgentSessionOptions.onRunEvent}. */
@@ -1845,6 +1838,7 @@ async function* runTurn({
 	taskStore,
 	systemPrompt,
 	messages,
+	projectInstructionContext,
 	opts,
 	taskGateway,
 	childSteps,
@@ -1903,6 +1897,7 @@ async function* runTurn({
 			agentId: 'namzu',
 			agentName: 'namzu',
 			...(systemPrompt ? { systemPrompt } : {}),
+			projectInstructionContext,
 			messages: [...messages],
 			workingDirectory,
 			// The exemption reads `tools` at decision time, so it sees the task

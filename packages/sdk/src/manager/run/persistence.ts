@@ -312,6 +312,11 @@ export class RunPersistence {
 		this.run.messages.push(message)
 	}
 
+	/** Replace the durable conversation projection without replacing the Run. */
+	replaceMessages(messages: readonly Message[]): void {
+		this.run.messages.splice(0, this.run.messages.length, ...messages)
+	}
+
 	/**
 	 * Who served the tokens being accumulated, so a rate can be found for them.
 	 *

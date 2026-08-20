@@ -68,3 +68,17 @@ safe path.
 Hosts that persist `Message[]` should preserve `source` and its opaque
 `replayState` exactly. Hosts that validate stateless JSON history should validate
 the route shape but leave envelope interpretation to the adapter that owns it.
+
+## User-context provenance is separate
+
+`UserMessage.source` does not carry provider-native replay authority. It names
+host-owned context such as a goal round or a live project-instruction snapshot.
+Project-instruction sources contain only bounded canonical project-relative
+`AGENTS.md` paths; the message text is the model-visible snapshot, while a
+reconstructed host uses those paths to re-read current disk authority.
+
+A `Message[]` persistence or replay layer must preserve both source families
+without conflating them: assistant route/replay envelopes remain adapter-owned,
+and user-context provenance remains host-owned. Unknown or malformed source
+shapes are refused at the stateless-history boundary rather than stripped and
+silently reclassified as ordinary human input.

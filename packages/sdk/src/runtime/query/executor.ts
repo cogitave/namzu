@@ -44,6 +44,7 @@ import { generateToolCallId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { type BackgroundJobRegistry, bindOwner } from '../jobs/registry.js'
+import type { ToolResultObservation } from './project-instructions.js'
 import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 	applyToolOutputBudget,
@@ -256,6 +257,8 @@ export interface ToolCallOutcome {
 export interface ToolExecutionBatch {
 	messages: Message[]
 	results: ToolCallOutcome[]
+	/** Actual registry executions, including calls dispatched by another tool. */
+	observations: ToolResultObservation[]
 }
 
 /**
@@ -418,7 +421,11 @@ export class ToolExecutor {
 	 * a scope its first half installed. That is precisely the incoherent
 	 * batch this line exists to make impossible.
 	 */
-	private skillScope?: { skill: string; allowedTools: readonly string[]; adoptedInBatch: number }
+	private skillScope?: {
+		skill: string
+		allowedTools: readonly string[]
+		adoptedInBatch: number
+	}
 	private batchCounter = 0
 
 	/**
@@ -455,7 +462,7 @@ export class ToolExecutor {
 	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
-			return { messages: [], results: [] }
+			return { messages: [], results: [], observations: [] }
 		}
 
 		this.batchCounter += 1
@@ -488,7 +495,11 @@ export class ToolExecutor {
 		// One context per call so each execution can see its own
 		// `toolUseId`. The base context is built once; we spread + add
 		// per-call to keep allocations cheap.
-		const baseContext = this.buildToolContext()
+		const observations: ToolResultObservation[] = []
+		const recordObservation = (observation: ToolResultObservation): void => {
+			observations.push(observation)
+		}
+		const baseContext = this.buildToolContext(recordObservation)
 
 		// Respect each tool's `concurrencySafe` flag. Read-only tools
 		// (ls/grep/glob/…) run in parallel; tools that mutate shared state
@@ -544,7 +555,7 @@ export class ToolExecutor {
 				// that made it. The base context has no `toolUseId`, and a
 				// closure built there would report every nested call as
 				// parentless.
-				dispatchTool: (name, input) => this.dispatchNested(name, input, ctx),
+				dispatchTool: (name, input) => this.dispatchNested(name, input, ctx, recordObservation),
 				// Per-call for the same reason: a pause has to be routed back
 				// to the call that raised it, and a batch can raise several.
 				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
@@ -563,7 +574,7 @@ export class ToolExecutor {
 				},
 			}
 			const run = async () => {
-				results[i] = await this.executeSingle(toolCall, ctx)
+				results[i] = await this.executeSingle(toolCall, ctx, recordObservation)
 			}
 			const gated = async () => {
 				await gate.acquire()
@@ -594,7 +605,12 @@ export class ToolExecutor {
 			const toolCall = toolCalls[i] as ToolCall
 			const toolName = toolCall.function.name
 			const message = `Error: Tool "${toolName}" did not complete — the batch failed before it produced a result.`
-			results[i] = { toolCallId: toolCall.id, toolName, output: message, isError: true }
+			results[i] = {
+				toolCallId: toolCall.id,
+				toolName,
+				output: message,
+				isError: true,
+			}
 			await this.emitEvent({
 				type: 'tool_completed',
 				runId: this.config.runId,
@@ -613,7 +629,7 @@ export class ToolExecutor {
 			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError),
 		)
 
-		return { messages, results }
+		return { messages, results, observations }
 	}
 
 	/**
@@ -634,6 +650,7 @@ export class ToolExecutor {
 		name: string,
 		input: unknown,
 		context: ToolContext,
+		recordObservation: (observation: ToolResultObservation) => void,
 	): Promise<ToolResult> {
 		const parent = context.toolUseId
 		const via = parent ? { tool: name, toolUseId: parent as ToolUseId } : undefined
@@ -665,11 +682,21 @@ export class ToolExecutor {
 			durationMs: Date.now() - startedAt,
 			...(via ? { via } : {}),
 		})
+		recordObservation({
+			runId: this.config.runId,
+			toolUseId: nestedId,
+			toolName: name,
+			input,
+			result,
+			...(parent ? { parentToolUseId: parent } : {}),
+		})
 
 		return result
 	}
 
-	private buildToolContext(): ToolContext {
+	private buildToolContext(
+		recordObservation: (observation: ToolResultObservation) => void = () => {},
+	): ToolContext {
 		const context: ToolContext = {
 			runId: this.config.runId,
 			workingDirectory: this.config.workingDirectory,
@@ -702,7 +729,7 @@ export class ToolExecutor {
 			// dispatching outside a batch has no parent call to name. The
 			// per-call context below overrides it with one that does; see
 			// `dispatchNested`.
-			dispatchTool: (name, input) => this.dispatchNested(name, input, context),
+			dispatchTool: (name, input) => this.dispatchNested(name, input, context, recordObservation),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			// Bound to this run, once. Binding here rather than passing the
@@ -731,6 +758,7 @@ export class ToolExecutor {
 	private async executeSingle(
 		toolCall: ToolCall,
 		toolContext: ToolContext,
+		recordObservation: (observation: ToolResultObservation) => void,
 	): Promise<ToolCallOutcome> {
 		let toolName = toolCall.function.name
 
@@ -761,7 +789,12 @@ export class ToolExecutor {
 				result: message,
 				isError: true,
 			})
-			return { toolCallId: toolCall.id, toolName, output: message, isError: true }
+			return {
+				toolCallId: toolCall.id,
+				toolName,
+				output: message,
+				isError: true,
+			}
 		}
 
 		// A malformed call used to cost a full model round trip to fix: the
@@ -804,7 +837,12 @@ export class ToolExecutor {
 				result: message,
 				isError: true,
 			})
-			return { toolCallId: toolCall.id, toolName, output: message, isError: true }
+			return {
+				toolCallId: toolCall.id,
+				toolName,
+				output: message,
+				isError: true,
+			}
 		}
 
 		let input: unknown = resolved.input
@@ -1070,6 +1108,13 @@ export class ToolExecutor {
 			outputLength: budgeted.originalLength,
 			...(budgeted.truncated ? { outputTruncated: true } : {}),
 			...(budgeted.spillPath ? { outputSpillPath: budgeted.spillPath } : {}),
+		})
+		recordObservation({
+			runId: this.config.runId,
+			toolUseId: toolCall.id,
+			toolName,
+			input,
+			result,
 		})
 
 		const resolveContent = (): { content?: ToolResultContent } => {
@@ -1370,7 +1415,10 @@ export class ToolExecutor {
 			// Either the model named a tool that does not exist, or this
 			// registry does not implement `get`. Both are the registry's to
 			// answer; a repairer still gets offered the `unknown_tool` case.
-			return { reason: 'unknown_tool', message: `Error: Unknown tool "${toolName}"` }
+			return {
+				reason: 'unknown_tool',
+				message: `Error: Unknown tool "${toolName}"`,
+			}
 		}
 
 		// A registry that hands back a tool with no schema has nothing to
@@ -1597,7 +1645,12 @@ export class ToolExecutor {
 			result: outcome.output,
 			isError: outcome.kind === 'error',
 		})
-		return { toolCallId, toolName, output: outcome.output, isError: outcome.kind === 'error' }
+		return {
+			toolCallId,
+			toolName,
+			output: outcome.output,
+			isError: outcome.kind === 'error',
+		}
 	}
 
 	/**

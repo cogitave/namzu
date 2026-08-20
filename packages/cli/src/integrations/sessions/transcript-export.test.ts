@@ -11,6 +11,7 @@ import {
 	asGoalId,
 	asRunId,
 	createAssistantMessage,
+	createProjectInstructionMessage,
 	createToolMessage,
 	createUserMessage,
 	generateRunId,
@@ -87,7 +88,10 @@ async function publishCompleteRun(
 	sessionId: SessionId,
 	runId: RunId,
 	user: Message,
-	options: { readonly snapshotSeq?: number } = {},
+	options: {
+		readonly snapshotSeq?: number
+		readonly producedContext?: readonly Message[]
+	} = {},
 ): Promise<string> {
 	const paths = new DefaultPathBuilder(sessions.root)
 	const runDir = paths.runDir(sessions.projectId, sessionId, runId)
@@ -103,6 +107,7 @@ async function publishCompleteRun(
 			},
 		]),
 		createToolMessage('contract body', toolUseId),
+		...(options.producedContext ?? []),
 		createAssistantMessage('Done.'),
 	]
 	const events = [
@@ -136,7 +141,9 @@ async function publishCompleteRun(
 			orphanedToolResultsRemoved: 2,
 			syntheticToolResultsInserted: 3,
 		}),
-		recordedEvent('run_completed', runId, 7, { result: 'I will **check**.Done.' }),
+		recordedEvent('run_completed', runId, 7, {
+			result: 'I will **check**.Done.',
+		}),
 	]
 	await writeFile(
 		join(runDir, 'transcript.jsonl'),
@@ -231,6 +238,30 @@ describe('verified conversation Markdown', () => {
 		expect(projected.markdown).not.toContain('## User')
 	})
 
+	it('labels retained project policy separately from operator input', async () => {
+		const sessions = await openSessions(await cwd())
+		const sessionId = await startConversation(sessions)
+		const turn = await bindTurn(sessions, sessionId)
+		const policy = createProjectInstructionMessage('exact standing policy', [
+			'AGENTS.md',
+			'packages/a/AGENTS.md',
+			'packages/\u202e/AGENTS.md',
+		])
+		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user, {
+			producedContext: [policy],
+		})
+
+		const projected = await conversationMarkdown(sessions, sessionId)
+
+		expect(projected.markdown).toContain('## Project instructions')
+		expect(projected.markdown).toContain('- AGENTS.md')
+		expect(projected.markdown).toContain('- packages/a/AGENTS.md')
+		expect(projected.markdown).toContain('- packages/\\u202e/AGENTS.md')
+		expect(projected.markdown).not.toContain('packages/\u202e/AGENTS.md')
+		expect(projected.markdown).toContain('exact standing policy')
+		expect(projected.markdown.match(/^## User$/gm)).toHaveLength(1)
+	})
+
 	it('projects raw assistant Markdown and tool input/result after the screen could be cleared', async () => {
 		const root = await cwd()
 		const sessions = await openSessions(root)
@@ -315,7 +346,9 @@ describe('verified conversation Markdown', () => {
 		const sessions = await openSessions(await cwd())
 		const sessionId = await startConversation(sessions)
 		const turn = await bindTurn(sessions, sessionId)
-		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user, { snapshotSeq: 5 })
+		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user, {
+			snapshotSeq: 5,
+		})
 
 		await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
 			reason: 'run-snapshot-out-of-sync',
@@ -506,7 +539,9 @@ describe('verified conversation Markdown', () => {
 		const sessions = await openSessions(await cwd())
 		const source = await startConversation(sessions)
 		await publishSimpleTurn(sessions, source, 'durable source', 'durable answer')
-		await publishSimpleTurn(sessions, source, 'evidence only', 'not copied', { persist: false })
+		await publishSimpleTurn(sessions, source, 'evidence only', 'not copied', {
+			persist: false,
+		})
 
 		const fork = await forkConversation(sessions, source)
 		const projected = await conversationMarkdown(sessions, fork.id)
@@ -553,7 +588,10 @@ describe('verified conversation Markdown', () => {
 		expect(origin).toMatchObject({
 			kind: 'available',
 			origin: {
-				origin: { kind: 'fork', turns: [{ sessionId: source }, { sessionId: firstFork.id }] },
+				origin: {
+					kind: 'fork',
+					turns: [{ sessionId: source }, { sessionId: firstFork.id }],
+				},
 			},
 		})
 	})

@@ -1,4 +1,9 @@
-import { asGoalId, createAssistantMessage, createUserMessage } from '@namzu/sdk'
+import {
+	asGoalId,
+	createAssistantMessage,
+	createProjectInstructionMessage,
+	createUserMessage,
+} from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { editablePrompts } from './edit-prompts.js'
@@ -52,6 +57,19 @@ describe('editable prompt projection', () => {
 		const prompts = editablePrompts(
 			[automatic, createAssistantMessage('progress'), human],
 			[row('human', 'human correction')],
+		)
+
+		expect(prompts).toHaveLength(1)
+		expect(prompts[0]).toMatchObject({ userOrdinal: 1, message: human })
+	})
+
+	it('does not offer a retained project-policy snapshot as editable human input', () => {
+		const policy = createProjectInstructionMessage('standing policy', ['AGENTS.md'])
+		const human = createUserMessage('human request')
+
+		const prompts = editablePrompts(
+			[policy, createAssistantMessage('context acknowledged'), human],
+			[row('human', 'human request')],
 		)
 
 		expect(prompts).toHaveLength(1)

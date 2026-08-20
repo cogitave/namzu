@@ -108,6 +108,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.allowedTools ? { allowedTools: [...config.allowedTools] } : {}),
 				...(config.deniedTools ? { deniedTools: [...config.deniedTools] } : {}),
 				...(config.inboundMessages ? { inboundMessages: config.inboundMessages } : {}),
+				...(config.projectInstructionContext
+					? { projectInstructionContext: config.projectInstructionContext }
+					: {}),
 				...(config.steering ? { steering: config.steering } : {}),
 				...(config.structuredOutput ? { structuredOutput: config.structuredOutput } : {}),
 				...(config.inputGuardrails ? { inputGuardrails: config.inputGuardrails } : {}),

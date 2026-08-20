@@ -116,6 +116,11 @@ import { IterationOrchestrator } from './iteration/index.js'
 import { isCompactionMessage } from './iteration/phases/compaction.js'
 import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
+import {
+	type ProjectInstructionContext,
+	collapseProjectInstructionSnapshots,
+	replaceProjectInstructionSnapshot,
+} from './project-instructions.js'
 import type { PromptCache } from './prompt-cache.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
@@ -628,6 +633,12 @@ export interface QueryParams {
 	inboundMessages?: () => import('../../types/message/index.js').Message[]
 
 	/**
+	 * Live project policy for this run. Unlike `inboundMessages`, snapshot
+	 * replacement is durable state and never implies another model turn.
+	 */
+	projectInstructionContext?: ProjectInstructionContext
+
+	/**
 	 * Where this conversation's durable state lives.
 	 *
 	 * Supplies the permission mode when `runConfig.permissionMode` names
@@ -643,7 +654,9 @@ export interface QueryParams {
 	 * approval hook, and that is not this function. Sharing the object is
 	 * what lets an approved plan leave plan mode in the SAME run.
 	 */
-	permissionModeRef?: { current: import('../../types/permission/index.js').PermissionMode }
+	permissionModeRef?: {
+		current: import('../../types/permission/index.js').PermissionMode
+	}
 
 	/**
 	 * A name for the policy `resumeHandler` implements.
@@ -909,7 +922,7 @@ function projectStateBearingHistory(
 			projected.push(message)
 		}
 	}
-	return projected
+	return collapseProjectInstructionSnapshots(projected)
 }
 
 /**
@@ -1065,7 +1078,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		current: { index: 0, providerId: params.provider.id },
 	}
 	const resilientProvider = withProviderFallback(
-		chain.map((member) => ({ ...member, provider: withRecovery(member.provider) })),
+		chain.map((member) => ({
+			...member,
+			provider: withRecovery(member.provider),
+		})),
 		{
 			log,
 			onSwap: (to) => {
@@ -1142,20 +1158,37 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// image is a model answering about a picture it never saw.
 	const seeded: Message[] =
 		queuedForThisRun.length > 0 ? [...queuedForThisRun, ...params.messages] : params.messages
-	const resolvedInitialMessages: Message[] = [
+	let resolvedInitialMessages: Message[] = [
 		...(await resolveAttachments(seeded, params.attachmentStore)),
 	]
+	if (params.projectInstructionContext?.prepareInitialSnapshot) {
+		const snapshot =
+			await params.projectInstructionContext.prepareInitialSnapshot(resolvedInitialMessages)
+		if (snapshot !== undefined) {
+			resolvedInitialMessages = replaceProjectInstructionSnapshot(
+				resolvedInitialMessages,
+				snapshot,
+				'before-latest-user',
+			)
+		}
+	}
 	const pendingHistoryRepairs: PendingHistoryRepairEvent[] = []
-	const projectedInitialMessages =
+	const projectedInitialMessages = collapseProjectInstructionSnapshots(
 		params.resumeFromCheckpoint || params.continuationMode
 			? resolvedInitialMessages
-			: projectStateBearingHistory(resolvedInitialMessages, { pinCompaction: true })
+			: projectStateBearingHistory(resolvedInitialMessages, {
+					pinCompaction: true,
+				}),
+	)
 	const initialRepair = params.resumeFromCheckpoint
 		? { messages: projectedInitialMessages, report: undefined }
 		: repairToolMessageHistory(projectedInitialMessages)
 	const initialMessages = initialRepair.messages
 	if (initialRepair.report && toolHistoryRepairChanged(initialRepair.report)) {
-		pendingHistoryRepairs.push({ source: 'fresh-history', report: initialRepair.report })
+		pendingHistoryRepairs.push({
+			source: 'fresh-history',
+			report: initialRepair.report,
+		})
 		log.warn('Repaired provider-invalid tool history before starting the run', {
 			[NAMZU.RUN_ID]: runId,
 			'namzu.history.source': 'fresh-history',
@@ -1322,7 +1355,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			throw new NamzuError({
 				code: 'capability_unavailable',
 				message,
-				details: { providerId: params.provider.id, capability: 'tools', registeredToolCount },
+				details: {
+					providerId: params.provider.id,
+					capability: 'tools',
+					registeredToolCount,
+				},
 			})
 		}
 		ctx.log.warn('Capability mismatch: the provider declares no tool support', {
@@ -1338,7 +1375,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			throw new NamzuError({
 				code: 'capability_unavailable',
 				message,
-				details: { providerId: params.provider.id, capability: 'vision', attachmentMessageCount },
+				details: {
+					providerId: params.provider.id,
+					capability: 'vision',
+					attachmentMessageCount,
+				},
 			})
 		}
 		ctx.log.warn('Capability mismatch: the provider declares no vision support', {
@@ -1354,7 +1395,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			throw new NamzuError({
 				code: 'capability_unavailable',
 				message,
-				details: { providerId: params.provider.id, capability: 'documents', documentMessageCount },
+				details: {
+					providerId: params.provider.id,
+					capability: 'documents',
+					documentMessageCount,
+				},
 			})
 		}
 		ctx.log.warn('Capability mismatch: the provider declares no document support', {
@@ -1639,6 +1684,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 		compactionConfig: params.compactionConfig,
 		...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
+		...(params.projectInstructionContext
+			? { projectInstructionContext: params.projectInstructionContext }
+			: {}),
 		...(providerContextWindow !== undefined ? { providerContextWindow } : {}),
 		workingStateManager,
 		taskRouter: params.taskRouter,
@@ -1843,7 +1891,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				const checkpoint = await checkpointMgr.restore(params.resumeFromCheckpoint)
 				const projectedCheckpoint = {
 					...checkpoint,
-					messages: projectStateBearingHistory(checkpoint.messages, { pinCompaction: false }),
+					messages: projectStateBearingHistory(checkpoint.messages, {
+						pinCompaction: false,
+					}),
 				}
 				await eventTranslator.emitEvent({
 					type: 'run_resuming',
@@ -2419,7 +2469,10 @@ async function* catchUpFromCursor(
 	const missed = await runMgr.getRunStore().readEvents({ sinceSeq: cursor.sinceSeq })
 	const replay = resolveRunEventReplay(
 		cursor,
-		{ lastSeq: runMgr.lastEventSeq, ...(generation !== undefined ? { generation } : {}) },
+		{
+			lastSeq: runMgr.lastEventSeq,
+			...(generation !== undefined ? { generation } : {}),
+		},
 		missed,
 	)
 
@@ -2430,7 +2483,9 @@ async function* catchUpFromCursor(
 }
 
 export async function drainQuery(
-	params: Omit<QueryParams, 'resumeHandler'> & { resumeHandler?: ResumeHandler },
+	params: Omit<QueryParams, 'resumeHandler'> & {
+		resumeHandler?: ResumeHandler
+	},
 	listener?: RunEventListener,
 ): Promise<Run> {
 	const fullParams: QueryParams = {

@@ -67,6 +67,13 @@ namzu doctor                # what this host can actually do, and what is missin
 namzu login                 # store a credential in the vault
 ```
 
+Repository policy stays live for the whole session. The CLI starts with the
+applicable `AGENTS.md` chain, discovers nested instruction files after
+successful reads, writes and edits, and labels every file with its directory
+scope. The current snapshot is retained in durable model context, while a
+resumed session uses its validated project-relative paths to re-read the files
+from disk instead of trusting stale saved prose.
+
 ## Headless runs
 
 ```bash

@@ -198,7 +198,60 @@ export interface GoalRoundMessageSource {
 	readonly maxGoalRounds: number
 }
 
-export type UserMessageSource = GoalRoundMessageSource
+/**
+ * A host-owned snapshot of the instruction files currently in force.
+ *
+ * Paths are canonical project-relative `AGENTS.md` paths. The text lives on
+ * the user message itself; the paths are provenance used to re-read the
+ * authoritative files after a restart rather than trusting persisted prose as
+ * standing policy.
+ */
+export interface ProjectInstructionMessageSource {
+	readonly type: 'project-instructions'
+	readonly files: readonly string[]
+}
+
+export type UserMessageSource = GoalRoundMessageSource | ProjectInstructionMessageSource
+
+/** A bounded source list keeps untrusted persisted metadata cheap to validate. */
+export const MAX_PROJECT_INSTRUCTION_SOURCE_FILES = 256
+
+/** Runtime validation for persisted or JavaScript-authored instruction provenance. */
+export function isProjectInstructionMessageSource(
+	value: unknown,
+): value is ProjectInstructionMessageSource {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+	const candidate = value as {
+		readonly type?: unknown
+		readonly files?: unknown
+	}
+	if (
+		candidate.type !== 'project-instructions' ||
+		!Array.isArray(candidate.files) ||
+		candidate.files.length === 0 ||
+		candidate.files.length > MAX_PROJECT_INSTRUCTION_SOURCE_FILES
+	) {
+		return false
+	}
+	const seen = new Set<string>()
+	for (const file of candidate.files) {
+		if (typeof file !== 'string' || file.length === 0 || file.length > 1024) return false
+		if (
+			file.includes('\\') ||
+			file.startsWith('/') ||
+			/^[A-Za-z]:/.test(file) ||
+			file.includes('\0') ||
+			(file !== 'AGENTS.md' && !file.endsWith('/AGENTS.md'))
+		) {
+			return false
+		}
+		const parts = file.split('/')
+		if (parts.some((part) => part.length === 0 || part === '.' || part === '..')) return false
+		if (seen.has(file)) return false
+		seen.add(file)
+	}
+	return true
+}
 
 /**
  * The configured model route that produced or is about to receive a message.
@@ -291,7 +344,11 @@ export interface AssistantMessage extends BaseMessage {
  */
 export type ToolResultBlock =
 	| { readonly type: 'text'; readonly text: string }
-	| { readonly type: 'image'; readonly data: string; readonly mediaType: string }
+	| {
+			readonly type: 'image'
+			readonly data: string
+			readonly mediaType: string
+	  }
 	| DocumentAttachment
 
 /**
@@ -343,6 +400,23 @@ export function createUserMessage(
 	}
 }
 
+/** Build the retained user-context message that carries live project policy. */
+export function createProjectInstructionMessage(
+	content: string,
+	files: readonly string[],
+): UserMessage {
+	const source: ProjectInstructionMessageSource = {
+		type: 'project-instructions',
+		files,
+	}
+	if (!isProjectInstructionMessageSource(source)) {
+		throw new TypeError(
+			'Project instruction paths must be unique, canonical project-relative paths.',
+		)
+	}
+	return { ...createUserMessage(content, undefined, source), retain: true }
+}
+
 export function createAssistantMessage(
 	content: string | null,
 	toolCalls?: ToolCall[],
@@ -375,4 +449,8 @@ export function createToolMessage(
 	}
 }
 
-export { hasNonTextBlocks, toToolResultBlocks, toolResultToText } from './content.js'
+export {
+	hasNonTextBlocks,
+	toToolResultBlocks,
+	toolResultToText,
+} from './content.js'

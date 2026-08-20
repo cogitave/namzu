@@ -5,6 +5,7 @@ import {
 	DefaultPathBuilder,
 	asRunId,
 	createAssistantMessage,
+	createProjectInstructionMessage,
 	createUserMessage,
 	generateRunId,
 } from '@namzu/sdk'
@@ -97,7 +98,31 @@ describe('CLI turn evidence', () => {
 			kind: 'available',
 			turns: [],
 		})
-		expect(await sessions.turnEvidence?.read(legacy.id)).toEqual({ kind: 'not-recorded' })
+		expect(await sessions.turnEvidence?.read(legacy.id)).toEqual({
+			kind: 'not-recorded',
+		})
+	})
+
+	it('round-trips structurally tagged project-policy provenance', async () => {
+		const sessions = await openSessions(await cwd())
+		const sessionId = await startConversation(sessions)
+		const runId = generateRunId()
+		const policy = createProjectInstructionMessage('standing policy', [
+			'AGENTS.md',
+			'packages/a/AGENTS.md',
+		])
+		const started = await sessions.turnEvidence?.recordTurnStarted({
+			sessionId,
+			runId,
+			displayText: 'Project instructions',
+			user: policy,
+		})
+
+		expect(await sessions.turnEvidence?.read(sessionId)).toMatchObject({
+			kind: 'available',
+			turns: [{ started: { user: policy } }],
+		})
+		expect(started?.user).toEqual(policy)
 	})
 
 	it('keeps a legacy fork unresolved instead of claiming its copied prefix is proven', async () => {

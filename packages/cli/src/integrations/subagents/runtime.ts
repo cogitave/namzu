@@ -27,6 +27,7 @@ import {
 	InMemoryTopicStore,
 	type LLMProvider,
 	LocalTaskScheduler,
+	type ProjectInstructionContext,
 	ReactiveAgent,
 	type ReactiveAgentConfig,
 	type RunEvent,
@@ -66,17 +67,8 @@ export interface SubagentRuntimeOptions {
 	/** Build the sub-agent's tool registry (its own working set). */
 	readonly buildTools: () => ToolRegistryContract
 	readonly authorizationGate?: AuthorizationGateConfig
-	/**
-	 * The project's own instruction block, already composed, or absent when the
-	 * working directory declares none.
-	 *
-	 * A sub-agent runs in the same directory and writes the same code as the
-	 * parent that dispatched it, so the project's standing policy applies to it
-	 * identically. Omitting it would produce the shape where the rules hold
-	 * until the moment work is delegated, and the delegating turn cannot tell:
-	 * the child reports success either way.
-	 */
-	readonly projectInstructions?: string
+	/** A fresh drain cursor over the session's shared project-policy state. */
+	readonly projectInstructionContext?: () => ProjectInstructionContext
 	/**
 	 * Produces the "where and when" block for a child, at the moment the child
 	 * is built rather than once for the session.
@@ -108,7 +100,11 @@ export async function createSubagentRuntime(
 	const store = new InMemorySessionStore()
 	const topicStore = new InMemoryTopicStore()
 
-	const userActor: ActorRef = { kind: 'user', userId: asUserId('usr_namzu'), tenantId }
+	const userActor: ActorRef = {
+		kind: 'user',
+		userId: asUserId('usr_namzu'),
+		tenantId,
+	}
 	const project = await store.createProject({ tenantId, name: 'namzu-cli' }, tenantId)
 	const thread = await topicStore.createTopic(
 		{ projectId: project.id, title: 'namzu-cli' },
@@ -248,7 +244,10 @@ export async function createSubagentRuntime(
 						error: `Sub-agent ${agentId} ${completed.state}: ${completed.result?.lastError ?? resultText ?? '(no detail)'}`,
 					}
 				}
-				return { success: true, output: resultText || '(sub-agent returned no text)' }
+				return {
+					success: true,
+					output: resultText || '(sub-agent returned no text)',
+				}
 			} finally {
 				// A per-call dynamic specialist is single-use — drop its definition
 				// (and retained persona string) so long sessions don't leak `dyn-N`
@@ -282,13 +281,8 @@ function buildDefinition(
 	// A specialist persona is layered on top of the anti-fabrication base so a
 	// dynamic role can't opt out of the "don't invent results" guardrails.
 	//
-	// The project's instructions go last, after both, for the same reason they
-	// go after the identity block on the parent: they are text read off the
-	// working directory, and the rules they must not be able to rewrite are
-	// established before they are read.
 	const base =
 		systemPrompt === SUBAGENT_PROMPT ? SUBAGENT_PROMPT : `${systemPrompt}\n\n${SUBAGENT_PROMPT}`
-	const prompt = opts.projectInstructions ? `${base}\n\n${opts.projectInstructions}` : base
 	return {
 		info: {
 			id,
@@ -315,7 +309,10 @@ function buildDefinition(
 				maxIterations: 40,
 				provider: opts.buildProvider(),
 				tools: opts.buildTools(),
-				systemPrompt: environment ? `${prompt}\n\n${environment}` : prompt,
+				systemPrompt: environment ? `${base}\n\n${environment}` : base,
+				...(opts.projectInstructionContext
+					? { projectInstructionContext: opts.projectInstructionContext() }
+					: {}),
 				...(opts.authorizationGate ? { authorizationGate: opts.authorizationGate } : {}),
 			}
 		},

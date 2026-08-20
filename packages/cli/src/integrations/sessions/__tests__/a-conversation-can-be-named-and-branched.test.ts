@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type Message, createUserMessage } from '@namzu/sdk'
+import { type Message, createProjectInstructionMessage, createUserMessage } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -84,6 +84,20 @@ describe('naming a conversation', () => {
 		expect(row?.title).toBe('why does the build fail')
 	})
 
+	it('derives the title from the operator, not a retained policy snapshot', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await appendMessages(s, id, [
+			createProjectInstructionMessage('do not use as a title', ['AGENTS.md']),
+			createUserMessage('the operator request'),
+		])
+
+		const [row] = await listRecent(s)
+
+		expect(row?.title).toBe('the operator request')
+		expect(row?.named).toBe(false)
+	})
+
 	it('takes the name away rather than storing an empty one', async () => {
 		// An empty string is not a name. Keeping one would show a blank row,
 		// which reads as a conversation with nothing in it.
@@ -152,7 +166,10 @@ describe('naming a conversation', () => {
 		)
 
 		expect(titleOf(s, id)).toBe('legacy chosen name')
-		expect((await listRecent(s))[0]).toMatchObject({ title: 'legacy chosen name', named: true })
+		expect((await listRecent(s))[0]).toMatchObject({
+			title: 'legacy chosen name',
+			named: true,
+		})
 	})
 })
 
@@ -188,7 +205,9 @@ describe('forking a conversation', () => {
 		const partial = sessions.find((session) => session.id !== source)
 		if (!partial) throw new Error('fixture expected the interrupted fork session')
 		expect(await loadConversation(s, partial.id)).toEqual([messages[0]])
-		expect(await s.turnEvidence?.read(partial.id)).toEqual({ kind: 'not-recorded' })
+		expect(await s.turnEvidence?.read(partial.id)).toEqual({
+			kind: 'not-recorded',
+		})
 		await expect(conversationMarkdown(s, partial.id)).rejects.toMatchObject({
 			reason: 'evidence-not-recorded',
 		})
@@ -272,7 +291,11 @@ describe('forking before a selected user prompt', () => {
 				citations: true,
 			},
 		])
-		const answer = { role: 'assistant', content: 'first answer', timestamp: 20 } as Message
+		const answer = {
+			role: 'assistant',
+			content: 'first answer',
+			timestamp: 20,
+		} as Message
 		const selected = createUserMessage('rewrite this prompt', [
 			{
 				type: 'stored',
@@ -282,7 +305,11 @@ describe('forking before a selected user prompt', () => {
 				name: 'diagram.png',
 			},
 		])
-		const suffix = { role: 'assistant', content: 'answer to remove', timestamp: 40 } as Message
+		const suffix = {
+			role: 'assistant',
+			content: 'answer to remove',
+			timestamp: 40,
+		} as Message
 		const source = [summary, first, answer, selected, suffix]
 		await appendMessages(s, id, source)
 
@@ -320,7 +347,10 @@ describe('forking before a selected user prompt', () => {
 		const before = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
 
 		await expect(
-			forkConversationBeforeUser(s, id, 0, { ...durable, content: 'stale picker text' }),
+			forkConversationBeforeUser(s, id, 0, {
+				...durable,
+				content: 'stale picker text',
+			}),
 		).rejects.toThrow(/conversation changed.*nothing was forked/i)
 
 		const after = await s.store.listSessionsByTopic(s.topicId, s.tenantId)

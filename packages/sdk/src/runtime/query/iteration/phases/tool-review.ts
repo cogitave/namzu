@@ -100,6 +100,15 @@ export async function* runToolReview(
 		for (const msg of attachRepeatNotice(attachSteering(batch.messages, ctx.steering), notices)) {
 			ctx.runMgr.pushMessage(msg)
 		}
+		// The tool-result messages are already durable before host policy is
+		// allowed to react. If the observer refuses, the run may fail, but it does
+		// not leave an unanswered assistant tool call in history. Nested registry
+		// dispatches are carried in the same batch observation list.
+		if (ctx.projectInstructionContext) {
+			for (const observation of batch.observations) {
+				await ctx.projectInstructionContext.observeToolResult(observation)
+			}
+		}
 	}
 
 	/** Every call denied for the same reason (human rejection, gate stop). */

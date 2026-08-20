@@ -1,4 +1,9 @@
-import { type Message, isCompactionMessage, isWorkingMemoryMessage } from '@namzu/sdk'
+import {
+	type Message,
+	isCompactionMessage,
+	isProjectInstructionMessageSource,
+	isWorkingMemoryMessage,
+} from '@namzu/sdk'
 
 export type PriorMessagesResult =
 	| { readonly ok: true; readonly messages: readonly Message[] }
@@ -72,7 +77,14 @@ function validateAttachments(value: unknown, path: string): string | null {
 
 function validateUserSource(value: unknown, path: string): string | null {
 	if (!isObject(value)) return `${path} must be a source object`
-	if (value.type !== 'goal-round') return `${path}.type must be "goal-round"`
+	if (value.type === 'project-instructions') {
+		return isProjectInstructionMessageSource(value)
+			? null
+			: `${path} must contain unique canonical project-relative AGENTS.md paths`
+	}
+	if (value.type !== 'goal-round') {
+		return `${path}.type must be "goal-round" or "project-instructions"`
+	}
 	return (
 		stringField(value, 'goalId', path) ??
 		stringField(value, 'objective', path) ??

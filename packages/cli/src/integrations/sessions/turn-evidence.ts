@@ -22,6 +22,7 @@ import {
 	asProjectId,
 	asRunId,
 	asSessionId,
+	isProjectInstructionMessageSource,
 } from '@namzu/sdk'
 
 const FORMAT = 'namzu.cli-turn-evidence.v1' as const
@@ -278,7 +279,10 @@ export class DiskConversationEvidence {
 
 		const current = await this.readUnlocked(sessionId)
 		if (current.kind !== 'available') {
-			return { kind: 'unavailable', detail: `conversation ${sessionId} has no origin record` }
+			return {
+				kind: 'unavailable',
+				detail: `conversation ${sessionId} has no origin record`,
+			}
 		}
 		const cache = new Map<SessionId, ConversationEvidenceRead>([[sessionId, current]])
 		const turns: ConversationLineageTurn[] = []
@@ -416,7 +420,10 @@ export class DiskConversationEvidence {
 		visiting: Set<SessionId>,
 	): Promise<
 		| { readonly kind: 'unavailable'; readonly detail: string }
-		| { readonly kind: 'available'; readonly references: readonly ConversationTurnReference[] }
+		| {
+				readonly kind: 'available'
+				readonly references: readonly ConversationTurnReference[]
+		  }
 	> {
 		if (visiting.has(sessionId)) {
 			throw new ConversationEvidenceCorruptionError(
@@ -427,7 +434,10 @@ export class DiskConversationEvidence {
 		try {
 			const evidence = await this.readUnlocked(sessionId)
 			if (evidence.kind !== 'available') {
-				return { kind: 'unavailable', detail: `conversation ${sessionId} has no origin record` }
+				return {
+					kind: 'unavailable',
+					detail: `conversation ${sessionId} has no origin record`,
+				}
 			}
 			const local = evidence.turns.map((turn) => ({
 				sessionId,
@@ -623,7 +633,11 @@ function parseUserMessage(value: unknown, path: string, line: number): UserMessa
 		for (const attachment of value.attachments) validateAttachment(attachment, path, line)
 	}
 	if (value.source !== undefined) {
-		if (
+		if (isObject(value.source) && value.source.type === 'project-instructions') {
+			if (!isProjectInstructionMessageSource(value.source)) {
+				throw invalidRecord(path, line, 'user.source')
+			}
+		} else if (
 			!isObject(value.source) ||
 			value.source.type !== 'goal-round' ||
 			typeof value.source.goalId !== 'string' ||
@@ -636,11 +650,12 @@ function parseUserMessage(value: unknown, path: string, line: number): UserMessa
 			Number(value.source.maxGoalRounds) < 1
 		) {
 			throw invalidRecord(path, line, 'user.source')
-		}
-		try {
-			asGoalId(value.source.goalId)
-		} catch {
-			throw invalidRecord(path, line, 'user.source.goalId')
+		} else {
+			try {
+				asGoalId(value.source.goalId)
+			} catch {
+				throw invalidRecord(path, line, 'user.source.goalId')
+			}
 		}
 	}
 	return value as unknown as UserMessage

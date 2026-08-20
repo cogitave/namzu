@@ -375,6 +375,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					// corrected for twice.
 					...(config.steering ? { steering: config.steering } : {}),
 					...(config.inboundMessages ? { inboundMessages: config.inboundMessages } : {}),
+					...(config.projectInstructionContext
+						? { projectInstructionContext: config.projectInstructionContext }
+						: {}),
 					...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
 					// The one hop between the config and the tool. `drainQuery`
 					// registers `structured_output` from this and the loop

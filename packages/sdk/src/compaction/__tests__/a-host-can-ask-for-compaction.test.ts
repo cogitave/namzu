@@ -5,6 +5,7 @@ import { MockLLMProvider } from '../../provider/mock.js'
 import {
 	type Message,
 	createAssistantMessage,
+	createProjectInstructionMessage,
 	createSystemMessage,
 	createToolMessage,
 	createUserMessage,
@@ -36,7 +37,9 @@ const config = (over: Partial<CompactionConfig> = {}): CompactionConfig =>
 	}) as CompactionConfig
 
 function provider(): LLMProvider {
-	return new MockLLMProvider({ turns: [{ text: 'a summary of the earlier turns' }] })
+	return new MockLLMProvider({
+		turns: [{ text: 'a summary of the earlier turns' }],
+	})
 }
 
 function history(turns: number): Message[] {
@@ -62,7 +65,11 @@ describe('a host can ask for compaction', () => {
 	it('compacts the user/assistant-only history a host actually persists', async () => {
 		const messages = history(5).filter((message) => message.role !== 'system')
 
-		const result = await compactNow({ messages, config: config(), provider: provider() })
+		const result = await compactNow({
+			messages,
+			config: config(),
+			provider: provider(),
+		})
 
 		expect(result).not.toBeNull()
 		if (!result) return
@@ -96,7 +103,11 @@ describe('a host can ask for compaction', () => {
 	it('sheds messages and leaves a valid history behind', async () => {
 		const messages = history(20)
 
-		const result = await compactNow({ messages, config: config(), provider: provider() })
+		const result = await compactNow({
+			messages,
+			config: config(),
+			provider: provider(),
+		})
 
 		expect(result).not.toBeNull()
 		if (!result) return
@@ -127,7 +138,11 @@ describe('a host can ask for compaction', () => {
 			...first.messages,
 			...history(8).filter((message) => message.role !== 'system'),
 		]
-		const second = await compactNow({ messages: continued, config: config(), provider: provider() })
+		const second = await compactNow({
+			messages: continued,
+			config: config(),
+			provider: provider(),
+		})
 		expect(second).not.toBeNull()
 		if (!second) return
 
@@ -180,7 +195,11 @@ describe('a host can ask for compaction', () => {
 		messages[1] = pinned
 		const before = structuredClone(messages)
 
-		const result = await compactNow({ messages, config: config(), provider: provider() })
+		const result = await compactNow({
+			messages,
+			config: config(),
+			provider: provider(),
+		})
 
 		expect(result).not.toBeNull()
 		if (!result) return
@@ -190,6 +209,30 @@ describe('a host can ask for compaction', () => {
 		expect(result.messages[pinnedIndex]).toEqual(pinned)
 		expect(messages).toEqual(before)
 		expect(result.shed).toBe(messages.length - result.messages.length)
+	})
+
+	it('keeps exactly one live project-policy snapshot byte-for-byte', async () => {
+		const policy = createProjectInstructionMessage('exact nested policy', [
+			'AGENTS.md',
+			'packages/a/AGENTS.md',
+		])
+		const messages = history(8)
+		messages[1] = policy
+		const before = structuredClone(messages)
+
+		const result = await compactNow({
+			messages,
+			config: config(),
+			provider: provider(),
+		})
+
+		expect(result).not.toBeNull()
+		if (!result) return
+		const snapshots = result.messages.filter(
+			(message) => message.role === 'user' && message.source?.type === 'project-instructions',
+		)
+		expect(snapshots).toEqual([policy])
+		expect(messages).toEqual(before)
 	})
 
 	it('keeps the whole pinned tool exchange in the older window', async () => {
@@ -256,7 +299,13 @@ describe('a host can ask for compaction', () => {
 		]
 		// Index 3 sits between the assistant's tool_use and its tool_result.
 		await expect(
-			compactRegion({ messages, start: 1, end: 3, config: config(), provider: provider() }),
+			compactRegion({
+				messages,
+				start: 1,
+				end: 3,
+				config: config(),
+				provider: provider(),
+			}),
 		).rejects.toThrow(/end index 3/)
 	})
 
@@ -341,7 +390,13 @@ describe('a host can ask for compaction', () => {
 		const messages = history(4)
 
 		await expect(
-			compactRegion({ messages, start: 2, end: 999, config: config(), provider: provider() }),
+			compactRegion({
+				messages,
+				start: 2,
+				end: 999,
+				config: config(),
+				provider: provider(),
+			}),
 		).rejects.toThrow(/not a range inside/)
 	})
 
@@ -349,7 +404,13 @@ describe('a host can ask for compaction', () => {
 		const messages = history(4)
 
 		await expect(
-			compactRegion({ messages, start: 2, end: 2, config: config(), provider: provider() }),
+			compactRegion({
+				messages,
+				start: 2,
+				end: 2,
+				config: config(),
+				provider: provider(),
+			}),
 		).resolves.toBeNull()
 	})
 })

@@ -54,7 +54,10 @@ describe('stateless Message[] parsing', () => {
 				role: 'assistant',
 				content: null,
 				toolCalls: [
-					{ ...call('call_a'), metadata: { inputTruncated: true, partialArguments: '{' } },
+					{
+						...call('call_a'),
+						metadata: { inputTruncated: true, partialArguments: '{' },
+					},
 					call('call_b'),
 				],
 				reasoning: [
@@ -114,17 +117,53 @@ describe('stateless Message[] parsing', () => {
 			},
 		]
 
-		expect(parsePriorMessages(JSON.stringify(messages))).toEqual({ ok: true, messages })
+		expect(parsePriorMessages(JSON.stringify(messages))).toEqual({
+			ok: true,
+			messages,
+		})
 	})
 
 	it('keeps empty stdin as an empty history', () => {
 		expect(parsePriorMessages('  \n')).toEqual({ ok: true, messages: [] })
 	})
 
+	it('accepts canonical project-policy provenance and rejects traversal', () => {
+		const valid = {
+			role: 'user',
+			content: 'standing policy',
+			retain: true,
+			source: {
+				type: 'project-instructions',
+				files: ['AGENTS.md', 'pkg/AGENTS.md'],
+			},
+		}
+
+		expect(parsePriorMessages(JSON.stringify([valid]))).toEqual({
+			ok: true,
+			messages: [valid],
+		})
+		expect(
+			parsePriorMessages(
+				JSON.stringify([
+					{
+						...valid,
+						source: { type: 'project-instructions', files: ['../AGENTS.md'] },
+					},
+				]),
+			),
+		).toEqual({
+			ok: false,
+			error: 'messages[0].source must contain unique canonical project-relative AGENTS.md paths',
+		})
+	})
+
 	it('refuses malformed JSON without echoing its possibly secret content', () => {
 		const result = parsePriorMessages('[{"secret":"DO_NOT_ECHO"}')
 
-		expect(result).toEqual({ ok: false, error: 'stdin history is not valid JSON' })
+		expect(result).toEqual({
+			ok: false,
+			error: 'stdin history is not valid JSON',
+		})
 		expect(JSON.stringify(result)).not.toContain('DO_NOT_ECHO')
 	})
 
@@ -272,6 +311,9 @@ describe('stateless tool history chronology', () => {
 			needle: 'messages[1] has tool calls without immediate results for: call_x',
 		},
 	])('refuses $name', ({ messages, needle }) => {
-		expect(parsePriorMessages(JSON.stringify(messages))).toEqual({ ok: false, error: needle })
+		expect(parsePriorMessages(JSON.stringify(messages))).toEqual({
+			ok: false,
+			error: needle,
+		})
 	})
 })

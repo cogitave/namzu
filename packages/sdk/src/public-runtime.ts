@@ -273,6 +273,11 @@ export { renderToolSchema } from './registry/tool/schema.js'
 export type { StrictSchemaViolation } from './provider/strict-schema.js'
 export type { ModelIdGrammar, ModelVersion } from './provider/model-version.js'
 export { drainQuery, query } from './runtime/query/index.js'
+export {
+	collapseProjectInstructionSnapshots,
+	isProjectInstructionMessage,
+	replaceProjectInstructionSnapshot,
+} from './runtime/query/project-instructions.js'
 // Mid-run guidance. A host holds the channel and the loop drains it at the
 // tool-result boundary; see the module for why that is the only legal slot.
 export {
@@ -988,12 +993,15 @@ export { deriveChildState } from './types/invocation/index.js'
 export { assertMemoryStatus } from './types/memory/index.js'
 export {
 	createAssistantMessage,
+	createProjectInstructionMessage,
 	createSystemMessage,
 	createToolMessage,
 	hasNonTextBlocks,
 	toToolResultBlocks,
 	toolResultToText,
 	createUserMessage,
+	isProjectInstructionMessageSource,
+	MAX_PROJECT_INSTRUCTION_SOURCE_FILES,
 } from './types/message/index.js'
 export { isTerminalPlanStatus } from './types/plan/index.js'
 export {

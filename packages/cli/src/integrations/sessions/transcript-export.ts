@@ -16,6 +16,7 @@ import {
 	readRunEventsIn,
 	readRunMessagesIn,
 } from '@namzu/sdk'
+import { visibleProjectInstructionPath } from '../../context/project-path.js'
 import type { CliSessions } from './store.js'
 import type {
 	ConversationTurnEvidence,
@@ -382,7 +383,16 @@ function renderProducedMessages(messages: readonly Message[]): string[] {
 				)
 				break
 			case 'user':
-				if (message.source?.type === 'goal-round') {
+				if (message.source?.type === 'project-instructions') {
+					lines.push(
+						'## Project instructions',
+						'',
+						...message.source.files.map((file) => `- ${visibleProjectInstructionPath(file)}`),
+						'',
+						message.content,
+						'',
+					)
+				} else if (message.source?.type === 'goal-round') {
 					lines.push(
 						`## Goal round ${message.source.round} / ${message.source.maxGoalRounds}`,
 						'',

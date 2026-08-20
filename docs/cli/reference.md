@@ -47,9 +47,13 @@ something you point at a real repository:
   deliberately does not remember.
 - **The repository gets to state how it wants work done.** `AGENTS.md` is read
   from the working directory upward to the repository root, outermost first, so
-  the file nearest the work has the final word. The files that were loaded are
-  named on stderr, and one that was skipped is named with its reason — a refusal
-  that says nothing is indistinguishable from a project that declared nothing.
+  the file nearest the work has the final word. Successful reads, writes and
+  edits discover nested files during the same session; editing a known file
+  reloads it. Each nested file applies only inside its directory subtree, and a
+  sibling does not leak into another sibling's scope. The files currently in
+  force are named on stderr, and one that was skipped is named with its reason —
+  a refusal that says nothing is indistinguishable from a project that declared
+  nothing.
 - **It connects the tool servers you declare.** Each server's tools arrive
   prefixed with its name (`mcp_tickets_create`), so two servers offering `search`
   do not collide. A server that fails to start is named with its reason: the
@@ -218,9 +222,14 @@ metadata instead of presenting it as if the new model produced it. Missing or
 edited replay state degrades the same way. Opaque reasoning is not shown in the
 interactive transcript and is not added to `run-stream`'s live NDJSON event
 channel. `namzu history --session`, whose contract is the raw model-visible
-message array, includes it. Fresh identity, environment, memory, project and
-skill system prompts are request context rather than conversation state: they
-are rebuilt per turn and never copied into durable session history. A plain
+message array, includes it. Fresh identity, environment, memory and skill
+system prompts are request context rather than conversation state: they are
+rebuilt per turn and never copied into durable session history. Project
+instructions are different: the current file set is a structurally tagged,
+retained context snapshot. It is replaced rather than appended when scope
+changes, survives compaction, and is persisted so `/resume` can rediscover the
+same scopes. The files are re-read from disk on reconstruction; persisted
+policy prose is not treated as fresh authority. A plain
 user/assistant turn appends normally; a structural tool sequence or in-run
 compaction is published as one atomic replacement so a crash cannot expose half
 a provider turn.
