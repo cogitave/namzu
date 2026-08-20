@@ -996,6 +996,10 @@ export { compactNow, compactRegion } from './compaction/manual.js'
 // resume. Export the identity predicate rather than making every host copy the
 // marker string and eventually disagree with the writer.
 export { isCompactionMessage } from './compaction/summary.js'
+// The sibling state-bearing system message. A host that carries a Run's
+// conversation into a fresh query must distinguish this ledger from the fresh
+// identity/environment prompt floor without copying its private header string.
+export { isWorkingMemoryMessage } from './runtime/query/iteration/phases/working-memory.js'
 // Their input and result types, because a function on the public surface whose
 // return type is not on it forces every caller to inline the shape or reach for
 // `any` — and the first host to try (`@namzu/cli`'s `/compact`) did exactly

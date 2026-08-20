@@ -368,6 +368,19 @@ protocol; opaque provider history is stored for the next turn and is available
 through `namzu history --session`, but is never invented as an extra stream
 event.
 
+Without `--session`, stdin has a different contract from `namzu run`: the prompt
+still comes from the command line, while optional stdin is one JSON `Message[]`
+of prior history. Empty stdin means no prior history. Every accepted message is
+forwarded exactly, including inline attachments, reasoning signatures/encrypted
+blocks, citations, tool calls and multimodal tool results; missing optional
+timestamps are not invented. A tool-call batch must be followed immediately by
+exactly one result for every unique call id. Malformed JSON, invalid nested
+fields, orphan/duplicate/unfinished tool sequences, arbitrary historical system
+prompts (kernel compaction and working-memory state are accepted) and stored
+attachment references (there is no attachment store in a stateless run) produce
+`error` then `done` before provider probing. That is a fixable-input exit (`0`),
+never a successful run against silently shortened history.
+
 **`--gate` is the unattended-operator flag.** The run is not allowed to settle
 until every gate command exits `0`. A failure comes back to the model as the next
 turn, naming the command, the exit code and the output; a gate is not re-run when

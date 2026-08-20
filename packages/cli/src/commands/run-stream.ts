@@ -75,6 +75,7 @@ import { compilePermissions } from '../permissions/rules.js'
 import { planTurnPublication } from '../tui/conversation-history.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
+import { parsePriorMessages } from './prior-messages.js'
 import {
 	applyProviderFlags,
 	buildGate,
@@ -99,29 +100,6 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
 		: null
 }
 
-/** Parse stdin as a prior Message[]; tolerate the UI's {role,content} shape. */
-function parsePriorMessages(raw: string): Message[] {
-	const trimmed = raw.trim()
-	if (!trimmed) return []
-	try {
-		const parsed = JSON.parse(trimmed)
-		if (!Array.isArray(parsed)) return []
-		const out: Message[] = []
-		for (const m of parsed) {
-			if (!m || typeof m !== 'object') continue
-			const role = (m as { role?: unknown }).role
-			const content = (m as { content?: unknown }).content
-			if ((role === 'user' || role === 'assistant') && typeof content === 'string') {
-				const ts = (m as { timestamp?: unknown }).timestamp
-				out.push({ role, content, timestamp: typeof ts === 'number' ? ts : Date.now() } as Message)
-			}
-		}
-		return out
-	} catch {
-		return []
-	}
-}
-
 export const runStreamCommand: CommandDef = {
 	name: 'run-stream',
 	description: 'Run a single prompt and stream AgentEvents as NDJSON (for host UIs)',
@@ -139,6 +117,8 @@ export const runStreamCommand: CommandDef = {
 		'',
 		'History is bound with --session <id>. --continue and --resume are `run`',
 		'options and are refused here rather than ignored.',
+		'Without --session, optional stdin must be one complete JSON Message[];',
+		'invalid or provider-incomplete tool history is refused before a run.',
 		'',
 		'The folder has to be trusted: run `namzu` here once and accept the',
 		'prompt, or pass --trust for one run. An untrusted folder emits an error',
@@ -281,7 +261,9 @@ export const runStreamCommand: CommandDef = {
 			}
 		}
 		if (!cli) {
-			prior = parsePriorMessages(await readStdin())
+			const parsed = parsePriorMessages(await readStdin())
+			if (!parsed.ok) return fail(`invalid stdin history: ${parsed.error}`)
+			prior = [...parsed.messages]
 		}
 
 		// Always NDJSON on stderr, regardless of --log-format/NAMZU_LOG_FORMAT
