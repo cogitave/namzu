@@ -446,6 +446,11 @@ function renderRecordedActivity(
 			case 'capability_warning':
 				activity(`Capability warning (${event.capability}): ${event.message}`)
 				break
+			case 'message_history_repaired':
+				activity(
+					`Tool history repaired (${event.source}): ${event.duplicateToolResultsRemoved} duplicate result(s) removed, ${event.orphanedToolResultsRemoved} orphaned result(s) removed, ${event.syntheticToolResultsInserted} interrupted call(s) closed with unknown outcome.`,
+				)
+				break
 			case 'compaction_completed':
 				activity(
 					`Context compacted: ${event.messagesBefore} → ${event.messagesAfter} messages; ${event.tokensBefore.toLocaleString()} → ${event.tokensAfter.toLocaleString()} tokens.`,

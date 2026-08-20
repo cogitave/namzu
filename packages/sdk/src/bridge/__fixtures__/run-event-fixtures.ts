@@ -233,6 +233,14 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		providerId: 'x',
 		message: 'x',
 	}),
+	message_history_repaired: () => ({
+		type: 'message_history_repaired',
+		runId: FIXTURE_RUN_ID,
+		source: 'fresh-history',
+		duplicateToolResultsRemoved: 1,
+		orphanedToolResultsRemoved: 2,
+		syntheticToolResultsInserted: 3,
+	}),
 	token_usage_updated: () => ({
 		type: 'token_usage_updated',
 		runId: FIXTURE_RUN_ID,

@@ -7,7 +7,11 @@ export type {
 	CompactionStrategy,
 } from './types.js'
 
-export type { DanglingResult } from './dangling.js'
+export type {
+	DanglingResult,
+	ToolHistoryRepairReport,
+	ToolHistoryRepairResult,
+} from './dangling.js'
 
 export type { ConversationManager } from './interface.js'
 
@@ -35,8 +39,10 @@ export type { CompactionVerificationOptions } from './verifier.js'
 
 export {
 	findDanglingMessages,
-	removeDanglingMessages,
 	findSafeTrimIndex,
+	removeDanglingMessages,
+	repairToolMessageHistory,
+	toolHistoryRepairChanged,
 } from './dangling.js'
 
 export { findRetainedIndices } from './retention.js'

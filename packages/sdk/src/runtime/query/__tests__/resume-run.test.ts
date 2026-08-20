@@ -10,8 +10,13 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemoryCheckpointStore as RealInMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import {
+	createAssistantMessage,
+	createToolMessage,
+	createUserMessage,
+} from '../../../types/message/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
+import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { resumeRun } from '../resume-run.js'
 import type { RunStateScope } from '../run-state.js'
@@ -177,6 +182,67 @@ describe('a run is picked back up from its store', () => {
 		// so its id, budgets and trace all have to carry across.
 		expect(outcome.run.id).toBe(SCOPE.runId)
 		expect(outcome.state.checkpointId).toBe('ckpt_1')
+	})
+
+	it('repairs only abandoned checkpoint tool history before the resumed provider call', async () => {
+		const store = new InMemoryCheckpointStore()
+		const abandonedCall = {
+			id: 'call-abandoned',
+			type: 'function' as const,
+			function: { name: 'charge_card', arguments: '{"amount":42}' },
+		}
+		const assistant = createAssistantMessage('charging', [abandonedCall])
+		await store.writeCheckpoint(
+			SCOPE,
+			checkpoint({
+				messages: [
+					createUserMessage('charge once'),
+					assistant,
+					createUserMessage('the process restarted'),
+					createToolMessage('too late to answer backwards', abandonedCall.id),
+				],
+			}),
+		)
+		const provider = new MockLLMProvider({ turns: [{ text: 'checked state first' }] })
+		const events: RunEvent[] = []
+
+		const resumeParams = await baseParams(store)
+		const outcome = await resumeRun({
+			...resumeParams,
+			provider,
+			runConfig: { ...resumeParams.runConfig, maxIterations: 4 },
+			listener: (event) => {
+				events.push(event)
+			},
+		})
+
+		expect(outcome.resumed).toBe(true)
+		if (!outcome.resumed) return
+		const sent = provider.requests[0]?.messages ?? []
+		const ownerIndex = sent.findIndex(
+			(message) =>
+				message.role === 'assistant' &&
+				message.toolCalls?.some((call) => call.id === abandonedCall.id),
+		)
+		expect(ownerIndex).toBeGreaterThanOrEqual(0)
+		expect(sent[ownerIndex + 1]).toMatchObject({
+			role: 'tool',
+			toolCallId: abandonedCall.id,
+			isError: true,
+		})
+		expect(sent[ownerIndex + 1]?.content).toContain('outcome is unknown')
+		expect(sent[ownerIndex + 2]?.role).toBe('user')
+		expect(sent).not.toContainEqual(
+			expect.objectContaining({ content: 'too late to answer backwards' }),
+		)
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: 'message_history_repaired',
+				source: 'abandoned-checkpoint',
+				orphanedToolResultsRemoved: 1,
+				syntheticToolResultsInserted: 1,
+			}),
+		)
 	})
 
 	it('carries the spent budget forward instead of granting a fresh one', async () => {

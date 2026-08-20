@@ -1063,10 +1063,15 @@ export {
 	findRetainedIndices,
 	NullManager,
 	removeDanglingMessages,
+	repairToolMessageHistory,
 	serializeState,
 	SlidingWindowManager,
 	StructuredCompactionManager,
 	WorkingStateManager,
+} from './compaction/index.js'
+export type {
+	ToolHistoryRepairReport,
+	ToolHistoryRepairResult,
 } from './compaction/index.js'
 
 // ─── loop control ────────────────────────────────────────────────────────

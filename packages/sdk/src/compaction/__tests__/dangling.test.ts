@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
+import { NamzuError } from '../../types/errors/index.js'
 import type {
 	AssistantMessage,
 	Message,
 	ToolMessage,
 	UserMessage,
 } from '../../types/message/index.js'
-import { findDanglingMessages, findSafeTrimIndex, removeDanglingMessages } from '../dangling.js'
+import {
+	findDanglingMessages,
+	findSafeTrimIndex,
+	removeDanglingMessages,
+	repairToolMessageHistory,
+	toolHistoryRepairChanged,
+} from '../dangling.js'
 
 /**
  * Test helpers to create messages with proper typing.
@@ -148,6 +155,132 @@ describe('findDanglingMessages', () => {
 		expect(result.assistantsWithUnmatchedCalls).toContain(1)
 		expect(result.orphanedToolMessages).toContain(2)
 		expect(result.orphanedToolMessages).toContain(5)
+	})
+
+	it('does not let a future call own an earlier or displaced result', () => {
+		const messages: Message[] = [
+			createUserMessage('start'),
+			createToolMessage('arrived before its call', 'call-future'),
+			createAssistantMessage('calling', ['call-displaced']),
+			createUserMessage('this closes the immediate result batch'),
+			createToolMessage('arrived too late', 'call-displaced'),
+			createAssistantMessage('future owner', ['call-future']),
+		]
+
+		const result = findDanglingMessages(messages)
+
+		expect(result.isValid).toBe(false)
+		expect(result.assistantsWithUnmatchedCalls).toEqual([2, 5])
+		expect(result.orphanedToolMessages).toEqual([1, 4])
+	})
+
+	it('marks the earlier immediate duplicate as orphaned so the last observed result wins', () => {
+		const assistant = createAssistantMessage('calling', ['call-duplicate'])
+		const stale = createToolMessage('synthetic or stale', 'call-duplicate')
+		const observed = createToolMessage('later observed result', 'call-duplicate')
+		const messages: Message[] = [createUserMessage('start'), assistant, stale, observed]
+
+		expect(findDanglingMessages(messages)).toMatchObject({
+			assistantsWithUnmatchedCalls: [],
+			orphanedToolMessages: [2],
+			isValid: false,
+		})
+		expect(removeDanglingMessages(messages)).toEqual([messages[0], assistant, observed])
+	})
+})
+
+describe('repairToolMessageHistory', () => {
+	it('repairs the full chronological history without changing durable input fields', () => {
+		const opening = {
+			...createUserMessage('inspect the records'),
+			attachments: [{ data: 'aW1hZ2U=', mediaType: 'image/png' }],
+			retain: true,
+		} satisfies UserMessage
+		const assistant = {
+			...createAssistantMessage('working', ['call-a', 'call-b']),
+			reasoning: [{ type: 'thinking' as const, text: 'private', signature: 'signed' }],
+			source: {
+				type: 'model' as const,
+				providerId: 'provider-a',
+				model: 'model-a',
+				chainIndex: 0,
+				replayState: { version: 1, opaque: 'keep-exactly' },
+			},
+			retain: true,
+		} satisfies AssistantMessage
+		const realResult = { ...createToolMessage('real result', 'call-a'), retain: true }
+		const messages: Message[] = [
+			opening,
+			createToolMessage('result before a future call', 'call-future'),
+			assistant,
+			createToolMessage('stale duplicate', 'call-a'),
+			realResult,
+			createToolMessage('wrong immediate result', 'call-wrong'),
+			createUserMessage('the batch was interrupted here'),
+			createToolMessage('displaced result', 'call-b'),
+			createAssistantMessage('future owner', ['call-future']),
+			createUserMessage('continue'),
+		]
+		const before = structuredClone(messages)
+
+		const repaired = repairToolMessageHistory(messages)
+
+		expect(messages).toEqual(before)
+		expect(repaired.report).toEqual({
+			duplicateToolResultsRemoved: 1,
+			orphanedToolResultsRemoved: 3,
+			syntheticToolResultsInserted: 2,
+		})
+		expect(toolHistoryRepairChanged(repaired.report)).toBe(true)
+		expect(findDanglingMessages(repaired.messages).isValid).toBe(true)
+
+		const keptAssistant = repaired.messages.find((message) => message === assistant)
+		expect(keptAssistant).toBe(assistant)
+		expect(repaired.messages.find((message) => message === opening)).toBe(opening)
+		expect(repaired.messages.find((message) => message === realResult)).toBe(realResult)
+		expect(JSON.stringify(keptAssistant)).toContain('keep-exactly')
+
+		const callAResults = repaired.messages.filter(
+			(message): message is ToolMessage =>
+				message.role === 'tool' && message.toolCallId === 'call-a',
+		)
+		expect(callAResults).toEqual([realResult])
+		for (const id of ['call-b', 'call-future']) {
+			const synthetic = repaired.messages.find(
+				(message): message is ToolMessage => message.role === 'tool' && message.toolCallId === id,
+			)
+			expect(synthetic?.isError).toBe(true)
+			expect(synthetic?.content).toContain('outcome is unknown')
+			expect(synthetic?.content).toContain('read-only or idempotent')
+		}
+
+		const second = repairToolMessageHistory(repaired.messages)
+		expect(second.messages).toEqual(repaired.messages)
+		expect(second.report).toEqual({
+			duplicateToolResultsRemoved: 0,
+			orphanedToolResultsRemoved: 0,
+			syntheticToolResultsInserted: 0,
+		})
+		expect(toolHistoryRepairChanged(second.report)).toBe(false)
+	})
+
+	it('fails closed on a duplicate call id instead of rewriting native assistant state', () => {
+		const messages: Message[] = [
+			createUserMessage('start'),
+			createAssistantMessage('first', ['call-same']),
+			createToolMessage('done', 'call-same'),
+			createAssistantMessage('second', ['call-same']),
+		]
+
+		expect(() => repairToolMessageHistory(messages)).toThrow(NamzuError)
+		try {
+			repairToolMessageHistory(messages)
+		} catch (error) {
+			expect(error).toMatchObject({
+				code: 'invalid_config',
+				details: { messageIndex: 3, callIndex: 0, toolCallId: 'call-same' },
+			})
+		}
 	})
 })
 

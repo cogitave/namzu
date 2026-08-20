@@ -6,7 +6,7 @@ description: >-
   with an identity, a budget, a permission boundary and a durable record.
   Renders no UI, hosts no service, and has no preferred model vendor.
 tags: [readme, package, sdk, agent-kernel]
-timestamp: 2026-08-17T00:00:00Z
+timestamp: 2026-08-20T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -122,6 +122,14 @@ unchanged.
 | **Durability** | checkpoints a run resumes from, and a record that outlives the process |
 | **Compaction** | a conversation about to overflow is shrunk without being corrupted |
 | **Observability** | OpenTelemetry spans and metrics, and a log pipeline you own the sink for |
+
+Before a provider receives carried history, the kernel validates tool-call
+chronology. Orphaned and displaced results are removed, abandoned calls receive
+an explicit unknown-outcome error result, and duplicate call ids fail closed.
+Durable approval or crash-resume authority is resolved first so an owned call
+is completed exactly once. Hosts receive `message_history_repaired` with source
+and counts before the model call; conversation and tool content stay out of the
+event.
 
 `TopicManager` is the lifecycle authority for the durable subject above a
 session. Supply it to agent and handoff dependencies as `topicManager`; spawn

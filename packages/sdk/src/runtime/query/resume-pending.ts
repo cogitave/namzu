@@ -86,7 +86,7 @@ export function planPendingResume(
 		return null
 	}
 
-	const assistant = lastAssistantWithUnansweredCalls(checkpoint.messages)
+	const assistant = lastUnansweredBatch(checkpoint.messages)?.assistant
 	if (!assistant?.toolCalls || assistant.toolCalls.length === 0) {
 		log.warn('Checkpoint records a tool_review park but has no unanswered tool calls', {
 			'namzu.checkpoint.id': checkpoint.id,
@@ -142,7 +142,7 @@ function planQuestionResume(
 	questionId: string,
 	log: Logger,
 ): PendingResumePlan | null {
-	const assistant = lastAssistantWithUnansweredCalls(checkpoint.messages)
+	const assistant = lastUnansweredBatch(checkpoint.messages)?.assistant
 	if (!assistant?.toolCalls || assistant.toolCalls.length === 0) {
 		log.warn('Checkpoint records a question park but has no unanswered tool calls', {
 			'namzu.checkpoint.id': checkpoint.id,
@@ -207,7 +207,7 @@ export function planCrashResume(
 	completed: ReadonlyMap<string, unknown>,
 	log: Logger,
 ): PendingResumePlan | null {
-	const assistant = lastAssistantWithUnansweredCalls(checkpoint.messages)
+	const assistant = lastUnansweredBatch(checkpoint.messages)?.assistant
 	const calls = assistant?.toolCalls
 	if (!assistant || !calls || calls.length === 0) return null
 
@@ -376,29 +376,31 @@ function synthesizeResponse(assistant: AssistantMessage): ChatCompletionResponse
  * result is in the history and needs no recovery.
  */
 export function unansweredToolCalls(messages: readonly Message[]): ToolCall[] {
-	const assistant = lastAssistantWithUnansweredCalls(messages)
-	if (!assistant?.toolCalls) return []
-
-	const answered = new Set<string>()
-	for (const msg of messages) {
-		if (msg.role === 'tool' && msg.toolCallId) answered.add(msg.toolCallId)
-	}
-	return assistant.toolCalls.filter((tc) => !answered.has(tc.id))
+	return lastUnansweredBatch(messages)?.unanswered ?? []
 }
 
-function lastAssistantWithUnansweredCalls(messages: readonly Message[]): AssistantMessage | null {
-	const answered = new Set<string>()
-	for (const msg of messages) {
-		if (msg.role === 'tool' && msg.toolCallId) answered.add(msg.toolCallId)
-	}
-
+function lastUnansweredBatch(
+	messages: readonly Message[],
+): { readonly assistant: AssistantMessage; readonly unanswered: ToolCall[] } | null {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i]
 		if (msg?.role !== 'assistant') continue
 		const assistant = msg as AssistantMessage
 		const calls = assistant.toolCalls
 		if (!calls || calls.length === 0) continue
-		if (calls.some((tc) => !answered.has(tc.id))) return assistant
+
+		// Only the contiguous result run immediately after this assistant owns
+		// its calls. A future/displaced result cannot prove the call completed;
+		// treating it as one would skip both crash recovery and the conservative
+		// synthetic outcome that prevents a blind side-effect retry.
+		const answered = new Set<string>()
+		for (let resultIndex = i + 1; resultIndex < messages.length; resultIndex++) {
+			const result = messages[resultIndex]
+			if (result?.role !== 'tool') break
+			answered.add(result.toolCallId)
+		}
+		const unanswered = calls.filter((call) => !answered.has(call.id))
+		if (unanswered.length > 0) return { assistant, unanswered }
 		return null
 	}
 	return null

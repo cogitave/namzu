@@ -1745,6 +1745,14 @@ export function App({ ctx }: AppProps) {
 						'⚠',
 					)
 					break
+				case 'history-repair':
+					pushMessage(
+						'system',
+						`History warning (${event.source}): ${event.text}`,
+						false,
+						'⚠',
+					)
+					break
 				case 'done':
 					// `run_completed` is not synonymous with success: budgets,
 					// cancellation and output guardrails arrive through this event too.

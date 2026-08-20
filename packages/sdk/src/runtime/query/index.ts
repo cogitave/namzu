@@ -8,7 +8,11 @@ import {
 } from '../../advisory/index.js'
 import { drainQueuedMessages } from '../../agents/handle.js'
 import { AuthorizationGate } from '../../authorization/gate.js'
-import { findDanglingMessages, removeDanglingMessages } from '../../compaction/dangling.js'
+import {
+	type ToolHistoryRepairReport,
+	repairToolMessageHistory,
+	toolHistoryRepairChanged,
+} from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { ContextReducer } from '../../compaction/reducer.js'
@@ -62,7 +66,11 @@ import {
 } from '../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
-import { type Message, createSystemMessage } from '../../types/message/index.js'
+import {
+	type AssistantMessage,
+	type Message,
+	createSystemMessage,
+} from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
@@ -870,6 +878,67 @@ async function resolveProviderContextWindow(
 	}
 }
 
+interface PendingHistoryRepairEvent {
+	readonly source: 'fresh-history' | 'abandoned-checkpoint'
+	readonly report: ToolHistoryRepairReport
+}
+
+/**
+ * Project historical system messages exactly as a new run will persist them.
+ *
+ * Arbitrary historical prompt floors are rebuilt for this run and therefore
+ * never reach its provider-bound conversation. Repair must happen AFTER that
+ * removal: treating a soon-to-be-dropped system message as a tool-result
+ * boundary can replace an exact real result with an invented unknown outcome.
+ * The two state-bearing system forms survive; fresh inherited compaction is
+ * pinned until this run can prove it reconstructed equivalent state.
+ */
+function projectStateBearingHistory(
+	messages: readonly Message[],
+	options: { readonly pinCompaction: boolean },
+): Message[] {
+	const projected: Message[] = []
+	for (const message of messages) {
+		if (message.role !== 'system') {
+			projected.push(message)
+			continue
+		}
+		if (isCompactionMessage(message.content)) {
+			projected.push(options.pinCompaction ? { ...message, retain: true } : message)
+		} else if (isWorkingMemoryMessage(message.content)) {
+			projected.push(message)
+		}
+	}
+	return projected
+}
+
+/**
+ * Remove the incomplete turn still owned by a durable resume plan.
+ *
+ * The plan re-appends the exact assistant with real/denied/recovered results.
+ * Generic history repair must not synthesize a competing result first. Any
+ * partial results for that turn are removed too; the executor reconstructs
+ * them from the durable run transcript through `recoveredResults`.
+ */
+function withoutOwnedResumeTurn(
+	messages: readonly Message[],
+	assistant: AssistantMessage,
+): Message[] {
+	const ownerIndex = messages.lastIndexOf(assistant)
+	if (ownerIndex < 0) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: 'A pending checkpoint resume plan does not own a message in its checkpoint.',
+		})
+	}
+	const ownedIds = new Set((assistant.toolCalls ?? []).map((call) => call.id))
+	return messages.filter(
+		(message, index) =>
+			index !== ownerIndex &&
+			!(index > ownerIndex && message.role === 'tool' && ownedIds.has(message.toolCallId)),
+	)
+}
+
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
 	// Resolved at the DOOR, before a run id exists or a logger is built.
 	// A caller who set both spellings of a renamed field has a config bug,
@@ -1073,7 +1142,31 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// image is a model answering about a picture it never saw.
 	const seeded: Message[] =
 		queuedForThisRun.length > 0 ? [...queuedForThisRun, ...params.messages] : params.messages
-	const initialMessages: Message[] = [...(await resolveAttachments(seeded, params.attachmentStore))]
+	const resolvedInitialMessages: Message[] = [
+		...(await resolveAttachments(seeded, params.attachmentStore)),
+	]
+	const pendingHistoryRepairs: PendingHistoryRepairEvent[] = []
+	const projectedInitialMessages =
+		params.resumeFromCheckpoint || params.continuationMode
+			? resolvedInitialMessages
+			: projectStateBearingHistory(resolvedInitialMessages, { pinCompaction: true })
+	const initialRepair = params.resumeFromCheckpoint
+		? { messages: projectedInitialMessages, report: undefined }
+		: repairToolMessageHistory(projectedInitialMessages)
+	const initialMessages = initialRepair.messages
+	if (initialRepair.report && toolHistoryRepairChanged(initialRepair.report)) {
+		pendingHistoryRepairs.push({ source: 'fresh-history', report: initialRepair.report })
+		log.warn('Repaired provider-invalid tool history before starting the run', {
+			[NAMZU.RUN_ID]: runId,
+			'namzu.history.source': 'fresh-history',
+			'namzu.history.duplicate_tool_results_removed':
+				initialRepair.report.duplicateToolResultsRemoved,
+			'namzu.history.orphaned_tool_results_removed':
+				initialRepair.report.orphanedToolResultsRemoved,
+			'namzu.history.synthetic_tool_results_inserted':
+				initialRepair.report.syntheticToolResultsInserted,
+		})
+	}
 
 	const ctx = RunContextFactory.build({
 		...(topicState ? { topicPermissionMode: topicState.permissionMode } : {}),
@@ -1748,6 +1841,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 			if (params.resumeFromCheckpoint) {
 				const checkpoint = await checkpointMgr.restore(params.resumeFromCheckpoint)
+				const projectedCheckpoint = {
+					...checkpoint,
+					messages: projectStateBearingHistory(checkpoint.messages, { pinCompaction: false }),
+				}
 				await eventTranslator.emitEvent({
 					type: 'run_resuming',
 					runId: ctx.runMgr.id,
@@ -1801,8 +1898,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				// re-decides, so "yes, delete that row" degrades into "ask
 				// again and hope it asks for the same thing".
 				pendingResume =
-					params.pendingDecision && checkpoint.pending
-						? planPendingResume(checkpoint, params.pendingDecision, ctx.log)
+					params.pendingDecision && projectedCheckpoint.pending
+						? planPendingResume(projectedCheckpoint, params.pendingDecision, ctx.log)
 						: null
 
 				// Results of tools that finished before the process died. The
@@ -1811,7 +1908,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				// durable all along — it was simply never read back, and the
 				// resumed run re-ran calls that had already charged a card or
 				// sent an email.
-				const unanswered = unansweredToolCalls(checkpoint.messages)
+				const unanswered = unansweredToolCalls(projectedCheckpoint.messages)
 				recoveredResults =
 					unanswered.length > 0
 						? await recoverCompletedCalls(ctx.runMgr, unanswered, ctx.log)
@@ -1823,32 +1920,35 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				// the transcript proves execution had begun — a tool-review
 				// park has no completions and keeps the cheap repair below.
 				if (!pendingResume && recoveredResults.size > 0) {
-					pendingResume = planCrashResume(checkpoint, recoveredResults, ctx.log)
+					pendingResume = planCrashResume(projectedCheckpoint, recoveredResults, ctx.log)
 				}
 
-				// A checkpoint taken at a tool-review park snapshots the
-				// assistant turn AFTER its `tool_use` blocks but BEFORE any
-				// `tool_result` exists, so replaying it verbatim would send a
-				// malformed request on the first model call of the resumed
-				// run. Repair the incomplete turn rather than inheriting it:
-				// the model re-decides from the last valid state.
-				//
-				// The pending-decision path uses the SAME repair: it strips
-				// the unanswered turn here and `applyPendingResume` re-appends
-				// it together with the results that answer it, so the history
-				// stays well-formed either way.
-				const dangling = findDanglingMessages(checkpoint.messages)
-				const restoredMessages = dangling.isValid
-					? checkpoint.messages
-					: removeDanglingMessages(checkpoint.messages)
-				if (!dangling.isValid && !pendingResume) {
-					ctx.log.warn('Checkpoint contained unanswered tool calls — repaired on restore', {
+				// An incomplete turn with a durable owner is NOT abandoned. A
+				// pending decision or crash-resume plan re-appends that exact
+				// assistant with real/denied/recovered results below. Remove it
+				// from the generic pass so no synthetic result competes with the
+				// authority that still owns the call. Everything else is abandoned
+				// history and is repaired conservatively rather than deleted.
+				const abandonedCheckpointMessages = pendingResume
+					? withoutOwnedResumeTurn(projectedCheckpoint.messages, pendingResume.assistant)
+					: projectedCheckpoint.messages
+				const checkpointRepair = repairToolMessageHistory(abandonedCheckpointMessages)
+				const restoredMessages = checkpointRepair.messages
+				if (toolHistoryRepairChanged(checkpointRepair.report)) {
+					pendingHistoryRepairs.push({
+						source: 'abandoned-checkpoint',
+						report: checkpointRepair.report,
+					})
+					ctx.log.warn('Repaired abandoned tool history while restoring a checkpoint', {
 						[NAMZU.RUN_ID]: ctx.runMgr.id,
 						'namzu.checkpoint.id': checkpoint.id,
-						'namzu.runtime.unanswered_assistant_turns':
-							dangling.assistantsWithUnmatchedCalls.length,
-						'namzu.runtime.orphaned_tool_messages': dangling.orphanedToolMessages.length,
-						'namzu.runtime.removed': checkpoint.messages.length - restoredMessages.length,
+						'namzu.history.source': 'abandoned-checkpoint',
+						'namzu.history.duplicate_tool_results_removed':
+							checkpointRepair.report.duplicateToolResultsRemoved,
+						'namzu.history.orphaned_tool_results_removed':
+							checkpointRepair.report.orphanedToolResultsRemoved,
+						'namzu.history.synthetic_tool_results_inserted':
+							checkpointRepair.report.syntheticToolResultsInserted,
 					})
 				}
 
@@ -1938,6 +2038,21 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// before it takes effect, so the handout cannot precede the run
 			// being writable.
 			params.onApprovalPolicy?.(approvalPolicy)
+
+			// History repair happens before the run manager sees the first model
+			// request, but its durable event cannot precede run_started: there is no
+			// writable run log until that event initializes it. Emit the measured
+			// counts here, still before any provider call, so hosts can tell that the
+			// model received a repaired projection rather than the raw history.
+			for (const repair of pendingHistoryRepairs) {
+				await eventTranslator.emitEvent({
+					type: 'message_history_repaired',
+					runId: ctx.runMgr.id,
+					source: repair.source,
+					...repair.report,
+				})
+				yield* eventTranslator.drainPending()
+			}
 
 			// Surface capability degradation to the host as run events —
 			// explicit, not silent (the log.warn above fires at setup time;

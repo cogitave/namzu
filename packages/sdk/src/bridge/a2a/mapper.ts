@@ -82,6 +82,11 @@ const MAPPING: {
 	// Capability degradation is host-facing diagnostics, not A2A task state.
 	capability_warning: null,
 
+	// Local history normalization is an operator/audit fact. The peer receives
+	// only the repaired provider-valid conversation, never this host's storage
+	// diagnosis or its counts.
+	message_history_repaired: null,
+
 	// Who approves on THIS side is an operator fact about this host, not a
 	// transition in the task the peer is watching. Forwarding it would also
 	// tell a remote caller how loosely its work is being supervised, which

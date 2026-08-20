@@ -130,7 +130,13 @@ async function publishCompleteRun(
 			stopReason: 'end_turn',
 			content: 'Done.',
 		}),
-		recordedEvent('run_completed', runId, 6, { result: 'I will **check**.Done.' }),
+		recordedEvent('message_history_repaired', runId, 6, {
+			source: 'fresh-history',
+			duplicateToolResultsRemoved: 1,
+			orphanedToolResultsRemoved: 2,
+			syntheticToolResultsInserted: 3,
+		}),
+		recordedEvent('run_completed', runId, 7, { result: 'I will **check**.Done.' }),
 	]
 	await writeFile(
 		join(runDir, 'transcript.jsonl'),
@@ -141,7 +147,7 @@ async function publishCompleteRun(
 		join(runDir, 'messages.json'),
 		`${JSON.stringify({
 			format: 'namzu.run-message-snapshot.v1',
-			throughEventSeq: options.snapshotSeq ?? 6,
+			throughEventSeq: options.snapshotSeq ?? 7,
 			messages,
 		})}\n`,
 		'utf-8',
@@ -243,6 +249,8 @@ describe('verified conversation Markdown', () => {
 		expect(projected.markdown).not.toContain('SECRET-IMAGE-BYTES')
 		expect(projected.markdown).not.toContain('SECRET-PDF-BYTES')
 		expect(projected.markdown).toContain('binary data omitted')
+		expect(projected.markdown).toContain('Tool history repaired (fresh-history)')
+		expect(projected.markdown).toContain('3 interrupted call(s) closed with unknown outcome')
 	})
 
 	it('does not let a run belonging to a sibling session block this conversation', async () => {

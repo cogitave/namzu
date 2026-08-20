@@ -233,6 +233,11 @@ export type AgentEvent =
 			readonly capability: Extract<RunEvent, { type: 'capability_warning' }>['capability']
 			readonly text: string
 	  }
+	| {
+			readonly kind: 'history-repair'
+			readonly source: Extract<RunEvent, { type: 'message_history_repaired' }>['source']
+			readonly text: string
+	  }
 	| { readonly kind: 'task'; readonly subject: string; readonly status: string }
 	/**
 	 * The turn ended without throwing — which is not the same as succeeding.
@@ -2205,6 +2210,24 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				capability: event.capability,
 				text: event.message,
 			}
+		case 'message_history_repaired': {
+			const changes = [
+				event.duplicateToolResultsRemoved > 0
+					? `${event.duplicateToolResultsRemoved} duplicate result${event.duplicateToolResultsRemoved === 1 ? '' : 's'} removed`
+					: null,
+				event.orphanedToolResultsRemoved > 0
+					? `${event.orphanedToolResultsRemoved} orphaned result${event.orphanedToolResultsRemoved === 1 ? '' : 's'} removed`
+					: null,
+				event.syntheticToolResultsInserted > 0
+					? `${event.syntheticToolResultsInserted} interrupted call${event.syntheticToolResultsInserted === 1 ? '' : 's'} closed with unknown outcome`
+					: null,
+			].filter((part): part is string => part !== null)
+			return {
+				kind: 'history-repair',
+				source: event.source,
+				text: `Tool history repaired before the model call: ${changes.join('; ')}. Verify external state before retrying non-idempotent tools.`,
+			}
+		}
 		case 'task_created':
 			return { kind: 'task', subject: event.subject, status: event.status }
 		case 'task_updated':

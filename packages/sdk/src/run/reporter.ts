@@ -343,6 +343,16 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'message_history_repaired':
+				log.warn('Repaired provider-invalid tool history', {
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.history.source': event.source,
+					'namzu.history.duplicate_tool_results_removed': event.duplicateToolResultsRemoved,
+					'namzu.history.orphaned_tool_results_removed': event.orphanedToolResultsRemoved,
+					'namzu.history.synthetic_tool_results_inserted': event.syntheticToolResultsInserted,
+				})
+				break
+
 			case 'tool_progress':
 				// Debug, not info: a long tool can emit many of these and they
 				// are a live-view signal, not a run milestone.

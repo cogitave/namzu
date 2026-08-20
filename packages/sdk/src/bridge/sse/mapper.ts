@@ -383,6 +383,9 @@ const MAPPING: {
 	// from the RunEvent stream directly; promoting it to the SSE contract
 	// needs a StreamEventType addition first.
 	capability_warning: null,
+	// Counts describing a local storage repair are likewise a RunEvent host
+	// diagnostic, not yet part of the public SSE wire vocabulary.
+	message_history_repaired: null,
 
 	agent_pending: {
 		wire: 'agent.pending',

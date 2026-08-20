@@ -6,7 +6,7 @@ description: >-
   you get. Interactive sessions, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
-timestamp: 2026-08-17T00:00:00Z
+timestamp: 2026-08-20T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -78,6 +78,12 @@ namzu run-stream "refactor the parser" | jq -c 'select(.type == "tool_call")'
 run happens, so a script can act on a tool call before the run is over. Both
 take `--verbose`/`--quiet`, and both write logs to stderr so stdout stays a
 clean protocol stream.
+
+The interactive transcript also shows provider capability mismatches and
+tool-history repairs before the affected answer. A history warning reports the
+source and measured rewrite counts without echoing tool content, and tells the
+operator to verify external state before retrying a non-idempotent interrupted
+call.
 
 ## Documentation
 

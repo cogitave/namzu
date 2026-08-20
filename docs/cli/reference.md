@@ -243,6 +243,16 @@ or refuses the turn, including the provider that made the declaration. This is
 why a PDF or pasted image rejection reads as a capability boundary rather than
 as an unexplained model failure.
 
+Imported or resumed history can also contain an interrupted tool batch that a
+provider would reject, or accept in a shape that invites the model to repeat a
+side effect. When the kernel repairs abandoned history, the interactive
+transcript adds a `History warning` before the next answer. It names whether the
+source was fresh history or an abandoned checkpoint, reports only counts, and
+reminds the operator to verify external state before retrying non-idempotent
+tools. Tool inputs and results are not copied into the warning. A checkpoint
+call still owned by an approval or crash-resume record is completed by that path
+instead, so the warning never stands in for a durable human decision.
+
 **`/copy` asks the terminal to copy the latest available assistant output.** It
 sends the raw, unrendered Markdown through OSC 52 instead of reconstructing text
 from the screen or starting a host clipboard process. While a new answer is

@@ -263,6 +263,21 @@ describe('which calls are worth asking about', () => {
 		expect(unansweredToolCalls(messages).map((tc) => tc.id)).toEqual(['t2'])
 	})
 
+	it('does not let a result before or after the immediate batch answer by global id', () => {
+		const before: Message[] = [
+			{ role: 'tool', content: 'too early', toolCallId: 't1' } as Message,
+			...parkedBatch(),
+		]
+		const displaced: Message[] = [
+			...parkedBatch(),
+			createUserMessage('a later turn started'),
+			{ role: 'tool', content: 'too late', toolCallId: 't1' } as Message,
+		]
+
+		expect(unansweredToolCalls(before).map((tc) => tc.id)).toEqual(['t1', 't2'])
+		expect(unansweredToolCalls(displaced).map((tc) => tc.id)).toEqual(['t1', 't2'])
+	})
+
 	it('is empty when the history holds no tool calls at all', () => {
 		expect(unansweredToolCalls([createUserMessage('hello')])).toEqual([])
 	})

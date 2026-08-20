@@ -4,6 +4,7 @@ exports[`every RunEvent has a decided place on the SSE wire > declines nothing b
 [
   "capability_warning",
   "compaction_shed",
+  "message_history_repaired",
   "request_envelope",
   "run_completed",
   "run_failed",
@@ -154,6 +155,7 @@ exports[`every RunEvent has a decided place on the SSE wire > pins the wire name
     ],
     "wire": "message.completed",
   },
+  "message_history_repaired": null,
   "message_started": {
     "keys": [
       "iteration",

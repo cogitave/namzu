@@ -591,6 +591,23 @@ type CoreRunEvent =
 			providerId: string
 			message: string
 	  }
+	/**
+	 * Provider-invalid tool history was repaired before the first model call.
+	 *
+	 * Counts, not content: a host can surface and audit the rewrite without
+	 * copying tool output or conversation secrets into its event channel.
+	 * `fresh-history` names caller-supplied history. `abandoned-checkpoint`
+	 * excludes any incomplete turn still owned by a durable pending/recovered
+	 * resume plan; that turn is completed by its authority path instead.
+	 */
+	| {
+			type: 'message_history_repaired'
+			runId: RunId
+			source: 'fresh-history' | 'abandoned-checkpoint'
+			duplicateToolResultsRemoved: number
+			orphanedToolResultsRemoved: number
+			syntheticToolResultsInserted: number
+	  }
 	| {
 			type: 'token_usage_updated'
 			runId: RunId

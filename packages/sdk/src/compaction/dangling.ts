@@ -1,4 +1,5 @@
-import type { Message } from '../types/message/index.js'
+import { NamzuError } from '../types/errors/index.js'
+import type { AssistantMessage, Message, ToolCall, ToolMessage } from '../types/message/index.js'
 
 /**
  * Represents the result of scanning messages for dangling tool call/result pairs.
@@ -68,54 +69,73 @@ function isToolMessage(message: Message): boolean {
  * // result.assistantsWithUnmatchedCalls = [1] (index 1 has unmatched tool call)
  * ```
  */
-export function findDanglingMessages(messages: Message[]): DanglingResult {
+export function findDanglingMessages(messages: readonly Message[]): DanglingResult {
 	const assistantsWithUnmatchedCalls: number[] = []
 	const orphanedToolMessages: number[] = []
+	const seenToolCallIds = new Set<string>()
 
-	// Build a set of all tool call IDs that exist in assistant messages
-	// along with their coverage map (which tool messages satisfy them)
-	const toolCallIds = new Map<string, { assistantIndex: number; satisfied: boolean }>()
+	// Provider tool results are not joins over a conversation-wide id map.
+	// They form one contiguous batch immediately after the assistant turn that
+	// declared them. A future call cannot own an earlier result, and a result
+	// displaced past a user/assistant/system message cannot answer backwards.
+	let index = 0
+	while (index < messages.length) {
+		const message = messages[index]
+		if (!message) {
+			index++
+			continue
+		}
 
-	for (let i = 0; i < messages.length; i++) {
-		const message = messages[i]
-		if (!message) continue
+		if (!hasToolCalls(message)) {
+			if (isToolMessage(message)) orphanedToolMessages.push(index)
+			index++
+			continue
+		}
 
-		if (hasToolCalls(message)) {
-			// Record all tool calls from this assistant message
-			const assistantMsg = message as { toolCalls?: Array<{ id: string }> }
-			if (assistantMsg.toolCalls) {
-				for (const toolCall of assistantMsg.toolCalls) {
-					toolCallIds.set(toolCall.id, { assistantIndex: i, satisfied: false })
-				}
+		const calls = (message as AssistantMessage).toolCalls ?? []
+		const callIds = new Set<string>()
+		let invalidOwner = false
+		for (const call of calls) {
+			if (!call.id || callIds.has(call.id) || seenToolCallIds.has(call.id)) invalidOwner = true
+			callIds.add(call.id)
+			seenToolCallIds.add(call.id)
+		}
+
+		let resultEnd = index + 1
+		while (resultEnd < messages.length && messages[resultEnd]?.role === CONSTANTS.TOOL_ROLE) {
+			resultEnd++
+		}
+
+		// Keep the last immediate result for an id. A late real result can
+		// follow a synthetic cancellation result after a crash; keeping the
+		// first would preserve the stale guess and discard the observed fact.
+		const lastResultById = new Map<string, number>()
+		for (let resultIndex = index + 1; resultIndex < resultEnd; resultIndex++) {
+			const result = messages[resultIndex]
+			if (result?.role === CONSTANTS.TOOL_ROLE) {
+				lastResultById.set(result.toolCallId, resultIndex)
 			}
 		}
-	}
 
-	// Second pass: mark satisfied tool calls and find orphaned tool messages
-	for (let i = 0; i < messages.length; i++) {
-		const message = messages[i]
-		if (!message) continue
-
-		if (isToolMessage(message)) {
-			const toolMsg = message as { toolCallId: string }
-			if (toolCallIds.has(toolMsg.toolCallId)) {
-				// Tool message satisfies a preceding tool call
-				const entry = toolCallIds.get(toolMsg.toolCallId)
-				if (entry) {
-					entry.satisfied = true
-				}
-			} else {
-				// Tool message has no matching tool call
-				orphanedToolMessages.push(i)
+		const answered = new Set<string>()
+		for (let resultIndex = index + 1; resultIndex < resultEnd; resultIndex++) {
+			const result = messages[resultIndex]
+			if (result?.role !== CONSTANTS.TOOL_ROLE) continue
+			if (
+				invalidOwner ||
+				!callIds.has(result.toolCallId) ||
+				lastResultById.get(result.toolCallId) !== resultIndex
+			) {
+				orphanedToolMessages.push(resultIndex)
+				continue
 			}
+			answered.add(result.toolCallId)
 		}
-	}
 
-	// Third pass: identify unsatisfied tool calls
-	for (const entry of toolCallIds.values()) {
-		if (!entry.satisfied) {
-			assistantsWithUnmatchedCalls.push(entry.assistantIndex)
+		if (invalidOwner || calls.some((call) => !answered.has(call.id))) {
+			assistantsWithUnmatchedCalls.push(index)
 		}
+		index = resultEnd
 	}
 
 	return {
@@ -152,7 +172,7 @@ export function findDanglingMessages(messages: Message[]): DanglingResult {
  * // Result: [{ role: 'user', content: 'test' }, { role: 'user', content: 'next' }]
  * ```
  */
-export function removeDanglingMessages(messages: Message[]): Message[] {
+export function removeDanglingMessages(messages: readonly Message[]): Message[] {
 	const result = findDanglingMessages(messages)
 
 	if (result.isValid) {
@@ -201,6 +221,151 @@ export function removeDanglingMessages(messages: Message[]): Message[] {
 
 	// Return messages not marked for removal, preserving order
 	return messages.filter((_, idx) => !indicesToRemove.has(idx))
+}
+
+/** Counts describing a provider-valid tool-history repair. */
+export interface ToolHistoryRepairReport {
+	/** Earlier duplicates in an immediate result batch; the last result wins. */
+	readonly duplicateToolResultsRemoved: number
+	/** Results with no immediately preceding owner call. */
+	readonly orphanedToolResultsRemoved: number
+	/** Error results inserted for calls whose durable outcome is unavailable. */
+	readonly syntheticToolResultsInserted: number
+}
+
+/** A repaired copy and the exact changes made to it. */
+export interface ToolHistoryRepairResult {
+	readonly messages: Message[]
+	readonly report: ToolHistoryRepairReport
+}
+
+/** Whether a repair changed the provider-bound history. */
+export function toolHistoryRepairChanged(report: ToolHistoryRepairReport): boolean {
+	return (
+		report.duplicateToolResultsRemoved > 0 ||
+		report.orphanedToolResultsRemoved > 0 ||
+		report.syntheticToolResultsInserted > 0
+	)
+}
+
+function validateToolCallIds(messages: readonly Message[]): void {
+	const seen = new Set<string>()
+	for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+		const message = messages[messageIndex]
+		if (message?.role !== CONSTANTS.ASSISTANT_ROLE) continue
+		for (let callIndex = 0; callIndex < (message.toolCalls?.length ?? 0); callIndex++) {
+			const call = message.toolCalls?.[callIndex]
+			if (!call?.id) {
+				throw new NamzuError({
+					code: 'invalid_config',
+					message: `Message history contains an empty tool-call id at messages[${messageIndex}].toolCalls[${callIndex}].`,
+					details: { messageIndex, callIndex, toolCallId: call?.id ?? '' },
+				})
+			}
+			if (seen.has(call.id)) {
+				throw new NamzuError({
+					code: 'invalid_config',
+					message: `Message history repeats tool-call id '${call.id}' at messages[${messageIndex}].toolCalls[${callIndex}]; a signed assistant turn cannot be rewritten safely.`,
+					details: { messageIndex, callIndex, toolCallId: call.id },
+				})
+			}
+			seen.add(call.id)
+		}
+	}
+}
+
+function unknownOutcomeResult(call: ToolCall, assistant: AssistantMessage): ToolMessage {
+	return {
+		role: CONSTANTS.TOOL_ROLE,
+		toolCallId: call.id,
+		isError: true,
+		content: `Tool execution was interrupted and no durable result is available for \`${call.function.name}\`. Its outcome is unknown. Retry only if the tool is read-only or idempotent; otherwise verify external state or ask the user before retrying.`,
+		...(assistant.timestamp !== undefined ? { timestamp: assistant.timestamp } : {}),
+	}
+}
+
+/**
+ * Repair provider tool-pairing violations without mutating the durable input.
+ *
+ * Results are valid only in the contiguous run immediately after their
+ * assistant call. Orphaned/displaced results are removed, earlier immediate
+ * duplicates are removed in favour of the last result, and every unanswered
+ * call receives a conservative error result in call order. Duplicate call ids
+ * fail closed: changing ids or tool calls would invalidate opaque native replay
+ * state carried by the assistant message.
+ */
+export function repairToolMessageHistory(messages: readonly Message[]): ToolHistoryRepairResult {
+	validateToolCallIds(messages)
+
+	const repaired: Message[] = []
+	let duplicateToolResultsRemoved = 0
+	let orphanedToolResultsRemoved = 0
+	let syntheticToolResultsInserted = 0
+	let index = 0
+
+	while (index < messages.length) {
+		const message = messages[index]
+		if (!message) {
+			index++
+			continue
+		}
+
+		if (!hasToolCalls(message)) {
+			if (isToolMessage(message)) orphanedToolResultsRemoved++
+			else repaired.push(message)
+			index++
+			continue
+		}
+
+		const assistant = message as AssistantMessage
+		const calls = assistant.toolCalls ?? []
+		const callIds = new Set(calls.map((call) => call.id))
+		repaired.push(assistant)
+
+		let resultEnd = index + 1
+		while (resultEnd < messages.length && messages[resultEnd]?.role === CONSTANTS.TOOL_ROLE) {
+			resultEnd++
+		}
+		const lastResultById = new Map<string, number>()
+		for (let resultIndex = index + 1; resultIndex < resultEnd; resultIndex++) {
+			const result = messages[resultIndex]
+			if (result?.role === CONSTANTS.TOOL_ROLE) {
+				lastResultById.set(result.toolCallId, resultIndex)
+			}
+		}
+
+		const answered = new Set<string>()
+		for (let resultIndex = index + 1; resultIndex < resultEnd; resultIndex++) {
+			const result = messages[resultIndex]
+			if (result?.role !== CONSTANTS.TOOL_ROLE) continue
+			if (lastResultById.get(result.toolCallId) !== resultIndex) {
+				duplicateToolResultsRemoved++
+				continue
+			}
+			if (!callIds.has(result.toolCallId)) {
+				orphanedToolResultsRemoved++
+				continue
+			}
+			repaired.push(result)
+			answered.add(result.toolCallId)
+		}
+
+		for (const call of calls) {
+			if (answered.has(call.id)) continue
+			repaired.push(unknownOutcomeResult(call, assistant))
+			syntheticToolResultsInserted++
+		}
+		index = resultEnd
+	}
+
+	return {
+		messages: repaired,
+		report: {
+			duplicateToolResultsRemoved,
+			orphanedToolResultsRemoved,
+			syntheticToolResultsInserted,
+		},
+	}
 }
 
 /**

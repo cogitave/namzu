@@ -45,6 +45,27 @@ describe('toAgentEvent carries the stop reason across', () => {
 		},
 	)
 
+	it('carries measured history-repair counts as a non-terminal warning', () => {
+		const mapped = toAgentEvent(
+			{
+				type: 'message_history_repaired',
+				runId,
+				source: 'abandoned-checkpoint',
+				duplicateToolResultsRemoved: 1,
+				orphanedToolResultsRemoved: 2,
+				syntheticToolResultsInserted: 3,
+			},
+			presenter,
+		)
+
+		expect(mapped).toEqual({
+			kind: 'history-repair',
+			source: 'abandoned-checkpoint',
+			text: 'Tool history repaired before the model call: 1 duplicate result removed; 2 orphaned results removed; 3 interrupted calls closed with unknown outcome. Verify external state before retrying non-idempotent tools.',
+		})
+		expect(mapped?.kind).not.toBe('error')
+	})
+
 	it('passes a non-normal stop through to the done event', () => {
 		const mapped = toAgentEvent(
 			{

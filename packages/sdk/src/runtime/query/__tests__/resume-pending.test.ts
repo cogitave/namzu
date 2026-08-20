@@ -10,7 +10,8 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import { type AssistantMessage, createUserMessage } from '../../../types/message/index.js'
+import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
@@ -141,21 +142,77 @@ describe('an approval survives a process boundary', () => {
 		expect(recalled.map((tc) => tc.name)).toEqual(['delete_row'])
 		expect(recalled[0]?.isDestructive).toBe(true)
 
+		// Native replay state makes deletion/reconstruction observable. The
+		// resume must carry this exact signed assistant turn forward; a generic
+		// history repair cannot replace it with a synthetic result first.
+		const checkpoint = await findPendingCheckpoint(h.store, { ...h.scope, runId: parked.id })
+		if (!checkpoint) throw new Error('expected the durable park')
+		const parkedAssistant = checkpoint.messages.find(
+			(message): message is AssistantMessage => message.role === 'assistant',
+		)
+		if (!parkedAssistant) throw new Error('expected the parked assistant turn')
+		const enrichedAssistant: AssistantMessage = {
+			...parkedAssistant,
+			reasoning: [{ type: 'thinking', text: 'signed thought', signature: 'signature-1' }],
+			source: {
+				type: 'model',
+				providerId: 'mock',
+				model: 'mock-model',
+				chainIndex: 0,
+				replayState: { version: 1, opaque: 'resume-exactly' },
+			},
+		}
+		await h.store.writeCheckpoint(
+			{ ...h.scope, runId: parked.id },
+			{
+				...checkpoint,
+				messages: checkpoint.messages.map((message) =>
+					message === parkedAssistant ? enrichedAssistant : message,
+				),
+			},
+		)
+
 		// --- process 2: the human said yes ---
 		const second = new MockLLMProvider({ turns: [{ text: 'row 42 is gone' }] })
-		const resumed = await drainQuery({
-			...baseParams(h, second, pauseOnReview),
-			messages: [],
-			resumeFromCheckpoint: state?.checkpointId,
-			pendingDecision: { action: 'approve_tools' },
-		})
+		const resumeEvents: RunEvent[] = []
+		const resumed = await drainQuery(
+			{
+				...baseParams(h, second, pauseOnReview),
+				messages: [],
+				resumeFromCheckpoint: state?.checkpointId,
+				pendingDecision: { action: 'approve_tools' },
+			},
+			(event) => {
+				resumeEvents.push(event)
+			},
+		)
 
 		// The approved call ran — without the model being asked to re-decide.
 		expect(h.calls).toEqual(['delete:42'])
 		expect(resumed.result).toBe('row 42 is gone')
 		// And the model saw the tool result, not a repaired-away history.
 		const sent = second.requests[0]?.messages ?? []
-		expect(sent.some((m) => m.role === 'tool')).toBe(true)
+		const callId = enrichedAssistant.toolCalls?.[0]?.id
+		const assistantMatches = sent.filter(
+			(message) =>
+				message.role === 'assistant' && message.toolCalls?.some((call) => call.id === callId),
+		)
+		const resultMatches = sent.filter(
+			(message) => message.role === 'tool' && message.toolCallId === callId,
+		)
+		expect(assistantMatches).toEqual([enrichedAssistant])
+		expect(resultMatches).toHaveLength(1)
+		expect(resultMatches[0]?.content).toContain('deleted 42')
+		const resumedAssistantIndex = sent.findIndex((message) => message === assistantMatches[0])
+		expect(sent.indexOf(resultMatches[0]!)).toBe(resumedAssistantIndex + 1)
+		expect(JSON.stringify(assistantMatches[0])).toContain('resume-exactly')
+		expect(
+			resumed.messages.filter(
+				(message) =>
+					message.role === 'assistant' && message.toolCalls?.some((call) => call.id === callId),
+			),
+		).toEqual([enrichedAssistant])
+		expect(resumeEvents.some((event) => event.type === 'message_history_repaired')).toBe(false)
 	})
 
 	it('a rejection collected out-of-band steers the model instead of executing', async () => {
