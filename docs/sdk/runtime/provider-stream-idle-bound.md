@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+lastReviewed: 2026-08-21
 resource: packages/sdk/src/runtime/query/index.ts
 tags: [sdk, runtime, providers, retry, cancellation]
 ---
