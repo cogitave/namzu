@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+timestamp: 2026-08-20T00:00:00Z
+lastReviewed: 2026-08-20
 tags: [computer-use, sdk]
 ---
 
@@ -86,14 +86,20 @@ Purpose:
 
 Notes:
 
-- accepts exactly `path` and `content`; compatibility aliases are not accepted
+- the model surface accepts exactly `path` and `content`; a host calling the
+  tool directly may use the compatibility alias `newStr`
 - destructive by declaration
 - not concurrency-safe
 - sandbox-aware when a sandbox is present
 - serializes same-process mutations by resolved path
+- when the host's file-read tracker captured an exact body, refuses a full
+  replacement if the current body already differs at write admission; a
+  successful write becomes the next observed body
 - commits local writes through a same-directory temp file and atomic rename;
-  sandbox `writeFile` implementations carry the same atomic replacement
-  contract
+  sandbox publication semantics belong to the selected backend
+- the freshness check is a preflight, not filesystem CAS: the shared
+  `Sandbox` contract has no conditional write, and neither branch claims to
+  linearize an external writer racing after the check
 
 ### 4.3 `edit`
 
@@ -114,8 +120,9 @@ Notes:
 - fails if `old_string` is not unique unless `replace_all` is `true`
 - normalizes only consistent CRLF/LF boundaries; it does not perform fuzzy matching
 - serializes same-process mutations by resolved path
-- commits local writes atomically; sandbox writes rely on the `Sandbox`
-  interface's atomic replacement guarantee
+- commits local writes atomically; sandbox publication semantics belong to the
+  selected backend, because the shared `Sandbox` interface does not promise
+  atomic replacement
 - useful for targeted edits without rewriting entire files
 
 **Several changes to one file go in one call.** `edits` takes a list of

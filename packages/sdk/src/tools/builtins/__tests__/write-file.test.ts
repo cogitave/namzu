@@ -164,6 +164,25 @@ describe('WriteFileTool — read-before-overwrite invariant', () => {
 		expect(readFileSync(filePath, 'utf-8')).toBe('replaced')
 	})
 
+	it('does not invent freshness for an older boolean-only tracker', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
+		const filePath = join(dir, 'legacy-tracker.txt')
+		writeFileSync(filePath, 'the agent read this')
+		const tracker = makeTracker()
+		tracker.recordRead(filePath)
+		// The host never supplied a fingerprint. A later body cannot be
+		// compared to evidence that does not exist, so the old behavior stays.
+		writeFileSync(filePath, 'changed after the boolean observation')
+
+		const result = await WriteFileTool.execute(
+			{ path: 'legacy-tracker.txt', content: 'replacement' },
+			makeContext(dir, tracker),
+		)
+
+		expect(result.success).toBe(true)
+		expect(readFileSync(filePath, 'utf-8')).toBe('replacement')
+	})
+
 	it('falls back to legacy behaviour when no fileReadTracker is provided (back-compat)', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
 		writeFileSync(join(dir, 'legacy.txt'), 'before')

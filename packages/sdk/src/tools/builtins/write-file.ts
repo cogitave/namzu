@@ -1,10 +1,11 @@
-import { access, mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import type { ToolContext, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinReal } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
+import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 
 const inputSchema = z
@@ -144,13 +145,16 @@ export const WriteFileTool = defineTool({
 
 		return withFileMutationLock(lockKey, async () => {
 			if (context.sandbox) {
-				const sandboxExists = await sandboxFileExists(context, valid.path)
-				if (sandboxExists) {
-					const guard = enforceReadBeforeOverwrite(context, valid.path)
+				const current = await readSandboxFileIfPresent(context, valid.path)
+				if (current !== undefined) {
+					const guard = enforceFreshOverwrite(context, valid.path, current.toString('utf-8'))
 					if (guard) return guard
 				}
 				await context.sandbox.writeFile(valid.path, content)
-				context.fileReadTracker?.recordRead(valid.path)
+				// This write is now the runtime's newest observation. Recording only
+				// the boolean would leave an older content fingerprint in place and
+				// make the next same-run write refuse its own predecessor as drift.
+				context.fileReadTracker?.recordRead(valid.path, content)
 				return {
 					success: true as const,
 					output: `File written successfully: ${valid.path} (${content.length} chars) [sandboxed]`,
@@ -159,9 +163,9 @@ export const WriteFileTool = defineTool({
 			}
 
 			const hostPath = filePath as string
-			const localExists = await pathExists(hostPath)
-			if (localExists) {
-				const guard = enforceReadBeforeOverwrite(context, hostPath)
+			const current = await readHostFileIfPresent(hostPath)
+			if (current !== undefined) {
+				const guard = enforceFreshOverwrite(context, hostPath, current)
 				if (guard) return guard
 			}
 
@@ -170,7 +174,7 @@ export const WriteFileTool = defineTool({
 			// leaves the destination truncated — and this tool overwrites a
 			// whole file, so the truncation is the user's previous work.
 			await atomicWriteFile(hostPath, content)
-			context.fileReadTracker?.recordRead(hostPath)
+			context.fileReadTracker?.recordRead(hostPath, content)
 
 			return {
 				success: true as const,
@@ -194,21 +198,53 @@ function enforceReadBeforeOverwrite(
 	}
 }
 
-async function pathExists(hostPath: string): Promise<boolean> {
+function enforceFreshOverwrite(
+	context: ToolContext,
+	key: string,
+	currentContent: string,
+): { success: false; output: ''; error: string } | null {
+	const unread = enforceReadBeforeOverwrite(context, key)
+	if (unread) return unread
+
+	// Optional forever: older hosts only tracked the boolean read-before-write
+	// fact. They retain their old behavior rather than being refused on a
+	// fingerprint the host never promised to capture.
+	const observed = context.fileReadTracker?.fingerprint?.(key)
+	if (observed !== undefined && observed !== fingerprintContent(currentContent)) {
+		return { success: false, output: '', error: staleFileError(key, 'write') }
+	}
+	return null
+}
+
+async function readHostFileIfPresent(hostPath: string): Promise<string | undefined> {
 	try {
-		await access(hostPath)
-		return true
-	} catch {
-		return false
+		return await readFile(hostPath, 'utf-8')
+	} catch (error) {
+		if (isMissingFileError(error)) return undefined
+		throw error
 	}
 }
 
-async function sandboxFileExists(context: ToolContext, path: string): Promise<boolean> {
-	if (!context.sandbox) return false
+function isMissingFileError(error: unknown): boolean {
+	return (
+		typeof error === 'object' &&
+		error !== null &&
+		'code' in error &&
+		(error as { code?: unknown }).code === 'ENOENT'
+	)
+}
+
+async function readSandboxFileIfPresent(
+	context: ToolContext,
+	path: string,
+): Promise<Buffer | undefined> {
+	if (!context.sandbox) return undefined
 	try {
-		await context.sandbox.readFile(path)
-		return true
+		return await context.sandbox.readFile(path)
 	} catch {
-		return false
+		// `Sandbox` currently has no typed missing-file result. Preserve the
+		// existing create behavior for all backends; when a read succeeds, the
+		// exact body above is still a real admission-time freshness check.
+		return undefined
 	}
 }

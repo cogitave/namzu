@@ -3,10 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import type { Sandbox } from '../../../types/sandbox/index.js'
 import type { FileReadTracker, ToolContext } from '../../../types/tool/index.js'
 import { atomicWriteFile } from '../atomic-write-file.js'
 import { fingerprintContent } from '../content-fingerprint.js'
 import { EditTool } from '../edit.js'
+import { WriteFileTool } from '../write-file.js'
 
 /**
  * The mutation lock serializes THIS runtime's writers. It cannot see a
@@ -31,7 +33,11 @@ function trackerOver(store: Map<string, string>): FileReadTracker {
 	}
 }
 
-function contextWith(workingDirectory: string, tracker?: FileReadTracker): ToolContext {
+function contextWith(
+	workingDirectory: string,
+	tracker?: FileReadTracker,
+	sandbox?: Sandbox,
+): ToolContext {
 	return {
 		runId: 'run_stale' as ToolContext['runId'],
 		workingDirectory,
@@ -39,6 +45,35 @@ function contextWith(workingDirectory: string, tracker?: FileReadTracker): ToolC
 		env: {},
 		log: () => {},
 		...(tracker ? { fileReadTracker: tracker } : {}),
+		...(sandbox ? { sandbox } : {}),
+	}
+}
+
+function sandboxOver(initial: string): {
+	readonly sandbox: Sandbox
+	readonly body: () => string
+	readonly writes: () => number
+	externalWrite(content: string): void
+} {
+	let body = Buffer.from(initial, 'utf-8')
+	let writeCount = 0
+	return {
+		sandbox: {
+			id: 'sbx_stale' as Sandbox['id'],
+			status: 'ready',
+			rootDir: '/sandbox',
+			environment: 'basic',
+			readFile: async () => Buffer.from(body),
+			writeFile: async (_path: string, content: string | Buffer) => {
+				writeCount += 1
+				body = Buffer.isBuffer(content) ? Buffer.from(content) : Buffer.from(content, 'utf-8')
+			},
+		} as unknown as Sandbox,
+		body: () => body.toString('utf-8'),
+		writes: () => writeCount,
+		externalWrite: (content) => {
+			body = Buffer.from(content, 'utf-8')
+		},
 	}
 }
 
@@ -135,6 +170,81 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		)
 
 		expect(result.success).toBe(true)
+	})
+})
+
+describe('a full replacement checks the body observed at admission', () => {
+	it('refuses host drift that happened after the read', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-write-'))
+		const file = join(dir, 'doc.md')
+		writeFileSync(file, 'agent observed this\n')
+
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'agent observed this\n')
+		writeFileSync(file, 'newer external body\n')
+
+		const result = await WriteFileTool.execute(
+			{ path: 'doc.md', content: 'agent replacement\n' },
+			contextWith(dir, tracker),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('this write was based on a stale copy')
+		expect(result.error).toContain('Nothing was written')
+		expect(readFileSync(file, 'utf-8')).toBe('newer external body\n')
+	})
+
+	it('refreshes the host observation after each successful write', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-write-'))
+		const file = join(dir, 'doc.md')
+		writeFileSync(file, 'observed\n')
+
+		const store = new Map<string, string>()
+		const tracker = trackerOver(store)
+		tracker.recordRead(file, 'observed\n')
+		const context = contextWith(dir, tracker)
+
+		const first = await WriteFileTool.execute({ path: 'doc.md', content: 'first\n' }, context)
+		const second = await WriteFileTool.execute({ path: 'doc.md', content: 'second\n' }, context)
+
+		expect(first.success).toBe(true)
+		expect(second.success).toBe(true)
+		expect(readFileSync(file, 'utf-8')).toBe('second\n')
+		expect(store.get(file)).toBe(fingerprintContent('second\n'))
+	})
+
+	it('refuses the same visible drift through the sandbox branch', async () => {
+		const memory = sandboxOver('agent observed this\n')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead('doc.md', 'agent observed this\n')
+		memory.externalWrite('newer sandbox body\n')
+
+		const result = await WriteFileTool.execute(
+			{ path: 'doc.md', content: 'agent replacement\n' },
+			contextWith('/host-is-not-the-sandbox', tracker, memory.sandbox),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('this write was based on a stale copy')
+		expect(memory.body()).toBe('newer sandbox body\n')
+		expect(memory.writes()).toBe(0)
+	})
+
+	it('refreshes the sandbox observation after a successful write', async () => {
+		const memory = sandboxOver('observed\n')
+		const store = new Map<string, string>()
+		const tracker = trackerOver(store)
+		tracker.recordRead('doc.md', 'observed\n')
+		const context = contextWith('/host-is-not-the-sandbox', tracker, memory.sandbox)
+
+		const first = await WriteFileTool.execute({ path: 'doc.md', content: 'first\n' }, context)
+		const second = await WriteFileTool.execute({ path: 'doc.md', content: 'second\n' }, context)
+
+		expect(first.success).toBe(true)
+		expect(second.success).toBe(true)
+		expect(memory.body()).toBe('second\n')
+		expect(memory.writes()).toBe(2)
+		expect(store.get('doc.md')).toBe(fingerprintContent('second\n'))
 	})
 })
 
