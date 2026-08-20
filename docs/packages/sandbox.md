@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-20T00:00:00Z
+lastReviewed: 2026-08-20
 resource: packages/sandbox/src/index.ts
 tags: [sandbox, isolation, reference]
 ---
@@ -139,6 +139,7 @@ constructs one provider per task, in the same closure that knows the paths.
 | `runtime` | daemon default | `'docker'` or `'runsc'`. |
 | `network` | `'none'` | The docker network to attach. **The default is one of the pairings `create()` refuses** — see the network table under egress. |
 | `hostReachability` | `'host-port'` | `'container-network'` when the consumer is itself a container reaching a sibling by name. |
+| `readyTimeoutMs`, `readyPollIntervalMs` | `30_000`, `100` | Total worker-health deadline and delay between probes. The final request and delay are capped by the remaining deadline. |
 | `allowInwardFor` | — | Allowlisted hosts permitted to resolve to a private address anyway. |
 | `labels` | — | `--label key=value` pairs, so out-of-band reapers can find the container. A key that is empty or contains `=` is refused. |
 
@@ -155,6 +156,19 @@ constructs one provider per task, in the same closure that knows the paths.
 
 Both mTLS blocks are `{ ca, cert, key, servername? }` and are **injected by
 you**, never read from disk or fetched here — the same boundary `getToken` draws.
+
+Every readiness value above must be a positive safe integer no greater than
+`2_147_483_647`; invalid values are refused while the provider is being built,
+before a container command, token callback, control-plane request or socket
+dial. The deadline owns an in-flight health request as well as the loop around
+it, so a peer that accepts a connection and never answers cannot keep
+`create()` pending.
+
+After a readiness failure, the backend gets a separate one-second grace to
+remove the claimed container or microVM. That cleanup receives its own abort
+signal and Docker cleanup children are killed at expiry. A stuck teardown can
+therefore add at most that grace; it never replaces the original readiness
+error or turns the health timeout back into an unbounded `create()` call.
 
 `createSandboxProvider` refuses an unrecognised backend **by name**, at
 construction, with `SandboxBackendNotImplementedError`. An untyped host that
@@ -503,6 +517,10 @@ container daemon at all. Three things to know before you plan around it:
   the pool's claim API rejects a `volumes[]` override, so the container's own
   filesystem carries the run and the host walks the outputs back out through the
   worker before `destroy()`.
+
+Its internal readiness defaults are `60_000` ms total across IP publication and
+worker health, with a `500` ms poll interval. It follows the same validation,
+in-flight request bound and one-second failure-cleanup grace described above.
 
 Per-sandbox egress, memory caps, process caps and environment variables are
 refused here, as the table above says.

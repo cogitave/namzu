@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type TLSSocket, type Server as TlsServer, createServer as createTlsServer } from 'node:tls'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { VsockAgentTransport } from '../transport.js'
 
@@ -139,6 +139,32 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		server = await startAgentServer(agent.handleConnection)
 		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
 		expect(await transport.healthz()).toBe(true)
+	})
+
+	it('fits a connected peer that never replies inside the readiness deadline', async () => {
+		let peerClosed = false
+		server = createServer((socket) => {
+			// Accept and read the framed health request, but never answer it.
+			// The readiness owner must destroy this socket at its own deadline,
+			// rather than inheriting the transport's 60-second idle default.
+			socket.resume()
+			socket.once('close', () => {
+				peerClosed = true
+			})
+		})
+		await new Promise<void>((resolve, reject) => {
+			server?.once('error', reject)
+			server?.listen(sockPath, resolve)
+		})
+		const transport = new VsockAgentTransport(
+			{ kind: 'unix', path: sockPath },
+			{ readIdleTimeoutMs: 60_000 },
+		)
+
+		const startedAt = performance.now()
+		await expect(transport.waitForReady(30, 5)).rejects.toThrow(/did not become ready/)
+		expect(performance.now() - startedAt).toBeLessThan(500)
+		await vi.waitFor(() => expect(peerClosed).toBe(true))
 	})
 
 	it('surfaces an exec error event as a thrown error', async () => {

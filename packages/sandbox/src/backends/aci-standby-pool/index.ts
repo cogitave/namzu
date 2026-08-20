@@ -54,6 +54,13 @@ import type {
 import { asSandboxId } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
+import {
+	OperationDeadline,
+	OperationDeadlineExpired,
+	probeHttpHealth,
+	resolveReadinessOptions,
+	runFailureCleanup,
+} from '../readiness.js'
 
 /**
  * Authentication callback. Caller returns a fresh Azure Resource
@@ -147,11 +154,20 @@ const DEFAULT_CONTAINER_NAME_PREFIX = 'namzu-task'
 export function buildAciStandbyPoolBackend(
 	config: ACIStandbyPoolBackendInternalConfig,
 ): SandboxBackend {
+	const readiness = resolveReadinessOptions(
+		'aci-standby-pool',
+		config.readyTimeoutMs,
+		config.readyPollIntervalMs,
+		{
+			timeoutMs: DEFAULT_READY_TIMEOUT_MS,
+			pollIntervalMs: DEFAULT_READY_POLL_MS,
+		},
+	)
 	return {
 		tier: 'container',
 		name: 'aci-standby-pool',
 		async create(options: SandboxBackendOptions): Promise<Sandbox> {
-			return await spawnAciSandbox(config, options)
+			return await spawnAciSandbox(config, options, readiness)
 		},
 	}
 }
@@ -280,8 +296,11 @@ async function armCall<T>(
 	method: 'GET' | 'PUT' | 'DELETE',
 	getToken: ArmTokenProvider,
 	body?: unknown,
+	signal?: AbortSignal,
 ): Promise<T | undefined> {
+	signal?.throwIfAborted()
 	const token = await getToken()
+	signal?.throwIfAborted()
 	const init: RequestInit = {
 		method,
 		headers: {
@@ -292,15 +311,20 @@ async function armCall<T>(
 	if (body !== undefined) {
 		init.body = JSON.stringify(body)
 	}
+	if (signal !== undefined) init.signal = signal
 	const res = await fetch(url, init)
+	signal?.throwIfAborted()
 	if (!res.ok) {
 		const text = await res.text()
+		signal?.throwIfAborted()
 		throw new Error(`ARM ${method} ${url} → ${res.status}: ${text}`)
 	}
 	if (res.status === 204 || res.status === 202) return undefined
 	const ct = res.headers.get('content-type') ?? ''
 	if (ct.includes('application/json')) {
-		return (await res.json()) as T
+		const json = (await res.json()) as T
+		signal?.throwIfAborted()
+		return json
 	}
 	return undefined
 }
@@ -389,6 +413,7 @@ export function assertNotPubliclyAddressed(config: {
 async function spawnAciSandbox(
 	config: ACIStandbyPoolBackendInternalConfig,
 	options: SandboxBackendOptions,
+	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
 ): Promise<Sandbox> {
 	assertEnforceable(options)
 	assertNotPubliclyAddressed(config)
@@ -448,21 +473,24 @@ async function spawnAciSandbox(
 
 	const initialIp = claimed?.properties?.ipAddress?.ip
 	let ip = initialIp
+	const readinessDeadline = new OperationDeadline(readiness.timeoutMs, 'aci-standby-pool readiness')
 	try {
 		if (!ip) {
 			ip = await pollForRunningIp(
 				armUrl,
 				config.getArmToken,
-				config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
-				config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+				readinessDeadline,
+				readiness.pollIntervalMs,
+				readiness.timeoutMs,
 			)
 		}
 
 		const baseUrl = `http://${ip}:${workerPort}`
 		await waitForWorkerReady(
 			baseUrl,
-			config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-			config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
+			readinessDeadline,
+			readiness.timeoutMs,
+			readiness.pollIntervalMs,
 		)
 
 		let status: SandboxStatus = 'ready'
@@ -539,13 +567,9 @@ async function spawnAciSandbox(
 			},
 		}
 	} catch (err) {
-		try {
-			await armCall(armUrl, 'DELETE', config.getArmToken)
-		} catch {
-			// Preserve the readiness failure as the primary error; the
-			// caller cannot use a Sandbox handle yet, so best-effort ARM
-			// cleanup is the only reliable orphan-prevention hook here.
-		}
+		await runFailureCleanup(async (signal) => {
+			await armCall(armUrl, 'DELETE', config.getArmToken, undefined, signal)
+		})
 		throw err
 	}
 }
@@ -553,39 +577,56 @@ async function spawnAciSandbox(
 async function pollForRunningIp(
 	armUrl: string,
 	getToken: ArmTokenProvider,
+	deadline: OperationDeadline,
 	pollIntervalMs: number,
 	timeoutMs: number,
 ): Promise<string> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		const cg = await armCall<ArmContainerGroup>(armUrl, 'GET', getToken)
+	while (deadline.remainingMs() > 0) {
+		let cg: ArmContainerGroup | undefined
+		try {
+			cg = await deadline.run((signal) =>
+				armCall<ArmContainerGroup>(armUrl, 'GET', getToken, undefined, signal),
+			)
+		} catch (err) {
+			if (err instanceof OperationDeadlineExpired) break
+			throw err
+		}
 		const state = cg?.properties?.provisioningState
 		const ip = cg?.properties?.ipAddress?.ip
 		if (state === 'Succeeded' && ip) return ip
 		if (state === 'Failed') {
 			throw new Error('aci-standby-pool: container group provisioning failed')
 		}
-		await new Promise((r) => setTimeout(r, pollIntervalMs))
+		try {
+			await deadline.delay(pollIntervalMs)
+		} catch (err) {
+			if (err instanceof OperationDeadlineExpired) break
+			throw err
+		}
 	}
 	throw new Error(`aci-standby-pool: timed out waiting for container group IP (${timeoutMs}ms)`)
 }
 
 async function waitForWorkerReady(
 	baseUrl: string,
+	deadline: OperationDeadline,
 	timeoutMs: number,
 	pollIntervalMs: number,
 ): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
+	while (deadline.remainingMs() > 0) {
 		try {
-			const res = await fetch(`${baseUrl}/healthz`, {
-				signal: AbortSignal.timeout(2000),
-			})
-			if (res.ok) return
-		} catch {
+			const result = await deadline.run((signal) => probeHttpHealth(`${baseUrl}/healthz`, signal))
+			if (result.ok) return
+		} catch (err) {
+			if (err instanceof OperationDeadlineExpired) break
 			// Network not ready yet, try again.
 		}
-		await new Promise((r) => setTimeout(r, pollIntervalMs))
+		try {
+			await deadline.delay(pollIntervalMs)
+		} catch (err) {
+			if (err instanceof OperationDeadlineExpired) break
+			throw err
+		}
 	}
 	throw new Error(`aci-standby-pool: worker /healthz never responded (${timeoutMs}ms)`)
 }

@@ -56,6 +56,13 @@ import {
 	type SandboxBackend,
 	type SandboxBackendOptions,
 } from '../../index.js'
+import {
+	OperationDeadline,
+	OperationDeadlineExpired,
+	probeHttpHealth,
+	resolveReadinessOptions,
+	runFailureCleanup,
+} from '../readiness.js'
 
 /**
  * Backend-specific tuning. Most hosts use the defaults; advanced
@@ -173,11 +180,20 @@ const WORKER_PORT_INSIDE_CONTAINER = 2024
  * `create()` call.
  */
 export function buildDockerBackend(config: DockerBackendInternalConfig): SandboxBackend {
+	const readiness = resolveReadinessOptions(
+		'docker',
+		config.readyTimeoutMs,
+		config.readyPollIntervalMs,
+		{
+			timeoutMs: DEFAULT_READY_TIMEOUT_MS,
+			pollIntervalMs: DEFAULT_READY_POLL_MS,
+		},
+	)
 	return {
 		tier: 'container',
 		name: 'docker',
 		async create(options: SandboxBackendOptions) {
-			return await spawnDockerSandbox(config, options)
+			return await spawnDockerSandbox(config, options, readiness)
 		},
 	}
 }
@@ -375,6 +391,7 @@ const PROXY_HOST_ALIAS = 'namzu-egress'
 async function spawnDockerSandbox(
 	config: DockerBackendInternalConfig,
 	options: SandboxBackendOptions,
+	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
 ): Promise<Sandbox> {
 	const resolvedLayout = config.layout
 	const id = generateSandboxId()
@@ -427,10 +444,10 @@ async function spawnDockerSandbox(
 	// inside its own container's mount namespace). Clean break.
 	let containerStarted = false
 
-	async function cleanupOnFailure() {
-		if (containerStarted) {
-			await runOnceQuiet(docker, ['rm', '-f', containerName])
-		}
+	async function cleanupOnFailure(signal: AbortSignal) {
+		const removeContainer = containerStarted
+			? runOnceQuiet(docker, ['rm', '-f', containerName], signal)
+			: Promise.resolve()
 		// The proxy starts BEFORE the container and its only other close is
 		// in `destroy()`, which a create that never returned can never
 		// reach. So every failure between the two — a daemon that is down, a
@@ -440,8 +457,11 @@ async function spawnDockerSandbox(
 		// event-loop handle, and a retry loop left one per attempt. That is
 		// exactly the invariant this file states where the proxy is started:
 		// it must not outlive the thing it was filtering for.
-		await egressProxy?.close().catch(() => undefined)
+		// Start both teardown arms before awaiting either. A stuck runtime must
+		// not prevent the proxy from releasing its credential-bearing listener.
+		const closeProxy = egressProxy?.close().catch(() => undefined) ?? Promise.resolve()
 		egressProxy = undefined
+		await Promise.all([removeContainer, closeProxy])
 	}
 
 	let hostPort: number
@@ -549,24 +569,16 @@ async function spawnDockerSandbox(
 		if (hostReachability === 'host-port') {
 			hostPort = await readMappedPort(docker, containerName)
 			baseUrl = `http://127.0.0.1:${hostPort}`
-			await waitForWorkerReady(
-				baseUrl,
-				config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-				config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
-			)
+			await waitForWorkerReady(baseUrl, readiness.timeoutMs, readiness.pollIntervalMs)
 		} else {
 			// container-network: connect by container DNS name on the
 			// shared bridge. No host port to read; the SDK consumer is
 			// itself a container on the same bridge.
 			baseUrl = `http://${containerName}:${WORKER_PORT_INSIDE_CONTAINER}`
-			await waitForWorkerReady(
-				baseUrl,
-				config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-				config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
-			)
+			await waitForWorkerReady(baseUrl, readiness.timeoutMs, readiness.pollIntervalMs)
 		}
 	} catch (err) {
-		await cleanupOnFailure()
+		await runFailureCleanup(cleanupOnFailure)
 		throw err
 	}
 
@@ -884,17 +896,23 @@ async function waitForWorkerReady(
 	timeoutMs: number,
 	pollMs: number,
 ): Promise<void> {
-	const deadline = Date.now() + timeoutMs
+	const deadline = new OperationDeadline(timeoutMs, 'docker worker readiness')
 	let lastError: unknown
-	while (Date.now() < deadline) {
+	while (deadline.remainingMs() > 0) {
 		try {
-			const res = await fetch(`${baseUrl}/healthz`)
-			if (res.ok) return
-			lastError = new Error(`healthz HTTP ${res.status}`)
+			const result = await deadline.run((signal) => probeHttpHealth(`${baseUrl}/healthz`, signal))
+			if (result.ok) return
+			lastError = new Error(`healthz HTTP ${result.status}`)
 		} catch (err) {
 			lastError = err
+			if (err instanceof OperationDeadlineExpired) break
 		}
-		await new Promise((resolve) => setTimeout(resolve, pollMs))
+		try {
+			await deadline.delay(pollMs)
+		} catch (err) {
+			if (err instanceof OperationDeadlineExpired) break
+			throw err
+		}
 	}
 	// A hint attached at the throw site, where the cause is actually known.
 	// The container runtime's own message says a request failed; it cannot
@@ -946,11 +964,27 @@ async function inspectNetworkInternalFlag(docker: string, network: string): Prom
 	}
 }
 
-function runOnceQuiet(binary: string, args: string[]): Promise<void> {
+function runOnceQuiet(binary: string, args: string[], signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve) => {
 		const child = spawn(binary, args, { stdio: 'ignore' })
-		child.on('error', () => resolve())
-		child.on('close', () => resolve())
+		let settled = false
+		const finish = () => {
+			if (settled) return
+			settled = true
+			signal?.removeEventListener('abort', abort)
+			child.removeListener('error', finish)
+			child.removeListener('close', finish)
+			resolve()
+		}
+		const abort = () => {
+			child.kill('SIGKILL')
+			child.unref()
+			finish()
+		}
+		child.on('error', finish)
+		child.on('close', finish)
+		if (signal?.aborted) abort()
+		else signal?.addEventListener('abort', abort, { once: true })
 	})
 }
 

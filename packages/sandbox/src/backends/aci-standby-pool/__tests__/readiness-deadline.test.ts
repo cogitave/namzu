@@ -1,0 +1,137 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import type { ResolvedContainerSandboxLayout } from '@namzu/sdk'
+
+import { buildAciStandbyPoolBackend } from '../index.js'
+
+const realFetch = globalThis.fetch
+const layout: ResolvedContainerSandboxLayout = {
+	outputs: {
+		source: { type: 'inImage' },
+		containerPath: '/workspace',
+	},
+}
+
+afterEach(() => {
+	globalThis.fetch = realFetch
+})
+
+function backend(timeoutMs = 25) {
+	return buildAciStandbyPoolBackend({
+		subscriptionId: 'sub',
+		resourceGroup: 'rg',
+		location: 'westeurope',
+		standbyPoolResourceId: '/pools/p',
+		containerGroupProfileResourceId: '/profiles/p',
+		layout,
+		getArmToken: async () => 'token',
+		subnetId: '/subnets/private',
+		readyTimeoutMs: timeoutMs,
+		readyPollIntervalMs: 5,
+	})
+}
+
+function stubClaim(options: { holdDelete?: boolean; holdIp?: boolean } = {}): {
+	healthSignal: () => AbortSignal | undefined
+	ipSignal: () => AbortSignal | undefined
+	deleteSignal: () => AbortSignal | undefined
+	deleteCalls: () => number
+} {
+	let healthSignal: AbortSignal | undefined
+	let ipSignal: AbortSignal | undefined
+	let deleteSignal: AbortSignal | undefined
+	let deleteCalls = 0
+	globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+		const url = String(input)
+		const method = init?.method ?? 'GET'
+		if (url.startsWith('https://management.azure.com') && method === 'PUT') {
+			return new Response(
+				JSON.stringify({
+					properties: options.holdIp
+						? { provisioningState: 'Creating' }
+						: { provisioningState: 'Succeeded', ipAddress: { ip: '10.0.0.8' } },
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } },
+			)
+		}
+		if (url.startsWith('https://management.azure.com') && method === 'GET') {
+			ipSignal = init?.signal ?? undefined
+			return await new Promise<Response>(() => undefined)
+		}
+		if (url === 'http://10.0.0.8:2024/healthz') {
+			healthSignal = init?.signal ?? undefined
+			return await new Promise<Response>(() => undefined)
+		}
+		if (url.startsWith('https://management.azure.com') && method === 'DELETE') {
+			deleteCalls += 1
+			deleteSignal = init?.signal ?? undefined
+			if (!options.holdDelete) return new Response(null, { status: 204 })
+			return await new Promise<Response>((_resolve, reject) => {
+				deleteSignal?.addEventListener('abort', () => reject(deleteSignal?.reason), { once: true })
+			})
+		}
+		return new Response('unexpected', { status: 500 })
+	}) as typeof fetch
+	return {
+		healthSignal: () => healthSignal,
+		ipSignal: () => ipSignal,
+		deleteSignal: () => deleteSignal,
+		deleteCalls: () => deleteCalls,
+	}
+}
+
+describe('standby worker readiness deadline', () => {
+	it('bounds a health fetch by the caller-selected total readiness clock', async () => {
+		const observed = stubClaim()
+		const startedAt = performance.now()
+
+		await expect(backend().create({ workingDirectory: '/workspace' })).rejects.toThrow(
+			/worker \/healthz never responded \(25ms\)/,
+		)
+		expect(observed.healthSignal()?.aborted).toBe(true)
+		expect(observed.deleteCalls()).toBe(1)
+		expect(performance.now() - startedAt).toBeLessThan(500)
+	})
+
+	it('uses the same total clock while waiting for an IP address', async () => {
+		const observed = stubClaim({ holdIp: true })
+		const startedAt = performance.now()
+
+		await expect(backend().create({ workingDirectory: '/workspace' })).rejects.toThrow(
+			/timed out waiting for container group IP \(25ms\)/,
+		)
+		expect(observed.ipSignal()?.aborted).toBe(true)
+		expect(observed.deleteCalls()).toBe(1)
+		expect(performance.now() - startedAt).toBeLessThan(500)
+	})
+
+	it('abandons a held ARM DELETE after the cleanup grace', async () => {
+		const observed = stubClaim({ holdDelete: true })
+		const startedAt = performance.now()
+
+		await expect(backend(20).create({ workingDirectory: '/workspace' })).rejects.toThrow(
+			/worker \/healthz never responded \(20ms\)/,
+		)
+		expect(observed.deleteCalls()).toBe(1)
+		expect(observed.deleteSignal()?.aborted).toBe(true)
+		expect(performance.now() - startedAt).toBeLessThan(1_750)
+	})
+
+	it('validates readiness before requesting a token or contacting ARM', () => {
+		const getArmToken = vi.fn(async () => 'token')
+		expect(() =>
+			buildAciStandbyPoolBackend({
+				subscriptionId: 'sub',
+				resourceGroup: 'rg',
+				location: 'westeurope',
+				standbyPoolResourceId: '/pools/p',
+				containerGroupProfileResourceId: '/profiles/p',
+				layout,
+				getArmToken,
+				subnetId: '/subnets/private',
+				readyTimeoutMs: 0,
+			}),
+		).toThrow(/aci-standby-pool\.readyTimeoutMs/)
+		expect(getArmToken).not.toHaveBeenCalled()
+	})
+})

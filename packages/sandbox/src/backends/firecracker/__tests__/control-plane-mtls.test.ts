@@ -27,7 +27,7 @@ import { type Server, type Socket, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildFirecrackerBackend } from '../index.js'
 import { localIpcPath } from './fixtures/ipc-path.js'
@@ -70,6 +70,7 @@ beforeEach(() => {
 
 afterEach(async () => {
 	if (orchestrator) {
+		orchestrator.closeAllConnections()
 		await new Promise<void>((r) => orchestrator?.close(() => r()))
 		orchestrator = undefined
 	}
@@ -94,12 +95,17 @@ function startAgent(): Promise<Server> {
  * a unix agent handle, `:delete` returns 204. Records calls so the test can
  * assert the create round-trip.
  */
-function startMtlsOrchestrator(handlePath: string): Promise<{
+function startMtlsOrchestrator(
+	handlePath: string,
+	options: { holdDelete?: boolean } = {},
+): Promise<{
 	server: HttpsServer
 	port: number
 	calls: Array<{ method: string; url: string }>
+	deleteClosed: () => boolean
 }> {
 	const calls: Array<{ method: string; url: string }> = []
+	let heldDeleteClosed = false
 	return new Promise((resolve, reject) => {
 		const server = createHttpsServer(
 			{
@@ -130,6 +136,12 @@ function startMtlsOrchestrator(handlePath: string): Promise<{
 						return
 					}
 					if (method === 'DELETE' && url.includes(':delete')) {
+						if (options.holdDelete) {
+							req.socket.once('close', () => {
+								heldDeleteClosed = true
+							})
+							return
+						}
 						res.statusCode = 204
 						res.end()
 						return
@@ -146,7 +158,7 @@ function startMtlsOrchestrator(handlePath: string): Promise<{
 				reject(new Error('orchestrator: no TCP port'))
 				return
 			}
-			resolve({ server, port: addr.port, calls })
+			resolve({ server, port: addr.port, calls, deleteClosed: () => heldDeleteClosed })
 		})
 	})
 }
@@ -208,6 +220,36 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (control-plane mTLS dial)',
 			/failed to create microVM sandbox/,
 		)
 		expect(orch.calls.some((c) => c.method === 'POST' && c.url.endsWith('/sandboxes'))).toBe(false)
+	})
+
+	it('aborts the real mTLS DELETE socket when failure cleanup exhausts its grace', async () => {
+		const orch = await startMtlsOrchestrator(sockPath, { holdDelete: true })
+		orchestrator = orch.server
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: `https://127.0.0.1:${orch.port}/`,
+			getToken: async () => 'tok',
+			readyTimeoutMs: 20,
+			readyPollIntervalMs: 5,
+			transport: {
+				connectRetryBudgetMs: 10,
+				connectTimeoutMs: 5,
+				connectRetryIntervalMs: 2,
+			},
+			controlPlaneMtls: {
+				ca: CA_CRT,
+				cert: CLIENT_CRT,
+				key: CLIENT_KEY,
+				servername: 'sandbox.fc.internal',
+			},
+		})
+		const startedAt = performance.now()
+
+		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
+			/did not become ready/,
+		)
+		expect(orch.calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
+		await vi.waitFor(() => expect(orch.deleteClosed()).toBe(true))
+		expect(performance.now() - startedAt).toBeLessThan(1_750)
 	})
 
 	it("the orchestrator's requestCert rejects a client presenting NO cert (server-side proof)", async () => {

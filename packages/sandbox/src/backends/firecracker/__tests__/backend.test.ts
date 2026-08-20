@@ -193,6 +193,69 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
 	})
 
+	it('does not let a held failure DELETE keep create pending forever', async () => {
+		let deleteCalls = 0
+		let deleteSignal: AbortSignal | undefined
+		globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+			const url = String(input)
+			const method = init?.method ?? 'GET'
+			if (method === 'POST' && url.endsWith('/sandboxes')) {
+				return new Response(
+					JSON.stringify({
+						sandboxId: 'sbx_fc_held_delete',
+						agent: { kind: 'unix', path: sockPath },
+						rootDir: workDir,
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } },
+				)
+			}
+			if (method === 'DELETE') {
+				deleteCalls += 1
+				deleteSignal = init?.signal ?? undefined
+				return await new Promise<Response>((_resolve, reject) => {
+					deleteSignal?.addEventListener('abort', () => reject(deleteSignal?.reason), {
+						once: true,
+					})
+				})
+			}
+			return new Response('unexpected', { status: 500 })
+		}) as typeof fetch
+
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 20,
+			readyPollIntervalMs: 5,
+			transport: {
+				connectRetryBudgetMs: 10,
+				connectTimeoutMs: 5,
+				connectRetryIntervalMs: 2,
+			},
+		})
+		const startedAt = performance.now()
+
+		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
+			/did not become ready/,
+		)
+		expect(deleteCalls).toBe(1)
+		expect(deleteSignal?.aborted).toBe(true)
+		// Health timeout + the package-owned one-second cleanup grace, with
+		// ample scheduler tolerance. The old code never settled at all.
+		expect(performance.now() - startedAt).toBeLessThan(1_750)
+	})
+
+	it('validates readiness before requesting an orchestrator token', () => {
+		const getToken = vi.fn(async () => 'tok')
+		expect(() =>
+			buildFirecrackerBackend({
+				orchestratorEndpoint: 'https://orchestrator.test/',
+				getToken,
+				readyPollIntervalMs: Number.POSITIVE_INFINITY,
+			}),
+		).toThrow(/firecracker\.readyPollIntervalMs/)
+		expect(getToken).not.toHaveBeenCalled()
+	})
+
 	it('parses listFiles output into {path,size} entries (GNU-find-shaped wire)', async () => {
 		// Make `find` deterministic across host platforms: shim a `find`
 		// on PATH that emits the GNU `-printf '%p\t%s\n'` wire the Ubuntu

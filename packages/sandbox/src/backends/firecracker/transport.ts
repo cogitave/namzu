@@ -57,6 +57,7 @@ import net from 'node:net'
 import tls from 'node:tls'
 
 import type { SandboxExecResult } from '@namzu/sdk'
+import { OperationDeadline, OperationDeadlineExpired } from '../readiness.js'
 import {
 	type ExecRequest,
 	ExecResultAccumulator,
@@ -256,16 +257,18 @@ export class VsockAgentTransport {
 	 * failures (ECONNREFUSED while the agent re-listens after a resume,
 	 * a dropped CONNECT ack) until the budget is exhausted.
 	 */
-	private async dial(): Promise<net.Socket> {
+	private async dial(signal?: AbortSignal): Promise<net.Socket> {
 		const deadline = Date.now() + this.connectRetryBudgetMs
 		let lastErr: unknown
 		for (;;) {
+			signal?.throwIfAborted()
 			try {
-				return await this.connectOnce()
+				return await this.connectOnce(signal)
 			} catch (err) {
+				if (signal?.aborted) throw signal.reason
 				lastErr = err
 				if (Date.now() >= deadline) break
-				await delay(this.connectRetryIntervalMs)
+				await delay(this.connectRetryIntervalMs, signal)
 			}
 		}
 		throw new Error(
@@ -276,36 +279,41 @@ export class VsockAgentTransport {
 		)
 	}
 
-	private connectOnce(): Promise<net.Socket> {
+	private connectOnce(signal?: AbortSignal): Promise<net.Socket> {
 		const handle = this.handle
-		if (handle.kind === 'mtls') return this.connectOnceMtls(handle)
+		if (handle.kind === 'mtls') return this.connectOnceMtls(handle, signal)
 		return new Promise<net.Socket>((resolve, reject) => {
 			const path = handle.kind === 'unix' ? handle.path : handle.udsPath
 			const socket = net.connect({ path })
 			let settled = false
-			const timer = setTimeout(() => {
-				if (settled) return
-				settled = true
-				socket.destroy()
-				reject(new Error(`connect/handshake timed out after ${this.connectTimeoutMs}ms`))
-			}, this.connectTimeoutMs)
-			timer.unref()
-
 			const fail = (err: Error) => {
 				if (settled) return
 				settled = true
 				clearTimeout(timer)
+				signal?.removeEventListener('abort', abort)
 				socket.destroy()
 				reject(err)
 			}
+			const abort = () => fail(signalError(signal))
+			const timer = setTimeout(
+				() => fail(new Error(`connect/handshake timed out after ${this.connectTimeoutMs}ms`)),
+				this.connectTimeoutMs,
+			)
+			timer.unref()
 
 			socket.once('error', fail)
+			if (signal?.aborted) {
+				abort()
+				return
+			}
+			signal?.addEventListener('abort', abort, { once: true })
 
 			socket.once('connect', () => {
 				if (handle.kind === 'unix') {
 					if (settled) return
 					settled = true
 					clearTimeout(timer)
+					signal?.removeEventListener('abort', abort)
 					socket.removeListener('error', fail)
 					resolve(socket)
 					return
@@ -327,6 +335,7 @@ export class VsockAgentTransport {
 					if (settled) return
 					settled = true
 					clearTimeout(timer)
+					signal?.removeEventListener('abort', abort)
 					socket.removeListener('error', fail)
 					// Any bytes the ackReader over-read after the ack line are
 					// application framing; replay them into the caller.
@@ -363,6 +372,7 @@ export class VsockAgentTransport {
 	 */
 	private connectOnceMtls(
 		handle: Extract<SandboxAgentHandle, { kind: 'mtls' }>,
+		signal?: AbortSignal,
 	): Promise<net.Socket> {
 		return new Promise<net.Socket>((resolve, reject) => {
 			const socket = tls.connect({
@@ -376,23 +386,27 @@ export class VsockAgentTransport {
 				minVersion: 'TLSv1.3',
 			})
 			let settled = false
-			const timer = setTimeout(() => {
-				if (settled) return
-				settled = true
-				socket.destroy()
-				reject(new Error(`connect/handshake timed out after ${this.connectTimeoutMs}ms`))
-			}, this.connectTimeoutMs)
-			timer.unref()
-
 			const fail = (err: Error) => {
 				if (settled) return
 				settled = true
 				clearTimeout(timer)
+				signal?.removeEventListener('abort', abort)
 				socket.destroy()
 				reject(err)
 			}
+			const abort = () => fail(signalError(signal))
+			const timer = setTimeout(
+				() => fail(new Error(`connect/handshake timed out after ${this.connectTimeoutMs}ms`)),
+				this.connectTimeoutMs,
+			)
+			timer.unref()
 
 			socket.once('error', fail)
+			if (signal?.aborted) {
+				abort()
+				return
+			}
+			signal?.addEventListener('abort', abort, { once: true })
 
 			// `secureConnect` fires only after the cert chain is verified
 			// (rejectUnauthorized rejects a bad/missing-CA server via 'error'
@@ -411,6 +425,7 @@ export class VsockAgentTransport {
 				}
 				settled = true
 				clearTimeout(timer)
+				signal?.removeEventListener('abort', abort)
 				socket.removeListener('error', fail)
 				// Routing preamble — the host-relay analogue of the vsock
 				// `CONNECT <port>` line. The relay consumes it, resolves the
@@ -427,25 +442,24 @@ export class VsockAgentTransport {
 	 * healthz). Applies the read-idle timeout so a post-resume hung read
 	 * is torn down rather than wedging the caller.
 	 */
-	async request<T>(req: AgentRequest): Promise<T> {
-		const socket = await this.dial()
+	async request<T>(req: AgentRequest, signal?: AbortSignal): Promise<T> {
+		const socket = await this.dial(signal)
 		return await new Promise<T>((resolve, reject) => {
 			const reader = new FrameReader()
 			let settled = false
-			const idle = new IdleTimer(this.readIdleTimeoutMs, () => {
-				if (settled) return
-				settled = true
-				socket.destroy()
-				reject(new Error(`vsock transport: read idle timeout after ${this.readIdleTimeoutMs}ms`))
-			})
 			const finish = (err: Error | null, value?: T) => {
 				if (settled) return
 				settled = true
 				idle.clear()
+				signal?.removeEventListener('abort', abort)
 				socket.destroy()
 				if (err) reject(err)
 				else resolve(value as T)
 			}
+			const abort = () => finish(signalError(signal))
+			const idle = new IdleTimer(this.readIdleTimeoutMs, () =>
+				finish(new Error(`vsock transport: read idle timeout after ${this.readIdleTimeoutMs}ms`)),
+			)
 			socket.on('data', (chunk: Buffer) => {
 				idle.bump()
 				let frames: string[]
@@ -466,6 +480,11 @@ export class VsockAgentTransport {
 			})
 			socket.once('error', (err) => finish(err))
 			socket.once('close', () => finish(new Error('vsock transport: socket closed before reply')))
+			if (signal?.aborted) {
+				abort()
+				return
+			}
+			signal?.addEventListener('abort', abort, { once: true })
 			idle.bump()
 			socket.write(frame(JSON.stringify(req)))
 		})
@@ -547,11 +566,12 @@ export class VsockAgentTransport {
 	}
 
 	/** Liveness probe. Returns true on an `{ ok: true }` healthz reply. */
-	async healthz(): Promise<boolean> {
+	async healthz(signal?: AbortSignal): Promise<boolean> {
 		try {
-			const res = await this.request<{ ok?: boolean }>({ op: 'healthz' })
+			const res = await this.request<{ ok?: boolean }>({ op: 'healthz' }, signal)
 			return res.ok === true
 		} catch {
+			if (signal?.aborted) throw signal.reason
 			return false
 		}
 	}
@@ -563,16 +583,22 @@ export class VsockAgentTransport {
 	 * post-create readiness fence.
 	 */
 	async waitForReady(timeoutMs: number, pollIntervalMs: number): Promise<void> {
-		const deadline = Date.now() + timeoutMs
+		const deadline = new OperationDeadline(timeoutMs, 'firecracker agent readiness')
 		let lastErr: unknown
-		while (Date.now() < deadline) {
+		while (deadline.remainingMs() > 0) {
 			try {
-				if (await this.healthz()) return
+				if (await deadline.run((signal) => this.healthz(signal))) return
 				lastErr = new Error('healthz returned not-ok')
 			} catch (err) {
 				lastErr = err
+				if (err instanceof OperationDeadlineExpired) break
 			}
-			await delay(pollIntervalMs)
+			try {
+				await deadline.delay(pollIntervalMs)
+			} catch (err) {
+				if (err instanceof OperationDeadlineExpired) break
+				throw err
+			}
 		}
 		throw new Error(
 			`vsock transport: agent did not become ready within ${timeoutMs}ms: ${
@@ -647,8 +673,27 @@ class IdleTimer {
 	}
 }
 
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms))
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(signalError(signal))
+			return
+		}
+		const finish = (err?: unknown) => {
+			clearTimeout(timer)
+			signal?.removeEventListener('abort', abort)
+			if (err === undefined) resolve()
+			else reject(err)
+		}
+		const abort = () => finish(signalError(signal))
+		const timer = setTimeout(() => finish(), ms)
+		signal?.addEventListener('abort', abort, { once: true })
+	})
+}
+
+function signalError(signal: AbortSignal | undefined): Error {
+	if (signal?.reason instanceof Error) return signal.reason
+	return new Error(signal?.reason === undefined ? 'operation aborted' : String(signal.reason))
 }
 
 function describeHandle(handle: SandboxAgentHandle): string {

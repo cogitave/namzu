@@ -57,6 +57,7 @@ import type {
 } from '@namzu/sdk'
 
 import type { AgentSnapshotRef, SandboxBackend, SandboxBackendOptions } from '../../index.js'
+import { resolveReadinessOptions, runFailureCleanup } from '../readiness.js'
 import type {
 	MtlsClientMaterial,
 	SandboxAgentHandle,
@@ -148,11 +149,20 @@ const DEFAULT_READY_POLL_MS = 250
  * on the first `create()`.
  */
 export function buildFirecrackerBackend(config: FirecrackerBackendInternalConfig): SandboxBackend {
+	const readiness = resolveReadinessOptions(
+		'firecracker',
+		config.readyTimeoutMs,
+		config.readyPollIntervalMs,
+		{
+			timeoutMs: DEFAULT_READY_TIMEOUT_MS,
+			pollIntervalMs: DEFAULT_READY_POLL_MS,
+		},
+	)
 	return {
 		tier: 'microvm',
 		name: 'firecracker',
 		async create(options: SandboxBackendOptions): Promise<Sandbox> {
-			return await spawnFirecrackerSandbox(config, options)
+			return await spawnFirecrackerSandbox(config, options, readiness)
 		},
 	}
 }
@@ -208,8 +218,11 @@ async function orchestratorCall<T>(
 	getToken: OrchestratorTokenProvider,
 	body?: unknown,
 	mtls?: MtlsClientMaterial,
+	signal?: AbortSignal,
 ): Promise<T | undefined> {
+	signal?.throwIfAborted()
 	const token = await getToken()
+	signal?.throwIfAborted()
 	const url = `${stripTrailingSlashes(endpoint)}${pathSuffix}`
 	const payload = body !== undefined ? JSON.stringify(body) : undefined
 	const headers: Record<string, string> = {
@@ -226,8 +239,8 @@ async function orchestratorCall<T>(
 		// than fetch+undici-dispatcher because the package declares no undici
 		// dependency — node:https is always importable and needs nothing added.
 		res = mtls
-			? await httpsOrchestratorRequest(url, method, headers, payload, mtls)
-			: await fetchOrchestratorRequest(url, method, headers, payload)
+			? await httpsOrchestratorRequest(url, method, headers, payload, mtls, signal)
+			: await fetchOrchestratorRequest(url, method, headers, payload, signal)
 	} catch (err) {
 		const cause = err instanceof Error ? err.cause : undefined
 		throw new Error(
@@ -238,12 +251,16 @@ async function orchestratorCall<T>(
 		)
 	}
 	if (res.status < 200 || res.status >= 300) {
-		throw new Error(
-			`firecracker orchestrator ${method} ${url} → ${res.status}: ${await res.text()}`,
-		)
+		const text = await res.text()
+		signal?.throwIfAborted()
+		throw new Error(`firecracker orchestrator ${method} ${url} → ${res.status}: ${text}`)
 	}
 	if (res.status === 204) return undefined
-	if (res.contentType.includes('application/json')) return JSON.parse(await res.text()) as T
+	if (res.contentType.includes('application/json')) {
+		const text = await res.text()
+		signal?.throwIfAborted()
+		return JSON.parse(text) as T
+	}
 	return undefined
 }
 
@@ -253,9 +270,11 @@ async function fetchOrchestratorRequest(
 	method: 'POST' | 'DELETE',
 	headers: Record<string, string>,
 	payload: string | undefined,
+	signal?: AbortSignal,
 ): Promise<OrchestratorRawResponse> {
 	const init: RequestInit = { method, headers }
 	if (payload !== undefined) init.body = payload
+	if (signal !== undefined) init.signal = signal
 	const res = await fetch(url, init)
 	return {
 		status: res.status,
@@ -276,6 +295,7 @@ function httpsOrchestratorRequest(
 	headers: Record<string, string>,
 	payload: string | undefined,
 	mtls: MtlsClientMaterial,
+	signal?: AbortSignal,
 ): Promise<OrchestratorRawResponse> {
 	const target = new URL(url)
 	return new Promise<OrchestratorRawResponse>((resolve, reject) => {
@@ -293,6 +313,7 @@ function httpsOrchestratorRequest(
 				rejectUnauthorized: true,
 				minVersion: 'TLSv1.3',
 				...(mtls.servername !== undefined ? { servername: mtls.servername } : {}),
+				...(signal !== undefined ? { signal } : {}),
 			},
 			(res) => {
 				const chunks: Buffer[] = []
@@ -321,6 +342,7 @@ function httpsOrchestratorRequest(
 async function spawnFirecrackerSandbox(
 	config: FirecrackerBackendInternalConfig,
 	options: SandboxBackendOptions,
+	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
 ): Promise<Sandbox> {
 	const endpoint = config.orchestratorEndpoint
 	const egressAllowlist = await resolveEgressAllowlist(options)
@@ -380,7 +402,7 @@ async function spawnFirecrackerSandbox(
 	)
 	const transport = new VsockAgentTransport(handle, config.transport ?? {})
 
-	const destroy = async (): Promise<void> => {
+	const destroy = async (signal?: AbortSignal): Promise<void> => {
 		await orchestratorCall(
 			endpoint,
 			`/sandboxes/${encodeURIComponent(id)}:delete`,
@@ -388,6 +410,7 @@ async function spawnFirecrackerSandbox(
 			config.getToken,
 			undefined,
 			config.controlPlaneMtls,
+			signal,
 		)
 	}
 
@@ -397,19 +420,14 @@ async function spawnFirecrackerSandbox(
 		// the clock on the agent's healthz, exactly as the HTTP backends
 		// wait on `/healthz` — never on the orchestrator's 2xx, which
 		// fires before the guest runs (§5 clock semantics).
-		await transport.waitForReady(
-			config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-			config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
-		)
+		await transport.waitForReady(readiness.timeoutMs, readiness.pollIntervalMs)
 	} catch (err) {
 		// Best-effort orchestrator teardown so a readiness failure does not
-		// orphan a microVM/netns/UFFD handler (the reaper backstops, but
-		// surfacing the delete failure keeps the leak observable).
-		try {
-			await destroy()
-		} catch {
-			// Preserve the readiness error as primary.
-		}
+		// orphan a microVM/netns/UFFD handler. The fleet reaper backstops a
+		// failed delete; this call gets a separate short grace so cleanup
+		// cannot turn the captured readiness error back into an unbounded
+		// create operation.
+		await runFailureCleanup(async (signal) => destroy(signal))
 		throw err
 	}
 

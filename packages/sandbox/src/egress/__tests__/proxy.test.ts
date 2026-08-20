@@ -1,5 +1,6 @@
 import { createServer, request as nodeRequest } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import { connect as netConnect } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { EgressProxy } from '../proxy.js'
@@ -193,6 +194,19 @@ describe('the boundary', () => {
 		const res = await viaProxy(proxy, `http://127.0.0.1:${target.port}/thing`)
 		expect(res.status).toBe(200)
 		expect(res.body).toBe('upstream ok')
+	})
+
+	it('closes accepted sockets instead of waiting forever during teardown', async () => {
+		const socket = netConnect({ host: '127.0.0.1', port: proxy.port })
+		await new Promise<void>((resolve, reject) => {
+			socket.once('connect', resolve)
+			socket.once('error', reject)
+		})
+		const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
+
+		await proxy.close()
+		await closed
+		expect(socket.destroyed).toBe(true)
 	})
 
 	it('refuses a host that is not on the list', async () => {

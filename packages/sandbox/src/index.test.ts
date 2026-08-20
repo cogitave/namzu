@@ -89,6 +89,24 @@ describe('createSandboxProvider', () => {
 		expect(provider.name).toContain('container:runsc')
 	})
 
+	it.each(['docker', 'runsc'] as const)(
+		'forwards and validates %s readiness options at the public provider boundary',
+		(runtime) => {
+			expect(() =>
+				createSandboxProvider({
+					backend: {
+						tier: 'container',
+						runtime,
+						image: 'worker:test',
+						readyTimeoutMs: 12.5,
+						readyPollIntervalMs: 2,
+					},
+					layout: validLayout(),
+				}),
+			).toThrow(/docker\.readyTimeoutMs/)
+		},
+	)
+
 	it('refuses a tier it does not implement, by name', () => {
 		// Reachable only from untyped callers now that every shape in the
 		// union has an implementation — which is the point of keeping it: a

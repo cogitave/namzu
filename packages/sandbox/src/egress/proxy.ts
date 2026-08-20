@@ -121,6 +121,11 @@ export class EgressProxy {
 		const server = createServer((req, res) => {
 			void this.handleRequest(req, res)
 		})
+		const connections = new Set<Duplex>()
+		server.on('connection', (socket) => {
+			connections.add(socket)
+			socket.once('close', () => connections.delete(socket))
+		})
 		server.on('connect', (req, socket, head) => {
 			void this.handleConnect(req, socket, head)
 		})
@@ -144,6 +149,7 @@ export class EgressProxy {
 		// process runs out. Found by a test that hung rather than failed,
 		// which is the shape this failure takes in production too.
 		this.selfPort = boundPort
+		let closePromise: Promise<void> | undefined
 
 		return {
 			port: boundPort,
@@ -151,10 +157,16 @@ export class EgressProxy {
 			setAllowedHosts: (resolve) => {
 				this.resolveAllowed = resolve
 			},
-			close: () =>
-				new Promise<void>((resolve) => {
+			close: () => {
+				closePromise ??= new Promise<void>((resolve) => {
+					// `server.close()` waits for existing connections. A readiness
+					// failure has no returned Sandbox handle through which those
+					// sockets can later be retired, so teardown owns them here.
+					for (const socket of connections) socket.destroy()
 					server.close(() => resolve())
-				}),
+				})
+				return closePromise
+			},
 		}
 	}
 
@@ -344,6 +356,9 @@ export class EgressProxy {
 			socket.end()
 		})
 		socket.on('error', () => {
+			upstream.destroy()
+		})
+		socket.once('close', () => {
 			upstream.destroy()
 		})
 	}

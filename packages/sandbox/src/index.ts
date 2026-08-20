@@ -155,7 +155,9 @@ export interface ACIStandbyPoolBackendConfig {
 	 */
 	readonly getArmToken: () => Promise<string>
 	readonly subnetId?: string
+	/** Delay between IP / health probes. Default 500ms. */
 	readonly readyPollIntervalMs?: number
+	/** Total deadline across IP publication and worker health. Default 60000ms. */
 	readonly readyTimeoutMs?: number
 	readonly workerPort?: number
 	readonly armApiVersion?: string
@@ -218,6 +220,18 @@ export interface ContainerBackendConfig {
 	 * which is checked against this network rather than trusted.
 	 */
 	readonly network?: 'none' | 'bridge' | string
+	/**
+	 * Maximum time spent waiting for the container worker's `/healthz`
+	 * readiness probe. Must be a positive integer within Node's timer range.
+	 * Default 30000ms.
+	 */
+	readonly readyTimeoutMs?: number
+	/**
+	 * Delay between worker readiness probes. Must be a positive integer within
+	 * Node's timer range; the final delay is capped by `readyTimeoutMs`.
+	 * Default 100ms.
+	 */
+	readonly readyPollIntervalMs?: number
 	/**
 	 * Allowlisted hosts permitted to resolve to an inward address anyway.
 	 *
@@ -297,7 +311,9 @@ export type MicroVMBackendConfig = {
 	readonly agentSnapshot?: AgentSnapshotRef
 	/** Fixed guest AF_VSOCK port the in-VM agent listens on. */
 	readonly agentVsockPort?: number
+	/** Total guest-agent health deadline after the orchestrator claim. Default 60000ms. */
 	readonly readyTimeoutMs?: number
+	/** Delay between guest-agent health probes. Default 250ms. */
 	readonly readyPollIntervalMs?: number
 	/**
 	 * NETWORK-mode mTLS client material (ses_051 P4 client-proxy
@@ -569,6 +585,10 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 		return buildDockerBackend({
 			image: backend.image,
 			layout: resolved,
+			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
+			...(backend.readyPollIntervalMs !== undefined
+				? { readyPollIntervalMs: backend.readyPollIntervalMs }
+				: {}),
 			...(backend.hostReachability !== undefined
 				? { hostReachability: backend.hostReachability }
 				: {}),
@@ -620,6 +640,10 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			image: backend.image,
 			layout: resolved,
 			runtime: 'runsc',
+			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
+			...(backend.readyPollIntervalMs !== undefined
+				? { readyPollIntervalMs: backend.readyPollIntervalMs }
+				: {}),
 			...(backend.hostReachability !== undefined
 				? { hostReachability: backend.hostReachability }
 				: {}),
