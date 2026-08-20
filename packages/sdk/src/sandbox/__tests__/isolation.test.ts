@@ -1,8 +1,11 @@
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import type { SandboxEnvironment } from '../../types/sandbox/index.js'
 import { SANDBOX_ISOLATION_CONTROLS } from '../../types/sandbox/index.js'
 import { assertIsolation, describeIsolation, isolationOf, missingIsolation } from '../isolation.js'
+import { acceptsSandboxSpawnProbe } from '../provider/local.js'
 
 /**
  * The provider reported `id = 'local'` / `name = 'Local Sandbox'` at every
@@ -23,6 +26,11 @@ describe('what each tier actually enforces', () => {
 			network: true,
 			process: true,
 		})
+		expect(isolationOf('linux-bwrap')).toEqual({
+			filesystem: true,
+			network: true,
+			process: true,
+		})
 	})
 
 	it('does not claim filesystem confinement from an unshared mount namespace', () => {
@@ -38,7 +46,12 @@ describe('what each tier actually enforces', () => {
 	})
 
 	it('covers every environment the type admits', () => {
-		const environments: SandboxEnvironment[] = ['linux-namespace', 'macos-seatbelt', 'basic']
+		const environments: SandboxEnvironment[] = [
+			'linux-bwrap',
+			'linux-namespace',
+			'macos-seatbelt',
+			'basic',
+		]
 		for (const environment of environments) {
 			const report = isolationOf(environment)
 			for (const control of SANDBOX_ISOLATION_CONTROLS) {
@@ -83,6 +96,7 @@ describe('requiring a control', () => {
 
 describe('describing a tier', () => {
 	it.each([
+		['linux-bwrap', 'filesystem, network, process'],
 		['macos-seatbelt', 'filesystem, network, process'],
 		['linux-namespace', 'network, process'],
 		['basic', 'nothing'],
@@ -91,29 +105,118 @@ describe('describing a tier', () => {
 	})
 })
 
+describe('a tier probe observes the production spawn boundary', () => {
+	it('accepts only an exact successful sentinel round trip', () => {
+		expect(
+			acceptsSandboxSpawnProbe({
+				status: 0,
+				signal: null,
+				stdout: 'namzu-sandbox-spawn-probe',
+			}),
+		).toBe(true)
+	})
+
+	it.each([
+		{
+			name: 'spawn error despite a child exit',
+			observation: {
+				error: new Error('direct spawn refused'),
+				status: 0,
+				signal: null,
+				stdout: 'namzu-sandbox-spawn-probe',
+			},
+		},
+		{
+			name: 'non-zero exit',
+			observation: { status: 1, signal: null, stdout: 'namzu-sandbox-spawn-probe' },
+		},
+		{
+			name: 'terminating signal',
+			observation: { status: 0, signal: 'SIGTERM' as const, stdout: '' },
+		},
+		{
+			name: 'stdout pipe that lost the sentinel',
+			observation: { status: 0, signal: null, stdout: '' },
+		},
+	])('refuses a $name', ({ observation }) => {
+		expect(acceptsSandboxSpawnProbe(observation)).toBe(false)
+	})
+})
+
 describe('the provider', () => {
 	// `process.platform` is a per-worker global, and vitest reuses workers
 	// across files — leaving it patched would make an unrelated file's
 	// platform check answer for this one.
 	const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+	let spawnedCommands: string[] = []
+	let probedInnerCommands: string[] = []
 
 	afterAll(() => {
 		if (realPlatform) Object.defineProperty(process, 'platform', realPlatform)
 		vi.doUnmock('node:child_process')
+		vi.doUnmock('node:fs')
 		vi.resetModules()
 	})
 
 	async function providerWith(environment: SandboxEnvironment) {
 		vi.resetModules()
+		spawnedCommands = []
+		probedInnerCommands = []
+		const wanted =
+			environment === 'linux-bwrap'
+				? 'bwrap'
+				: environment === 'linux-namespace'
+					? 'unshare'
+					: 'sandbox-exec'
+		vi.doMock('node:fs', async () => {
+			const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+			return {
+				...actual,
+				accessSync: (candidate: string) => {
+					if (environment !== 'basic' && candidate.endsWith(`/${wanted}`)) return
+					throw new Error('not available')
+				},
+				realpathSync: (candidate: string) => candidate,
+			}
+		})
 		vi.doMock('node:child_process', async () => {
 			const actual =
 				await vi.importActual<typeof import('node:child_process')>('node:child_process')
 			return {
 				...actual,
-				execSync: (command: string) => {
-					const wanted = environment === 'linux-namespace' ? 'unshare' : 'sandbox-exec'
-					if (environment !== 'basic' && command.startsWith(wanted)) return Buffer.alloc(0)
-					throw new Error('not available')
+				spawn: (command: string) => {
+					spawnedCommands.push(command)
+					const child = new EventEmitter() as EventEmitter & {
+						pid: number
+						stdout: PassThrough
+						stderr: PassThrough
+					}
+					child.pid = 42
+					child.stdout = new PassThrough()
+					child.stderr = new PassThrough()
+					queueMicrotask(() => {
+						child.stdout.end()
+						child.stderr.end()
+						child.emit('close', 0, null)
+					})
+					return child
+				},
+				spawnSync: (command: string, args: readonly string[]) => {
+					const separator = args.indexOf('--')
+					probedInnerCommands.push(args[separator + 1] ?? '')
+					if (environment !== 'basic' && command.endsWith(`/${wanted}`)) {
+						return {
+							status: 0,
+							signal: null,
+							stdout: 'namzu-sandbox-spawn-probe',
+						}
+					}
+					return {
+						error: new Error('not available'),
+						status: null,
+						signal: null,
+						stdout: null,
+					}
 				},
 			}
 		})
@@ -160,5 +263,30 @@ describe('the provider', () => {
 			requireIsolation: ['filesystem', 'network'],
 		})
 		expect(provider.environment).toBe('macos-seatbelt')
+	})
+
+	it('keeps the exact probed Linux wrapper behind the selected tier', async () => {
+		const { LocalSandboxProvider } = await providerWith('linux-bwrap')
+		const provider = new LocalSandboxProvider(logger() as never, {
+			requireIsolation: ['filesystem', 'network', 'process'],
+		})
+		expect(provider.environment).toBe('linux-bwrap')
+		expect((provider as unknown as { wrapperCommand: string }).wrapperCommand).toBe(
+			'/usr/bin/bwrap',
+		)
+		expect(probedInnerCommands).toEqual([process.execPath])
+
+		const sandbox = await provider.create({ env: { PATH: '/tmp/fake-wrapper-bin' } })
+		try {
+			expect((sandbox as unknown as { wrapperCommand: string }).wrapperCommand).toBe(
+				'/usr/bin/bwrap',
+			)
+			await sandbox.exec('node', ['-e', '0'], {
+				env: { PATH: '/tmp/second-fake-wrapper-bin' },
+			})
+			expect(spawnedCommands).toEqual(['/usr/bin/bwrap'])
+		} finally {
+			await sandbox.destroy()
+		}
 	})
 })

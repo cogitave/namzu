@@ -1,5 +1,5 @@
-import { execSync, spawn } from 'node:child_process'
-import { existsSync, realpathSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { constants, accessSync, existsSync, realpathSync } from 'node:fs'
 import {
 	readFile as fsReadFile,
 	writeFile as fsWriteFile,
@@ -65,6 +65,71 @@ function assertInsideSandbox(sandboxRoot: string, targetPath: string): string {
  */
 const LINUX_UNSHARE_FLAGS = ['--mount', '--pid', '--fork', '--map-root-user', '--net']
 
+const SPAWN_PROBE_SENTINEL = 'namzu-sandbox-spawn-probe'
+
+interface SpawnProbeObservation {
+	readonly error?: unknown
+	readonly status: number | null
+	readonly signal: NodeJS.Signals | null
+	readonly stdout: string | null
+}
+
+/**
+ * A wrapper is usable only when the same direct-spawn shape as a real command
+ * can execute and carry its output back through a pipe.
+ *
+ * Checking only the exit status is insufficient: a host policy can let a
+ * shell launch a namespace helper while refusing or partially virtualising a
+ * direct `spawn()` of that helper. In that state the old shell-string probe
+ * selected the tier, but production commands returned exit zero with empty
+ * output. Treat a spawn error, signal, or damaged pipe as an unavailable tier.
+ */
+export function acceptsSandboxSpawnProbe(observation: SpawnProbeObservation): boolean {
+	return (
+		observation.error === undefined &&
+		observation.status === 0 &&
+		observation.signal === null &&
+		observation.stdout === SPAWN_PROBE_SENTINEL
+	)
+}
+
+function probeSandboxSpawn(command: string, wrapperArgs: readonly string[]): boolean {
+	const observation = spawnSync(
+		command,
+		[
+			...wrapperArgs,
+			'--',
+			process.execPath,
+			'-e',
+			`process.stdout.write(${JSON.stringify(SPAWN_PROBE_SENTINEL)})`,
+		],
+		{
+			encoding: 'utf8',
+			timeout: 5_000,
+		},
+	)
+	return acceptsSandboxSpawnProbe(observation)
+}
+
+const TRUSTED_WRAPPER_CANDIDATES = {
+	bwrap: ['/usr/bin/bwrap', '/bin/bwrap', '/usr/sbin/bwrap'],
+	unshare: ['/usr/bin/unshare', '/bin/unshare', '/usr/sbin/unshare'],
+	'sandbox-exec': ['/usr/bin/sandbox-exec'],
+} as const
+
+function resolveTrustedWrapper(name: keyof typeof TRUSTED_WRAPPER_CANDIDATES): string | undefined {
+	for (const candidate of TRUSTED_WRAPPER_CANDIDATES[name]) {
+		try {
+			accessSync(candidate, constants.X_OK)
+			return realpathSync(candidate)
+		} catch {
+			// Try the next fixed system location. Caller-controlled PATH is not
+			// part of wrapper discovery because it is also configurable per run.
+		}
+	}
+	return undefined
+}
+
 /**
  * One output stream, accumulated under a byte cap that it reports hitting.
  *
@@ -99,11 +164,22 @@ export class CappedStream {
 
 export interface LimitedSpawnRequest {
 	readonly environment: SandboxEnvironment
+	/** Canonical outer wrapper selected and probed by the provider. */
+	readonly wrapperCommand?: string
 	readonly command: string
 	readonly args: readonly string[]
 	readonly rootDir: string
 	readonly memoryLimitMb?: number
 	readonly maxProcesses?: number
+}
+
+function requiredWrapper(request: LimitedSpawnRequest): string {
+	if (request.wrapperCommand === undefined || !isAbsolute(request.wrapperCommand)) {
+		throw new Error(
+			`Sandbox environment ${request.environment} requires the absolute wrapper path that was probed`,
+		)
+	}
+	return request.wrapperCommand
 }
 
 /** Single-quote for a shell, escaping any quote already inside. */
@@ -149,19 +225,19 @@ export function buildLimitedSpawn(request: LimitedSpawnRequest): {
 	switch (environment) {
 		case 'linux-bwrap':
 			return {
-				spawnCommand: 'bwrap',
+				spawnCommand: requiredWrapper(request),
 				spawnArgs: [...buildBwrapArgs(rootDir), '--', ...inner],
 			}
 
 		case 'linux-namespace':
 			return {
-				spawnCommand: 'unshare',
+				spawnCommand: requiredWrapper(request),
 				spawnArgs: [...LINUX_UNSHARE_FLAGS, '--', ...inner],
 			}
 
 		case 'macos-seatbelt':
 			return {
-				spawnCommand: 'sandbox-exec',
+				spawnCommand: requiredWrapper(request),
 				spawnArgs: ['-p', buildSeatbeltProfile(rootDir), '--', ...inner],
 			}
 
@@ -177,56 +253,43 @@ export function buildLimitedSpawn(request: LimitedSpawnRequest): {
 	}
 }
 
-function detectEnvironment(): SandboxEnvironment {
+type DetectedEnvironment =
+	| { readonly environment: 'basic' }
+	| {
+			readonly environment: Exclude<SandboxEnvironment, 'basic'>
+			readonly wrapperCommand: string
+	  }
+
+function detectEnvironment(): DetectedEnvironment {
 	const { platform } = process
 
 	if (platform === 'linux') {
-		try {
-			// Probed the same way and for the same reason as the tier below:
-			// by running the real confinement, not by asking the binary its
-			// version. `bwrap` is present on hosts where unprivileged user
-			// namespaces are disabled, and there every spawn fails — the tier
-			// would be detected, claimed, and never delivered.
-			//
-			// The probe binds a directory that certainly exists and asks for
-			// the same flags a real spawn uses, so a kernel that refuses one of
-			// them is discovered here rather than on the caller's first
-			// command.
-			execSync(`bwrap ${buildBwrapArgs(tmpdir()).join(' ')} -- /bin/true`, {
-				stdio: 'ignore',
-			})
-			return 'linux-bwrap'
-		} catch {
-			// bwrap missing, or the host refuses the namespaces it needs. Fall
-			// through to the weaker tier, which reports `filesystem: false` and
-			// so cannot be mistaken for this one.
+		// Probe the direct child-process boundary used in production, including
+		// its stdout pipe. A shell-string probe is a different capability on
+		// hosts that mediate namespace helpers and can claim a tier production
+		// cannot actually drive.
+		const bwrap = resolveTrustedWrapper('bwrap')
+		if (bwrap !== undefined && probeSandboxSpawn(bwrap, buildBwrapArgs(tmpdir()))) {
+			return { environment: 'linux-bwrap', wrapperCommand: bwrap }
 		}
 
-		try {
-			// Probe the real flags, not just the binary. `unshare --version`
-			// succeeds on a host where unprivileged user namespaces are
-			// disabled by sysctl and every actual spawn would fail — the tier
-			// would be claimed and never delivered. The other platform's probe
-			// already runs its sandbox for real; this one now does too.
-			execSync(`unshare ${LINUX_UNSHARE_FLAGS.join(' ')} -- /bin/true`, {
-				stdio: 'ignore',
-			})
-			return 'linux-namespace'
-		} catch {
-			// unshare missing, or the host refuses the namespaces we need
+		const unshare = resolveTrustedWrapper('unshare')
+		if (unshare !== undefined && probeSandboxSpawn(unshare, LINUX_UNSHARE_FLAGS)) {
+			return { environment: 'linux-namespace', wrapperCommand: unshare }
 		}
 	}
 
 	if (platform === 'darwin') {
-		try {
-			execSync('sandbox-exec -n no-network /usr/bin/true', { stdio: 'ignore' })
-			return 'macos-seatbelt'
-		} catch {
-			// sandbox-exec not available
+		const seatbelt = resolveTrustedWrapper('sandbox-exec')
+		if (
+			seatbelt !== undefined &&
+			probeSandboxSpawn(seatbelt, ['-p', buildSeatbeltProfile(tmpdir())])
+		) {
+			return { environment: 'macos-seatbelt', wrapperCommand: seatbelt }
 		}
 	}
 
-	return 'basic'
+	return { environment: 'basic' }
 }
 
 // ---------------------------------------------------------------------------
@@ -481,6 +544,7 @@ class LocalSandbox implements Sandbox {
 		id: SandboxId,
 		rootDir: string,
 		environment: SandboxEnvironment,
+		private readonly wrapperCommand: string | undefined,
 		config: SandboxCreateConfig,
 		log: Logger,
 	) {
@@ -625,6 +689,7 @@ class LocalSandbox implements Sandbox {
 	): { spawnCommand: string; spawnArgs: string[] } {
 		return buildLimitedSpawn({
 			environment: this.environment,
+			...(this.wrapperCommand !== undefined ? { wrapperCommand: this.wrapperCommand } : {}),
 			command,
 			args,
 			rootDir: this.rootDir,
@@ -745,6 +810,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 	readonly environment: SandboxEnvironment
 
 	private readonly log: Logger
+	private readonly wrapperCommand: string | undefined
 
 	constructor(log: Logger, options: LocalSandboxProviderOptions = {}) {
 		if (options.ptyLoader !== undefined) {
@@ -752,7 +818,9 @@ export class LocalSandboxProvider implements SandboxProvider {
 				'LocalSandboxProvider no longer accepts ptyLoader because its terminal could not preserve the selected isolation tier or sandbox teardown ownership. Use the host-scoped terminal helpers only for intentional host execution, or provide a confined terminal backend.',
 			)
 		}
-		this.environment = detectEnvironment()
+		const detected = detectEnvironment()
+		this.environment = detected.environment
+		this.wrapperCommand = 'wrapperCommand' in detected ? detected.wrapperCommand : undefined
 		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'sandbox/provider/local' })
 
 		assertIsolation(this.environment, options.requireIsolation ?? [])
@@ -790,6 +858,13 @@ export class LocalSandboxProvider implements SandboxProvider {
 
 		this.log.info('Creating sandbox', { 'namzu.sandbox.id': id, 'namzu.sandbox.root_dir': rootDir })
 
-		return new LocalSandbox(id, rootDir, this.environment, config ?? {}, this.log)
+		return new LocalSandbox(
+			id,
+			rootDir,
+			this.environment,
+			this.wrapperCommand,
+			config ?? {},
+			this.log,
+		)
 	}
 }

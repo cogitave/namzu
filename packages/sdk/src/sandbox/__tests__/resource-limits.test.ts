@@ -17,11 +17,18 @@ import { buildLimitedSpawn } from '../provider/local.js'
  * a wrapper it can sit inside — so they are enforced.
  */
 
-const TIERS: SandboxEnvironment[] = ['basic', 'linux-namespace', 'macos-seatbelt']
+const TIERS: SandboxEnvironment[] = ['basic', 'linux-bwrap', 'linux-namespace', 'macos-seatbelt']
+
+const WRAPPER = {
+	'linux-bwrap': '/trusted/bin/bwrap',
+	'linux-namespace': '/trusted/bin/unshare',
+	'macos-seatbelt': '/trusted/bin/sandbox-exec',
+} as const
 
 function spawnFor(environment: SandboxEnvironment, limits: Record<string, number>) {
 	return buildLimitedSpawn({
 		environment,
+		...(environment === 'basic' ? {} : { wrapperCommand: WRAPPER[environment] }),
 		command: 'node',
 		args: ['-e', "console.log('hi')"],
 		rootDir: '/tmp/sandbox-root',
@@ -59,15 +66,33 @@ describe('the tier keeps doing its own job', () => {
 	it('still unshares the namespaces when a cap is set', () => {
 		const spawn = spawnFor('linux-namespace', { maxProcesses: 4 })
 
-		expect(spawn.spawnCommand).toBe('unshare')
+		expect(spawn.spawnCommand).toBe('/trusted/bin/unshare')
 		expect(spawn.spawnArgs.join(' ')).toContain('--pid')
 	})
 
 	it('still installs the confinement profile when a cap is set', () => {
 		const spawn = spawnFor('macos-seatbelt', { maxProcesses: 4 })
 
-		expect(spawn.spawnCommand).toBe('sandbox-exec')
+		expect(spawn.spawnCommand).toBe('/trusted/bin/sandbox-exec')
 		expect(spawn.spawnArgs).toContain('-p')
+	})
+
+	it('pins the probed wrapper instead of resolving it through the command environment', () => {
+		const spawn = spawnFor('linux-bwrap', {})
+
+		expect(spawn.spawnCommand).toBe('/trusted/bin/bwrap')
+		expect(spawn.spawnCommand).not.toBe('bwrap')
+	})
+
+	it('refuses an isolated tier with no probed absolute wrapper', () => {
+		expect(() =>
+			buildLimitedSpawn({
+				environment: 'linux-namespace',
+				command: 'node',
+				args: [],
+				rootDir: '/tmp/sandbox-root',
+			}),
+		).toThrow(/requires the absolute wrapper path that was probed/)
 	})
 })
 
