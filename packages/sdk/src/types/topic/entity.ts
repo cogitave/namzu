@@ -67,10 +67,9 @@ export type TopicStatus = 'open' | 'archived'
  *     the kernel.
  *   - `ownerVersion` is the CAS counter for mutations — `updateTopic` and
  *     archival transitions require a matching version and reject
- *     {@link import('../../session/errors.js').StaleThreadError} on mismatch
- *     (error class name is unchanged this release — see NZ-TOPIC-01 risks).
- *     Mirrors the {@link import('./entity.js').Session} handoff CAS pattern
- *     (§6.1).
+ *     {@link import('../../session/errors.js').StaleTopicError} on mismatch
+ *     with `details.topicId`. Mirrors the
+ *     {@link import('./entity.js').Session} handoff CAS pattern (§6.1).
  *   - No fan-in `deriveStatus()` helper — status is owner-managed, not
  *     Run-derived. This is the Topic-vs-Session contract boundary.
  */

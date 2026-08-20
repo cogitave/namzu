@@ -64,7 +64,10 @@ export class AncestryCycleError extends Error {
 		cyclePath: readonly SessionId[]
 	}
 
-	constructor(details: { sessionId: SessionId; cyclePath: readonly SessionId[] }) {
+	constructor(details: {
+		sessionId: SessionId
+		cyclePath: readonly SessionId[]
+	}) {
 		super(
 			`Ancestry cycle detected starting at ${details.sessionId}: ${details.cyclePath.join(' -> ')}`,
 		)
@@ -86,7 +89,11 @@ export class WorkspaceBackendError extends Error {
 		cause?: unknown
 	}
 
-	constructor(details: { op: string; kind: WorkspaceBackendKind; cause?: unknown }) {
+	constructor(details: {
+		op: string
+		kind: WorkspaceBackendKind
+		cause?: unknown
+	}) {
 		super(`Workspace backend ${details.kind} failed on ${details.op}`)
 		this.name = 'WorkspaceBackendError'
 		this.details = details
@@ -94,24 +101,27 @@ export class WorkspaceBackendError extends Error {
 }
 
 /**
- * Raised by {@link import('../types/thread/store.js').ThreadStore.updateThread}
- * when the supplied {@link Thread.ownerVersion} does not match the persisted
- * record. The caller must re-read via `getThread`, re-apply its intended
- * mutation on top of the fresh record, and retry. Mirrors the Session
- * handoff CAS pattern (§6.1).
+ * Raised by {@link import('../types/topic/store.js').TopicStore.updateTopic}
+ * when the supplied Topic owner version does not match the persisted record.
+ * The caller re-reads the Topic, reapplies its intended mutation, and retries.
+ * Mirrors the Session handoff CAS pattern (§6.1).
  */
-export class StaleThreadError extends Error {
+export class StaleTopicError extends Error {
 	readonly details: {
-		threadId: TopicId
+		topicId: TopicId
 		expectedVersion: number
 		actualVersion: number
 	}
 
-	constructor(details: { threadId: TopicId; expectedVersion: number; actualVersion: number }) {
+	constructor(details: {
+		topicId: TopicId
+		expectedVersion: number
+		actualVersion: number
+	}) {
 		super(
-			`Stale Thread ${details.threadId}: expected ownerVersion=${details.expectedVersion}, actual=${details.actualVersion}`,
+			`Stale Topic ${details.topicId}: expected ownerVersion=${details.expectedVersion}, actual=${details.actualVersion}`,
 		)
-		this.name = 'StaleThreadError'
+		this.name = 'StaleTopicError'
 		this.details = details
 	}
 }
@@ -119,8 +129,8 @@ export class StaleThreadError extends Error {
 /**
  * Raised when a Session write names a version the store no longer has.
  *
- * The sibling of {@link StaleThreadError}, and it arrived much later: Thread
- * had a working compare-and-set from the start while `Session.ownerVersion`
+ * The sibling of {@link StaleTopicError}, and it arrived much later: Topic had
+ * a working compare-and-set from the start while `Session.ownerVersion`
  * was documented as a CAS counter that nothing enforced. Two concurrent
  * handoffs could both pass, both provision a worktree, and one silently erase
  * the other.
@@ -136,7 +146,11 @@ export class StaleSessionError extends Error {
 		actualVersion: number
 	}
 
-	constructor(details: { sessionId: SessionId; expectedVersion: number; actualVersion: number }) {
+	constructor(details: {
+		sessionId: SessionId
+		expectedVersion: number
+		actualVersion: number
+	}) {
 		super(
 			`Stale Session ${details.sessionId}: expected ownerVersion=${details.expectedVersion}, actual=${details.actualVersion}. Another writer took ownership; re-read the session before retrying.`,
 		)
@@ -146,65 +160,71 @@ export class StaleSessionError extends Error {
 }
 
 /**
- * Raised by the spawn path (and any caller that enforces the open-thread
- * precondition) when a Thread is in `'archived'` state and would-be mutations
- * require it to be `'open'`. Convention #5: deny-by-default — archival is a
- * hard read-only boundary.
+ * Raised by the spawn path (and any caller that enforces the open-Topic
+ * precondition) when a Topic is archived and a mutation requires it to be
+ * open. Convention #5: deny-by-default — archival is a hard read-only
+ * boundary.
  */
-export class ThreadClosedError extends Error {
+export class TopicArchivedError extends Error {
 	readonly details: {
-		threadId: TopicId
+		topicId: TopicId
 		op: string
 	}
 
-	constructor(details: { threadId: TopicId; op: string }) {
-		super(`Thread ${details.threadId} is archived; operation '${details.op}' rejected`)
-		this.name = 'ThreadClosedError'
+	constructor(details: { topicId: TopicId; op: string }) {
+		super(`Topic ${details.topicId} is archived; operation '${details.op}' rejected`)
+		this.name = 'TopicArchivedError'
 		this.details = details
 	}
 }
 
 /**
  * Raised by {@link import('../manager/topic/lifecycle.js').TopicManager.archive}
- * and `.delete` when the Thread's session-presence precondition is violated:
+ * and `.delete` when the Topic's session-presence precondition is violated:
  *
- * - `op: 'archive'` — at least one Session under the Thread is in a
+ * - `op: 'archive'` — at least one Session under the Topic is in a
  *   non-terminal state (`active | locked | awaiting_hitl | awaiting_merge`).
  *   The caller must first quiesce those sessions (let them reach `idle`,
- *   `failed`, or `archived`) before flipping the Thread to archived.
- * - `op: 'delete'` — the Thread still has at least one attached Session.
+ *   `failed`, or `archived`) before flipping the Topic to archived.
+ * - `op: 'delete'` — the Topic still has at least one attached Session.
  *   Callers must either archive + tombstone those sessions (`deleteSession`)
- *   before calling `deleteThread`, or accept that deletion is not yet safe.
+ *   before calling `deleteTopic`, or accept that deletion is not yet safe.
  *
- * `blockingSessions` carries the first {@link THREAD_NOT_EMPTY_SAMPLE_LIMIT}
+ * `blockingSessions` carries the first {@link TOPIC_NOT_EMPTY_SAMPLE_LIMIT}
  * offenders with their current status so operator tooling can surface an
- * actionable list without unbounded error payloads on large threads.
+ * actionable list without unbounded error payloads on large topics.
  * `totalBlockingSessions` holds the full count even when the sample is
  * truncated. Convention #5: deny-by-default — no implicit cascade, no silent
  * no-op.
  */
-export const THREAD_NOT_EMPTY_SAMPLE_LIMIT = 50
+export const TOPIC_NOT_EMPTY_SAMPLE_LIMIT = 50
 
-export class ThreadNotEmptyError extends Error {
+export class TopicNotEmptyError extends Error {
 	readonly details: {
-		threadId: TopicId
+		topicId: TopicId
 		tenantId: TenantId
 		op: 'archive' | 'delete'
-		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
+		blockingSessions: ReadonlyArray<{
+			sessionId: SessionId
+			status: SessionStatus
+		}>
 		totalBlockingSessions: number
 	}
 
 	constructor(details: {
-		threadId: TopicId
+		topicId: TopicId
 		tenantId: TenantId
 		op: 'archive' | 'delete'
-		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
+		blockingSessions: ReadonlyArray<{
+			sessionId: SessionId
+			status: SessionStatus
+		}>
 		totalBlockingSessions: number
 	}) {
 		super(
-			`Thread ${details.threadId} ${details.op} blocked: ${details.totalBlockingSessions} session(s) still attached`,
+			`Topic ${details.topicId} ${details.op} blocked: ${details.totalBlockingSessions} session(s) still attached`,
 		)
-		this.name = 'ThreadNotEmptyError'
+		this.name = 'TopicNotEmptyError'
 		this.details = details
 	}
 }
@@ -212,7 +232,7 @@ export class ThreadNotEmptyError extends Error {
 /**
  * Raised when an ingress path is asked to attach work to an archived Project.
  *
- * The sibling of {@link ThreadClosedError}, on the level that survives. A
+ * The sibling of {@link TopicArchivedError}, on the level that survives. A
  * closed workspace is a decision by its owner, and the paths that create
  * sessions have to be able to see it — otherwise "archived" is a word in a
  * listing rather than a state of the system.
@@ -247,7 +267,10 @@ export class ProjectNotEmptyError extends Error {
 		projectId: ProjectId
 		tenantId: TenantId
 		op: 'archive'
-		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
+		blockingSessions: ReadonlyArray<{
+			sessionId: SessionId
+			status: SessionStatus
+		}>
 		totalBlockingSessions: number
 	}
 
@@ -255,7 +278,10 @@ export class ProjectNotEmptyError extends Error {
 		projectId: ProjectId
 		tenantId: TenantId
 		op: 'archive'
-		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
+		blockingSessions: ReadonlyArray<{
+			sessionId: SessionId
+			status: SessionStatus
+		}>
 		totalBlockingSessions: number
 	}) {
 		super(

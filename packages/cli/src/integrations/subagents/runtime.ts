@@ -149,13 +149,13 @@ export async function createSubagentRuntime(
 		),
 	)
 
-	const threadManager = new TopicManager({ topicStore, sessionStore: store })
+	const topicManager = new TopicManager({ topicStore, sessionStore: store })
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
 		summaryMaterializer: materializer,
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
-		threadManager,
+		topicManager,
 	})
 
 	const taskContext: AgentTaskContext = {

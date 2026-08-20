@@ -20,7 +20,11 @@ import type { AgentTaskContext } from '../../../types/agent/index.js'
 async function manager(maxDepth: number) {
 	const { AgentManager } = await import('../lifecycle.js')
 	const registry = { resolve: vi.fn(), get: vi.fn(), getAll: vi.fn(() => []) }
-	const deps = { createAgent: vi.fn(), taskStore: undefined }
+	const deps = {
+		createAgent: vi.fn(),
+		taskStore: undefined,
+		topicManager: { requireOpen: vi.fn() },
+	}
 	return new AgentManager(registry as never, { maxDepth }, deps as never)
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ThreadClosedError, ThreadNotEmptyError } from '../../../session/errors.js'
+import { TopicArchivedError, TopicNotEmptyError } from '../../../session/errors.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
@@ -39,10 +39,12 @@ describe('TopicManager', () => {
 			})
 		})
 
-		it('throws ThreadClosedError when archived', async () => {
+		it('throws TopicArchivedError when archived', async () => {
 			const { topic, manager, topicStore } = await harness()
 			await topicStore.updateTopic({ ...topic, status: 'archived' }, tenantA)
-			await expect(manager.requireOpen(topic.id, tenantA)).rejects.toBeInstanceOf(ThreadClosedError)
+			await expect(manager.requireOpen(topic.id, tenantA)).rejects.toBeInstanceOf(
+				TopicArchivedError,
+			)
 		})
 
 		it('throws when the topic does not exist', async () => {
@@ -77,7 +79,7 @@ describe('TopicManager', () => {
 			await expect(manager.archive(MISSING_TOPIC_ID, tenantA)).rejects.toThrow(/not found/)
 		})
 
-		it('rejects with ThreadNotEmptyError when a session is active', async () => {
+		it('rejects with TopicNotEmptyError when a session is active', async () => {
 			const { topic, project, manager, sessionStore } = await harness()
 			const session = await sessionStore.createSession(
 				{
@@ -90,9 +92,9 @@ describe('TopicManager', () => {
 			await sessionStore.updateSession({ ...session, status: 'active' }, tenantA)
 
 			await expect(manager.archive(topic.id, tenantA)).rejects.toMatchObject({
-				name: 'ThreadNotEmptyError',
+				name: 'TopicNotEmptyError',
 				details: {
-					threadId: topic.id,
+					topicId: topic.id,
 					tenantId: tenantA,
 					op: 'archive',
 					totalBlockingSessions: 1,
@@ -105,7 +107,7 @@ describe('TopicManager', () => {
 			// Flip the topic to archived directly (bypassing manager.archive so
 			// no check runs), then attach an active session via direct store
 			// mutation. A subsequent manager.archive() must surface the offender
-			// as ThreadNotEmptyError, not short-circuit as "already archived".
+			// as TopicNotEmptyError, not short-circuit as "already archived".
 			const { topic, project, manager, sessionStore, topicStore } = await harness()
 			await topicStore.updateTopic({ ...topic, status: 'archived' }, tenantA)
 			const smuggled = await sessionStore.createSession(
@@ -119,7 +121,7 @@ describe('TopicManager', () => {
 			await sessionStore.updateSession({ ...smuggled, status: 'active' }, tenantA)
 
 			await expect(manager.archive(topic.id, tenantA)).rejects.toMatchObject({
-				name: 'ThreadNotEmptyError',
+				name: 'TopicNotEmptyError',
 				details: {
 					op: 'archive',
 					totalBlockingSessions: 1,
@@ -142,7 +144,7 @@ describe('TopicManager', () => {
 				)
 				await sessionStore.updateSession({ ...session, status }, tenantA)
 
-				await expect(manager.archive(topic.id, tenantA)).rejects.toBeInstanceOf(ThreadNotEmptyError)
+				await expect(manager.archive(topic.id, tenantA)).rejects.toBeInstanceOf(TopicNotEmptyError)
 			},
 		)
 
@@ -223,7 +225,7 @@ describe('TopicManager', () => {
 			expect(await topicStore.getTopic(topic.id, tenantA)).toBeNull()
 		})
 
-		it('rejects with ThreadNotEmptyError when any session references the topic', async () => {
+		it('rejects with TopicNotEmptyError when any session references the topic', async () => {
 			const { topic, project, manager, sessionStore } = await harness()
 			const session = await sessionStore.createSession(
 				{
@@ -235,9 +237,9 @@ describe('TopicManager', () => {
 			)
 			// Idle — allowed under archive, still blocks delete.
 			await expect(manager.delete(topic.id, tenantA)).rejects.toMatchObject({
-				name: 'ThreadNotEmptyError',
+				name: 'TopicNotEmptyError',
 				details: {
-					threadId: topic.id,
+					topicId: topic.id,
 					tenantId: tenantA,
 					op: 'delete',
 					totalBlockingSessions: 1,
@@ -263,7 +265,7 @@ describe('TopicManager', () => {
 			await topicStore.deleteTopic(topic.id, tenantA)
 
 			await expect(manager.delete(topic.id, tenantA)).rejects.toMatchObject({
-				name: 'ThreadNotEmptyError',
+				name: 'TopicNotEmptyError',
 				details: {
 					op: 'delete',
 					blockingSessions: [{ sessionId: orphan.id, status: 'idle' }],

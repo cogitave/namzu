@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-20T00:00:00Z
+lastReviewed: 2026-08-20
 resource: packages/computer-use/src/index.ts
 tags: [computer-use, adapters, reference]
 ---
@@ -22,10 +22,17 @@ Subprocess-based computer-use host for [`@namzu/sdk`](https://www.npmjs.com/pack
 ## Usage
 
 ```ts
-import { SubprocessComputerUseHost } from '@namzu/computer-use'
+import {
+  SubprocessComputerUseHost,
+  type SubprocessComputerUseHostOptions,
+} from '@namzu/computer-use'
 import { createComputerUseTool, ToolRegistry } from '@namzu/sdk'
 
-const host = new SubprocessComputerUseHost()
+const options: SubprocessComputerUseHostOptions = {
+  env: process.env,
+  platform: process.platform,
+}
+const host = new SubprocessComputerUseHost(options)
 await host.initialize()
 
 console.log(host.capabilities)

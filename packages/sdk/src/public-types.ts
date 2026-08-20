@@ -98,12 +98,18 @@ export type {
 // ─── named type re-exports from mixed runtime+type modules ────────────────
 // These modules contain runtime exports too; those go in public-runtime.ts.
 
-export type { AdvisoryCallContext, AdvisoryExecutionResult } from './advisory/index.js'
+export type {
+	AdvisoryCallContext,
+	AdvisoryExecutionResult,
+} from './advisory/index.js'
 
 export type { CacheRates, ModelPricing } from './utils/cost.js'
 export type { VendorRates } from './pricing/index.js'
 export type { PricingSubject } from './manager/run/persistence.js'
-export type { FrontmatterValue, ParsedFrontmatter } from './utils/frontmatter.js'
+export type {
+	FrontmatterValue,
+	ParsedFrontmatter,
+} from './utils/frontmatter.js'
 export type { Logger } from './utils/logger.js'
 export type {
 	LevelFilter,
@@ -113,12 +119,22 @@ export type {
 	Resource,
 	Severity,
 } from './utils/log/index.js'
-export type { ShellCompressOptions, ShellCompressResult } from './utils/shell-compress.js'
+export type {
+	ShellCompressOptions,
+	ShellCompressResult,
+} from './utils/shell-compress.js'
 
 export type { QueryParams } from './runtime/query/index.js'
-export type { PromptCacheConfig, PromptCacheInput } from './runtime/query/prompt-cache.js'
+export type {
+	PromptCacheConfig,
+	PromptCacheInput,
+} from './runtime/query/prompt-cache.js'
 
-export type { LimitCheckResult, LimitCheckerState, RunReporter } from './run/index.js'
+export type {
+	LimitCheckResult,
+	LimitCheckerState,
+	RunReporter,
+} from './run/index.js'
 
 export type {
 	AgentIdentity,
@@ -137,17 +153,27 @@ export type {
 	Timestamped,
 } from './store/index.js'
 
-export type { ManagedRegistryConfig, ToolExecutionResult } from './registry/index.js'
+export type {
+	ManagedRegistryConfig,
+	ToolExecutionResult,
+} from './registry/index.js'
 
 export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
 
-export type { PlanApprovalHandler, PlanEvent, PlanEventListener } from './manager/index.js'
+export type {
+	PlanApprovalHandler,
+	PlanEvent,
+	PlanEventListener,
+} from './manager/index.js'
 
 export type { DefineToolOptions } from './tools/defineTool.js'
 
 export type { AdvisoryToolsOptions } from './tools/advisory/index.js'
 
-export type { CoordinatorToolsOptions, TaskLaunchedCallback } from './tools/coordinator/index.js'
+export type {
+	CoordinatorToolsOptions,
+	TaskLaunchedCallback,
+} from './tools/coordinator/index.js'
 
 export type {
 	RegisterSharedRunPlanInput,
@@ -183,7 +209,29 @@ export type { AgentBusConfig } from './bus/index.js'
 export type { ToolCallContext } from './authorization/index.js'
 export type { PermissionPreset } from './authorization/index.js'
 
-export type { DiskSessionStoreConfig, LinkageView } from './store/session/index.js'
+export type {
+	DiskSessionStoreConfig,
+	LinkageView,
+} from './store/session/index.js'
+
+// Public constructor contracts. A class reachable from the package root must
+// not force consumers to reproduce its dependency/config shape by hand.
+export type { DiskTopicStateStoreConfig } from './store/topic/state.js'
+export type { EnvCredentialProviderOptions } from './vault/CredentialProvider.js'
+export type { DiskMessageFeedbackStoreConfig } from './store/feedback/disk.js'
+export type { MessageExistenceCheck } from './store/feedback/memory.js'
+export type { AgentManagerDeps } from './manager/agent/lifecycle.js'
+export type { ProjectManagerDeps } from './manager/project/lifecycle.js'
+export type { TopicManagerDeps } from './manager/topic/lifecycle.js'
+export type { FileLockManagerConfig } from './bus/lock.js'
+export type { GitWorktreeDriverConfig } from './session/workspace/git-worktree.js'
+export type { CapacityDimension } from './session/handoff/capacity.js'
+export type { HandoffLockRejectedReason } from './session/handoff/version.js'
+export type { SessionSummaryMaterializerDeps } from './session/summary/materialize.js'
+export type { ArchivalManagerDeps } from './session/retention/archive.js'
+export type { ArchiveBackendRef } from './types/retention/archive-backend-ref.js'
+export type { DiskArchiveBackendConfig } from './session/retention/disk-backend.js'
+export type { SlidingWindowManagerConfig } from './compaction/managers/slidingWindow.js'
 
 export type {
 	ContextReducer,
@@ -240,7 +288,11 @@ export type {
 export type { ResolveGoalRoundAuthority } from './tools/goal/index.js'
 export type { ActiveSessionGoal } from './manager/goal/activation.js'
 
-export type { AgentHandle, AgentHandleOptions, AgentHandleStatus } from './agents/handle.js'
+export type {
+	AgentHandle,
+	AgentHandleOptions,
+	AgentHandleStatus,
+} from './agents/handle.js'
 
 export type {
 	CredentialDescription,

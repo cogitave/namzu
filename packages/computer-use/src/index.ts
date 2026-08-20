@@ -1,4 +1,5 @@
 export { SubprocessComputerUseHost } from './SubprocessComputerUseHost.js'
+export type { SubprocessComputerUseHostOptions } from './SubprocessComputerUseHost.js'
 export { detectDisplayServer } from './detect/index.js'
 
 /**
@@ -13,6 +14,9 @@ export { detectDisplayServer } from './detect/index.js'
  * `AdapterUnavailableError` also carries `missing`, the list of binaries to
  * install, which is the actionable half and was unreachable without the type.
  */
-export { ActionCapabilityError, AdapterUnavailableError } from './adapters/types.js'
+export {
+	ActionCapabilityError,
+	AdapterUnavailableError,
+} from './adapters/types.js'
 export { SpawnError } from './util/spawn.js'
 export type { SpawnOptions, SpawnResult } from './util/spawn.js'

@@ -21,7 +21,7 @@
  */
 
 import { requireOpenProject } from '../../manager/project/lifecycle.js'
-import type { TopicManager } from '../../manager/topic/lifecycle.js'
+import { type TopicManagerDependency, resolveTopicManager } from '../../manager/topic/dependency.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Session } from '../../types/session/entity.js'
 import type { SessionStore } from '../../types/session/store.js'
@@ -50,10 +50,12 @@ export interface RunStatusResolver {
 	blockingRun(
 		sessionId: SessionId,
 		tenantId: TenantId,
-	): Promise<{ reason: 'active_run' | 'pending_hitl' | 'pending_subsession' } | null>
+	): Promise<{
+		reason: 'active_run' | 'pending_hitl' | 'pending_subsession'
+	} | null>
 }
 
-export interface SingleHandoffDeps {
+interface SingleHandoffBaseDeps {
 	store: SessionStore
 	workspaceRegistry: WorkspaceBackendRegistry
 	capacity: CapacityValidator
@@ -65,13 +67,10 @@ export interface SingleHandoffDeps {
 	 * fail dressed as a check that ran.
 	 */
 	runStatus: RunStatusResolver
-	/**
-	 * Gate the recipient-session creation on the Topic being `'open'`.
-	 * Added in Phase 2.6 to mirror spawn — a handoff into an archived
-	 * Topic would otherwise undermine `TopicManager.archive`.
-	 */
-	threadManager: TopicManager
 }
+
+/** Dependencies for a single-recipient handoff. */
+export type SingleHandoffDeps = SingleHandoffBaseDeps & TopicManagerDependency
 
 /**
  * Executes a single-recipient handoff against `deps.store`. Throws
@@ -92,11 +91,11 @@ export async function executeSingleHandoff(
 		})
 	}
 
-	// Thread archive gate (Phase 2.6) — runs FIRST so an archived thread
-	// fails fastest with `ThreadClosedError` rather than a lock rejection or
+	// Topic archive gate (Phase 2.6) — runs FIRST so an archived Topic
+	// fails fastest with `TopicArchivedError` rather than a lock rejection or
 	// capacity error. Checked BEFORE the CAS lock so a denied handoff leaves
 	// the source session untouched.
-	await deps.threadManager.requireOpen(assignment.topicId, tenantId)
+	await resolveTopicManager(deps).requireOpen(assignment.topicId, tenantId)
 
 	// 1. Load source session + tenant check.
 	const source = await deps.store.getSession(assignment.sourceSessionId, tenantId)
@@ -185,7 +184,9 @@ export async function executeSingleHandoff(
 	let createdSessionId: SessionId | null = null
 	try {
 		const driver: WorkspaceBackendDriver = deps.workspaceRegistry.get('git-worktree')
-		provisionedWorkspace = await driver.create({ label: `handoff-${assignment.id}` })
+		provisionedWorkspace = await driver.create({
+			label: `handoff-${assignment.id}`,
+		})
 
 		const recipientSession = await deps.store.createSession(
 			{

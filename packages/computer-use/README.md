@@ -6,7 +6,7 @@ description: >-
   Which backend serves a call depends on the platform, and what a platform
   cannot do is reported as a capability rather than discovered as a failure.
 tags: [readme, package, computer-use, adapters]
-timestamp: 2026-08-17T00:00:00Z
+timestamp: 2026-08-20T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -42,10 +42,17 @@ pnpm add @namzu/sdk @namzu/computer-use
 ## Usage
 
 ```ts
-import { SubprocessComputerUseHost } from '@namzu/computer-use'
+import {
+  SubprocessComputerUseHost,
+  type SubprocessComputerUseHostOptions,
+} from '@namzu/computer-use'
 import { createComputerUseTool, ToolRegistry } from '@namzu/sdk'
 
-const host = new SubprocessComputerUseHost()
+const options: SubprocessComputerUseHostOptions = {
+  env: process.env,
+  platform: process.platform,
+}
+const host = new SubprocessComputerUseHost(options)
 await host.initialize()
 
 console.log(host.capabilities)

@@ -19,29 +19,17 @@
  * why the gate lives at the manager layer rather than as a universal store
  * interceptor (see `archive` JSDoc for the direct-store-bypass boundary).
  *
- * NZ-TOPIC-01 renamed this class from `ThreadManager` (moved from
- * `manager/thread/lifecycle.ts`). NZ-TOPIC-04 deleted the `ThreadManager`
- * alias entirely (see AGENTS.md's deprecate-before-remove note in the
- * changeset for why a major, not a minor, was the right call here) — the
- * class only lives under `TopicManager` now. NZ-TOPIC-03 renamed the
- * `threadId` parameter on every method below to `topicId` — the FK-field
- * rename that release deliberately deferred, now landed with its own data
- * migration in `store/session/disk.ts`. `threadStore` (a DI dependency,
- * not the FK) stayed `topicStore` from that same release. The thrown
- * error classes (`ThreadClosedError`/`ThreadNotEmptyError`) are STILL
- * unchanged in name, and so is their `details.threadId` field's NAME —
- * `session/errors.ts` remains deliberately out of scope for the class and
- * field renames (a clean follow-up), though NZ-TOPIC-04 did narrow the
- * TYPE backing that field from `ThreadId` to `TopicId` since the former no
- * longer exists. Constructing one from a `topicId` local below therefore
- * still spells the key out (`{ threadId: topicId, ... }`) rather than
- * using shorthand.
+ * The former Thread vocabulary has been removed from this public lifecycle:
+ * manager names, method parameters, error classes, and structured error
+ * details all use Topic. Persistence migrations may still recognize legacy
+ * field names, but live manager behavior never asks a caller to translate
+ * back to a deleted domain term.
  */
 
 import {
-	THREAD_NOT_EMPTY_SAMPLE_LIMIT,
-	ThreadClosedError,
-	ThreadNotEmptyError,
+	TOPIC_NOT_EMPTY_SAMPLE_LIMIT,
+	TopicArchivedError,
+	TopicNotEmptyError,
 } from '../../session/errors.js'
 import type { TenantId } from '../../types/ids/index.js'
 import type { Session, SessionStatus } from '../../types/session/entity.js'
@@ -91,7 +79,7 @@ export class TopicManager {
 	}
 
 	/**
-	 * CAS update on a Topic. Propagates {@link import('../../session/errors.js').StaleThreadError}
+	 * CAS update on a Topic. Propagates {@link import('../../session/errors.js').StaleTopicError}
 	 * from the store on `ownerVersion` mismatch — callers re-read, re-apply,
 	 * and retry.
 	 */
@@ -119,7 +107,7 @@ export class TopicManager {
 			throw new Error(`Topic ${topicId} not found`)
 		}
 		if (topic.status === 'archived') {
-			throw new ThreadClosedError({ threadId: topicId, op: 'require-open' })
+			throw new TopicArchivedError({ topicId, op: 'require-open' })
 		}
 		return topic
 	}
@@ -133,14 +121,14 @@ export class TopicManager {
 	 *      {@link ARCHIVAL_BLOCKING_STATUSES}). The presence check runs
 	 *      **before** the idempotent-archive short-circuit so that an already
 	 *      archived topic harboring a live session still surfaces as
-	 *      {@link ThreadNotEmptyError} rather than a silent success.
+	 *      {@link TopicNotEmptyError} rather than a silent success.
 	 *   3. If the topic is already `'archived'` the method short-circuits
 	 *      without an `updateTopic` write (idempotent re-archival). The
 	 *      returned record reflects the current persisted state.
 	 *
 	 * On a fresh archive transition the underlying
 	 * {@link TopicStore.updateTopic} call commits with `ownerVersion + 1`.
-	 * A {@link import('../../session/errors.js').StaleThreadError} from a
+	 * A {@link import('../../session/errors.js').StaleTopicError} from a
 	 * concurrent writer propagates unchanged — the caller is expected to
 	 * re-read + retry (mirrors the `updateTopic` contract).
 	 *
@@ -166,13 +154,13 @@ export class TopicManager {
 		// Always enforce the blocking-session invariant — even on re-archival.
 		// If the topic is already archived but somehow gained a live session
 		// (direct store mutation, concurrent spawn before a write-barrier
-		// existed), surfacing that via ThreadNotEmptyError is more useful to
+		// existed), surfacing that via TopicNotEmptyError is more useful to
 		// operators than a silent idempotent success.
 		const sessions = await this.deps.sessionStore.listSessionsByTopic(topicId, tenantId)
 		const blocking = sessions.filter((s) => ARCHIVAL_BLOCKING_STATUSES.has(s.status))
 		if (blocking.length > 0) {
-			throw new ThreadNotEmptyError({
-				threadId: topicId,
+			throw new TopicNotEmptyError({
+				topicId,
 				tenantId,
 				op: 'archive',
 				blockingSessions: summarizeBlocking(blocking),
@@ -199,7 +187,7 @@ export class TopicManager {
 	}
 
 	/**
-	 * Hard-delete a Topic record. Rejects with {@link ThreadNotEmptyError}
+	 * Hard-delete a Topic record. Rejects with {@link TopicNotEmptyError}
 	 * (`op: 'delete'`) when ANY Session still references the Topic —
 	 * deletion is stricter than archival, which tolerates quiescent sessions.
 	 * Callers must first delete or archive-and-tombstone every attached
@@ -214,8 +202,8 @@ export class TopicManager {
 	async delete(topicId: TopicId, tenantId: TenantId): Promise<void> {
 		const sessions = await this.deps.sessionStore.listSessionsByTopic(topicId, tenantId)
 		if (sessions.length > 0) {
-			throw new ThreadNotEmptyError({
-				threadId: topicId,
+			throw new TopicNotEmptyError({
+				topicId,
 				tenantId,
 				op: 'delete',
 				blockingSessions: summarizeBlocking(sessions),
@@ -230,6 +218,6 @@ function summarizeBlocking(
 	sessions: readonly Session[],
 ): ReadonlyArray<{ sessionId: Session['id']; status: SessionStatus }> {
 	return sessions
-		.slice(0, THREAD_NOT_EMPTY_SAMPLE_LIMIT)
+		.slice(0, TOPIC_NOT_EMPTY_SAMPLE_LIMIT)
 		.map((s) => ({ sessionId: s.id, status: s.status }))
 }

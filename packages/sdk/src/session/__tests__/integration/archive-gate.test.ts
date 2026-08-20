@@ -1,5 +1,5 @@
 /**
- * Integration — Thread archive gate enforced at session-creation ingress
+ * Integration — Topic archive gate enforced at session-creation ingress
  * sites (Phase 2.6).
  *
  * The Phase 2.5 commit flagged this as a known gap:
@@ -8,7 +8,7 @@
  *   > is best-effort.
  *
  * Phase 2.6 wires `requireOpen` into `AgentManager.provisionSpawn` + both
- * handoff flows. These tests drive the archived-thread-then-attempt-creation
+ * handoff flows. These tests drive the archived-topic-then-attempt-creation
  * scenarios end-to-end against the real stack.
  */
 
@@ -19,7 +19,7 @@ import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { AgentId, RunId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import { generateHandoffId } from '../../../utils/id.js'
-import { ThreadClosedError } from '../../errors.js'
+import { TopicArchivedError } from '../../errors.js'
 import type { HandoffAssignment } from '../../handoff/assignment.js'
 import { type BroadcastHandoffDeps, executeBroadcastHandoff } from '../../handoff/broadcast.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
@@ -41,14 +41,14 @@ import {
 } from './_fixtures.js'
 
 describe('Integration — archive gate (Phase 2.6)', () => {
-	it('AgentManager spawn: rejects with ThreadClosedError when parent thread is archived', async () => {
+	it('AgentManager spawn: rejects with TopicArchivedError when parent topic is archived', async () => {
 		const harness = buildHarness()
-		const { project, thread, session, actor } = await seedActiveParent(harness)
+		const { project, thread: topic, session, actor } = await seedActiveParent(harness)
 
-		// Archive the thread via the manager so the invariant is enforced — no
-		// in-flight sessions under this thread, so archive succeeds.
+		// Archive the topic via the manager so the invariant is enforced — no
+		// in-flight sessions under this topic, so archive succeeds.
 		await harness.store.updateSession({ ...session, status: 'idle' }, DEFAULT_TENANT)
-		await harness.threadManager.archive(thread.id, DEFAULT_TENANT)
+		await harness.topicManager.archive(topic.id, DEFAULT_TENANT)
 		// Flip session back to active so the spawn's capacity path reaches
 		// provisionSpawn (the archive gate should still reject).
 		await harness.store.updateSession({ ...session, status: 'active' }, DEFAULT_TENANT)
@@ -67,27 +67,27 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 				buildTaskContext({
 					sessionId: session.id,
 					projectId: project.id,
-					topicId: thread.id,
+					topicId: topic.id,
 					tenantId: DEFAULT_TENANT,
 					parentActor: actor,
 				}),
 			),
-		).rejects.toBeInstanceOf(ThreadClosedError)
+		).rejects.toBeInstanceOf(TopicArchivedError)
 
-		// Archive invariant held: no new child sessions under the archived thread.
-		const underThread = await harness.store.listSessionsByTopic(thread.id, DEFAULT_TENANT)
+		// Archive invariant held: no new child sessions under the archived topic.
+		const underThread = await harness.store.listSessionsByTopic(topic.id, DEFAULT_TENANT)
 		expect(underThread).toHaveLength(1)
 		expect(underThread[0]?.id).toBe(session.id)
 	})
 
-	it('Single handoff: rejects with ThreadClosedError when thread is archived (before CAS lock)', async () => {
+	it('Single handoff: rejects with TopicArchivedError when topic is archived (before CAS lock)', async () => {
 		const store = new InMemorySessionStore()
 		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'archive-single' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createTopic(
+		const topic = await threadStore.createTopic(
 			{ projectId: project.id, title: 'archive-single' },
 			DEFAULT_TENANT,
 		)
@@ -97,14 +97,17 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			tenantId: DEFAULT_TENANT,
 		}
 		const session = await store.createSession(
-			{ topicId: thread.id, projectId: project.id, currentActor: sourceActor },
+			{ topicId: topic.id, projectId: project.id, currentActor: sourceActor },
 			DEFAULT_TENANT,
 		)
 
-		// Archive the thread directly — session is idle, so archive precondition
+		// Archive the topic directly — session is idle, so archive precondition
 		// holds via listSessions.
-		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
-		await threadManager.archive(thread.id, DEFAULT_TENANT)
+		const topicManager = new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		})
+		await topicManager.archive(topic.id, DEFAULT_TENANT)
 
 		const driver = new GitWorktreeDriver({
 			repoRoot: '/repo',
@@ -133,7 +136,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			},
 
 			events,
-			threadManager,
+			topicManager,
 		}
 
 		const assignment: HandoffAssignment = {
@@ -141,7 +144,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			mode: 'single',
 			sourceSessionId: session.id,
 			tenantId: DEFAULT_TENANT,
-			topicId: thread.id,
+			topicId: topic.id,
 			projectId: project.id,
 			sourceActor,
 			recipientActor: userActor('usr_target'),
@@ -150,7 +153,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 		}
 
 		await expect(executeSingleHandoff(deps, assignment, DEFAULT_TENANT)).rejects.toBeInstanceOf(
-			ThreadClosedError,
+			TopicArchivedError,
 		)
 
 		// Critical: source session must still be idle (lock never acquired).
@@ -160,24 +163,31 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 		expect(events.onLocked).not.toHaveBeenCalled()
 	})
 
-	it('Broadcast handoff: rejects with ThreadClosedError when thread is archived (no CAS, no worktrees)', async () => {
+	it('Broadcast handoff: rejects with TopicArchivedError when topic is archived (no CAS, no worktrees)', async () => {
 		const store = new InMemorySessionStore()
 		const threadStore = new InMemoryTopicStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'archive-bc' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createTopic(
+		const topic = await threadStore.createTopic(
 			{ projectId: project.id, title: 'archive-bc' },
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{
+				topicId: topic.id,
+				projectId: project.id,
+				currentActor: userActor('usr_source'),
+			},
 			DEFAULT_TENANT,
 		)
 
-		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
-		await threadManager.archive(thread.id, DEFAULT_TENANT)
+		const topicManager = new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		})
+		await topicManager.archive(topic.id, DEFAULT_TENANT)
 
 		let worktreeAdds = 0
 		const driver = new GitWorktreeDriver({
@@ -210,7 +220,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			},
 
 			events,
-			threadManager,
+			topicManager,
 		}
 
 		const assignments: HandoffAssignment[] = [userActor('usr_b'), userActor('usr_c')].map(
@@ -219,7 +229,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 				mode: 'broadcast' as const,
 				sourceSessionId: source.id,
 				tenantId: DEFAULT_TENANT,
-				topicId: thread.id,
+				topicId: topic.id,
 				projectId: project.id,
 				sourceActor: userActor('usr_source'),
 				recipientActor,
@@ -230,7 +240,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 		)
 
 		await expect(executeBroadcastHandoff(deps, assignments, DEFAULT_TENANT)).rejects.toBeInstanceOf(
-			ThreadClosedError,
+			TopicArchivedError,
 		)
 
 		// Source never locked, no worktrees provisioned, no rollback event —
@@ -250,10 +260,10 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 		// cross-store awareness), so this test exercises the manager path,
 		// not the store boundary.
 		const harness = buildHarness()
-		const { project, thread, session } = await seedActiveParent(harness)
+		const { project, thread: topic, session } = await seedActiveParent(harness)
 
 		await harness.store.updateSession({ ...session, status: 'idle' }, DEFAULT_TENANT)
-		await harness.threadManager.archive(thread.id, DEFAULT_TENANT)
+		await harness.topicManager.archive(topic.id, DEFAULT_TENANT)
 
 		// Attempt to spawn directly via context threading (bypass the fixture
 		// builder to prove the gate trips from AgentManager, not from the
@@ -287,17 +297,17 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 					depth: 0,
 					budgetTracker: { total: 10_000, remaining: 10_000 },
 					tenantId: DEFAULT_TENANT,
-					topicId: thread.id,
+					topicId: topic.id,
 					sessionId: session.id,
 					projectId: project.id,
 					parentActor: childActor,
 				},
 			),
-		).rejects.toBeInstanceOf(ThreadClosedError)
+		).rejects.toBeInstanceOf(TopicArchivedError)
 
 		// The gate tripped before any observable side effect — listSessions
 		// still shows only the original seeded session, not a smuggled child.
-		const underThread = await harness.store.listSessionsByTopic(thread.id, DEFAULT_TENANT)
+		const underThread = await harness.store.listSessionsByTopic(topic.id, DEFAULT_TENANT)
 		expect(underThread).toHaveLength(1)
 		expect(underThread[0]?.id).toBe(session.id)
 	})

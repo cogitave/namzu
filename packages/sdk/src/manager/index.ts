@@ -14,7 +14,11 @@ export type {
 } from './connector/environment.js'
 
 export { PlanManager } from './plan/lifecycle.js'
-export type { PlanEvent, PlanEventListener, PlanApprovalHandler } from './plan/lifecycle.js'
+export type {
+	PlanEvent,
+	PlanEventListener,
+	PlanApprovalHandler,
+} from './plan/lifecycle.js'
 
 export {
 	TopicManager,
@@ -23,6 +27,7 @@ export {
 export type { TopicManagerDeps } from './topic/lifecycle.js'
 
 export { AgentManager } from './agent/lifecycle.js'
+export type { AgentManagerDeps } from './agent/lifecycle.js'
 
 export { ProjectManager, requireOpenProject } from './project/lifecycle.js'
 export type { ProjectManagerDeps } from './project/lifecycle.js'
@@ -35,4 +40,7 @@ export {
 	advanceObjective,
 	driveObjective,
 } from './topic/objective.js'
-export type { AdvanceObjectiveParams, DriveObjectiveParams } from './topic/objective.js'
+export type {
+	AdvanceObjectiveParams,
+	DriveObjectiveParams,
+} from './topic/objective.js'

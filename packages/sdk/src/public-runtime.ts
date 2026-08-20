@@ -25,15 +25,24 @@ export {
 
 export * from './constants/index.js'
 
-export { ConfigNamespaceCollisionError, ConfigRegistry } from './config/registry.js'
+export {
+	ConfigNamespaceCollisionError,
+	ConfigRegistry,
+} from './config/registry.js'
 export type { ConfigRegistryOptions, ConfigScope } from './config/registry.js'
 export {
 	DiskConfigOverrideStore,
 	InMemoryConfigOverrideStore,
 } from './store/config/index.js'
 export type { ConfigOverrideStore } from './store/config/index.js'
-export { MCPReconnectOptionsSchema, MCPReconnectSupervisor } from './connector/mcp/reconnect.js'
-export type { MCPReconnectOptions, MCPReconnectPolicySource } from './connector/mcp/reconnect.js'
+export {
+	MCPReconnectOptionsSchema,
+	MCPReconnectSupervisor,
+} from './connector/mcp/reconnect.js'
+export type {
+	MCPReconnectOptions,
+	MCPReconnectPolicySource,
+} from './connector/mcp/reconnect.js'
 
 export type {
 	CodeNavigationProvider,
@@ -79,7 +88,11 @@ export {
 // whether the models it offers an operator are ones the kernel can price —
 // `sdk ← providers` means the SDK's own tests can never reach a real driver's
 // model list, so that check lives in the driver and needs this.
-export { normaliseModelId, resolveModelPricing, VENDOR_RATES } from './pricing/index.js'
+export {
+	normaliseModelId,
+	resolveModelPricing,
+	VENDOR_RATES,
+} from './pricing/index.js'
 export { toErrorMessage } from './utils/error.js'
 export { getLogCounters, Logger } from './utils/logger.js'
 /**
@@ -188,7 +201,10 @@ export {
 // the check that stops the two tables drifting apart.
 export { isCredentialEnvKey } from './constants/credential-env-keys.js'
 
-export { createToolPresenter, genericLabel } from './registry/tool/presentation.js'
+export {
+	createToolPresenter,
+	genericLabel,
+} from './registry/tool/presentation.js'
 export type { ToolPresenter } from './registry/tool/presentation.js'
 
 // A stalled stream trips no request timeout — the request succeeded and
@@ -197,10 +213,16 @@ export type { ToolPresenter } from './registry/tool/presentation.js'
 // One header, so a vendor reading its own logs can tell a kernel's traffic
 // from a browser's — and so an abuse or rate-limit investigation lands on
 // the right party.
-export { NAMZU_APP_IDENTITY, attributionHeaders } from './provider/attribution.js'
+export {
+	NAMZU_APP_IDENTITY,
+	attributionHeaders,
+} from './provider/attribution.js'
 export type { AppIdentity } from './provider/attribution.js'
 
-export { DEFAULT_STREAM_IDLE_TIMEOUT_MS, withStreamIdleTimeout } from './provider/idle-timeout.js'
+export {
+	DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+	withStreamIdleTimeout,
+} from './provider/idle-timeout.js'
 export type { WithStreamIdleTimeoutOptions } from './provider/idle-timeout.js'
 export { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from './runtime/query/request-rich-content.js'
 
@@ -231,10 +253,16 @@ export { assertThinkingUnsupported } from './provider/thinking-support.js'
 // written their own and all three read an 8-digit date suffix as the MINOR
 // version, which inverted every capability decision keyed on it. The shape
 // lives here; the vocabulary comes from the driver that knows it.
-export { modelVersionAtLeast, parseVersionedModelId } from './provider/model-version.js'
+export {
+	modelVersionAtLeast,
+	parseVersionedModelId,
+} from './provider/model-version.js'
 // Strict tool input is a SUBSET of JSON Schema, and a keyword outside it makes
 // the vendor reject the whole request rather than degrade one field.
-export { assertStrictSchema, findStrictSchemaViolations } from './provider/strict-schema.js'
+export {
+	assertStrictSchema,
+	findStrictSchemaViolations,
+} from './provider/strict-schema.js'
 // A tool has one schema; what changes per provider is the DIALECT the wire
 // parses, which is the wire's property. Rendered once, converted at the driver.
 export { findDraft07Only, toSchemaDialect } from './registry/tool/dialect.js'
@@ -247,7 +275,11 @@ export type { ModelIdGrammar, ModelVersion } from './provider/model-version.js'
 export { drainQuery, query } from './runtime/query/index.js'
 // Mid-run guidance. A host holds the channel and the loop drains it at the
 // tool-result boundary; see the module for why that is the only legal slot.
-export { SteeringBinding, attachSteering, formatSteeringNote } from './runtime/query/steering.js'
+export {
+	SteeringBinding,
+	attachSteering,
+	formatSteeringNote,
+} from './runtime/query/steering.js'
 export type { SteeringChannel } from './runtime/query/steering.js'
 export { createMockBidiProvider, startBidiRun } from './runtime/bidi/index.js'
 export { PromptCache } from './runtime/query/prompt-cache.js'
@@ -273,7 +305,10 @@ export { captureRunState, loadRunState } from './runtime/query/run-state.js'
 // …and the driver that joins the snapshot back to a running loop. Without
 // it every host wrote the same wiring, and in practice none did.
 export { resumeRun } from './runtime/query/resume-run.js'
-export type { ResumeOutcome, ResumeRunParams } from './runtime/query/resume-run.js'
+export type {
+	ResumeOutcome,
+	ResumeRunParams,
+} from './runtime/query/resume-run.js'
 // The scope type was internal, so a host calling `loadRunState` could not
 // name the argument it had to construct.
 export type { RunStateScope } from './runtime/query/run-state.js'
@@ -423,7 +458,12 @@ export {
 // cannot arbitrate rather than proceeding unclaimed, because proceeding lets
 // two workers restore one checkpoint, both run its tools and both write under
 // one run id — which loses half the work and reports nothing.
-export { claimRun, fencedOut, releaseRun, toClaimSummary } from './store/index.js'
+export {
+	claimRun,
+	fencedOut,
+	releaseRun,
+	toClaimSummary,
+} from './store/index.js'
 // Reading a run's durable event log back — what a consumer that lost its
 // connection catches up through. `readRunEventsIn` takes a directory rather
 // than a bound store because binding one CREATES the run directory, and a read
@@ -435,7 +475,11 @@ export { claimRun, fencedOut, releaseRun, toClaimSummary } from './store/index.j
 // audit over a subtree, a host asking whether one run is contained by
 // another) composes with the chain that is already persisted, rather than
 // building a second parent registry beside it.
-export { actorChain, isDescendantOfActor, MAX_ACTOR_CHAIN_DEPTH } from './session/actor-scope.js'
+export {
+	actorChain,
+	isDescendantOfActor,
+	MAX_ACTOR_CHAIN_DEPTH,
+} from './session/actor-scope.js'
 export { readRunEventsIn, readRunMessagesIn } from './store/index.js'
 export {
 	DiskMessageFeedbackStore,
@@ -525,7 +569,10 @@ export type {
 // Exported because `buildCoordinatorTools` is: a host that builds the
 // coordinator surface itself needs the same inbox the loop drains, or its
 // abandoned completions go unheard exactly as they did before.
-export { CompletionInbox, formatCompletionNotification } from './scheduler/completion-inbox.js'
+export {
+	CompletionInbox,
+	formatCompletionNotification,
+} from './scheduler/completion-inbox.js'
 
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 
@@ -894,22 +941,15 @@ export {
 
 export {
 	AncestryCycleError,
-	// Exported, unlike `ThreadClosedError`, because a host that closes a
-	// workspace has to be able to tell "this workspace is closed" from any
-	// other spawn failure — and matching on a message string is not a
-	// contract. The comment below is the reason; these are the first three
-	// that take it seriously.
 	ProjectClosedError,
 	ProjectNotEmptyError,
 	ProjectRootPathTakenError,
 	StaleProjectError,
-	// Exported with the CAS it announces. A host that opts into
-	// `expectedOwnerVersion` has to be able to tell "somebody else took this
-	// session" from any other failure, and string-matching a message is not a
-	// contract — which is the state `ThreadClosedError` and its siblings are
-	// still in, and a reason not to add a fourth.
 	StaleSessionError,
+	StaleTopicError,
 	TenantIsolationError,
+	TopicArchivedError,
+	TopicNotEmptyError,
 	WorkspaceBackendError,
 } from './session/errors.js'
 
@@ -1084,7 +1124,11 @@ export { ToolResultHalted } from './registry/tool/screen.js'
 // Error taxonomy. `toPlatformError` is the load-bearing one: it normalizes
 // ANYTHING thrown into the declared `PlatformError` shape, so a host writes
 // one handler instead of an `instanceof` ladder per call site.
-export { NamzuError, isNamzuError, toPlatformError } from './types/errors/index.js'
+export {
+	NamzuError,
+	isNamzuError,
+	toPlatformError,
+} from './types/errors/index.js'
 // The remediation layer above it: classification says what KIND of failure
 // it is, the catalog says what a person should do about it. Separate on
 // purpose — the first is structural and belongs at the boundary, the second
@@ -1096,7 +1140,11 @@ export {
 	readHint,
 	withHint,
 } from './types/errors/catalog.js'
-export type { ErrorCatalogRule, ErrorExplanation, ErrorFacts } from './types/errors/catalog.js'
+export type {
+	ErrorCatalogRule,
+	ErrorExplanation,
+	ErrorFacts,
+} from './types/errors/catalog.js'
 
 // The box itself is built by `query` — a host receives it through
 // `onApprovalPolicy` rather than constructing one, because changing the
@@ -1188,7 +1236,10 @@ export {
 // The gate is the reason this is a list rather than a fourth accident.
 export type { ResolvedContextWindow } from './compaction/context-window.js'
 export type { CompactRegionInput } from './compaction/manual.js'
-export type { CompactionVerificationOptions, UsageSink } from './compaction/verifier.js'
+export type {
+	CompactionVerificationOptions,
+	UsageSink,
+} from './compaction/verifier.js'
 export type { PluginDiscoveryOptions } from './plugin/loader.js'
 export type { ProbeContextInput } from './probe/context.js'
 export type {
@@ -1200,8 +1251,14 @@ export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
 export type { BidiRun, BidiRunParams } from './runtime/bidi/session.js'
 export type { SecretRedactionOptions } from './runtime/query/guardrail-presets.js'
 export type { ListCheckpointsInput } from './runtime/query/replay/list.js'
-export type { PrepareReplayInput, PreparedReplayState } from './runtime/query/replay/prepare.js'
-export type { HandoffAssignment, HandoffOutcome } from './session/handoff/assignment.js'
+export type {
+	PrepareReplayInput,
+	PreparedReplayState,
+} from './runtime/query/replay/prepare.js'
+export type {
+	HandoffAssignment,
+	HandoffOutcome,
+} from './session/handoff/assignment.js'
 export type { BroadcastHandoffDeps } from './session/handoff/broadcast.js'
 export type { SingleHandoffDeps } from './session/handoff/single.js'
 export type { InterventionChainLoader } from './session/intervention/prev-artifact.js'
@@ -1211,4 +1268,7 @@ export type { MigrationMarker } from './session/migration/marker.js'
 export type { ActionInput } from './tools/builtins/computer-use.js'
 export type { Project } from './types/project/entity.js'
 export type { CreatedLogger } from './utils/log/create-logger.js'
-export type { LoggerOptions, MutableLogSinkCounters } from './utils/log/types.js'
+export type {
+	LoggerOptions,
+	MutableLogSinkCounters,
+} from './utils/log/types.js'

@@ -1,13 +1,14 @@
 ---
 '@namzu/sdk': minor
+'@namzu/computer-use': minor
 ---
 
-Export the 28 types that exported signatures already named.
+Export the 45 types that exported signatures already named.
 
 Each is the parameter or the result of a function that was already public, and none of them was reachable. A consumer could call `createLogger` and had no name for its options or its return; could call `compactRegion`, `runBidi`, the handoff helpers, the replay helpers, and had to inline every shape or reach for `any`. The package's vocabulary stopped at the function name.
 
-Additive: `LoggerOptions`, `CreatedLogger`, `MutableLogSinkCounters`, `CompactRegionInput`, `ResolvedContextWindow`, `UsageSink`, `BidiRun`, `BidiRunParams`, `MockBidiScript`, `MockBidiSession`, `SingleHandoffDeps`, `BroadcastHandoffDeps`, `HandoffAssignment`, `HandoffOutcome`, `PrepareReplayInput`, `PreparedReplayState`, `ListCheckpointsInput`, `ProbeContextInput`, `KernelCommandOptions`, `ToolCatalogFromRegistryOptions`, `PluginDiscoveryOptions`, `SecretRedactionOptions`, `FilesystemMigrationSink`, `MigrationWarningSink`, `MigrationMarker`, `InterventionChainLoader`, `Project`, `ActionInput`.
+Additive: the original 28 function-signature types plus constructor contracts including `AgentManagerDeps`, `TopicManagerDeps`, `ProjectManagerDeps`, `DiskTopicStateStoreConfig`, `DiskMessageFeedbackStoreConfig`, `MessageExistenceCheck`, `EnvCredentialProviderOptions`, `FileLockManagerConfig`, `GitWorktreeDriverConfig`, `CapacityDimension`, `HandoffLockRejectedReason`, `SessionSummaryMaterializerDeps`, `ArchivalManagerDeps`, `ArchiveBackendRef`, `DiskArchiveBackendConfig`, `SlidingWindowManagerConfig`, and `SubprocessComputerUseHostOptions`.
 
 Nothing changes for existing code.
 
-A new CI step keeps it that way. `check-signature-types-exported.mjs` resolves every exported signature and fails when a type it names is declared in the package and not exported — the same defect had been hit three times in two days, each time by whoever happened to write the first consumer, which is the profile of something that needs a check rather than more care.
+A CI step keeps it that way. `check-signature-types-exported.mjs` resolves exported function signatures and public class constructors, then fails when a type they name is declared in the package and not exported. The constructor branch has its own self-check so removing it cannot turn the gate silently green.

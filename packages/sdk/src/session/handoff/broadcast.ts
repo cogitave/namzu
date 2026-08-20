@@ -22,7 +22,7 @@
  */
 
 import { requireOpenProject } from '../../manager/project/lifecycle.js'
-import type { TopicManager } from '../../manager/topic/lifecycle.js'
+import { type TopicManagerDependency, resolveTopicManager } from '../../manager/topic/dependency.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Session } from '../../types/session/entity.js'
 import type { SubSessionId } from '../../types/session/ids.js'
@@ -37,7 +37,7 @@ import type { HandoffEventSink } from './events.js'
 import type { RunStatusResolver } from './single.js'
 import { HandoffLockRejected, HandoffVersionConflict } from './version.js'
 
-export interface BroadcastHandoffDeps {
+interface BroadcastHandoffBaseDeps {
 	store: SessionStore
 	workspaceRegistry: WorkspaceBackendRegistry
 	capacity: CapacityValidator
@@ -47,13 +47,10 @@ export interface BroadcastHandoffDeps {
 	 * that used to stand in here reported every session unblocked.
 	 */
 	runStatus: RunStatusResolver
-	/**
-	 * Gate every recipient-session creation on the Thread being `'open'`.
-	 * Added in Phase 2.6; checked once per broadcast (all recipients share
-	 * a threadId by the fan-out invariant validated above).
-	 */
-	threadManager: TopicManager
 }
+
+/** Dependencies for a multi-recipient handoff. */
+export type BroadcastHandoffDeps = BroadcastHandoffBaseDeps & TopicManagerDependency
 
 /**
  * Per-recipient partial state tracked during fan-out so rollback can
@@ -145,11 +142,11 @@ export async function executeBroadcastHandoff(
 		seen.add(key)
 	}
 
-	// Thread archive gate (Phase 2.6) — runs BEFORE source load/capacity so an
-	// archived thread fails fastest with `ThreadClosedError`. All assignments
+	// Topic archive gate (Phase 2.6) — runs BEFORE source load/capacity so an
+	// archived Topic fails fastest with `TopicArchivedError`. All assignments
 	// share `topicId` by the shape validation above. Runs BEFORE the CAS
 	// lock so a denied fan-out leaves the source session untouched.
-	await deps.threadManager.requireOpen(first.topicId, tenantId)
+	await resolveTopicManager(deps).requireOpen(first.topicId, tenantId)
 
 	// 3. Load source + tenant check.
 	const source = await deps.store.getSession(first.sourceSessionId, tenantId)
@@ -190,7 +187,10 @@ export async function executeBroadcastHandoff(
 	const runResolver = deps.runStatus
 	const blocking = await runResolver.blockingRun(source.id, tenantId)
 	if (blocking) {
-		throw new HandoffLockRejected({ sessionId: source.id, reason: blocking.reason })
+		throw new HandoffLockRejected({
+			sessionId: source.id,
+			reason: blocking.reason,
+		})
 	}
 
 	// 6. Capacity — width + depth. Width covers N new children in one shot
@@ -218,7 +218,11 @@ export async function executeBroadcastHandoff(
 	// the lock at the version it read left the locked window invisible, so a
 	// second broadcast holding the same snapshot passed the check above and
 	// fanned out over a session that was already locked.
-	const locked: Session = { ...source, status: 'locked', ownerVersion: source.ownerVersion + 1 }
+	const locked: Session = {
+		...source,
+		status: 'locked',
+		ownerVersion: source.ownerVersion + 1,
+	}
 	await deps.store.updateSession(locked, tenantId, first.expectedOwnerVersion)
 	emit(deps.events.onLocked, { sessionId: source.id, at: new Date() })
 
@@ -244,7 +248,9 @@ export async function executeBroadcastHandoff(
 			}
 			partials.push(partial)
 
-			partial.workspace = await driver.create({ label: `broadcast-${assignment.id}` })
+			partial.workspace = await driver.create({
+				label: `broadcast-${assignment.id}`,
+			})
 			worktreesProvisioned += 1
 
 			const childSession = await deps.store.createSession(

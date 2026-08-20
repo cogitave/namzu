@@ -207,7 +207,7 @@ Starting a fresh query rebuilds the current static and dynamic prompt, so it sti
 
 A host that persists conversation messages can commit that returned history through the optional `SessionStore.replaceMessages`. The in-memory store replaces its projection directly; the disk store appends one replacement record to `messages.jsonl`, so the physical log stays append-only while subsequent reads see the complete replacement followed by later appends. One record is the transaction boundary — a crash cannot expose the first half of a compacted history. `isCompactionMessage` and `isWorkingMemoryMessage` identify the two state-bearing system messages when a host restores its own transcript view; every other system message belongs to the fresh per-run prompt floor.
 
-That rule is now a CI step rather than a habit. `check-signature-types-exported.mjs` resolves every exported signature and fails when a type it names is declared in the package and not exported; its first run found twenty-eight, each the parameter or the result of a function that was already public.
+That rule is now a CI step rather than a habit. `check-signature-types-exported.mjs` resolves exported function signatures and public class constructors, then fails when a type they name is declared in the package and not exported. Its first two passes found forty-five missing names: function parameters/results and constructor dependency/config shapes belonging to values that were already public. The constructor walk has a self-check in the gate itself, so deleting that branch cannot turn the check silently green.
 
 **Long-term memory** is `store/memory/`. The `MemoryIndex` (with `InMemoryMemoryIndex` as the default and a disk-backed variant) stores typed `MemoryIndexEntry` records, searchable by free-text query, tag set, and status filter. It persists to disk atomically. There is no required vector database — the default is good-old tag and text search. You can layer an embedding-backed index on top if you want, but the kernel does not assume it.
 
@@ -414,6 +414,19 @@ Every registry, every store, every vault is tenant-scoped. `TenantId` is a brand
 ### 24. Topic / Run Separation
 
 A **topic** is the durable subject under which sessions work. A **session** is the multi-turn work unit owned by one actor at a time, and a **run** is one execution pass with its own input, iterations, tool calls, usage, cost, and result. One topic can own many sessions and each session can produce many runs. Keeping those identities explicit lets a topic retain mutable conversation state and a bounded objective without mixing either into a run's auditable event history.
+
+`TopicManager` owns the lifecycle boundary around that durable subject. Its
+`requireOpen` gate is shared by child-agent spawn and both handoff modes, so an
+archived topic cannot gain a session through a second ingress path. Hosts inject
+that authority as `topicManager`; the deprecated `threadManager` dependency key
+is accepted for one migration window, but two different managers are refused
+rather than selected by property order.
+
+Lifecycle failures use the same vocabulary as the resource they protect:
+`TopicArchivedError`, `TopicNotEmptyError`, and `StaleTopicError` are exported
+from `@namzu/sdk`, and their structured payloads carry `topicId`. This is an
+observable error contract: operators can branch on the class and details
+without parsing a message or translating back to an earlier domain name.
 
 ---
 

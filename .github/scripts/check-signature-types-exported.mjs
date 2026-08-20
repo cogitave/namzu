@@ -4,8 +4,9 @@
  *
  * ## The defect this exists for
  *
- * A function reaches the public surface and the types in its signature do not.
- * The function is callable, and a consumer who wants to name what they pass or
+ * A callable value or class reaches the public surface and the types in its
+ * signature do not. The value/constructor is callable, and a consumer who
+ * wants to name what they pass or
  * what they got back cannot: they inline the shape, or reach for `any`, and
  * either way the package's own vocabulary stops at the function name.
  *
@@ -81,13 +82,18 @@ function packageTypeEntries() {
  */
 function referencedTypeNames(decl) {
 	const found = new Set()
-	const typeParams = new Set((decl.typeParameters ?? []).map((p) => p.name.text))
+	const typeParams = new Set()
+	// A constructor's generic parameters live on its containing class, not on
+	// the ConstructorDeclaration itself. Without walking the owner,
+	// `ManagedRegistry<TDefinition>` was reported as if `TDefinition` were a
+	// hidden package type rather than a consumer-supplied type parameter.
+	for (let current = decl; current; current = current.parent) {
+		for (const parameter of current.typeParameters ?? []) typeParams.add(parameter.name.text)
+	}
 
 	const visitType = (node) => {
 		if (ts.isTypeReferenceNode(node)) {
-			const name = ts.isIdentifier(node.typeName)
-				? node.typeName.text
-				: node.typeName.right.text
+			const name = ts.isIdentifier(node.typeName) ? node.typeName.text : node.typeName.right.text
 			// A qualified name (`ns.Thing`) is reached through its namespace,
 			// which the consumer imports; only the bare case is ours to check.
 			if (ts.isIdentifier(node.typeName) && !typeParams.has(name)) found.add(name)
@@ -100,17 +106,47 @@ function referencedTypeNames(decl) {
 	return found
 }
 
+/** Whether a class member is callable from a package consumer. */
+function isPublicClassMember(decl) {
+	const flags = ts.getCombinedModifierFlags(decl)
+	return (flags & (ts.ModifierFlags.Private | ts.ModifierFlags.Protected)) === 0
+}
+
+/** Signatures exposed by one declaration at the package root. */
+function exposedSignatures(decl) {
+	const out = []
+	if (ts.isFunctionDeclaration(decl) || ts.isMethodSignature(decl)) out.push(decl)
+	else if (ts.isVariableDeclaration(decl) && decl.type && ts.isFunctionTypeNode(decl.type))
+		out.push(decl.type)
+	else if (ts.isClassDeclaration(decl)) {
+		for (const member of decl.members) {
+			if (ts.isConstructorDeclaration(member) && isPublicClassMember(member)) out.push(member)
+		}
+	}
+	return out
+}
+
 /** Declarations whose signature a consumer has to be able to name. */
 function signatureDeclarations(symbol, checker) {
 	const target =
 		(symbol.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(symbol) : symbol
-	const out = []
-	for (const decl of target.getDeclarations() ?? []) {
-		if (ts.isFunctionDeclaration(decl) || ts.isMethodSignature(decl)) out.push(decl)
-		else if (ts.isVariableDeclaration(decl) && decl.type && ts.isFunctionTypeNode(decl.type))
-			out.push(decl.type)
-	}
-	return out
+	return (target.getDeclarations() ?? []).flatMap(exposedSignatures)
+}
+
+// This gate used to inspect free functions only. A root-exported class could
+// name an unreachable constructor dependency and still pass — precisely how
+// `AgentManagerDeps` shipped. Keep the class branch falsifiable inside the
+// command CI already runs; a detached unit file would not be part of that gate.
+const constructorProbe = ts.createSourceFile(
+	'constructor-probe.d.ts',
+	'export declare class PublicThing { constructor(deps: HiddenDeps) }\ninterface HiddenDeps {}',
+	ts.ScriptTarget.Latest,
+	/* setParentNodes */ true,
+	ts.ScriptKind.TS,
+)
+const probeClass = constructorProbe.statements.find(ts.isClassDeclaration)
+if (!probeClass || exposedSignatures(probeClass).filter(ts.isConstructorDeclaration).length !== 1) {
+	throw new Error('signature-type gate self-check failed: public constructors are not inspected')
 }
 
 const entries = packageTypeEntries()
@@ -171,8 +207,8 @@ for (const entry of entries) {
 
 				problems.push(
 					`${entry.name} exports \`${symbol.getName()}\` but not \`${name}\`, which its signature names.`,
-					`    Declared in ${rel(declaredIn)}. A consumer can call the function and`,
-					`    cannot name what it takes or returns, so they inline the shape or use \`any\`.`,
+					`    Declared in ${rel(declaredIn)}. A consumer can call the public value and`,
+					'    cannot name what it takes or returns, so they inline the shape or use `any`.',
 					`    Add \`${name}\` to this package's public exports.`,
 				)
 			}

@@ -40,6 +40,7 @@ import { generateTaskId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { requireOpenProject } from '../project/lifecycle.js'
+import { type TopicManagerDependency, resolveTopicManager } from '../topic/dependency.js'
 import type { TopicManager } from '../topic/lifecycle.js'
 
 /**
@@ -61,19 +62,11 @@ import type { TopicManager } from '../topic/lifecycle.js'
  * registry deny-by-default while matching pattern doc §7.1 (lazy workspace
  * provisioning).
  */
-export interface AgentManagerDeps {
+interface AgentManagerBaseDeps {
 	readonly sessionStore: SessionStore
 	readonly workspaceRegistry: WorkspaceBackendRegistry
 	readonly summaryMaterializer: SessionSummaryMaterializer
 	readonly capacity: CapacityValidator
-	/**
-	 * Gate session creation on the parent Topic being `'open'` via
-	 * {@link TopicManager.requireOpen}. Added in Phase 2.6 to close the
-	 * archive-gate gap flagged by the Phase 2.5 commit: without this,
-	 * `TopicManager.archive` was best-effort because spawn could still
-	 * attach a live session under an archived Thread.
-	 */
-	readonly threadManager: TopicManager
 
 	/**
 	 * A pre-built logger. No in-package caller threads a real one today —
@@ -88,6 +81,16 @@ export interface AgentManagerDeps {
 	 */
 	readonly log?: Logger
 }
+
+/**
+ * Dependencies for {@link AgentManager}.
+ *
+ * `topicManager` gates child-session creation on the parent Topic being open.
+ * The deprecated `threadManager` spelling remains accepted for one migration
+ * window through {@link TopicManagerDependency}; new callers use
+ * `topicManager`.
+ */
+export type AgentManagerDeps = AgentManagerBaseDeps & TopicManagerDependency
 
 interface ChildSpawnRecord {
 	subSessionId: SubSessionId
@@ -138,6 +141,7 @@ export class AgentManager {
 	/** One provisioning at a time per parent — see {@link provisionSpawn}. */
 	private spawnLocks: Map<SessionId, Promise<void>> = new Map()
 	private deps: AgentManagerDeps
+	private topicManager: TopicManager
 
 	constructor(
 		registry: AgentRegistry,
@@ -146,8 +150,11 @@ export class AgentManager {
 	) {
 		this.registry = registry
 		this.config = { ...AGENT_MANAGER_DEFAULTS, ...config }
-		this.log = resolveLogger(deps.log).child({ [SCOPE_ATTRIBUTE]: 'manager/agent/lifecycle' })
+		this.log = resolveLogger(deps.log).child({
+			[SCOPE_ATTRIBUTE]: 'manager/agent/lifecycle',
+		})
 		this.deps = deps
+		this.topicManager = resolveTopicManager(deps)
 	}
 
 	async sendMessage(
@@ -677,7 +684,7 @@ export class AgentManager {
 		// partial/legacy path).
 		const store = this.deps.sessionStore
 
-		// Thread archive gate — runs FIRST so an archived thread fails fastest
+		// Topic archive gate — runs FIRST so an archived Topic fails fastest
 		// with the correct error (not DelegationCapacityExceeded or a project
 		// lookup error). Phase 2.6 closes the gap the Phase 2.5 commit
 		// flagged: without it, `TopicManager.archive` could be undermined by
@@ -687,7 +694,7 @@ export class AgentManager {
 		// callers of `SessionStore.createSession` bypass it — the store layer
 		// is intentionally unaware of topic status to preserve its
 		// single-responsibility boundary.
-		await this.deps.threadManager.requireOpen(context.topicId, context.tenantId)
+		await this.topicManager.requireOpen(context.topicId, context.tenantId)
 
 		// Parent session cross-check: validate that `options.parentSessionId`
 		// exists for this tenant AND lives under the same topic as the

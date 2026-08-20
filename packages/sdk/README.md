@@ -123,6 +123,12 @@ unchanged.
 | **Compaction** | a conversation about to overflow is shrunk without being corrupted |
 | **Observability** | OpenTelemetry spans and metrics, and a log pipeline you own the sink for |
 
+`TopicManager` is the lifecycle authority for the durable subject above a
+session. Supply it to agent and handoff dependencies as `topicManager`; spawn
+and handoff then share the same archived-topic gate. Hosts can distinguish
+`TopicArchivedError`, `TopicNotEmptyError`, and `StaleTopicError` directly from
+the package root, and each carries `details.topicId`.
+
 ## Documentation
 
 - [The kernel in depth](https://github.com/cogitave/namzu/blob/main/docs/sdk/architecture.md) — every subsystem, the design principles, the event protocol

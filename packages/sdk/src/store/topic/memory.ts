@@ -4,8 +4,7 @@
  *
  * Mirrors the write-time CAS contract of the disk store: every
  * `updateTopic` compares the supplied `ownerVersion` against the persisted
- * copy and rejects with `StaleThreadError` on mismatch (class name
- * unchanged this release — see NZ-TOPIC-01 risks). Convention #17:
+ * copy and rejects with `StaleTopicError` on mismatch. Convention #17:
  * cross-tenant access throws `TenantIsolationError` with no fallback.
  *
  * NZ-TOPIC-01 renamed this from `InMemoryThreadStore` (moved from
@@ -15,7 +14,7 @@
  * `InMemoryTopicStore` now.
  */
 
-import { StaleThreadError, TenantIsolationError } from '../../session/errors.js'
+import { StaleTopicError, TenantIsolationError } from '../../session/errors.js'
 import type { TenantId } from '../../types/ids/index.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { Topic } from '../../types/topic/entity.js'
@@ -70,8 +69,8 @@ export class InMemoryTopicStore implements TopicStore {
 		// Any drift means another writer already advanced the record; the caller
 		// must re-read + re-apply + retry.
 		if (topic.ownerVersion !== existing.topic.ownerVersion) {
-			throw new StaleThreadError({
-				threadId: topic.id,
+			throw new StaleTopicError({
+				topicId: topic.id,
 				expectedVersion: topic.ownerVersion,
 				actualVersion: existing.topic.ownerVersion,
 			})

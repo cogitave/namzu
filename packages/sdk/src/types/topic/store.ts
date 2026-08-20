@@ -69,9 +69,9 @@ export interface TopicStore {
 	/**
 	 * Persist a mutation to a Topic record. CAS on `ownerVersion`: if the
 	 * supplied `topic.ownerVersion` does not match the persisted version,
-	 * rejects with {@link import('../../session/errors.js').StaleThreadError}
-	 * (class name unchanged this release). On success the write commits with
-	 * `ownerVersion + 1` and a refreshed `updatedAt`.
+	 * rejects with {@link import('../../session/errors.js').StaleTopicError}
+	 * using `details.topicId`. On success the write commits with `ownerVersion
+	 * + 1` and a refreshed `updatedAt`.
 	 *
 	 * Archival transition (`status: 'open' → 'archived'`) shares this path;
 	 * the caller is responsible for verifying that no non-terminal Sessions

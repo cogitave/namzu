@@ -14,6 +14,7 @@
 
 import { vi } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
+import type { AgentManagerDeps } from '../../../index.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
 import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -152,7 +153,7 @@ export function buildDefinition(agent: Agent<BaseAgentConfig, BaseAgentResult>):
 export interface IntegrationHarness {
 	readonly store: InMemorySessionStore
 	readonly threadStore: InMemoryTopicStore
-	readonly threadManager: TopicManager
+	readonly topicManager: TopicManager
 	readonly registry: AgentRegistry
 	readonly manager: AgentManager
 	readonly materializer: SessionSummaryMaterializer
@@ -205,20 +206,24 @@ export function buildHarness(options: IntegrationHarnessOptions = {}): Integrati
 	})
 
 	const capacity = new DefaultCapacityValidator(store)
-	const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
+	const topicManager = new TopicManager({
+		topicStore: threadStore,
+		sessionStore: store,
+	})
 	const registry = new AgentRegistry()
-	const manager = new AgentManager(registry, undefined, {
+	const managerDeps: AgentManagerDeps = {
 		sessionStore: store,
 		summaryMaterializer: materializer,
 		workspaceRegistry,
 		capacity,
-		threadManager,
-	})
+		topicManager,
+	}
+	const manager = new AgentManager(registry, undefined, managerDeps)
 
 	return {
 		store,
 		threadStore,
-		threadManager,
+		topicManager,
 		registry,
 		manager,
 		materializer,
