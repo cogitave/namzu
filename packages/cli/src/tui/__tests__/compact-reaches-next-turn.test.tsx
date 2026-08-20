@@ -12,7 +12,7 @@
  * `session.send` and to conversation persistence.
  */
 
-import { createSystemMessage, type Message } from '@namzu/sdk'
+import { createSystemMessage, type Message, type RunId } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -51,6 +51,9 @@ let releaseAppend: () => void = () => {}
 let turnWait: Promise<void> | null = null
 let releaseTurn: () => void = () => {}
 let reportContextUsage = false
+let reportAutomaticCompaction = false
+let automaticFailureWait: Promise<void> = Promise.resolve()
+let releaseAutomaticFailure: () => void = () => {}
 
 const ZERO_USAGE = {
 	promptTokens: 0,
@@ -77,6 +80,12 @@ function resetReplacementGate(): void {
 function holdTurn(): void {
 	turnWait = new Promise<void>((resolve) => {
 		releaseTurn = resolve
+	})
+}
+
+function holdAutomaticFailure(): void {
+	automaticFailureWait = new Promise<void>((resolve) => {
+		releaseAutomaticFailure = resolve
 	})
 }
 
@@ -149,6 +158,45 @@ vi.mock('../agent.js', async (importOriginal) => {
 			},
 			send: async function* (messages): AsyncIterable<AgentEvent> {
 				sent.push([...messages])
+				if (reportAutomaticCompaction && sent.length === 2) {
+					// Use the production RunEvent -> AgentEvent mapper. The App-level
+					// observer below therefore covers both hops that must remain intact:
+					// SDK status snapshot mapping and StatusBar publication.
+					yield actual.toAgentEvent(
+						{
+							type: 'compaction_completed',
+							runId: 'run_auto_compaction' as RunId,
+							iteration: 2,
+							messagesBefore: 40,
+							messagesAfter: 6,
+							tokensBefore: 95_000,
+							tokensAfter: 20_000,
+							measuredBy: 'provider',
+							contextWindowTokens: 100_000,
+							windowSource: 'provider',
+						},
+						{} as never,
+					) as AgentEvent
+					yield actual.toAgentEvent(
+						{
+							type: 'token_usage_updated',
+							runId: 'run_auto_compaction' as RunId,
+							usage: { ...ZERO_USAGE, totalTokens: 9_500 },
+							cost: { totalCost: 0.19, cacheDiscount: 0, unpricedTokens: 0 },
+							contextTokens: 20_000,
+							contextMeasuredBy: 'estimate',
+							contextWindowTokens: 100_000,
+							windowSource: 'provider',
+						},
+						{} as never,
+					) as AgentEvent
+					await automaticFailureWait
+					yield {
+						kind: 'error',
+						message: 'NEXT_PROVIDER_FAILED',
+					} as AgentEvent
+					return
+				}
 				yield { kind: 'delta', text: `answer-${sent.length}` } as AgentEvent
 				if (reportContextUsage) {
 					yield {
@@ -193,6 +241,9 @@ beforeEach(() => {
 	turnWait = null
 	releaseTurn = () => {}
 	reportContextUsage = false
+	reportAutomaticCompaction = false
+	automaticFailureWait = Promise.resolve()
+	releaseAutomaticFailure = () => {}
 	compactionUsage = ZERO_USAGE
 })
 
@@ -200,6 +251,7 @@ afterEach(async () => {
 	releaseAppend()
 	releaseReplacement()
 	releaseTurn()
+	releaseAutomaticFailure()
 	for (const harness of mounted) harness.unmount()
 	mounted.length = 0
 	for (const screen of mountedScreens) await screen.unmount()
@@ -406,6 +458,42 @@ it('keeps the current status when compaction has nothing to replace', async () =
 	)
 	expect(replaceEntered).toBe(0)
 	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
+})
+
+it('shows automatic compaction before the next provider settles and keeps the new gauge on failure', async () => {
+	reportContextUsage = true
+	reportAutomaticCompaction = true
+	holdAutomaticFailure()
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 180,
+		rows: 40,
+	})
+	mountedScreens.push(screen)
+	await waitForScreen(screen, () => fullScreen(screen).includes('Connected to a-provider'))
+
+	await submitToScreen(screen, 'fill the context')
+	await waitForScreen(
+		screen,
+		() => fullScreen(screen).includes('answer-1') && visibleScreen(screen).includes('95%'),
+	)
+	await submitToScreen(screen, 'continue after automatic compaction')
+	await waitForScreen(
+		screen,
+		() =>
+			fullScreen(screen).includes('context compacted') && visibleScreen(screen).includes('~20%'),
+	)
+
+	expect(fullScreen(screen)).not.toContain('NEXT_PROVIDER_FAILED')
+	expect(
+		visibleScreen(screen),
+		'the pre-compaction gauge survived the committed edit',
+	).not.toContain('95%')
+
+	releaseAutomaticFailure()
+	await waitForScreen(screen, () => fullScreen(screen).includes('NEXT_PROVIDER_FAILED'))
+	expect(visibleScreen(screen), 'a provider failure restored the superseded gauge').toContain(
+		'~20%',
+	)
 })
 
 it('keeps the live history unchanged when its durable replacement fails', async () => {

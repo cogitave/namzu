@@ -73,11 +73,15 @@ export interface CompactionPlanInput {
 	/**
 	 * Skip the tool-result pre-pass and go straight to the boundary search.
 	 *
-	 * The two steps are sequential in a real pass: clear first, install the
-	 * result, and if that was not enough relief, plan a cut over the history
-	 * you just edited. Returning both from one call would mean nesting a
-	 * union inside a union and computing a boundary the caller may never
-	 * use; asking twice says what is happening.
+	 * The two steps are sequential in a real pass: ask once for a cleared
+	 * candidate and, if that was not enough relief, ask again for a cut over
+	 * that candidate. The caller need not install the first answer before the
+	 * second question. In fact the live runtime deliberately stages an
+	 * insufficient clear until summary verification succeeds, then publishes
+	 * the combined edit atomically. Returning both from one call would mean
+	 * nesting a union inside a union and computing a boundary the caller may
+	 * never use; asking twice says what is happening without prescribing when
+	 * an effect becomes visible.
 	 */
 	readonly skipToolResultClear?: boolean
 }

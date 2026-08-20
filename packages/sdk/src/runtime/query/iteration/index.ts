@@ -354,6 +354,11 @@ export class IterationOrchestrator {
 					// compaction preserves). No-op when no provider is configured.
 					await refreshWorkingMemory(this.ctx)
 					await runCompactionCheck(this.ctx)
+					// A context edit is a host-visible state transition, not a prelude
+					// whose events may wait behind the next network call. In particular,
+					// a slow or failing provider must not leave the host displaying the
+					// pre-compaction context after Run.messages already shrank.
+					yield* this.ctx.drainPending()
 
 					// Cache discipline: keep the tools param byte-stable even on the
 					// forced-final iteration and forbid tool use via tool_choice

@@ -1,6 +1,6 @@
 import { resolveContextWindow } from '../../../../compaction/context-window.js'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
-import { planCompaction } from '../../../../compaction/plan.js'
+import { type CompactionPlan, planCompaction } from '../../../../compaction/plan.js'
 import type { ContextReducer, ContextReduction } from '../../../../compaction/reducer.js'
 import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
@@ -95,6 +95,78 @@ function estimateToolCatalogTokens(ctx: IterationContext): number {
 
 function estimateTokens(ctx: IterationContext): number {
 	return estimateMessageTokens(ctx.runMgr.messages) + estimateToolCatalogTokens(ctx)
+}
+
+type ToolResultClearPlan = Extract<CompactionPlan, { kind: 'cleared' }>
+
+/** Replace the contents while preserving the live array identity. */
+function installMessages(live: Message[], next: readonly Message[]): void {
+	live.length = 0
+	for (const message of next) live.push(message)
+}
+
+/**
+ * Publish a status snapshot for a context edit that has already committed.
+ *
+ * Cumulative usage and cost do not fall when history is shed. The context
+ * does, and until the next provider response there is no more authoritative
+ * number than the post-edit estimate. Emitting the existing state event at
+ * this boundary lets hosts update immediately without inventing a second
+ * accounting channel.
+ */
+async function emitContextUsageSnapshot(
+	ctx: IterationContext,
+	contextTokens: number,
+	contextWindowTokens: number,
+	windowSource: 'config' | 'provider' | 'model-table' | 'default',
+): Promise<void> {
+	await ctx.emitEvent?.({
+		type: 'token_usage_updated',
+		runId: ctx.runMgr.id,
+		usage: { ...ctx.runMgr.tokenUsage },
+		cost: { ...ctx.runMgr.costInfo },
+		contextTokens,
+		contextMeasuredBy: 'estimate',
+		contextWindowTokens,
+		windowSource,
+	})
+}
+
+async function emitToolResultClear(
+	ctx: IterationContext,
+	plan: ToolResultClearPlan,
+): Promise<void> {
+	ctx.log.info('Cleared stale tool results instead of compacting', {
+		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		'namzu.runtime.cleared': plan.clearedCount,
+		'namzu.runtime.chars_reclaimed': plan.charsReclaimed,
+		'namzu.runtime.reclaimed_tokens': plan.reclaimedTokens,
+	})
+
+	await ctx.emitEvent?.({
+		type: 'compaction_tool_results_cleared',
+		runId: ctx.runMgr.id,
+		iteration: ctx.runMgr.currentIteration,
+		clearedCount: plan.clearedCount,
+		charsReclaimed: plan.charsReclaimed,
+		reclaimedTokens: plan.reclaimedTokens,
+		reliefWasEnough: plan.reliefWasEnough,
+	})
+}
+
+/** Install a clear-only pass and publish the state it established. */
+async function commitToolResultClear(
+	ctx: IterationContext,
+	plan: ToolResultClearPlan,
+	contextWindowTokens: number,
+	windowSource: 'config' | 'provider' | 'model-table' | 'default',
+): Promise<void> {
+	installMessages(ctx.runMgr.messages, plan.messages)
+	// The provider counted the pre-edit prompt. Leaving that measurement live
+	// makes the next trigger compare the old prompt against the new history.
+	ctx.runMgr.clearLastPromptTokens?.()
+	await emitToolResultClear(ctx, plan)
+	await emitContextUsageSnapshot(ctx, estimateTokens(ctx), contextWindowTokens, windowSource)
 }
 
 /**
@@ -335,8 +407,7 @@ async function applyReducer(
 
 	await recordShed(ctx, [...messages], next, reduction.reason)
 
-	messages.length = 0
-	for (const message of next) messages.push(message)
+	installMessages(messages, next)
 
 	// The provider's count described the pre-reduction prompt. Same reasoning
 	// as the structured path: leaving it would have the next trigger check
@@ -360,6 +431,7 @@ async function applyReducer(
 	//
 	// Found by a test written for the decline paths asserting that success does
 	// NOT report a failure, which is the only reason anybody looked here.
+	const tokensAfter = estimateTokens(ctx)
 	await ctx.emitEvent?.({
 		type: 'compaction_completed',
 		runId: ctx.runMgr.id,
@@ -367,11 +439,17 @@ async function applyReducer(
 		messagesBefore: before,
 		messagesAfter: messages.length,
 		tokensBefore: reduction.estimatedTokens,
-		tokensAfter: estimateMessageTokens(messages),
+		tokensAfter,
 		measuredBy: measurement.measuredBy,
 		contextWindowTokens: reduction.contextWindowTokens,
 		windowSource: measurement.windowSource,
 	})
+	await emitContextUsageSnapshot(
+		ctx,
+		tokensAfter,
+		reduction.contextWindowTokens,
+		measurement.windowSource,
+	)
 }
 
 /**
@@ -502,46 +580,22 @@ export async function runCompactionCheck(
 	})
 
 	if (clearPlan.kind === 'cleared') {
-		// Element-wise, not a rebuild: the edit is length-preserving by
-		// construction (only `content` changes), so writing entries back
-		// keeps the live array identity the rest of the run holds.
-		const live = ctx.runMgr.messages
-		clearPlan.messages.forEach((msg, i) => {
-			live[i] = msg
-		})
-
-		ctx.log.info('Cleared stale tool results instead of compacting', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			'namzu.runtime.cleared': clearPlan.clearedCount,
-			'namzu.runtime.chars_reclaimed': clearPlan.charsReclaimed,
-			'namzu.runtime.reclaimed_tokens': clearPlan.reclaimedTokens,
-		})
-
-		// Emitted BEFORE the return so the insufficient branch is not the
-		// silent one: a clear that fell through to summarization edited the
-		// history exactly as much as one that did not.
-		await ctx.emitEvent?.({
-			type: 'compaction_tool_results_cleared',
-			runId: ctx.runMgr.id,
-			iteration: ctx.runMgr.currentIteration,
-			clearedCount: clearPlan.clearedCount,
-			charsReclaimed: clearPlan.charsReclaimed,
-			reclaimedTokens: clearPlan.reclaimedTokens,
-			reliefWasEnough: clearPlan.reliefWasEnough,
-		})
-
 		// If that was enough, stop here and keep the history verbatim. The
 		// measurement is an estimate either way; the provider's own count for
 		// the NEXT turn will correct it, and an over-eager summarization is
 		// far more costly than one late pass.
-		if (clearPlan.reliefWasEnough) return
+		if (clearPlan.reliefWasEnough) {
+			await commitToolResultClear(ctx, clearPlan, budget, window.source)
+			return
+		}
 	}
 
-	// Second call, over the history the clear above may have just edited.
-	// `skipToolResultClear` because that step already ran and installed its
-	// result; asking again would clear nothing and say so as a `cleared`
-	// with a zero count, which is a shape this branch would have to ignore.
-	const messages = ctx.runMgr.messages
+	// Second call, over the cleared CANDIDATE when there is one. An
+	// insufficient clear stays off the live Run until summary verification
+	// succeeds. If that side call stalls, fails or is cancelled, the run keeps
+	// one coherent pre-edit history instead of publishing half a pass.
+	const stagedClear = clearPlan.kind === 'cleared' ? clearPlan : undefined
+	const messages = stagedClear?.messages ?? ctx.runMgr.messages
 	const plan = planCompaction({
 		messages,
 		config,
@@ -578,6 +632,12 @@ export async function runCompactionCheck(
 				case 'no_system_floor':
 					break
 			}
+		}
+		// Clearing may have been useful even though no safe summary cut exists.
+		// There is no opaque provider wait on this path, so publish that single
+		// complete edit now rather than discarding it.
+		if (stagedClear) {
+			await commitToolResultClear(ctx, stagedClear, budget, window.source)
 		}
 		return
 	}
@@ -662,13 +722,11 @@ export async function runCompactionCheck(
 		}
 	}
 
-	const oldCount = messages.length
-	await recordShed(ctx, [...messages], newMessages, options?.force ? 'overflow' : 'threshold')
+	const live = ctx.runMgr.messages
+	const oldCount = live.length
+	await recordShed(ctx, [...live], newMessages, options?.force ? 'overflow' : 'threshold')
 
-	messages.length = 0
-	for (const msg of newMessages) {
-		messages.push(msg)
-	}
+	installMessages(live, newMessages)
 
 	const newEstimate = estimateTokens(ctx)
 
@@ -678,6 +736,10 @@ export async function runCompactionCheck(
 	// trigger check does not compare the old prompt size against the new
 	// context and compact again immediately.
 	ctx.runMgr.clearLastPromptTokens?.()
+	// The clear and the summary were one staged state transition. Publish the
+	// clear first for chronological audit semantics, but only now that both
+	// edits are installed and no verifier can still fail between them.
+	if (stagedClear) await emitToolResultClear(ctx, stagedClear)
 
 	// Hysteresis. A pass that only gets the context from 0.72 to 0.71 of the
 	// window leaves the trigger armed, so the next iteration compacts again
@@ -699,8 +761,8 @@ export async function runCompactionCheck(
 	ctx.log.info('Context compacted', {
 		[NAMZU.RUN_ID]: ctx.runMgr.id,
 		'namzu.runtime.old_message_count': oldCount,
-		'namzu.runtime.new_message_count': messages.length,
-		'namzu.runtime.removed_messages': oldCount - messages.length,
+		'namzu.runtime.new_message_count': live.length,
+		'namzu.runtime.removed_messages': oldCount - live.length,
 		'namzu.runtime.old_token_estimate': estimatedTokens,
 		'namzu.runtime.new_token_estimate': newEstimate,
 		'namzu.runtime.reduction_percent': Math.round((1 - newEstimate / estimatedTokens) * 100),
@@ -716,7 +778,7 @@ export async function runCompactionCheck(
 		runId: ctx.runMgr.id,
 		iteration: ctx.runMgr.currentIteration,
 		messagesBefore: oldCount,
-		messagesAfter: messages.length,
+		messagesAfter: live.length,
 		tokensBefore: estimatedTokens,
 		tokensAfter: newEstimate,
 		measuredBy: measured.source,
@@ -724,4 +786,5 @@ export async function runCompactionCheck(
 		windowSource: window.source,
 		reachedResetThreshold: reachedReset,
 	})
+	await emitContextUsageSnapshot(ctx, newEstimate, budget, window.source)
 }

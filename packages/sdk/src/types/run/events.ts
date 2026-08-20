@@ -641,6 +641,13 @@ type CoreRunEvent =
 			 * Absent when the run has no compaction configuration, because
 			 * nothing then resolves a window and inventing one would be the
 			 * guess this exists to replace.
+			 *
+			 * This is a state snapshot, not merely a receipt for a model call.
+			 * It is also emitted immediately after an automatic context edit:
+			 * cumulative `usage`/`cost` may be unchanged (or may include a
+			 * verifier call) while `contextTokens` falls to its post-edit
+			 * estimate. Hosts therefore need not wait for another provider
+			 * response to learn that compaction made room.
 			 */
 			contextTokens?: number
 			contextMeasuredBy?: 'provider' | 'estimate'

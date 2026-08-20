@@ -162,6 +162,13 @@ After publication the old gauge disappears with the superseded history; the
 next model request supplies a fresh context measurement rather than the shell
 presenting the pre-compaction percentage as current.
 
+Automatic compaction updates that same gauge at the moment the kernel commits
+its edit, before it starts the next model request. The cumulative token and cost
+figures do not fall, but the context percentage does and is marked approximate
+until a provider measures the new prompt. If that next request fails or stalls,
+the reduced percentage remains current rather than reverting to the history
+that was already replaced.
+
 **`/goal` is durable operator control for what this conversation should
 achieve.** `/goal <objective>` creates one, bare `/goal` inspects it, and
 `/goal edit <objective>`, `/goal pause`, `/goal resume`, and `/goal clear`
