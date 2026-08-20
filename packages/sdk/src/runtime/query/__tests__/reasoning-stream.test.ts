@@ -77,6 +77,16 @@ const finish = (): StreamChunk => ({
 })
 
 describe('reasoning blocks survive the stream', () => {
+	it('retains the exact adapter-private replay envelope', async () => {
+		const replayState = { kind: 'fixture', version: 1, blocks: [{ signature: 'opaque' }] }
+		const { result } = await run([
+			{ id: 'c', delta: { reasoning: { index: 0, text: 'thought' } } },
+			{ ...finish(), replayState },
+		])
+
+		expect(result.response.message.replayState).toBe(replayState)
+	})
+
 	it('accumulates fragments into one block and keeps the signature', async () => {
 		const { result } = await run([
 			{ id: 'c', delta: { reasoning: { index: 0, type: 'thinking' } } },

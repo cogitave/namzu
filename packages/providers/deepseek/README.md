@@ -6,7 +6,7 @@ description: >-
   streaming and tool use, and thinking mode mapped onto the kernel's reasoning
   blocks in both directions.
 tags: [readme, package, provider, deepseek]
-timestamp: 2026-08-17T00:00:00Z
+timestamp: 2026-08-20T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -70,8 +70,10 @@ Models are `deepseek-v4-flash` and `deepseek-v4-pro`. `deepseek-chat` and
 
 **Thinking is on by default** — the vendor's default, not this driver's. The
 chain of thought arrives as `delta.reasoning` fragments, the same channel
-`@namzu/anthropic` uses, and is replayed back to the vendor automatically on
-later turns, which its tool-calling flow requires.
+`@namzu/anthropic` uses. The kernel persists it with versioned adapter state and
+the exact provider/model/fallback route, so the same configured route replays it
+after restart or `/resume`. A model, provider, or chain-member switch keeps the
+portable assistant/tool history and omits the foreign native reasoning field.
 
 Turn it off per call with `thinking: { type: 'disabled' }`.
 

@@ -529,10 +529,20 @@ export class IterationOrchestrator {
 					// `message_completed` under this id, which is the trail a
 					// reader wants most on exactly that turn.
 					stepMessageId = generateMessageId()
+					const requestedMember = this.ctx.servingMember?.() ?? {
+						index: 0,
+						providerId: this.ctx.provider.id,
+					}
+					const requestedRoute: StepProvenance = {
+						providerId: requestedMember.providerId,
+						model: requestedMember.model ?? stepModel,
+						chainIndex: requestedMember.index,
+					}
 					const { response, messageId } = yield* streamProviderTurn(
 						this.ctx.provider,
 						{
 							model: stepModel,
+							providerRoute: requestedRoute,
 							messages,
 							tools: llmTools.length > 0 ? llmTools : undefined,
 							...(enforceToolInputSchema ? { enforceToolInputSchema } : {}),
@@ -689,10 +699,10 @@ export class IterationOrchestrator {
 						...contextFigures,
 					})
 
-					// Reasoning rides along with the turn it belongs to, so the
-					// replay contract holds automatically: trimming or compacting
-					// the assistant message takes its thinking blocks with it,
-					// and no separate atomicity rule is needed.
+					// Durable reasoning and its adapter-private replay envelope ride
+					// with the turn they belong to. Trimming therefore removes both;
+					// retaining them gives the target adapter enough evidence to
+					// validate native replay against the exact serving route.
 					const assistantMsg = createAssistantMessage(
 						response.message.content,
 						forceFinalize ? undefined : response.message.toolCalls,
@@ -701,6 +711,13 @@ export class IterationOrchestrator {
 						// trimming or compacting the turn takes its evidence with it
 						// rather than leaving citations pointing at prose that is gone.
 						response.message.citations,
+						{
+							type: 'model',
+							...servedBy,
+							...(response.message.replayState !== undefined
+								? { replayState: response.message.replayState }
+								: {}),
+						},
 					)
 					runMgr.pushMessage(assistantMsg)
 
@@ -1919,9 +1936,19 @@ export class IterationOrchestrator {
 			// no 400 on tool blocks in history) and forbid use via tool_choice.
 			const finalTools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
 			const finalEnforced = enforcedModelInputToolNames(this.ctx.tools, finalTools)
+			const requestedMember = this.ctx.servingMember?.() ?? {
+				index: 0,
+				providerId: this.ctx.provider.id,
+			}
+			const requestedRoute: StepProvenance = {
+				providerId: requestedMember.providerId,
+				model: requestedMember.model ?? model,
+				chainIndex: requestedMember.index,
+			}
 			const response = await collectChatCompletion(
 				this.ctx.provider.chatStream({
 					model,
+					providerRoute: requestedRoute,
 					messages: finalMessages,
 					tools: finalTools.length > 0 ? finalTools : undefined,
 					...(finalEnforced ? { enforceToolInputSchema: finalEnforced } : {}),
@@ -1940,12 +1967,30 @@ export class IterationOrchestrator {
 				}),
 			)
 
+			const servingMember = this.ctx.servingMember?.() ?? requestedMember
+			const servedBy: StepProvenance = {
+				providerId: servingMember.providerId,
+				model: servingMember.model ?? model,
+				chainIndex: servingMember.index,
+			}
 			this.ctx.runMgr.accumulateUsage(response.usage, {
-				providerId: this.ctx.runMgr.servingProviderId,
-				model,
+				providerId: servedBy.providerId,
+				model: servedBy.model,
 			})
 
-			const assistantMsg = createAssistantMessage(response.message.content)
+			const assistantMsg = createAssistantMessage(
+				response.message.content,
+				undefined,
+				response.message.reasoning,
+				response.message.citations,
+				{
+					type: 'model',
+					...servedBy,
+					...(response.message.replayState !== undefined
+						? { replayState: response.message.replayState }
+						: {}),
+				},
+			)
 			this.ctx.runMgr.pushMessage(assistantMsg)
 
 			const finalMessageId = generateMessageId()

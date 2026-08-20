@@ -7,6 +7,7 @@ import type {
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
+	ProviderRoute,
 	ReasoningBlock,
 	ReasoningEffort,
 	StreamChunk,
@@ -157,7 +158,7 @@ type AttachmentLike =
 	  }
 
 /**
- * A reasoning block, replayed exactly as it arrived.
+ * A reasoning block in this provider's native history shape.
  *
  * The signature is cryptographic and verified upstream: a block echoed
  * back with its text edited, its signature dropped, or its order changed
@@ -170,6 +171,17 @@ interface AnthropicThinkingBlock {
 	signature?: string
 	data?: string
 	cache_control?: AnthropicCacheControl
+}
+
+type AnthropicReplayBlock =
+	| { type: 'thinking'; thinking: string; signature: string }
+	| { type: 'redacted_thinking'; data: string }
+
+interface AnthropicReplayState {
+	readonly kind: 'namzu-anthropic-reasoning'
+	readonly version: 1
+	readonly route: ProviderRoute
+	readonly blocks: readonly AnthropicReplayBlock[]
 }
 
 interface AnthropicDocumentBlock {
@@ -223,26 +235,126 @@ function extractSystem(
 }
 
 /**
- * The reasoning blocks an assistant message carries, in wire form.
- *
- * Verbatim by contract, and first in the message: the API requires
- * thinking blocks to lead, and the signature is verified, so re-rendering
- * or reordering them invalidates the turn they belong to.
+ * Resolve the exact target member for this adapter call.
  */
-function replayReasoning(msg: { reasoning?: readonly ReasoningBlock[] }): AnthropicThinkingBlock[] {
-	if (!msg.reasoning || msg.reasoning.length === 0) return []
-	return msg.reasoning.map((block) =>
-		block.type === 'redacted_thinking'
-			? {
-					type: 'redacted_thinking' as const,
-					...(block.encrypted ? { data: block.encrypted } : {}),
-				}
-			: {
-					type: 'thinking' as const,
-					thinking: block.text ?? '',
-					...(block.signature ? { signature: block.signature } : {}),
-				},
+function resolveAnthropicRoute(model: string, candidate: ProviderRoute | undefined): ProviderRoute {
+	if (candidate === undefined) return { providerId: 'anthropic', model, chainIndex: 0 }
+	if (
+		candidate.providerId !== 'anthropic' ||
+		candidate.model !== model ||
+		!Number.isSafeInteger(candidate.chainIndex) ||
+		candidate.chainIndex < 0
+	) {
+		throw new Error(
+			'AnthropicProvider: providerRoute must name this provider, the requested model, and a non-negative integer chainIndex.',
+		)
+	}
+	return candidate
+}
+
+function sameRoute(left: ProviderRoute, right: ProviderRoute): boolean {
+	return (
+		left.providerId === right.providerId &&
+		left.model === right.model &&
+		left.chainIndex === right.chainIndex
 	)
+}
+
+function isAnthropicReplayState(value: unknown): value is AnthropicReplayState {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+	const state = value as Record<string, unknown>
+	const route = state.route
+	if (
+		state.kind !== 'namzu-anthropic-reasoning' ||
+		state.version !== 1 ||
+		typeof route !== 'object' ||
+		route === null ||
+		Array.isArray(route) ||
+		typeof (route as Record<string, unknown>).providerId !== 'string' ||
+		typeof (route as Record<string, unknown>).model !== 'string' ||
+		!Number.isSafeInteger((route as Record<string, unknown>).chainIndex) ||
+		((route as Record<string, unknown>).chainIndex as number) < 0 ||
+		!Array.isArray(state.blocks)
+	) {
+		return false
+	}
+	return state.blocks.every((value) => {
+		if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+		const block = value as Record<string, unknown>
+		return block.type === 'thinking'
+			? typeof block.thinking === 'string' && typeof block.signature === 'string'
+			: block.type === 'redacted_thinking' && typeof block.data === 'string'
+	})
+}
+
+function durableAnthropicReasoning(
+	reasoning: readonly ReasoningBlock[] | undefined,
+): readonly AnthropicReplayBlock[] | undefined {
+	if (!reasoning || reasoning.length === 0) return undefined
+	const blocks: AnthropicReplayBlock[] = []
+	for (const block of reasoning) {
+		if (block.type === 'thinking') {
+			if (
+				typeof block.text !== 'string' ||
+				typeof block.signature !== 'string' ||
+				block.signature.length === 0 ||
+				block.encrypted !== undefined
+			) {
+				return undefined
+			}
+			blocks.push({ type: 'thinking', thinking: block.text, signature: block.signature })
+			continue
+		}
+		if (
+			typeof block.encrypted !== 'string' ||
+			block.encrypted.length === 0 ||
+			block.text !== undefined ||
+			block.signature !== undefined
+		) {
+			return undefined
+		}
+		blocks.push({ type: 'redacted_thinking', data: block.encrypted })
+	}
+	return blocks
+}
+
+function replayBlocksEqual(
+	left: readonly AnthropicReplayBlock[],
+	right: readonly AnthropicReplayBlock[],
+): boolean {
+	return (
+		left.length === right.length &&
+		left.every((block, index) => {
+			const other = right[index]
+			if (!other || block.type !== other.type) return false
+			return block.type === 'thinking' && other.type === 'thinking'
+				? block.thinking === other.thinking && block.signature === other.signature
+				: block.type === 'redacted_thinking' &&
+						other.type === 'redacted_thinking' &&
+						block.data === other.data
+		})
+	)
+}
+
+/**
+ * The reasoning blocks an assistant message may restore in native wire form.
+ *
+ * Durable reasoning alone is not authority to emit signed provider metadata.
+ * The adapter-private envelope must be well-formed, agree with that durable
+ * content, and belong to the exact target route. Otherwise the assistant text
+ * and tool calls remain usable while native thinking is omitted.
+ */
+function replayReasoning(
+	msg: Extract<ChatCompletionParams['messages'][number], { role: 'assistant' }>,
+	targetRoute: ProviderRoute,
+): AnthropicThinkingBlock[] {
+	const source = msg.source
+	if (!source || source.type !== 'model' || !sameRoute(source, targetRoute)) return []
+	const state = source.replayState
+	if (!isAnthropicReplayState(state) || !sameRoute(state.route, source)) return []
+	const durable = durableAnthropicReasoning(msg.reasoning)
+	if (!durable || !replayBlocksEqual(durable, state.blocks)) return []
+	return state.blocks.map((block) => ({ ...block }))
 }
 
 /**
@@ -280,7 +392,10 @@ function toolResultContent(
 	return blocks.length > 0 ? blocks : ''
 }
 
-function toAnthropicMessages(messages: ChatCompletionParams['messages']): AnthropicMessageParam[] {
+function toAnthropicMessages(
+	messages: ChatCompletionParams['messages'],
+	targetRoute: ProviderRoute,
+): AnthropicMessageParam[] {
 	const out: AnthropicMessageParam[] = []
 	let pendingToolResults: AnthropicToolResultBlock[] = []
 
@@ -307,7 +422,7 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 		flushToolResults()
 
 		if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
-			const blocks: AnthropicContentBlock[] = [...replayReasoning(msg)]
+			const blocks: AnthropicContentBlock[] = [...replayReasoning(msg, targetRoute)]
 			if (msg.content && typeof msg.content === 'string') {
 				blocks.push({ type: 'text', text: msg.content })
 			}
@@ -331,7 +446,7 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 
 		// An assistant turn that reasoned replays those blocks even when it
 		// called no tool: dropping them invalidates the turn upstream.
-		const replayed = msg.role === 'assistant' ? replayReasoning(msg) : []
+		const replayed = msg.role === 'assistant' ? replayReasoning(msg, targetRoute) : []
 		const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
 		if (replayed.length > 0) {
 			const trailing: AnthropicContentBlock[] =
@@ -631,7 +746,14 @@ interface StreamEvent {
 	type: string
 	message?: { id?: string; usage?: RawAnthropicUsage }
 	index?: number
-	content_block?: { type?: string; id?: string; name?: string; data?: string }
+	content_block?: {
+		type?: string
+		id?: string
+		name?: string
+		data?: string
+		thinking?: string
+		signature?: string
+	}
 	delta?: {
 		type?: string
 		text?: string
@@ -727,8 +849,9 @@ export class AnthropicProvider implements LLMProvider {
 		// earlier sections too).
 		const cachingEnabled = params.cacheControl !== undefined
 		const model = this.resolveModel(params)
+		const providerRoute = resolveAnthropicRoute(model, params.providerRoute)
 		const system = extractSystem(params.messages, cachingEnabled)
-		const messages = toAnthropicMessages(params.messages)
+		const messages = toAnthropicMessages(params.messages, providerRoute)
 		if (cachingEnabled) applyMessageCacheBreakpoint(messages)
 		const tools = toAnthropicTools(
 			params,
@@ -816,6 +939,7 @@ export class AnthropicProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		const providerRoute = resolveAnthropicRoute(this.resolveModel(params), params.providerRoute)
 		const createParams = this.buildCreateParams(params, true)
 		const signal = params.signal
 
@@ -840,6 +964,30 @@ export class AnthropicProvider implements LLMProvider {
 		// fragments can reference the right tool call.
 		const activeTools = new Map<number, { id: string; name: string }>()
 		const activeReasoning = new Set<number>()
+		const nativeReasoning = new Map<number, AnthropicReplayBlock>()
+		let replayStateEmitted = false
+		const completedReplayState = (): AnthropicReplayState | undefined => {
+			if (replayStateEmitted || activeReasoning.size > 0 || nativeReasoning.size === 0) {
+				return undefined
+			}
+			const blocks = [...nativeReasoning.entries()]
+				.sort(([left], [right]) => left - right)
+				.map(([, block]) => ({ ...block }))
+			if (
+				blocks.some((block) =>
+					block.type === 'thinking' ? block.signature.length === 0 : block.data.length === 0,
+				)
+			) {
+				return undefined
+			}
+			replayStateEmitted = true
+			return {
+				kind: 'namzu-anthropic-reasoning',
+				version: 1,
+				route: providerRoute,
+				blocks,
+			}
+		}
 
 		// Anthropic Messages API streams over SSE. Do not impose a
 		// provider-local 90s idle cutoff by default: long reasoning or
@@ -902,6 +1050,18 @@ export class AnthropicProvider implements LLMProvider {
 							const block = event.content_block
 							if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
 								activeReasoning.add(idx)
+								if (block.type === 'thinking') {
+									nativeReasoning.set(idx, {
+										type: 'thinking',
+										thinking: block.thinking ?? '',
+										signature: block.signature ?? '',
+									})
+								} else {
+									nativeReasoning.set(idx, {
+										type: 'redacted_thinking',
+										data: block.data ?? '',
+									})
+								}
 								yield {
 									id: messageId,
 									delta: {
@@ -939,11 +1099,15 @@ export class AnthropicProvider implements LLMProvider {
 							if (delta?.type === 'text_delta' && delta.text) {
 								yield { id: messageId, delta: { content: delta.text } }
 							} else if (delta?.type === 'thinking_delta' && delta.thinking !== undefined) {
+								const native = nativeReasoning.get(idx)
+								if (native?.type === 'thinking') native.thinking += delta.thinking
 								yield {
 									id: messageId,
 									delta: { reasoning: { index: idx, text: delta.thinking } },
 								}
 							} else if (delta?.type === 'signature_delta' && delta.signature !== undefined) {
+								const native = nativeReasoning.get(idx)
+								if (native?.type === 'thinking') native.signature += delta.signature
 								// Arrives once, at the end of the block, and has to
 								// reach the next request unmodified.
 								yield {
@@ -1005,8 +1169,10 @@ export class AnthropicProvider implements LLMProvider {
 						}
 						case 'message_delta': {
 							if (event.delta?.stop_reason) {
+								const replayState = completedReplayState()
 								yield {
 									id: messageId,
+									...(replayState !== undefined ? { replayState } : {}),
 									delta: {},
 									finishReason: mapStopReason(event.delta.stop_reason),
 									usage: event.usage ? parseUsage(event.usage) : undefined,
@@ -1020,8 +1186,13 @@ export class AnthropicProvider implements LLMProvider {
 							}
 							break
 						}
-						case 'message_stop':
+						case 'message_stop': {
+							const replayState = completedReplayState()
+							if (replayState !== undefined) {
+								yield { id: messageId, delta: {}, replayState }
+							}
 							return
+						}
 						default:
 							// Ignore unknown / ping / opaque events.
 							break

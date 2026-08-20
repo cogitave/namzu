@@ -210,8 +210,13 @@ Model history is published from the kernel's settled conversation projection,
 not reconstructed from the text the terminal happened to render. Provider
 reasoning blocks (including signatures and encrypted opaque payloads),
 citations, assistant tool calls and their results therefore survive the next
-turn, restart, `/resume` and `/fork` exactly. Opaque reasoning is not shown in
-the interactive transcript and is not added to `run-stream`'s live NDJSON event
+turn, restart, `/resume` and `/fork` exactly. Native reasoning replay is also
+bound to the provider, model, and fallback-chain member that produced it. The
+same configured route resumes signed/reasoning tool continuations; changing
+route preserves portable assistant/tool history but omits foreign native
+metadata instead of presenting it as if the new model produced it. Missing or
+edited replay state degrades the same way. Opaque reasoning is not shown in the
+interactive transcript and is not added to `run-stream`'s live NDJSON event
 channel. `namzu history --session`, whose contract is the raw model-visible
 message array, includes it. Fresh identity, environment, memory, project and
 skill system prompts are request context rather than conversation state: they

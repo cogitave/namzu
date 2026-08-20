@@ -201,9 +201,40 @@ export interface GoalRoundMessageSource {
 export type UserMessageSource = GoalRoundMessageSource
 
 /**
+ * The configured model route that produced or is about to receive a message.
+ *
+ * `chainIndex` is part of the identity on purpose: one chain may contain the
+ * same provider and model more than once with different credentials or base
+ * URLs. Names alone do not prove that provider-native replay state belongs to
+ * the target member.
+ */
+export interface ProviderRoute {
+	readonly providerId: string
+	readonly model: string
+	/** 0 is the primary provider; later values are declared fallbacks. */
+	readonly chainIndex: number
+}
+
+/** Provenance and adapter-private replay state for a model-produced message. */
+export interface AssistantMessageSource extends ProviderRoute {
+	readonly type: 'model'
+	/**
+	 * Lossless-JSON state a provider adapter needs to restore native response
+	 * metadata such as reasoning signatures.
+	 *
+	 * Opaque to the SDK. A target adapter must validate its kind, version,
+	 * route, and correspondence with the durable message before using it.
+	 * Missing or unusable state means provider-neutral history, never inferred
+	 * native replay from matching names alone.
+	 */
+	readonly replayState?: unknown
+}
+
+/**
  * An opaque reasoning block produced by the model.
  *
- * Deliberately opaque: the SDK stores and replays it, never interprets it.
+ * Deliberately opaque: the SDK stores it and leaves native replay to the
+ * adapter that owns the message's {@link AssistantMessageSource} route.
  * A provider whose reasoning blocks are signed requires the preceding
  * assistant turn to be echoed back **verbatim** — thinking blocks and
  * their cryptographic `signature` included — whenever a `tool_result`
@@ -228,10 +259,12 @@ export interface AssistantMessage extends BaseMessage {
 	role: 'assistant'
 	content: string | null
 	toolCalls?: ToolCall[]
+	/** Which configured model route produced this turn. */
+	source?: AssistantMessageSource
 	/**
 	 * Reasoning the model emitted before this turn's content, in order.
-	 * Replayed verbatim and ahead of the text/tool blocks — see
-	 * {@link ReasoningBlock}.
+	 * Stored verbatim; native replay additionally requires validated
+	 * {@link AssistantMessageSource.replayState} owned by the target route.
 	 */
 	reasoning?: readonly ReasoningBlock[]
 	/**
@@ -315,6 +348,7 @@ export function createAssistantMessage(
 	toolCalls?: ToolCall[],
 	reasoning?: readonly ReasoningBlock[],
 	citations?: readonly Citation[],
+	source?: AssistantMessageSource,
 ): AssistantMessage {
 	return {
 		role: 'assistant',
@@ -322,6 +356,7 @@ export function createAssistantMessage(
 		toolCalls,
 		...(reasoning && reasoning.length > 0 ? { reasoning } : {}),
 		...(citations && citations.length > 0 ? { citations } : {}),
+		...(source ? { source } : {}),
 		timestamp: Date.now(),
 	}
 }

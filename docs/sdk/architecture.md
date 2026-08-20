@@ -351,6 +351,16 @@ transport close as a generic `AbortError`. See [Provider stream idle
 bounds](runtime/provider-stream-idle-bound.md) for the default, override,
 opt-out, validation, and recovery rules.
 
+Every model-produced assistant message also names the exact route that served
+it: provider id, model, and fallback-chain index. A driver may attach a
+versioned opaque replay envelope for native response metadata such as reasoning
+signatures. The query stamps the final serving member, including fallback and
+forced-final calls; a target driver must validate the envelope against both the
+durable message and its current route before restoring native wire fields. The
+same configured route can therefore resume after restart, while a model,
+provider, or member switch keeps portable history without impersonating foreign
+metadata. See [Provider-native replay ownership](runtime/provider-native-replay.md).
+
 Provider-bound user attachments and rich tool-result blocks also share one
 accumulated request budget. The runtime projects over-budget history
 oldest-first into model-visible omission markers while keeping canonical run

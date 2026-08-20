@@ -302,7 +302,20 @@ export function withProviderFallback(
 				})
 			}
 
-			const request = member.model !== undefined ? { ...params, model: member.model } : params
+			const targetModel = member.model ?? params.model
+			// Route identity is stamped at the final member dispatch, not only by
+			// query's initial head request. A fallback may share a provider id/model
+			// with another member while using different credentials or a different
+			// endpoint; `chainIndex` is what keeps their native replay state apart.
+			const request: ChatCompletionParams = {
+				...params,
+				model: targetModel,
+				providerRoute: {
+					providerId: member.provider.id,
+					model: targetModel,
+					chainIndex: cursor,
+				},
+			}
 			let produced = false
 			try {
 				for await (const chunk of member.provider.chatStream(request)) {

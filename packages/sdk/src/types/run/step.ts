@@ -1,6 +1,6 @@
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { MessageId } from '../ids/index.js'
-import type { ToolCall } from '../message/index.js'
+import type { ProviderRoute, ToolCall } from '../message/index.js'
 import type { ProviderErrorCode } from '../provider/errors.js'
 
 /**
@@ -125,12 +125,7 @@ export interface StepResult {
  * the same provider twice — two models, or two credentials, on one driver.
  * `providerId` alone could not tell those apart.
  */
-export interface StepProvenance {
-	readonly providerId: string
-	readonly model: string
-	/** 0 is the head, i.e. the provider the run was configured with. */
-	readonly chainIndex: number
-}
+export interface StepProvenance extends ProviderRoute {}
 
 /**
  * Why a step ended in `finishReason: 'error'`.

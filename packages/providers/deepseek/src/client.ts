@@ -4,6 +4,7 @@ import type {
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
+	ProviderRoute,
 	ReasoningBlock,
 	StreamChunk,
 	ThinkingConfig,
@@ -188,13 +189,87 @@ export function assertEffortUnsupported(params: ChatCompletionParams): void {
 }
 
 /**
- * The reasoning blocks an assistant message carries, in wire form.
+ * Adapter-private state for one completed reasoning response.
  *
- * The vendor's rule: with tool calls in play, an assistant turn's
- * `reasoning_content` **must** be replayed in every later turn of the same
- * flow; without tool calls it is ignored if sent. Replayed unconditionally
- * here, which satisfies both halves and matches what `AssistantMessage.reasoning`
- * already promises — "replayed verbatim and ahead of the text/tool blocks".
+ * The route is repeated inside the opaque envelope rather than trusted from
+ * `AssistantMessage.source`: durable content is authoritative, and native
+ * metadata is used only after the two independent records agree.
+ */
+interface DeepSeekReplayState {
+	readonly kind: 'namzu-deepseek-reasoning'
+	readonly version: 1
+	readonly route: ProviderRoute
+	readonly reasoningContent: string
+}
+
+function sameRoute(left: ProviderRoute, right: ProviderRoute): boolean {
+	return (
+		left.providerId === right.providerId &&
+		left.model === right.model &&
+		left.chainIndex === right.chainIndex
+	)
+}
+
+function resolveDeepSeekRoute(model: string, candidate: ProviderRoute | undefined): ProviderRoute {
+	if (candidate === undefined) return { providerId: 'deepseek', model, chainIndex: 0 }
+	if (
+		candidate.providerId !== 'deepseek' ||
+		candidate.model !== model ||
+		!Number.isSafeInteger(candidate.chainIndex) ||
+		candidate.chainIndex < 0
+	) {
+		throw new Error(
+			'DeepSeekProvider: providerRoute must name this provider, the requested model, and a non-negative integer chainIndex.',
+		)
+	}
+	return candidate
+}
+
+function isDeepSeekReplayState(value: unknown): value is DeepSeekReplayState {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+	const state = value as Record<string, unknown>
+	const route = state.route
+	return (
+		state.kind === 'namzu-deepseek-reasoning' &&
+		state.version === 1 &&
+		typeof state.reasoningContent === 'string' &&
+		state.reasoningContent.length > 0 &&
+		typeof route === 'object' &&
+		route !== null &&
+		!Array.isArray(route) &&
+		typeof (route as Record<string, unknown>).providerId === 'string' &&
+		typeof (route as Record<string, unknown>).model === 'string' &&
+		Number.isSafeInteger((route as Record<string, unknown>).chainIndex) &&
+		((route as Record<string, unknown>).chainIndex as number) >= 0
+	)
+}
+
+function durableDeepSeekReasoning(
+	reasoning: readonly ReasoningBlock[] | undefined,
+): string | undefined {
+	if (!reasoning || reasoning.length === 0) return undefined
+	if (
+		reasoning.some(
+			(block) =>
+				block.type !== 'thinking' ||
+				typeof block.text !== 'string' ||
+				block.signature !== undefined ||
+				block.encrypted !== undefined,
+		)
+	) {
+		return undefined
+	}
+	const text = reasoning.map((block) => block.text as string).join('')
+	return text.length > 0 ? text : undefined
+}
+
+/**
+ * Restore `reasoning_content` only from a validated same-route envelope.
+ *
+ * The vendor's rule: with tool calls in play, an assistant turn's native
+ * reasoning must be echoed on later turns. Matching provider/model names are
+ * not enough: state can come from another chain member or another adapter
+ * format, and legacy messages carry no proof at all.
  *
  * Measured note, because it matters to anyone debugging this: as of
  * 2026-08-17 omitting the replay does NOT produce the documented 400 on either
@@ -202,17 +277,21 @@ export function assertEffortUnsupported(params: ChatCompletionParams): void {
  * a contract the vendor states and does not currently enforce is a contract
  * that can start being enforced in any release.
  */
-function replayReasoning(reasoning: readonly ReasoningBlock[] | undefined): string | undefined {
-	if (!reasoning || reasoning.length === 0) return undefined
-	const text = reasoning
-		.filter((b) => b.type === 'thinking' && typeof b.text === 'string')
-		.map((b) => b.text as string)
-		.join('')
-	return text.length > 0 ? text : undefined
+function replayReasoning(
+	message: Extract<ChatCompletionParams['messages'][number], { role: 'assistant' }>,
+	targetRoute: ProviderRoute,
+): string | undefined {
+	const source = message.source
+	if (!source || source.type !== 'model' || !sameRoute(source, targetRoute)) return undefined
+	const state = source.replayState
+	if (!isDeepSeekReplayState(state) || !sameRoute(state.route, source)) return undefined
+	const durable = durableDeepSeekReasoning(message.reasoning)
+	return durable !== undefined && durable === state.reasoningContent ? durable : undefined
 }
 
 export function toDeepSeekMessages(
 	messages: ChatCompletionParams['messages'],
+	targetRoute: ProviderRoute,
 ): ChatCompletionMessageParam[] {
 	return messages.map((msg): ChatCompletionMessageParam => {
 		if (msg.role === 'system') return { role: 'system', content: msg.content }
@@ -243,7 +322,7 @@ export function toDeepSeekMessages(
 				function: { name: tc.function.name, arguments: tc.function.arguments },
 			}))
 		}
-		const replayed = replayReasoning((msg as { reasoning?: readonly ReasoningBlock[] }).reasoning)
+		const replayed = replayReasoning(msg, targetRoute)
 		if (replayed !== undefined) {
 			;(assistant as { reasoning_content?: string }).reasoning_content = replayed
 		}
@@ -305,6 +384,7 @@ export class DeepSeekProvider implements LLMProvider {
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
+		const providerRoute = resolveDeepSeekRoute(model, params.providerRoute)
 		assertEffortUnsupported(params)
 		assertSamplingUsable(params, this.samplingMode)
 
@@ -324,7 +404,7 @@ export class DeepSeekProvider implements LLMProvider {
 		// to the non-streaming overload, whose result has no async iterator.
 		const body = {
 			model,
-			messages: toDeepSeekMessages(params.messages),
+			messages: toDeepSeekMessages(params.messages, providerRoute),
 			stream: true as const,
 			stream_options: { include_usage: true },
 			tools: toDeepSeekTools(params),
@@ -362,6 +442,8 @@ export class DeepSeekProvider implements LLMProvider {
 		// `reasoning_content` as a flat run of deltas with no index and no
 		// block boundaries, so index 0 is the whole of it rather than a guess.
 		let reasoningOpen = false
+		let reasoningContent = ''
+		let replayStateEmitted = false
 
 		try {
 			for await (const chunk of stream) {
@@ -398,6 +480,7 @@ export class DeepSeekProvider implements LLMProvider {
 
 					if (reasoningText) {
 						reasoningOpen = true
+						reasoningContent += reasoningText
 						yield {
 							id: chunk.id,
 							delta: { reasoning: { index: 0, type: 'thinking', text: reasoningText } },
@@ -421,8 +504,20 @@ export class DeepSeekProvider implements LLMProvider {
 						(toolCalls !== undefined && toolCalls.length > 0)
 					if (!hasDelta && !finishReason && !usage) continue
 
+					const replayState =
+						!replayStateEmitted && finishReason && reasoningContent.length > 0
+							? ({
+									kind: 'namzu-deepseek-reasoning',
+									version: 1,
+									route: providerRoute,
+									reasoningContent,
+								} satisfies DeepSeekReplayState)
+							: undefined
+					if (replayState !== undefined) replayStateEmitted = true
+
 					yield {
 						id: chunk.id,
+						...(replayState !== undefined ? { replayState } : {}),
 						delta: { content: delta?.content ?? undefined, toolCalls },
 						finishReason,
 						usage,

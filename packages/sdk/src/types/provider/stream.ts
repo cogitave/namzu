@@ -2,6 +2,12 @@ import type { TokenUsage } from '../common/index.js'
 
 export interface StreamChunk {
 	id: string
+	/**
+	 * Adapter-private lossless-JSON state for replaying the completed native
+	 * assistant response. Emitted only once the state is complete; aggregators
+	 * retain the last defined value and the query stores it in message source.
+	 */
+	replayState?: unknown
 	delta: {
 		content?: string
 		toolCalls?: Array<{

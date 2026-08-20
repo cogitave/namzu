@@ -2,6 +2,7 @@
   "title": "Runtime",
   "pages": [
     "checkpoint-store-conformance",
+    "provider-native-replay",
     "provider-stream-idle-bound",
     "request-rich-content-budget"
   ]

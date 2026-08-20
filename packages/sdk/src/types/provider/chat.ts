@@ -1,5 +1,5 @@
 import type { TokenUsage } from '../common/index.js'
-import type { Message, ReasoningBlock, ToolCall } from '../message/index.js'
+import type { Message, ProviderRoute, ReasoningBlock, ToolCall } from '../message/index.js'
 import type { LLMToolSchema } from '../tool/index.js'
 
 export type ToolChoice =
@@ -26,6 +26,14 @@ export interface CacheControl {
 export interface ChatCompletionParams {
 	model: string
 	messages: Message[]
+	/**
+	 * Exact configured member receiving this call.
+	 *
+	 * Set by the query/fallback runtime so provider adapters can decide whether
+	 * historical native replay state belongs to this route. Direct primary
+	 * calls may omit it; a provider then uses its own id, `model`, and index 0.
+	 */
+	providerRoute?: ProviderRoute
 	tools?: LLMToolSchema[]
 	/**
 	 * Provider hint naming tools whose model-facing JSON Schema should be
@@ -175,6 +183,8 @@ export interface ChatCompletionResponse {
 		toolCalls?: ToolCall[]
 		/** Reasoning blocks the model emitted, in original block order. */
 		reasoning?: readonly ReasoningBlock[]
+		/** Adapter-private lossless-JSON state for restoring native metadata. */
+		replayState?: unknown
 		/** Passages this turn cites, in the order the model made them. */
 		citations?: readonly import('../message/index.js').Citation[]
 	}

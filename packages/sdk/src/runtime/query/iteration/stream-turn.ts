@@ -219,6 +219,7 @@ export async function* streamProviderTurn(
 	// them, and are collected verbatim: they are evidence, so reordering or
 	// de-duplicating them would edit the record the reader checks against.
 	const citations: Citation[] = []
+	let replayState: unknown
 
 	let streamError: string | undefined
 	let streamCause: unknown
@@ -310,6 +311,7 @@ export async function* streamProviderTurn(
 				break
 			}
 			if (!id && chunk.id) id = chunk.id
+			if (chunk.replayState !== undefined) replayState = chunk.replayState
 
 			// The first delta of the turn, of ANY kind — text, reasoning or a
 			// tool call. namzu streams, so perceived latency is dominated by
@@ -686,6 +688,7 @@ export async function* streamProviderTurn(
 			content: textBuf.length > 0 ? textBuf : null,
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
 			...(reasoningBlocks.length > 0 ? { reasoning: reasoningBlocks } : {}),
+			...(replayState !== undefined ? { replayState } : {}),
 			...(citations.length > 0 ? { citations } : {}),
 		},
 		finishReason: effectiveFinishReason,

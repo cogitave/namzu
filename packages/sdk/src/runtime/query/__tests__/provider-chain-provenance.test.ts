@@ -151,6 +151,155 @@ describe('the run record names the member that served', () => {
 		})
 	})
 
+	it('stamps native replay state with the exact fallback route that produced it', async () => {
+		const replayState = {
+			kind: 'fixture-native-state',
+			version: 1,
+			reasoning: 'fallback thought',
+		}
+		const received: ChatCompletionParams[] = []
+		const fallback: LLMProvider = {
+			id: 'fallback-native',
+			name: 'fallback native',
+			async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+				received.push(params)
+				yield {
+					id: 'native-1',
+					delta: { reasoning: { index: 0, type: 'thinking', text: 'fallback thought' } },
+				}
+				yield { id: 'native-1', delta: { content: 'answered' } }
+				yield {
+					id: 'native-1',
+					delta: {},
+					finishReason: 'stop',
+					replayState,
+					usage: {
+						promptTokens: 2,
+						completionTokens: 3,
+						totalTokens: 5,
+						cachedTokens: 0,
+						cacheWriteTokens: 0,
+					},
+				}
+			},
+		}
+
+		const run = await drainQuery({
+			...baseParams(failing('primary', 401), new ToolRegistry(), await mkWorkdir()),
+			fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
+			messages: [createUserMessage('hello')],
+		})
+
+		expect(received).toHaveLength(1)
+		expect(received[0]?.providerRoute).toEqual({
+			providerId: 'fallback-native',
+			model: 'fallback-model',
+			chainIndex: 1,
+		})
+		const assistant = run.messages.find((message) => message.role === 'assistant')
+		expect(assistant).toMatchObject({
+			role: 'assistant',
+			content: 'answered',
+			reasoning: [{ type: 'thinking', text: 'fallback thought' }],
+			source: {
+				type: 'model',
+				providerId: 'fallback-native',
+				model: 'fallback-model',
+				chainIndex: 1,
+				replayState,
+			},
+		})
+	})
+
+	it('keeps the fallback route on the separate forced-final response and its cost', async () => {
+		const finalReplayState = { kind: 'fixture-final-state', version: 1, signature: 'final' }
+		const routes: ChatCompletionParams['providerRoute'][] = []
+		let call = 0
+		const usage = {
+			promptTokens: 1_000_000,
+			completionTokens: 1_000_000,
+			totalTokens: 2_000_000,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		}
+		const fallback: LLMProvider = {
+			id: 'anthropic',
+			name: 'fallback anthropic',
+			async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+				routes.push(params.providerRoute)
+				call += 1
+				if (call === 1) {
+					yield {
+						id: 'tool-turn',
+						delta: {
+							toolCalls: [
+								{
+									index: 0,
+									id: 'echo-1',
+									type: 'function',
+									function: { name: 'echo', arguments: '{"text":"hi"}' },
+								},
+							],
+						},
+					}
+					yield { id: 'tool-turn', delta: {}, finishReason: 'tool_calls', usage }
+					return
+				}
+				yield {
+					id: 'final-turn',
+					delta: {
+						reasoning: {
+							index: 0,
+							type: 'thinking',
+							text: 'final thought',
+							signature: 'final-sig',
+						},
+					},
+				}
+				yield { id: 'final-turn', delta: { content: 'final answer' } }
+				yield {
+					id: 'final-turn',
+					delta: {},
+					finishReason: 'stop',
+					usage,
+					replayState: finalReplayState,
+				}
+			},
+		}
+		const tools = new ToolRegistry()
+		registerEcho(tools)
+		const base = baseParams(failing('anthropic', 401), tools, await mkWorkdir(), 10)
+		const run = await drainQuery({
+			...base,
+			runConfig: {
+				...base.runConfig,
+				model: 'claude-opus-5',
+				tokenBudget: 1,
+			},
+			fallbackProviders: [{ provider: fallback, model: 'claude-haiku-4-5' }],
+			messages: [createUserMessage('hello')],
+		})
+
+		expect(routes).toEqual([
+			{ providerId: 'anthropic', model: 'claude-haiku-4-5', chainIndex: 1 },
+			{ providerId: 'anthropic', model: 'claude-haiku-4-5', chainIndex: 1 },
+		])
+		expect(run.stopReason).toBe('token_budget')
+		expect(run.costInfo.totalCost).toBeCloseTo(12, 6)
+		expect(run.messages.at(-1)).toMatchObject({
+			role: 'assistant',
+			content: 'final answer',
+			reasoning: [{ type: 'thinking', text: 'final thought', signature: 'final-sig' }],
+			source: {
+				type: 'model',
+				providerId: 'anthropic',
+				model: 'claude-haiku-4-5',
+				chainIndex: 1,
+				replayState: finalReplayState,
+			},
+		})
+	})
+
 	it('keeps the declared head on `metadata.provider` and puts the server beside it', async () => {
 		const primary = failing('primary', 401)
 		const fallback = new MockLLMProvider({ turns: [{ text: 'ok' }] })

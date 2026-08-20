@@ -37,6 +37,7 @@ export async function collectChatCompletion(
 	let id = ''
 	const model = ''
 	let content = ''
+	let replayState: unknown
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
@@ -60,6 +61,7 @@ export async function collectChatCompletion(
 			throw new Error(chunk.error)
 		}
 		if (!id && chunk.id) id = chunk.id
+		if (chunk.replayState !== undefined) replayState = chunk.replayState
 
 		if (chunk.delta.content) {
 			content += chunk.delta.content
@@ -116,6 +118,7 @@ export async function collectChatCompletion(
 			content: content.length > 0 ? content : null,
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
 			...(reasoningBlocks.length > 0 ? { reasoning: reasoningBlocks } : {}),
+			...(replayState !== undefined ? { replayState } : {}),
 		},
 		finishReason,
 		usage,

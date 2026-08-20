@@ -82,6 +82,18 @@ function validateUserSource(value: unknown, path: string): string | null {
 	)
 }
 
+function validateAssistantSource(value: unknown, path: string): string | null {
+	if (!isObject(value)) return `${path} must be a source object`
+	if (value.type !== 'model') return `${path}.type must be "model"`
+	return (
+		stringField(value, 'providerId', path) ??
+		stringField(value, 'model', path) ??
+		(Number.isSafeInteger(value.chainIndex) && (value.chainIndex as number) >= 0
+			? null
+			: `${path}.chainIndex must be a non-negative safe integer`)
+	)
+}
+
 function validateToolCall(value: unknown, path: string): string | null {
 	if (!isObject(value)) return `${path} must be a tool-call object`
 	const fn = value.function
@@ -214,7 +226,9 @@ function validateMessage(value: unknown, index: number): string | null {
 				if (error) return error
 			}
 		}
-		return null
+		return value.source === undefined
+			? null
+			: validateAssistantSource(value.source, `${path}.source`)
 	}
 	if (value.role === 'tool') {
 		if (typeof value.content !== 'string') {

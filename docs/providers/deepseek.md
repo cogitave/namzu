@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+timestamp: 2026-08-20T00:00:00Z
+lastReviewed: 2026-08-20
 resource: packages/providers/deepseek/src/client.ts
 tags: [provider, deepseek, reasoning, reference]
 ---
@@ -108,16 +108,30 @@ everything lands in block index 0. The block is closed when content or a tool
 call starts — the only boundary available — and closed at the end of a turn
 that produced reasoning and nothing else.
 
-## Reasoning is replayed, and you do not have to do it
+## Reasoning replay is route-bound
 
 The vendor's rule: with tool calls in play, an assistant turn's
 `reasoning_content` **must** be sent back on every later turn of the same flow,
 or the request is rejected. Without tool calls it is ignored if sent.
 
-This driver replays unconditionally, reading `AssistantMessage.reasoning` —
-which the SDK already documents as "replayed verbatim and ahead of the text and
-tool blocks". Nothing is asked of the caller: hand back the assistant message
-you were given and the field goes with it.
+The run loop stores two records together on the assistant message:
+
+- readable `reasoning` blocks, which remain the durable source of truth;
+- a versioned, adapter-private replay envelope under `source.replayState`,
+  bound to the provider id, model, and fallback-chain member that produced it.
+
+The driver sends `reasoning_content` again only when the source route, envelope
+route, envelope version, and durable reasoning all agree with the route now
+receiving the request. The same configured route still replays after process
+restart, `/resume`, and `/fork`. Switching model, provider, or fallback member
+keeps the assistant text and tool exchange but omits the foreign native field.
+Missing, malformed, or edited replay state degrades in the same safe way.
+
+The ordinary `query()` and CLI paths do this automatically. A host driving
+`chatStream` directly must retain the response's final `replayState` together
+with the matching `ProviderRoute` when it constructs the assistant history.
+Matching provider and model names without the envelope are deliberately not
+enough to reconstruct native state.
 
 > **Measured, and worth knowing if you are debugging this:** as of 2026-08-17
 > omitting the replay does **not** produce the documented rejection, on either
@@ -125,9 +139,9 @@ you were given and the field goes with it.
 > currently enforce is one that can start being enforced in any release, and
 > the cost of honouring it is a field on a request.
 
-`redacted_thinking` blocks are not replayed — they carry no readable text, and
-sending the placeholder would put it into the model's context as though it were
-thought.
+`redacted_thinking` and signed blocks from another adapter are not replayed —
+they are not this wire's native `reasoning_content`, and flattening them would
+present foreign metadata as thought produced by this route.
 
 ## What this driver refuses
 

@@ -3,10 +3,10 @@ type: Reference
 title: "@namzu/anthropic"
 description: >-
   The Anthropic model driver for the Namzu agent kernel. Implements
-  LLMProvider over the vendor's official SDK, so the kernel drives it
-  through the same interface as every other driver.
+  LLMProvider over the vendor's official SDK with route-bound signed-thinking
+  replay, so the kernel can resume native tool continuations safely.
 tags: [readme, package, provider, anthropic]
-timestamp: 2026-08-17T00:00:00Z
+timestamp: 2026-08-20T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -66,6 +66,12 @@ const response = await collectChatCompletion(
 
 `chatStream` is the only model entry point; a non-streaming call is that stream
 collected. In practice the kernel's run loop calls it and hands you events.
+
+Signed thinking and encrypted redacted blocks are persisted with versioned
+adapter state plus their exact provider/model/fallback route. The same
+configured route replays them after restart or `/resume`; another model,
+provider, or chain member receives portable assistant/tool history without
+foreign native thinking metadata.
 
 Set exactly one of `apiKey` or `authToken`. The kernel's credential vault can
 hold the key instead, so it never reaches the driver's config as a plain

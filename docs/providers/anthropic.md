@@ -1,14 +1,14 @@
 ---
 uid: namzu.providers.anthropic
 title: The Anthropic driver — authentication, configuration and strict tool inputs
-description: Reference for @namzu/anthropic — the two authentication modes and why they are mutually exclusive, every configuration field with its default, how a requested reasoning effort maps onto thinking parameters, and when a tool schema is sent with strict generation.
+description: Reference for @namzu/anthropic — authentication, configuration, route-bound signed-thinking replay, reasoning effort mapping, and strict tool-input generation.
 type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
-resource: packages/providers/anthropic/src/index.ts
+timestamp: 2026-08-20T00:00:00Z
+lastReviewed: 2026-08-20
+resource: packages/providers/anthropic/src/client.ts
 tags: [provider, anthropic, reference]
 ---
 
@@ -121,6 +121,25 @@ signals reach the vendor request and are rechecked before a result is returned.
 exported so a host can see how a requested reasoning effort maps onto the
 vendor's thinking parameters **before** a call is made, rather than inferring it
 from the response.
+
+### Signed-thinking replay
+
+Native thinking blocks carry signatures or encrypted redacted payloads that
+must be returned byte-for-byte and before the assistant text/tool call. The run
+loop therefore stores durable reasoning together with a versioned replay
+envelope and the exact `ProviderRoute` that produced it: provider id, model, and
+fallback-chain index.
+
+The driver restores native blocks only when the source route, envelope route,
+schema version, and durable block sequence all agree with the route now
+receiving the request. This survives process restart and `/resume` on the same
+configured route. A model/provider/member switch, an unsigned legacy block, or
+missing/malformed/edited state keeps the assistant text and tool exchange but
+does not impersonate signed thinking from another route.
+
+`query()` owns the stamping automatically. A direct `chatStream` host must keep
+the completed stream's `replayState` with the corresponding assistant source;
+provider/model names by themselves are not replay authority.
 
 ## Strict tool inputs
 

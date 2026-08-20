@@ -65,6 +65,17 @@ describe('stateless Message[] parsing', () => {
 						encrypted: 'ciphertext exact',
 					},
 				],
+				source: {
+					type: 'model',
+					providerId: 'anthropic',
+					model: 'claude-test',
+					chainIndex: 1,
+					replayState: {
+						kind: 'opaque-adapter-state',
+						version: 99,
+						blocks: [{ signature: 'signature exact' }],
+					},
+				},
 				citations: [
 					{
 						citedText: 'clause exact',
@@ -139,6 +150,29 @@ describe('stateless Message[] parsing', () => {
 		expect(result).toEqual({
 			ok: false,
 			error: 'messages[1].reasoning[0].signature must be a string',
+		})
+	})
+
+	it('refuses malformed assistant route provenance before provider construction', () => {
+		const result = parsePriorMessages(
+			JSON.stringify([
+				{ role: 'user', content: 'hello' },
+				{
+					role: 'assistant',
+					content: 'answer',
+					source: {
+						type: 'model',
+						providerId: 'deepseek',
+						model: 'deepseek-v4-flash',
+						chainIndex: -1,
+					},
+				},
+			]),
+		)
+
+		expect(result).toEqual({
+			ok: false,
+			error: 'messages[1].source.chainIndex must be a non-negative safe integer',
 		})
 	})
 

@@ -159,6 +159,22 @@ describe('collectChatCompletion()', () => {
  * message assembled here had already lost it.
  */
 describe('collectChatCompletion() — reasoning blocks', () => {
+	it('carries the exact opaque replay envelope from the completed stream', async () => {
+		const replayState = {
+			kind: 'fixture-native-state',
+			version: 7,
+			nested: { signature: 'opaque' },
+		}
+		const result = await collectChatCompletion(
+			fromArray([
+				{ id: 'm', delta: { reasoning: { index: 0, text: 'thought' } } },
+				{ id: 'm', delta: {}, finishReason: 'stop', replayState },
+			]),
+		)
+
+		expect(result.message.replayState).toBe(replayState)
+	})
+
 	it('buckets reasoning fragments by index and concatenates in arrival order', async () => {
 		const result = await collectChatCompletion(
 			fromArray([

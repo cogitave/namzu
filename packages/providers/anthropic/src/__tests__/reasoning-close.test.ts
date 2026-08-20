@@ -88,6 +88,19 @@ describe('a reasoning block streams, then closes', () => {
 		expect(reasoning.map((r) => r.text).filter(Boolean)).toEqual(['step one', ' then two'])
 	})
 
+	it('publishes one versioned route-bound replay envelope after the block closes', async () => {
+		const chunks = await chunksOf(THINKING_STREAM)
+		const states = chunks.filter((chunk) => chunk.replayState !== undefined)
+
+		expect(states).toHaveLength(1)
+		expect(states[0]?.replayState).toEqual({
+			kind: 'namzu-anthropic-reasoning',
+			version: 1,
+			route: { providerId: 'anthropic', model: 'm', chainIndex: 0 },
+			blocks: [{ type: 'thinking', thinking: 'step one then two', signature: 'sig-abc' }],
+		})
+	})
+
 	it('carries the signature, which arrives once at the end', async () => {
 		const reasoning = reasoningOf(await chunksOf(THINKING_STREAM))
 
@@ -197,12 +210,44 @@ describe('thinking can be asked for', () => {
 })
 
 describe('a reasoned turn is replayed verbatim on the next request', () => {
-	async function messagesFor(assistant: Record<string, unknown>) {
+	function withReplaySource(assistant: Record<string, unknown>): Record<string, unknown> {
+		const reasoning = Array.isArray(assistant.reasoning)
+			? (assistant.reasoning as Record<string, unknown>[])
+			: []
+		if (reasoning.length === 0) return assistant
+		const route = { providerId: 'anthropic', model: 'm', chainIndex: 0 }
+		return {
+			...assistant,
+			source: {
+				type: 'model',
+				...route,
+				replayState: {
+					kind: 'namzu-anthropic-reasoning',
+					version: 1,
+					route,
+					blocks: reasoning.map((block) =>
+						block.type === 'redacted_thinking'
+							? { type: 'redacted_thinking', data: block.encrypted }
+							: { type: 'thinking', thinking: block.text, signature: block.signature },
+					),
+				},
+			},
+		}
+	}
+
+	async function messagesFor(
+		assistant: Record<string, unknown>,
+		options: { readonly enrich?: boolean; readonly model?: string } = {},
+	) {
 		const seen: { body?: Record<string, unknown> } = {}
 		const provider = providerOver([{ type: 'message_start', message: { id: 'm' } }], seen)
 		for await (const _chunk of provider.chatStream({
-			model: 'm',
-			messages: [{ role: 'user', content: 'q' }, assistant, { role: 'user', content: 'and then?' }],
+			model: options.model ?? 'm',
+			messages: [
+				{ role: 'user', content: 'q' },
+				options.enrich === false ? assistant : withReplaySource(assistant),
+				{ role: 'user', content: 'and then?' },
+			],
 		} as unknown as ChatCompletionParams)) {
 			// drain
 		}
@@ -258,5 +303,105 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 		const messages = await messagesFor({ role: 'assistant', content: 'just an answer' })
 
 		expect(messages[1]?.content).toBe('just an answer')
+	})
+
+	it.each([
+		['missing replay state', { type: 'model', providerId: 'anthropic', model: 'm', chainIndex: 0 }],
+		[
+			'foreign provider source',
+			{
+				type: 'model',
+				providerId: 'deepseek',
+				model: 'm',
+				chainIndex: 0,
+				replayState: {
+					kind: 'namzu-anthropic-reasoning',
+					version: 1,
+					route: { providerId: 'anthropic', model: 'm', chainIndex: 0 },
+					blocks: [{ type: 'thinking', thinking: 'step one', signature: 'sig' }],
+				},
+			},
+		],
+		[
+			'another chain member',
+			{
+				type: 'model',
+				providerId: 'anthropic',
+				model: 'm',
+				chainIndex: 1,
+				replayState: {
+					kind: 'namzu-anthropic-reasoning',
+					version: 1,
+					route: { providerId: 'anthropic', model: 'm', chainIndex: 1 },
+					blocks: [{ type: 'thinking', thinking: 'step one', signature: 'sig' }],
+				},
+			},
+		],
+		[
+			'unsupported state version',
+			{
+				type: 'model',
+				providerId: 'anthropic',
+				model: 'm',
+				chainIndex: 0,
+				replayState: {
+					kind: 'namzu-anthropic-reasoning',
+					version: 2,
+					route: { providerId: 'anthropic', model: 'm', chainIndex: 0 },
+					blocks: [{ type: 'thinking', thinking: 'step one', signature: 'sig' }],
+				},
+			},
+		],
+		[
+			'durable/state disagreement',
+			{
+				type: 'model',
+				providerId: 'anthropic',
+				model: 'm',
+				chainIndex: 0,
+				replayState: {
+					kind: 'namzu-anthropic-reasoning',
+					version: 1,
+					route: { providerId: 'anthropic', model: 'm', chainIndex: 0 },
+					blocks: [{ type: 'thinking', thinking: 'different', signature: 'sig' }],
+				},
+			},
+		],
+	] as const)('degrades %s to an ordinary assistant message', async (_name, source) => {
+		const messages = await messagesFor(
+			{
+				role: 'assistant',
+				content: 'answer',
+				reasoning: [{ type: 'thinking', text: 'step one', signature: 'sig' }],
+				source,
+			},
+			{ enrich: false },
+		)
+
+		expect(messages[1]).toEqual({ role: 'assistant', content: 'answer' })
+	})
+
+	it('does not replay a valid old-model envelope into another model', async () => {
+		const sourced = withReplaySource({
+			role: 'assistant',
+			content: 'answer',
+			reasoning: [{ type: 'thinking', text: 'step one', signature: 'sig' }],
+		})
+		const messages = await messagesFor(sourced, { enrich: false, model: 'next-model' })
+
+		expect(messages[1]).toEqual({ role: 'assistant', content: 'answer' })
+	})
+
+	it('does not send an unsigned legacy block as native thinking', async () => {
+		const messages = await messagesFor(
+			{
+				role: 'assistant',
+				content: 'answer',
+				reasoning: [{ type: 'thinking', text: 'step one' }],
+			},
+			{ enrich: false },
+		)
+
+		expect(messages[1]).toEqual({ role: 'assistant', content: 'answer' })
 	})
 })
