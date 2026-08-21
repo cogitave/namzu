@@ -6,7 +6,7 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-20T00:00:00Z
+timestamp: 2026-08-21T00:00:00Z
 lastReviewed: 2026-08-21
 resource: packages/sdk/src/runtime/query/index.ts
 tags: [sdk, runtime, providers, retry, cancellation]
@@ -147,6 +147,29 @@ Cancellation before the iteration loop—including a held `run_start` or
 In-process plugin code remains cooperative: its I/O and external side effects
 must honor the supplied signal even though the runtime has stopped awaiting
 its result.
+
+## Stored attachment resolution
+
+Stored image and document references are resolved under the same caller-owned
+run signal before prompt contributions, guardrails, project preparation, or
+provider work begin. A signal that is already aborted wins before attachment
+store admission. A later cancellation is also raced independently, so a custom
+or remote store that ignores its signal cannot hold the run open or publish a
+late result.
+
+`AttachmentStore.get` receives an optional `AttachmentOperationOptions` value.
+Store implementations should use its signal to close their own I/O; the
+runtime's independent race bounds settlement but cannot reclaim resources the
+store itself owns. The caller's controller remains untouched.
+
+A cancelled run retains the unresolved attachment reference in its durable
+messages. Canonical `resumeRun` also carries its already-selected checkpoint
+history, usage, attribution, trace parent, and queued messages into this
+callback-free cancellation path. It does not reread the checkpoint after
+cancellation, invoke model-adjacent host callbacks, or replace prior durable
+history with an incomplete snapshot. Contradictory run, session, topic,
+project, tenant, or explicit parent attribution is refused before attachment
+or provider work.
 
 ## Compaction verification
 
