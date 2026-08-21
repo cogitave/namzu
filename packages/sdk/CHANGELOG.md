@@ -1,5 +1,35 @@
 # Changelog
 
+## 31.0.0-test.1
+
+### Major Changes
+
+- f3bf47b: Require every `PluginLifecycleManager` host to provide project and user
+  `scopeRoots`. Plugin installation now canonicalizes a candidate against that
+  declared filesystem authority, refuses symlinked or non-regular plugin
+  manifests, and keeps executable admission and lifecycle ownership private to
+  the manager instead of trusting mutable `PluginRegistry` records.
+
+  Hosts constructing the SDK manager must pass
+  `scopeRoots: { project: trustedWorkingDirectory, user: userHomeDirectory }`.
+  Move plugins under the matching root instead of relying on a symlink or an
+  out-of-scope registry record. The CLI applies those roots automatically and no
+  longer loads project or user plugins through links that leave the admitted
+  scope.
+
+### Minor Changes
+
+- 45e8f56: Deprecate `ConnectorDefinition.triggers`, `ConnectorTrigger`, and
+  `ConnectorEvent`. The SDK has never subscribed to these declarations, emitted
+  their event shape, or started a run from them. Existing hosts may continue to
+  read trigger metadata back from `ConnectorRegistry` during this migration
+  release.
+
+  Move inbound subscription metadata and the event envelope into the host that
+  owns delivery before the next SDK major. That host must continue to own
+  de-duplication, claim recovery, trust, and run admission; registering a trigger
+  with Namzu does not activate an inbound event path.
+
 ## 31.0.0-test.0
 
 ### Major Changes

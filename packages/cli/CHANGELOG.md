@@ -1,5 +1,29 @@
 # @namzu/cli
 
+## 13.0.0-test.1
+
+### Major Changes
+
+- f3bf47b: Require every `PluginLifecycleManager` host to provide project and user
+  `scopeRoots`. Plugin installation now canonicalizes a candidate against that
+  declared filesystem authority, refuses symlinked or non-regular plugin
+  manifests, and keeps executable admission and lifecycle ownership private to
+  the manager instead of trusting mutable `PluginRegistry` records.
+
+  Hosts constructing the SDK manager must pass
+  `scopeRoots: { project: trustedWorkingDirectory, user: userHomeDirectory }`.
+  Move plugins under the matching root instead of relying on a symlink or an
+  out-of-scope registry record. The CLI applies those roots automatically and no
+  longer loads project or user plugins through links that leave the admitted
+  scope.
+
+### Patch Changes
+
+- 741c18c: Refuse to resume, continue, fork, or mutate conversations that are already archived, closed, or outside the current workspace. Exact `--resume <id>` now resolves the durable id independently of the recent-conversation limit, while archived history remains readable for inspection and export.
+- Updated dependencies [f3bf47b]
+- Updated dependencies [45e8f56]
+  - @namzu/sdk@31.0.0-test.1
+
 ## 13.0.0-test.0
 
 ### Major Changes

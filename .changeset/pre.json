@@ -22,6 +22,7 @@
   "changesets": [
     "admit-stateless-history-exactly",
     "background-jobs-respect-sandbox",
+    "bind-plugin-scope-authority",
     "bound-request-rich-content",
     "bound-sandbox-lifecycle",
     "bound-sandbox-readiness",
@@ -33,6 +34,7 @@
     "config-profiles",
     "config-provenance-reaches-tui",
     "coordinate-memory-records",
+    "deprecate-passive-connector-triggers",
     "diff-command",
     "durable-compaction-history",
     "durable-feedback-revisions",
@@ -63,6 +65,7 @@
     "publish-compaction-status",
     "queued-prompts-keep-images",
     "raw-scrollback-mode",
+    "refuse-archived-conversation-resume",
     "refuse-invalid-memory-index",
     "refuse-stale-full-file-writes",
     "reject-permanent-subscription-grants",
