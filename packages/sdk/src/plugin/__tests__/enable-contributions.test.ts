@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PluginRegistry } from '../../registry/plugin/index.js'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PluginRegistry } from '../../registry/plugin/index.js'
 import type { PluginId } from '../../types/ids/index.js'
 import type { PluginDefinition } from '../../types/plugin/index.js'
 import type { ToolDefinition, ToolRegistryContract } from '../../types/tool/index.js'
@@ -57,18 +60,25 @@ function makeLogger(): Logger {
 function makePluginRegistry(base: Partial<PluginDefinition>): {
 	registry: PluginRegistry
 	state: { current: PluginDefinition }
+	scopeRoots: { project: string; user: string }
 } {
+	const authorityRoot = mkdtempSync(join(tmpdir(), 'namzu-plugin-enable-'))
+	tempRoots.push(authorityRoot)
+	const rootDir = join(authorityRoot, 'plugin')
+	mkdirSync(rootDir, { recursive: true })
+	const manifest = base.manifest ?? {
+		name: 'test-plugin',
+		version: '0.0.1',
+		description: 'test',
+	}
+	writeFileSync(join(rootDir, 'plugin.json'), JSON.stringify(manifest), 'utf8')
 	const state = {
 		current: {
 			id: 'plugin_test' as PluginId,
-			manifest: base.manifest ?? {
-				name: 'test-plugin',
-				version: '0.0.1',
-				description: 'test',
-			},
+			manifest,
 			scope: 'project',
 			status: 'installed',
-			rootDir: '/tmp/plugin',
+			rootDir,
 			installedAt: 0,
 			...base,
 		} as PluginDefinition,
@@ -82,8 +92,18 @@ function makePluginRegistry(base: Partial<PluginDefinition>): {
 		findByName: vi.fn(),
 		getAll: vi.fn(() => [state.current]),
 	} as unknown as PluginRegistry
-	return { registry, state }
+	return {
+		registry,
+		state,
+		scopeRoots: { project: authorityRoot, user: authorityRoot },
+	}
 }
+
+const tempRoots: string[] = []
+
+afterEach(() => {
+	for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
 
 function makeToolRegistry(): ToolRegistryContract {
 	const names: string[] = []
@@ -114,7 +134,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 
 	describe('unsupported contribution types', () => {
 		it('throws when manifest declares skills', async () => {
-			const { registry } = makePluginRegistry({
+			const { registry, scopeRoots } = makePluginRegistry({
 				manifest: {
 					name: 'p',
 					version: '0.0.1',
@@ -125,13 +145,14 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
 				toolRegistry: makeToolRegistry(),
+				scopeRoots,
 				log: makeLogger(),
 			})
 			await expect(mgr.enable(pluginId)).rejects.toThrow(/\[skills\]/)
 		})
 
 		it('throws when manifest declares connectors', async () => {
-			const { registry } = makePluginRegistry({
+			const { registry, scopeRoots } = makePluginRegistry({
 				manifest: {
 					name: 'p',
 					version: '0.0.1',
@@ -142,13 +163,14 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
 				toolRegistry: makeToolRegistry(),
+				scopeRoots,
 				log: makeLogger(),
 			})
 			await expect(mgr.enable(pluginId)).rejects.toThrow(/\[connectors\]/)
 		})
 
 		it('throws when manifest declares personas', async () => {
-			const { registry } = makePluginRegistry({
+			const { registry, scopeRoots } = makePluginRegistry({
 				manifest: {
 					name: 'p',
 					version: '0.0.1',
@@ -159,13 +181,14 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
 				toolRegistry: makeToolRegistry(),
+				scopeRoots,
 				log: makeLogger(),
 			})
 			await expect(mgr.enable(pluginId)).rejects.toThrow(/\[personas\]/)
 		})
 
 		it('lists all unsupported types together when multiple declared', async () => {
-			const { registry } = makePluginRegistry({
+			const { registry, scopeRoots } = makePluginRegistry({
 				manifest: {
 					name: 'p',
 					version: '0.0.1',
@@ -178,6 +201,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
 				toolRegistry: makeToolRegistry(),
+				scopeRoots,
 				log: makeLogger(),
 			})
 			await expect(mgr.enable(pluginId)).rejects.toThrow(/skills, connectors, personas/)
@@ -185,13 +209,55 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 	})
 
 	describe('mcpServers wiring', () => {
+		it('uninstalls manager-owned contributions after the public registry status is overwritten', async () => {
+			mockConnect.mockResolvedValue(undefined)
+			mockDisconnect.mockResolvedValue(undefined)
+			mockListTools.mockResolvedValue([{ name: 'ping', inputSchema: { type: 'object' } }])
+			const authorityRoot = mkdtempSync(join(tmpdir(), 'namzu-plugin-owned-state-'))
+			tempRoots.push(authorityRoot)
+			const rootDir = join(authorityRoot, 'plugin')
+			mkdirSync(rootDir, { recursive: true })
+			writeFileSync(
+				join(rootDir, 'plugin.json'),
+				JSON.stringify({
+					name: 'owned-state',
+					version: '0.0.1',
+					description: 'test',
+					mcpServers: [{ name: 'srv', command: '/bin/true' }],
+				}),
+				'utf8',
+			)
+			const registry = new PluginRegistry()
+			const toolRegistry = makeToolRegistry()
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				toolRegistry,
+				scopeRoots: { project: authorityRoot, user: authorityRoot },
+				log: makeLogger(),
+			})
+			const installed = await mgr.install(rootDir, 'project')
+
+			await mgr.enable(installed.id)
+			const enabled = registry.getOrThrow(installed.id)
+			registry.register({ ...enabled, status: 'disabled', enabledAt: undefined })
+			await expect(mgr.enable(installed.id)).rejects.toThrow(/status is "enabled"/)
+			expect(mockConnect).toHaveBeenCalledOnce()
+
+			registry.register({ ...enabled, status: 'installed', enabledAt: undefined })
+			await mgr.uninstall(installed.id)
+
+			expect(mockDisconnect).toHaveBeenCalledOnce()
+			expect(toolRegistry.listNames()).toEqual([])
+			expect(registry.get(installed.id)).toBeUndefined()
+		})
+
 		it('registers namespaced tools for each MCP server tool', async () => {
 			mockConnect.mockResolvedValue(undefined)
 			mockListTools.mockResolvedValue([
 				{ name: 'read_file', inputSchema: { type: 'object' } },
 				{ name: 'write_file', inputSchema: { type: 'object' } },
 			])
-			const { registry } = makePluginRegistry({
+			const { registry, scopeRoots } = makePluginRegistry({
 				manifest: {
 					name: 'fs-plugin',
 					version: '0.0.1',
@@ -203,6 +269,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
 				toolRegistry,
+				scopeRoots,
 				log: makeLogger(),
 			})
 
@@ -220,7 +287,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			mockConnect.mockResolvedValue(undefined)
 			mockDisconnect.mockResolvedValue(undefined)
 			mockListTools.mockResolvedValue([{ name: 'ping', inputSchema: { type: 'object' } }])
-			const { registry } = makePluginRegistry({
+			const { registry, scopeRoots } = makePluginRegistry({
 				manifest: {
 					name: 'net',
 					version: '0.0.1',
@@ -232,6 +299,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
 				toolRegistry,
+				scopeRoots,
 				log: makeLogger(),
 			})
 
@@ -247,7 +315,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			mockConnect.mockResolvedValue(undefined)
 			mockDisconnect.mockResolvedValue(undefined)
 			mockListTools.mockResolvedValue([{ name: 'ping', inputSchema: { type: 'object' } }])
-			const { registry } = makePluginRegistry({
+			const { registry, scopeRoots } = makePluginRegistry({
 				manifest: {
 					name: 'net',
 					version: '0.0.1',
@@ -271,6 +339,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
 				toolRegistry,
+				scopeRoots,
 				log: makeLogger(),
 			})
 
@@ -286,7 +355,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 				.mockRejectedValueOnce(new Error('connect refused')) // second fails
 			mockDisconnect.mockResolvedValue(undefined)
 			mockListTools.mockResolvedValue([{ name: 't', inputSchema: { type: 'object' } }])
-			const { registry } = makePluginRegistry({
+			const { registry, scopeRoots } = makePluginRegistry({
 				manifest: {
 					name: 'multi',
 					version: '0.0.1',
@@ -301,6 +370,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			const mgr = new PluginLifecycleManager({
 				pluginRegistry: registry,
 				toolRegistry,
+				scopeRoots,
 				log: makeLogger(),
 			})
 

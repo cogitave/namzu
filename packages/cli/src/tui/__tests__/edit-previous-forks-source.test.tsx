@@ -53,6 +53,7 @@ vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu-edit-test' }),
 	startConversation: async () => INITIAL,
+	requireWritableConversation: async () => {},
 	appendMessages: async (_sessions: unknown, id: string, messages: readonly Message[]) => {
 		durable.set(id, [...(durable.get(id) ?? []), ...messages])
 	},

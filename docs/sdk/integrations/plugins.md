@@ -86,6 +86,7 @@ Manifest rules that matter operationally:
 ## 3. Bootstrap the Plugin Runtime
 
 ```ts
+import { homedir } from 'node:os'
 import {
   PluginRegistry,
   ToolRegistry,
@@ -109,6 +110,10 @@ const toolRegistry = new ToolRegistry()
 const pluginManager = new PluginLifecycleManager({
   pluginRegistry,
   toolRegistry,
+  scopeRoots: {
+    project: process.cwd(),
+    user: homedir(),
+  },
   log,
 })
 
@@ -173,6 +178,22 @@ caller how many plugins live somewhere they said they would not look.
 Calling `discoverAllPluginDirs(cwd)` with no second argument scans both scopes,
 which is the behaviour every existing caller already had.
 
+Discovery and installation use the same filesystem authority. Construct the
+manager with `scopeRoots.project` set to the trusted working directory and
+`scopeRoots.user` set to the user home directory. `install(path, scope)`
+canonicalizes `path` against the corresponding root before reading it. An
+intermediate link that leaves that root, a symlinked plugin directory, and a
+symlinked or non-regular `plugin.json` are refused rather than followed.
+
+`PluginRegistry` remains a public status projection, not executable authority.
+The manager keeps an immutable copy of the admitted root and manifest and uses
+its own contribution ownership to decide whether a plugin is enabled. Changing
+a registry record therefore cannot redirect an import, start a duplicate MCP
+server, or make uninstall skip teardown. A registry record created by an older
+host is re-read from disk and admitted against `scopeRoots` before it can
+enable; an out-of-root record is refused. Direct manager hosts must provide
+these roots when upgrading.
+
 ### Skills, and the registry they need
 
 A manifest may declare `skills`. The manager loads each one, namespaces it the
@@ -182,6 +203,7 @@ takes it back on disable — but all of that needs somewhere to put them, so it
 happens only when the manager was constructed with a `skillRegistry`:
 
 ```ts
+import { homedir } from 'node:os'
 import {
   PluginLifecycleManager,
   PluginRegistry,
@@ -202,6 +224,10 @@ const pluginManager = new PluginLifecycleManager({
   pluginRegistry: new PluginRegistry(),
   toolRegistry: new ToolRegistry(),
   skillRegistry: new SkillRegistry(log),
+  scopeRoots: {
+    project: process.cwd(),
+    user: homedir(),
+  },
   log,
 })
 ```

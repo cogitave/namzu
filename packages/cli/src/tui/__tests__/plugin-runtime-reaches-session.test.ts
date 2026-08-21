@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -157,6 +157,34 @@ async function projectWithPlugin(manifest: unknown): Promise<string> {
 }
 
 describe('the CLI owns a real plugin runtime', () => {
+	it.skipIf(process.platform === 'win32')(
+		'does not follow a project-scope ancestor link outside the trusted cwd',
+		async () => {
+			const cwd = await mkdtemp(join(tmpdir(), 'namzu-cli-plugin-scope-'))
+			const outside = await mkdtemp(join(tmpdir(), 'namzu-cli-plugin-outside-'))
+			roots.push(cwd, outside)
+			const externalPlugin = join(outside, 'plugins', 'outside-plugin')
+			await mkdir(externalPlugin, { recursive: true })
+			// If discovery crosses the link, this invalid manifest makes session
+			// construction refuse. A healthy session therefore proves the outside
+			// manifest was never admitted, rather than merely proving its tools were
+			// filtered after the read.
+			await writeFile(join(externalPlugin, 'plugin.json'), '{"outside":"was read"}', 'utf8')
+			await symlink(outside, join(cwd, '.namzu'), 'dir')
+
+			const session = await createAgentSession(preferences, detected, {
+				cwd,
+				plugins: { enabled: true, allowedScopes: ['project'] },
+			})
+			try {
+				expect(session.hasProvider, String(session.errorHint ?? '')).toBe(true)
+				expect(String(session.errorHint ?? '')).not.toMatch(/plugin runtime/i)
+			} finally {
+				await session.close()
+			}
+		},
+	)
+
 	it('rolls back contributions when a later plugin refuses startup', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'namzu-cli-plugin-rollback-'))
 		roots.push(cwd)

@@ -19,6 +19,7 @@ import {
 	DiskSessionStore,
 	type Message,
 	type ProjectId,
+	type Session,
 	type SessionGoalStore,
 	type SessionId,
 	type TenantId,
@@ -150,7 +151,11 @@ export async function resolveConversation(s: CliSessions, key: string): Promise<
 	// function already knows what to do about that — mint a fresh one.
 	if (existing?.startsWith('ses_')) {
 		const mapped = asSessionId(existing)
-		if (await s.store.getSession(mapped, s.tenantId)) return mapped
+		const session = await s.store.getSession(mapped, s.tenantId)
+		if (session) {
+			await requireWritableConversation(s, mapped, 'continue keyed conversation')
+			return mapped
+		}
 	}
 	const id = await startConversation(s)
 	map[key] = id
@@ -189,12 +194,61 @@ async function createConversation(s: CliSessions): Promise<SessionId> {
 	return session.id
 }
 
+/**
+ * Resolve a conversation through the cwd-owned Project and CLI Topic.
+ *
+ * `SessionId` is globally locatable inside a store root, so successfully
+ * loading one proves existence and tenant ownership, not that it belongs to
+ * this `CliSessions` handle. The fixed CLI topic id makes the Project check
+ * load-bearing: two Projects in one root can legitimately carry the same
+ * topic id.
+ */
+async function requireConversationInScope(
+	s: CliSessions,
+	sessionId: SessionId,
+	op: string,
+): Promise<Session> {
+	const session = await s.store.getSession(sessionId, s.tenantId)
+	if (!session) {
+		throw new Error(`Conversation ${sessionId} was not found — ${op} rejected`)
+	}
+	if (session.projectId !== s.projectId || session.topicId !== s.topicId) {
+		throw new Error(`Conversation ${sessionId} does not belong to this workspace — ${op} rejected`)
+	}
+	return session
+}
+
+/**
+ * Sequential admission gate for a turn or conversation mutation.
+ *
+ * This establishes the state observed immediately before the operation. It is
+ * deliberately not described as a cross-process transaction: Project archive
+ * and Session mutation live in separate store records, so serializing an
+ * archive racing a live turn requires a durable lease shared by both paths.
+ * What this gate does guarantee is that a target already closed, archived or
+ * outside the current Project never silently reaches the requested operation.
+ */
+export async function requireWritableConversation(
+	s: CliSessions,
+	sessionId: SessionId,
+	op = 'continue conversation',
+): Promise<void> {
+	const session = await requireConversationInScope(s, sessionId, op)
+	await requireOpenProject(s.store, s.projectId, s.tenantId, op)
+	if (session.status === 'archived') {
+		throw new Error(
+			`Conversation ${sessionId} is archived and read-only — ${op} rejected. Its history remains available for inspection.`,
+		)
+	}
+}
+
 /** Append messages (in order) to a conversation. */
 export async function appendMessages(
 	s: CliSessions,
 	sessionId: SessionId,
 	messages: readonly Message[],
 ): Promise<void> {
+	await requireWritableConversation(s, sessionId, 'append conversation messages')
 	for (const m of messages) {
 		await s.store.appendMessage(sessionId, m, s.tenantId)
 	}
@@ -215,6 +269,7 @@ export async function replaceConversation(
 	sessionId: SessionId,
 	messages: readonly Message[],
 ): Promise<void> {
+	await requireWritableConversation(s, sessionId, 'replace conversation history')
 	const existing = await loadConversation(s, sessionId)
 	const titles = readTitles(s.root)
 	if (titles[sessionId as string] === undefined) {
@@ -229,15 +284,40 @@ export async function replaceConversation(
 
 /** Load a conversation's full message history. */
 export async function loadConversation(s: CliSessions, sessionId: SessionId): Promise<Message[]> {
+	await requireConversationInScope(s, sessionId, 'load conversation history')
 	return [...(await s.store.loadMessages(sessionId, s.tenantId))]
+}
+
+/**
+ * Load one conversation for a new model turn.
+ *
+ * Reading an archived conversation remains legitimate — `history` and export
+ * are inspection surfaces — but resuming it would turn a tombstone back into a
+ * live writer without a restore operation. The Project gate is separate for
+ * the same reason: closing a workspace must not make its history disappear,
+ * while it must stop a later turn from starting there.
+ */
+export async function loadResumableConversation(
+	s: CliSessions,
+	sessionId: string,
+): Promise<Message[]> {
+	const checked = asSessionId(sessionId)
+	await requireWritableConversation(s, checked, 'resume conversation')
+	return [...(await s.store.loadMessages(checked, s.tenantId))]
 }
 
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
+	await requireOpenProject(s.store, s.projectId, s.tenantId, 'list resumable conversations')
 	const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
 	const titles = readTitles(s.root)
 	const out: RecentConversation[] = []
 	for (const sess of sessions) {
+		// The CLI topic id is intentionally stable, so a store root that contains
+		// an older Project can contain the same topic id more than once. The cwd's
+		// cli.json pointer — `s.projectId` — is the authority; topic membership
+		// alone is not. Archived Session records are tombstones, not resume rows.
+		if (sess.projectId !== s.projectId || sess.status === 'archived') continue
 		const messages = await s.store.loadMessages(sess.id, s.tenantId)
 		if (messages.length === 0) continue
 		const stored = titles[sess.id as string]
@@ -353,6 +433,7 @@ export async function forkConversation(
 	s: CliSessions,
 	sourceId: SessionId,
 ): Promise<{ id: SessionId; title: string; copied: number }> {
+	await requireWritableConversation(s, sourceId, 'fork conversation')
 	const messages = await loadConversation(s, sourceId)
 	if (messages.length === 0) {
 		// Refused rather than served. A fork of nothing is an empty session
@@ -398,6 +479,7 @@ export async function forkConversationBeforeUser(
 		throw new Error('The selected user-message position is invalid.')
 	}
 
+	await requireWritableConversation(s, sourceId, 'fork conversation before a prompt')
 	const messages = await loadConversation(s, sourceId)
 	let seen = -1
 	const messageIndex = messages.findIndex((message) => {

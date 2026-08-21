@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+
 import {
 	PluginLifecycleManager,
 	PluginRegistry,
@@ -42,6 +44,7 @@ export async function createCliPluginRuntime(
 		pluginRegistry: plugins,
 		toolRegistry: tools,
 		skillRegistry: skills,
+		scopeRoots: { project: cwd, user: homedir() },
 		log,
 		...(config.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 	})

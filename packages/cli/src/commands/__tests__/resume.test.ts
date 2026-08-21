@@ -12,15 +12,15 @@
  * about being complete.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CliSessions } from '../../integrations/sessions/store.js'
-import { listRecent, loadConversation } from '../../integrations/sessions/store.js'
+import { listRecent, loadResumableConversation } from '../../integrations/sessions/store.js'
 import { resolveResume } from '../resume.js'
 
 vi.mock('../../integrations/sessions/store.js', () => ({
 	listRecent: vi.fn(),
-	loadConversation: vi.fn(),
+	loadResumableConversation: vi.fn(),
 }))
 
 const sessions = {} as CliSessions
@@ -40,6 +40,10 @@ function recent(...ids: string[]) {
 	)
 }
 
+beforeEach(() => {
+	vi.clearAllMocks()
+})
+
 describe('asking for nothing', () => {
 	it('is a fresh run, not an error', async () => {
 		const out = await resolveResume(sessions, { continueLast: false, sessionId: null }, CWD)
@@ -51,7 +55,7 @@ describe('asking for nothing', () => {
 describe('--continue', () => {
 	it('takes the most recent conversation', async () => {
 		recent('ses_new', 'ses_old')
-		vi.mocked(loadConversation).mockResolvedValue([
+		vi.mocked(loadResumableConversation).mockResolvedValue([
 			{ role: 'user', content: 'hi', timestamp: 0 },
 		] as never)
 
@@ -73,45 +77,59 @@ describe('--continue', () => {
 		expect(out).toMatchObject({ message: expect.stringContaining(CWD) })
 		expect(out).toMatchObject({ message: expect.stringContaining('--cwd') })
 	})
+
+	it('surfaces a workspace admission refusal instead of treating it as empty', async () => {
+		vi.mocked(listRecent).mockRejectedValue(new Error('Project prj_closed is archived'))
+
+		const out = await resolveResume(sessions, { continueLast: true, sessionId: null }, CWD)
+
+		expect(out).toEqual({
+			kind: 'error',
+			message: expect.stringContaining('Project prj_closed is archived'),
+		})
+	})
 })
 
 describe('--resume <id>', () => {
 	it('takes the conversation it was given, not the most recent', async () => {
-		recent('ses_new', 'ses_wanted')
-		vi.mocked(loadConversation).mockResolvedValue([
+		recent('ses_new')
+		vi.mocked(loadResumableConversation).mockResolvedValue([
 			{ role: 'user', content: 'hi', timestamp: 0 },
 		] as never)
 
 		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_wanted' }, CWD)
 
 		expect(out).toMatchObject({ kind: 'resumed', sessionId: 'ses_wanted' })
+		expect(listRecent).not.toHaveBeenCalled()
+		expect(loadResumableConversation).toHaveBeenCalledWith(sessions, 'ses_wanted')
 	})
 
-	it('refuses an id that is not here, and says how many are', async () => {
+	it('refuses an exact id the store cannot admit, and names the cause', async () => {
 		// THE case. Starting fresh would hand back something indistinguishable
 		// from what was asked for.
-		recent('ses_a', 'ses_b')
+		vi.mocked(loadResumableConversation).mockRejectedValue(
+			new Error('Conversation ses_gone was not found — resume conversation rejected'),
+		)
 
 		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_gone' }, CWD)
 
 		expect(out.kind).toBe('error')
 		expect(out).toMatchObject({ message: expect.stringContaining('ses_gone') })
-		expect(out).toMatchObject({ message: expect.stringContaining('2 others') })
+		expect(out).toMatchObject({ message: expect.stringContaining('was not found') })
 	})
 
-	it('points at --cwd when the directory has nothing at all', async () => {
-		recent()
+	it('names the cwd searched by an exact-id refusal', async () => {
+		vi.mocked(loadResumableConversation).mockRejectedValue(new Error('not found'))
 
 		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_gone' }, CWD)
 
-		expect(out).toMatchObject({ message: expect.stringContaining('--cwd') })
+		expect(out).toMatchObject({ message: expect.stringContaining(CWD) })
 	})
 
 	it('refuses rather than resuming with a partial history', async () => {
 		// The half-context case. Carrying on with an empty transcript would look
 		// exactly like a resumed session to the user and to the model.
-		recent('ses_a')
-		vi.mocked(loadConversation).mockRejectedValue(new Error('transcript is corrupt'))
+		vi.mocked(loadResumableConversation).mockRejectedValue(new Error('transcript is corrupt'))
 
 		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_a' }, CWD)
 
@@ -120,8 +138,7 @@ describe('--resume <id>', () => {
 	})
 
 	it('refuses an empty transcript rather than calling it resumed', async () => {
-		recent('ses_a')
-		vi.mocked(loadConversation).mockResolvedValue([])
+		vi.mocked(loadResumableConversation).mockResolvedValue([])
 
 		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_a' }, CWD)
 

@@ -454,10 +454,14 @@ OpenTelemetry-native. The SDK's telemetry constants define the correlation keys 
 ### 20. Plugin System (`plugin/`)
 
 Plugins extend the kernel at runtime. A plugin manifest declares what it contributes
-(skills, tools, MCP servers, advisors, connectors), and the kernel's
+(skills, tools, hooks, MCP servers, connectors, and personas), and the kernel's
 `plugin/loader.ts` reads manifests from disk, `plugin/resolver.ts` namespaces
 everything safely, and `plugin/lifecycle.ts` hooks plugin init / shutdown into
-the kernel's own lifecycle. Installation receives an explicit capability set:
+the kernel's own lifecycle. Each manager also owns explicit project and user
+filesystem roots. Installation canonicalizes the candidate against the matching
+root before any manifest read and refuses links that leave it, while the
+manager's immutable admission and contribution records—not the mutable public
+registry projection—own imports and teardown. Installation receives an explicit capability set:
 code-bearing contributions are refused unless their capability was admitted,
 while a skill can be installed only when the host supplied the registry that
 will own it. Plugins can subscribe to all eight run, iteration, model and tool

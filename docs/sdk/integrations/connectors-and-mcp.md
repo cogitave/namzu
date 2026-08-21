@@ -54,6 +54,26 @@ connectorRegistry.register(webhookConnector.toDefinition())
 
 This is application bootstrap work. Do it once, then create live instances from those definitions as runtime config becomes available.
 
+### Connector triggers are not an SDK event system
+
+`ConnectorDefinition.triggers`, `ConnectorTrigger`, and `ConnectorEvent` are
+deprecated. They were published as declarations, but the SDK has never read a
+trigger, subscribed to an upstream event, emitted a `ConnectorEvent`, or
+started a run from one. Registering a trigger therefore does not activate
+anything in Namzu.
+
+The declarations remain for one migration release because
+`ConnectorRegistry` returns definitions verbatim. A host may legitimately
+have used that registry as its own subscription metadata table and dispatched
+its own `ConnectorEvent` values. That host-owned behavior continues to work in
+this release, but it is not SDK behavior and will not survive the next major.
+
+Before upgrading to that major, move the trigger and event shapes into the
+host package that owns the subscriber, and store them beside the connector id
+or in a separate host registry. That boundary must also own delivery
+de-duplication, claim recovery, trust, and run admission. Namzu will not infer
+those policies from passive connector metadata.
+
 ## 3. Create and Connect Instances
 
 `ConnectorManager` owns the live lifecycle:

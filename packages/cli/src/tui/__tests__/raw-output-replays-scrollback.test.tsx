@@ -39,6 +39,7 @@ vi.mock('../../integrations/updates.js', () => ({
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'conv',
+	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	replaceConversation: async () => {},
 	listRecent: async () => [],

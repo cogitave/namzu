@@ -235,6 +235,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const realManager = new PluginLifecycleManager({
 			pluginRegistry: {} as any,
 			toolRegistry: {} as any,
+			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: makeLogger(),
 		})
 		// Through the real registration path, so the entries are the ones
@@ -280,6 +281,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const realManager = new PluginLifecycleManager({
 			pluginRegistry: {} as any,
 			toolRegistry: {} as any,
+			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: makeLogger(),
 		})
 		const seenInputs: unknown[] = []

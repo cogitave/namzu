@@ -1,4 +1,4 @@
-/** A tool-history repair is visible in the rendered conversation before output. */
+/** An already-closed conversation is refused at App's real turn boundary. */
 
 import { render } from 'ink-testing-library'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -7,15 +7,26 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 
-const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
+const PREFS: Preferences = {
+	version: 3,
+	providers: [{ id: 'openai' }],
+	subagents: { active: [] },
+}
+
+const observed = vi.hoisted(() => ({ admissions: 0, sends: 0, appends: 0 }))
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
-	openSessions: async () => ({ tenantId: 't' }),
-	startConversation: async () => 'conv-history-repair',
-	requireWritableConversation: async () => {},
-	appendMessages: async () => {},
+	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
+	startConversation: async () => 'ses_closed',
+	requireWritableConversation: async () => {
+		observed.admissions += 1
+		throw new Error('Project prj_closed is archived; start conversation turn rejected')
+	},
+	appendMessages: async () => {
+		observed.appends += 1
+	},
 	listRecent: async () => [],
 	loadConversation: async () => [],
 }))
@@ -25,7 +36,11 @@ vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	return {
 		...actual,
-		probeAgentSession: async () => ({ preferences: PREFS, needsRepickReason: null, detected: [] }),
+		probeAgentSession: async () => ({
+			preferences: PREFS,
+			needsRepickReason: null,
+			detected: [],
+		}),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
 			sandbox: { unconfined: true, enforced: [], required: [] },
@@ -48,12 +63,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {
-				yield {
-					kind: 'history-repair',
-					source: 'fresh-history',
-					text: 'Tool history repaired before the model call: 1 interrupted call closed with unknown outcome. Verify external state before retrying non-idempotent tools.',
-				}
-				yield { kind: 'delta', text: 'SAFEANSWER' }
+				observed.sends += 1
+				yield { kind: 'delta', text: 'MUST_NOT_RUN' }
 				yield { kind: 'done' }
 			},
 		}),
@@ -66,10 +77,12 @@ const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms))
 
 afterEach(() => {
 	for (const harness of mounted.splice(0)) harness.unmount()
-	vi.clearAllMocks()
+	observed.admissions = 0
+	observed.sends = 0
+	observed.appends = 0
 })
 
-it('renders the repair warning before the assistant reply', async () => {
+it('refuses before provider work or persistence instead of reviving the conversation', async () => {
 	const harness = render(
 		<App
 			ctx={
@@ -87,21 +100,17 @@ it('renders the repair warning before the assistant reply', async () => {
 	while (!(harness.lastFrame() ?? '').includes('Connected to test-provider') && Date.now() < readyBy) {
 		await tick()
 	}
-	expect(harness.lastFrame(), 'App never reached its connected composer').toContain(
-		'Connected to test-provider',
-	)
-	harness.stdin.write('continue')
+	expect(harness.lastFrame()).toContain('Connected to test-provider')
+
+	harness.stdin.write('do not run')
 	await tick()
 	harness.stdin.write('\r')
+	const refusedBy = Date.now() + 4_000
+	while (!(harness.lastFrame() ?? '').includes('This turn was not started') && Date.now() < refusedBy) {
+		await tick()
+	}
 
-	const doneBy = Date.now() + 4_000
-	while (!harness.frames.join('\n').includes('SAFEANSWER') && Date.now() < doneBy) await tick()
-	const rendered = harness.frames.join('\n')
-	expect(rendered, 'turn never reached the rendered transcript').toContain('SAFEANSWER')
-	const warningIndex = rendered.indexOf('History warning (fresh-history)')
-	const answerIndex = rendered.indexOf('SAFEANSWER')
-	expect(warningIndex).toBeGreaterThanOrEqual(0)
-	expect(rendered).toContain('unknown outcome')
-	expect(rendered).toContain('non-idempotent')
-	expect(answerIndex).toBeGreaterThan(warningIndex)
+	expect(harness.lastFrame()).toContain('Project prj_closed is archived')
+	expect(harness.frames.join('\n')).not.toContain('MUST_NOT_RUN')
+	expect(observed).toEqual({ admissions: 1, sends: 0, appends: 0 })
 })

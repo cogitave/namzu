@@ -2985,6 +2985,8 @@
         "AgentId",
         "AgentRun",
         "AgentSession",
+        "ConnectorEvent",
+        "ConnectorTrigger",
         "ConversationManager",
         "HOOK_MAX_CONCURRENT",
         "MAX_RECENT_ACTIVITIES",

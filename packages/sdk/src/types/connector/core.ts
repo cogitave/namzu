@@ -59,6 +59,11 @@ export interface ConnectorMethod<TInput = unknown, TOutput = unknown> {
  * in-process dedupe seam and names the cross-process half as its known
  * gap, and `EditOwnershipTracker.claim` is the claim/refuse shape with
  * same-owner idempotency already worked out.
+ *
+ * @deprecated The SDK does not subscribe to or dispatch connector triggers.
+ * Keep inbound subscription metadata in a host-owned type and store. This
+ * declaration remains for one migration release because a host may already
+ * use `ConnectorRegistry` as its own metadata table.
  */
 export interface ConnectorTrigger {
 	name: string
@@ -67,6 +72,11 @@ export interface ConnectorTrigger {
 	configSchema?: z.ZodType
 }
 
+/**
+ * @deprecated The SDK does not emit inbound connector events. Define the
+ * event envelope at the host boundary that owns subscription, de-duplication,
+ * delivery, and run admission.
+ */
 export interface ConnectorEvent {
 	connectorId: ConnectorId
 	instanceId: ConnectorInstanceId

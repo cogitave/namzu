@@ -54,9 +54,50 @@ interface PluginContributionRecord {
 	mcpSupervisors: MCPReconnectSupervisor[]
 }
 
+interface PluginAdmission {
+	readonly id: PluginId
+	readonly manifest: PluginDefinition['manifest']
+	readonly scope: PluginScope
+	readonly rootDir: string
+	readonly installedAt: number
+}
+
+function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefinition['manifest'] {
+	const mcpServers = manifest.mcpServers?.map((server) =>
+		Object.freeze({
+			name: server.name,
+			command: server.command,
+			...(server.args ? { args: Object.freeze([...server.args]) } : {}),
+			...(server.env ? { env: Object.freeze({ ...server.env }) } : {}),
+		}),
+	)
+	return Object.freeze({
+		name: manifest.name,
+		version: manifest.version,
+		description: manifest.description,
+		...(manifest.author !== undefined ? { author: manifest.author } : {}),
+		...(manifest.tools ? { tools: Object.freeze([...manifest.tools]) } : {}),
+		...(manifest.skills ? { skills: Object.freeze([...manifest.skills]) } : {}),
+		...(manifest.hooks ? { hooks: Object.freeze([...manifest.hooks]) } : {}),
+		...(mcpServers ? { mcpServers: Object.freeze(mcpServers) } : {}),
+		...(manifest.connectors ? { connectors: Object.freeze([...manifest.connectors]) } : {}),
+		...(manifest.personas ? { personas: Object.freeze([...manifest.personas]) } : {}),
+	})
+}
+
 export interface PluginLifecycleManagerConfig {
 	pluginRegistry: PluginRegistry
 	toolRegistry: ToolRegistryContract
+	/**
+	 * Filesystem authorities for each plugin scope.
+	 *
+	 * Required because `scope` is not an authority by itself. The manager
+	 * canonicalizes a plugin against the matching root before reading its
+	 * manifest and repeats that admission for legacy registry records before
+	 * enabling them. A project manager normally uses the trusted working
+	 * directory; a user manager normally uses the user's home directory.
+	 */
+	scopeRoots: Readonly<Record<PluginScope, string>>
 	/**
 	 * Where a plugin's declared skills land.
 	 *
@@ -121,8 +162,11 @@ export class PluginLifecycleManager {
 		}>
 	> = new Map()
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
+	/** Immutable executable admissions owned by this manager, never by the mutable registry. */
+	private pluginAdmissions: Map<PluginId, PluginAdmission> = new Map()
 	private hookTimeoutMs: number
 	private readonly configRegistry: ConfigRegistry | undefined
+	private readonly scopeRoots: Readonly<Record<PluginScope, string>>
 	private log: Logger
 	/**
 	 * The admission boundary for everything a plugin's MCP servers advertise.
@@ -146,6 +190,7 @@ export class PluginLifecycleManager {
 		this.pluginRegistry = config.pluginRegistry
 		this.toolRegistry = config.toolRegistry
 		this.skillRegistry = config.skillRegistry
+		this.scopeRoots = Object.freeze({ ...config.scopeRoots })
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
 		this.configRegistry = config.configRegistry
 		this.log = config.log.child({ [SCOPE_ATTRIBUTE]: 'plugin/lifecycle' })
@@ -198,9 +243,12 @@ export class PluginLifecycleManager {
 		// Admission and enable read the same constructor-owned capability. The
 		// loader defaults this to false for direct callers; a manager that really
 		// owns the registry is the authority that can opt the manifest in.
-		const manifest = await loadPluginManifest(pluginDir, {
-			skillsSupported: Boolean(this.skillRegistry),
-		})
+		const rootDir = await resolveWithinReal(this.scopeRoots[scope], pluginDir)
+		const manifest = immutableManifest(
+			await loadPluginManifest(rootDir, {
+				skillsSupported: Boolean(this.skillRegistry),
+			}),
+		)
 
 		const existing = this.pluginRegistry.findByName(manifest.name)
 		if (existing) {
@@ -208,16 +256,17 @@ export class PluginLifecycleManager {
 		}
 
 		const pluginId = generatePluginId()
-		const definition: PluginDefinition = {
+		const admission: PluginAdmission = Object.freeze({
 			id: pluginId,
 			manifest,
 			scope,
-			status: 'installed',
-			rootDir: pluginDir,
+			rootDir,
 			installedAt: Date.now(),
-		}
+		})
+		const definition = this.definitionFrom(admission, 'installed')
 
 		this.pluginRegistry.register(definition)
+		this.pluginAdmissions.set(pluginId, admission)
 
 		this.emit({
 			type: 'plugin_installed',
@@ -236,16 +285,81 @@ export class PluginLifecycleManager {
 		return definition
 	}
 
+	private definitionFrom(
+		admission: PluginAdmission,
+		status: PluginDefinition['status'],
+		enabledAt?: number,
+	): PluginDefinition {
+		return Object.freeze({
+			...admission,
+			status,
+			...(enabledAt !== undefined ? { enabledAt } : {}),
+		})
+	}
+
+	private async readLegacyAdmission(plugin: PluginDefinition): Promise<PluginAdmission> {
+		const rootDir = await resolveWithinReal(this.scopeRoots[plugin.scope], plugin.rootDir)
+		const manifest = immutableManifest(
+			await loadPluginManifest(rootDir, {
+				skillsSupported: Boolean(this.skillRegistry),
+			}),
+		)
+		if (manifest.name !== plugin.manifest.name) {
+			throw new Error(
+				`Plugin registry record "${plugin.id}" names "${plugin.manifest.name}", but its admitted manifest names "${manifest.name}". Reinstall the plugin from its declared scope root.`,
+			)
+		}
+		const duplicate = this.pluginRegistry
+			.getAll()
+			.find((candidate) => candidate.id !== plugin.id && candidate.manifest.name === manifest.name)
+		if (duplicate) {
+			throw new Error(
+				`Plugin "${manifest.name}" is already installed (id: ${duplicate.id}); legacy record ${plugin.id} cannot be re-admitted.`,
+			)
+		}
+		return Object.freeze({
+			id: plugin.id,
+			manifest,
+			scope: plugin.scope,
+			rootDir,
+			installedAt: plugin.installedAt,
+		})
+	}
+
 	async enable(pluginId: PluginId): Promise<void> {
 		const plugin = this.pluginRegistry.getOrThrow(pluginId)
+		let admission = this.pluginAdmissions.get(pluginId)
 
-		if (plugin.status !== 'installed' && plugin.status !== 'disabled') {
+		// The registry is a public projection and can be overwritten by a host.
+		// Contribution ownership is the executable lifecycle truth: trusting a
+		// forged `disabled` status here would register every hook/tool/MCP client
+		// twice and lose teardown ownership of the first set.
+		if (this.pluginContributions.has(pluginId)) {
 			throw new Error(
-				`Cannot enable plugin "${plugin.manifest.name}": status is "${plugin.status}" (expected "installed" or "disabled")`,
+				`Cannot enable plugin "${admission?.manifest.name ?? plugin.manifest.name}": status is "enabled" (expected "installed" or "disabled")`,
 			)
 		}
 
-		const { manifest } = plugin
+		if (!admission) {
+			if (plugin.status !== 'installed' && plugin.status !== 'disabled') {
+				throw new Error(
+					`Cannot enable plugin "${plugin.manifest.name}": status is "${plugin.status}" (expected "installed" or "disabled")`,
+				)
+			}
+			try {
+				admission = await this.readLegacyAdmission(plugin)
+				this.pluginAdmissions.set(pluginId, admission)
+			} catch (error) {
+				this.pluginRegistry.register({
+					...plugin,
+					status: 'error',
+					error: toErrorMessage(error),
+				})
+				throw error
+			}
+		}
+
+		const { manifest } = admission
 
 		// The same refusal the loader applies at install, kept here as the
 		// backstop for a plugin that reached this point another way — a
@@ -257,7 +371,10 @@ export class PluginLifecycleManager {
 		try {
 			assertEnableable(manifest, { skillsSupported: Boolean(this.skillRegistry) })
 		} catch (err) {
-			this.pluginRegistry.register({ ...plugin, status: 'error' })
+			this.pluginRegistry.register({
+				...this.definitionFrom(admission, 'error'),
+				error: toErrorMessage(err),
+			})
 			throw err
 		}
 
@@ -272,7 +389,7 @@ export class PluginLifecycleManager {
 			// Load tools
 			if (manifest.tools && manifest.tools.length > 0) {
 				for (const toolPath of manifest.tools) {
-					const absolutePath = await resolveWithinReal(plugin.rootDir, toolPath)
+					const absolutePath = await resolveWithinReal(admission.rootDir, toolPath)
 					const fileUrl = pathToFileURL(absolutePath).href
 					const mod = (await import(fileUrl)) as { tools?: ToolDefinition[] }
 
@@ -307,7 +424,7 @@ export class PluginLifecycleManager {
 					)
 				}
 				for (const skillPath of manifest.skills) {
-					const absolutePath = await resolveWithinReal(plugin.rootDir, skillPath)
+					const absolutePath = await resolveWithinReal(admission.rootDir, skillPath)
 					const { skill } = await loadSkill(absolutePath, 'metadata', this.log)
 					const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + skill.metadata.name
 					skillRegistry.add(namespacedName, {
@@ -321,7 +438,7 @@ export class PluginLifecycleManager {
 			// Load hooks
 			if (manifest.hooks && manifest.hooks.length > 0) {
 				for (const hookPath of manifest.hooks) {
-					const absolutePath = await resolveWithinReal(plugin.rootDir, hookPath)
+					const absolutePath = await resolveWithinReal(admission.rootDir, hookPath)
 					const fileUrl = pathToFileURL(absolutePath).href
 					const mod = (await import(fileUrl)) as { hooks?: PluginHookDefinition[] }
 
@@ -350,11 +467,7 @@ export class PluginLifecycleManager {
 
 		this.pluginContributions.set(pluginId, contributions)
 
-		const enabled: PluginDefinition = {
-			...plugin,
-			status: 'enabled',
-			enabledAt: Date.now(),
-		}
+		const enabled = this.definitionFrom(admission, 'enabled', Date.now())
 		this.pluginRegistry.register(enabled)
 
 		this.emit({
@@ -495,18 +608,13 @@ export class PluginLifecycleManager {
 
 	async disable(pluginId: PluginId): Promise<void> {
 		const plugin = this.pluginRegistry.getOrThrow(pluginId)
+		const admission = this.pluginAdmissions.get(pluginId)
+		const contributions = this.pluginContributions.get(pluginId)
 
-		if (plugin.status !== 'enabled') {
+		if (!contributions) {
 			throw new Error(
-				`Cannot disable plugin "${plugin.manifest.name}": status is "${plugin.status}" (expected "enabled")`,
+				`Cannot disable plugin "${admission?.manifest.name ?? plugin.manifest.name}": status is not "enabled"`,
 			)
-		}
-
-		const contributions = this.pluginContributions.get(pluginId) ?? {
-			toolNames: [],
-			mcpClients: [],
-			skillNames: [],
-			mcpSupervisors: [],
 		}
 
 		// Stop supervising first, for the same reason as the rollback path: the
@@ -550,42 +658,42 @@ export class PluginLifecycleManager {
 		this.pluginContributions.delete(pluginId)
 
 		// Update status to disabled
-		const disabled: PluginDefinition = {
-			...plugin,
-			status: 'disabled',
-			enabledAt: undefined,
-		}
+		const disabled: PluginDefinition = admission
+			? this.definitionFrom(admission, 'disabled')
+			: { ...plugin, status: 'disabled', enabledAt: undefined }
 		this.pluginRegistry.register(disabled)
 
 		this.emit({
 			type: 'plugin_disabled',
 			pluginId,
-			name: plugin.manifest.name,
+			name: disabled.manifest.name,
 		})
 
 		this.log.info('Plugin disabled', {
-			'namzu.plugin.name': plugin.manifest.name,
+			'namzu.plugin.name': disabled.manifest.name,
 			'namzu.plugin.id': pluginId,
 		})
 	}
 
 	async uninstall(pluginId: PluginId): Promise<void> {
 		const plugin = this.pluginRegistry.getOrThrow(pluginId)
+		const admission = this.pluginAdmissions.get(pluginId)
 
-		if (plugin.status === 'enabled') {
+		if (this.pluginContributions.has(pluginId)) {
 			await this.disable(pluginId)
 		}
 
 		this.pluginRegistry.unregister(pluginId)
+		this.pluginAdmissions.delete(pluginId)
 
 		this.emit({
 			type: 'plugin_uninstalled',
 			pluginId,
-			name: plugin.manifest.name,
+			name: admission?.manifest.name ?? plugin.manifest.name,
 		})
 
 		this.log.info('Plugin uninstalled', {
-			'namzu.plugin.name': plugin.manifest.name,
+			'namzu.plugin.name': admission?.manifest.name ?? plugin.manifest.name,
 			'namzu.plugin.id': pluginId,
 		})
 	}

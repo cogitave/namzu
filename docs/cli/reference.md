@@ -120,6 +120,21 @@ moves on from that opening question. `/title <name>` fixes one in place, bare
 one. A named row is shown in quotes so the two kinds are distinguishable in the
 list.
 
+Resume authority comes from the current workspace, not from the globally
+locatable session id or the fixed CLI topic id. The picker and `--continue`
+therefore list only non-archived sessions under the Project selected by this
+directory's `.namzu/cli.json`; stale Projects under the same store root cannot
+contribute rows. Exact `--resume <id>` resolves that durable id directly rather
+than requiring it to fit inside the 50-row recent index, but applies the same
+Project and archive checks. A closed Project or archived Session remains
+readable through history and export, while resume, keyed continuation, fork and
+message mutation refuse before a new model turn. Namzu does not silently reopen
+a tombstone: an archived SDK Session may be compensation for incomplete work,
+and there is no general Session restore operation that could prove otherwise.
+These checks establish the state observed at each operation boundary; a host
+that closes a Project concurrently with a live turn must serialize those two
+operations through its own durable lease.
+
 **`/fork` continues in a copy and leaves the original where it is.** The
 transcript on screen carries over, the next turn is written to the copy, and the
 conversation you forked from is unchanged and still in `/resume`. The copy is
@@ -615,6 +630,13 @@ A disallowed scope is not scanned, and `autoDiscovery: false` scans neither.
 The project scope is reached only after the existing trust gate has accepted
 and pinned the project's real path.
 
+That real project directory and the user's home directory are also the
+lifecycle manager's filesystem roots. Discovery and installation canonicalize
+each plugin before reading its manifest. A project or user plugin cannot use an
+intermediate link to move outside its scope, and a symlinked `plugin.json` is
+refused. Put the plugin tree physically below the selected root instead of
+linking to executable code elsewhere.
+
 This is executable-code authority, not a theme or metadata switch. A plugin
 may import JavaScript tool and hook modules, load namespaced skills, and start
 its declared stdio MCP servers. The CLI installs and enables every admitted
@@ -623,6 +645,12 @@ contributions and closes connectors already opened for that candidate. A live
 session uses the same manager and skill registry for ordinary turns and durable
 resumes, and closing the session first cancels and settles provider work, then
 uninstalls plugins and their MCP processes.
+
+The SDK registry shown to the host is a lifecycle projection, not an authority
+to replace executable roots or status. The CLI's manager retains the admitted
+manifest and contribution ownership privately, so overwriting a registry row
+cannot duplicate a plugin or make shutdown skip its hooks, tools, or MCP
+clients.
 
 Plugin skills are shown to the model by their namespaced metadata and loaded
 through the `skill` tool only when requested. Plugin tools are namespaced and

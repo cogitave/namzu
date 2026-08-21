@@ -58,13 +58,14 @@ async function pluginDir(
 	return root
 }
 
-function manager(skillRegistry?: SkillRegistry) {
+function manager(authorityRoot: string, skillRegistry?: SkillRegistry) {
 	const pluginRegistry = new PluginRegistry()
 	return {
 		pluginRegistry,
 		manager: new PluginLifecycleManager({
 			pluginRegistry,
 			toolRegistry: new ToolRegistry(),
+			scopeRoots: { project: authorityRoot, user: authorityRoot },
 			log: NOOP_LOGGER,
 			...(skillRegistry ? { skillRegistry } : {}),
 		}),
@@ -85,7 +86,7 @@ describe('a plugin’s skills load and are namespaced', () => {
 		const root = await pluginDir(manifest, [
 			{ dir: 'skills/reconcile', name: 'reconcile', description: 'reconcile two ledgers' },
 		])
-		const { manager: mgr } = manager(skills)
+		const { manager: mgr } = manager(root, skills)
 		const plugin = await mgr.install(root, 'project')
 		await mgr.enable(plugin.id)
 
@@ -110,7 +111,7 @@ describe('a plugin’s skills load and are namespaced', () => {
 			const root = await pluginDir(manifest, [
 				{ dir: 'skills/reconcile', name: 'reconcile', description: `${plugin} version` },
 			])
-			const { manager: mgr } = manager(skills)
+			const { manager: mgr } = manager(root, skills)
 			const installed = await mgr.install(root, 'project')
 			await mgr.enable(installed.id)
 		}
@@ -134,7 +135,7 @@ describe('a plugin’s skills load and are namespaced', () => {
 		const root = await pluginDir(manifest, [
 			{ dir: 'skills/reconcile', name: 'reconcile', description: 'd' },
 		])
-		const { manager: mgr } = manager(skills)
+		const { manager: mgr } = manager(root, skills)
 		const plugin = await mgr.install(root, 'project')
 		await mgr.enable(plugin.id)
 
@@ -153,7 +154,7 @@ describe('a host with no skill registry is refused, not quietly served', () => {
 			},
 			[{ dir: 'skills/reconcile', name: 'reconcile', description: 'd' }],
 		)
-		const { pluginRegistry, manager: mgr } = manager()
+		const { pluginRegistry, manager: mgr } = manager(root)
 
 		await expect(mgr.install(root, 'project')).rejects.toThrow(/skills/)
 		expect(pluginRegistry.getAll()).toEqual([])
@@ -238,7 +239,7 @@ describe('what a plugin brought, it takes away', () => {
 		const root = await pluginDir(manifest, [
 			{ dir: 'skills/reconcile', name: 'reconcile', description: 'd' },
 		])
-		const { manager: mgr } = manager(skills)
+		const { manager: mgr } = manager(root, skills)
 		const plugin = await mgr.install(root, 'project')
 		await mgr.enable(plugin.id)
 
@@ -259,7 +260,7 @@ describe('what a plugin brought, it takes away', () => {
 			skills: ['skills/good', 'skills/missing'],
 		} as PluginManifest
 		const root = await pluginDir(manifest, [{ dir: 'skills/good', name: 'good', description: 'd' }])
-		const { manager: mgr } = manager(skills)
+		const { manager: mgr } = manager(root, skills)
 		const plugin = await mgr.install(root, 'project')
 
 		await expect(mgr.enable(plugin.id)).rejects.toThrow()
