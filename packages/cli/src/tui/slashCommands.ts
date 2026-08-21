@@ -7,7 +7,7 @@
  * added here and not handled there falls out of the switch into the send path
  * and dispatches the operator's `/command` to the model as prose.
  *
- * `/cost`, `/permissions` and `/agents` are RENDERERS. Every number and rule
+ * `/cost`, argumentless `/permissions` and `/agents` are RENDERERS. Every number and rule
  * they print was already computed — the kernel emits usage on its own event,
  * the permission rules were compiled before the session opened, and the
  * delegate roster is decided when the subagent runtime is built. None of them
@@ -33,6 +33,7 @@ import {
 
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { SandboxSummary } from '../context/sandbox.js'
+import { type PermissionMode, isPermissionMode } from '../permissions/mode.js'
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
 
@@ -44,6 +45,8 @@ export type SlashAction =
 	/** Start a fresh conversation, optionally clearing the rendered transcript too. */
 	| { kind: 'new-conversation'; clearScreen: boolean }
 	| { kind: 'repick' }
+	/** Select how the next TUI turn resolves otherwise-undecided tool calls. */
+	| { kind: 'permission-mode'; mode: PermissionMode }
 	| { kind: 'remember'; text: string }
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
@@ -191,15 +194,18 @@ export interface SlashContext {
 	readonly usage: { readonly totalTokens: number; readonly cost: CostInfo } | null
 	/** What decides a tool call right now — flags, config, and session state. */
 	readonly permissions: {
-		/** `--yolo` / `--dangerously-skip-permissions`. */
-		readonly skipPermissions: boolean
+		/** Live mode and why it currently has that value, read at render time. */
+		readonly currentMode: () => {
+			readonly mode: PermissionMode
+			readonly source: 'default' | 'launch-bypass' | 'session'
+		}
 		readonly rules: readonly AuthorizationRule[]
 		/**
 		 * Whether "approve all" is in force, read at render time.
 		 *
-		 * A function because this is the one field here that CHANGES while
-		 * namzu runs. The other two come from flags and a config file and are
-		 * fixed for the process; this one flips on a keystroke mid-turn. Since
+		 * A function because this field changes while namzu runs. The selected
+		 * mode above also moves, but only at an idle command boundary; this one
+		 * flips on a keystroke mid-turn. Since
 		 * this context object is assembled during a render and read later from
 		 * a callback that captured it, a boolean would report whatever was true
 		 * when the object was built — which is precisely the staleness that let
@@ -723,12 +729,23 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'permissions',
-		description: 'Show how tool calls get approved, and any rules in force.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content: renderPermissions(ctx.permissions),
-		}),
+		description: 'Show or select how undecided tool calls are handled: /permissions [mode].',
+		action: (ctx, args) => {
+			if (args.length === 0) {
+				return {
+					kind: 'message',
+					role: 'system',
+					content: renderPermissions(ctx.permissions),
+				}
+			}
+			const mode = args.length === 1 ? args[0]?.toLowerCase() : undefined
+			if (isPermissionMode(mode)) return { kind: 'permission-mode', mode }
+			return {
+				kind: 'message',
+				role: 'system',
+				content: 'Usage: /permissions [prompt|auto|strict]',
+			}
+		},
 	},
 	{
 		name: 'init',
@@ -1008,18 +1025,29 @@ export function renderStatus(ctx: SlashContext): string {
 
 export function renderPermissions(permissions: SlashContext['permissions']): string {
 	const lines: string[] = []
+	const current = permissions.currentMode()
+	lines.push(`Current mode: ${current.mode}.`)
+	lines.push('')
 
-	// Three states, most permissive first, and the middle one is the reason this
+	// Four effective states, most permissive first, and the approve-all one is the reason this
 	// function was rewritten: it is reachable from a single keystroke at a
 	// prompt, it silently outranks the default, and it used to be invisible
 	// here — so the page answering "how do tool calls get approved" gave the
 	// safe answer to an operator who had already turned the safety off.
-	if (permissions.skipPermissions) {
-		lines.push('Unreviewed calls: approved automatically (--dangerously-skip-permissions).')
+	if (current.mode === 'auto') {
+		lines.push(
+			current.source === 'launch-bypass'
+				? 'Unreviewed calls: approved automatically (--dangerously-skip-permissions).'
+				: 'Unreviewed calls: approved automatically for future turns (/permissions auto).',
+		)
+	} else if (current.mode === 'strict') {
+		lines.push('Unreviewed calls: rejected automatically for future turns (/permissions strict).')
+		lines.push(
+			'Only calls an explicit allow rule covers may run; no approval prompt can widen that.',
+		)
 	} else if (permissions.approvalLatched()) {
 		lines.push('Unreviewed calls: approved automatically — "approve all" was chosen at')
-		lines.push('an earlier prompt. Nothing will ask again while this session lasts;')
-		lines.push('restart namzu, or re-pick a provider with /model, to be asked again.')
+		lines.push('an earlier prompt. Run /permissions prompt to revoke that latch and ask again.')
 	} else {
 		lines.push('Unreviewed calls: you are asked before they run.')
 	}

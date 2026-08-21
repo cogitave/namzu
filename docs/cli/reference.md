@@ -76,6 +76,18 @@ Commands the kernel's own registry contributes are merged in beside them; a name
 claimed by both raises an error rather than letting one silently shadow the
 other.
 
+`/permissions` reports the effective tool-review mode and the rules that still
+outrank it. `/permissions prompt`, `/permissions auto`, and `/permissions
+strict` select how otherwise-undecided calls are handled on later turns: ask the
+operator, approve automatically, or reject automatically. A change is accepted
+only while the session is idle, and it revokes any earlier **approve all**
+choice before publishing the new mode. Declarative deny rules and the built-in
+safety gate remain authoritative in every mode. `--yolo` (the
+`--dangerously-skip-permissions` alias) therefore chooses the initial `auto`
+mode; it does not permanently remove the prompt boundary, and `/permissions
+prompt` can narrow the same live session without reconnecting its provider or
+tools.
+
 The provider picker owns the asynchronous work started by the current choice.
 Escaping, choosing again or leaving the screen cancels model discovery,
 credential verification and subscription sign-in; a result that arrives later

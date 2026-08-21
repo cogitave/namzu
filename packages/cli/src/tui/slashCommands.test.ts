@@ -30,7 +30,7 @@ function cost(totalCost: number, over: Partial<CostInfo> = {}): CostInfo {
  */
 function permissions(over: Partial<SlashContext['permissions']> = {}): SlashContext['permissions'] {
 	return {
-		skipPermissions: false,
+		currentMode: () => ({ mode: 'prompt', source: 'default' }),
 		rules: [],
 		approvalLatched: () => false,
 		neverPrompted: () => [],
@@ -328,6 +328,29 @@ describe('/cost', () => {
 })
 
 describe('/permissions', () => {
+	it('parses an explicit session mode instead of sending it to the model', () => {
+		expect(runSlash('/permissions strict', context())).toEqual({
+			kind: 'permission-mode',
+			mode: 'strict',
+		})
+		expect(runSlash('/permissions prompt', context())).toEqual({
+			kind: 'permission-mode',
+			mode: 'prompt',
+		})
+		expect(runSlash('/permissions auto', context())).toEqual({
+			kind: 'permission-mode',
+			mode: 'auto',
+		})
+	})
+
+	it('refuses an unknown mode with the complete vocabulary', () => {
+		const result = runSlash('/permissions yolo', context())
+		expect(result?.kind).toBe('message')
+		if (result?.kind === 'message') {
+			expect(result.content).toBe('Usage: /permissions [prompt|auto|strict]')
+		}
+	})
+
 	it('reports that unreviewed calls are asked about by default', () => {
 		const r = runSlash('/permissions', context())
 		if (r?.kind === 'message') expect(r.content).toContain('you are asked')
@@ -336,7 +359,11 @@ describe('/permissions', () => {
 	it('names the flag when approval is automatic', () => {
 		const r = runSlash(
 			'/permissions',
-			context({ permissions: permissions({ skipPermissions: true }) }),
+			context({
+				permissions: permissions({
+					currentMode: () => ({ mode: 'auto', source: 'launch-bypass' }),
+				}),
+			}),
 		)
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('approved automatically')
@@ -376,6 +403,23 @@ describe('/permissions', () => {
 			expect(r.content).toContain('approved automatically')
 			expect(r.content).toContain('approve all')
 			expect(r.content, 'still claims calls are reviewed').not.toContain('you are asked')
+		}
+	})
+
+	it('reports strict as rejection even if an older approve-all latch exists', () => {
+		const r = runSlash(
+			'/permissions',
+			context({
+				permissions: permissions({
+					currentMode: () => ({ mode: 'strict', source: 'session' }),
+					approvalLatched: () => true,
+				}),
+			}),
+		)
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('Current mode: strict')
+			expect(r.content).toContain('rejected automatically')
+			expect(r.content).not.toContain('approve all" was chosen')
 		}
 	})
 
@@ -495,7 +539,11 @@ describe('/permissions', () => {
 		// assuming the bypass flag lifts a `deny` they wrote. It does not.
 		const r = runSlash(
 			'/permissions',
-			context({ permissions: permissions({ skipPermissions: true }) }),
+			context({
+				permissions: permissions({
+					currentMode: () => ({ mode: 'auto', source: 'launch-bypass' }),
+				}),
+			}),
 		)
 		if (r?.kind === 'message') expect(r.content).toContain('never reopen what a')
 	})

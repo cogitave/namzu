@@ -67,7 +67,7 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 		modelSummary: 'mock-model',
 		usage: null,
 		permissions: {
-			skipPermissions: false,
+			currentMode: () => ({ mode: 'prompt', source: 'default' }),
 			rules: [],
 			approvalLatched: () => false,
 			neverPrompted: () => [],

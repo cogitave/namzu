@@ -61,7 +61,7 @@ export interface TuiContext {
 	 * standalone CLI always supplies it; the command says when an embed did not.
 	 */
 	readonly configDebug?: ConfigDebugSnapshot
-	/** When true, tools run without the approval prompt (--dangerously-skip-permissions / --yolo). */
+	/** Initial TUI mode is auto (--dangerously-skip-permissions / --yolo); /permissions may narrow it. */
 	readonly skipPermissions?: boolean
 	/**
 	 * The operator's `permissions` table, compiled to kernel rules.
