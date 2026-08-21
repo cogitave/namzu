@@ -243,7 +243,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	]) {
 		registerAll(program, [def], {
 			getContext:
-				def === runCommand || def === runStreamCommand || def === drainCommand
+				def === acpCommand || def === runCommand || def === runStreamCommand || def === drainCommand
 					? getBootstrapContext
 					: getContext,
 			setExitCode,

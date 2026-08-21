@@ -14,9 +14,13 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
-import { createAgentSession, probeAgentSession } from '../tui/agent.js'
-import type { CommandDef } from './types.js'
+import { cliLogger } from '../logging.js'
+import { decideHeadlessTrust } from '../permissions/headless-trust.js'
+import { compilePermissions } from '../permissions/rules.js'
+import { type AgentSession, createAgentSession, probeAgentSession } from '../tui/agent.js'
+import type { CommandContext, CommandDef } from './types.js'
 
 /** Same read as `cli.ts`'s `--version`: the manifest, never a second copy. */
 function readPackageVersion(): string {
@@ -38,6 +42,31 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
 		: null
 }
 
+function waitForOperation<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+	if (signal.aborted) return Promise.reject(signal.reason)
+	return new Promise<T>((resolve, reject) => {
+		let active = true
+		const finish = () => {
+			if (!active) return false
+			active = false
+			signal.removeEventListener('abort', onAbort)
+			return true
+		}
+		const onAbort = () => {
+			if (finish()) reject(signal.reason)
+		}
+		signal.addEventListener('abort', onAbort, { once: true })
+		operation.then(
+			(value) => {
+				if (finish()) resolve(value)
+			},
+			(error) => {
+				if (finish()) reject(error)
+			},
+		)
+	})
+}
+
 /**
  * `namzu acp` — the agent-client protocol over this process's stdio.
  *
@@ -55,60 +84,190 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
  * on the child's stdout under info-level logging.
  */
 
-/**
- * Bridges the SDK session to the one verb the protocol server needs.
- *
- * `onRunEvent` is a session-level hook and the gateway is per-prompt, so the
- * dispatcher is swapped for the duration of each turn rather than the
- * session being rebuilt. A run event arriving between turns — a late tool
- * result, a background job settling — reaches no client, which is correct:
- * there is no prompt for it to belong to.
- */
-export async function runAcpCommand(cwd: string): Promise<number> {
-	// The session is built LAZILY, at the first prompt.
-	//
-	// `initialize` and `session/new` are how a client discovers what this
-	// agent is and what it requires, and neither needs a model. Building the
-	// session up front made a namzu with no configured credential answer a
-	// connection attempt by exiting — an editor extension saw a pipe that
-	// closed, with the reason on a stderr nobody was reading. Now it gets a
-	// working handshake and a refusal naming the missing credential at the
-	// moment it actually matters, which is the first prompt.
-	let session: Awaited<ReturnType<typeof createAgentSession>> | undefined
-	let route: ((event: RunEvent) => void) | undefined
+type AcpLiveSession = Pick<
+	AgentSession,
+	'hasProvider' | 'errorHint' | 'mcpFailed' | 'send' | 'close'
+>
 
-	const ensureSession = async (): Promise<Awaited<ReturnType<typeof createAgentSession>>> => {
-		if (session) return session
-		const probe = await probeAgentSession()
-		const prefs = probe.preferences ?? defaultPrefs(probe.detected)
-		if (!prefs) {
-			throw new Error(
-				'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
-			)
+export interface AcpRuntimeDependencies {
+	readonly probe: typeof probeAgentSession
+	readonly createSession: (
+		preferences: Preferences,
+		detected: readonly DetectedProvider[],
+		options: Parameters<typeof createAgentSession>[2],
+	) => Promise<AcpLiveSession>
+	readonly decideTrust: typeof decideHeadlessTrust
+	readonly resolveProjectContext: typeof resolveTrustedProjectContext
+}
+
+interface AcpRuntimeRecord {
+	readonly cwd: string
+	readonly session: AcpLiveSession
+	route: ((event: RunEvent) => void) | undefined
+}
+
+export interface CliAcpRuntime {
+	readonly gateway: AcpAgentGateway
+	close(): Promise<void>
+}
+
+const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
+	probe: probeAgentSession,
+	createSession: createAgentSession,
+	decideTrust: decideHeadlessTrust,
+	resolveProjectContext: resolveTrustedProjectContext,
+}
+
+/**
+ * Owns the CLI runtime behind one ACP connection.
+ *
+ * The wire server owns IDs, cwd, cancellation and history. This owner mirrors
+ * that boundary into the model runtime: one AgentSession and event route per
+ * wire session, never one mutable connection-global slot.
+ */
+export function createCliAcpRuntime(
+	bootstrapCtx: CommandContext,
+	deps: AcpRuntimeDependencies = DEFAULT_RUNTIME_DEPS,
+): CliAcpRuntime {
+	const records = new Map<string, AcpRuntimeRecord>()
+	const constructing = new Map<string, string>()
+	let probePromise: ReturnType<typeof probeAgentSession> | undefined
+	let closed = false
+
+	const sharedProbe = () => {
+		if (!probePromise) {
+			probePromise = deps.probe().catch((error) => {
+				probePromise = undefined
+				throw error
+			})
 		}
-		session = await createAgentSession(prefs, probe.detected, {
-			cwd,
-			onRunEvent: (event) => route?.(event),
-		})
-		if (!session.hasProvider) {
-			const hint = session.errorHint ?? 'agent is not ready'
-			await session.close()
-			session = undefined
-			throw new Error(hint)
+		return probePromise
+	}
+
+	const ensureSession = async (
+		sessionId: string,
+		requestedCwd: string,
+		signal: AbortSignal,
+	): Promise<AcpRuntimeRecord> => {
+		signal.throwIfAborted()
+		if (closed) throw new Error('The ACP connection has closed.')
+
+		// This is the first project-aware operation. Session creation and the
+		// protocol handshake remain credential-free and do not read the target.
+		const trust = deps.decideTrust({ cwd: requestedCwd, trustFlag: false })
+		if (!trust.allowed) throw new Error(trust.message ?? 'folder not trusted')
+		const cwd = trust.cwd
+		const existing = records.get(sessionId)
+		if (existing) {
+			if (existing.cwd !== cwd) {
+				throw new Error(
+					`ACP session "${sessionId}" already owns ${existing.cwd}; refusing to reuse it for ${cwd}.`,
+				)
+			}
+			return existing
 		}
-		return session
+		if (constructing.has(sessionId)) {
+			throw new Error(`ACP session "${sessionId}" is already being constructed.`)
+		}
+		constructing.set(sessionId, cwd)
+
+		const construction = (async (): Promise<AcpRuntimeRecord> => {
+			let candidate: AcpLiveSession | undefined
+			const closeCandidate = async () => {
+				const owned = candidate
+				candidate = undefined
+				if (owned) await owned.close()
+			}
+			try {
+				const projectCtx = deps.resolveProjectContext(bootstrapCtx, cwd)
+				const permissions = compilePermissions(
+					projectCtx.config.permissions,
+					projectCtx.config.permissionChecks,
+				)
+				if (permissions.diagnostics.length > 0) {
+					throw new Error(
+						permissions.diagnostics
+							.map((diagnostic) => {
+								const where = diagnostic.pattern
+									? `permissions.${diagnostic.tool}."${diagnostic.pattern}"`
+									: `permissions.${diagnostic.tool}`
+								return `${where}: ${diagnostic.message}`
+							})
+							.join('\n'),
+					)
+				}
+
+				const probe = await sharedProbe()
+				signal.throwIfAborted()
+				if (closed) throw new Error('The ACP connection closed while its session was starting.')
+				const prefs = probe.preferences ?? defaultPrefs(probe.detected)
+				if (!prefs) {
+					throw new Error(
+						'No LLM provider is available on this machine: set a credential in the environment, or run `namzu` interactively to pick one. The protocol handshake succeeded; there is nothing to run a prompt with.',
+					)
+				}
+
+				const routeOwner: { current?: AcpRuntimeRecord } = {}
+				candidate = await deps.createSession(prefs, probe.detected, {
+					cwd,
+					rules: permissions.rules,
+					...(projectCtx.config.mcpServers ? { mcpServers: projectCtx.config.mcpServers } : {}),
+					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
+					onRunEvent: (event) => routeOwner.current?.route?.(event),
+				})
+				if (signal.aborted || closed) {
+					await closeCandidate()
+					signal.throwIfAborted()
+					throw new Error('The ACP connection closed while its session was starting.')
+				}
+				if (!candidate.hasProvider) {
+					const hint = candidate.errorHint ?? 'agent is not ready'
+					await closeCandidate()
+					throw new Error(hint)
+				}
+				if (candidate.mcpFailed.length > 0) {
+					const failure = candidate.mcpFailed
+						.map((entry) => `tool server "${entry.name}" is not available: ${entry.reason}`)
+						.join('\n')
+					await closeCandidate()
+					throw new Error(failure)
+				}
+
+				const record = { cwd, session: candidate, route: undefined }
+				routeOwner.current = record
+				if (records.has(sessionId)) {
+					await closeCandidate()
+					throw new Error(`ACP session "${sessionId}" was published by another operation.`)
+				}
+				records.set(sessionId, record)
+				candidate = undefined
+				return record
+			} finally {
+				constructing.delete(sessionId)
+				await closeCandidate()
+			}
+		})()
+
+		// Session startup can include provider, MCP and sandbox work that does
+		// not itself settle when the wire prompt is cancelled. Release the ACP
+		// turn immediately, but keep this construction observed and reserved;
+		// its own fences close any candidate that eventually arrives.
+		return waitForOperation(construction, signal)
 	}
 
 	const gateway: AcpAgentGateway = {
-		prompt: async ({ prompt, onEvent, signal, ask, history }) => {
-			const live = await ensureSession()
-			route = onEvent
+		prompt: async ({ sessionId, prompt, cwd, onEvent, signal, ask, history }) => {
+			let record: AcpRuntimeRecord
+			try {
+				record = await ensureSession(sessionId, cwd, signal)
+			} catch (error) {
+				if (signal.aborted) return { stopReason: 'cancelled' }
+				throw error
+			}
+			record.route = onEvent
 			try {
 				let stopReason: string | undefined
-				// The client's human, adapted to this session's own permission
-				// shape. The mapping is a rename, and it is written out rather
-				// than cast so a third outcome added on either side stops
-				// compiling here instead of silently becoming an approval.
+				let settledHistory: readonly Message[] | undefined
 				const onPermission = async (request: {
 					toolCalls: readonly {
 						id: string
@@ -118,7 +277,7 @@ export async function runAcpCommand(cwd: string): Promise<number> {
 					}[]
 				}) => {
 					const outcome = await ask({
-						sessionId: 'acp',
+						sessionId,
 						toolCalls: request.toolCalls.map((call) => ({
 							id: call.id,
 							name: call.name,
@@ -138,49 +297,82 @@ export async function runAcpCommand(cwd: string): Promise<number> {
 							}
 					}
 				}
-				// Prior turns first, so a resumed session answers with the
-				// conversation it actually had rather than as if it were new.
 				const messages = [...(history as Message[]), createUserMessage(prompt)]
-				for await (const event of live.send(messages, { signal, onPermission })) {
+				for await (const event of record.session.send(messages, {
+					signal,
+					onPermission,
+					onConversationMessages: (messages) => {
+						settledHistory = [...messages]
+					},
+				})) {
 					if (event.kind === 'done') stopReason = event.stopReason
-					// An `error` event is a run that FAILED, and the protocol's word
-					// for that is a stop reason rather than a JSON-RPC error: the
-					// call itself succeeded, and the turn is what went wrong.
-					else if (event.kind === 'error') stopReason = 'error'
+					else if (event.kind === 'error') stopReason = signal.aborted ? 'cancelled' : 'error'
 				}
-				return stopReason === undefined ? {} : { stopReason }
+				if (signal.aborted) stopReason = 'cancelled'
+				return {
+					...(stopReason === undefined ? {} : { stopReason }),
+					...(settledHistory === undefined ? {} : { history: settledHistory }),
+				}
 			} finally {
-				route = undefined
+				if (record.route === onEvent) record.route = undefined
 			}
 		},
 	}
 
+	return {
+		gateway,
+		close: async () => {
+			closed = true
+			const owned = [...records.values()]
+			records.clear()
+			const results = await Promise.allSettled(owned.map((record) => record.session.close()))
+			const failures = results
+				.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+				.map((result) => result.reason)
+			if (failures.length > 0) throw new AggregateError(failures, 'Failed to close ACP sessions.')
+		},
+	}
+}
+
+export async function runAcpCommand(ctx: CommandContext): Promise<number> {
+	const runtime = createCliAcpRuntime(ctx)
 	const server = new ACPServer({
 		transport: new ServerStdioTransport(),
-		gateway,
-		// The registry, not a list. A host that registers a command later still
-		// has it appear, and this file has no place to hard-code one.
+		gateway: runtime.gateway,
 		commands: new HostCommandRegistry(),
 		presenter: createToolPresenter(new ToolRegistry()),
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
 	})
 
 	await server.start()
-
-	// Held open until stdin ends. The client owns the lifetime — it spawned
-	// this process — so there is no idle timeout to get wrong.
-	await new Promise<void>((resolve) => {
-		process.stdin.on('end', resolve)
-		process.stdin.on('close', resolve)
-	})
-
-	await server.stop()
-	await session?.close()
+	// Bootstrap context deliberately does not activate the project yet, so it
+	// cannot emit the project-aware boot narrative. Still make the live protocol
+	// owner observable on stderr; stdout remains exclusively JSON-RPC frames.
+	cliLogger().info('ACP protocol server started')
+	try {
+		// Held open until stdin ends. The client owns the lifetime — it spawned
+		// this process — so there is no idle timeout to get wrong.
+		await new Promise<void>((resolve) => {
+			const finish = () => {
+				process.stdin.off('end', finish)
+				process.stdin.off('close', finish)
+				resolve()
+			}
+			process.stdin.once('end', finish)
+			process.stdin.once('close', finish)
+		})
+	} finally {
+		try {
+			await server.stop()
+		} finally {
+			await runtime.close()
+		}
+	}
 	return 0
 }
 
 export const acpCommand: CommandDef = {
 	name: 'acp',
 	description: "Speak the agent-client protocol over this process's stdio",
-	handler: async () => runAcpCommand(process.cwd()),
+	handler: async ({ ctx }) => runAcpCommand(ctx),
 }

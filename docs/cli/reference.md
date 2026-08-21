@@ -376,6 +376,30 @@ human decision is reported, never resumed past — the answer belongs to a perso
 and a drainer that continued without it would discard the question the run
 stopped to ask.
 
+## ACP sessions
+
+`namzu acp` reserves stdout for newline-delimited protocol frames and keeps the
+handshake lazy: `initialize` and `session/new` do not need a provider credential
+and do not activate the target project's config. The first prompt checks stored
+folder trust, pins the canonical working directory, then loads that project's
+permission rules, tool servers and sandbox before constructing the model
+session. An unfamiliar folder is refused in-band; there is no command-line
+`--trust` shortcut for a client process to grant on a human's behalf.
+
+One process may carry multiple wire sessions. Each gets its own `AgentSession`,
+working directory, live event route, permission identity and exact settled
+conversation. Different sessions may run concurrently without redirecting one
+session's updates or cancellation into another. One session accepts only one
+live prompt at a time, and its next prompt receives the settled provider-replay
+history from the preceding turn rather than a transcript reconstructed from
+what the client rendered. Reusing an id for another directory is refused, and
+closing the connection closes every runtime session it constructed. Cancelling
+a prompt settles it even while provider, tool-server or sandbox startup is
+still pending; any candidate that arrives later is closed instead of used.
+Cancellation also revokes its pending permission question: a late approval
+cannot affect the next turn, and the stopped prompt reports `cancelled` rather
+than `error`.
+
 ## Headless runs
 
 `namzu run` and `namzu run-stream` are the same one-shot differing only in how

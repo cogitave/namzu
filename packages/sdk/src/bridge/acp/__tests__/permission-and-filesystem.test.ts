@@ -215,6 +215,59 @@ describe('a tool batch that needs a human', () => {
 })
 
 describe('approve all', () => {
+	it("stamps the owning session on permission requests instead of trusting a gateway's label", async () => {
+		const wire = pair()
+		const asked: { method: string; params: unknown }[] = []
+		const stop = autoAnswering(
+			wire,
+			{ [ACP_CLIENT_REQUESTS.REQUEST_PERMISSION]: { outcome: 'approve_all' } },
+			asked,
+		)
+		let forgedSessionId = 'not-open-yet'
+		let seq = 0
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				prompt: async ({ ask }) => {
+					await ask({ sessionId: forgedSessionId, toolCalls: [] })
+					return { stopReason: 'end_turn' }
+				},
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+			newSessionId: () => `ses_owner_${++seq}`,
+		})
+		const first = await open(wire, server)
+		wire.deliver({ jsonrpc: '2.0', id: 3, method: 'session/new', params: {} })
+		await settle()
+		const second = (wire.sent.find((frame) => frame.id === 3)?.result as { sessionId: string })
+			.sessionId
+		forgedSessionId = second
+
+		const prompt = async (id: number, sessionId: string) => {
+			wire.deliver({
+				jsonrpc: '2.0',
+				id,
+				method: 'session/prompt',
+				params: { sessionId, prompt: 'go' },
+			})
+			await new Promise((resolve) => setTimeout(resolve, 30))
+		}
+
+		await prompt(4, first)
+		expect((asked[0]?.params as { sessionId: string }).sessionId).toBe(first)
+		await prompt(5, first)
+		expect(asked).toHaveLength(1)
+		await prompt(6, second)
+		stop()
+
+		// The forged label never moved A's consent to B: A latched its own
+		// approval, while B still had to ask under B's authoritative identity.
+		expect(asked).toHaveLength(2)
+		expect((asked[1]?.params as { sessionId: string }).sessionId).toBe(second)
+	})
+
 	it('latches for the session that granted it, and NOT for the next one', async () => {
 		const wire = pair()
 		const asked: { method: string; params: unknown }[] = []
@@ -269,6 +322,80 @@ describe('approve all', () => {
 		// cover the next session this process serves, which may be a different
 		// repository, editor window, or human.
 		expect(asked).toHaveLength(2)
+	})
+
+	it('does not let a late answer from a cancelled prompt approve the next turn', async () => {
+		const wire = pair()
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				prompt: async ({ ask, sessionId, signal }) => {
+					try {
+						await ask({ sessionId, toolCalls: [] })
+						return { stopReason: 'end_turn' }
+					} catch (error) {
+						if (signal.aborted) return { stopReason: 'cancelled' }
+						throw error
+					}
+				},
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+			newSessionId: () => 'ses_cancelled_permission',
+		})
+		const sessionId = await open(wire, server)
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId, prompt: 'first' },
+		})
+		await settle()
+		const firstPermission = wire.sent.find(
+			(frame) => frame.method === ACP_CLIENT_REQUESTS.REQUEST_PERMISSION,
+		)
+		expect(firstPermission?.id).toBeDefined()
+
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 4,
+			method: 'session/cancel',
+			params: { sessionId },
+		})
+		await settle()
+		await settle()
+		expect(wire.sent.find((frame) => frame.id === 3)?.result).toEqual({
+			stopReason: 'cancelled',
+		})
+
+		// The human's old dialog may still exist in a client UI. Its answer is
+		// now only a response to a request that no longer owns any authority.
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: firstPermission?.id,
+			result: { outcome: 'approve_all' },
+		})
+		await settle()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 5,
+			method: 'session/prompt',
+			params: { sessionId, prompt: 'second' },
+		})
+		await settle()
+		expect(
+			wire.sent.filter((frame) => frame.method === ACP_CLIENT_REQUESTS.REQUEST_PERMISSION),
+		).toHaveLength(2)
+
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 6,
+			method: 'session/cancel',
+			params: { sessionId },
+		})
+		await settle()
+		await server.stop()
 	})
 })
 

@@ -80,6 +80,14 @@ async function settle(): Promise<void> {
 	await new Promise((resolve) => setImmediate(resolve))
 }
 
+function deferred<T>() {
+	let resolve!: (value: T) => void
+	const promise = new Promise<T>((done) => {
+		resolve = done
+	})
+	return { promise, resolve }
+}
+
 async function handshake(
 	fixture: ReturnType<typeof build>,
 	capabilities = [ACP_PERMISSION_CAPABILITY],
@@ -218,6 +226,29 @@ describe('session/new', () => {
 		await settle()
 		expect(fixture.sent.find((m) => m.id === 1)?.error?.code).toBe(ACP_ERROR_CODES.INVALID_REQUEST)
 	})
+
+	it('refuses a relative cwd before publishing a session', async () => {
+		const fixture = build()
+		await fixture.server.start()
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: { capabilities: [ACP_PERMISSION_CAPABILITY] },
+		})
+		await settle()
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 2,
+			method: 'session/new',
+			params: { cwd: 'relative/project' },
+		})
+		await settle()
+
+		const refusal = fixture.sent.find((m) => m.id === 2)?.error
+		expect(refusal?.code).toBe(ACP_ERROR_CODES.INVALID_PARAMS)
+		expect(refusal?.message).toContain('absolute path')
+	})
 })
 
 describe('session/prompt', () => {
@@ -274,6 +305,108 @@ describe('session/prompt', () => {
 		await settle()
 
 		expect(fixture.sent.find((m) => m.id === 4)?.error?.code).toBe(ACP_ERROR_CODES.INVALID_PARAMS)
+	})
+
+	it('publishes a settled history to that session and copies it before the next prompt', async () => {
+		const histories: (readonly unknown[])[] = []
+		const returned = [{ role: 'user', content: 'first' }]
+		const fixture = build({
+			gateway: {
+				prompt: async ({ history }) => {
+					histories.push(history)
+					return histories.length === 1
+						? { stopReason: 'end_turn', history: returned }
+						: { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: 'ses_acp_fixed', prompt: 'first' },
+		})
+		await settle()
+		returned.push({ role: 'user', content: 'mutated after publication' })
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 4,
+			method: 'session/prompt',
+			params: { sessionId: 'ses_acp_fixed', prompt: 'second' },
+		})
+		await settle()
+
+		expect(histories).toEqual([[], [{ role: 'user', content: 'first' }]])
+	})
+
+	it('refuses a gateway history replacement that is not an array', async () => {
+		const fixture = build({
+			gateway: {
+				prompt: async () => ({
+					stopReason: 'end_turn',
+					history: { role: 'user', content: 'not a conversation' } as unknown as readonly unknown[],
+				}),
+			},
+		})
+		await handshake(fixture)
+
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: 'ses_acp_fixed', prompt: 'first' },
+		})
+		await settle()
+
+		expect(fixture.sent.find((frame) => frame.id === 3)?.error).toMatchObject({
+			code: ACP_ERROR_CODES.INTERNAL_ERROR,
+			message: expect.stringContaining('invalid history'),
+		})
+	})
+
+	it('refuses a second live prompt before replacing the controller owned by the first', async () => {
+		const release = deferred<void>()
+		const signals: AbortSignal[] = []
+		const fixture = build({
+			gateway: {
+				prompt: async ({ signal }) => {
+					signals.push(signal)
+					await release.promise
+					return { stopReason: signal.aborted ? 'cancelled' : 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: 'ses_acp_fixed', prompt: 'first' },
+		})
+		await settle()
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 4,
+			method: 'session/prompt',
+			params: { sessionId: 'ses_acp_fixed', prompt: 'second' },
+		})
+		await settle()
+
+		expect(fixture.sent.find((m) => m.id === 4)?.error?.code).toBe(ACP_ERROR_CODES.INVALID_REQUEST)
+		expect(signals).toHaveLength(1)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 5,
+			method: 'session/cancel',
+			params: { sessionId: 'ses_acp_fixed' },
+		})
+		await settle()
+		expect(signals[0]?.aborted).toBe(true)
+		release.resolve()
+		await settle()
+		expect(fixture.sent.find((m) => m.id === 3)?.result).toEqual({ stopReason: 'cancelled' })
 	})
 })
 
@@ -348,6 +481,36 @@ describe('session/cancel', () => {
 		// which reads to a client as a prompt that was ignored.
 		expect(signals).toHaveLength(2)
 		expect(signals[1]?.aborted).toBe(false)
+	})
+
+	it('reports cancellation when an abort makes the gateway reject instead of return', async () => {
+		const fixture = build({
+			gateway: {
+				prompt: async ({ signal }) =>
+					new Promise((_resolve, reject) => {
+						signal.addEventListener('abort', () => reject(new Error('transport aborted')))
+					}),
+			},
+		})
+		await handshake(fixture)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: 'ses_acp_fixed', prompt: 'hold' },
+		})
+		await settle()
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 4,
+			method: 'session/cancel',
+			params: { sessionId: 'ses_acp_fixed' },
+		})
+		await settle()
+
+		expect(fixture.sent.find((frame) => frame.id === 3)?.result).toEqual({
+			stopReason: 'cancelled',
+		})
 	})
 })
 
@@ -503,6 +666,44 @@ describe('frames that are not calls', () => {
 	})
 })
 
+describe('a wire write failure', () => {
+	it('survives a non-Error transport rejection and answers the next call', async () => {
+		const sent: MCPJsonRpcMessage[] = []
+		let handler: ((message: MCPJsonRpcMessage) => void) | undefined
+		let fail = true
+		const transport: MCPTransport = {
+			connect: async () => {},
+			close: async () => {},
+			send: async (message) => {
+				if (fail) throw 'pipe closed'
+				sent.push(message)
+			},
+			onMessage: (next) => {
+				handler = next
+			},
+			onClose: () => {},
+			onError: () => {},
+			isConnected: () => true,
+		}
+		const server = new ACPServer({
+			transport,
+			gateway: { prompt: async () => ({ stopReason: 'end_turn' }) },
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+		})
+		await server.start()
+		handler?.({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+		await settle()
+
+		fail = false
+		handler?.({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} })
+		await settle()
+
+		expect(sent.find((frame) => frame.id === 2)?.result).toBeDefined()
+	})
+})
+
 describe('a handler that throws something that is not a protocol error', () => {
 	it('answers -32603 and keeps the connection open', async () => {
 		const fixture = build({
@@ -582,6 +783,54 @@ describe('stop()', () => {
 		// would keep a model call — and whatever it spends — alive with nobody
 		// left to receive the answer.
 		expect(seen?.aborted).toBe(true)
+	})
+
+	it('cannot restart, admit a late frame, or publish a load that settles after close', async () => {
+		const loadRelease = deferred<void>()
+		const wire = pair()
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				load: async () => {
+					await loadRelease.promise
+					return []
+				},
+				prompt: async () => ({ stopReason: 'end_turn' }),
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+		})
+		await server.start()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: { capabilities: [ACP_PERMISSION_CAPABILITY] },
+		})
+		await settle()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 2,
+			method: 'session/load',
+			params: { sessionId: 'ses_late', cwd: process.cwd() },
+		})
+		await settle()
+
+		await server.stop()
+		await expect(server.start()).rejects.toThrow('cannot be restarted')
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/new',
+			params: { cwd: process.cwd() },
+		})
+		await settle()
+		expect(wire.sent.find((frame) => frame.id === 3)?.error?.message).toContain('closed')
+
+		loadRelease.resolve()
+		await settle()
+		expect(wire.sent.find((frame) => frame.id === 2)?.error?.message).toContain('closed')
 	})
 })
 
@@ -667,5 +916,221 @@ describe('session/cancel for a session that does not exist', () => {
 		// Accepting it would tell a client its cancel landed when nothing was
 		// cancelled — the shape of every "why is it still running" report.
 		expect(fixture.sent.find((m) => m.id === 5)?.error?.code).toBe(ACP_ERROR_CODES.INVALID_PARAMS)
+	})
+})
+
+describe('the session-id namespace', () => {
+	it('refuses a loaded history that is not an array and releases its reservation', async () => {
+		let valid = false
+		const wire = pair()
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				load: async () =>
+					valid ? [] : ({ role: 'user', content: 'not an array' } as unknown as readonly unknown[]),
+				prompt: async () => ({ stopReason: 'end_turn' }),
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+		})
+		await server.start()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: { capabilities: [ACP_PERMISSION_CAPABILITY] },
+		})
+		await settle()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 2,
+			method: 'session/load',
+			params: { sessionId: 'ses_invalid_history', cwd: process.cwd() },
+		})
+		await settle()
+		expect(wire.sent.find((frame) => frame.id === 2)?.error).toMatchObject({
+			code: ACP_ERROR_CODES.INTERNAL_ERROR,
+			message: expect.stringContaining('invalid history'),
+		})
+
+		valid = true
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/load',
+			params: { sessionId: 'ses_invalid_history', cwd: process.cwd() },
+		})
+		await settle()
+		expect(wire.sent.find((frame) => frame.id === 3)?.result).toEqual({
+			sessionId: 'ses_invalid_history',
+		})
+	})
+
+	it('keeps a loaded live session while default generation skips its reserved id', async () => {
+		const loadRelease = deferred<void>()
+		let loadedSignal: AbortSignal | undefined
+		const wire = pair()
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				load: async () => {
+					await loadRelease.promise
+					return [{ role: 'user', content: 'durable turn' }]
+				},
+				prompt: async ({ sessionId, signal, history }) => {
+					if (sessionId === 'acp_1') {
+						loadedSignal = signal
+						expect(history).toEqual([{ role: 'user', content: 'durable turn' }])
+						await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve()))
+						return { stopReason: 'cancelled' }
+					}
+					return { stopReason: 'end_turn' }
+				},
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+		})
+		await server.start()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: { capabilities: [ACP_PERMISSION_CAPABILITY] },
+		})
+		await settle()
+
+		// Reserve `acp_1` before the store's first await settles.
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 2,
+			method: 'session/load',
+			params: { sessionId: 'acp_1', cwd: process.cwd() },
+		})
+		await settle()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/new',
+			params: { cwd: process.cwd() },
+		})
+		await settle()
+		expect(wire.sent.find((m) => m.id === 3)?.result).toEqual({ sessionId: 'acp_2' })
+
+		loadRelease.resolve()
+		await settle()
+		expect(wire.sent.find((m) => m.id === 2)?.result).toEqual({ sessionId: 'acp_1' })
+
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 4,
+			method: 'session/prompt',
+			params: { sessionId: 'acp_1', prompt: 'hold' },
+		})
+		await settle()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 5,
+			method: 'session/prompt',
+			params: { sessionId: 'acp_2', prompt: 'independent' },
+		})
+		await settle()
+		expect(wire.sent.find((m) => m.id === 5)?.result).toEqual({ stopReason: 'end_turn' })
+
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 6,
+			method: 'session/cancel',
+			params: { sessionId: 'acp_1' },
+		})
+		await settle()
+		expect(loadedSignal?.aborted).toBe(true)
+		expect(wire.sent.find((m) => m.id === 4)?.result).toEqual({ stopReason: 'cancelled' })
+	})
+
+	it('admits only one concurrent load for the same absent id', async () => {
+		const loadRelease = deferred<void>()
+		let loadCalls = 0
+		const wire = pair()
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				load: async () => {
+					loadCalls += 1
+					await loadRelease.promise
+					return []
+				},
+				prompt: async () => ({ stopReason: 'end_turn' }),
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+		})
+		await server.start()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: { capabilities: [ACP_PERMISSION_CAPABILITY] },
+		})
+		await settle()
+
+		for (const id of [2, 3]) {
+			wire.deliver({
+				jsonrpc: '2.0',
+				id,
+				method: 'session/load',
+				params: { sessionId: 'ses_same', cwd: process.cwd() },
+			})
+		}
+		await settle()
+		expect(loadCalls).toBe(1)
+		expect(wire.sent.find((m) => m.id === 3)?.error?.code).toBe(ACP_ERROR_CODES.INVALID_PARAMS)
+
+		loadRelease.resolve()
+		await settle()
+		expect(wire.sent.find((m) => m.id === 2)?.result).toEqual({ sessionId: 'ses_same' })
+	})
+
+	it('releases only its own reservation after a failed load so the id can be retried', async () => {
+		let attempts = 0
+		const wire = pair()
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				load: async () => {
+					attempts += 1
+					if (attempts === 1) throw new Error('temporary store failure')
+					return []
+				},
+				prompt: async () => ({ stopReason: 'end_turn' }),
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+		})
+		await server.start()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: { capabilities: [ACP_PERMISSION_CAPABILITY] },
+		})
+		await settle()
+
+		for (const id of [2, 3]) {
+			wire.deliver({
+				jsonrpc: '2.0',
+				id,
+				method: 'session/load',
+				params: { sessionId: 'ses_retry', cwd: process.cwd() },
+			})
+			await settle()
+		}
+
+		expect(wire.sent.find((m) => m.id === 2)?.error?.message).toContain('temporary store failure')
+		expect(wire.sent.find((m) => m.id === 3)?.result).toEqual({ sessionId: 'ses_retry' })
+		expect(attempts).toBe(2)
 	})
 })

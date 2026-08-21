@@ -1,3 +1,5 @@
+import { isAbsolute } from 'node:path'
+
 import {
 	ACP_CLIENT_NOTIFICATIONS,
 	ACP_CLIENT_REQUESTS,
@@ -90,7 +92,14 @@ export interface AcpAgentGateway {
 		readonly filesystem: AcpClientFilesystem | undefined
 		/** Turns to resume from, oldest first. Empty for a fresh session. */
 		readonly history: readonly unknown[]
-	}): Promise<{ readonly stopReason?: string }>
+	}): Promise<{
+		readonly stopReason?: string
+		/**
+		 * The exact conversation to use for the next prompt, after the run has
+		 * settled. Omit it when the gateway does not own durable history.
+		 */
+		readonly history?: readonly unknown[]
+	}>
 
 	/**
 	 * The turns a prior session left behind, for `session/load`.
@@ -123,6 +132,8 @@ export interface AcpServerOptions {
 interface Session {
 	readonly cwd: string
 	controller: AbortController
+	/** One live prompt per protocol session. Other sessions remain independent. */
+	promptInFlight: boolean
 	/**
 	 * Whether the human said "approve all" for THIS session.
 	 *
@@ -153,7 +164,10 @@ class AcpError extends Error {
 export class ACPServer {
 	private readonly log: Logger
 	private readonly sessions = new Map<string, Session>()
+	/** IDs being loaded or created but not yet published. */
+	private readonly reservedSessionIds = new Map<string, symbol>()
 	private initialized = false
+	private stopped = false
 	private clientCapabilities: readonly string[] = []
 	private sessionSeq = 0
 
@@ -191,6 +205,7 @@ export class ACPServer {
 	}
 
 	async start(): Promise<void> {
+		if (this.stopped) throw new Error('An ACP server cannot be restarted after it has stopped.')
 		this.options.transport.onMessage((message) => {
 			void this.dispatch(message)
 		})
@@ -198,8 +213,7 @@ export class ACPServer {
 	}
 
 	async stop(): Promise<void> {
-		for (const session of this.sessions.values()) session.controller.abort()
-		this.sessions.clear()
+		this.stopped = true
 		// Anything still waiting on the client is rejected rather than left
 		// pending: the transport is about to close, so no answer is coming, and
 		// a promise nobody will ever settle keeps whatever awaited it alive.
@@ -207,6 +221,9 @@ export class ACPServer {
 			waiting.reject(new Error('The client connection closed before it answered.'))
 		}
 		this.pending.clear()
+		for (const session of this.sessions.values()) session.controller.abort()
+		this.sessions.clear()
+		this.reservedSessionIds.clear()
 		await this.options.transport.close()
 	}
 
@@ -218,14 +235,39 @@ export class ACPServer {
 	 * so it needs an id, a place to park the promise, and a `dispatch` that
 	 * recognises a response frame.
 	 */
-	private request<T>(method: string, params: Record<string, unknown>): Promise<T> {
+	private request<T>(
+		method: string,
+		params: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<T> {
 		this.requestSeq += 1
 		const id = `agent_${this.requestSeq}`
 		return new Promise<T>((resolve, reject) => {
-			this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
-			void this.send({ jsonrpc: '2.0', id, method, params }).catch((err: unknown) => {
+			const finish = (): boolean => {
+				if (this.pending.get(id) !== entry) return false
 				this.pending.delete(id)
-				reject(err instanceof Error ? err : new Error(String(err)))
+				signal?.removeEventListener('abort', onAbort)
+				return true
+			}
+			const onAbort = (): void => {
+				const reason =
+					signal?.reason instanceof Error
+						? signal.reason
+						: new DOMException('The permission request was cancelled.', 'AbortError')
+				entry.reject(reason)
+			}
+			const entry = {
+				resolve: (value: unknown) => {
+					if (finish()) resolve(value as T)
+				},
+				reject: (error: Error) => {
+					if (finish()) reject(error)
+				},
+			}
+			this.pending.set(id, entry)
+			signal?.addEventListener('abort', onAbort, { once: true })
+			void this.send({ jsonrpc: '2.0', id, method, params }).catch((err: unknown) => {
+				entry.reject(err instanceof Error ? err : new Error(String(err)))
 			})
 		})
 	}
@@ -238,7 +280,6 @@ export class ACPServer {
 			// asker waiting forever and the run parked with nobody coming.
 			if (message.id !== undefined && this.pending.has(message.id)) {
 				const waiting = this.pending.get(message.id)
-				this.pending.delete(message.id)
 				if (message.error) {
 					waiting?.reject(new Error(message.error.message))
 				} else {
@@ -331,7 +372,13 @@ export class ACPServer {
 	private onSessionNew(params: AcpSessionNewParams): AcpSessionNewResult {
 		this.requireInitialized()
 		this.requirePermissionCapability()
-		return { sessionId: this.openSession(params.cwd, []) }
+		const cwd = this.requireAbsoluteCwd(params.cwd)
+		const { sessionId, token } = this.reserveGeneratedSessionId()
+		// No await separates reserve from publish, so another operation cannot
+		// take or close this namespace slot between the two statements. Load has
+		// an async store read and therefore keeps its explicit failure cleanup.
+		this.publishSession(sessionId, token, cwd, [])
+		return { sessionId }
 	}
 
 	/**
@@ -351,29 +398,91 @@ export class ACPServer {
 				'This agent has no session store, so there is nothing to resume. Create a new session instead.',
 			)
 		}
-		const history = await this.options.gateway.load(params.sessionId)
-		// The SAME id, not a new one. A client that asked to resume `ses_x` and
-		// got `ses_y` back has to rewrite whatever it had keyed by the old one.
-		this.sessions.set(params.sessionId, {
-			cwd: params.cwd ?? process.cwd(),
-			controller: new AbortController(),
-			approveAll: false,
-			history,
-		})
-		return { sessionId: params.sessionId }
+		const cwd = this.requireAbsoluteCwd(params.cwd)
+		const token = this.reserveSessionId(params.sessionId)
+		try {
+			const history = await this.options.gateway.load(params.sessionId)
+			if (!Array.isArray(history)) {
+				throw new AcpError(
+					ACP_ERROR_CODES.INTERNAL_ERROR,
+					`The session store returned an invalid history for "${params.sessionId}".`,
+				)
+			}
+			// The SAME id, not a new one. A client that asked to resume `ses_x` and
+			// got `ses_y` back has to rewrite whatever it had keyed by the old one.
+			this.publishSession(params.sessionId, token, cwd, history)
+			return { sessionId: params.sessionId }
+		} catch (error) {
+			this.releaseSessionId(params.sessionId, token)
+			throw error
+		}
 	}
 
-	private openSession(cwd: string | undefined, history: readonly unknown[]): string {
-		this.sessionSeq += 1
-		const sessionId = this.options.newSessionId?.() ?? `acp_${this.sessionSeq}`
+	private requireAbsoluteCwd(cwd: string | undefined): string {
+		const resolved = cwd ?? process.cwd()
+		if (!isAbsolute(resolved)) {
+			throw new AcpError(
+				ACP_ERROR_CODES.INVALID_PARAMS,
+				`ACP session cwd must be an absolute path; received ${JSON.stringify(resolved)}.`,
+			)
+		}
+		return resolved
+	}
+
+	private reserveGeneratedSessionId(): { readonly sessionId: string; readonly token: symbol } {
+		if (this.options.newSessionId) {
+			const sessionId = this.options.newSessionId()
+			return { sessionId, token: this.reserveSessionId(sessionId) }
+		}
+
+		for (;;) {
+			this.sessionSeq += 1
+			const sessionId = `acp_${this.sessionSeq}`
+			if (this.sessions.has(sessionId) || this.reservedSessionIds.has(sessionId)) continue
+			return { sessionId, token: this.reserveSessionId(sessionId) }
+		}
+	}
+
+	private reserveSessionId(sessionId: string): symbol {
+		if (this.stopped) {
+			throw new AcpError(ACP_ERROR_CODES.INVALID_REQUEST, 'The ACP connection has closed.')
+		}
+		if (!sessionId || this.sessions.has(sessionId) || this.reservedSessionIds.has(sessionId)) {
+			throw new AcpError(
+				ACP_ERROR_CODES.INVALID_PARAMS,
+				`Session id "${sessionId}" is already open or being loaded on this connection.`,
+			)
+		}
+		const token = Symbol(sessionId)
+		this.reservedSessionIds.set(sessionId, token)
+		return token
+	}
+
+	private releaseSessionId(sessionId: string, token: symbol): void {
+		if (this.reservedSessionIds.get(sessionId) === token) this.reservedSessionIds.delete(sessionId)
+	}
+
+	private publishSession(
+		sessionId: string,
+		token: symbol,
+		cwd: string,
+		history: readonly unknown[],
+	): void {
+		if (this.stopped || this.reservedSessionIds.get(sessionId) !== token) {
+			throw new AcpError(
+				ACP_ERROR_CODES.INVALID_REQUEST,
+				`Session "${sessionId}" could not be opened because the connection closed.`,
+			)
+		}
 		this.sessions.set(sessionId, {
-			cwd: cwd ?? process.cwd(),
+			cwd,
 			controller: new AbortController(),
+			promptInFlight: false,
 			// Fresh per session. See `Session.approveAll`.
 			approveAll: false,
-			history,
+			history: [...history],
 		})
-		return sessionId
+		this.releaseSessionId(sessionId, token)
 	}
 
 	private requireInitialized(): void {
@@ -399,26 +508,52 @@ export class ACPServer {
 
 	private async onSessionPrompt(params: AcpSessionPromptParams): Promise<AcpSessionPromptResult> {
 		const session = this.requireSession(params.sessionId)
+		if (session.promptInFlight) {
+			throw new AcpError(
+				ACP_ERROR_CODES.INVALID_REQUEST,
+				`Session "${params.sessionId}" already has a prompt in flight. Wait for it to settle or cancel it before sending another.`,
+			)
+		}
+		session.promptInFlight = true
 		// A fresh controller per turn: the previous one may already be aborted
 		// by a cancel of the turn before, and reusing it would start this one
 		// already cancelled.
-		session.controller = new AbortController()
+		const controller = new AbortController()
+		session.controller = controller
 
-		const outcome = await this.options.gateway.prompt({
-			sessionId: params.sessionId,
-			prompt: params.prompt,
-			cwd: session.cwd,
-			signal: session.controller.signal,
-			onEvent: (event) => {
-				const update = toAcpSessionUpdate(event, this.options.presenter)
-				if (update) void this.notifyUpdate(params.sessionId, update)
-			},
-			ask: (request) => this.askPermission(session, request),
-			filesystem: this.clientFilesystem(),
-			history: session.history,
-		})
+		try {
+			const outcome = await this.options.gateway.prompt({
+				sessionId: params.sessionId,
+				prompt: params.prompt,
+				cwd: session.cwd,
+				signal: controller.signal,
+				onEvent: (event) => {
+					const update = toAcpSessionUpdate(event, this.options.presenter)
+					if (update) void this.notifyUpdate(params.sessionId, update)
+				},
+				ask: (request) => this.askPermission(params.sessionId, session, request, controller.signal),
+				filesystem: this.clientFilesystem(),
+				history: session.history,
+			})
+			if (outcome.history !== undefined) {
+				if (!Array.isArray(outcome.history)) {
+					throw new AcpError(
+						ACP_ERROR_CODES.INTERNAL_ERROR,
+						`The gateway returned an invalid history for session "${params.sessionId}".`,
+					)
+				}
+				session.history = [...outcome.history]
+			}
 
-		return { stopReason: toAcpStopReason(outcome.stopReason) }
+			return {
+				stopReason: controller.signal.aborted ? 'cancelled' : toAcpStopReason(outcome.stopReason),
+			}
+		} catch (error) {
+			if (controller.signal.aborted) return { stopReason: 'cancelled' }
+			throw error
+		} finally {
+			session.promptInFlight = false
+		}
 	}
 
 	private onSessionCancel(params: AcpSessionCancelParams): null {
@@ -433,9 +568,12 @@ export class ACPServer {
 	 * everything for this session.
 	 */
 	private async askPermission(
+		sessionId: string,
 		session: Session,
 		request: AcpPermissionRequest,
+		signal: AbortSignal,
 	): Promise<AcpPermissionOutcome> {
+		signal.throwIfAborted()
 		// The latch, read from the SESSION. Checked here rather than in the
 		// gateway so no gateway can forget it.
 		if (session.approveAll) return { kind: 'approve_all' }
@@ -443,10 +581,14 @@ export class ACPServer {
 		const answer = await this.request<AcpRequestPermissionResult>(
 			ACP_CLIENT_REQUESTS.REQUEST_PERMISSION,
 			{
-				sessionId: request.sessionId,
+				// The wire session owns this identity. A gateway is allowed to
+				// describe the tool batch, but it cannot relabel A's consent as B's.
+				sessionId,
 				toolCalls: request.toolCalls,
 			},
+			signal,
 		)
+		signal.throwIfAborted()
 
 		switch (answer?.outcome) {
 			case 'approve':

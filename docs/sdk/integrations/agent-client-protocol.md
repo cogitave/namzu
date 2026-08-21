@@ -6,8 +6,8 @@ type: Guide
 diataxis: explanation
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-16T00:00:00Z
-lastReviewed: 2026-08-16
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/sdk/src/bridge/acp/server.ts
 tags: [sdk, bridge, protocol, stdio, permissions]
 ---
@@ -77,6 +77,29 @@ An unknown method answers `-32601` **and the connection stays open** — a
 client probing for a feature must not lose its session because this agent
 does not have it yet. A malformed frame is survived for the same reason.
 
+## Session identity is connection-owned
+
+One connection may carry several sessions, but one session id names exactly
+one record for the lifetime of that connection. Creation and loading share a
+single reserved/open namespace. A load reserves its caller-supplied id before
+waiting on the store; generated ids skip both open and still-loading records.
+Loading an open id, loading the same absent id twice, or returning a colliding
+host-generated id is refused rather than replacing the record already running
+under that name.
+
+Each record owns its absolute working directory, cancellation controller,
+permission latch and conversation history. Relative working directories are
+refused. Different sessions can run prompts concurrently; a second prompt for
+the **same** session is refused until the first settles. The check happens
+before a fresh cancellation controller is installed, so `session/cancel`
+cannot be redirected away from the turn it was meant to stop.
+
+After a prompt settles, an `AcpAgentGateway` may return `history` beside its
+stop reason. The server copies that replacement into only the owning session,
+and passes it to the next prompt. A gateway that does not own durable history
+may omit it. This is the bridge between a wire session and the runtime's exact
+provider-replay conversation; it is not reconstructed from rendered updates.
+
 ## stdout belongs to the protocol
 
 One stray `console.log` anywhere in the process corrupts the message stream,
@@ -114,6 +137,17 @@ The agent sends `session/request_permission`; the client answers
   again. One person's "stop asking me" must not cover the next session this
   process serves, which may be a different repository, editor window, or
   human.
+- **Cancellation revokes the outstanding question.** The request is removed
+  under the prompt's abort signal. A permission dialog the client answers late
+  no longer owns authority, so even a late `approve_all` cannot latch consent
+  onto the next turn. The cancelled prompt reports `cancelled`, not a generic
+  run error. The CLI applies the same lifetime while a lazy runtime session is
+  still being constructed: the wire prompt settles immediately, while the
+  reserved construction remains observed and any late candidate is closed.
+- **The server stamps the owning session id.** A gateway supplies the tool
+  batch, but cannot relabel a question from session A as session B. The id shown
+  to the human and the permission latch receiving the answer therefore name the
+  same server-owned record.
 
 An answer the agent cannot parse is treated as a refusal, never as consent.
 
@@ -149,3 +183,12 @@ front made a namzu with no configured credential answer a connection attempt
 by exiting — an editor saw a pipe close, with the reason on a stderr nobody
 was reading. The refusal now names the missing credential at the first
 prompt, where it matters.
+
+The CLI preserves that laziness without collapsing the sessions together. At
+the first prompt for a wire session it checks stored folder trust, pins the
+admitted canonical directory, activates that project's permission, tool-server
+and sandbox configuration, and builds one runtime session for that wire id.
+Another wire id gets another runtime session and event route. Permission
+questions carry the real id, and connection teardown closes every constructed
+session; a construction that resolves after teardown is closed instead of
+being published.
