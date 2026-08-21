@@ -26,7 +26,14 @@ export interface ConnectorDefinition<TConfig = unknown> {
 	supportedAuth?: readonly AuthType[]
 	configSchema: z.ZodType<TConfig, z.ZodTypeDef, unknown>
 	methods: ConnectorMethod[]
-	/** Declared, not implemented — see {@link ConnectorTrigger}. */
+	/**
+	 * Declared, not implemented — see {@link ConnectorTrigger}.
+	 *
+	 * @deprecated The SDK never reads this field or starts a run from it. Move
+	 * subscription metadata into a host-owned store before the next major.
+	 * It remains readable through `ConnectorRegistry` during this migration
+	 * release so existing host dispatchers do not break without warning.
+	 */
 	triggers?: ConnectorTrigger[]
 }
 
