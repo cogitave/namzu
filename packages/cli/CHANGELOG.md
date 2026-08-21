@@ -1,5 +1,14 @@
 # @namzu/cli
 
+## 13.0.0-test.2
+
+### Minor Changes
+
+- b1b240b: Allow an interactive session to inspect and select `prompt`, `auto`, or `strict`
+  tool-review behavior with `/permissions`. Changing mode at an idle boundary now
+  revokes an earlier approve-all choice, and a session launched with `--yolo` can
+  be narrowed back to prompting without rebuilding the session.
+
 ## 13.0.0-test.1
 
 ### Major Changes

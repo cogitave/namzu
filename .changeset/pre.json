@@ -76,6 +76,7 @@
     "route-owned-native-replay",
     "safe-agent-terminal-text",
     "scope-connector-credentials",
+    "select-live-permission-mode",
     "session-owned-goals",
     "settle-session-operations",
     "shell-chain-decomposition",
