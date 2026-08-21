@@ -57,6 +57,7 @@ describe('PluginLifecycleManager', () => {
 		manager = new PluginLifecycleManager({
 			pluginRegistry,
 			toolRegistry,
+			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger,
 			hookTimeoutMs: 5000,
 		})
@@ -180,6 +181,7 @@ describe('PluginLifecycleManager', () => {
 			const managerWithShortTimeout = new PluginLifecycleManager({
 				pluginRegistry,
 				toolRegistry,
+				scopeRoots: { project: process.cwd(), user: process.cwd() },
 				log: logger,
 				hookTimeoutMs: 10, // Very short timeout
 			})

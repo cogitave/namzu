@@ -615,6 +615,13 @@ A disallowed scope is not scanned, and `autoDiscovery: false` scans neither.
 The project scope is reached only after the existing trust gate has accepted
 and pinned the project's real path.
 
+That real project directory and the user's home directory are also the
+lifecycle manager's filesystem roots. Discovery and installation canonicalize
+each plugin before reading its manifest. A project or user plugin cannot use an
+intermediate link to move outside its scope, and a symlinked `plugin.json` is
+refused. Put the plugin tree physically below the selected root instead of
+linking to executable code elsewhere.
+
 This is executable-code authority, not a theme or metadata switch. A plugin
 may import JavaScript tool and hook modules, load namespaced skills, and start
 its declared stdio MCP servers. The CLI installs and enables every admitted
@@ -623,6 +630,12 @@ contributions and closes connectors already opened for that candidate. A live
 session uses the same manager and skill registry for ordinary turns and durable
 resumes, and closing the session first cancels and settles provider work, then
 uninstalls plugins and their MCP processes.
+
+The SDK registry shown to the host is a lifecycle projection, not an authority
+to replace executable roots or status. The CLI's manager retains the admitted
+manifest and contribution ownership privately, so overwriting a registry row
+cannot duplicate a plugin or make shutdown skip its hooks, tools, or MCP
+clients.
 
 Plugin skills are shown to the model by their namespaced metadata and loaded
 through the `skill` tool only when requested. Plugin tools are namespaced and

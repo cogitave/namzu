@@ -90,6 +90,7 @@ async function harness(config: Record<string, unknown> = {}): Promise<Harness> {
 	const manager = new PluginLifecycleManager({
 		pluginRegistry: new PluginRegistry(),
 		toolRegistry,
+		scopeRoots: { project: root, user: root },
 		log,
 		...config,
 	} as never)

@@ -1,4 +1,4 @@
-import { lstat, readFile, readdir, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -6,7 +6,9 @@ import {
 	PROJECT_PLUGIN_DIR,
 	USER_PLUGIN_DIR,
 } from '../constants/plugin/index.js'
+import { resolveWithinReal } from '../tools/paths.js'
 import { type PluginManifest, PluginManifestSchema } from '../types/plugin/index.js'
+import { toErrorMessage } from '../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
@@ -29,6 +31,13 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 	const dirs: string[] = []
 
 	try {
+		const parent = await lstat(parentDir)
+		if (parent.isSymbolicLink() || !parent.isDirectory()) {
+			logger.warn('Refusing a non-regular plugins directory', {
+				'namzu.plugin.parent_dir': parentDir,
+			})
+			return dirs
+		}
 		const entries = await readdir(parentDir)
 		for (const entry of entries) {
 			if (entry.startsWith('.') || entry.startsWith('_')) continue
@@ -48,7 +57,14 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 
 			const manifestPath = join(fullPath, PLUGIN_MANIFEST_FILENAME)
 			try {
-				await stat(manifestPath)
+				const manifest = await lstat(manifestPath)
+				if (manifest.isSymbolicLink() || !manifest.isFile()) {
+					logger.warn('Refusing a non-regular plugin manifest', {
+						'namzu.plugin.path': fullPath,
+						'namzu.plugin.manifest_path': manifestPath,
+					})
+					continue
+				}
 				dirs.push(fullPath)
 			} catch {
 				// No manifest in this directory — skip
@@ -69,12 +85,45 @@ export async function loadPluginManifest(
 	pluginDir: string,
 	capabilities: PluginEnablementCapabilities = {},
 ): Promise<PluginManifest> {
+	const root = await lstat(pluginDir)
+	if (root.isSymbolicLink() || !root.isDirectory()) {
+		throw new Error(`Plugin root must be a regular directory: ${pluginDir}`)
+	}
 	const manifestPath = join(pluginDir, PLUGIN_MANIFEST_FILENAME)
+	const manifestEntry = await lstat(manifestPath)
+	if (manifestEntry.isSymbolicLink() || !manifestEntry.isFile()) {
+		throw new Error(`Plugin manifest must be a regular file, not a symlink: ${manifestPath}`)
+	}
 	const raw = await readFile(manifestPath, 'utf-8')
 	const parsed: unknown = JSON.parse(raw)
 	const manifest = PluginManifestSchema.parse(parsed)
 	assertEnableable(manifest, capabilities)
 	return manifest
+}
+
+async function discoverScopedPlugins(
+	authorityRoot: string,
+	relativePluginDir: string,
+	scope: PluginScope,
+	log?: Logger,
+): Promise<string[]> {
+	const logger = resolveLogger(log).child({
+		[SCOPE_ATTRIBUTE]: 'plugin/loader',
+	})
+	try {
+		// Canonicalize before readdir. A lexical cwd/.namzu/plugins can cross an
+		// intermediate symlink even when every child and manifest is a regular
+		// entry; reading first would turn the scope label into decoration.
+		const admittedParent = await resolveWithinReal(authorityRoot, relativePluginDir)
+		return discoverPlugins(admittedParent, log)
+	} catch (error) {
+		logger.warn('Refusing a plugin scope that resolves outside its authority root', {
+			'namzu.plugin.scope': scope,
+			'namzu.plugin.parent_dir': join(authorityRoot, relativePluginDir),
+			'exception.message': toErrorMessage(error),
+		})
+		return []
+	}
 }
 
 /**
@@ -210,14 +259,16 @@ export async function discoverAllPluginDirs(
 	const scopes = options?.allowedScopes
 	const mayScan = (scope: PluginScope): boolean => !scopes || scopes.includes(scope)
 
-	const projectDir = workingDirectory
-		? join(workingDirectory, PROJECT_PLUGIN_DIR)
-		: join(process.cwd(), PROJECT_PLUGIN_DIR)
-	const userDir = join(homedir(), USER_PLUGIN_DIR)
+	const projectRoot = workingDirectory ?? process.cwd()
+	const userRoot = homedir()
 
 	const [project, user] = await Promise.all([
-		mayScan('project') ? discoverPlugins(projectDir, options?.log) : Promise.resolve([]),
-		mayScan('user') ? discoverPlugins(userDir, options?.log) : Promise.resolve([]),
+		mayScan('project')
+			? discoverScopedPlugins(projectRoot, PROJECT_PLUGIN_DIR, 'project', options?.log)
+			: Promise.resolve([]),
+		mayScan('user')
+			? discoverScopedPlugins(userRoot, USER_PLUGIN_DIR, 'user', options?.log)
+			: Promise.resolve([]),
 	])
 
 	logger.debug('Plugin discovery complete', {
