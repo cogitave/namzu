@@ -98,6 +98,7 @@ describe('the TUI permission-mode hop', () => {
 		const handler = queryCalls[0]?.resumeHandler as
 			| ((request: unknown) => Promise<unknown>)
 			| undefined
+		expect(queryCalls[0]?.runConfig).toMatchObject({ permissionMode: 'auto' })
 		expect(handler, 'createAgentSession did not install a resume handler').toBeTypeOf('function')
 		expect(await handler?.(review)).toEqual({
 			action: 'reject_tools',
