@@ -246,6 +246,15 @@ caller-supplied index as already ready and authoritative, and never adds a
 store read in front of it. Use that form for an independently managed search
 index.
 
+The disk-backed store admits a persisted index only after validating the full
+entry array: recognized and unique memory IDs, text fields and tags, admitted
+status, and finite timestamps. Invalid JSON, a newer schema, or valid JSON
+with the wrong domain shape refuses the operation and preserves the original
+bytes. It is never reinterpreted as an empty memory: doing so would let the
+next `save_memory` overwrite durable state this build did not understand. The
+refusal is retryable after the operator repairs or restores the index; it is
+not latched as a successful initialization.
+
 Alongside memory, `store/` has sibling stores for the kernel's durable concepts: `store/run/` (runs, events, checkpoints and surviving messages), `store/session/` (projects, topics, sessions and summaries), `store/goal/` (same-session completion state), `store/topic/` (mutable topic state and multi-round objectives), `store/activity/`, `store/attachment/`, `store/feedback/`, and `store/task/`. Topic state, objectives, session goals, and message feedback use exact revisions; the disk implementations publish immutable revision commits so one writer wins even across processes. See [Session-owned completion goals](session-goals.md), [Durable topic revisions](topic-store-revisions.md), and [Durable message-feedback revisions](feedback-store-revisions.md) for their ownership, filesystem, compatibility, and upgrade contracts.
 
 An active session goal is state, not a scheduler. The store proves which durable

@@ -1,5 +1,6 @@
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { NamzuError } from '../../types/errors/index.js'
 import type { MemoryId } from '../../types/ids/index.js'
 import type {
 	CreateMemoryParams,
@@ -9,7 +10,7 @@ import type {
 	MemorySearchResult,
 	MemoryStore,
 } from '../../types/memory/index.js'
-import { generateMemoryId } from '../../utils/id.js'
+import { asMemoryId, generateMemoryId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
@@ -26,6 +27,74 @@ import { InMemoryMemoryIndex } from './index.js'
  */
 const SCHEMA = defineSchema({ kind: 'memory-store', current: 1, migrations: {} })
 
+function invalidIndex(
+	reason: string,
+	details: { entryIndex?: number; field?: string } = {},
+): never {
+	throw new NamzuError({
+		code: 'storage_error',
+		message: `Memory index is invalid${
+			details.entryIndex === undefined ? '' : ` at entry ${details.entryIndex}`
+		}: ${reason}. Refusing to treat unreadable durable memory as empty.`,
+		details,
+		retryable: false,
+	})
+}
+
+/**
+ * Validate the domain shape before anything is installed in the live index.
+ *
+ * `DiskRecordStore` owns the version envelope and JSON parsing; it cannot
+ * know that this particular array contains memory entries. Keeping this
+ * check here avoids turning the generic primitive into a schema registry,
+ * while ensuring valid JSON with a wrong field type cannot be accepted and
+ * later written back beside a new record.
+ */
+function assertMemoryIndexEntries(value: unknown): asserts value is readonly MemoryIndexEntry[] {
+	if (!Array.isArray(value)) invalidIndex('the top-level value must be an array')
+
+	const ids = new Set<string>()
+	for (const [entryIndex, candidate] of value.entries()) {
+		if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+			invalidIndex('each entry must be an object', { entryIndex })
+		}
+		const entry = candidate as Record<string, unknown>
+
+		if (typeof entry.id !== 'string') {
+			invalidIndex('id must be a memory ID string', { entryIndex, field: 'id' })
+		}
+		try {
+			asMemoryId(entry.id)
+		} catch {
+			invalidIndex('id must use the recognized mem_ prefix', {
+				entryIndex,
+				field: 'id',
+			})
+		}
+		if (ids.has(entry.id)) {
+			invalidIndex('ids must be unique', { entryIndex, field: 'id' })
+		}
+		ids.add(entry.id)
+
+		for (const field of ['title', 'summary'] as const) {
+			if (typeof entry[field] !== 'string') {
+				invalidIndex(`${field} must be a string`, { entryIndex, field })
+			}
+		}
+		if (!Array.isArray(entry.tags) || !entry.tags.every((tag) => typeof tag === 'string')) {
+			invalidIndex('tags must be an array of strings', { entryIndex, field: 'tags' })
+		}
+		if (entry.status !== 'active' && entry.status !== 'archived') {
+			invalidIndex('status must be active or archived', { entryIndex, field: 'status' })
+		}
+		for (const field of ['createdAt', 'updatedAt'] as const) {
+			if (typeof entry[field] !== 'number' || !Number.isFinite(entry[field])) {
+				invalidIndex(`${field} must be a finite number`, { entryIndex, field })
+			}
+		}
+	}
+}
+
 export interface DiskMemoryStoreConfig {
 	baseDir: string
 	logger?: Logger
@@ -41,7 +110,7 @@ export class DiskMemoryStore implements MemoryStore {
 	// file holds one record, and a single `DiskRecordStore<unknown>` would
 	// have put the cast back at every call site.
 	private readonly records = new DiskRecordStore<MemoryContent>(SCHEMA)
-	private readonly indexRecords = new DiskRecordStore<readonly MemoryIndexEntry[]>(SCHEMA)
+	private readonly indexRecords = new DiskRecordStore<unknown>(SCHEMA)
 
 	constructor(config: DiskMemoryStoreConfig) {
 		this.baseDir = join(config.baseDir, 'memory')
@@ -67,18 +136,20 @@ export class DiskMemoryStore implements MemoryStore {
 
 		try {
 			// `null` for "no index yet", which is an ordinary first-run state
-			// and not something to warn about. The catch below is now only
-			// for a real IO or parse failure — the distinction this method
-			// used to draw by hand with an ENOENT comparison.
+			// and not something to warn about. Every other read, parse, version
+			// or domain-shape failure is a refusal: accepting it as empty lets
+			// the next create overwrite bytes this build did not understand.
 			const entries = await this.indexRecords.read(this.indexPath)
 			if (entries !== null) {
+				assertMemoryIndexEntries(entries)
 				this.index.rebuild([...entries])
 				this.log.info('Memory index loaded', { 'namzu.store.count': entries.length })
 			}
 		} catch (err) {
-			this.log.warn('Failed to read memory index — starting fresh', {
+			this.log.error('Failed to read memory index — refusing to start empty', {
 				'exception.message': String(err),
 			})
+			throw err
 		}
 
 		this.initialized = true

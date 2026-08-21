@@ -14,7 +14,7 @@
  * every reachability check and still lose the memory.
  */
 
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -153,6 +153,46 @@ describe('the run memory promoter', () => {
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('cold CLI memory')
 		expect(result.output).not.toBe('No memories found.')
+	})
+
+	it('refuses to save over a structurally invalid durable index', async () => {
+		const memoryDir = join(cwd, '.namzu', 'memory')
+		const indexPath = join(memoryDir, 'index.json')
+		const poisoned = `${JSON.stringify(
+			[
+				{
+					id: 'mem_poison',
+					title: null,
+					summary: 'valid JSON with an invalid memory shape',
+					tags: [],
+					status: 'active',
+					createdAt: 0,
+					updatedAt: 0,
+				},
+			],
+			null,
+			2,
+		)}\n`
+		mkdirSync(memoryDir, { recursive: true })
+		writeFileSync(indexPath, poisoned)
+
+		await drive()
+		const tools = queryCalls[0]?.tools
+		expect(tools).toBeInstanceOf(ToolRegistry)
+		const result = await (tools as ToolRegistry).execute(
+			'save_memory',
+			{
+				title: 'must not overwrite',
+				summary: 'the CLI refuses poisoned durable state',
+				content: 'this record must never be published',
+			},
+			toolContext(),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/memory|index/i)
+		expect(readFileSync(indexPath, 'utf-8')).toBe(poisoned)
+		expect(readdirSync(join(memoryDir, 'content'))).toEqual([])
 	})
 
 	it('leaves the store empty for a run that learned nothing', async () => {
