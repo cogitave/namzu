@@ -1,6 +1,6 @@
 {
   "name": "@namzu/lmstudio",
-  "version": "2.1.0",
+  "version": "3.0.0-test.0",
   "description": "LM Studio LLM provider for @namzu/sdk via the official @lmstudio/sdk. Local GUI-based model management, chat, and streaming with tool-use support.",
   "license": "FSL-1.1-MIT",
   "engines": {
@@ -57,7 +57,7 @@
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },
   "peerDependencies": {
-    "@namzu/sdk": ">=1.3.0"
+    "@namzu/sdk": ">=31.0.0-test.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

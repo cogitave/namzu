@@ -1,6 +1,6 @@
 {
   "name": "@namzu/evals",
-  "version": "0.3.0",
+  "version": "1.0.0-test.0",
   "description": "Namzu's own behaviour and security suites, runnable with `namzu eval` against an installed kernel.",
   "license": "FSL-1.1-MIT",
   "engines": {
@@ -32,7 +32,7 @@
     "provenance": true
   },
   "peerDependencies": {
-    "@namzu/sdk": ">=5.0.0"
+    "@namzu/sdk": ">=31.0.0-test.0"
   },
   "dependencies": {
     "zod": "^3.25.76"

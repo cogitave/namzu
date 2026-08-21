@@ -1,5 +1,51 @@
 # @namzu/lsp
 
+## 1.0.0-test.0
+
+### Patch Changes
+
+- Updated dependencies [bebad69]
+- Updated dependencies [27667cc]
+- Updated dependencies [fd5fcea]
+- Updated dependencies [777b444]
+- Updated dependencies [780a471]
+- Updated dependencies [74705e2]
+- Updated dependencies [0e678a8]
+- Updated dependencies [753b037]
+- Updated dependencies [3c61c94]
+- Updated dependencies [f528acd]
+- Updated dependencies [0a7bd58]
+- Updated dependencies [924df56]
+- Updated dependencies [ce8cd61]
+- Updated dependencies [45d7014]
+- Updated dependencies [99127d8]
+- Updated dependencies [2d16ca2]
+- Updated dependencies [a3a632f]
+- Updated dependencies [7a45aa4]
+- Updated dependencies [79faa99]
+- Updated dependencies [99ff79e]
+- Updated dependencies [ade6c85]
+- Updated dependencies [5581dde]
+- Updated dependencies [8de3582]
+- Updated dependencies [fd6683b]
+- Updated dependencies [15f8ee4]
+- Updated dependencies [43620d9]
+- Updated dependencies [63e8148]
+- Updated dependencies [317360a]
+- Updated dependencies [487ed4e]
+- Updated dependencies [c933952]
+- Updated dependencies [fd280c0]
+- Updated dependencies [ee4fd1d]
+- Updated dependencies [192d90e]
+- Updated dependencies [143b8d9]
+- Updated dependencies [c8753a7]
+- Updated dependencies [1792bcb]
+- Updated dependencies [bb8cb05]
+- Updated dependencies [095c936]
+- Updated dependencies [c6ebb31]
+- Updated dependencies [bf26200]
+  - @namzu/sdk@31.0.0-test.0
+
 ## 0.3.0
 
 ### Minor Changes
