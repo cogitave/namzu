@@ -29,14 +29,9 @@ export interface ConnectorMethod<TInput = unknown, TOutput = unknown> {
 	description: string
 	inputSchema: z.ZodType<TInput, z.ZodTypeDef, unknown>
 	/**
-	 * **Not consulted.** Neither in-tree connector declares one, and nothing
-	 * validates a result against it or shows it to a model.
-	 *
-	 * The tool layer solved the same problem already: a remote tool's output
-	 * schema is appended to its description by `describeWithOutput`, because
-	 * no provider's tool wire format has a slot for one. A connector method
-	 * that reaches a model through that bridge should take the same route
-	 * rather than growing a second mechanism.
+	 * Canonical output contract for this method. ConnectorManager validates a
+	 * successful implementation result before publishing it and exposes the
+	 * rendered schema to tool and MCP consumers.
 	 */
 	outputSchema?: z.ZodType<TOutput, z.ZodTypeDef, unknown>
 }

@@ -1943,6 +1943,7 @@
         "MCPTransportSendOptions",
         "MCPTransportType",
         "MCPTransportUnion",
+        "MCPValueJsonSchema",
         "MCP_PROTOCOL_VERSION",
         "MCP_SUPPORTED_PROTOCOL_VERSIONS",
         "MIGRATION_VERSION",

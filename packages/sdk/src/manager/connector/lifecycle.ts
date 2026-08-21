@@ -1,5 +1,7 @@
 import type { BaseConnector } from '../../connector/BaseConnector.js'
+import { managedConnectorOptions } from '../../connector/execution-contract.js'
 import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
+import { renderToolSchema } from '../../registry/tool/schema.js'
 import type {
 	AuthConfig,
 	AuthType,
@@ -10,8 +12,10 @@ import type {
 	ConnectorExecuteResult,
 	ConnectorInstance,
 	ConnectorLifecycleEvent,
+	ConnectorMethod,
 	ConnectorOperationOptions,
 	ConnectorStatus,
+	ConnectorTrigger,
 } from '../../types/connector/index.js'
 import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
@@ -57,6 +61,70 @@ function sameAuthPolicy(
 	const expected = new Set(registered)
 	const actual = new Set(implementation)
 	return expected.size === actual.size && [...expected].every((authType) => actual.has(authType))
+}
+
+function sameMethodSurface(
+	registered: readonly ConnectorMethod[],
+	implementation: readonly ConnectorMethod[],
+): boolean {
+	const expected = new Set(registered.map((method) => method.name))
+	const actual = new Set(implementation.map((method) => method.name))
+	return (
+		expected.size === registered.length &&
+		actual.size === implementation.length &&
+		expected.size === actual.size &&
+		[...expected].every((name) => actual.has(name))
+	)
+}
+
+function copyMethod(method: ConnectorMethod): ConnectorMethod {
+	return { ...method }
+}
+
+function copyTrigger(trigger: ConnectorTrigger): ConnectorTrigger {
+	return { ...trigger }
+}
+
+function copyDefinition(definition: ConnectorDefinition): ConnectorDefinition {
+	return {
+		...definition,
+		...(definition.supportedAuth ? { supportedAuth: [...definition.supportedAuth] } : {}),
+		methods: definition.methods.map(copyMethod),
+		...(definition.triggers ? { triggers: definition.triggers.map(copyTrigger) } : {}),
+	}
+}
+
+function assertMethodSchemas(definition: ConnectorDefinition): void {
+	for (const method of definition.methods) {
+		try {
+			renderToolSchema(method.inputSchema)
+			if (method.outputSchema) renderToolSchema(method.outputSchema)
+		} catch (err) {
+			throw new Error(
+				`Connector method "${method.name}" on "${definition.id}" has a schema that cannot be projected: ${toErrorMessage(err)}`,
+			)
+		}
+	}
+}
+
+function formatSchemaIssues(issues: readonly { path: PropertyKey[]; message: string }[]): string {
+	return issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ')
+}
+
+function formatOutputSchemaIssues(
+	issues: readonly { path: PropertyKey[]; code: string }[],
+): string {
+	return issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.code}`).join('; ')
+}
+
+function notStartedFailure(error: string): ConnectorExecuteResult {
+	return {
+		success: false,
+		output: null,
+		error,
+		durationMs: 0,
+		metadata: { remoteOutcome: 'not_started', retrySafety: 'safe' },
+	}
 }
 
 async function settleWithSignal<T>(
@@ -147,10 +215,19 @@ export class ConnectorManager {
 				`Connector implementation "${connector.id}" does not match its registered auth policy`,
 			)
 		}
+		assertMethodSchemas(definition)
+		if (!sameMethodSurface(definition.methods, connector.methods)) {
+			throw new Error(
+				`Connector implementation "${connector.id}" does not match its registered method surface`,
+			)
+		}
+		const capturedDefinition = copyDefinition(definition)
 		const admission: InstanceAdmission = {
 			connectorId: config.connectorId,
-			definition,
-			...(definition.supportedAuth ? { supportedAuth: new Set(definition.supportedAuth) } : {}),
+			definition: capturedDefinition,
+			...(capturedDefinition.supportedAuth
+				? { supportedAuth: new Set(capturedDefinition.supportedAuth) }
+				: {}),
 		}
 		if (config.auth) this.requireSupportedAuth(admission, config.connectorId, config.auth.type)
 
@@ -256,23 +333,56 @@ export class ConnectorManager {
 	async execute(params: ConnectorExecuteParams): Promise<ConnectorExecuteResult> {
 		const instance = this.getInstanceOrThrow(params.instanceId)
 		const connector = this.getConnectorOrThrow(params.instanceId)
+		const admission = this.getAdmissionOrThrow(params.instanceId)
 		if (params.signal?.aborted) {
-			return {
-				success: false,
-				output: null,
-				error: `Connector execution was cancelled before it started: ${toErrorMessage(params.signal.reason)}. No remote request was started; retry is safe.`,
-				durationMs: 0,
-				metadata: { remoteOutcome: 'not_started', retrySafety: 'safe' },
-			}
+			return notStartedFailure(
+				`Connector execution was cancelled before it started: ${toErrorMessage(params.signal.reason)}. No remote request was started; retry is safe.`,
+			)
+		}
+
+		const method = admission.definition.methods.find(
+			(candidate) => candidate.name === params.method,
+		)
+		if (!method) {
+			const available = admission.definition.methods.map((candidate) => candidate.name).join(', ')
+			return notStartedFailure(
+				`Connector method "${params.method}" is not registered for "${admission.connectorId}". Available: ${available || '(none)'}. No remote request was started; retry is safe after correcting the method.`,
+			)
 		}
 
 		if (instance.status !== 'connected') {
-			return {
-				success: false,
-				output: null,
-				error: `Connector "${params.instanceId}" is not connected (status: ${instance.status})`,
-				durationMs: 0,
+			return notStartedFailure(
+				`Connector "${params.instanceId}" is not connected (status: ${instance.status}). No remote request was started; retry is safe after connecting it.`,
+			)
+		}
+
+		let canonicalInput: unknown
+		try {
+			const parsedInput = await settleWithSignal(
+				method.inputSchema.safeParseAsync(params.input),
+				params.signal,
+			)
+			if (!parsedInput.success) {
+				return notStartedFailure(
+					`Invalid input for connector method "${params.method}": ${formatSchemaIssues(parsedInput.error.issues)}. No remote request was started; retry is safe after correcting the input.`,
+				)
 			}
+			canonicalInput = parsedInput.data
+		} catch (err) {
+			if (params.signal?.aborted) {
+				return notStartedFailure(
+					`Connector execution was cancelled during input validation: ${toErrorMessage(params.signal.reason)}. No remote request was started; retry is safe.`,
+				)
+			}
+			return notStartedFailure(
+				`Input validation failed for connector method "${params.method}": ${toErrorMessage(err)}. No remote request was started; retry is safe after correcting the connector schema or input.`,
+			)
+		}
+
+		if (params.signal?.aborted) {
+			return notStartedFailure(
+				`Connector execution was cancelled before it started: ${toErrorMessage(params.signal.reason)}. No remote request was started; retry is safe.`,
+			)
 		}
 
 		this.emit({
@@ -283,23 +393,59 @@ export class ConnectorManager {
 		const start = performance.now()
 		try {
 			const result = await settleWithSignal(
-				connector.execute(params.method, params.input, {
-					signal: params.signal,
-				}),
+				connector.execute(
+					params.method,
+					canonicalInput,
+					managedConnectorOptions({ signal: params.signal }),
+				),
 				params.signal,
 				(result) =>
 					result.metadata?.remoteOutcome === 'response_received' ||
 					(!result.success && result.metadata?.remoteOutcome !== undefined),
 			)
 			instance.lastUsedAt = Date.now()
+			let published = result
+			if (result.success && method.outputSchema) {
+				try {
+					const parsedOutput = await settleWithSignal(
+						method.outputSchema.safeParseAsync(result.output),
+						params.signal,
+					)
+					published = parsedOutput.success
+						? { ...result, output: parsedOutput.data }
+						: {
+								success: false,
+								output: null,
+								error: `Connector method "${params.method}" returned output that violates its registered schema: ${formatOutputSchemaIssues(parsedOutput.error.issues)}. A remote response was received; do not automatically retry.`,
+								durationMs: result.durationMs,
+								metadata: {
+									...result.metadata,
+									remoteOutcome: 'response_received',
+									retrySafety: 'unsafe',
+								},
+							}
+				} catch {
+					published = {
+						success: false,
+						output: null,
+						error: `Connector method "${params.method}" output validation could not establish the registered contract. A remote response was received; do not automatically retry.`,
+						durationMs: result.durationMs,
+						metadata: {
+							...result.metadata,
+							remoteOutcome: 'response_received',
+							retrySafety: 'unsafe',
+						},
+					}
+				}
+			}
 			this.emit({
 				type: 'action_completed',
 				instanceId: params.instanceId,
 				method: params.method,
-				success: result.success,
-				durationMs: result.durationMs,
+				success: published.success,
+				durationMs: published.durationMs,
 			})
-			return result
+			return published
 		} catch (err) {
 			const message = toErrorMessage(err)
 			const durationMs = Math.round(performance.now() - start)
@@ -365,6 +511,10 @@ export class ConnectorManager {
 
 	getInstanceConnectorId(instanceId: ConnectorInstanceId): ConnectorId {
 		return this.getAdmissionOrThrow(instanceId).connectorId
+	}
+
+	getInstanceDefinition(instanceId: ConnectorInstanceId): ConnectorDefinition {
+		return copyDefinition(this.getAdmissionOrThrow(instanceId).definition)
 	}
 
 	supportsAuth(instanceId: ConnectorInstanceId, authType: AuthType): boolean {

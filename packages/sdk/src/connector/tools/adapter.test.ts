@@ -76,6 +76,8 @@ function makeManager(overrides: Partial<ConnectorManager> = {}): ConnectorManage
 	}
 	return {
 		getInstance: vi.fn(() => instance),
+		getInstanceConnectorId: vi.fn(() => CID),
+		getInstanceDefinition: vi.fn(() => def),
 		getRegistry: vi.fn(() => registry),
 		listConnectedInstances: vi.fn(() => [instance]),
 		listInstances: vi.fn(() => [instance]),
@@ -89,7 +91,16 @@ const ctx: ToolContext = {} as ToolContext
 describe('connectorMethodToTool', () => {
 	it('produces the expected name + description + flags', () => {
 		const manager = makeManager()
-		const tool = connectorMethodToTool(CID, IID1, makeMethod('request'), manager)
+		const tool = connectorMethodToTool(
+			CID,
+			IID1,
+			{
+				...makeMethod('request'),
+				inputSchema: z.object({ raw: z.string() }),
+				outputSchema: z.object({ accepted: z.boolean() }),
+			},
+			manager,
+		)
 		expect(tool.name).toBe(`${CID}_request`)
 		expect(tool.description).toBe(`[${CID}] request description`)
 		expect(tool.category).toBe('network')
@@ -97,6 +108,15 @@ describe('connectorMethodToTool', () => {
 		expect(tool.isReadOnly?.({})).toBe(false)
 		expect(tool.isDestructive?.({})).toBe(false)
 		expect(tool.isConcurrencySafe?.({})).toBe(true)
+		expect(tool.inputSchema.safeParse({ anything: true }).success).toBe(true)
+		expect(tool.modelInputSchema).toMatchObject({
+			type: 'object',
+			properties: { raw: { type: 'string' } },
+		})
+		expect(tool.outputSchema).toMatchObject({
+			type: 'object',
+			properties: { accepted: { type: 'boolean' } },
+		})
 	})
 
 	it('execute wraps manager.execute success into a ToolResult with stringified output', async () => {

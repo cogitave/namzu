@@ -13,6 +13,7 @@ import type {
 import type { ConnectorId } from '../types/ids/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
+import { hasManagerValidatedInput } from './execution-contract.js'
 
 export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifecycle<TConfig> {
 	abstract readonly id: ConnectorId
@@ -71,8 +72,13 @@ export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifec
 		return method
 	}
 
-	protected validateInput(method: ConnectorMethod, input: unknown): unknown {
-		const result = method.inputSchema.safeParse(input)
+	protected async validateInput(
+		method: ConnectorMethod,
+		input: unknown,
+		options?: ConnectorOperationOptions,
+	): Promise<unknown> {
+		if (hasManagerValidatedInput(options)) return input
+		const result = await method.inputSchema.safeParseAsync(input)
 		if (!result.success) {
 			const errors = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 			throw new Error(`Invalid input for method "${method.name}": ${errors}`)

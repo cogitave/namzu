@@ -90,6 +90,12 @@ async function connected(): Promise<{
 	return { manager, connector, id: instance.id }
 }
 
+function executionStarted(connector: HeldConnector): Promise<void> {
+	return new Promise((resolve) => {
+		connector.onExecute = resolve
+	})
+}
+
 describe('ConnectorManager operation authority', () => {
 	it('refuses a pre-aborted execution before invoking the connector', async () => {
 		const { manager, connector, id } = await connected()
@@ -107,12 +113,14 @@ describe('ConnectorManager operation authority', () => {
 	it('abandons an uncooperative custom connector with an honest unknown outcome', async () => {
 		const { manager, connector, id } = await connected()
 		const caller = new AbortController()
+		const started = executionStarted(connector)
 		const pending = manager.execute({
 			instanceId: id,
 			method: 'hold',
 			input: {},
 			signal: caller.signal,
 		})
+		await started
 		const reason = new Error('operator stopped the connector')
 		caller.abort(reason)
 
@@ -163,12 +171,14 @@ describe('ConnectorManager operation authority', () => {
 			if (event.type === 'action_completed') completed.push(event.success)
 		})
 		const caller = new AbortController()
+		const started = executionStarted(connector)
 		const pending = manager.execute({
 			instanceId: id,
 			method: 'hold',
 			input: {},
 			signal: caller.signal,
 		})
+		await started
 		caller.abort(new Error('authority withdrawn before late success'))
 
 		const result = await pending
@@ -216,12 +226,14 @@ describe('ConnectorManager operation authority', () => {
 		expect(refused.metadata).toMatchObject({ remoteOutcome: 'not_started', retrySafety: 'safe' })
 
 		const caller = new AbortController()
+		const started = executionStarted(connector)
 		const live = manager.execute(tenantId, {
 			instanceId: instance.id,
 			method: 'hold',
 			input: {},
 			signal: caller.signal,
 		})
+		await started
 		caller.abort(new Error('settle admitted operation'))
 		const admitted = await live
 
@@ -285,12 +297,14 @@ describe('ConnectorManager operation authority', () => {
 		expect(environmentConnector.receivedSignal).toBe(environmentCaller.signal)
 
 		const executeCaller = new AbortController()
+		const started = executionStarted(environmentConnector)
 		const environmentExecution = environmentManager.execute(environmentId, {
 			instanceId: environmentInstance.id,
 			method: 'hold',
 			input: {},
 			signal: executeCaller.signal,
 		})
+		await started
 		executeCaller.abort(new Error('stop environment execution'))
 		const environmentResult = await environmentExecution
 		expect(environmentResult.metadata).toMatchObject({

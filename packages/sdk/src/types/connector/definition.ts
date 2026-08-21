@@ -85,6 +85,7 @@ export interface ConnectorLifecycle<TConfig = unknown> {
 	healthCheck(options?: ConnectorOperationOptions): Promise<boolean>
 	execute(
 		method: string,
+		/** ConnectorManager supplies the method schema's parsed canonical value on managed calls. */
 		input: unknown,
 		options?: ConnectorOperationOptions,
 	): Promise<ConnectorExecuteResult>

@@ -199,6 +199,33 @@ describe('toolDefinitionToMCPTool', () => {
 		expect(out.inputSchema.type).toBe('object')
 		expect(out.annotations).toEqual({ readOnlyHint: true, destructiveHint: false })
 	})
+
+	it('prefers the model schema over a pass-through runtime decoder and carries output schema', () => {
+		const tool: ToolDefinition = {
+			name: 'connector_method',
+			description: 'captured connector method',
+			inputSchema: z.unknown(),
+			modelInputSchema: {
+				type: 'object',
+				properties: { raw: { type: 'string' } },
+				required: ['raw'],
+			},
+			outputSchema: {
+				type: 'object',
+				properties: { accepted: { type: 'boolean' } },
+			},
+			async execute() {
+				return { success: true, output: '' }
+			},
+		}
+
+		const out = toolDefinitionToMCPTool(tool)
+
+		expect(out.inputSchema).toEqual(tool.modelInputSchema)
+		expect(out.inputSchema).not.toBe(tool.modelInputSchema)
+		expect(out.outputSchema).toEqual(tool.outputSchema)
+		expect(out.outputSchema).not.toBe(tool.outputSchema)
+	})
 })
 
 describe('mcpToolResultToToolResult', () => {

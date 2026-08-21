@@ -1,6 +1,6 @@
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import { connectorToolError } from '../../../connector/tools/result.js'
 import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
+import { renderToolSchema } from '../../../registry/tool/schema.js'
 import type {
 	ConnectorDefinition,
 	ConnectorExecuteResult,
@@ -11,8 +11,9 @@ import type {
 	MCPJsonSchema,
 	MCPToolDefinition,
 	MCPToolResult,
+	MCPValueJsonSchema,
 } from '../../../types/connector/index.js'
-import type { ConnectorInstanceId } from '../../../types/ids/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../../../types/ids/index.js'
 import { SCOPE_ATTRIBUTE } from '../../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../../utils/logger.js'
 
@@ -37,11 +38,11 @@ export class MCPConnectorBridge {
 		const tools: MCPToolDefinition[] = []
 
 		for (const instance of instances) {
-			const definition = this.manager.getRegistry().get(instance.connectorId)
-			if (!definition) continue
+			const connectorId = this.manager.getInstanceConnectorId(instance.id)
+			const definition = this.manager.getInstanceDefinition(instance.id)
 
 			for (const method of definition.methods) {
-				const mcpTool = this.methodToMCPTool(instance, definition, method)
+				const mcpTool = this.methodToMCPTool(instance.id, connectorId, definition, method)
 				tools.push(mcpTool)
 			}
 		}
@@ -81,16 +82,17 @@ export class MCPConnectorBridge {
 	}
 
 	private methodToMCPTool(
-		instance: ConnectorInstance,
+		instanceId: ConnectorInstanceId,
+		connectorId: ConnectorId,
 		definition: ConnectorDefinition,
 		method: ConnectorMethod,
 	): MCPToolDefinition {
-		const mcpToolName = `${this.prefix}_${instance.connectorId}_${method.name}`
+		const mcpToolName = `${this.prefix}_${connectorId}_${method.name}`
 
 		this.mappings.push({
 			mcpToolName,
-			connectorId: instance.connectorId,
-			instanceId: instance.id,
+			connectorId,
+			instanceId,
 			methodName: method.name,
 		})
 
@@ -100,19 +102,18 @@ export class MCPConnectorBridge {
 			name: mcpToolName,
 			description: `[${definition.name}] ${method.description}`,
 			inputSchema,
+			...(method.outputSchema ? { outputSchema: this.zodToMCPOutputSchema(method) } : {}),
 		}
 	}
 
 	private zodToMCPSchema(method: ConnectorMethod): MCPJsonSchema {
-		try {
-			const jsonSchema = zodToJsonSchema(method.inputSchema, { target: 'openApi3' })
-			return {
-				type: 'object',
-				...jsonSchema,
-			} as MCPJsonSchema
-		} catch {
-			return { type: 'object' }
-		}
+		return renderToolSchema(method.inputSchema) as MCPJsonSchema
+	}
+
+	private zodToMCPOutputSchema(method: ConnectorMethod): MCPValueJsonSchema {
+		return renderToolSchema(
+			method.outputSchema as NonNullable<ConnectorMethod['outputSchema']>,
+		) as MCPValueJsonSchema
 	}
 
 	private connectorResultToMCPResult(result: ConnectorExecuteResult): MCPToolResult {

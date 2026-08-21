@@ -65,6 +65,8 @@ function makeManager(instances: ConnectorInstance[]): ConnectorManager {
 	} as unknown as ConnectorRegistry
 	return {
 		getInstance: vi.fn((id) => instances.find((i) => i.id === id)),
+		getInstanceConnectorId: vi.fn(() => CID),
+		getInstanceDefinition: vi.fn(() => def),
 		getRegistry: vi.fn(() => registry),
 		listConnectedInstances: vi.fn(() => instances),
 		listInstances: vi.fn(() => instances),

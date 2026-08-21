@@ -77,6 +77,8 @@ function makeManager(overrides: Partial<ConnectorManager> = {}): ConnectorManage
 	const instance = makeInstance()
 	return {
 		getInstance: vi.fn(() => instance),
+		getInstanceConnectorId: vi.fn(() => CID),
+		getInstanceDefinition: vi.fn(() => def),
 		getRegistry: vi.fn(() => registry),
 		listConnectedInstances: vi.fn(() => [instance]),
 		execute: vi.fn<() => Promise<ConnectorExecuteResult>>(),
@@ -113,12 +115,12 @@ describe('MCPConnectorBridge.listTools', () => {
 		expect(bridge.getMappings()).toHaveLength(1)
 	})
 
-	it('skips instances whose connectorId is missing in the registry', () => {
+	it('keeps the admitted definition when the registry no longer has the connector', () => {
 		const manager = makeManager({
 			getRegistry: vi.fn(() => ({ get: vi.fn(() => undefined) }) as unknown as ConnectorRegistry),
 		} as unknown as Partial<ConnectorManager>)
 		const bridge = new MCPConnectorBridge({ manager })
-		expect(bridge.listTools()).toEqual([])
+		expect(bridge.listTools()).toHaveLength(1)
 	})
 
 	it('getMappings returns a copy — external mutation does not leak', () => {
@@ -129,7 +131,7 @@ describe('MCPConnectorBridge.listTools', () => {
 		expect(bridge.getMappings()).toHaveLength(1)
 	})
 
-	it('schema conversion falls back to {type: object} when zodToJsonSchema throws', () => {
+	it('does not silently replace an unprojectable captured schema with an empty object', () => {
 		const bad = makeDefinition({
 			methods: [
 				{
@@ -141,11 +143,10 @@ describe('MCPConnectorBridge.listTools', () => {
 			],
 		})
 		const manager = makeManager({
-			getRegistry: vi.fn(() => ({ get: vi.fn(() => bad) }) as unknown as ConnectorRegistry),
+			getInstanceDefinition: vi.fn(() => bad),
 		} as unknown as Partial<ConnectorManager>)
 		const bridge = new MCPConnectorBridge({ manager })
-		const tools = bridge.listTools()
-		expect(tools[0]?.inputSchema).toEqual({ type: 'object' })
+		expect(() => bridge.listTools()).toThrow()
 	})
 })
 

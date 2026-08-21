@@ -108,6 +108,12 @@ export interface MCPJsonSchema {
 	[key: string]: unknown
 }
 
+/** A JSON Schema for a value, including non-object tool outputs. */
+export interface MCPValueJsonSchema {
+	type?: string
+	[key: string]: unknown
+}
+
 export interface MCPToolAnnotations {
 	title?: string
 	readOnlyHint?: boolean
@@ -128,7 +134,7 @@ export interface MCPToolDefinition {
 	 * shape never reached the model at all, which was left inferring one
 	 * from prose or from whatever the first call happened to return.
 	 */
-	outputSchema?: MCPJsonSchema
+	outputSchema?: MCPValueJsonSchema
 	annotations?: MCPToolAnnotations
 }
 
@@ -301,10 +307,8 @@ export type MCPEventListener = (event: MCPLifecycleEvent) => void
 
 type ConnectorManager = {
 	getInstance(instanceId: ConnectorInstanceId): ConnectorInstance | undefined
-	getRegistry(): {
-		get(connectorId: ConnectorId): ConnectorDefinition | undefined
-		getOrThrow(connectorId: ConnectorId): ConnectorDefinition
-	}
+	getInstanceConnectorId(instanceId: ConnectorInstanceId): ConnectorId
+	getInstanceDefinition(instanceId: ConnectorInstanceId): ConnectorDefinition
 	listConnectedInstances(): ConnectorInstance[]
 	execute(params: ConnectorExecuteParams): Promise<ConnectorExecuteResult>
 }

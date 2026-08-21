@@ -10,7 +10,7 @@
  *   - `findMethod(name)` returns the method by name or undefined.
  *   - `requireMethod(name)` throws with the method name + available
  *     names when not found.
- *   - `validateInput(method, input)`: zod.safeParse; on failure
+ *   - `validateInput(method, input)`: async Zod parse; on failure
  *     throws `Invalid input for method "<name>": <joined issues>`.
  *   - `measureExecution(fn)` returns `{result, durationMs}` with
  *     durationMs rounded.
@@ -60,7 +60,7 @@ class TestConnector extends BaseConnector<{ base: string }> {
 	publicRequireMethod(name: string): ConnectorMethod {
 		return this.requireMethod(name)
 	}
-	publicValidateInput(method: ConnectorMethod, input: unknown): unknown {
+	publicValidateInput(method: ConnectorMethod, input: unknown): Promise<unknown> {
 		return this.validateInput(method, input)
 	}
 	publicMeasureExecution<T>(fn: () => Promise<T>) {
@@ -107,20 +107,35 @@ describe('BaseConnector', () => {
 		expect(() => c.publicRequireMethod('nope')).toThrow(/Available: echo/)
 	})
 
-	it('validateInput passes through parsed data on success', () => {
+	it('validateInput passes through parsed data on success', async () => {
 		const c = new TestConnector()
 		const method = c.publicRequireMethod('echo')
-		expect(c.publicValidateInput(method, { value: 'hi' })).toEqual({
+		await expect(c.publicValidateInput(method, { value: 'hi' })).resolves.toEqual({
 			value: 'hi',
 		})
 	})
 
-	it('validateInput throws with joined issue messages on failure', () => {
+	it('validateInput throws with joined issue messages on failure', async () => {
 		const c = new TestConnector()
 		const method = c.publicRequireMethod('echo')
-		expect(() => c.publicValidateInput(method, { value: 123 })).toThrow(
+		await expect(c.publicValidateInput(method, { value: 123 })).rejects.toThrow(
 			/Invalid input for method "echo"/,
 		)
+	})
+
+	it('validateInput supports async canonical transforms for direct connector calls', async () => {
+		const c = new TestConnector()
+		const method: ConnectorMethod = {
+			name: 'async',
+			description: 'async transform',
+			inputSchema: z.object({ raw: z.string() }).transform(async ({ raw }) => ({
+				canonical: raw.trim(),
+			})),
+		}
+
+		await expect(c.publicValidateInput(method, { raw: ' value ' })).resolves.toEqual({
+			canonical: 'value',
+		})
 	})
 
 	it('measureExecution returns the result + rounded durationMs', async () => {

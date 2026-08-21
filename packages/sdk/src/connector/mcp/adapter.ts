@@ -465,7 +465,10 @@ export function toolDefinitionToMCPTool(tool: ToolDefinition): MCPToolDefinition
 	return {
 		name: tool.name,
 		description: tool.description,
-		inputSchema: zodToMCPJsonSchema(tool.inputSchema),
+		inputSchema: tool.modelInputSchema
+			? (inlineSchemaRefs(tool.modelInputSchema) as MCPJsonSchema)
+			: zodToMCPJsonSchema(tool.inputSchema),
+		...(tool.outputSchema ? { outputSchema: inlineSchemaRefs(tool.outputSchema) } : {}),
 		annotations: {
 			readOnlyHint: tool.isReadOnly?.(undefined as never),
 			destructiveHint: tool.isDestructive?.(undefined as never),

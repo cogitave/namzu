@@ -146,7 +146,11 @@ export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 		options?: ConnectorOperationOptions,
 	): Promise<ConnectorExecuteResult> {
 		this.requireMethod(method)
-		const validated = this.validateInput(this.requireMethod(method), input) as WebhookSendInput
+		const validated = (await this.validateInput(
+			this.requireMethod(method),
+			input,
+			options,
+		)) as WebhookSendInput
 		const startedAt = performance.now()
 		if (options?.signal?.aborted) {
 			return this.notStarted(options.signal.reason, startedAt)

@@ -118,6 +118,12 @@ The built-in HTTP connector accepts `none`, `api_key`, `bearer`, `basic`,
 reported success. A custom connector may omit `supportedAuth` only when it
 intentionally accepts every `AuthType`.
 
+Method declarations are also admission contracts. Instance creation requires
+the registered definition and the concrete connector to expose the same unique
+method names, then captures the registered definition for the lifetime of that
+instance. Replacing or mutating the registry later does not add a hidden method
+or change the schemas already admitted for a live instance.
+
 For multi-tenant hosts, a credential id is a locator, not authority. Use
 `TenantConnectorManager` with a `CredentialVault`; its connection path resolves
 the secret atomically under both tenant and connector scope:
@@ -187,6 +193,35 @@ console.log(result.success)
 console.log(result.output)
 console.log(result.durationMs)
 ```
+
+`ConnectorManager.execute()` resolves the method from that captured admission
+and runs its `inputSchema` asynchronously before publishing an
+`action_executing` event or invoking connector I/O. Zod transforms therefore
+produce the canonical value received by the connector. An unknown method or
+invalid input returns a `not_started` / safe-to-retry refusal without calling
+the connector.
+
+When a successful result has an `outputSchema`, the manager validates and
+transforms it before any tool, MCP bridge, or direct caller receives it. A
+schema-invalid result is quarantined as `output: null`, marked
+`response_received` and unsafe to retry, and does not expose the rejected body
+to the next model request. Input and output parsers share the operation signal,
+so an async transform cannot keep a cancelled operation alive indefinitely.
+
+Custom `BaseConnector` subclasses that validate inside `execute()` must pass
+the operation options and await the helper:
+
+```ts sketch
+const canonical = await this.validateInput(
+  this.requireMethod(method),
+  input,
+  options,
+)
+```
+
+That keeps standalone connector calls validated while recognizing the
+canonical input already produced by `ConnectorManager`. Omitting `options`
+would parse a managed input twice and can rerun a transform.
 
 This is useful for:
 
@@ -300,6 +335,12 @@ Two patterns exist:
 | `allConnectorTools(manager)` | You want one concrete tool per connected method |
 
 If you want one explicit router-style tool, use `createConnectorRouterTool()` or `ConnectorToolRouter`.
+
+Per-method tools advertise the captured method `inputSchema` to the model but
+use a pass-through runtime decoder; `ConnectorManager` remains the only place
+that executes the method's Zod parser. This distinction matters for async and
+non-idempotent transforms. The generic and router tools cannot advertise one
+dynamic method schema, but they reach the same manager enforcement boundary.
 
 ## 6. Consume Remote MCP Servers Inside Namzu
 
@@ -472,6 +513,12 @@ provider's tool wire format has a slot for it, so namzu appends it to the
 description the model sees (`Returns (JSON Schema): …`). It is **shown,
 never validated** — namzu does not check a tool's return value against it,
 which is why it is carried as JSON Schema verbatim rather than rebuilt.
+
+That rule describes a remote MCP server's declaration. A Namzu
+`ConnectorMethod.outputSchema` is different: it is a host-authored Zod contract
+that `ConnectorManager` enforces before adapting the result into either a
+Namzu tool or an MCP response. Connector bridges also publish its rendered JSON
+Schema, including non-object return shapes.
 
 A server may also answer with `structuredContent` and omit the
 compatibility text block. That payload is serialized into the tool result's

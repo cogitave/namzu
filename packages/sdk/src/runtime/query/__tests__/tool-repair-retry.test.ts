@@ -141,6 +141,29 @@ describe('repairToolCall', () => {
 		expect(ctx?.availableTools).toContain('read_file')
 	})
 
+	it('hands the repairer the model schema when runtime decoding is owned by the tool', async () => {
+		const connectorMethod: ToolDefinition = {
+			name: 'connector_method',
+			description: 'Connector method',
+			inputSchema: z.unknown(),
+			modelInputSchema: {
+				type: 'object',
+				properties: { raw: { type: 'string' } },
+				required: ['raw'],
+			},
+			async execute() {
+				return { success: true, output: 'ok' }
+			},
+		}
+		registry.register(connectorMethod)
+		const seen = vi.fn<RepairToolCall>(() => null)
+		const { executor } = makeExecutor(registry, { repairToolCall: seen })
+
+		await executor.executeBatch(response('connector_method', '{bad'))
+
+		expect(seen.mock.calls[0]?.[0].jsonSchema).toEqual(connectorMethod.modelInputSchema)
+	})
+
 	it('can correct a near-miss tool name', async () => {
 		const repair: RepairToolCall = ({ reason, availableTools }) =>
 			reason === 'unknown_tool'

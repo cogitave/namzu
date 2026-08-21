@@ -1451,7 +1451,9 @@ export class ToolExecutor {
 				toolCall,
 				reason: failure.reason,
 				message: failure.message,
-				...(tool ? { tool, jsonSchema: renderToolSchema(tool.inputSchema) } : {}),
+				...(tool
+					? { tool, jsonSchema: tool.modelInputSchema ?? renderToolSchema(tool.inputSchema) }
+					: {}),
 				availableTools: this.config.tools.listNames(),
 			})
 		} catch (err) {

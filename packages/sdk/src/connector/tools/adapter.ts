@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
+import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ConnectorMethod } from '../../types/connector/index.js'
 import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
@@ -17,7 +18,11 @@ export function connectorMethodToTool(
 	return {
 		name: toolName,
 		description: `[${connectorId}] ${method.description}`,
-		inputSchema: method.inputSchema,
+		// ConnectorManager owns method parsing. A second Zod parse here would
+		// re-run transforms before the manager sees the value.
+		inputSchema: z.unknown(),
+		modelInputSchema: renderToolSchema(method.inputSchema),
+		...(method.outputSchema ? { outputSchema: renderToolSchema(method.outputSchema) } : {}),
 		category: 'network',
 		permissions: ['network_access'],
 		isReadOnly: () => false,
@@ -51,9 +56,10 @@ export function connectorInstanceToTools(
 		throw new Error(`Connector instance not found: "${instanceId}"`)
 	}
 
-	const definition = manager.getRegistry().getOrThrow(instance.connectorId)
+	const connectorId = manager.getInstanceConnectorId(instanceId)
+	const definition = manager.getInstanceDefinition(instanceId)
 	return definition.methods.map((method) =>
-		connectorMethodToTool(instance.connectorId, instanceId, method, manager),
+		connectorMethodToTool(connectorId, instanceId, method, manager),
 	)
 }
 
@@ -100,11 +106,12 @@ export function createConnectorRouterTool(
 				}
 			}
 
-			if (instance.connectorId !== input.connectorId) {
+			const connectorId = manager.getInstanceConnectorId(instanceId)
+			if (connectorId !== input.connectorId) {
 				return {
 					success: false,
 					output: '',
-					error: `Instance "${input.instanceId}" belongs to connector "${instance.connectorId}", not "${input.connectorId}"`,
+					error: `Instance "${input.instanceId}" belongs to connector "${connectorId}", not "${input.connectorId}"`,
 				}
 			}
 
@@ -133,11 +140,10 @@ function buildRouterDescription(manager: ConnectorManager): string {
 
 	const parts = ['Execute a method on a connected connector instance. Available:']
 	for (const inst of instances) {
-		const def = manager.getRegistry().get(inst.connectorId)
-		if (def) {
-			const methods = def.methods.map((m) => m.name).join(', ')
-			parts.push(`- ${inst.connectorId} (${inst.id}): ${methods}`)
-		}
+		const connectorId = manager.getInstanceConnectorId(inst.id)
+		const definition = manager.getInstanceDefinition(inst.id)
+		const methods = definition.methods.map((method) => method.name).join(', ')
+		parts.push(`- ${connectorId} (${inst.id}): ${methods}`)
 	}
 	return parts.join('\n')
 }
