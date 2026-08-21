@@ -8,8 +8,10 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import type { TuiContext } from '../tui/types.js'
 
-const launchTui = vi.hoisted(() => vi.fn(async () => {}))
+const launchTui = vi.hoisted(() => vi.fn(async (_ctx: TuiContext) => {}))
 
 vi.mock('../tui/index.js', () => ({ launchTui }))
 
@@ -39,7 +41,9 @@ describe('terminal notification config reaches the TUI', () => {
 		await expect(runCli({ argv: ['node', 'namzu'] })).resolves.toBe(0)
 
 		expect(launchTui).toHaveBeenCalledOnce()
-		expect(launchTui).toHaveBeenCalledWith(
+		const bootstrap = launchTui.mock.calls[0]![0]
+		expect(bootstrap).not.toHaveProperty('tui')
+		expect(resolveTrustedProjectContext(bootstrap, cwd)).toEqual(
 			expect.objectContaining({
 				cwd,
 				tui: {

@@ -44,7 +44,9 @@ something you point at a real repository:
   unfamiliar working directory stops and asks, because reading files, running
   commands and editing code there is what it is about to be able to do. Accepting
   the prompt trusts the folder permanently; `--trust` accepts it for one run and
-  deliberately does not remember.
+  deliberately does not remember. The trust screen is reached without reading
+  that folder's `namzu.config.json`, project commands or project instructions;
+  all three become active only after trust is established.
 - **The repository gets to state how it wants work done.** `AGENTS.md` is read
   from the working directory upward to the repository root, outermost first, so
   the file nearest the work has the final word. Successful reads, writes and
@@ -465,6 +467,18 @@ Highest precedence first:
 5. `./namzu.config.json` — the project's
 6. `~/.namzu/config.yaml` — the user's
 7. Built-in defaults (`format: 'text'`, `quiet: false`)
+
+Resolution has a trust boundary as well as a precedence order. Before an
+unfamiliar project is trusted, the CLI resolves only defaults, the user file,
+environment and managed file — enough to render the gate under the operator's
+own settings. It does not open the project config to decide whether the project
+may be opened. After trust, it resolves the full cascade for the actual target
+directory (`--cwd` for headless runs), then discovers project commands and
+constructs the session. A malformed project config therefore refuses with exit
+`78` only after that project has been accepted; before acceptance, the result is
+the trust refusal (`77`) and no project bytes have been read. The real directory
+approved by the gate is pinned for that launch, so repointing a `--cwd` symlink
+after the decision cannot redirect config discovery or the session elsewhere.
 
 `/debug-config` shows which source won each resolved top-level key, in a stable
 order, and states the cascade separately. It deliberately receives and prints

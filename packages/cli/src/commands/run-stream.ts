@@ -59,6 +59,7 @@
 
 import { type Message, jsonLinesSink } from '@namzu/sdk'
 
+import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
@@ -96,7 +97,11 @@ async function readStdin(): Promise<string> {
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
 	const first = detected[0]
 	return first
-		? { version: 3, providers: [{ id: first.entry.id }], subagents: { active: [] } }
+		? {
+				version: 3,
+				providers: [{ id: first.entry.id }],
+				subagents: { active: [] },
+			}
 		: null
 }
 
@@ -134,7 +139,8 @@ export const runStreamCommand: CommandDef = {
 		'there, a conversation that cannot be opened); 77 when the folder has not',
 		'been trusted, which only a person can change.',
 	].join('\n'),
-	handler: async ({ ctx, rawArgs }) => {
+	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
+		let ctx = bootstrapCtx
 		const write = (o: unknown): void => {
 			process.stdout.write(`${JSON.stringify(o)}\n`)
 		}
@@ -177,27 +183,7 @@ export const runStreamCommand: CommandDef = {
 		if (!prompt) return fail('no prompt — pass it as an argument')
 		const resolved = resolveWorkingDirectory(flags.cwd)
 		if ('error' in resolved) return fail(resolved.error)
-		const cwd = resolved.cwd
-
-		// The same expansion `run` does. A host UI sending `/ozet x` on behalf of
-		// someone who defined that command should get the command, not the model
-		// improvising on the literal text.
-		const expansion = expandHeadlessCommand(prompt, {
-			cwd,
-			// Through the merge, so a kernel-registered command is refused or
-			// expanded here with the same vocabulary the interactive path
-			// uses. Mapping the local array left it unknown, and an unknown
-			// name goes to the model as prose.
-			builtins: hostCommandNames(),
-		})
-		// Two different refusals wear this one word. An interactive builtin named
-		// headlessly, or arguments handed to a template that takes none, are fixed
-		// by sending a different prompt. A command FILE that will not parse is not
-		// — and no prompt fixes a file.
-		if (expansion.kind === 'refused') {
-			return expansion.fixable ? fail(expansion.reason) : refuse(expansion.reason)
-		}
-		const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
+		const requestedCwd = resolved.cwd
 
 		// Before the session store is opened, before anything is read or run in
 		// that directory.
@@ -209,12 +195,28 @@ export const runStreamCommand: CommandDef = {
 		// a host that cannot tell the two apart will retry the one that must not
 		// be retried — so the event carries the explanation and the exit code
 		// carries the fact that nothing ran.
-		const trust = decideHeadlessTrust({ cwd, trustFlag: flags.trust })
+		const trust = decideHeadlessTrust({
+			cwd: requestedCwd,
+			trustFlag: flags.trust,
+		})
 		if (!trust.allowed) {
 			write({ kind: 'error', message: trust.message ?? 'folder not trusted' })
 			write({ kind: 'done' })
 			return EXIT_UNTRUSTED
 		}
+		const cwd = trust.cwd
+		ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
+
+		// Project command discovery belongs behind the target folder's trust
+		// gate, alongside project config and instructions.
+		const expansion = expandHeadlessCommand(prompt, {
+			cwd,
+			builtins: hostCommandNames(),
+		})
+		if (expansion.kind === 'refused') {
+			return expansion.fixable ? fail(expansion.reason) : refuse(expansion.reason)
+		}
+		const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
 
 		// Resolve the persisted conversation (if a session key was given) so we
 		// load prior turns as context and can append this turn afterward. Falls
@@ -321,6 +323,7 @@ export const runStreamCommand: CommandDef = {
 			...(gate ?? {}),
 			permissionMode: modeResult.mode,
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		})
 		if (!session.hasProvider) {
 			await session.close()

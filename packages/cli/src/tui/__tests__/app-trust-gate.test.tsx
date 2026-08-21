@@ -22,11 +22,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
 import type { TuiContext } from '../types.js'
+import { bindTrustedProjectContext } from '../../config/trusted-project-context.js'
 
 /** Folders handed to `trustDir`, in order. The durable side effect. */
 const trusted: string[] = []
 /** Set when the app asked Ink to exit. */
 let exited = false
+const lifecycle = vi.hoisted(() => ({
+	events: [] as string[],
+	canonical: new Map<string, string>(),
+}))
+
+vi.mock('../../permissions/canonical-project.js', () => ({
+	canonicalProjectPath: (dir: string) => lifecycle.canonical.get(dir) ?? dir,
+}))
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => false,
@@ -52,11 +61,14 @@ vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	return {
 		...actual,
-		probeAgentSession: async () => ({
-			preferences: null,
-			needsRepickReason: null,
-			detected: [],
-		}),
+		probeAgentSession: async () => {
+			lifecycle.events.push('probe')
+			return {
+				preferences: null,
+				needsRepickReason: null,
+				detected: [],
+			}
+		},
 	}
 })
 
@@ -83,6 +95,8 @@ const mounted: { unmount: () => void }[] = []
 
 beforeEach(() => {
 	trusted.length = 0
+	lifecycle.events.length = 0
+	lifecycle.canonical.clear()
 	exited = false
 	nowMs = 1_000_000
 	vi.spyOn(Date, 'now').mockImplementation(() => nowMs)
@@ -107,8 +121,8 @@ function settle(): void {
 	nowMs += APPROVAL_SETTLE_MS + 1
 }
 
-async function gateOnScreen() {
-	const harness = render(<App ctx={ctx} />)
+async function gateOnScreen(context: TuiContext = ctx) {
+	const harness = render(<App ctx={context} />)
 	mounted.push(harness)
 	// Poll for the gate, then let its effects flush. The effect that stamps when
 	// the gate appeared runs after the commit that draws it, and the settle
@@ -163,6 +177,68 @@ describe('the trust gate', () => {
 		await trustedWithin()
 
 		expect(trusted).toEqual(['C:/a/folder'])
+	})
+
+	it('activates project config after trust and before probing', async () => {
+		const gated = bindTrustedProjectContext({ ...ctx }, (cwd) => {
+			lifecycle.events.push(`activate:${cwd}`)
+			return { ...ctx, cwd }
+		})
+		const { stdin } = await gateOnScreen(gated)
+
+		settle()
+		stdin.write('y')
+		await trustedWithin()
+		const started = performance.now()
+		while (!lifecycle.events.includes('probe') && performance.now() - started < 3_000) {
+			await tick(20)
+		}
+
+		expect(lifecycle.events).toEqual(['activate:C:/a/folder', 'probe'])
+	})
+
+	it('pins the canonical folder for trust and project activation', async () => {
+		lifecycle.canonical.set('C:/alias', 'C:/real/project')
+		const lexical = { ...ctx, cwd: 'C:/alias' }
+		const gated = bindTrustedProjectContext(lexical, (cwd) => {
+			lifecycle.events.push(`activate:${cwd}`)
+			return { ...lexical, cwd }
+		})
+		const { stdin } = await gateOnScreen(gated)
+
+		settle()
+		stdin.write('y')
+		await trustedWithin()
+		const started = performance.now()
+		while (!lifecycle.events.includes('probe') && performance.now() - started < 3_000) {
+			await tick(20)
+		}
+
+		expect(trusted).toEqual(['C:/real/project'])
+		expect(lifecycle.events).toEqual(['activate:C:/real/project', 'probe'])
+	})
+
+	it('does not probe or construct a session when trusted project config is invalid', async () => {
+		const gated = bindTrustedProjectContext({ ...ctx }, () => {
+			lifecycle.events.push('activate')
+			throw new Error('malformed project config')
+		})
+		const harness = await gateOnScreen(gated)
+
+		settle()
+		harness.stdin.write('y')
+		await trustedWithin()
+		const started = performance.now()
+		while (
+			!(harness.lastFrame() ?? '').includes('malformed project config') &&
+			performance.now() - started < 3_000
+		) {
+			await tick(20)
+		}
+
+		expect(lifecycle.events).toEqual(['activate'])
+		expect(harness.lastFrame()).toContain('Could not activate project config')
+		expect(harness.lastFrame()).toContain('malformed project config')
 	})
 
 	it('exits on n immediately, without waiting out the guard', async () => {

@@ -32,10 +32,12 @@ import {
 } from '@namzu/sdk'
 import type { DurableRunEntry, ProjectId, SessionId, TenantId } from '@namzu/sdk'
 
+import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
+import { compilePermissions } from '../permissions/rules.js'
 import { applyProviderFlags, resolveWorkingDirectory } from './run-flags.js'
 import type { CommandDef } from './types.js'
 
@@ -190,7 +192,11 @@ function describe(entry: DurableRunEntry): string {
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
 	const first = detected[0]
 	return first
-		? { version: 3, providers: [{ id: first.entry.id }], subagents: { active: [] } }
+		? {
+				version: 3,
+				providers: [{ id: first.entry.id }],
+				subagents: { active: [] },
+			}
 		: null
 }
 
@@ -225,10 +231,13 @@ export const drainCommand: CommandDef = {
 		'Exit codes: 0 when every run it took was continued, 1 when any run failed,',
 		'64 when an argument is wrong, 77 when the folder has not been trusted.',
 	].join('\n'),
-	handler: async ({ ctx, rawArgs }) => {
+	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
+		let ctx = bootstrapCtx
 		const flags = parseDrainFlags(rawArgs)
 		if (flags.unknown.length > 0) {
-			ctx.formatter.error({ message: `unknown option(s): ${flags.unknown.join(', ')}` })
+			ctx.formatter.error({
+				message: `unknown option(s): ${flags.unknown.join(', ')}`,
+			})
 			return EXIT_USAGE
 		}
 		if (!flags.store) {
@@ -245,7 +254,9 @@ export const drainCommand: CommandDef = {
 		}
 		const ttlMs = flags.ttlMs ?? DEFAULT_TTL_MS
 		if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
-			ctx.formatter.error({ message: `--ttl must be a positive number of ms, got ${flags.ttlMs}` })
+			ctx.formatter.error({
+				message: `--ttl must be a positive number of ms, got ${flags.ttlMs}`,
+			})
 			return EXIT_USAGE
 		}
 		const resolved = resolveWorkingDirectory(flags.cwd)
@@ -253,11 +264,16 @@ export const drainCommand: CommandDef = {
 			ctx.formatter.error({ message: resolved.error })
 			return EXIT_USAGE
 		}
-		const trust = decideHeadlessTrust({ cwd: resolved.cwd, trustFlag: flags.trust })
+		const trust = decideHeadlessTrust({
+			cwd: resolved.cwd,
+			trustFlag: flags.trust,
+		})
 		if (!trust.allowed) {
 			ctx.formatter.error({ message: trust.message ?? 'folder not trusted' })
 			return EXIT_UNTRUSTED
 		}
+		const cwd = trust.cwd
+		ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
 
 		// The CLI owns stderr, not the kernel it drives (LOG-05) — a live sink
 		// at the level --verbose/--quiet/NAMZU_LOG_LEVEL named, instead of
@@ -278,11 +294,26 @@ export const drainCommand: CommandDef = {
 			return 1
 		}
 		prefs = applyProviderFlags(prefs, flags)
+		const permissions = compilePermissions(ctx.config.permissions, ctx.config.permissionChecks)
+		for (const diagnostic of permissions.diagnostics) {
+			const where = diagnostic.pattern
+				? `permissions.${diagnostic.tool}."${diagnostic.pattern}"`
+				: `permissions.${diagnostic.tool}`
+			ctx.formatter.error({ message: `${where}: ${diagnostic.message}` })
+		}
 
-		const session = await createAgentSession(prefs, probe.detected, { cwd: resolved.cwd })
+		const session = await createAgentSession(prefs, probe.detected, {
+			cwd,
+			rules: permissions.rules,
+			permissionMode: 'auto',
+			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
+		})
 		if (!session.hasProvider) {
 			await session.close()
-			ctx.formatter.error({ message: session.errorHint ?? 'agent is not ready' })
+			ctx.formatter.error({
+				message: session.errorHint ?? 'agent is not ready',
+			})
 			return 1
 		}
 
@@ -355,14 +386,18 @@ export const drainCommand: CommandDef = {
 			// landed, but the run is unavailable to the next reader until the
 			// lease lapses, and an operator watching throughput needs to know.
 			for (const u of result.unreleased) {
-				ctx.formatter.error({ message: `${u.runId}: lease not released — ${u.error}` })
+				ctx.formatter.error({
+					message: `${u.runId}: lease not released — ${u.error}`,
+				})
 			}
 			return result.failed.length > 0 ? 1 : 0
 		} catch (err) {
 			// The refusals from `drainRuns` land here: a store that cannot claim,
 			// a lease that cannot mean what it says. Reported rather than
 			// swallowed into an empty pass that reads as "nothing was parked".
-			ctx.formatter.error({ message: err instanceof Error ? err.message : String(err) })
+			ctx.formatter.error({
+				message: err instanceof Error ? err.message : String(err),
+			})
 			return 1
 		} finally {
 			await session.close()

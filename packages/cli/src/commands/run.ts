@@ -21,6 +21,7 @@ import { relative } from 'node:path'
 import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 
+import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { openSessions } from '../integrations/sessions/store.js'
@@ -114,7 +115,11 @@ export function composePrompt(fromArgs: string, piped: string): string {
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
 	const first = detected[0]
 	return first
-		? { version: 3, providers: [{ id: first.entry.id }], subagents: { active: [] } }
+		? {
+				version: 3,
+				providers: [{ id: first.entry.id }],
+				subagents: { active: [] },
+			}
 		: null
 }
 
@@ -189,7 +194,8 @@ export const runCommand: CommandDef = {
 		'prompt was supplied, 64 when an argument is wrong, 77 when the folder',
 		'has not been trusted and nothing ran.',
 	].join('\n'),
-	handler: async ({ ctx, rawArgs }) => {
+	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
+		let ctx = bootstrapCtx
 		const flags = parseRunFlags(rawArgs)
 		if (flags.unknown.length > 0) {
 			// A shell caller learns about a bad argument from `$?`, so this is 64
@@ -209,7 +215,9 @@ export const runCommand: CommandDef = {
 		const piped = await readStdin({ deadline: Boolean(fromArgs) })
 		const prompt = composePrompt(fromArgs, piped)
 		if (!prompt) {
-			ctx.formatter.error({ message: 'no prompt — pass it as an argument or pipe it via stdin' })
+			ctx.formatter.error({
+				message: 'no prompt — pass it as an argument or pipe it via stdin',
+			})
 			return 2
 		}
 		const resolved = resolveWorkingDirectory(flags.cwd)
@@ -218,21 +226,25 @@ export const runCommand: CommandDef = {
 			return EXIT_USAGE
 		}
 
-		// A command the operator defined is expanded here too, not only in the
-		// TUI. Most of the reason to write one is to run it from a script, and
-		// sending `/ozet hedef.js` to the model as prose gave a confident answer
-		// about something else at exit 0.
-		//
-		// After the cwd is resolved, because the project's commands live under
-		// it; before the trust gate, because expanding a template only reads
-		// `.namzu/commands` and a refusal here should not need the folder to be
-		// trusted first.
-		const expansion = expandHeadlessCommand(prompt, {
+		// Before anything is read, run or constructed in that directory. The
+		// order is the gate: a check that happens after the session is built has
+		// already opened stores and walked the tree it was meant to protect.
+		const trust = decideHeadlessTrust({
 			cwd: resolved.cwd,
-			// Through the merge, so a kernel-registered command is refused or
-			// expanded here with the same vocabulary the interactive path
-			// uses. Mapping the local array left it unknown, and an unknown
-			// name goes to the model as prose.
+			trustFlag: flags.trust,
+		})
+		if (!trust.allowed) {
+			ctx.formatter.error({ message: trust.message ?? 'folder not trusted' })
+			return EXIT_UNTRUSTED
+		}
+		const cwd = trust.cwd
+		ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
+
+		// Project commands are code-like launch authority: discover and expand
+		// them only after the target folder has crossed the same trust boundary
+		// as its config and instructions.
+		const expansion = expandHeadlessCommand(prompt, {
+			cwd,
 			builtins: hostCommandNames(),
 		})
 		if (expansion.kind === 'refused') {
@@ -240,15 +252,6 @@ export const runCommand: CommandDef = {
 			return EXIT_USAGE
 		}
 		const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
-
-		// Before anything is read, run or constructed in that directory. The
-		// order is the gate: a check that happens after the session is built has
-		// already opened stores and walked the tree it was meant to protect.
-		const trust = decideHeadlessTrust({ cwd: resolved.cwd, trustFlag: flags.trust })
-		if (!trust.allowed) {
-			ctx.formatter.error({ message: trust.message ?? 'folder not trusted' })
-			return EXIT_UNTRUSTED
-		}
 
 		// The CLI owns stderr, not the kernel it drives (LOG-05) — a live sink
 		// at the level --verbose/--quiet/NAMZU_LOG_LEVEL named, instead of
@@ -293,7 +296,7 @@ export const runCommand: CommandDef = {
 			ctx.formatter.error({ message: `${where}: ${d.message}` })
 		}
 
-		const gate = buildGate(flags, resolved.cwd)
+		const gate = buildGate(flags, cwd)
 		// Attached BEFORE the session, and its failure is fatal. An operator who
 		// configured `telemetry.sessionExport` asked for this run to be
 		// recorded; continuing without it means the run happens and the record
@@ -302,7 +305,9 @@ export const runCommand: CommandDef = {
 		let sessionExport: AttachedSessionExport | undefined
 		if (ctx.config.telemetry?.sessionExport) {
 			try {
-				sessionExport = await attachSessionExport({ config: ctx.config.telemetry.sessionExport })
+				sessionExport = await attachSessionExport({
+					config: ctx.config.telemetry.sessionExport,
+				})
 				// Under the same event name the boot narrative used for the
 				// boolean. This is the half that names the destination and the
 				// redactors, and it is emitted HERE because it describes what
@@ -312,12 +317,14 @@ export const runCommand: CommandDef = {
 					'namzu.telemetry.session_export': true,
 				})
 			} catch (err) {
-				ctx.formatter.error({ message: err instanceof Error ? err.message : String(err) })
+				ctx.formatter.error({
+					message: err instanceof Error ? err.message : String(err),
+				})
 				return 1
 			}
 		}
 		const session = await createAgentSession(prefs, probe.detected, {
-			cwd: resolved.cwd,
+			cwd,
 			rules: permissions.rules,
 			...(sessionExport ? { onRunEvent: sessionExport.listener } : {}),
 			// The operator's --gate commands, as a standing condition on the
@@ -326,11 +333,14 @@ export const runCommand: CommandDef = {
 			...(gate ?? {}),
 			permissionMode: modeResult.mode,
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		})
 		if (!session.hasProvider) {
 			await session.close()
 			await sessionExport?.shutdown()
-			ctx.formatter.error({ message: session.errorHint ?? 'agent is not ready' })
+			ctx.formatter.error({
+				message: session.errorHint ?? 'agent is not ready',
+			})
 			return 1
 		}
 		// A configured tool server that is not here means the run cannot do what
@@ -340,7 +350,9 @@ export const runCommand: CommandDef = {
 		// the permission mode resolving differently when `interactive` is false.
 		if (session.mcpFailed.length > 0) {
 			for (const f of session.mcpFailed) {
-				ctx.formatter.error({ message: `tool server "${f.name}" is not available: ${f.reason}` })
+				ctx.formatter.error({
+					message: `tool server "${f.name}" is not available: ${f.reason}`,
+				})
 			}
 			await session.close()
 			await sessionExport?.shutdown()
@@ -366,7 +378,7 @@ export const runCommand: CommandDef = {
 		if (session.instructionFiles.length > 0) {
 			ctx.formatter.info(
 				`project instructions: ${session.instructionFiles
-					.map((p) => relative(resolved.cwd, p) || p)
+					.map((p) => relative(cwd, p) || p)
 					.join(', ')}`,
 			)
 		}
@@ -374,11 +386,11 @@ export const runCommand: CommandDef = {
 		// declared nothing, and the two want opposite responses from the reader.
 		for (const skip of session.skippedInstructionFiles) {
 			ctx.formatter.error({
-				message: `skipped ${relative(resolved.cwd, skip.path) || skip.path}: ${skip.reason}`,
+				message: `skipped ${relative(cwd, skip.path) || skip.path}: ${skip.reason}`,
 			})
 		}
 
-		const extraSystem = await loadSkillsContext(resolved.cwd, flags.skills)
+		const extraSystem = await loadSkillsContext(cwd, flags.skills)
 
 		// A conversation the TUI could reopen could not be reopened from a
 		// script: the store, the reader and the picker all existed and only the
@@ -386,7 +398,7 @@ export const runCommand: CommandDef = {
 		let sessions: Awaited<ReturnType<typeof openSessions>> | null = null
 		if (flags.continueLast || flags.resume) {
 			try {
-				sessions = await openSessions(resolved.cwd)
+				sessions = await openSessions(cwd)
 			} catch {
 				sessions = null // reported by resolveResume, which knows what was asked for
 			}
@@ -394,7 +406,7 @@ export const runCommand: CommandDef = {
 		const resume = await resolveResume(
 			sessions,
 			{ continueLast: flags.continueLast, sessionId: flags.resume },
-			resolved.cwd,
+			cwd,
 		)
 		if (resume.kind === 'error') {
 			// Refused, never silently started fresh. Someone who asked for a

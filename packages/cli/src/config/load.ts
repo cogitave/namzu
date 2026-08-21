@@ -137,6 +137,39 @@ export function loadConfigWithProvenance(opts: LoadConfigOptions = {}): {
 	config: NamzuCliConfig
 	provenance: ConfigProvenance
 } {
+	return resolveConfigWithProvenance(opts, {
+		includeProject: true,
+		deferUnknownProfile: false,
+	})
+}
+
+/**
+ * Resolve only process/user/managed authority before a project is trusted.
+ *
+ * Internal CLI seam: deliberately not re-exported from the package root. A
+ * selected profile may be declared by the project layer, so an otherwise
+ * unknown profile is deferred until the trusted, full resolution pass.
+ */
+export function loadBootstrapConfigWithProvenance(opts: LoadConfigOptions = {}): {
+	config: NamzuCliConfig
+	provenance: ConfigProvenance
+} {
+	return resolveConfigWithProvenance(opts, {
+		includeProject: false,
+		deferUnknownProfile: true,
+	})
+}
+
+function resolveConfigWithProvenance(
+	opts: LoadConfigOptions,
+	mode: {
+		readonly includeProject: boolean
+		readonly deferUnknownProfile: boolean
+	},
+): {
+	config: NamzuCliConfig
+	provenance: ConfigProvenance
+} {
 	const home = opts.home ?? homedir()
 	const cwd = opts.cwd ?? process.cwd()
 	const env = opts.env ?? process.env
@@ -147,7 +180,7 @@ export function loadConfigWithProvenance(opts: LoadConfigOptions = {}): {
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 
 	const userCfg = readYamlIfExists(userPath)
-	const projectCfg = readJsonIfExists(projectPath)
+	const projectCfg = mode.includeProject ? readJsonIfExists(projectPath) : {}
 	const managedCfg = readJsonIfExists(managedPath)
 	const { config: envCfg, variables: envVariables } = readEnv(env)
 
@@ -155,11 +188,15 @@ export function loadConfigWithProvenance(opts: LoadConfigOptions = {}): {
 	// variable is this shell — so the narrower statement wins, the way it does
 	// everywhere else here.
 	const profileName = opts.profile ?? env.NAMZU_PROFILE
-	const profiles = profileLayers(profileName, [
-		[userCfg, userPath],
-		[projectCfg, projectPath],
-		[managedCfg, managedPath],
-	])
+	const profiles = profileLayers(
+		profileName,
+		[
+			[userCfg, userPath],
+			[projectCfg, projectPath],
+			[managedCfg, managedPath],
+		],
+		mode.deferUnknownProfile,
+	)
 
 	return mergeConfigs(
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
@@ -205,6 +242,7 @@ export function loadConfigWithProvenance(opts: LoadConfigOptions = {}): {
 function profileLayers(
 	name: string | undefined,
 	files: readonly (readonly [MutableConfig, string])[],
+	deferUnknown = false,
 ): ConfigLayer[] {
 	if (name === undefined || name === '') return []
 
@@ -226,6 +264,7 @@ function profileLayers(
 	}
 
 	if (layers.length === 0) {
+		if (deferUnknown) return []
 		const known = [...declared].sort()
 		// The path is where to go and fix it. A file that already declares
 		// profiles is the better answer than the one bound to this folder,
@@ -389,7 +428,9 @@ function reasonOf(cause: unknown): string {
  * file namzu read. The cast is what made that possible: it told the compiler to
  * stop checking exactly where the gap was.
  */
-type MutableConfig = { -readonly [K in keyof NamzuCliConfig]?: NamzuCliConfig[K] }
+type MutableConfig = {
+	-readonly [K in keyof NamzuCliConfig]?: NamzuCliConfig[K]
+}
 
 type SettingPathSegment = string | number
 
@@ -539,7 +580,11 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(se)) {
 			return invalidConfigValue(context, ['sessionExport'], 'must be a mapping')
 		}
-		const entry = se as { destination?: unknown; eventTypes?: unknown; redactors?: unknown }
+		const entry = se as {
+			destination?: unknown
+			eventTypes?: unknown
+			redactors?: unknown
+		}
 
 		// No destination, no export. There is nothing to fall back to and
 		// nothing safe to guess.
@@ -674,7 +719,10 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 /** Which `NAMZU_*` variable actually set each field `readEnv` found. */
 type EnvVariablesUsed = { -readonly [K in keyof NamzuCliConfig]?: string }
 
-function readEnv(env: NodeJS.ProcessEnv): { config: MutableConfig; variables: EnvVariablesUsed } {
+function readEnv(env: NodeJS.ProcessEnv): {
+	config: MutableConfig
+	variables: EnvVariablesUsed
+} {
 	const config: MutableConfig = {}
 	const variables: EnvVariablesUsed = {}
 
@@ -730,7 +778,10 @@ function sanitize(
 				'cannot be declared inside a profile',
 			)
 		}
-		const parsed = CONFIG_READERS[key](v[key], { source, path: [...prefix, key] })
+		const parsed = CONFIG_READERS[key](v[key], {
+			source,
+			path: [...prefix, key],
+		})
 		// One assignment through a widened view, rather than a cast on the
 		// result: the key/reader pairing is what `ConfigReaders` proves.
 		;(out as Record<string, unknown>)[key] = parsed

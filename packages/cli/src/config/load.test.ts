@@ -8,6 +8,7 @@ import {
 	ConfigValueError,
 	ENV_VARIABLE_NAMES,
 	type LoadConfigOptions,
+	loadBootstrapConfigWithProvenance,
 	loadConfig,
 	loadConfigWithProvenance,
 } from './load.js'
@@ -102,13 +103,53 @@ describe('loadConfig cascade', () => {
 	})
 })
 
+describe('pre-trust bootstrap config', () => {
+	it('does not read or validate the project layer before trust', () => {
+		const home = userConfig('format: yaml\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), '{ "format": ')
+
+		const bootstrap = loadBootstrapConfigWithProvenance({ home, cwd, env: {} })
+
+		expect(bootstrap.config.format).toBe('yaml')
+		expect(Object.values(bootstrap.provenance)).not.toContainEqual(
+			expect.objectContaining({ kind: 'project-file' }),
+		)
+		expect(() => loadConfigWithProvenance({ home, cwd, env: {} })).toThrow(ConfigLoadError)
+	})
+
+	it('defers a profile declared only by the trusted project layer', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ profiles: { review: { format: 'json' } } }),
+		)
+
+		expect(
+			loadBootstrapConfigWithProvenance({
+				home,
+				cwd,
+				env: {},
+				profile: 'review',
+			}).config.format,
+		).toBe('text')
+		expect(loadConfigWithProvenance({ home, cwd, env: {}, profile: 'review' }).config.format).toBe(
+			'json',
+		)
+	})
+})
+
 describe('terminal notification config', () => {
 	it('reads an event filter and explicit method from the project file', () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({
-				tui: { notifications: ['approval-required'], notificationMethod: 'bel' },
+				tui: {
+					notifications: ['approval-required'],
+					notificationMethod: 'bel',
+				},
 			}),
 		)
 
@@ -135,7 +176,11 @@ describe('semantic validation of known file settings', () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify(body))
 		try {
-			loadConfig({ home: mkdtempSync(join(tmpdir(), 'namzu-home-')), cwd, env: {} })
+			loadConfig({
+				home: mkdtempSync(join(tmpdir(), 'namzu-home-')),
+				cwd,
+				env: {},
+			})
 			expect.unreachable('an invalid known value must not load')
 		} catch (error) {
 			expect(error).toBeInstanceOf(ConfigValueError)
@@ -154,11 +199,19 @@ describe('semantic validation of known file settings', () => {
 		[{ sandbox: { teardownTimeoutMs: -1 } }, 'sandbox.teardownTimeoutMs'],
 		[{ sandbox: { teardownTimeoutMs: 1.5 } }, 'sandbox.teardownTimeoutMs'],
 		[
-			{ telemetry: { sessionExport: { destination: 'out.jsonl', redactors: 'secrets' } } },
+			{
+				telemetry: {
+					sessionExport: { destination: 'out.jsonl', redactors: 'secrets' },
+				},
+			},
 			'telemetry.sessionExport.redactors',
 		],
 		[
-			{ telemetry: { sessionExport: { destination: 'out.jsonl', eventTypes: ['ok', 7] } } },
+			{
+				telemetry: {
+					sessionExport: { destination: 'out.jsonl', eventTypes: ['ok', 7] },
+				},
+			},
 			'telemetry.sessionExport.eventTypes[1]',
 		],
 		[{ tui: { notifications: true, notificationMethod: 'desktop' } }, 'tui.notificationMethod'],
@@ -176,7 +229,9 @@ describe('semantic validation of known file settings', () => {
 		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ sandbox: { enabled: true } }))
 		writeFileSync(
 			managedPath,
-			JSON.stringify({ sandbox: { requireIsolation: ['filesystem', 'memory'] } }),
+			JSON.stringify({
+				sandbox: { requireIsolation: ['filesystem', 'memory'] },
+			}),
 		)
 
 		let error: unknown
@@ -195,7 +250,10 @@ describe('semantic validation of known file settings', () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
-			JSON.stringify({ futureSetting: true, sandbox: { enabled: true, futureControl: 'x' } }),
+			JSON.stringify({
+				futureSetting: true,
+				sandbox: { enabled: true, futureControl: 'x' },
+			}),
 		)
 
 		const config = loadConfig({ home: tmpdir(), cwd, env: {} })
@@ -309,7 +367,11 @@ describe('loadConfigWithProvenance', () => {
 		const projectPath = join(cwd, 'namzu.config.json')
 		writeFileSync(projectPath, JSON.stringify({ format: 'json' }))
 
-		const { config, provenance } = loadConfigWithProvenance({ home, cwd, env: {} })
+		const { config, provenance } = loadConfigWithProvenance({
+			home,
+			cwd,
+			env: {},
+		})
 
 		expect(config.format).toBe('json')
 		expect(provenance.format).toEqual({
@@ -352,7 +414,11 @@ describe('loadConfigWithProvenance', () => {
 	it('does not fabricate a default source for a key DEFAULT_CONFIG does not carry', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
-		const { config, provenance } = loadConfigWithProvenance({ home, cwd, env: {} })
+		const { config, provenance } = loadConfigWithProvenance({
+			home,
+			cwd,
+			env: {},
+		})
 
 		expect(config.sandbox).toBeUndefined()
 		expect('sandbox' in provenance).toBe(false)
@@ -391,7 +457,9 @@ describe('type-level guarantees', () => {
 		// an explicit `undefined`) must fail to compile here, not silently
 		// resolve to "env never sets it" at runtime with no one having decided
 		// that on purpose.
-		type ConfigWithHypotheticalField = NamzuCliConfig & { readonly hypothetical?: string }
+		type ConfigWithHypotheticalField = NamzuCliConfig & {
+			readonly hypothetical?: string
+		}
 		// @ts-expect-error — the production `ENV_VARIABLE_NAMES` has no
 		// `hypothetical` entry; a new config field must add one before this
 		// type-checks.

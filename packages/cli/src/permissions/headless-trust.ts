@@ -46,12 +46,19 @@
  */
 
 import { isTrusted } from '../integrations/trust/store.js'
+import { canonicalProjectPath } from './canonical-project.js'
 
-export interface TrustDecision {
-	readonly allowed: boolean
-	/** Present only on a refusal. Names the folder and both ways forward. */
-	readonly message?: string
-}
+export type TrustDecision =
+	| {
+			readonly allowed: true
+			/** Canonical target captured by the decision; use it for every later operation. */
+			readonly cwd: string
+	  }
+	| {
+			readonly allowed: false
+			/** Names the folder and both ways forward. */
+			readonly message: string
+	  }
 
 export interface TrustCheck {
 	readonly cwd: string
@@ -62,17 +69,29 @@ export interface TrustCheck {
 }
 
 export function decideHeadlessTrust(check: TrustCheck): TrustDecision {
+	// Capture the real target exactly once. The permission and every operation
+	// it admits must refer to the same directory entry even if the lexical
+	// `--cwd` was a symlink and somebody repoints it immediately afterward.
+	let cwd: string
+	try {
+		cwd = canonicalProjectPath(check.cwd)
+	} catch {
+		return {
+			allowed: false,
+			message: `refusing to run because the working directory changed or became unavailable while trust was being checked: ${check.cwd}`,
+		}
+	}
 	// `--trust` is per-run and is deliberately NOT written to the trust file.
 	// One reflexive use must not change the machine's state forever; the TUI
 	// stays the only path that records durable trust, because that is the one
 	// where a human is actually looking at a prompt.
-	if (check.trustFlag) return { allowed: true }
+	if (check.trustFlag) return { allowed: true, cwd }
 	const isDirTrusted = check.trusted ?? ((dir: string) => isTrusted(dir))
-	if (isDirTrusted(check.cwd)) return { allowed: true }
+	if (isDirTrusted(cwd)) return { allowed: true, cwd }
 	return {
 		allowed: false,
 		message: [
-			`refusing to run in a folder nobody has trusted: ${check.cwd}`,
+			`refusing to run in a folder nobody has trusted: ${cwd}`,
 			'',
 			"namzu reads this folder's files, runs commands in it and executes its",
 			'code, and a headless run approves those tools without asking because',

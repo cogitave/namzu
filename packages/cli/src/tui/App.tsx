@@ -34,6 +34,10 @@ import { join, relative } from 'node:path'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { visibleProjectInstructionPath } from '../context/project-path.js'
+import {
+	pinTrustedProjectPath,
+	resolveTrustedProjectContext,
+} from '../config/trusted-project-context.js'
 
 import {
 	beginSubscriptionLogin,
@@ -302,7 +306,19 @@ function goalRoundPrompt(authority: GoalRoundAuthority): string {
  */
 const LIVE_FURNITURE_ROWS = 10
 
-export function App({ ctx }: AppProps) {
+export function App({ ctx: initialCtx }: AppProps) {
+	// Bind approval and every operation it admits to one real directory. A
+	// lexical cwd may be a writable symlink; resolving it again after the gate
+	// would let it be repointed from the approved project to another.
+	const trustedCwdRef = useRef(pinTrustedProjectPath(initialCtx, initialCtx.cwd))
+	const [ctx, setCtx] = useState(initialCtx)
+	const ctxRef = useRef(initialCtx)
+	const activateTrustedProject = useCallback((): TuiContext => {
+		const resolved = resolveTrustedProjectContext(initialCtx, trustedCwdRef.current)
+		ctxRef.current = resolved
+		setCtx(resolved)
+		return resolved
+	}, [initialCtx])
 	const { exit } = useApp()
 	const { stdout, write: writeStdout } = useStdout()
 	/**
@@ -703,7 +719,7 @@ export function App({ ctx }: AppProps) {
 	const ensureSessions = useCallback(async (): Promise<RunScope | undefined> => {
 		if (scopeRef.current) return scopeRef.current
 		try {
-			const sessions = await openSessions(ctx.cwd)
+			const sessions = await openSessions(ctxRef.current.cwd)
 			const sessionId = await startConversation(sessions)
 			sessionsRef.current = sessions
 			scopeRef.current = {
@@ -716,7 +732,7 @@ export function App({ ctx }: AppProps) {
 		} catch {
 			return undefined
 		}
-	}, [ctx.cwd])
+	}, [])
 
 	const hydrateSession = useCallback(
 		async (
@@ -727,13 +743,14 @@ export function App({ ctx }: AppProps) {
 			if (signal?.aborted) return
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
+			const activeCtx = ctxRef.current
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
-				cwd: ctx.cwd,
-				rules: ctx.rules,
+				cwd: activeCtx.cwd,
+				rules: activeCtx.rules,
 				...(sessionsRef.current ? { sessionGoals: sessionsRef.current.goals } : {}),
-				...(ctx.mcpServers ? { mcpServers: ctx.mcpServers } : {}),
-				...(ctx.sandbox ? { sandbox: ctx.sandbox } : {}),
+				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
+				...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 			})
 			if (signal?.aborted) {
 				void s.close()
@@ -757,7 +774,7 @@ export function App({ ctx }: AppProps) {
 			setSession(s)
 			setUserCommands(
 				discoverUserCommands({
-					cwd: ctx.cwd,
+					cwd: activeCtx.cwd,
 					// Builtins are reserved: a `help.md` must not take over `/help`.
 					// Passing the names here is what lets the loader tell its author
 					// the file is shadowed instead of leaving it silently unused.
@@ -794,13 +811,13 @@ export function App({ ctx }: AppProps) {
 				if (s.instructionFiles.length > 0) {
 					pushMessage(
 						'system',
-						`Project instructions: ${s.instructionFiles.map((p) => relative(ctx.cwd, p) || p).join(', ')}`,
+						`Project instructions: ${s.instructionFiles.map((p) => relative(activeCtx.cwd, p) || p).join(', ')}`,
 					)
 				}
 				for (const skip of s.skippedInstructionFiles) {
 					pushMessage(
 						'system',
-						`Skipped ${relative(ctx.cwd, skip.path) || skip.path}: ${skip.reason}`,
+						`Skipped ${relative(activeCtx.cwd, skip.path) || skip.path}: ${skip.reason}`,
 					)
 				}
 				for (const server of s.mcpConnected) {
@@ -817,7 +834,7 @@ export function App({ ctx }: AppProps) {
 				if (s.errorHint) pushMessage('system', s.errorHint)
 			}
 		},
-		[advanceQueueContinuation, ctx.cwd, ctx.rules, pushMessage],
+		[advanceQueueContinuation, ensureSessions, pushMessage],
 	)
 
 	/**
@@ -1023,12 +1040,21 @@ export function App({ ctx }: AppProps) {
 
 	// Trust gate runs first: don't touch the folder until the user trusts it.
 	useEffect(() => {
-		if (isTrusted(ctx.cwd)) {
-			void runProbe()
+		if (isTrusted(trustedCwdRef.current)) {
+			try {
+				activateTrustedProject()
+				void runProbe()
+			} catch (err) {
+				setPhase('unhealthy')
+				pushMessage(
+					'system',
+					`Could not activate project config: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
 		} else {
 			setPhase('trust')
 		}
-	}, [ctx.cwd, runProbe])
+	}, [activateTrustedProject, pushMessage, runProbe])
 
 	// Starts the settle window when the gate is on screen, and clears it when it
 	// leaves so a later stray key can never be measured against a stale one.
@@ -1038,13 +1064,22 @@ export function App({ ctx }: AppProps) {
 
 	const acceptTrust = useCallback(() => {
 		try {
-			trustDir(ctx.cwd)
+			trustDir(trustedCwdRef.current)
 		} catch {
 			// Non-fatal: proceed for this session even if persisting failed.
 		}
 		setPhase('probing')
-		void runProbe()
-	}, [ctx.cwd, runProbe])
+		try {
+			activateTrustedProject()
+			void runProbe()
+		} catch (err) {
+			setPhase('unhealthy')
+			pushMessage(
+				'system',
+				`Could not activate project config: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		}
+	}, [activateTrustedProject, pushMessage, runProbe])
 
 	const finalized = messages.filter((m) => !m.pending)
 	// How much of the transcript is still redrawable. Computed here rather than

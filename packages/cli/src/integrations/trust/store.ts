@@ -8,13 +8,26 @@
  * trusting a repo root covers its subfolders.
  */
 
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
+
+import { canonicalProjectPath } from '../../permissions/canonical-project.js'
 
 const DIR_MODE = 0o700
 const FILE_MODE = 0o600
 const TRUST_FILE_VERSION = 1
+
+function canonicalStoredPath(dir: string): string {
+	try {
+		return canonicalProjectPath(dir)
+	} catch {
+		// A remembered checkout may have been removed. Keeping its normalized
+		// name readable does not admit a live project; the target below must
+		// resolve successfully before it can match.
+		return resolve(dir)
+	}
+}
 
 interface TrustFile {
 	readonly version: number
@@ -23,15 +36,6 @@ interface TrustFile {
 
 export function trustFilePath(home: string = homedir()): string {
 	return join(home, '.namzu', 'trust.json')
-}
-
-/** Resolve symlinks + normalize so the same dir isn't trusted twice. */
-function canonical(dir: string): string {
-	try {
-		return realpathSync(resolve(dir))
-	} catch {
-		return resolve(dir)
-	}
 }
 
 export function readTrustedDirs(home: string = homedir()): string[] {
@@ -45,8 +49,13 @@ export function readTrustedDirs(home: string = homedir()): string[] {
 
 /** True when `dir` or any ancestor is in the trusted list. */
 export function isTrusted(dir: string, home: string = homedir()): boolean {
-	const target = canonical(dir)
-	const trusted = readTrustedDirs(home).map(canonical)
+	let target: string
+	try {
+		target = canonicalProjectPath(dir)
+	} catch {
+		return false
+	}
+	const trusted = readTrustedDirs(home).map(canonicalStoredPath)
 	for (const t of trusted) {
 		if (target === t || target.startsWith(t.endsWith(sep) ? t : t + sep)) {
 			return true
@@ -57,11 +66,16 @@ export function isTrusted(dir: string, home: string = homedir()): boolean {
 
 /** Add `dir` to the trusted list (idempotent). */
 export function trustDir(dir: string, home: string = homedir()): void {
-	const target = canonical(dir)
+	const target = canonicalProjectPath(dir)
 	const current = readTrustedDirs(home)
-	if (current.map(canonical).includes(target)) return
-	const next: TrustFile = { version: TRUST_FILE_VERSION, trusted: [...current, target] }
+	if (current.map(canonicalStoredPath).includes(target)) return
+	const next: TrustFile = {
+		version: TRUST_FILE_VERSION,
+		trusted: [...current, target],
+	}
 	const path = trustFilePath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
-	writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, { mode: FILE_MODE })
+	writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, {
+		mode: FILE_MODE,
+	})
 }

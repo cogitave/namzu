@@ -8,7 +8,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Command, CommanderError, Option } from 'commander'
@@ -40,9 +40,14 @@ import {
 	type ConfigProvenance,
 	type ConfigSource,
 	ConfigValueError,
+	loadBootstrapConfigWithProvenance,
 	loadConfigWithProvenance,
 } from './config/load.js'
 import type { NamzuCliConfig } from './config/schema.js'
+import {
+	bindTrustedProjectContext,
+	resolveTrustedProjectContext,
+} from './config/trusted-project-context.js'
 import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
 import {
 	cliLogger,
@@ -85,6 +90,7 @@ export interface RunCliOptions {
 /** Extra process-owned context that command plugins do not need to know about. */
 interface ResolvedCommandContext extends CommandContext {
 	readonly configDebug: ConfigDebugSnapshot
+	readonly logging: ResolvedLogging
 }
 
 export async function runCli(opts: RunCliOptions): Promise<number> {
@@ -129,9 +135,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.exitOverride()
 		.showHelpAfterError(false)
 
-	let ctx: ResolvedCommandContext | null = null
-	const getContext = (): ResolvedCommandContext => {
-		if (ctx) return ctx
+	const buildContext = (
+		load: () => ReturnType<typeof loadConfigWithProvenance>,
+	): ResolvedCommandContext => {
 		const globalOpts = program.opts<{
 			format?: string
 			quiet?: boolean
@@ -139,9 +145,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			logFormat?: string
 			profile?: string
 		}>()
-		const { config: fileConfig, provenance } = loadConfigWithProvenance(
-			globalOpts.profile !== undefined ? { profile: globalOpts.profile } : {},
-		)
+		const { config: fileConfig, provenance } = load()
 		const cliFormat: FormatName | undefined = (() => {
 			if (globalOpts.format === undefined) return undefined
 			if (isFormatName(globalOpts.format)) return globalOpts.format
@@ -172,52 +176,79 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// can produce `quiet: true` would let NAMZU_QUIET silently override an
 		// operator's own NAMZU_LOG_LEVEL, which neither variable promises.
 		const logging: ResolvedLogging = {
-			level: resolveLogLevel({ verbose: globalOpts.verbose, quiet: globalOpts.quiet }),
+			level: resolveLogLevel({
+				verbose: globalOpts.verbose,
+				quiet: globalOpts.quiet,
+			}),
 			format: resolveLogFormat({ logFormat: globalOpts.logFormat }),
 		}
-		// The process's log destination, claimed HERE — the first point ANY
-		// invocation has resolved a level/format — rather than left for
-		// whichever subcommand happens to reach `createAgentSession`. `doctor`
-		// and `login` never call that function at all; without this line, a
-		// debug-level `namzu.config.resolved` row would be unreachable under
-		// `--verbose` for either of them. `{ replace: true }` for the same
-		// reason every other call site takes it (`commands/run.ts`): a
-		// subcommand installs its OWN sink moments later, computed from the
-		// SAME `logging` this line just resolved, or a deliberately different
-		// one (the TUI's ring buffer) — never a second party fighting this one
-		// for the destination.
-		installCliLogging(createStderrSink(logging.format), logging.level)
-		emitBootNarrative(provenance, fileConfig)
-		ctx = {
+		return {
 			formatter: createFormatter(format, { quiet }),
 			config: { ...fileConfig, format, quiet },
 			configDebug,
 			logging,
 		}
-		return ctx
 	}
 
-	registerAll(
-		program,
-		[
-			acpCommand,
-			doctorCommand,
-			runCommand,
-			loginCommand,
-			logoutCommand,
-			drainCommand,
-			evalCommand,
-			runStreamCommand,
-			historyCommand,
-			skillsJSONCommand,
-			providersJSONCommand,
-			...stubCommands,
-		],
-		{
-			getContext,
+	const selectedConfigOpts = (
+		cwd?: string,
+	): { readonly profile?: string; readonly cwd?: string } => {
+		const profile = program.opts<{ profile?: string }>().profile
+		return {
+			...(profile !== undefined ? { profile } : {}),
+			...(cwd !== undefined ? { cwd } : {}),
+		}
+	}
+	let bootstrapCtx: ResolvedCommandContext | null = null
+	const trustedContexts = new Map<string, ResolvedCommandContext>()
+	const getTrustedContext = (cwd: string): ResolvedCommandContext => {
+		const target = resolve(cwd)
+		const cached = trustedContexts.get(target)
+		if (cached) return cached
+		const loaded = loadConfigWithProvenance(selectedConfigOpts(target))
+		const trusted = buildContext(() => loaded)
+		emitBootNarrative(loaded.provenance, loaded.config)
+		trustedContexts.set(target, trusted)
+		return trusted
+	}
+	const getBootstrapContext = (): ResolvedCommandContext => {
+		if (bootstrapCtx) return bootstrapCtx
+		const loaded = loadBootstrapConfigWithProvenance(selectedConfigOpts())
+		const bootstrap = buildContext(() => loaded)
+		// Claim stderr before any handler can log. A later TUI launch replaces
+		// this with its ring sink; trusted project activation deliberately does
+		// not replace that owner.
+		installCliLogging(createStderrSink(bootstrap.logging.format), bootstrap.logging.level)
+		bootstrapCtx = bindTrustedProjectContext(bootstrap, getTrustedContext)
+		return bootstrapCtx
+	}
+	const getContext = (): ResolvedCommandContext => {
+		getBootstrapContext()
+		return getTrustedContext(process.cwd())
+	}
+
+	for (const def of [
+		acpCommand,
+		doctorCommand,
+		runCommand,
+		loginCommand,
+		logoutCommand,
+		drainCommand,
+		evalCommand,
+		runStreamCommand,
+		historyCommand,
+		skillsJSONCommand,
+		providersJSONCommand,
+		...stubCommands,
+	]) {
+		registerAll(program, [def], {
+			getContext:
+				def === runCommand || def === runStreamCommand || def === drainCommand
+					? getBootstrapContext
+					: getContext,
 			setExitCode,
-		},
-	)
+		})
+	}
 
 	// Default behavior when `namzu` is invoked with no subcommand: launch
 	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a
@@ -225,32 +256,42 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// suite does not try to render Ink against a non-tty stream.
 	program.action(async () => {
 		if (process.stdout.isTTY) {
-			const launchOpts = program.opts<{ dangerouslySkipPermissions?: boolean; yolo?: boolean }>()
+			const launchOpts = program.opts<{
+				dangerouslySkipPermissions?: boolean
+				yolo?: boolean
+			}>()
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
 			// The same three lines `run` and `run-stream` use. The TUI compiled
 			// nothing at all, so a `permissions` table in a config file did nothing
 			// in the mode most people actually use.
-			const tuiCtx = getContext()
-			const permissions = compilePermissions(
-				tuiCtx.config.permissions,
-				tuiCtx.config.permissionChecks,
-			)
-			for (const d of permissions.diagnostics) {
-				const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
-				tuiCtx.formatter.error({ message: `${where}: ${d.message}` })
+			const commandCtx = getBootstrapContext()
+			const buildTuiContext = (resolvedCtx: ResolvedCommandContext, cwd: string) => {
+				const permissions = compilePermissions(
+					resolvedCtx.config.permissions,
+					resolvedCtx.config.permissionChecks,
+				)
+				for (const d of permissions.diagnostics) {
+					const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
+					resolvedCtx.formatter.error({ message: `${where}: ${d.message}` })
+				}
+				return {
+					cwd,
+					version: CLI_VERSION,
+					configDebug: resolvedCtx.configDebug,
+					skipPermissions,
+					rules: permissions.rules,
+					logging: resolvedCtx.logging,
+					...(resolvedCtx.config.mcpServers ? { mcpServers: resolvedCtx.config.mcpServers } : {}),
+					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
+					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
+				}
 			}
+			const tuiCtx = buildTuiContext(commandCtx, process.cwd())
+			bindTrustedProjectContext(tuiCtx, (cwd) =>
+				buildTuiContext(resolveTrustedProjectContext(commandCtx, cwd), cwd),
+			)
 			const { launchTui } = await import('./tui/index.js')
-			await launchTui({
-				cwd: process.cwd(),
-				version: CLI_VERSION,
-				configDebug: tuiCtx.configDebug,
-				skipPermissions,
-				rules: permissions.rules,
-				logging: tuiCtx.logging,
-				...(tuiCtx.config.mcpServers ? { mcpServers: tuiCtx.config.mcpServers } : {}),
-				...(tuiCtx.config.sandbox ? { sandbox: tuiCtx.config.sandbox } : {}),
-				...(tuiCtx.config.tui ? { tui: tuiCtx.config.tui } : {}),
-			})
+			await launchTui(tuiCtx)
 			const code = await Promise.resolve(0)
 			setExitCode(code)
 			return

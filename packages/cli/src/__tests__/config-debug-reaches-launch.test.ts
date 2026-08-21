@@ -6,8 +6,10 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
+import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import type { TuiContext } from '../tui/types.js'
 
-const launchTui = vi.hoisted(() => vi.fn(async () => {}))
+const launchTui = vi.hoisted(() => vi.fn(async (_ctx: TuiContext) => {}))
 
 vi.mock('../tui/index.js', () => ({ launchTui }))
 
@@ -47,7 +49,10 @@ describe('configuration provenance reaches the TUI launch', () => {
 		).resolves.toBe(0)
 
 		expect(launchTui).toHaveBeenCalledOnce()
-		expect(launchTui).toHaveBeenCalledWith(
+		const bootstrap = launchTui.mock.calls[0]![0]
+		expect(bootstrap.rules).toEqual([])
+		const trusted = resolveTrustedProjectContext(bootstrap, cwd)
+		expect(trusted).toEqual(
 			expect.objectContaining({
 				cwd,
 				configDebug: expect.objectContaining({
@@ -74,7 +79,9 @@ describe('configuration provenance reaches the TUI launch', () => {
 
 		await expect(runCli({ argv: ['node', 'namzu'] })).resolves.toBe(0)
 
-		expect(launchTui).toHaveBeenCalledWith(
+		const bootstrap = launchTui.mock.calls[0]![0]
+		const trusted = resolveTrustedProjectContext(bootstrap, cwd)
+		expect(trusted).toEqual(
 			expect.objectContaining({
 				configDebug: expect.objectContaining({
 					selectedProfile: {
@@ -83,6 +90,20 @@ describe('configuration provenance reaches the TUI launch', () => {
 					},
 				}),
 			}),
+		)
+	})
+
+	it('launches the trust screen without parsing malformed project config', async () => {
+		cwd = mkdtempSync(join(tmpdir(), 'namzu-config-debug-untrusted-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), '{ "format": ')
+		vi.spyOn(process, 'cwd').mockReturnValue(cwd)
+		Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true })
+
+		await expect(runCli({ argv: ['node', 'namzu'] })).resolves.toBe(0)
+
+		expect(launchTui).toHaveBeenCalledOnce()
+		expect(() => resolveTrustedProjectContext(launchTui.mock.calls[0]![0], cwd)).toThrow(
+			/namzu\.config\.json/,
 		)
 	})
 
