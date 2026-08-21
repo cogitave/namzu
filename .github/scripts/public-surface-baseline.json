@@ -2064,6 +2064,7 @@
         "PluginContributionType",
         "PluginDefinition",
         "PluginDiscoveryOptions",
+        "PluginEnablementCapabilities",
         "PluginEventListener",
         "PluginHookContext",
         "PluginHookDefinition",

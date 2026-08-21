@@ -8,8 +8,7 @@ import { assembleSystemPrompt } from '../../persona/assembler.js'
 import { ToolRegistry } from '../../registry/index.js'
 import { PluginRegistry } from '../../registry/plugin/index.js'
 import { SkillRegistry } from '../../skills/registry.js'
-import type { PluginId } from '../../types/ids/index.js'
-import type { PluginDefinition, PluginManifest } from '../../types/plugin/index.js'
+import type { PluginManifest } from '../../types/plugin/index.js'
 import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import { PluginLifecycleManager } from '../lifecycle.js'
 import { assertEnableable } from '../loader.js'
@@ -45,7 +44,7 @@ async function pluginDir(
 		description: 'a plugin',
 		...manifest,
 	} as PluginManifest
-	await writeFile(join(root, 'namzu-plugin.json'), JSON.stringify(full), 'utf-8')
+	await writeFile(join(root, 'plugin.json'), JSON.stringify(full), 'utf-8')
 
 	for (const skill of skills) {
 		const skillDir = join(root, skill.dir)
@@ -72,17 +71,6 @@ function manager(skillRegistry?: SkillRegistry) {
 	}
 }
 
-function installed(rootDir: string, manifest: PluginManifest): PluginDefinition {
-	return {
-		id: 'plg_test' as PluginId,
-		manifest,
-		rootDir,
-		status: 'installed',
-		scope: 'project',
-		installedAt: Date.now(),
-	} as PluginDefinition
-}
-
 describe('a plugin’s skills load and are namespaced', () => {
 	it('registers them, and reaches the model through the prompt', async () => {
 		// The whole point. A skill in the registry that never reaches the
@@ -97,10 +85,9 @@ describe('a plugin’s skills load and are namespaced', () => {
 		const root = await pluginDir(manifest, [
 			{ dir: 'skills/reconcile', name: 'reconcile', description: 'reconcile two ledgers' },
 		])
-		const { pluginRegistry, manager: mgr } = manager(skills)
-		pluginRegistry.register(installed(root, manifest))
-
-		await mgr.enable('plg_test' as PluginId)
+		const { manager: mgr } = manager(skills)
+		const plugin = await mgr.install(root, 'project')
+		await mgr.enable(plugin.id)
 
 		expect(skills.has('ledger__reconcile')).toBe(true)
 		const prompt = assembleSystemPrompt({ identity: { role: 'A', description: 'x' } }, [
@@ -123,9 +110,9 @@ describe('a plugin’s skills load and are namespaced', () => {
 			const root = await pluginDir(manifest, [
 				{ dir: 'skills/reconcile', name: 'reconcile', description: `${plugin} version` },
 			])
-			const { pluginRegistry, manager: mgr } = manager(skills)
-			pluginRegistry.register(installed(root, manifest))
-			await mgr.enable('plg_test' as PluginId)
+			const { manager: mgr } = manager(skills)
+			const installed = await mgr.install(root, 'project')
+			await mgr.enable(installed.id)
 		}
 
 		expect(skills.has('alpha__reconcile')).toBe(true)
@@ -147,16 +134,31 @@ describe('a plugin’s skills load and are namespaced', () => {
 		const root = await pluginDir(manifest, [
 			{ dir: 'skills/reconcile', name: 'reconcile', description: 'd' },
 		])
-		const { pluginRegistry, manager: mgr } = manager(skills)
-		pluginRegistry.register(installed(root, manifest))
-
-		await mgr.enable('plg_test' as PluginId)
+		const { manager: mgr } = manager(skills)
+		const plugin = await mgr.install(root, 'project')
+		await mgr.enable(plugin.id)
 
 		expect(skills.get('ledger__reconcile')?.metadata.name).toBe('ledger__reconcile')
 	})
 })
 
 describe('a host with no skill registry is refused, not quietly served', () => {
+	it('refuses through the real install entry point', async () => {
+		const root = await pluginDir(
+			{
+				name: 'ledger',
+				version: '1.0.0',
+				description: 'p',
+				skills: ['skills/reconcile'],
+			},
+			[{ dir: 'skills/reconcile', name: 'reconcile', description: 'd' }],
+		)
+		const { pluginRegistry, manager: mgr } = manager()
+
+		await expect(mgr.install(root, 'project')).rejects.toThrow(/skills/)
+		expect(pluginRegistry.getAll()).toEqual([])
+	})
+
 	it('refuses at the manifest check', () => {
 		// The default. A host that never supplied a registry would otherwise
 		// install a plugin whose skills go nowhere — the same lie the
@@ -236,11 +238,11 @@ describe('what a plugin brought, it takes away', () => {
 		const root = await pluginDir(manifest, [
 			{ dir: 'skills/reconcile', name: 'reconcile', description: 'd' },
 		])
-		const { pluginRegistry, manager: mgr } = manager(skills)
-		pluginRegistry.register(installed(root, manifest))
-		await mgr.enable('plg_test' as PluginId)
+		const { manager: mgr } = manager(skills)
+		const plugin = await mgr.install(root, 'project')
+		await mgr.enable(plugin.id)
 
-		await mgr.disable('plg_test' as PluginId)
+		await mgr.disable(plugin.id)
 
 		expect(skills.has('ledger__reconcile')).toBe(false)
 	})
@@ -257,10 +259,10 @@ describe('what a plugin brought, it takes away', () => {
 			skills: ['skills/good', 'skills/missing'],
 		} as PluginManifest
 		const root = await pluginDir(manifest, [{ dir: 'skills/good', name: 'good', description: 'd' }])
-		const { pluginRegistry, manager: mgr } = manager(skills)
-		pluginRegistry.register(installed(root, manifest))
+		const { manager: mgr } = manager(skills)
+		const plugin = await mgr.install(root, 'project')
 
-		await expect(mgr.enable('plg_test' as PluginId)).rejects.toThrow()
+		await expect(mgr.enable(plugin.id)).rejects.toThrow()
 
 		expect(skills.has('ledger__good')).toBe(false)
 		expect(skills.size).toBe(0)

@@ -1254,7 +1254,7 @@ export type {
 	CompactionVerificationOptions,
 	UsageSink,
 } from './compaction/verifier.js'
-export type { PluginDiscoveryOptions } from './plugin/loader.js'
+export type { PluginDiscoveryOptions, PluginEnablementCapabilities } from './plugin/loader.js'
 export type { ProbeContextInput } from './probe/context.js'
 export type {
 	GoalCommandScope,

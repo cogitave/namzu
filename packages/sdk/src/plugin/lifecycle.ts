@@ -195,7 +195,12 @@ export class PluginLifecycleManager {
 	}
 
 	async install(pluginDir: string, scope: PluginScope): Promise<PluginDefinition> {
-		const manifest = await loadPluginManifest(pluginDir)
+		// Admission and enable read the same constructor-owned capability. The
+		// loader defaults this to false for direct callers; a manager that really
+		// owns the registry is the authority that can opt the manifest in.
+		const manifest = await loadPluginManifest(pluginDir, {
+			skillsSupported: Boolean(this.skillRegistry),
+		})
 
 		const existing = this.pluginRegistry.findByName(manifest.name)
 		if (existing) {

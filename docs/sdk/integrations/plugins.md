@@ -1,21 +1,22 @@
 ---
 uid: namzu.sdk.integrations.plugins
 title: Plugins and MCP Servers
-description: Load project or user plugins in @namzu/sdk, register namespaced tools, execute hooks, and mount plugin-managed stdio MCP servers.
+description: Load project or user plugins in @namzu/sdk, register namespaced tools and skills, execute hooks, and mount plugin-managed stdio MCP servers.
 type: Guide
 diataxis: how-to
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-04
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 tags: [sdk]
 ---
 
 # Plugins and MCP Servers
 
-The plugin runtime is the SDK's project- and user-scoped extension system. It does three practical things today:
+The plugin runtime is the SDK's project- and user-scoped extension system. It does four practical things today:
 
 - loads namespaced tool modules
+- loads namespaced skills into a host-owned skill registry
 - runs hook modules over runtime phases
 - starts stdio MCP servers declared by plugins and adapts their tools into the local tool registry
 
@@ -26,7 +27,7 @@ The public plugin surface is centered on:
 | Export | Responsibility |
 | --- | --- |
 | `discoverPlugins()` / `discoverAllPluginDirs()` | Find plugin directories |
-| `loadPluginManifest()` | Read and validate `plugin.json` |
+| `loadPluginManifest()` | Read and validate `plugin.json` against the host capabilities supplied to it |
 | `PluginLifecycleManager` | Install, enable, disable, and uninstall plugins |
 | `PluginResolver` | Resolve namespaced plugin components |
 | `PluginRegistry` | Hold installed plugin definitions and statuses |
@@ -43,7 +44,7 @@ The runtime rejects these manifest contribution types outright, because no manif
 - `connectors`
 - `personas`
 
-The refusal lands where the manifest is **read**, not at enable: `loadPluginManifest()` checks it, and `install()` goes through `loadPluginManifest()`. `PluginLifecycleManager.enable()` repeats the check as a backstop for a definition that reached the registry some other way, and a plugin that trips it there moves to status `error` rather than staying `installed`.
+The refusal lands where the manifest is **read**, not at enable: `loadPluginManifest()` checks it, and `install()` goes through `loadPluginManifest()` with the capabilities owned by that manager. Direct callers may pass a `PluginEnablementCapabilities`; omitting it preserves the fail-closed default, so a skill manifest is accepted only when the caller explicitly says it owns the registry the skill will reach. `PluginLifecycleManager.enable()` repeats the same check as a backstop for a definition that reached the registry some other way, and a plugin that trips it there moves to status `error` rather than staying `installed`.
 
 That fail-fast behavior is intentional. It is better to deny unsupported contributions clearly than to half-load a plugin and leave the runtime in an ambiguous state.
 
@@ -191,11 +192,12 @@ cosmetic either — two plugins shipping a `reconcile` skill would otherwise
 overwrite each other in a map keyed by the frontmatter name, and the loser would
 vanish with nothing reporting it.
 
-One limit to know before you build on this: the manifest is read before any
-manager is consulted, so the load-time refusal cannot see your `skillRegistry`.
-`install()` therefore rejects a manifest declaring `skills` even when the manager
-holds one, and the loading path above is reached today only by a definition a
-host registers into `PluginRegistry` itself.
+`install()` derives this capability from the manager's constructor-owned
+`skillRegistry`, so the ordinary lifecycle path accepts the manifest only when
+`enable()` has the same durable destination available. Calling
+`loadPluginManifest()` directly remains fail-closed unless the caller supplies
+`{ skillsSupported: true }`; that flag is an assertion about host wiring, not a
+request to ignore a missing registry.
 
 This gives you one important invariant:
 

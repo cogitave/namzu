@@ -65,12 +65,15 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
  * Reads and validates a plugin manifest from a plugin directory.
  * Throws on invalid manifest (fail fast).
  */
-export async function loadPluginManifest(pluginDir: string): Promise<PluginManifest> {
+export async function loadPluginManifest(
+	pluginDir: string,
+	capabilities: PluginEnablementCapabilities = {},
+): Promise<PluginManifest> {
 	const manifestPath = join(pluginDir, PLUGIN_MANIFEST_FILENAME)
 	const raw = await readFile(manifestPath, 'utf-8')
 	const parsed: unknown = JSON.parse(raw)
 	const manifest = PluginManifestSchema.parse(parsed)
-	assertEnableable(manifest)
+	assertEnableable(manifest, capabilities)
 	return manifest
 }
 
@@ -109,7 +112,7 @@ const REGISTRY_BACKED_CONTRIBUTIONS = ['skills'] as const
  * through host configuration; what does not exist is the manifest path
  * into them. Naming the types is what makes that actionable.
  */
-export interface EnableableOptions {
+export interface PluginEnablementCapabilities {
 	/**
 	 * Whether the host wired a `SkillRegistry`.
 	 *
@@ -122,7 +125,10 @@ export interface EnableableOptions {
 	readonly skillsSupported?: boolean
 }
 
-export function assertEnableable(manifest: PluginManifest, opts: EnableableOptions = {}): void {
+export function assertEnableable(
+	manifest: PluginManifest,
+	capabilities: PluginEnablementCapabilities = {},
+): void {
 	const record = manifest as unknown as Record<string, unknown[] | undefined>
 	// One ordered pass over all three rather than two group filters
 	// concatenated, so the message keeps naming them in the order the
@@ -130,7 +136,7 @@ export function assertEnableable(manifest: PluginManifest, opts: EnableableOptio
 	// skills`, which reads as though the grouping were the point rather than
 	// an implementation detail of which registry each one needs.
 	const enableable = (key: string): boolean =>
-		opts.skillsSupported === true &&
+		capabilities.skillsSupported === true &&
 		(REGISTRY_BACKED_CONTRIBUTIONS as readonly string[]).includes(key)
 	const unsupported = ['skills', 'connectors', 'personas'].filter(
 		(key) => Boolean(record[key]?.length) && !enableable(key),
