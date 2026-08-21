@@ -69,7 +69,11 @@ function abortRejectingDriver(observe: (signal: AbortSignal) => void): LLMProvid
 								signal.addEventListener(
 									'abort',
 									() =>
-										reject(Object.assign(new Error('transport aborted'), { name: 'AbortError' })),
+										reject(
+											Object.assign(new Error('transport aborted'), {
+												name: 'AbortError',
+											}),
+										),
 									{ once: true },
 								)
 							}),
@@ -117,7 +121,9 @@ describe('a stalled stream is surfaced', () => {
 				{ idleTimeoutMs: 10 },
 			)
 			const settled = (async () => {
-				for await (const _chunk of wrapped.chatStream({ signal: caller.signal } as never)) {
+				for await (const _chunk of wrapped.chatStream({
+					signal: caller.signal,
+				} as never)) {
 					// no chunks: the transport remains pending until the watchdog aborts it
 				}
 			})().catch((err: unknown) => {
@@ -149,7 +155,9 @@ describe('a stalled stream is surfaced', () => {
 			{ idleTimeoutMs: 30_000 },
 		)
 		const settled = (async () => {
-			for await (const _chunk of wrapped.chatStream({ signal: caller.signal } as never)) {
+			for await (const _chunk of wrapped.chatStream({
+				signal: caller.signal,
+			} as never)) {
 				// no chunks: caller cancellation is the only settlement in this test
 			}
 		})()
@@ -169,7 +177,9 @@ describe('a stalled stream is surfaced', () => {
 		// different name.
 		vi.useFakeTimers()
 		try {
-			const wrapped = withStreamIdleTimeout(finishingDriver(5), { idleTimeoutMs: 1_000 })
+			const wrapped = withStreamIdleTimeout(finishingDriver(5), {
+				idleTimeoutMs: 1_000,
+			})
 			const settled = drainChunks(wrapped)
 			await vi.advanceTimersByTimeAsync(0)
 
@@ -248,7 +258,11 @@ describe('a stalled stream is surfaced', () => {
 		// the runtime reads to decide whether to send tools.
 		const driver = {
 			...finishingDriver(1),
-			capabilities: { supportsTools: true, supportsStreaming: true, supportsFunctionCalling: true },
+			capabilities: {
+				supportsTools: true,
+				supportsStreaming: true,
+				supportsFunctionCalling: true,
+			},
 		} as LLMProvider
 
 		const wrapped = withStreamIdleTimeout(driver, { idleTimeoutMs: 1_000 })
@@ -286,6 +300,10 @@ describe('a stalled stream is surfaced', () => {
 			async probeCredential(): Promise<void> {
 				this.probed = true
 			}
+
+			reasoningEffortLevelsFor(model: string) {
+				return model === 'class-model' ? (['low'] as const) : undefined
+			}
 		}
 
 		const driver = new ClassDriver()
@@ -305,5 +323,7 @@ describe('a stalled stream is surfaced', () => {
 		])
 		await wrapped.probeCredential?.()
 		expect(driver.probed).toBe(true)
+		expect(wrapped.reasoningEffortLevelsFor?.('class-model')).toEqual(['low'])
+		expect(wrapped.reasoningEffortLevelsFor?.('future-model')).toBeUndefined()
 	})
 })

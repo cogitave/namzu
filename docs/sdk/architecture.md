@@ -404,9 +404,13 @@ every model accepts every member. It includes the distinct `none` and
 `minimal` levels used by different model generations and the current upper
 `max` and `ultra` names. A driver with no effort wire refuses a requested
 value; a driver with model-specific support resolves the selected model's
-documented set. An absent `effortLevelsFor` means the driver cannot enumerate
-that set — including when it accepts arbitrary compatible-endpoint model ids —
-not that a host may assume every level or none of them.
+documented set through `reasoningEffortLevelsFor(model, thinking)`. The result
+has four deliberate states: an absent method means the driver cannot enumerate
+any model, `undefined` means this model is unknown, `[]` means the model
+explicitly offers no level, and a non-empty array is the exact menu. Fallback
+chains expose the intersection in head-member order, because one request may
+reach every member. The older head-only `effortLevelsFor` member remains for a
+deprecation window; new hosts should use the chain-aware member.
 
 The runtime composes each provider as `fallback(retry(idle(provider)))`. The
 idle layer bounds time between chunks rather than total request duration,

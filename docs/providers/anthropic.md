@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/providers/anthropic/src/client.ts
 tags: [provider, anthropic, reference]
 ---
@@ -121,6 +121,14 @@ signals reach the vendor request and are rechecked before a result is returned.
 exported so a host can see how a requested reasoning effort maps onto the
 vendor's thinking parameters **before** a call is made, rather than inferring it
 from the response.
+
+`reasoningEffortLevelsFor(model, thinking)` publishes that same exact menu
+through `LLMProvider`; the older `effortLevelsFor` spelling remains as a
+deprecated compatibility alias. A selected level outside the menu is refused
+before the vendor client is called, with the supported levels in the error.
+It is never silently dropped to the model default. When a request omits its
+model, both validation and the request body use the provider's configured
+default model.
 
 ### Signed-thinking replay
 

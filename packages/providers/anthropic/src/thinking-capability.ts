@@ -194,7 +194,11 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 /** The `thinking` body value, or `undefined` to send no thinking field. */
 export type ResolvedThinkingBody =
 	| { type: 'adaptive'; display?: 'summarized' | 'omitted' }
-	| { type: 'enabled'; budget_tokens?: number; display?: 'summarized' | 'omitted' }
+	| {
+			type: 'enabled'
+			budget_tokens?: number
+			display?: 'summarized' | 'omitted'
+	  }
 	| { type: 'disabled' }
 	| undefined
 
@@ -253,10 +257,9 @@ export function resolveThinkingBody(
  * arrived with 4.7, and `max` does not exist below 4.6 — so `capability.effort`
  * is a set rather than a flag. It was a flag, which meant `xhigh` on a 4.6 and
  * `max` on a 4.5 were forwarded to a vendor that rejects an unknown level
- * rather than clamping it. Dropping the field is right where the level does
- * not exist: `effort` shapes an answer the model will still produce, so a
- * request without it is the same request at the model's own default, whereas
- * refusing would fail a call that has a correct answer.
+ * rather than clamping it. Refusing before transport is the only truthful
+ * outcome: silently dropping a caller's effort changes the request to the
+ * model default while reporting that the requested control was honoured.
  *
  * The COMBINATION has to be legal, and the legal set is per model rather than
  * universal. Opus 5 accepts `thinking: {type: "disabled"}` at `high` or below
@@ -274,9 +277,15 @@ export function resolveEffort(
 	effort: ReasoningEffort | undefined,
 	thinkingBody: ResolvedThinkingBody,
 	capability: ThinkingCapability,
+	model?: string,
 ): ReasoningEffort | undefined {
 	if (effort === undefined) return undefined
 	const allowed =
 		thinkingBody?.type === 'disabled' ? capability.effortWhenDisabled : capability.effort
-	return allowed.includes(effort) ? effort : undefined
+	if (allowed.includes(effort)) return effort
+	const target = model ? ` by model "${model}"` : ' by this model/thinking combination'
+	const offered = allowed.length > 0 ? allowed.join(', ') : 'none'
+	throw new Error(
+		`AnthropicProvider: effort "${effort}" is not supported${target}. Supported levels: ${offered}. Choose one of those levels or omit \`effort\`.`,
+	)
 }

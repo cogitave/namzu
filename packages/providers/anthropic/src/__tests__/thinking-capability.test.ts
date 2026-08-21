@@ -120,7 +120,9 @@ describe('turning an intent into a body this model accepts', () => {
 	const alwaysOn = resolveThinkingCapability('claude-fable-5')
 
 	it('sends adaptive to an adaptive model', () => {
-		expect(resolveThinkingBody({ type: 'adaptive' }, adaptiveOnly)).toEqual({ type: 'adaptive' })
+		expect(resolveThinkingBody({ type: 'adaptive' }, adaptiveOnly)).toEqual({
+			type: 'adaptive',
+		})
 	})
 
 	it('rewrites a manual intent to adaptive where manual is rejected', () => {
@@ -132,7 +134,9 @@ describe('turning an intent into a body this model accepts', () => {
 	})
 
 	it('rewrites an adaptive intent to manual where adaptive is rejected', () => {
-		expect(resolveThinkingBody({ type: 'adaptive' }, manualOnly)).toEqual({ type: 'enabled' })
+		expect(resolveThinkingBody({ type: 'adaptive' }, manualOnly)).toEqual({
+			type: 'enabled',
+		})
 	})
 
 	it('keeps the budget on a model that has budgets', () => {
@@ -159,7 +163,9 @@ describe('turning an intent into a body this model accepts', () => {
 	})
 
 	it('honours disable where it is accepted', () => {
-		expect(resolveThinkingBody({ type: 'disabled' }, adaptiveOnly)).toEqual({ type: 'disabled' })
+		expect(resolveThinkingBody({ type: 'disabled' }, adaptiveOnly)).toEqual({
+			type: 'disabled',
+		})
 	})
 
 	it('sends nothing when the caller asked for nothing', () => {
@@ -175,8 +181,10 @@ describe('when effort rides along', () => {
 		expect(resolveEffort('high', { type: 'adaptive' }, adaptiveOnly)).toBe('high')
 	})
 
-	it('drops effort on a model that does not', () => {
-		expect(resolveEffort('high', { type: 'enabled' }, noEffort)).toBeUndefined()
+	it('refuses effort on a model that does not accept any level', () => {
+		expect(() => resolveEffort('high', { type: 'enabled' }, noEffort)).toThrow(
+			/Supported levels: none/,
+		)
 	})
 
 	it('keeps effort on the one manual model that accepts it', () => {
@@ -201,8 +209,8 @@ describe('when effort rides along', () => {
 		// the wire would have honoured. Looking incoherent is not the same as
 		// being rejected, and only the wire decides which.
 		const opus5 = resolveThinkingCapability('claude-opus-5')
-		expect(resolveEffort('max', { type: 'disabled' }, opus5)).toBeUndefined()
-		expect(resolveEffort('xhigh', { type: 'disabled' }, opus5)).toBeUndefined()
+		expect(() => resolveEffort('max', { type: 'disabled' }, opus5)).toThrow(/Supported levels/)
+		expect(() => resolveEffort('xhigh', { type: 'disabled' }, opus5)).toThrow(/Supported levels/)
 		expect(resolveEffort('high', { type: 'disabled' }, opus5)).toBe('high')
 		// …and uncapped with thinking on, on the same model.
 		expect(resolveEffort('max', { type: 'adaptive' }, opus5)).toBe('max')
@@ -211,25 +219,29 @@ describe('when effort rides along', () => {
 		expect(resolveEffort('max', { type: 'disabled' }, adaptiveOnly)).toBe('max')
 	})
 
-	it('drops a level this model does not have', () => {
+	it('refuses a level this model does not have', () => {
 		// The ceiling moved twice, so "does this model take effort?" was never
 		// a yes/no question. While it was modelled as one, `xhigh` on a 4.6 and
 		// `max` on a 4.5 went to the wire, and the vendor rejects an unknown
 		// level rather than clamping it.
 		const v46 = resolveThinkingCapability('claude-opus-4-6')
-		expect(resolveEffort('xhigh', { type: 'adaptive' }, v46)).toBeUndefined()
+		expect(() => resolveEffort('xhigh', { type: 'adaptive' }, v46)).toThrow(
+			/low, medium, high, max/,
+		)
 		expect(resolveEffort('max', { type: 'adaptive' }, v46)).toBe('max')
 
 		const opus45 = resolveThinkingCapability('claude-opus-4-5')
-		expect(resolveEffort('max', { type: 'enabled' }, opus45)).toBeUndefined()
-		expect(resolveEffort('xhigh', { type: 'enabled' }, opus45)).toBeUndefined()
+		expect(() => resolveEffort('max', { type: 'enabled' }, opus45)).toThrow(/low, medium, high/)
+		expect(() => resolveEffort('xhigh', { type: 'enabled' }, opus45)).toThrow(/low, medium, high/)
 		expect(resolveEffort('high', { type: 'enabled' }, opus45)).toBe('high')
 	})
 
 	it.each(['none', 'minimal', 'ultra'] as const)(
 		'does not leak the foreign %s level onto this provider wire',
 		(effort) => {
-			expect(resolveEffort(effort, { type: 'adaptive' }, adaptiveOnly)).toBeUndefined()
+			expect(() => resolveEffort(effort, { type: 'adaptive' }, adaptiveOnly)).toThrow(
+				/Choose one of those levels or omit `effort`/,
+			)
 		},
 	)
 

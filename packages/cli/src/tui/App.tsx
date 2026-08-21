@@ -23,6 +23,7 @@ import {
 	type Message,
 	type MessageAttachment,
 	type MessageId,
+	type ReasoningEffort,
 	type RunId,
 	createAssistantMessage,
 	createUserMessage,
@@ -121,8 +122,8 @@ import {
 	kernelCommandDescriptors,
 	mergeHostCommands,
 	renderOutcome,
-	runSlash,
 	reviewPrompt,
+	runSlash,
 } from './slashCommands.js'
 import { splitCompleteBlocks } from './stream-blocks.js'
 import { theme } from './theme.js'
@@ -330,7 +331,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * re-render the transcript on every delta — the exact cost the `pending`
 	 * buffering two hundred lines down exists to avoid.
 	 */
-	const lastAssistantMessage = useRef<{ runId: string; messageId: string } | null>(null)
+	const lastAssistantMessage = useRef<{
+		runId: string
+		messageId: string
+	} | null>(null)
 	/**
 	 * The latest assistant text available to `/copy`, with what proves it.
 	 *
@@ -397,6 +401,12 @@ export function App({ ctx: initialCtx }: AppProps) {
 	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'session'>(
 		ctx.skipPermissions === true ? 'launch-bypass' : 'default',
 	)
+	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
+	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
+	const setReasoningEffort = useCallback((next: ReasoningEffort | undefined) => {
+		reasoningEffortRef.current = next
+		setReasoningEffortState(next)
+	}, [])
 	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
 		[],
 	)
@@ -405,7 +415,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 	// per keypress is a cost nobody asked for. A file added mid-session is
 	// picked up by `/model` (which re-hydrates) or a restart.
 	const [userCommands, setUserCommands] = useState<readonly UserCommand[]>([])
-	const [usage, setUsage] = useState<{ totalTokens: number; cost: CostInfo } | null>(null)
+	const [usage, setUsage] = useState<{
+		totalTokens: number
+		cost: CostInfo
+	} | null>(null)
 	// Context fill, straight from the kernel and held apart from `usage` —
 	// they are different quantities and conflating them is what made the
 	// gauge climb with turn count instead of with context.
@@ -595,7 +608,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * write to land.
 	 */
 	const conversationMutationRef = useRef<ConversationMutation | null>(null)
-	const [conversationMutation, setConversationMutation] = useState<ConversationMutation | null>(null)
+	const [conversationMutation, setConversationMutation] = useState<ConversationMutation | null>(
+		null,
+	)
 	/** Closes the same-tick input window while a verified export reads disk. */
 	const exportingRef = useRef(false)
 	/** A goal mutation is ordered before any later conversation command. */
@@ -664,7 +679,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 					// Derived from `prev` rather than a counter, so the number is a
 					// fact about the transcript rather than a second record of it.
 					...(willCollapse(detail)
-						? { detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1 }
+						? {
+								detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1,
+							}
 						: {}),
 				},
 			])
@@ -747,11 +764,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 	}, [])
 
 	const hydrateSession = useCallback(
-		async (
-			prefs: Preferences,
-			detectedNow: readonly DetectedProvider[],
-			signal?: AbortSignal,
-		) => {
+		async (prefs: Preferences, detectedNow: readonly DetectedProvider[], signal?: AbortSignal) => {
 			if (signal?.aborted) return
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
@@ -779,6 +792,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 				}
 				throw new Error(reason)
 			}
+			// A picker-owned provider/model change is one state transition. Clear the
+			// old model's effort selection before publishing the replacement session
+			// or releasing any paused queue. Failed and superseded candidates returned
+			// above, so they leave the current session selection untouched.
+			if (signal !== undefined) setReasoningEffort(undefined)
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
 			// for the rest of the TUI's life.
@@ -847,7 +865,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 				if (s.errorHint) pushMessage('system', s.errorHint)
 			}
 		},
-		[advanceQueueContinuation, ensureSessions, pushMessage],
+		[advanceQueueContinuation, ensureSessions, pushMessage, setReasoningEffort],
 	)
 
 	/**
@@ -947,104 +965,110 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * no-browser case is handed to `namzu login`, which reads the pasted
 	 * address from standard input and exists for exactly that machine.
 	 */
-	const startLoginFromPicker = useCallback(async (signal: AbortSignal) => {
-		if (signal.aborted) return
-		cancelPendingLogin()
-		let start: SubscriptionLogin
-		try {
-			start = await beginSubscriptionLogin({ signal })
-		} catch (err) {
+	const startLoginFromPicker = useCallback(
+		async (signal: AbortSignal) => {
 			if (signal.aborted) return
+			cancelPendingLogin()
+			let start: SubscriptionLogin
+			try {
+				start = await beginSubscriptionLogin({ signal })
+			} catch (err) {
+				if (signal.aborted) return
+				setPickerNotice(
+					`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
+				)
+				return
+			}
+			if (signal.aborted) {
+				start.cancel()
+				return
+			}
+			loginRef.current = start
+			const cancelForPicker = () => {
+				if (loginRef.current === start) loginRef.current = null
+				if (loginAbortCleanupRef.current === cleanup) loginAbortCleanupRef.current = null
+				start.cancel()
+			}
+			const cleanup = () => signal.removeEventListener('abort', cancelForPicker)
+			loginAbortCleanupRef.current = cleanup
+			signal.addEventListener('abort', cancelForPicker, { once: true })
+			if (signal.aborted) {
+				cancelForPicker()
+				return
+			}
 			setPickerNotice(
-				`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
+				describeLoginStart({
+					url: start.url,
+					loopback: start.loopback,
+					browserOpened: openInBrowser(start.url),
+					// Named for THIS screen. Telling someone at the picker to type a
+					// slash command is what made the feature unreachable; telling them
+					// to run a command in another terminal is something they can do
+					// from where they are sitting.
+					completionHint: 'run "namzu login" in a terminal and paste it there',
+				}),
 			)
-			return
-		}
-		if (signal.aborted) {
+			const waiting = start.waitForCallback()
+			if (!waiting) return
+			const outcome = await waiting
+			if (loginRef.current !== start || signal.aborted) return
+			loginRef.current = null
+			cleanup()
+			loginAbortCleanupRef.current = null
 			start.cancel()
-			return
-		}
-		loginRef.current = start
-		const cancelForPicker = () => {
-			if (loginRef.current === start) loginRef.current = null
-			if (loginAbortCleanupRef.current === cleanup) loginAbortCleanupRef.current = null
-			start.cancel()
-		}
-		const cleanup = () => signal.removeEventListener('abort', cancelForPicker)
-		loginAbortCleanupRef.current = cleanup
-		signal.addEventListener('abort', cancelForPicker, { once: true })
-		if (signal.aborted) {
-			cancelForPicker()
-			return
-		}
-		setPickerNotice(
-			describeLoginStart({
-				url: start.url,
-				loopback: start.loopback,
-				browserOpened: openInBrowser(start.url),
-				// Named for THIS screen. Telling someone at the picker to type a
-				// slash command is what made the feature unreachable; telling them
-				// to run a command in another terminal is something they can do
-				// from where they are sitting.
-				completionHint: 'run "namzu login" in a terminal and paste it there',
-			}),
-		)
-		const waiting = start.waitForCallback()
-		if (!waiting) return
-		const outcome = await waiting
-		if (loginRef.current !== start || signal.aborted) return
-		loginRef.current = null
-		cleanup()
-		loginAbortCleanupRef.current = null
-		start.cancel()
-		if (!outcome.ok && outcome.reason.includes('cancelled')) return
-		setPickerNotice(describeLoginOutcome(outcome))
-		if (outcome.ok) await runProbeRef.current?.(signal)
-	}, [cancelPendingLogin])
+			if (!outcome.ok && outcome.reason.includes('cancelled')) return
+			setPickerNotice(describeLoginOutcome(outcome))
+			if (outcome.ok) await runProbeRef.current?.(signal)
+		},
+		[cancelPendingLogin],
+	)
 
-	const runProbe = useCallback(async (signal?: AbortSignal) => {
-		try {
-			if (signal?.aborted) return
-			const probe = await probeAgentSession()
-			if (signal?.aborted) return
-			setDetected(probe.detected)
-			if (probe.needsRepickReason) {
-				pushMessage('system', probe.needsRepickReason)
-				setPickerNotice(probe.needsRepickReason)
+	const runProbe = useCallback(
+		async (signal?: AbortSignal) => {
+			try {
+				if (signal?.aborted) return
+				const probe = await probeAgentSession()
+				if (signal?.aborted) return
+				setDetected(probe.detected)
+				if (probe.needsRepickReason) {
+					pushMessage('system', probe.needsRepickReason)
+					setPickerNotice(probe.needsRepickReason)
+					setPhase('picker')
+					return
+				}
+				// The saved provider is fine and this machine has no credential for it.
+				// Routed to the picker, exactly like the unbuildable-primary case, and
+				// for the same reason: hydrating would produce a session with no
+				// provider, which sets `unhealthy` — a disabled composer where nothing
+				// the message suggested can be done. The picker is where a credential
+				// can be entered, so the picker is where the refusal belongs.
+				if (probe.credentialGap) {
+					// Kept, not discarded. The file is valid; only the secret is absent,
+					// so the chain it declares — model pins and fallbacks included — is
+					// still the operator's answer once one is supplied.
+					savedPrefsRef.current = probe.preferences
+					setKeyEntryFor(probe.credentialGap.providerId)
+					pushMessage('system', probe.credentialGap.reason)
+					setPickerNotice(probe.credentialGap.reason)
+					setPhase('picker')
+					return
+				}
+				if (probe.preferences) {
+					await hydrateSession(probe.preferences, probe.detected, signal)
+					return
+				}
 				setPhase('picker')
-				return
+			} catch (err) {
+				if (signal?.aborted) return
+				setPhase('unhealthy')
+				pushMessage(
+					'system',
+					`Failed to probe agents: ${err instanceof Error ? err.message : String(err)}`,
+				)
 			}
-			// The saved provider is fine and this machine has no credential for it.
-			// Routed to the picker, exactly like the unbuildable-primary case, and
-			// for the same reason: hydrating would produce a session with no
-			// provider, which sets `unhealthy` — a disabled composer where nothing
-			// the message suggested can be done. The picker is where a credential
-			// can be entered, so the picker is where the refusal belongs.
-			if (probe.credentialGap) {
-				// Kept, not discarded. The file is valid; only the secret is absent,
-				// so the chain it declares — model pins and fallbacks included — is
-				// still the operator's answer once one is supplied.
-				savedPrefsRef.current = probe.preferences
-				setKeyEntryFor(probe.credentialGap.providerId)
-				pushMessage('system', probe.credentialGap.reason)
-				setPickerNotice(probe.credentialGap.reason)
-				setPhase('picker')
-				return
-			}
-			if (probe.preferences) {
-				await hydrateSession(probe.preferences, probe.detected, signal)
-				return
-			}
-			setPhase('picker')
-		} catch (err) {
-			if (signal?.aborted) return
-			setPhase('unhealthy')
-			pushMessage(
-				'system',
-				`Failed to probe agents: ${err instanceof Error ? err.message : String(err)}`,
-			)
-		}
-	}, [hydrateSession, pushMessage])
+		},
+		[hydrateSession, pushMessage],
+	)
 
 	// `startOrFinishLogin` is declared above `runProbe` and calls it, so it
 	// reads the current one through a ref rather than closing over a stale
@@ -1148,6 +1172,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 		mcp: session ? { connected: session.mcpConnected, failed: session.mcpFailed } : null,
 		providerSummary: session?.providerSummary ?? null,
 		modelSummary: session?.modelSummary ?? null,
+		reasoningEffort: {
+			current: () => reasoningEffortRef.current,
+			levels: session?.reasoningEffortLevels,
+		},
 		// The same state the status bar reads, unformatted. `/cost` prints exact
 		// figures where the bar abbreviates to fit.
 		usage,
@@ -1195,7 +1223,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 			setSelectedResume(0)
 			setPhase('resume')
 		} catch (err) {
-			pushMessage('system', `Could not list conversations: ${err instanceof Error ? err.message : String(err)}`)
+			pushMessage(
+				'system',
+				`Could not list conversations: ${err instanceof Error ? err.message : String(err)}`,
+			)
 		}
 	}, [ensureSessions, pushMessage])
 
@@ -1228,7 +1259,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * sends at that prompt, for the same reason.
 	 */
 	const interruptTurn = useCallback((): boolean => {
-		if (permissionResolveRef.current) resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
+		if (permissionResolveRef.current)
+			resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
 		const ac = abortRef.current
 		if (!ac) return false
 		ac.abort()
@@ -1302,7 +1334,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 			} catch (err) {
 				resumeCommittedRef.current = false
 				setPhase('ready')
-				pushMessage('system', `Could not resume: ${err instanceof Error ? err.message : String(err)}`)
+				pushMessage(
+					'system',
+					`Could not resume: ${err instanceof Error ? err.message : String(err)}`,
+				)
 				return
 			}
 			resumeCommittedRef.current = false
@@ -1346,7 +1381,15 @@ export function App({ ctx: initialCtx }: AppProps) {
 				)
 			}
 		},
-		[discardQueued, goalActivation, interruptTurn, nextId, pushMessage, resetTranscript, wakeGoalDriver],
+		[
+			discardQueued,
+			goalActivation,
+			interruptTurn,
+			nextId,
+			pushMessage,
+			resetTranscript,
+			wakeGoalDriver,
+		],
 	)
 
 	/**
@@ -1401,15 +1444,15 @@ export function App({ ctx: initialCtx }: AppProps) {
 					'system',
 					sourceScope && targetSessionId
 						? `Started a fresh conversation. The previous conversation is unchanged and remains in /resume.${
-							clearScreen
-								? ''
-								: ' Earlier rows above are display only and are not part of this conversation\'s model context.'
-						}`
+								clearScreen
+									? ''
+									: " Earlier rows above are display only and are not part of this conversation's model context."
+							}`
 						: `Started a fresh in-memory conversation because durable session persistence is unavailable.${
-							clearScreen
-								? ''
-								: ' Earlier rows above are display only and are not part of this conversation\'s model context.'
-						}`,
+								clearScreen
+									? ''
+									: " Earlier rows above are display only and are not part of this conversation's model context."
+							}`,
 				)
 				if (discardedQueued > 0) {
 					pushMessage(
@@ -1705,7 +1748,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 				case 'delta': {
 					setState('thinking')
 					if (event.messageId && event.runId) {
-						lastAssistantMessage.current = { runId: event.runId, messageId: event.messageId }
+						lastAssistantMessage.current = {
+							runId: event.runId,
+							messageId: event.messageId,
+						}
 					}
 					st.text += event.text
 					// Held, not appended. Appending each delta is what produced text
@@ -1812,12 +1858,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 					)
 					break
 				case 'history-repair':
-					pushMessage(
-						'system',
-						`History warning (${event.source}): ${event.text}`,
-						false,
-						'⚠',
-					)
+					pushMessage('system', `History warning (${event.source}): ${event.text}`, false, '⚠')
 					break
 				case 'done':
 					// `run_completed` is not synonymous with success: budgets,
@@ -1826,11 +1867,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 					// headless command's compatibility rule.
 					st.completed = event.stopReason === undefined || event.stopReason === 'end_turn'
 					st.outcome =
-						event.stopReason === 'cancelled'
-							? 'cancelled'
-							: st.completed
-								? 'completed'
-								: 'stopped'
+						event.stopReason === 'cancelled' ? 'cancelled' : st.completed ? 'completed' : 'stopped'
 					st.notification = {
 						kind: 'turn-settled',
 						outcome: st.completed ? 'completed' : 'stopped',
@@ -1927,9 +1964,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			if (attached.length > 0)
 				metaParts.push(`${attached.length} file${attached.length > 1 ? 's' : ''} attached`)
 			if (attachments && attachments.length > 0)
-				metaParts.push(
-					`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`,
-				)
+				metaParts.push(`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`)
 			if (goalRound) {
 				pushMessage(
 					'system',
@@ -1998,22 +2033,19 @@ export function App({ ctx: initialCtx }: AppProps) {
 			unsettledTurnGenerationsRef.current.set(turnToken, turnGeneration)
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
 			const turnPermissionMode = permissionModeRef.current
+			const turnReasoningEffort = reasoningEffortRef.current
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
 			// launched with --yolo later return to prompt mode truthfully.
 			const askPermission = (req: PermissionRequest): Promise<PermissionDecision> => {
-						if (
-							!stillHere() ||
-							activeTurnTokenRef.current !== turnToken ||
-							ac.signal.aborted
-						) {
-							return Promise.resolve({
-								kind: 'reject',
-								feedback: 'Turn is no longer active.',
-							})
-						}
-						return onPermission(req)
-					}
+				if (!stillHere() || activeTurnTokenRef.current !== turnToken || ac.signal.aborted) {
+					return Promise.resolve({
+						kind: 'reject',
+						feedback: 'Turn is no longer active.',
+					})
+				}
+				return onPermission(req)
+			}
 			let evidenceTurn: ConversationTurnStartedRecord | undefined
 			let evidenceReady = goalRound === undefined
 			if (turnSessions?.turnEvidence && destination) {
@@ -2067,6 +2099,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 						signal: ac.signal,
 						runId,
 						permissionMode: turnPermissionMode,
+						...(turnReasoningEffort !== undefined ? { effort: turnReasoningEffort } : {}),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
@@ -2129,8 +2162,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 				const publication = conversationMessages
 					? planTurnPublication(historyBeforeTurn, userMessage, conversationMessages)
 					: ({ kind: 'append', messages: fallbackTurn } as const)
-				const nextModelHistory =
-					conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn]
+				const nextModelHistory = conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn]
 				if (goalRound && (ac.signal.aborted || st.outcome !== 'completed')) {
 					goalActivation.disarm(goalRound.sessionId, goalRound)
 					wakeGoalDriver()
@@ -2322,7 +2354,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 						return
 					case 'permission-mode': {
 						if (!session?.hasProvider) {
-							pushMessage('system', 'No active session — pick a provider before changing permissions.')
+							pushMessage(
+								'system',
+								'No active session — pick a provider before changing permissions.',
+							)
 							return
 						}
 						if (
@@ -2353,6 +2388,50 @@ export function App({ ctx: initialCtx }: AppProps) {
 						pushMessage(
 							'system',
 							`Permission mode changed to ${slash.mode}. Any earlier "approve all" choice was revoked. Declarative deny rules and the built-in safety gate still take precedence.`,
+						)
+						return
+					}
+					case 'reasoning-effort': {
+						if (!session?.hasProvider) {
+							pushMessage(
+								'system',
+								'No active session — pick a provider before changing reasoning effort.',
+							)
+							return
+						}
+						if (
+							state !== 'idle' ||
+							abortRef.current !== null ||
+							hasUnsettledTurn() ||
+							queuedRef.current.length > 0 ||
+							permissionResolveRef.current !== null ||
+							compactingRef.current
+						) {
+							pushMessage(
+								'system',
+								'Reasoning effort was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+							)
+							return
+						}
+						if (slash.effort === null) {
+							setReasoningEffort(undefined)
+							pushMessage(
+								'system',
+								'Reasoning effort reset to the provider default for future main-query turns.',
+							)
+							return
+						}
+						if (!session.reasoningEffortLevels?.includes(slash.effort)) {
+							pushMessage(
+								'system',
+								`Reasoning effort was not changed: ${slash.effort} is not offered by every usable provider-chain member for this model.`,
+							)
+							return
+						}
+						setReasoningEffort(slash.effort)
+						pushMessage(
+							'system',
+							`Reasoning effort changed to ${slash.effort} for future main-query turns in this session.`,
 						)
 						return
 					}
@@ -2813,10 +2892,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 								)
 								break
 							case 'write-failed':
-								pushMessage(
-									'system',
-									`Could not send the terminal copy request: ${result.detail}`,
-								)
+								pushMessage('system', `Could not send the terminal copy request: ${result.detail}`)
 								break
 							default: {
 								const exhaustive: never = result
@@ -2921,9 +2997,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			enqueueQueued({
 				kind: 'human',
 				text: outgoing,
-				...(attachments && attachments.length > 0
-					? { attachments: [...attachments] }
-					: {}),
+				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
 			})
 		},
 		[
@@ -2938,6 +3012,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			pushMessage,
 			rawOutput,
 			resetTranscript,
+			setReasoningEffort,
 			slashCtx,
 			startFreshConversation,
 			state,
@@ -3517,7 +3592,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 					<StatusBar
 						cwd={ctx.cwd}
 						provider={session?.providerSummary ?? null}
-						model={session?.modelSummary ?? null}
+						model={
+							session?.modelSummary
+								? `${session.modelSummary}${reasoningEffort ? ` · effort ${reasoningEffort}` : ''}`
+								: null
+						}
 						state={state}
 						hint={
 							conversationMutation === 'fork'
@@ -3651,8 +3730,7 @@ function ComposerFrame({
 // argument — `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript
 // of forty calls says nothing about which one this was.
 function formatToolCall(toolName: string, summary: string): string {
-	const display =
-		toolName.length > 0 ? toolName[0]?.toUpperCase() + toolName.slice(1) : toolName
+	const display = toolName.length > 0 ? toolName[0]?.toUpperCase() + toolName.slice(1) : toolName
 	return summary.length > 0 ? `${display}(${summary})` : display
 }
 

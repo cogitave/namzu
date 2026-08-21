@@ -202,13 +202,23 @@ export function withStreamIdleTimeout(
 			? { listModels: (signal?: AbortSignal) => provider.listModels?.(signal) }
 			: {}),
 		...(provider.probeCredential
-			? { probeCredential: (signal?: AbortSignal) => provider.probeCredential?.(signal) }
+			? {
+					probeCredential: (signal?: AbortSignal) => provider.probeCredential?.(signal),
+				}
 			: {}),
 		...(provider.healthCheck
 			? { healthCheck: (model?: string) => provider.healthCheck?.(model) }
 			: {}),
 		...(provider.doctorCheck
 			? { doctorCheck: (model?: string) => provider.doctorCheck?.(model) }
+			: {}),
+		...(provider.reasoningEffortLevelsFor
+			? {
+					reasoningEffortLevelsFor: (
+						model: string,
+						thinking?: Parameters<NonNullable<LLMProvider['reasoningEffortLevelsFor']>>[1],
+					) => provider.reasoningEffortLevelsFor?.(model, thinking),
+				}
 			: {}),
 		...(provider.effortLevelsFor
 			? {

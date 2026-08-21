@@ -106,6 +106,17 @@ describe('classifyProviderError', () => {
 })
 
 describe('withProviderRetry', () => {
+	it('preserves an explicitly unknown canonical reasoning-effort menu', () => {
+		const provider = {
+			...scripted([]),
+			reasoningEffortLevelsFor: () => undefined,
+		} satisfies LLMProvider
+		const wrapped = withProviderRetry(provider, { config: { maxRetries: 1 } })
+
+		expect(wrapped.reasoningEffortLevelsFor).toBeTypeOf('function')
+		expect(wrapped.reasoningEffortLevelsFor?.('future-model')).toBeUndefined()
+	})
+
 	it('retries a 429 and succeeds', async () => {
 		const provider = scripted([
 			() => {
@@ -115,7 +126,10 @@ describe('withProviderRetry', () => {
 				yield chunk('ok')
 			},
 		])
-		const wrapped = withProviderRetry(provider, { sleepFn: noSleep, random: () => 0.5 })
+		const wrapped = withProviderRetry(provider, {
+			sleepFn: noSleep,
+			random: () => 0.5,
+		})
 		expect(await drain(wrapped.chatStream(PARAMS))).toBe('ok')
 		expect(provider.calls).toBe(2)
 	})
@@ -303,7 +317,9 @@ describe('withProviderRetry', () => {
 	it('propagates an abort untouched so the run still settles as cancelled', async () => {
 		const controller = new AbortController()
 		controller.abort()
-		const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' })
+		const abortErr = Object.assign(new Error('aborted'), {
+			name: 'AbortError',
+		})
 		const provider = scripted([
 			() => {
 				throw abortErr
@@ -332,7 +348,10 @@ describe('withProviderRetry', () => {
 		const wrapped = withProviderRetry(base)
 		expect(wrapped.id).toBe('anthropic')
 		expect(wrapped.name).toBe('Anthropic')
-		expect(wrapped.capabilities).toEqual({ supportsTools: true, supportsVision: false })
+		expect(wrapped.capabilities).toEqual({
+			supportsTools: true,
+			supportsVision: false,
+		})
 		expect(typeof wrapped.listModels).toBe('function')
 		expect(wrapped.healthCheck).toBeUndefined()
 	})

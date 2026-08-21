@@ -27,6 +27,7 @@ import {
 	type AuthorizationRule,
 	type CostInfo,
 	type HostCommandOutcome,
+	type ReasoningEffort,
 	type SerializableHostCommand,
 	kernelHostCommands,
 } from '@namzu/sdk'
@@ -47,6 +48,8 @@ export type SlashAction =
 	| { kind: 'repick' }
 	/** Select how the next TUI turn resolves otherwise-undecided tool calls. */
 	| { kind: 'permission-mode'; mode: PermissionMode }
+	/** Select model-specific reasoning effort for future main-query turns. */
+	| { kind: 'reasoning-effort'; effort: ReasoningEffort | null }
 	| { kind: 'remember'; text: string }
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
@@ -114,7 +117,12 @@ export type SlashAction =
 	 * has already decided there IS one, and re-deriving would open a window
 	 * where the answer moved between the check and the write.
 	 */
-	| { kind: 'feedback'; rating: 'good' | 'bad'; messageId: string; note?: string }
+	| {
+			kind: 'feedback'
+			rating: 'good' | 'bad'
+			messageId: string
+			note?: string
+	  }
 	/**
 	 * Print a collapsed tool body in full, as a NEW transcript row.
 	 *
@@ -178,11 +186,22 @@ export interface SlashContext {
 	 * a session had no way to ask which servers answered and which did not.
 	 */
 	readonly mcp: {
-		readonly connected: readonly { readonly name: string; readonly tools: readonly string[] }[]
-		readonly failed: readonly { readonly name: string; readonly reason: string }[]
+		readonly connected: readonly {
+			readonly name: string
+			readonly tools: readonly string[]
+		}[]
+		readonly failed: readonly {
+			readonly name: string
+			readonly reason: string
+		}[]
 	} | null
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
+	/** Live, model/chain-specific reasoning-effort control. */
+	readonly reasoningEffort: {
+		readonly current: () => ReasoningEffort | undefined
+		readonly levels: readonly ReasoningEffort[] | undefined
+	}
 	/**
 	 * CUMULATIVE run spend, or `null` before the first turn reports any.
 	 *
@@ -191,7 +210,10 @@ export interface SlashContext {
 	 * figures — an abbreviation is right for a bar that must fit and wrong for
 	 * a question someone asked on purpose.
 	 */
-	readonly usage: { readonly totalTokens: number; readonly cost: CostInfo } | null
+	readonly usage: {
+		readonly totalTokens: number
+		readonly cost: CostInfo
+	} | null
 	/** What decides a tool call right now — flags, config, and session state. */
 	readonly permissions: {
 		/** Live mode and why it currently has that value, read at render time. */
@@ -368,7 +390,11 @@ export function mergeHostCommands(
 			(descriptor): SlashCommand => ({
 				name: descriptor.name,
 				description: descriptor.description,
-				action: (_ctx, args) => ({ kind: 'host-command', name: descriptor.name, args }),
+				action: (_ctx, args) => ({
+					kind: 'host-command',
+					name: descriptor.name,
+					args,
+				}),
 			}),
 		),
 	]
@@ -556,7 +582,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => {
 			const text = args.join(' ').trim()
 			return text.length === 0
-				? { kind: 'message', role: 'system', content: 'Usage: /remember <something to remember>' }
+				? {
+						kind: 'message',
+						role: 'system',
+						content: 'Usage: /remember <something to remember>',
+					}
 				: { kind: 'remember', text }
 		},
 	},
@@ -626,7 +656,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => {
 			const name = args.join(' ').trim()
 			return name.length === 0
-				? { kind: 'message', role: 'system', content: 'Usage: /skill <name> (see /skills)' }
+				? {
+						kind: 'message',
+						role: 'system',
+						content: 'Usage: /skill <name> (see /skills)',
+					}
 				: { kind: 'load-skill', name }
 		},
 	},
@@ -663,7 +697,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'cost',
 		description: 'Show tokens and spend for this run.',
-		action: (ctx) => ({ kind: 'message', role: 'system', content: renderCost(ctx.usage) }),
+		action: (ctx) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderCost(ctx.usage),
+		}),
 	},
 	{
 		name: 'review',
@@ -673,7 +711,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'mcp',
 		description: 'Show which tool servers connected, what they expose, and which failed.',
-		action: (ctx) => ({ kind: 'message', role: 'system', content: renderMcp(ctx.mcp) }),
+		action: (ctx) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderMcp(ctx.mcp),
+		}),
 	},
 	{
 		name: 'diff',
@@ -716,7 +758,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'status',
 		description: 'Show what this session is, where it may write, and when it stops to ask.',
-		action: (ctx) => ({ kind: 'message', role: 'system', content: renderStatus(ctx) }),
+		action: (ctx) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderStatus(ctx),
+		}),
 	},
 	{
 		name: 'debug-config',
@@ -744,6 +790,44 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				kind: 'message',
 				role: 'system',
 				content: 'Usage: /permissions [prompt|auto|strict]',
+			}
+		},
+	},
+	{
+		name: 'effort',
+		description: 'Show or select reasoning effort for future turns: /effort [level|default].',
+		action: (ctx, args) => {
+			if (args.length === 0) {
+				return {
+					kind: 'message',
+					role: 'system',
+					content: renderReasoningEffort(ctx),
+				}
+			}
+			if (!ctx.providerSummary) {
+				return {
+					kind: 'message',
+					role: 'system',
+					content: 'No active session — pick a provider with /model before changing effort.',
+				}
+			}
+			const token = args.length === 1 ? args[0]?.toLowerCase() : undefined
+			if (token === 'default') return { kind: 'reasoning-effort', effort: null }
+			const offered = ctx.reasoningEffort.levels
+			if (offered === undefined) {
+				return {
+					kind: 'message',
+					role: 'system',
+					content: `Reasoning effort was not changed: ${ctx.modelSummary ?? 'the current model'} or one of its usable fallback models does not publish an exact effort menu. Leave the provider default in force or choose a model/chain that can enumerate its levels.`,
+				}
+			}
+			const effort = offered.find((level) => level === token)
+			if (effort) return { kind: 'reasoning-effort', effort }
+			const levels = offered.length > 0 ? offered.join('|') : '<none>'
+			return {
+				kind: 'message',
+				role: 'system',
+				content: `Usage: /effort [${levels}|default]`,
 			}
 		},
 	},
@@ -1092,6 +1176,33 @@ export function renderPermissions(permissions: SlashContext['permissions']): str
 	lines.push('Then a rule decides. The approval setting above only reaches calls')
 	lines.push('no rule covered, so it can never reopen what a `deny` closed.')
 
+	return lines.join('\n')
+}
+
+/** Render the exact session control without inventing a global effort menu. */
+export function renderReasoningEffort(ctx: SlashContext): string {
+	if (!ctx.providerSummary) {
+		return 'No active session — pick a provider with /model before selecting reasoning effort.'
+	}
+	const current = ctx.reasoningEffort.current()
+	const lines = [
+		`Current reasoning effort: ${current ?? 'provider default'}.`,
+		`Model: ${ctx.modelSummary ?? 'provider default'}.`,
+	]
+	const offered = ctx.reasoningEffort.levels
+	if (offered === undefined) {
+		lines.push(
+			'Selectable levels: unavailable — this model or one usable fallback cannot enumerate an exact menu.',
+		)
+	} else if (offered.length === 0) {
+		lines.push('Selectable levels: none — the usable provider chain has no common effort level.')
+	} else {
+		lines.push(`Selectable for every usable provider-chain member: ${offered.join(', ')}.`)
+		lines.push(`Use /effort <${offered.join('|')}> or /effort default.`)
+	}
+	lines.push(
+		'Applies to future main-query turns in this TUI session; /model resets it. Subagents and manual compaction keep their own provider defaults.',
+	)
 	return lines.join('\n')
 }
 

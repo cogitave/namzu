@@ -114,7 +114,10 @@ describe('reasoning effort reaches the Chat Completions wire', () => {
 		await send(provider, { model, effort })
 
 		expect(create).toHaveBeenCalledTimes(1)
-		expect(create.mock.calls[0]?.[0]).toMatchObject({ model, reasoning_effort: effort })
+		expect(create.mock.calls[0]?.[0]).toMatchObject({
+			model,
+			reasoning_effort: effort,
+		})
 	})
 
 	it('omits the wire key entirely when nobody selected an effort', async () => {
@@ -162,6 +165,19 @@ describe('recognized models refuse levels their published set does not contain',
 })
 
 describe('published model effort sets are exact and unknown stays unknown', () => {
+	it('publishes the same answer through the provider capability contract', () => {
+		const provider = new OpenAIProvider({ apiKey: 'test-key' })
+
+		expect(provider.reasoningEffortLevelsFor('gpt-5.2')).toEqual([
+			'none',
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+		])
+		expect(provider.reasoningEffortLevelsFor('gateway/future-model')).toBeUndefined()
+	})
+
 	it('distinguishes the model generations and their snapshots', () => {
 		expect(openAIReasoningEffortLevels('gpt-5-2025-08-07')).toEqual([
 			'minimal',

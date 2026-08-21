@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/providers/deepseek/src/client.ts
 tags: [provider, deepseek, reasoning, reference]
 ---
@@ -154,6 +154,12 @@ they did not.
 |---|---|
 | `effort` | `thinking.effort` is accepted and validated against nothing — `effort: 'bogus'` returns 200, and `effort: 'none'` still produces reasoning tokens. The vendor's *Anthropic-format* endpoint does take an effort; this wire does not. |
 | `temperature`, `topP`, `frequencyPenalty`, `presencePenalty`, while thinking is on | All four return 200 and change nothing. Since thinking is on by default, this fires more often than you would expect. |
+
+The provider therefore returns an exact empty array from
+`reasoningEffortLevelsFor()`, and a request that nevertheless supplies
+`effort` is refused before transport. Empty is distinct from `undefined`: the
+driver knows this wire has no effective levels; it is not merely missing model
+metadata.
 
 Turn thinking off for a call and the sampling parameters are honoured normally.
 To send them anyway and let the vendor discard them, construct the provider

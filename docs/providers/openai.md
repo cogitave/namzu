@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/providers/openai/src/index.ts
 tags: [provider, openai, reference]
 ---
@@ -292,12 +292,13 @@ ships.
 
 All three are optional members of `LLMProvider`, so call them through the
 optional chain (`await provider.probeCredential?.()`) unless you are holding
-the concrete class. `doctorCheck`, the generic `effortLevelsFor`, and
+the concrete class. `doctorCheck`, the deprecated `effortLevelsFor`, and
 `resolveContextWindow` are not implemented here, and are absent rather than
-stubbed. The provider-specific `openAIReasoningEffortLevels` has the extra
-`undefined` state needed for an unknown compatible-endpoint model; returning an
-empty array through the generic method would falsely say that model has no
-effort levels.
+stubbed. `reasoningEffortLevelsFor(model)` is the generic capability and returns
+the same answer as `openAIReasoningEffortLevels(model)`: the exact known set, or
+`undefined` for an unknown compatible-endpoint model. That unknown state must
+not be changed to `[]`, which would falsely say the model explicitly supports
+no effort level.
 
 `listModels` and `probeCredential` both accept an optional `AbortSignal` and
 pass it to the vendor request. Provider decorators preserve that same signal,

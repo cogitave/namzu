@@ -59,6 +59,10 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		userCommands: [],
 		configDebug: null,
 		...over,
+		reasoningEffort: over.reasoningEffort ?? {
+			current: () => undefined,
+			levels: undefined,
+		},
 	}
 }
 
@@ -143,11 +147,17 @@ describe('runSlash', () => {
 	})
 
 	it('/clear starts fresh and clears the screen', () => {
-		expect(runSlash('/clear', ctx)).toEqual({ kind: 'new-conversation', clearScreen: true })
+		expect(runSlash('/clear', ctx)).toEqual({
+			kind: 'new-conversation',
+			clearScreen: true,
+		})
 	})
 
 	it('/new starts fresh without clearing the screen', () => {
-		expect(runSlash('/new', ctx)).toEqual({ kind: 'new-conversation', clearScreen: false })
+		expect(runSlash('/new', ctx)).toEqual({
+			kind: 'new-conversation',
+			clearScreen: false,
+		})
 	})
 
 	it('/clear-screen preserves the conversation behind the view', () => {
@@ -175,7 +185,10 @@ describe('runSlash', () => {
 			context({
 				configDebug: {
 					sources: {
-						permissions: { kind: 'project-file', path: '/work/namzu.config.json' },
+						permissions: {
+							kind: 'project-file',
+							path: '/work/namzu.config.json',
+						},
 					},
 				},
 			}),
@@ -270,7 +283,9 @@ describe('/cost', () => {
 	it('reports an unpriced run as not known, and says it is not a claim of free', () => {
 		const r = runSlash(
 			'/cost',
-			context({ usage: { totalTokens: 900, cost: cost(0, { unpricedTokens: 900 }) } }),
+			context({
+				usage: { totalTokens: 900, cost: cost(0, { unpricedTokens: 900 }) },
+			}),
 		)
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('not known')
@@ -297,7 +312,9 @@ describe('/cost', () => {
 		const free = runSlash('/cost', context({ usage: { totalTokens: 900, cost: cost(0) } }))
 		const unknown = runSlash(
 			'/cost',
-			context({ usage: { totalTokens: 900, cost: cost(0, { unpricedTokens: 900 }) } }),
+			context({
+				usage: { totalTokens: 900, cost: cost(0, { unpricedTokens: 900 }) },
+			}),
 		)
 		if (free?.kind === 'message' && unknown?.kind === 'message') {
 			expect(free.content).not.toBe(unknown.content)
@@ -307,7 +324,9 @@ describe('/cost', () => {
 	it('says a partly-priced run is a floor rather than the answer', () => {
 		const r = runSlash(
 			'/cost',
-			context({ usage: { totalTokens: 1_000, cost: cost(0.5, { unpricedTokens: 400 }) } }),
+			context({
+				usage: { totalTokens: 1_000, cost: cost(0.5, { unpricedTokens: 400 }) },
+			}),
 		)
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('$0.5000')
@@ -430,7 +449,9 @@ describe('/permissions', () => {
 		// Here the latch flips AFTER the context exists — which is exactly what
 		// happens when the operator presses `a` mid-turn.
 		let latched = false
-		const ctxLive = context({ permissions: permissions({ approvalLatched: () => latched }) })
+		const ctxLive = context({
+			permissions: permissions({ approvalLatched: () => latched }),
+		})
 
 		const before = runSlash('/permissions', ctxLive)
 		if (before?.kind === 'message') expect(before.content).toContain('you are asked')
@@ -450,7 +471,9 @@ describe('/permissions', () => {
 		const r = runSlash(
 			'/permissions',
 			context({
-				permissions: permissions({ neverPrompted: () => ['glob', 'read', 'task_create'] }),
+				permissions: permissions({
+					neverPrompted: () => ['glob', 'read', 'task_create'],
+				}),
 			}),
 		)
 		if (r?.kind === 'message') {
@@ -549,6 +572,79 @@ describe('/permissions', () => {
 	})
 })
 
+describe('/effort', () => {
+	it('shows the live selection and exact chain menu', () => {
+		const result = runSlash(
+			'/effort',
+			context({
+				providerSummary: 'openai (openai)',
+				modelSummary: 'gpt-5.2',
+				reasoningEffort: {
+					current: () => 'high',
+					levels: ['none', 'low', 'medium', 'high', 'xhigh'],
+				},
+			}),
+		)
+
+		expect(result?.kind).toBe('message')
+		if (result?.kind === 'message') {
+			expect(result.content).toContain('Current reasoning effort: high')
+			expect(result.content).toContain('none, low, medium, high, xhigh')
+			expect(result.content).toContain('/model resets it')
+		}
+	})
+
+	it('selects only an exact published level', () => {
+		const ctx = context({
+			providerSummary: 'openai (openai)',
+			modelSummary: 'gpt-5.2',
+			reasoningEffort: {
+				current: () => undefined,
+				levels: ['none', 'low', 'medium', 'high', 'xhigh'],
+			},
+		})
+
+		expect(runSlash('/effort high', ctx)).toEqual({
+			kind: 'reasoning-effort',
+			effort: 'high',
+		})
+		const invalid = runSlash('/effort ultra', ctx)
+		expect(invalid?.kind).toBe('message')
+		if (invalid?.kind === 'message') expect(invalid.content).toContain('none|low|medium|high|xhigh')
+	})
+
+	it('can restore the provider default even when no exact menu is known', () => {
+		const ctx = context({
+			providerSummary: 'gateway (openai-compatible)',
+			modelSummary: 'future-model',
+			reasoningEffort: { current: () => 'high', levels: undefined },
+		})
+
+		expect(runSlash('/effort default', ctx)).toEqual({
+			kind: 'reasoning-effort',
+			effort: null,
+		})
+		const selection = runSlash('/effort high', ctx)
+		expect(selection?.kind).toBe('message')
+		if (selection?.kind === 'message')
+			expect(selection.content).toContain('does not publish an exact')
+	})
+
+	it('reports an explicit empty menu as unsupported rather than unknown', () => {
+		const result = runSlash(
+			'/effort',
+			context({
+				providerSummary: 'deepseek (deepseek)',
+				modelSummary: 'deepseek-v4-flash',
+				reasoningEffort: { current: () => undefined, levels: [] },
+			}),
+		)
+
+		expect(result?.kind).toBe('message')
+		if (result?.kind === 'message') expect(result.content).toContain('Selectable levels: none')
+	})
+})
+
 describe('the roster formatter', () => {
 	// `/agents` is answered by the KERNEL's registry now — the roster is its
 	// fact, and the CLI carrying a second copy meant two answers to one
@@ -624,6 +720,7 @@ describe('the new commands are reachable', () => {
 			// followed by whitespace.
 			expect(r.content).toMatch(/\/cost\s/)
 			expect(r.content).toMatch(/\/permissions\s/)
+			expect(r.content).toMatch(/\/effort\s/)
 			expect(r.content).toMatch(/\/agents\s/)
 			// `/expand` replaced a key. A key is discoverable by pressing it and a
 			// command is not, so the entry that names it is load-bearing in a way
@@ -641,6 +738,7 @@ describe('the new commands are reachable', () => {
 		expect(names('/ag')).toContain('agents')
 		expect(names('/ta')).toContain('tasks')
 		expect(names('/per')).toContain('permissions')
+		expect(names('/eff')).toContain('effort')
 		expect(names('/ex')).toContain('expand')
 	})
 })
@@ -689,7 +787,10 @@ describe('/expand argument parsing', () => {
 		// for its own sake — `parseSlash` splits on runs of whitespace, so this
 		// is already the same argument.
 		expect(runSlash('/expand   3', ctx)).toEqual({ kind: 'expand', which: 3 })
-		expect(runSlash('  /expand 3  ', ctx)).toEqual({ kind: 'expand', which: 3 })
+		expect(runSlash('  /expand 3  ', ctx)).toEqual({
+			kind: 'expand',
+			which: 3,
+		})
 	})
 })
 
@@ -699,7 +800,10 @@ describe('/login and /logout', () => {
 	})
 
 	it('finishes the attempt in flight when given an address or a code', () => {
-		expect(runSlash('/login abc#xyz', ctx)).toEqual({ kind: 'login', pasted: 'abc#xyz' })
+		expect(runSlash('/login abc#xyz', ctx)).toEqual({
+			kind: 'login',
+			pasted: 'abc#xyz',
+		})
 		expect(runSlash('/login http://localhost:53692/callback?code=a&state=b', ctx)).toEqual({
 			kind: 'login',
 			pasted: 'http://localhost:53692/callback?code=a&state=b',
@@ -715,7 +819,10 @@ describe('/login and /logout', () => {
 	it('keeps the whole argument rather than only the first word', () => {
 		// A pasted address can arrive broken by a terminal wrap; dropping
 		// everything after the first space would silently truncate the code.
-		expect(runSlash('/login a b', ctx)).toEqual({ kind: 'login', pasted: 'a b' })
+		expect(runSlash('/login a b', ctx)).toEqual({
+			kind: 'login',
+			pasted: 'a b',
+		})
 	})
 
 	it('offers logout with no argument to misread', () => {

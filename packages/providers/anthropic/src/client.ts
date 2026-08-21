@@ -302,7 +302,11 @@ function durableAnthropicReasoning(
 			) {
 				return undefined
 			}
-			blocks.push({ type: 'thinking', thinking: block.text, signature: block.signature })
+			blocks.push({
+				type: 'thinking',
+				thinking: block.text,
+				signature: block.signature,
+			})
 			continue
 		}
 		if (
@@ -381,7 +385,11 @@ function toolResultContent(
 		if (block.type === 'image') {
 			blocks.push({
 				type: 'image',
-				source: { type: 'base64', media_type: block.mediaType, data: block.data },
+				source: {
+					type: 'base64',
+					media_type: block.mediaType,
+					data: block.data,
+				},
 			})
 			continue
 		}
@@ -410,7 +418,10 @@ function toAnthropicMessages(
 		if (msg.role === 'system') continue
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: ToolResultContent }
+			const toolMsg = msg as {
+				toolCallId?: string
+				content?: ToolResultContent
+			}
 			pendingToolResults.push({
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
@@ -469,7 +480,11 @@ function toAnthropicMessages(
 				if (att.type === 'document') {
 					blocks.push({
 						type: 'document',
-						source: { type: 'base64', media_type: att.mediaType, data: att.data },
+						source: {
+							type: 'base64',
+							media_type: att.mediaType,
+							data: att.data,
+						},
 						...(att.name ? { title: att.name } : {}),
 						// Opt-in: citations cost tokens, so they are requested
 						// only when the caller asked to be able to check the
@@ -531,7 +546,9 @@ function toAnthropicTools(
 			// here rather than in the renderer keeps the dialect where the
 			// knowledge is: only this file knows which wire it is talking to.
 			input_schema: toSchemaDialect(
-				(t.function.parameters as Record<string, unknown> | undefined) ?? { type: 'object' },
+				(t.function.parameters as Record<string, unknown> | undefined) ?? {
+					type: 'object',
+				},
 				'2020-12',
 			),
 			...(strict ? { strict: true } : {}),
@@ -722,13 +739,25 @@ function toCitation(raw: RawAnthropicCitation, index: number): Citation | undefi
 		| { kind: 'block'; start: number; end: number }
 		| undefined => {
 		if (raw.start_page_number !== undefined && raw.end_page_number !== undefined) {
-			return { kind: 'page', start: raw.start_page_number, end: raw.end_page_number }
+			return {
+				kind: 'page',
+				start: raw.start_page_number,
+				end: raw.end_page_number,
+			}
 		}
 		if (raw.start_char_index !== undefined && raw.end_char_index !== undefined) {
-			return { kind: 'char', start: raw.start_char_index, end: raw.end_char_index }
+			return {
+				kind: 'char',
+				start: raw.start_char_index,
+				end: raw.end_char_index,
+			}
 		}
 		if (raw.start_block_index !== undefined && raw.end_block_index !== undefined) {
-			return { kind: 'block', start: raw.start_block_index, end: raw.end_block_index }
+			return {
+				kind: 'block',
+				start: raw.start_block_index,
+				end: raw.end_block_index,
+			}
 		}
 		return undefined
 	})()
@@ -896,20 +925,24 @@ export class AnthropicProvider implements LLMProvider {
 		// newer models, so a caller who wanted to show reasoning and never
 		// serialized the field received thinking blocks with empty text and
 		// nothing to explain why.
-		const capability = resolveThinkingCapability(params.model)
+		const capability = resolveThinkingCapability(model)
 		const thinkingBody = resolveThinkingBody(params.thinking, capability)
 		if (thinkingBody) body.thinking = thinkingBody
 
 		// A sibling of `thinking`, not a field inside it — and gated on the
 		// model, since only some accept it at all.
-		const effort = resolveEffort(params.effort, thinkingBody, capability)
+		const effort = resolveEffort(params.effort, thinkingBody, capability, model)
 		// Merged rather than assigned. `output_config` is a shared envelope on
 		// this wire — a structured-output format and a task budget live in it
 		// too, and `responseFormat` already exists on the params unhandled
 		// here. Assigning would mean whoever wires the next one silently
 		// deletes effort, or has effort silently delete theirs, depending only
 		// on which line ran last.
-		if (effort) body.output_config = { ...(body.output_config as object | undefined), effort }
+		if (effort)
+			body.output_config = {
+				...(body.output_config as object | undefined),
+				effort,
+			}
 		if (params.temperature !== undefined) body.temperature = params.temperature
 		if (params.topP !== undefined) body.top_p = params.topP
 		if (params.topK !== undefined) body.top_k = params.topK
@@ -1112,7 +1145,9 @@ export class AnthropicProvider implements LLMProvider {
 								// reach the next request unmodified.
 								yield {
 									id: messageId,
-									delta: { reasoning: { index: idx, signature: delta.signature } },
+									delta: {
+										reasoning: { index: idx, signature: delta.signature },
+									},
 								}
 							} else if (delta?.type === 'citations_delta' && delta.citation) {
 								// Not text: a citation lands on the assistant
@@ -1152,7 +1187,10 @@ export class AnthropicProvider implements LLMProvider {
 								// Closes the block, exactly as toolCallEnd closes a
 								// tool call: without it the aggregator cannot know
 								// the signature has finished arriving.
-								yield { id: messageId, delta: { reasoning: { index: idx, done: true } } }
+								yield {
+									id: messageId,
+									delta: { reasoning: { index: idx, done: true } },
+								}
 								break
 							}
 							const active = activeTools.get(idx)
@@ -1325,6 +1363,10 @@ export class AnthropicProvider implements LLMProvider {
 		const capability = resolveThinkingCapability(model)
 		const body = resolveThinkingBody(thinking, capability)
 		return body?.type === 'disabled' ? capability.effortWhenDisabled : capability.effort
+	}
+
+	reasoningEffortLevelsFor(model: string, thinking?: ThinkingConfig): readonly ReasoningEffort[] {
+		return this.effortLevelsFor(model, thinking)
 	}
 }
 

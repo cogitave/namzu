@@ -253,7 +253,9 @@ export function withProviderRetry(
 			? { listModels: (signal?: AbortSignal) => provider.listModels?.(signal) }
 			: {}),
 		...(provider.probeCredential
-			? { probeCredential: (signal?: AbortSignal) => provider.probeCredential?.(signal) }
+			? {
+					probeCredential: (signal?: AbortSignal) => provider.probeCredential?.(signal),
+				}
 			: {}),
 		// The model is forwarded, not dropped. A wrapper that swallowed it would
 		// leave the wrapped driver probing whatever it probes with no argument
@@ -264,6 +266,14 @@ export function withProviderRetry(
 			: {}),
 		...(provider.doctorCheck
 			? { doctorCheck: (model?: string) => provider.doctorCheck?.(model) }
+			: {}),
+		...(provider.reasoningEffortLevelsFor
+			? {
+					reasoningEffortLevelsFor: (
+						model: string,
+						thinking?: Parameters<NonNullable<LLMProvider['reasoningEffortLevelsFor']>>[1],
+					) => provider.reasoningEffortLevelsFor?.(model, thinking),
+				}
 			: {}),
 		// Forwarded for the same reason `healthCheck` is, and both were
 		// missing until something consumed them. A member this wrapper drops

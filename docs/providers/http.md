@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/providers/http/src/index.ts
 tags: [provider, http, reference]
 ---
@@ -353,7 +353,8 @@ absence is a real consequence rather than a gap to ignore:
 - no `probeCredential`, so a credential pointed at this driver is reported as
   unverifiable rather than verified. `healthCheck()` is not a substitute: it
   treats `401` as alive;
-- no `effortLevelsFor`, consistent with `effort` being refused above.
+- no `reasoningEffortLevelsFor` (nor its deprecated `effortLevelsFor`
+  compatibility spelling), consistent with `effort` being refused above.
 
 ## Errors
 

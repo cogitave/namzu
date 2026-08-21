@@ -17,7 +17,10 @@ import { providerHttpError } from '../errors.js'
 import { withProviderFallback } from '../fallback.js'
 import { withProviderRetry } from '../retry.js'
 
-const PARAMS = { model: 'primary-model', messages: [] } as unknown as ChatCompletionParams
+const PARAMS = {
+	model: 'primary-model',
+	messages: [],
+} as unknown as ChatCompletionParams
 
 function chunk(content: string): StreamChunk {
 	return { id: 'c', delta: { content } }
@@ -68,6 +71,81 @@ async function drain(stream: AsyncIterable<StreamChunk>): Promise<string> {
 const noSleep = async () => {}
 
 describe('withProviderFallback', () => {
+	it('publishes only reasoning-effort levels every reachable member accepts', () => {
+		const asked: string[] = []
+		const primary = {
+			...member('primary', []),
+			reasoningEffortLevelsFor: (model: string) => {
+				asked.push(`primary:${model}`)
+				return ['low', 'medium', 'high'] as const
+			},
+		} satisfies LLMProvider
+		const fallback = {
+			...member('fallback', []),
+			// A legacy driver is adapted for one compatibility window. The chain
+			// still asks it about its own pinned model, not the head model.
+			effortLevelsFor: (model: string) => {
+				asked.push(`fallback:${model}`)
+				return ['high', 'low'] as const
+			},
+		} satisfies LLMProvider
+		const wrapped = withProviderFallback([
+			{ provider: primary, model: 'primary-model' },
+			{ provider: fallback, model: 'fallback-model' },
+		])
+
+		expect(wrapped.reasoningEffortLevelsFor?.('request-model')).toEqual(['low', 'high'])
+		expect(asked).toEqual(['primary:primary-model', 'fallback:fallback-model'])
+	})
+
+	it('keeps unknown, explicit none, and no-common-level as distinct chain answers', () => {
+		const head = {
+			...member('head', []),
+			reasoningEffortLevelsFor: () => ['low', 'high'] as const,
+		} satisfies LLMProvider
+		const unknown = member('unknown', [])
+		const none = {
+			...member('none', []),
+			reasoningEffortLevelsFor: () => [] as const,
+		} satisfies LLMProvider
+		const disjoint = {
+			...member('disjoint', []),
+			reasoningEffortLevelsFor: () => ['medium'] as const,
+		} satisfies LLMProvider
+
+		expect(
+			withProviderFallback([{ provider: head }, { provider: unknown }]).reasoningEffortLevelsFor?.(
+				'model',
+			),
+		).toBeUndefined()
+		expect(
+			withProviderFallback([{ provider: head }, { provider: none }]).reasoningEffortLevelsFor?.(
+				'model',
+			),
+		).toEqual([])
+		expect(
+			withProviderFallback([{ provider: head }, { provider: disjoint }]).reasoningEffortLevelsFor?.(
+				'model',
+			),
+		).toEqual([])
+	})
+
+	it('leaves the deprecated effort menu head-only for existing consumers', () => {
+		const head = {
+			...member('head', []),
+			reasoningEffortLevelsFor: () => ['high'] as const,
+			effortLevelsFor: () => ['max'] as const,
+		} satisfies LLMProvider
+		const tail = {
+			...member('tail', []),
+			reasoningEffortLevelsFor: () => ['high'] as const,
+		} satisfies LLMProvider
+		const wrapped = withProviderFallback([{ provider: head }, { provider: tail }])
+
+		expect(wrapped.reasoningEffortLevelsFor?.('model')).toEqual(['high'])
+		expect(wrapped.effortLevelsFor?.('model')).toEqual(['max'])
+	})
+
 	it('falls over on a rejected credential and continues on the next member', async () => {
 		const primary = member('primary', [
 			() => {
@@ -221,7 +299,9 @@ describe('withProviderFallback', () => {
 		])
 		const wrapped = withProviderFallback([{ provider: primary }, { provider: fallback }])
 
-		await expect(drain(wrapped.chatStream(PARAMS))).rejects.toMatchObject({ status: 503 })
+		await expect(drain(wrapped.chatStream(PARAMS))).rejects.toMatchObject({
+			status: 503,
+		})
 	})
 
 	describe('does not fall over', () => {
@@ -294,7 +374,9 @@ describe('withProviderFallback', () => {
 			])
 			const wrapped = withProviderFallback([{ provider: primary }, { provider: fallback }])
 
-			await expect(drain(wrapped.chatStream(PARAMS))).rejects.toMatchObject({ status: 503 })
+			await expect(drain(wrapped.chatStream(PARAMS))).rejects.toMatchObject({
+				status: 503,
+			})
 			expect(fallback.calls).toBe(0)
 		})
 
@@ -442,8 +524,18 @@ describe('withProviderFallback over withProviderRetry', () => {
 			},
 		])
 		const wrapped = withProviderFallback([
-			{ provider: withProviderRetry(primary, { sleepFn: noSleep, config: { maxRetries: 2 } }) },
-			{ provider: withProviderRetry(fallback, { sleepFn: noSleep, config: { maxRetries: 2 } }) },
+			{
+				provider: withProviderRetry(primary, {
+					sleepFn: noSleep,
+					config: { maxRetries: 2 },
+				}),
+			},
+			{
+				provider: withProviderRetry(fallback, {
+					sleepFn: noSleep,
+					config: { maxRetries: 2 },
+				}),
+			},
 		])
 
 		expect(await drain(wrapped.chatStream(PARAMS))).toBe('after the budget')
@@ -471,7 +563,12 @@ describe('withProviderFallback over withProviderRetry', () => {
 			},
 		])
 		const wrapped = withProviderFallback([
-			{ provider: withProviderRetry(primary, { sleepFn: noSleep, config: { maxRetries: 1 } }) },
+			{
+				provider: withProviderRetry(primary, {
+					sleepFn: noSleep,
+					config: { maxRetries: 1 },
+				}),
+			},
 			{ provider: fallback },
 		])
 
@@ -541,8 +638,18 @@ describe('withProviderFallback over withProviderRetry', () => {
 			},
 		])
 		const wrapped = withProviderFallback([
-			{ provider: withProviderRetry(primary, { sleepFn: noSleep, config: { maxRetries: 1 } }) },
-			{ provider: withProviderRetry(fallback, { sleepFn: noSleep, config: { maxRetries: 2 } }) },
+			{
+				provider: withProviderRetry(primary, {
+					sleepFn: noSleep,
+					config: { maxRetries: 1 },
+				}),
+			},
+			{
+				provider: withProviderRetry(fallback, {
+					sleepFn: noSleep,
+					config: { maxRetries: 2 },
+				}),
+			},
 		])
 
 		expect(await drain(wrapped.chatStream(PARAMS))).toBe('third attempt on the fallback')
@@ -565,7 +672,12 @@ describe('withProviderFallback over withProviderRetry', () => {
 			},
 		])
 		const wrapped = withProviderFallback([
-			{ provider: withProviderRetry(primary, { sleepFn: noSleep, config: { maxRetries: 2 } }) },
+			{
+				provider: withProviderRetry(primary, {
+					sleepFn: noSleep,
+					config: { maxRetries: 2 },
+				}),
+			},
 			{ provider: fallback },
 		])
 

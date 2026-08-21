@@ -11,19 +11,31 @@ import { AnthropicProvider } from '../client.js'
  * and the request builder dropped it.
  */
 
-async function bodyFor(params: Partial<ChatCompletionParams>): Promise<Record<string, unknown>> {
+function providerWithCapturedRequest(
+	config: ConstructorParameters<typeof AnthropicProvider>[0] = {
+		apiKey: 'test-key',
+	},
+): {
+	readonly provider: AnthropicProvider
+	readonly create: ReturnType<typeof vi.fn>
+	readonly seen: { body?: Record<string, unknown> }
+} {
 	const seen: { body?: Record<string, unknown> } = {}
-	const provider = new AnthropicProvider({ apiKey: 'test-key' })
+	const provider = new AnthropicProvider(config)
+	const create = vi.fn(async (body: Record<string, unknown>) => {
+		seen.body = body
+		return (async function* () {
+			yield { type: 'message_start', message: { id: 'msg_1' } }
+		})()
+	})
 	;(provider as unknown as { client: { messages: { create: unknown } } }).client = {
-		messages: {
-			create: vi.fn(async (body: Record<string, unknown>) => {
-				seen.body = body
-				return (async function* () {
-					yield { type: 'message_start', message: { id: 'msg_1' } }
-				})()
-			}),
-		},
+		messages: { create },
 	}
+	return { provider, create, seen }
+}
+
+async function bodyFor(params: Partial<ChatCompletionParams>): Promise<Record<string, unknown>> {
+	const { provider, seen } = providerWithCapturedRequest()
 	for await (const _chunk of provider.chatStream({
 		model: 'claude-sonnet-5',
 		messages: [{ role: 'user', content: 'hi' }],
@@ -36,7 +48,10 @@ async function bodyFor(params: Partial<ChatCompletionParams>): Promise<Record<st
 
 describe('the thinking configuration that reaches the wire', () => {
 	it('sends adaptive to a model that only accepts adaptive', async () => {
-		const body = await bodyFor({ model: 'claude-sonnet-5', thinking: { type: 'adaptive' } })
+		const body = await bodyFor({
+			model: 'claude-sonnet-5',
+			thinking: { type: 'adaptive' },
+		})
 
 		expect(body.thinking).toEqual({ type: 'adaptive' })
 	})
@@ -90,14 +105,49 @@ describe('the thinking configuration that reaches the wire', () => {
 		expect(body.output_config).toEqual({ effort: 'low' })
 	})
 
-	it('drops effort on a model that does not accept it', async () => {
-		const body = await bodyFor({ model: 'claude-sonnet-4-5', effort: 'high' })
+	it('refuses effort a model does not accept before transport', async () => {
+		const { provider, create } = providerWithCapturedRequest()
 
-		expect(body.output_config).toBeUndefined()
+		await expect(
+			(async () => {
+				for await (const _chunk of provider.chatStream({
+					model: 'claude-sonnet-4-5',
+					messages: [{ role: 'user', content: 'hi' }],
+					effort: 'high',
+				})) {
+					// drain
+				}
+			})(),
+		).rejects.toThrow(/Supported levels: none/)
+		expect(create).not.toHaveBeenCalled()
+	})
+
+	it('validates against the configured default model when the request model is empty', async () => {
+		const { provider, create, seen } = providerWithCapturedRequest({
+			apiKey: 'test-key',
+			model: 'claude-sonnet-5',
+		})
+
+		for await (const _chunk of provider.chatStream({
+			model: '',
+			messages: [{ role: 'user', content: 'hi' }],
+			effort: 'high',
+		})) {
+			// drain
+		}
+
+		expect(create).toHaveBeenCalledTimes(1)
+		expect(seen.body).toMatchObject({
+			model: 'claude-sonnet-5',
+			output_config: { effort: 'high' },
+		})
 	})
 
 	it('omits thinking entirely on a model that cannot be told to stop', async () => {
-		const body = await bodyFor({ model: 'claude-fable-5', thinking: { type: 'disabled' } })
+		const body = await bodyFor({
+			model: 'claude-fable-5',
+			thinking: { type: 'disabled' },
+		})
 
 		expect(body.thinking).toBeUndefined()
 	})

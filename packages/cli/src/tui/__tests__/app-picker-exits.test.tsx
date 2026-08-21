@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Message } from '@namzu/sdk'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 
-import type { AgentEvent, AgentSession } from '../agent.js'
+import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = {
@@ -320,23 +320,65 @@ async function pickerOnFirstRun(expected = 'Choose a provider') {
 }
 
 describe('publishing a picker selection', () => {
+	it('applies and clears reasoning effort at the mounted App send boundary', async () => {
+		const efforts: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture('a-session'),
+			reasoningEffortLevels: ['max'] as const,
+			send: async function* (
+				_messages: readonly Message[],
+				opts?: SendOptions,
+			): AsyncIterable<AgentEvent> {
+				efforts.push(opts?.effort)
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, '/effort max')
+		await frameShows(harness.lastFrame, 'Reasoning effort changed to max')
+		await submit(harness, 'first turn')
+		await vi.waitFor(() => expect(efforts).toEqual(['max']))
+		await frameShows(harness.lastFrame, 'Type a message')
+
+		await submit(harness, '/effort default')
+		await frameShows(harness.lastFrame, 'reset to the provider default')
+		await submit(harness, 'second turn')
+		await vi.waitFor(() => expect(efforts).toEqual(['max', undefined]))
+	})
+
 	it('releases a failed turn queue only after a usable replacement is published', async () => {
 		detectedProviders = [...DETECTED, DETECTED_B]
 		const releaseFailure = deferred<void>()
 		let aSends = 0
+		const aEfforts: unknown[] = []
 		const bHistories: Message[][] = []
+		const bEfforts: unknown[] = []
 		const a = {
 			...sessionFixture('a-session'),
-			send: async function* (): AsyncIterable<AgentEvent> {
+			reasoningEffortLevels: ['max'] as const,
+			send: async function* (
+				_messages: readonly Message[],
+				opts?: SendOptions,
+			): AsyncIterable<AgentEvent> {
 				aSends += 1
+				aEfforts.push(opts?.effort)
 				await releaseFailure.promise
 				yield { kind: 'error', message: 'A rejected the attachment' }
 			},
 		}
 		const b = {
 			...sessionFixture('b-session'),
-			send: async function* (messages: readonly Message[]): AsyncIterable<AgentEvent> {
+			reasoningEffortLevels: [] as const,
+			send: async function* (
+				messages: readonly Message[],
+				opts?: SendOptions,
+			): AsyncIterable<AgentEvent> {
 				bHistories.push([...messages])
+				bEfforts.push(opts?.effort)
 				yield { kind: 'done', stopReason: 'end_turn' }
 			},
 		}
@@ -345,9 +387,12 @@ describe('publishing a picker selection', () => {
 		mounted.push(harness)
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
+		await submit(harness, '/effort max')
+		await frameShows(harness.lastFrame, 'Reasoning effort changed to max')
 
 		await submit(harness, 'unsupported premise')
 		await vi.waitFor(() => expect(aSends).toBe(1))
+		expect(aEfforts).toEqual(['max'])
 		await submit(harness, 'dependent queue')
 		releaseFailure.resolve()
 		await frameShows(harness.lastFrame, 'paused after a failed turn')
@@ -368,6 +413,9 @@ describe('publishing a picker selection', () => {
 			role: 'user',
 			content: 'dependent queue',
 		})
+		// Model publication is a single transition: the old model's selection is
+		// cleared before the replacement releases this already-queued turn.
+		expect(bEfforts).toEqual([undefined])
 	})
 
 	it('keeps the failed turn queue paused when replacement construction is refused', async () => {
@@ -465,13 +513,33 @@ describe('publishing a picker selection', () => {
 	it('keeps the current session when the selected session cannot be constructed', async () => {
 		detectedProviders = [...DETECTED, DETECTED_B]
 		const closeA = vi.fn(async () => {})
+		const aEfforts: unknown[] = []
+		const a = {
+			...sessionFixture('a-session', closeA),
+			reasoningEffortLevels: ['max'] as const,
+			send: async function* (
+				_messages: readonly Message[],
+				opts?: SendOptions,
+			): AsyncIterable<AgentEvent> {
+				aEfforts.push(opts?.effort)
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		}
 		const failure = new Error('required sandbox unavailable')
 		createSession = async (prefs) => {
 			const id = prefs.providers[0]?.id
 			if (id === 'deepseek') throw failure
-			return sessionFixture('a-session', closeA)
+			return a
 		}
-		const { stdin, lastFrame } = await pickerFromModelCommand()
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+		await submit(harness, '/effort max')
+		await frameShows(harness.lastFrame, 'Reasoning effort changed to max')
+		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Choose a provider')
+		const { stdin, lastFrame } = harness
 
 		stdin.write('\x1B[B')
 		await tick()
@@ -492,6 +560,8 @@ describe('publishing a picker selection', () => {
 		await frameShows(lastFrame, 'Type a message')
 		expect(lastFrame()).toContain('a-session')
 		expect(closeA).not.toHaveBeenCalled()
+		await submit(harness, 'still use max')
+		await vi.waitFor(() => expect(aEfforts).toEqual(['max']))
 	})
 
 	it('does not replace a working session with a provider-less candidate', async () => {

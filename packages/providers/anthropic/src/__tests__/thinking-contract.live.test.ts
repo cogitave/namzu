@@ -68,15 +68,19 @@ describe.skipIf(!KEY)('the effort levels the table claims are the ones the wire 
 		120_000,
 	)
 
-	it('drops effort on a model that takes none, and the wire agrees it would have failed', async () => {
+	it('refuses effort on a model that takes none, and the wire agrees it would have failed', async () => {
 		const capability = resolveThinkingCapability(MANUAL_MODEL)
 		expect(capability.effort).toEqual([])
-		expect(resolveEffort('high', { type: 'enabled' }, capability)).toBeUndefined()
+		expect(() => resolveEffort('high', { type: 'enabled' }, capability)).toThrow(
+			/Supported levels: none/,
+		)
 
-		// The half that matters: had the resolver NOT dropped it, this is what
+		// The half that matters: had the resolver forwarded it, this is what
 		// the wire would have said. A table claiming "no effort here" is only
 		// worth something if sending effort really does fail.
-		const result = await send(MANUAL_MODEL, { output_config: { effort: 'high' } })
+		const result = await send(MANUAL_MODEL, {
+			output_config: { effort: 'high' },
+		})
 		expect(result).not.toBe(true)
 	}, 120_000)
 })
@@ -100,7 +104,9 @@ describe.skipIf(!KEY)('the thinking body the resolver builds is one the wire acc
 
 		expect(await send(ADAPTIVE_MODEL, { thinking: body })).toBe(true)
 		expect(
-			await send(ADAPTIVE_MODEL, { thinking: { type: 'enabled', budget_tokens: 2048 } }),
+			await send(ADAPTIVE_MODEL, {
+				thinking: { type: 'enabled', budget_tokens: 2048 },
+			}),
 		).not.toBe(true)
 	}, 120_000)
 
@@ -108,10 +114,13 @@ describe.skipIf(!KEY)('the thinking body the resolver builds is one the wire acc
 		// Both directions, because the first version of this rule was too wide.
 		const capped = resolveThinkingCapability(CAPPED_MODEL)
 		const disabledOnCapped = resolveThinkingBody({ type: 'disabled' }, capped)
-		expect(resolveEffort('max', disabledOnCapped, capped)).toBeUndefined()
+		expect(() => resolveEffort('max', disabledOnCapped, capped)).toThrow(/Supported levels/)
 		expect(resolveEffort('high', disabledOnCapped, capped)).toBe('high')
 		expect(
-			await send(CAPPED_MODEL, { thinking: disabledOnCapped, output_config: { effort: 'max' } }),
+			await send(CAPPED_MODEL, {
+				thinking: disabledOnCapped,
+				output_config: { effort: 'max' },
+			}),
 		).not.toBe(true)
 
 		// …and a model the wire does NOT cap keeps the level the caller asked for.
@@ -119,7 +128,10 @@ describe.skipIf(!KEY)('the thinking body the resolver builds is one the wire acc
 		const disabledOnOpen = resolveThinkingBody({ type: 'disabled' }, open)
 		expect(resolveEffort('max', disabledOnOpen, open)).toBe('max')
 		expect(
-			await send(ADAPTIVE_MODEL, { thinking: disabledOnOpen, output_config: { effort: 'max' } }),
+			await send(ADAPTIVE_MODEL, {
+				thinking: disabledOnOpen,
+				output_config: { effort: 'max' },
+			}),
 		).toBe(true)
 	}, 120_000)
 })

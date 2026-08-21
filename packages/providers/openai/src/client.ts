@@ -122,7 +122,10 @@ function withReasoningEffort(
 	effort: ReasoningEffort | undefined,
 ): ChatCompletionCreateParamsStreaming {
 	if (effort === undefined) return request
-	return { ...request, reasoning_effort: effort } as ChatCompletionCreateParamsStreaming
+	return {
+		...request,
+		reasoning_effort: effort,
+	} as ChatCompletionCreateParamsStreaming
 }
 
 type OpenAIFinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'function_call'
@@ -352,7 +355,10 @@ export class OpenAIProvider implements LLMProvider {
 		// Merged rather than replaced. Assigning `config.defaultHeaders`
 		// straight over would drop attribution for exactly the hosts that
 		// customise their transport.
-		clientOptions.defaultHeaders = { ...attributionHeaders(), ...(config.defaultHeaders ?? {}) }
+		clientOptions.defaultHeaders = {
+			...attributionHeaders(),
+			...(config.defaultHeaders ?? {}),
+		}
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model
@@ -366,6 +372,10 @@ export class OpenAIProvider implements LLMProvider {
 			)
 		}
 		return model
+	}
+
+	reasoningEffortLevelsFor(model: string): readonly ReasoningEffort[] | undefined {
+		return openAIReasoningEffortLevels(model)
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

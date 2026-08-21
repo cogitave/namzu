@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+timestamp: 2026-08-21T00:00:00Z
+lastReviewed: 2026-08-21
 resource: packages/providers/ollama/src/index.ts
 tags: [provider, ollama, reference]
 ---
@@ -305,8 +305,9 @@ written for.
 
 All three are optional members of `LLMProvider`, so call them through the
 optional chain (`await provider.probeCredential?.()`) unless you are holding
-the concrete class. `doctorCheck`, `effortLevelsFor` and `resolveContextWindow`
-are not implemented here, and are absent rather than stubbed — the runtime
+the concrete class. `doctorCheck`, `reasoningEffortLevelsFor` (and its
+deprecated `effortLevelsFor` compatibility spelling), and
+`resolveContextWindow` are not implemented here, and are absent rather than stubbed — the runtime
 tells "this driver cannot answer" from "it answered nothing", and a stub would
 destroy that distinction.
 

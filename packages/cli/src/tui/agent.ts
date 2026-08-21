@@ -43,6 +43,7 @@ import {
 	type PromoteMemory,
 	type ProviderChainMember,
 	ProviderRegistry,
+	type ReasoningEffort,
 	type ResumeHandler,
 	type ResumeOutcome,
 	type ReviewAnswer,
@@ -79,6 +80,7 @@ import {
 	isTrustedReadOnly,
 	query,
 	resumeRun,
+	withProviderFallback,
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
@@ -280,6 +282,8 @@ export type PermissionFn = (req: PermissionRequest) => Promise<PermissionDecisio
 
 export interface SendOptions {
 	readonly signal?: AbortSignal
+	/** Model-specific reasoning effort for this turn's main query. */
+	readonly effort?: ReasoningEffort
 	/**
 	 * How this turn resolves review requests no declarative rule decided.
 	 * Overrides the session default for this turn only.
@@ -346,6 +350,15 @@ export interface AgentSession {
 	readonly sandbox: SandboxSummary
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
+	/**
+	 * Exact reasoning-effort levels every usable member of this provider chain
+	 * accepts for its selected model. `undefined` means at least one member
+	 * cannot enumerate; `[]` is an explicit no-common-level answer.
+	 *
+	 * Optional for older embedded session implementations. The built-in session
+	 * always publishes the field.
+	 */
+	readonly reasoningEffortLevels?: readonly ReasoningEffort[]
 	/**
 	 * Every tool this session can call, by name, read at call time.
 	 *
@@ -1383,6 +1396,20 @@ export async function createAgentSession(
 			.map((result) => result.reason)
 		if (failures.length > 0) throw new AggregateError(failures, 'Session cleanup failed.')
 	})
+	let reasoningEffortLevels: readonly ReasoningEffort[] | undefined
+	let effortNotice: string | undefined
+	try {
+		const capabilityView = withProviderFallback([
+			{ provider, model },
+			...fallbackPlan.build(currentToken),
+		])
+		const offered = capabilityView.reasoningEffortLevelsFor
+			? capabilityView.reasoningEffortLevelsFor(model)
+			: capabilityView.effortLevelsFor?.(model)
+		reasoningEffortLevels = offered === undefined ? undefined : Object.freeze([...offered])
+	} catch (error) {
+		effortNotice = `Reasoning effort levels could not be established for this session: ${describeError(error)}.`
+	}
 	return {
 		hasProvider: true,
 		sandbox: {
@@ -1393,6 +1420,7 @@ export async function createAgentSession(
 		},
 		providerSummary: entry.label,
 		modelSummary: model,
+		reasoningEffortLevels,
 		compact: (messages) =>
 			operations.promise(undefined, (signal) =>
 				compactNow({
@@ -1422,6 +1450,7 @@ export async function createAgentSession(
 		mcpFailed: mcp.failed,
 		configNotices: [
 			...(capabilityNotice ? [capabilityNotice] : []),
+			...(effortNotice ? [effortNotice] : []),
 			...unresolvedNotice.map(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
 			),
@@ -2162,6 +2191,7 @@ async function* runTurn({
 			emergencySave: true,
 			runConfig: {
 				model,
+				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				timeoutMs: 600_000,
 				tokenBudget: 1_000_000,
 				maxIterations: 50,

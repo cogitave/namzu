@@ -66,7 +66,7 @@ Inside the session, grouped by the question each one answers:
 
 | | |
 |---|---|
-| **What is going on** | `/status`, `/debug-config`, `/cost`, `/permissions`, `/mcp`, `/tools`, `/model`, `/provider` |
+| **What is going on** | `/status`, `/debug-config`, `/cost`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
 | **This conversation** | `/resume`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
@@ -87,6 +87,16 @@ safety gate remain authoritative in every mode. `--yolo` (the
 mode; it does not permanently remove the prompt boundary, and `/permissions
 prompt` can narrow the same live session without reconnecting its provider or
 tools.
+
+`/effort` reports the current session selection and the exact levels accepted
+by every usable member of the current provider/model chain. `/effort <level>`
+applies that level to later main-query turns; `/effort default` restores the
+provider default. Unknown model metadata disables selection rather than
+inventing a menu, while an empty menu reports that the chain explicitly offers
+none. A successful `/model` selection resets effort before the replacement
+session or any paused queue is released; a failed or cancelled selection keeps
+the current session and its effort unchanged. Subagents and manual compaction
+continue to use their own provider defaults.
 
 The provider picker owns the asynchronous work started by the current choice.
 Escaping, choosing again or leaving the screen cancels model discovery,

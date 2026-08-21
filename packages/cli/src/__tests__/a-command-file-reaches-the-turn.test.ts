@@ -65,6 +65,10 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 		lastAssistantMessageId: () => null,
 		providerSummary: 'mock (mock)',
 		modelSummary: 'mock-model',
+		reasoningEffort: {
+			current: () => undefined,
+			levels: undefined,
+		},
 		usage: null,
 		permissions: {
 			currentMode: () => ({ mode: 'prompt', source: 'default' }),
@@ -103,7 +107,11 @@ describe('a command file the operator wrote', () => {
 		// cannot cover: that the composed text is what the kernel is given.
 		const { createAgentSession } = await import('../tui/agent.js')
 		const session = await createAgentSession(
-			{ version: 3, providers: [{ id: 'anthropic' }], subagents: { active: [] } } as never,
+			{
+				version: 3,
+				providers: [{ id: 'anthropic' }],
+				subagents: { active: [] },
+			} as never,
 			[
 				{
 					entry: {

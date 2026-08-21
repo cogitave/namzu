@@ -23,7 +23,13 @@
 
 import { GENAI } from '../constants/telemetry/index.js'
 import { classifyProviderError, isAbortError } from '../types/provider/errors.js'
-import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../types/provider/index.js'
+import type {
+	ChatCompletionParams,
+	LLMProvider,
+	ReasoningEffort,
+	StreamChunk,
+	ThinkingConfig,
+} from '../types/provider/index.js'
 import type { Logger } from '../utils/logger.js'
 
 /**
@@ -211,6 +217,42 @@ function isOutputChunk(chunk: StreamChunk): boolean {
 	)
 }
 
+/** Read one member's canonical menu, adapting the one-release legacy member. */
+function memberReasoningEffortLevels(
+	member: ProviderChainMember,
+	requestModel: string,
+	thinking?: ThinkingConfig,
+): readonly ReasoningEffort[] | undefined {
+	const model = member.model ?? requestModel
+	if (member.provider.reasoningEffortLevelsFor) {
+		return member.provider.reasoningEffortLevelsFor(model, thinking)
+	}
+	return member.provider.effortLevelsFor?.(model, thinking)
+}
+
+/**
+ * The levels one request may carry safely through every member it can reach.
+ *
+ * `ChatCompletionParams.effort` survives a fallback swap unchanged. A menu
+ * copied from the head can therefore offer a value the tail rejects, turning
+ * recovery into a second request failure. Preserve the head's ordering while
+ * intersecting every member's exact, member-model-specific answer. One unknown
+ * answer makes the chain unknown; an explicit empty/no-common answer is `[]`.
+ */
+function commonReasoningEffortLevels(
+	members: readonly ProviderChainMember[],
+	requestModel: string,
+	thinking?: ThinkingConfig,
+): readonly ReasoningEffort[] | undefined {
+	let common: readonly ReasoningEffort[] | undefined
+	for (const member of members) {
+		const offered = memberReasoningEffortLevels(member, requestModel, thinking)
+		if (offered === undefined) return undefined
+		common = common === undefined ? [...offered] : common.filter((level) => offered.includes(level))
+	}
+	return common ?? []
+}
+
 /**
  * Wrap an ordered chain so a member that cannot serve is replaced in place.
  *
@@ -254,7 +296,9 @@ function isOutputChunk(chunk: StreamChunk): boolean {
  * whose members disagree before ever building one (`@namzu/cli` does, and only
  * runs a mismatched chain when the operator has said so explicitly). Taking the
  * intersection here instead would cost the primary a capability on every run to
- * guard against a failure that happens rarely.
+ * guard against a failure that happens rarely. Reasoning effort is the deliberate
+ * exception: the SAME field is replayed unchanged after a swap, so only a common
+ * level can be truthfully offered before the request.
  */
 export function withProviderFallback(
 	members: readonly ProviderChainMember[],
@@ -396,10 +440,14 @@ export function withProviderFallback(
 		},
 		chatStream,
 		...(first.provider.listModels
-			? { listModels: (signal?: AbortSignal) => first.provider.listModels?.(signal) }
+			? {
+					listModels: (signal?: AbortSignal) => first.provider.listModels?.(signal),
+				}
 			: {}),
 		...(first.provider.probeCredential
-			? { probeCredential: (signal?: AbortSignal) => first.provider.probeCredential?.(signal) }
+			? {
+					probeCredential: (signal?: AbortSignal) => first.provider.probeCredential?.(signal),
+				}
 			: {}),
 		// Forwarded for the reason `retry.ts` forwards it: a wrapper that drops
 		// the model turns a probe the caller could answer into one it cannot.
@@ -409,13 +457,15 @@ export function withProviderFallback(
 		...(first.provider.doctorCheck
 			? { doctorCheck: (model?: string) => first.provider.doctorCheck?.(model) }
 			: {}),
-		// The HEAD's answer, like every other member here, and that is the
-		// right reading rather than a limitation: the window is resolved once
-		// at the start of a run, when the head is what is serving. A chain
-		// that swaps mid-run has bigger differences between its members than
-		// a context size, and re-resolving on every swap would put a network
-		// call on the recovery path — which is the last place that can afford
-		// one.
+		// Unlike the legacy head-only member below, this is a declaration about
+		// the request that may actually traverse the whole chain. The method is
+		// always present on a multi-member wrapper: `undefined` is its honest
+		// answer when any member cannot enumerate its selected model.
+		reasoningEffortLevelsFor: (model: string, thinking?: ThinkingConfig) =>
+			commonReasoningEffortLevels(members, model, thinking),
+		// Compatibility projection only. Existing consumers of the deprecated
+		// member keep the head-only answer they had; new consumers use the
+		// canonical chain-aware member above.
 		...(first.provider.effortLevelsFor
 			? {
 					effortLevelsFor: (

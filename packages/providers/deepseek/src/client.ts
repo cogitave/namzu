@@ -6,6 +6,7 @@ import type {
 	ProviderCapabilities,
 	ProviderRoute,
 	ReasoningBlock,
+	ReasoningEffort,
 	StreamChunk,
 	ThinkingConfig,
 	TokenUsage,
@@ -314,12 +315,18 @@ export function toDeepSeekMessages(
 				tool_call_id: msg.toolCallId,
 			}
 		}
-		const assistant: ChatCompletionMessageParam = { role: 'assistant', content: msg.content }
+		const assistant: ChatCompletionMessageParam = {
+			role: 'assistant',
+			content: msg.content,
+		}
 		if ('toolCalls' in msg && msg.toolCalls && msg.toolCalls.length > 0) {
 			;(assistant as { tool_calls?: unknown }).tool_calls = msg.toolCalls.map((tc) => ({
 				id: tc.id,
 				type: 'function' as const,
-				function: { name: tc.function.name, arguments: tc.function.arguments },
+				function: {
+					name: tc.function.name,
+					arguments: tc.function.arguments,
+				},
 			}))
 		}
 		const replayed = replayReasoning(msg, targetRoute)
@@ -365,7 +372,10 @@ export class DeepSeekProvider implements LLMProvider {
 			baseURL: config.baseURL ?? DEFAULT_BASE_URL,
 		}
 		if (config.timeout !== undefined) clientOptions.timeout = config.timeout
-		clientOptions.defaultHeaders = { ...attributionHeaders(), ...(config.defaultHeaders ?? {}) }
+		clientOptions.defaultHeaders = {
+			...attributionHeaders(),
+			...(config.defaultHeaders ?? {}),
+		}
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model
@@ -380,6 +390,11 @@ export class DeepSeekProvider implements LLMProvider {
 			)
 		}
 		return model
+	}
+
+	/** This Chat Completions endpoint explicitly carries no effort control. */
+	reasoningEffortLevelsFor(_model: string): readonly ReasoningEffort[] {
+		return []
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
@@ -451,7 +466,11 @@ export class DeepSeekProvider implements LLMProvider {
 				try {
 					const choice = chunk.choices[0]
 					const delta = choice?.delta as
-						| { content?: string | null; reasoning_content?: string | null; tool_calls?: unknown[] }
+						| {
+								content?: string | null
+								reasoning_content?: string | null
+								tool_calls?: unknown[]
+						  }
 						| undefined
 
 					const toolCalls = (
@@ -483,7 +502,9 @@ export class DeepSeekProvider implements LLMProvider {
 						reasoningContent += reasoningText
 						yield {
 							id: chunk.id,
-							delta: { reasoning: { index: 0, type: 'thinking', text: reasoningText } },
+							delta: {
+								reasoning: { index: 0, type: 'thinking', text: reasoningText },
+							},
 						}
 					}
 
@@ -496,7 +517,10 @@ export class DeepSeekProvider implements LLMProvider {
 						(toolCalls !== undefined && toolCalls.length > 0)
 					if (reasoningOpen && contentStarting) {
 						reasoningOpen = false
-						yield { id: chunk.id, delta: { reasoning: { index: 0, done: true } } }
+						yield {
+							id: chunk.id,
+							delta: { reasoning: { index: 0, done: true } },
+						}
 					}
 
 					const hasDelta =
@@ -534,7 +558,10 @@ export class DeepSeekProvider implements LLMProvider {
 			// A turn that was all reasoning and no content — the model thought
 			// and then stopped — still has to close its block.
 			if (reasoningOpen) {
-				yield { id: 'deepseek-reasoning-close', delta: { reasoning: { index: 0, done: true } } }
+				yield {
+					id: 'deepseek-reasoning-close',
+					delta: { reasoning: { index: 0, done: true } },
+				}
 			}
 		} catch (err) {
 			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err

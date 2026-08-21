@@ -20,6 +20,12 @@ const provider = (): AnthropicProvider =>
 	new AnthropicProvider({ apiKey: 'sk-ant-test', model: 'claude-sonnet-5' })
 
 describe('a caller can ask which levels a model takes', () => {
+	it('publishes the canonical model-specific menu without changing the legacy answer', () => {
+		const p = provider()
+
+		expect(p.reasoningEffortLevelsFor('claude-opus-5')).toEqual(p.effortLevelsFor('claude-opus-5'))
+	})
+
 	it('answers per model rather than per provider', () => {
 		// Three eras, three different answers. If this ever collapses to one
 		// set, the method has been reduced to a constant and the question it
@@ -53,8 +59,12 @@ describe('the answer depends on the thinking configuration you will send', () =>
 		// `thinking: disabled` produces a combination the vendor rejects — on
 		// exactly one family, which is why it survives casual testing.
 		const p = provider()
-		const withThinking = p.effortLevelsFor('claude-opus-5', { type: 'adaptive' })
-		const withoutThinking = p.effortLevelsFor('claude-opus-5', { type: 'disabled' })
+		const withThinking = p.effortLevelsFor('claude-opus-5', {
+			type: 'adaptive',
+		})
+		const withoutThinking = p.effortLevelsFor('claude-opus-5', {
+			type: 'disabled',
+		})
 
 		expect(withThinking).toContain('max')
 		expect(withoutThinking).not.toContain('max')

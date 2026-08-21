@@ -133,14 +133,12 @@ export interface LLMProvider {
 	 * the start rather than a quieter one. Building that choice needs the
 	 * answer BEFORE the request exists.
 	 *
-	 * There are three states and they mean different things:
+	 * There are four states and they mean different things:
 	 *
-	 * - **method absent** — this driver cannot enumerate the model's levels.
-	 *   That may mean it has no effort concept, or that it accepts compatible
-	 *   endpoint model identifiers whose capabilities are not knowable here. A
-	 *   caller should not fabricate a picker; an explicitly configured effort
-	 *   is still mapped, refused, or resolved under the driver's documented
-	 *   policy.
+	 * - **method absent** — this driver cannot enumerate effort for any model.
+	 * - **`undefined`** — the driver understands effort, but cannot establish
+	 *   the levels for this model id. Compatible endpoints with private model
+	 *   names are the common case. A caller must not fabricate a picker.
 	 * - **empty array** — the driver implements effort and THIS model has no
 	 *   levels. A real answer, not a missing one.
 	 * - **non-empty** — offer exactly these, and nothing else.
@@ -160,6 +158,18 @@ export interface LLMProvider {
 	 * stale on the next model release and goes stale SILENTLY — surfacing as
 	 * a vendor rejection rather than a failing build.
 	 */
+	reasoningEffortLevelsFor?(
+		model: string,
+		thinking?: import('./chat.js').ThinkingConfig,
+	): readonly import('./chat.js').ReasoningEffort[] | undefined
+
+	/**
+	 * Legacy effort menu which cannot distinguish an unknown model from a model
+	 * with no effort support.
+	 *
+	 * @deprecated Implement and consume {@link LLMProvider.reasoningEffortLevelsFor}
+	 * instead. Kept for one compatibility window; decorators still preserve it.
+	 */
 	effortLevelsFor?(
 		model: string,
 		thinking?: import('./chat.js').ThinkingConfig,
@@ -177,7 +187,8 @@ export interface LLMProvider {
 	 * parses a real per-model `context_length` off the vendor listing and
 	 * throws it away, because there was no member to return it through.
 	 *
-	 * Three states, exactly like {@link LLMProvider.effortLevelsFor}: the
+	 * Three states, like the non-empty half of
+	 * {@link LLMProvider.reasoningEffortLevelsFor}: the
 	 * member ABSENT means this driver cannot answer at all; a resolved
 	 * `undefined` means it asked and does not know; a number is the answer.
 	 * The three are different facts and collapsing any two of them turns

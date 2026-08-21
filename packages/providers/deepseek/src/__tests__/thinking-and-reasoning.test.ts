@@ -9,7 +9,11 @@ import {
 	toDeepSeekMessages,
 } from '../client.js'
 
-const ROUTE = { providerId: 'deepseek', model: 'deepseek-v4-flash', chainIndex: 0 } as const
+const ROUTE = {
+	providerId: 'deepseek',
+	model: 'deepseek-v4-flash',
+	chainIndex: 0,
+} as const
 
 function replayState(reasoningContent: string, route: ProviderRoute = ROUTE) {
 	return {
@@ -31,7 +35,11 @@ function replayState(reasoningContent: string, route: ProviderRoute = ROUTE) {
  */
 
 function params(over: Partial<ChatCompletionParams> = {}): ChatCompletionParams {
-	return { model: 'deepseek-v4-flash', messages: [], ...over } as ChatCompletionParams
+	return {
+		model: 'deepseek-v4-flash',
+		messages: [],
+		...over,
+	} as ChatCompletionParams
 }
 
 describe('thinking is ON unless the caller says otherwise', () => {
@@ -90,6 +98,12 @@ describe('a sampling parameter thinking mode would discard', () => {
 })
 
 describe('reasoning effort', () => {
+	it('publishes an exact empty menu for this wire', () => {
+		const provider = new DeepSeekProvider({ apiKey: 'test-key' })
+
+		expect(provider.reasoningEffortLevelsFor('deepseek-v4-flash')).toEqual([])
+	})
+
 	it('is refused, because this wire accepts it and validates nothing', () => {
 		// Measured: `thinking.effort: 'bogus'` returns 200, and
 		// `effort: 'none'` still produces reasoning tokens. Only
@@ -115,7 +129,13 @@ describe('reasoning blocks are replayed onto the wire', () => {
 				{
 					role: 'assistant',
 					content: '',
-					toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'f', arguments: '{}' } }],
+					toolCalls: [
+						{
+							id: 'call_1',
+							type: 'function',
+							function: { name: 'f', arguments: '{}' },
+						},
+					],
 					reasoning: [
 						{ type: 'thinking', text: 'first ' },
 						{ type: 'thinking', text: 'second' },
@@ -197,7 +217,10 @@ describe('reasoning blocks are replayed onto the wire', () => {
 			{
 				type: 'model',
 				...ROUTE,
-				replayState: replayState('thought', { ...ROUTE, model: 'deepseek-v4-pro' }),
+				replayState: replayState('thought', {
+					...ROUTE,
+					model: 'deepseek-v4-pro',
+				}),
 			},
 		],
 		[
@@ -333,7 +356,10 @@ describe('the stream maps reasoning_content onto reasoning deltas', () => {
 	it('publishes a versioned route-bound envelope only when the response finishes', async () => {
 		const out = await drain(
 			providerOver([
-				{ id: 'r', choices: [{ delta: { reasoning_content: 'exact thought' } }] },
+				{
+					id: 'r',
+					choices: [{ delta: { reasoning_content: 'exact thought' } }],
+				},
 				{ id: 'r', choices: [{ delta: { content: 'answer' } }] },
 				{ id: 'r', choices: [{ delta: {}, finish_reason: 'stop' }] },
 			]),
