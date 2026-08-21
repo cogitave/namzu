@@ -195,6 +195,76 @@ describe('the run memory promoter', () => {
 		expect(readdirSync(join(memoryDir, 'content'))).toEqual([])
 	})
 
+	it('refuses to read indexed content whose durable shape is invalid', async () => {
+		const writer = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		const { entry } = await writer.create({
+			title: 'poisoned content',
+			summary: 'the index entry itself is valid',
+			content: 'must not be replaced by null',
+		})
+		const contentPath = join(cwd, '.namzu', 'memory', 'content', `${entry.id}.json`)
+		const poisoned = `${JSON.stringify({ id: entry.id, content: null, format: 'text' })}\n`
+		writeFileSync(contentPath, poisoned)
+
+		await drive()
+		const tools = queryCalls[0]?.tools
+		expect(tools).toBeInstanceOf(ToolRegistry)
+		const result = await (tools as ToolRegistry).execute(
+			'read_memory',
+			{ id: entry.id },
+			toolContext(),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.output).not.toContain('must not be replaced')
+		expect(result.error).toMatch(/memory|content|storage/i)
+		expect(result.error).not.toContain('not found')
+		expect(readFileSync(contentPath, 'utf-8')).toBe(poisoned)
+	})
+
+	it('refuses an indexed memory ID that escapes the content directory', async () => {
+		const memoryDir = join(cwd, '.namzu', 'memory')
+		const contentDir = join(memoryDir, 'content')
+		const escapedId = 'mem_/../../../outside-secret'
+		const indexPath = join(memoryDir, 'index.json')
+		const outsidePath = join(contentDir, `${escapedId}.json`)
+		const indexBytes = `${JSON.stringify([
+			{
+				id: escapedId,
+				title: 'crafted index',
+				summary: 'must not grant filesystem authority',
+				tags: [],
+				status: 'active',
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		])}\n`
+		const outsideBytes = `${JSON.stringify({
+			id: escapedId,
+			content: 'outside secret bytes',
+			format: 'text',
+			schemaVersion: 1,
+		})}\n`
+		mkdirSync(contentDir, { recursive: true })
+		writeFileSync(indexPath, indexBytes)
+		writeFileSync(outsidePath, outsideBytes)
+
+		await drive()
+		const tools = queryCalls[0]?.tools
+		expect(tools).toBeInstanceOf(ToolRegistry)
+		const result = await (tools as ToolRegistry).execute(
+			'read_memory',
+			{ id: escapedId },
+			toolContext(),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.output).not.toContain('outside secret bytes')
+		expect(result.error).not.toContain('outside secret bytes')
+		expect(readFileSync(indexPath, 'utf-8')).toBe(indexBytes)
+		expect(readFileSync(outsidePath, 'utf-8')).toBe(outsideBytes)
+	})
+
 	it('leaves the store empty for a run that learned nothing', async () => {
 		const promote = await drive()
 

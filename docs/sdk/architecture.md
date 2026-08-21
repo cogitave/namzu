@@ -255,6 +255,27 @@ next `save_memory` overwrite durable state this build did not understand. The
 refusal is retryable after the operator repairs or restores the index; it is
 not latched as a successful initialization.
 
+An indexed memory is readable state, not a best-effort hint. Its content
+record must exist, belong to the index ID, and contain an admitted text body,
+format, and metadata shape. A missing, invalid, or newer content record
+refuses reads and updates; only an ID absent from the index is reported as not
+found. Disk IDs are also storage keys, so this store admits only a single
+cross-platform-safe filename segment and refuses a content directory that
+resolves outside its memory root. The broader ID parser remains a type-prefix
+check; callers must not treat a branded ID alone as filesystem authority.
+
+Every asynchronous disk-memory operation reloads the authoritative index and
+operations sharing one canonical index path are serialized inside the SDK
+process. This is what lets a CLI parent and its delegates see one another's
+writes and prevents concurrent `save_memory` calls from each publishing a
+stale private projection. Mutations publish durable content/index changes
+before changing the live index, and no write or unlink failure is converted
+to success. Deletion removes content first, treats only an already-missing
+content file as idempotent, then publishes the index removal; a later index
+failure remains visible and can be retried. This is deliberately not a
+cross-process compare-and-swap guarantee: distributed writers still need one
+owner or a storage backend with conditional publication.
+
 Alongside memory, `store/` has sibling stores for the kernel's durable concepts: `store/run/` (runs, events, checkpoints and surviving messages), `store/session/` (projects, topics, sessions and summaries), `store/goal/` (same-session completion state), `store/topic/` (mutable topic state and multi-round objectives), `store/activity/`, `store/attachment/`, `store/feedback/`, and `store/task/`. Topic state, objectives, session goals, and message feedback use exact revisions; the disk implementations publish immutable revision commits so one writer wins even across processes. See [Session-owned completion goals](session-goals.md), [Durable topic revisions](topic-store-revisions.md), and [Durable message-feedback revisions](feedback-store-revisions.md) for their ownership, filesystem, compatibility, and upgrade contracts.
 
 An active session goal is state, not a scheduler. The store proves which durable
