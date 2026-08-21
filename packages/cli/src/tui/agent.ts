@@ -280,14 +280,19 @@ export type PermissionFn = (req: PermissionRequest) => Promise<PermissionDecisio
 
 export interface SendOptions {
 	readonly signal?: AbortSignal
+	/**
+	 * How this turn resolves review requests no declarative rule decided.
+	 * Overrides the session default for this turn only.
+	 */
+	readonly permissionMode?: PermissionMode
 	/** Caller-reserved identity used to correlate this turn before it starts. */
 	readonly runId?: RunId
 	/** Exact durable admission that makes goal tools visible for this one run. */
 	readonly goalRound?: GoalRoundAuthority
 	/**
 	 * Called before a batch of non-read-only tools runs. Resolves with the
-	 * user's decision. When omitted, every tool batch is auto-approved
-	 * (non-interactive behavior).
+	 * user's decision. When omitted, prompt mode auto-approves because nobody
+	 * can answer; strict mode still refuses and auto mode still approves.
 	 */
 	readonly onPermission?: PermissionFn
 	/**
@@ -466,6 +471,12 @@ export interface AgentSession {
 	 * are asked before they run" after the operator had turned that off.
 	 */
 	readonly approvalLatched: () => boolean
+	/**
+	 * Revoke a prior "approve all" choice before a later turn starts. Optional
+	 * only for older embedded AgentSession implementations; App refuses a mode
+	 * change when this capability is absent rather than pretending it revoked.
+	 */
+	readonly resetApprovalLatch?: () => void
 	/**
 	 * Tools this session will run without asking, by name.
 	 *
@@ -1421,6 +1432,9 @@ export async function createAgentSession(
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
 		approvalLatched: () => approval.all,
+		resetApprovalLatch: () => {
+			approval.all = false
+		},
 		promptExemptTools: () =>
 			promptExemptToolNames(registry).filter((name) => !goalToolNames.has(name)),
 		send: (messages, opts) =>
@@ -1496,7 +1510,7 @@ export async function createAgentSession(
 							scope,
 							workingDirectory: cwd,
 							rules: options.rules,
-							permissionMode: options.permissionMode,
+							permissionMode: opts?.permissionMode ?? options.permissionMode,
 							reviewAnswer: options.reviewAnswer,
 							maxAnswerReviews: options.maxAnswerReviews,
 							promoteMemory,
@@ -2921,6 +2935,7 @@ function emptySession(
 		errorHint,
 		// No turn can run here, so no prompt can have been answered.
 		approvalLatched: () => false,
+		resetApprovalLatch: () => {},
 		// No registry was built, so there is no roster to report on.
 		promptExemptTools: () => [],
 		send: async function* () {

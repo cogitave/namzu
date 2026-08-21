@@ -114,6 +114,7 @@ import { ResumePicker } from './ResumePicker.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import { planTurnPublication } from './conversation-history.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
+import type { PermissionMode } from '../permissions/mode.js'
 import {
 	type SlashContext,
 	hostCommandNames,
@@ -386,6 +387,16 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 */
 	const [pickerNotice, setPickerNotice] = useState<string | null>(null)
 	const [permission, setPermission] = useState<PermissionRequest | null>(null)
+	// The launch bypass is an INITIAL selection, not permanent authority. A
+	// typed /permissions command can narrow it back to prompt/strict without
+	// rebuilding the provider, tools, plugins, or sandbox.
+	const [permissionMode, setPermissionModeState] = useState<PermissionMode>(
+		ctx.skipPermissions === true ? 'auto' : 'prompt',
+	)
+	const permissionModeRef = useRef<PermissionMode>(permissionMode)
+	const permissionModeSourceRef = useRef<'default' | 'launch-bypass' | 'session'>(
+		ctx.skipPermissions === true ? 'launch-bypass' : 'default',
+	)
 	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
 		[],
 	)
@@ -1141,7 +1152,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 		// figures where the bar abbreviates to fit.
 		usage,
 		permissions: {
-			skipPermissions: ctx.skipPermissions === true,
+			currentMode: () => ({
+				mode: permissionModeRef.current,
+				source: permissionModeSourceRef.current,
+			}),
 			rules: ctx.rules ?? [],
 			// Called when `/permissions` renders, not read here.
 			//
@@ -1983,9 +1997,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 			const turnGeneration = conversationGenRef.current
 			unsettledTurnGenerationsRef.current.set(turnToken, turnGeneration)
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
-			const askPermission = ctx.skipPermissions
-				? undefined
-				: (req: PermissionRequest): Promise<PermissionDecision> => {
+			const turnPermissionMode = permissionModeRef.current
+			// Always carry the guarded callback. `auto` and `strict` decide before
+			// calling it in makeResumeHandler; retaining it is what lets a session
+			// launched with --yolo later return to prompt mode truthfully.
+			const askPermission = (req: PermissionRequest): Promise<PermissionDecision> => {
 						if (
 							!stillHere() ||
 							activeTurnTokenRef.current !== turnToken ||
@@ -2050,9 +2066,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
 						runId,
+						permissionMode: turnPermissionMode,
 						...(goalRound ? { goalRound } : {}),
-						// Bypass mode (--dangerously-skip-permissions / --yolo): omit the
-						// permission callback so every tool batch auto-approves.
+						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
 						extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 						onConversationMessages: (messages) => {
@@ -2233,7 +2249,6 @@ export function App({ ctx: initialCtx }: AppProps) {
 			applyEvent,
 			clearActiveTools,
 			ctx.cwd,
-			ctx.skipPermissions,
 			finalizeMessage,
 			flushStream,
 			goalActivation,
@@ -2305,6 +2320,42 @@ export function App({ ctx: initialCtx }: AppProps) {
 						setKeyEntryFor(null)
 						setPhase('picker')
 						return
+					case 'permission-mode': {
+						if (!session?.hasProvider) {
+							pushMessage('system', 'No active session — pick a provider before changing permissions.')
+							return
+						}
+						if (
+							state !== 'idle' ||
+							abortRef.current !== null ||
+							hasUnsettledTurn() ||
+							queuedRef.current.length > 0 ||
+							permissionResolveRef.current !== null ||
+							compactingRef.current
+						) {
+							pushMessage(
+								'system',
+								'Permission mode was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+							)
+							return
+						}
+						if (!session.resetApprovalLatch) {
+							pushMessage(
+								'system',
+								'Permission mode was not changed: this embedded session cannot revoke an earlier "approve all" choice. Reconnect it before changing modes.',
+							)
+							return
+						}
+						session.resetApprovalLatch()
+						permissionModeRef.current = slash.mode
+						permissionModeSourceRef.current = 'session'
+						setPermissionModeState(slash.mode)
+						pushMessage(
+							'system',
+							`Permission mode changed to ${slash.mode}. Any earlier "approve all" choice was revoked. Declarative deny rules and the built-in safety gate still take precedence.`,
+						)
+						return
+					}
 					case 'login':
 						void startOrFinishLogin(slash.pasted)
 						return
@@ -3359,7 +3410,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 				<Banner
 					version={ctx.version}
 					session={session}
-					bypass={ctx.skipPermissions === true}
+					permissionMode={permissionMode}
 					cwd={ctx.cwd}
 				/>
 			) : null}
@@ -3397,7 +3448,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 										<Banner
 											version={ctx.version}
 											session={session}
-											bypass={ctx.skipPermissions === true}
+											permissionMode={permissionMode}
 											cwd={ctx.cwd}
 										/>
 									) : undefined
@@ -3491,12 +3542,12 @@ export function App({ ctx: initialCtx }: AppProps) {
 function Banner({
 	version,
 	session,
-	bypass,
+	permissionMode,
 	cwd,
 }: {
 	readonly version: string
 	readonly session: AgentSession | null
-	readonly bypass: boolean
+	readonly permissionMode: PermissionMode
 	readonly cwd: string
 }) {
 	const cols = process.stdout.columns ?? 80
@@ -3539,10 +3590,11 @@ function Banner({
 					<Text color={theme.text.muted}>{prettyCwd}</Text>
 				</Box>
 			</Box>
-			{bypass ? (
+			{permissionMode === 'auto' ? (
 				<Box marginTop={1}>
 					<Text color={theme.status.error} bold>
-						⚠ bypass permissions — tools run without asking
+						⚠ launched in auto permission mode — undecided tools run without asking until
+						/permissions changes it
 					</Text>
 				</Box>
 			) : null}

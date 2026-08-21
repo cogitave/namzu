@@ -32,6 +32,10 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 /** Decisions the fake session was given, in order. */
 const decisions: PermissionDecision[] = []
 
+/** Per-turn modes and executions observed beyond the App boundary. */
+const permissionModes: unknown[] = []
+let toolExecutions = 0
+
 /**
  * The clock the settle window is measured against, driven by the test.
  *
@@ -48,6 +52,7 @@ const decisions: PermissionDecision[] = []
  * consult `Date.now` — so only the quantity under test becomes deterministic.
  */
 let nowMs = 1_000_000
+let permissionDelayMs = 30
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -109,6 +114,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				},
 				close: async () => {},
 				approvalLatched: () => latched,
+				resetApprovalLatch: () => {
+					latched = false
+				},
 				// A representative exempt roster: one declared read-only, one
 				// named override. Enough for the readout assertions below.
 				promptExemptTools: () => ['glob', 'read', 'task_create'],
@@ -118,8 +126,14 @@ vi.mock('../agent.js', async (importOriginal) => {
 				// never requested, because approve-all is asserted through
 				// `/permissions` rather than through a second prompt.
 				send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+					permissionModes.push(opts?.permissionMode)
 					yield { kind: 'delta', text: 'working' } as AgentEvent
-					await new Promise((r) => setTimeout(r, 30))
+					await new Promise((r) => setTimeout(r, permissionDelayMs))
+					if (opts?.permissionMode === 'auto' || latched) {
+						toolExecutions += 1
+						return
+					}
+					if (opts?.permissionMode === 'strict') return
 					const req: PermissionRequest = {
 						toolCalls: [
 							{ id: 'call-1', name: 'bash', summary: 'rm -rf build', isDestructive: true },
@@ -129,6 +143,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 					if (decision) {
 						decisions.push(decision)
 						if (decision.kind === 'approve-all') latched = true
+						if (decision.kind === 'approve' || decision.kind === 'approve-all') {
+							toolExecutions += 1
+						}
 					}
 				},
 			}
@@ -209,6 +226,9 @@ const mounted: { unmount: () => void }[] = []
 
 beforeEach(() => {
 	decisions.length = 0
+	permissionModes.length = 0
+	toolExecutions = 0
+	permissionDelayMs = 30
 	nowMs = 1_000_000
 	vi.spyOn(Date, 'now').mockImplementation(() => nowMs)
 })
@@ -373,5 +393,100 @@ describe('/permissions after approve-all', () => {
 		// empty one — this is the assertion that fails if the wiring is dropped.
 		expect(frame, 'the never-prompted disclosure is missing').toContain('Never prompted')
 		expect(frame).toContain('glob')
+	})
+})
+
+describe('/permissions session mode', () => {
+	it('does not change the mode while a turn owns the permission boundary', async () => {
+		permissionDelayMs = 250
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		const { stdin, lastFrame } = harness
+		await tick(160)
+
+		stdin.write('first turn')
+		await tick(20)
+		stdin.write('\r')
+		await tick(10)
+		stdin.write('/permissions strict')
+		await tick(20)
+		stdin.write('\r')
+		await tick(120)
+
+		expect(lastFrame()).toContain('Permission mode was not changed')
+		expect(lastFrame()).not.toContain('Permission mode changed to strict')
+		expect(permissionModes).toEqual(['prompt'])
+	})
+
+	it('restores prompting after a --yolo launch before any tool can run', async () => {
+		const harness = render(<App ctx={{ ...ctx, skipPermissions: true }} />)
+		mounted.push(harness)
+		const { stdin, lastFrame } = harness
+		await tick(160)
+
+		stdin.write('/permissions prompt')
+		await tick(60)
+		stdin.write('\r')
+		await tick(160)
+		expect(lastFrame()).toContain('Permission mode changed to prompt')
+
+		stdin.write('change the file')
+		await tick(60)
+		stdin.write('\r')
+		const started = performance.now()
+		while (!(lastFrame() ?? '').includes('wants to run') && performance.now() - started < 3_000) {
+			await tick(20)
+		}
+
+		expect(permissionModes).toEqual(['prompt'])
+		expect(toolExecutions, 'the yolo launch still auto-approved after switching to prompt').toBe(0)
+		expect(lastFrame(), 'the destructive tool never reached a prompt').toContain('wants to run')
+
+		settle()
+		stdin.write('y')
+		await decisionSettles()
+		expect(toolExecutions).toBe(1)
+
+		await tick(120)
+		stdin.write('/permissions')
+		await tick(60)
+		stdin.write('\r')
+		await tick(160)
+		const frame = lastFrame() ?? ''
+		expect(frame).toContain('Current mode: prompt')
+		expect(frame).toContain('you are asked')
+		expect(frame).not.toContain('approved automatically (--dangerously-skip-permissions)')
+	})
+
+	it('revokes an approve-all latch before the next prompt turn', async () => {
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+
+		settle()
+		stdin.write('a')
+		await decisionSettles()
+		expect(decisions).toEqual([{ kind: 'approve-all' }])
+		expect(toolExecutions).toBe(1)
+
+		// The draft typed while the first turn ran is still present by design.
+		await tick(120)
+		stdin.write('\x1B')
+		await tick(60)
+		stdin.write('/permissions prompt')
+		await tick(60)
+		stdin.write('\r')
+		await tick(160)
+		expect(lastFrame()).toContain('Permission mode changed to prompt')
+
+		stdin.write('ask again')
+		await tick(60)
+		stdin.write('\r')
+		const started = performance.now()
+		while (!(lastFrame() ?? '').includes('wants to run') && performance.now() - started < 3_000) {
+			await tick(20)
+		}
+
+		expect(permissionModes.at(-1)).toBe('prompt')
+		expect(toolExecutions, 'approve-all survived an explicit prompt-mode reset').toBe(1)
+		expect(lastFrame()).toContain('wants to run')
 	})
 })

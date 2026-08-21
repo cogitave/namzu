@@ -31,7 +31,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		userCommands: [],
 		configDebug: null,
 		permissions: {
-			skipPermissions: false,
+			currentMode: () => ({ mode: 'prompt', source: 'default' }),
 			rules: [],
 			approvalLatched: () => false,
 			neverPrompted: () => [],
