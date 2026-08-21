@@ -18,7 +18,7 @@ import {
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
-import { resumeRun } from '../resume-run.js'
+import { type ResumeRunParams, resumeRun } from '../resume-run.js'
 import type { RunStateScope } from '../run-state.js'
 
 /**
@@ -182,6 +182,37 @@ describe('a run is picked back up from its store', () => {
 		// so its id, budgets and trace all have to carry across.
 		expect(outcome.run.id).toBe(SCOPE.runId)
 		expect(outcome.state.checkpointId).toBe('ckpt_1')
+	})
+
+	it.each([
+		['sessionId', 'ses_other' as SessionId],
+		['topicId', 'top_other' as TopicId],
+		['projectId', 'prj_other' as ProjectId],
+		['tenantId', 'tnt_other' as TenantId],
+		['parentRunId', 'run_other_parent' as RunId],
+	] as const)('refuses a mismatched %s before provider work', async (field, value) => {
+		const store = new InMemoryCheckpointStore()
+		await store.writeCheckpoint(SCOPE, checkpoint())
+		const base = await baseParams(store)
+		const candidate = { ...base, [field]: value } as ResumeRunParams
+
+		await expect(resumeRun(candidate)).rejects.toMatchObject({
+			code: 'invalid_config',
+			details: { fields: [field] },
+		})
+		expect((candidate.provider as MockLLMProvider).requests).toHaveLength(0)
+	})
+
+	it('refuses a checkpoint attributed to a different run than its lookup scope', async () => {
+		const store = new InMemoryCheckpointStore()
+		await store.writeCheckpoint(SCOPE, checkpoint({ runId: 'run_checkpoint_other' as RunId }))
+		const candidate = await baseParams(store)
+
+		await expect(resumeRun(candidate)).rejects.toMatchObject({
+			code: 'invalid_config',
+			details: { fields: ['runId'] },
+		})
+		expect(candidate.provider.requests).toHaveLength(0)
 	})
 
 	it('repairs only abandoned checkpoint tool history before the resumed provider call', async () => {

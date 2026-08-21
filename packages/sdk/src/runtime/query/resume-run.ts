@@ -1,11 +1,12 @@
+import { NamzuError } from '../../types/errors/index.js'
 import type { PendingDecision } from '../../types/hitl/index.js'
 import type { CheckpointStore, FencingToken } from '../../types/run/checkpoint-store.js'
 import type { Run } from '../../types/run/entity.js'
 import type { RunEventReplay } from '../../types/run/event-cursor.js'
 import type { RunEventListener } from '../../types/run/events.js'
 import type { RunState } from '../../types/run/state.js'
-import { type QueryParams, drainQuery } from './index.js'
-import { type RunStateScope, loadRunState } from './run-state.js'
+import { type QueryParams, drainQueryWithSelectedResumeState } from './index.js'
+import { type RunStateScope, loadSelectedRunState } from './run-state.js'
 
 /**
  * What a resume attempt found.
@@ -117,24 +118,35 @@ export async function resumeRun(params: ResumeRunParams): Promise<ResumeOutcome>
 		...rest
 	} = params
 
-	const state = await loadRunState(checkpointStore, scope, checkpointId)
-	if (!state?.checkpointId) return { resumed: false, reason: 'no-checkpoint' }
+	const selected = await loadSelectedRunState(checkpointStore, scope, checkpointId)
+	const state = selected?.state
+	if (!state?.checkpointId || !selected) return { resumed: false, reason: 'no-checkpoint' }
+	assertResumeRequestAttribution(params, state)
 
 	// A park is outstanding until it is answered. `resolvedAt` is what marks
 	// an answered one, so a checkpoint that carries a resolved decision is an
 	// ordinary resume, not a question waiting on anybody.
 	const outstanding = state.pending && !state.pending.resolvedAt ? state.pending : undefined
 	if (outstanding && !pendingDecision) {
-		return { resumed: false, reason: 'awaiting-decision', pending: outstanding, state }
+		return {
+			resumed: false,
+			reason: 'awaiting-decision',
+			pending: outstanding,
+			state,
+		}
 	}
 
 	let replay: RunEventReplay | undefined
 
-	const run = await drainQuery(
+	const run = await drainQueryWithSelectedResumeState(
 		{
 			...rest,
 			messages: [],
 			runId: state.runId,
+			sessionId: state.sessionId,
+			topicId: state.topicId,
+			projectId: state.projectId,
+			tenantId: state.tenantId,
 			// Forwarded, and it is not cosmetic: the run store nests a sub-run's
 			// evidence under `<parent>/children/<run>`, so resuming a sub-run
 			// without this binds `<base>/<run>` instead — a second, empty
@@ -148,11 +160,43 @@ export async function resumeRun(params: ResumeRunParams): Promise<ResumeOutcome>
 			...(pendingDecision ? { pendingDecision } : {}),
 			onEventReplay: (verdict: RunEventReplay) => {
 				replay = verdict
-				onEventReplay?.(verdict)
+				return onEventReplay?.(verdict)
 			},
 		} as QueryParams,
+		{
+			...state,
+			checkpointId: state.checkpointId,
+			...(selected.checkpoint.traceContext
+				? { traceContext: selected.checkpoint.traceContext }
+				: {}),
+		},
 		listener,
 	)
 
-	return { resumed: true, run, state, ...(replay !== undefined ? { replay } : {}) }
+	return {
+		resumed: true,
+		run,
+		state,
+		...(replay !== undefined ? { replay } : {}),
+	}
+}
+
+function assertResumeRequestAttribution(params: ResumeRunParams, state: RunState): void {
+	const mismatchedFields: string[] = []
+	if (params.scope.runId !== state.runId) mismatchedFields.push('runId')
+	if (params.sessionId !== state.sessionId) mismatchedFields.push('sessionId')
+	if (params.topicId !== state.topicId) mismatchedFields.push('topicId')
+	if (params.projectId !== state.projectId) mismatchedFields.push('projectId')
+	if (params.tenantId !== state.tenantId) mismatchedFields.push('tenantId')
+	if (params.parentRunId !== undefined && params.parentRunId !== state.parentRunId) {
+		mismatchedFields.push('parentRunId')
+	}
+	if (mismatchedFields.length === 0) return
+
+	throw new NamzuError({
+		code: 'invalid_config',
+		message:
+			'The resume request attribution does not match the checkpoint scope selected for this run.',
+		details: { fields: mismatchedFields },
+	})
 }

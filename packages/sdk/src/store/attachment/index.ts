@@ -51,6 +51,15 @@ export interface StoredBytes {
 	readonly mediaType: string
 }
 
+/** Authority owned by the public operation resolving stored bytes. */
+export interface AttachmentOperationOptions {
+	/**
+	 * A pre-aborted signal starts no store work. Implementations should use it
+	 * to stop their own I/O; the SDK also stops awaiting a store that ignores it.
+	 */
+	readonly signal?: AbortSignal
+}
+
 export interface AttachmentStore {
 	/**
 	 * Take bytes, return a ref.
@@ -60,7 +69,7 @@ export interface AttachmentStore {
 	 */
 	put(bytes: StoredBytes): Promise<string>
 	/** `undefined` for a ref this store does not hold. */
-	get(ref: string): Promise<StoredBytes | undefined>
+	get(ref: string, options?: AttachmentOperationOptions): Promise<StoredBytes | undefined>
 }
 
 /** A reference nothing could resolve. */
@@ -117,11 +126,20 @@ export const isStoredAttachment = (
 export async function resolveAttachment(
 	attachment: MessageAttachment,
 	store: AttachmentStore | undefined,
+	options: AttachmentOperationOptions = {},
 ): Promise<MessageAttachment> {
+	const { signal } = options
+	signal?.throwIfAborted()
 	if (!isStoredAttachment(attachment)) return attachment
 	if (!store) throw new NoAttachmentStoreError({ ref: attachment.ref })
 
-	const bytes = await store.get(attachment.ref)
+	const bytes = await awaitStoreRead(signal, () =>
+		signal ? store.get(attachment.ref, { signal }) : store.get(attachment.ref),
+	)
+	// A store completion can win its promise reaction and remove the abort
+	// listener immediately before an already-queued abort. Publication is a
+	// second authority boundary, so fence it independently.
+	signal?.throwIfAborted()
 	if (!bytes) throw new AttachmentNotFoundError({ ref: attachment.ref })
 
 	if (bytes.mediaType !== attachment.mediaType) {
@@ -159,7 +177,9 @@ export async function resolveAttachment(
 export async function resolveAttachments(
 	messages: readonly Message[],
 	store: AttachmentStore | undefined,
+	options: AttachmentOperationOptions = {},
 ): Promise<readonly Message[]> {
+	options.signal?.throwIfAborted()
 	// `Message` rather than a structural constraint: only some members of
 	// the union carry `attachments`, and a structural bound over a union
 	// like that is not assignable in either direction. Naming the real type
@@ -175,8 +195,50 @@ export async function resolveAttachments(
 			if (!attachments?.some(isStoredAttachment)) return message
 			return {
 				...message,
-				attachments: await Promise.all(attachments.map((a) => resolveAttachment(a, store))),
+				attachments: await Promise.all(
+					attachments.map((attachment) => resolveAttachment(attachment, store, options)),
+				),
 			}
 		}),
 	)
+}
+
+/**
+ * Await a host store without handing it ownership of run cancellation.
+ *
+ * Forwarding the signal is cooperative cleanup; this race is the public
+ * liveness boundary when a remote or custom store ignores it. The first cause
+ * wins, and late store completion has no route back into the returned value.
+ */
+async function awaitStoreRead<T>(
+	signal: AbortSignal | undefined,
+	start: () => Promise<T>,
+): Promise<T> {
+	if (!signal) return await start()
+	signal.throwIfAborted()
+
+	return new Promise<T>((resolve, reject) => {
+		let settled = false
+		const cleanup = (): void => signal.removeEventListener('abort', onAbort)
+		const rejectOnce = (reason: unknown): void => {
+			if (settled) return
+			settled = true
+			cleanup()
+			reject(reason)
+		}
+		const resolveOnce = (value: T): void => {
+			if (settled) return
+			settled = true
+			cleanup()
+			resolve(value)
+		}
+		const onAbort = (): void => rejectOnce(signal.reason)
+
+		signal.addEventListener('abort', onAbort, { once: true })
+		try {
+			Promise.resolve(start()).then(resolveOnce, rejectOnce)
+		} catch (error) {
+			rejectOnce(error)
+		}
+	})
 }

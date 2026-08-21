@@ -6,7 +6,7 @@ description: >-
   with an identity, a budget, a permission boundary and a durable record.
   Renders no UI, hosts no service, and has no preferred model vendor.
 tags: [readme, package, sdk, agent-kernel]
-timestamp: 2026-08-20T00:00:00Z
+timestamp: 2026-08-21T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -130,6 +130,20 @@ Durable approval or crash-resume authority is resolved first so an owned call
 is completed exactly once. Hosts receive `message_history_repaired` with source
 and counts before the model call; conversation and tool content stay out of the
 event.
+
+Stored image and document references are materialized under the run's caller
+signal before provider work starts. A pre-cancelled run performs no attachment
+store I/O; cancellation also settles the run when a custom or remote store
+ignores the signal, while retaining the unresolved references in its durable
+message record. `AttachmentStore.get` receives an optional
+`AttachmentOperationOptions` so implementations can stop their own I/O. The
+caller keeps ownership of its controller, and a late store result is never
+published into a cancelled run. `resumeRun` carries its already-selected
+checkpoint snapshot into the same boundary, so cancellation neither rereads a
+non-cooperative checkpoint backend nor replaces prior history, usage, or a new
+queued reference with an incomplete snapshot. The selected checkpoint also
+carries its durable trace parent into the cancelled run, preserving one
+cross-process timeline without a second checkpoint read.
 
 Hosts that discover scoped repository policy can supply a
 `ProjectInstructionContext` to `query`, `runAgent`, `ReactiveAgent`, or

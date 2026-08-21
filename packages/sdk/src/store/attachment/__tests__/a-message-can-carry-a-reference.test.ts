@@ -56,7 +56,11 @@ describe('a stored attachment becomes an inline one', () => {
 			store({ ref_a: { data: 'AAAA', mediaType: 'image/png' } }),
 		)
 
-		expect(resolved).toEqual({ type: 'image', data: 'AAAA', mediaType: 'image/png' })
+		expect(resolved).toEqual({
+			type: 'image',
+			data: 'AAAA',
+			mediaType: 'image/png',
+		})
 	})
 
 	it('resolves a document, keeping name and citations', async () => {
@@ -83,13 +87,49 @@ describe('a stored attachment becomes an inline one', () => {
 	})
 
 	it('leaves an inline attachment exactly as it was', async () => {
-		const inline: MessageAttachment = { type: 'image', data: 'CCCC', mediaType: 'image/png' }
+		const inline: MessageAttachment = {
+			type: 'image',
+			data: 'CCCC',
+			mediaType: 'image/png',
+		}
 
 		expect(await resolveAttachment(inline, store({}))).toBe(inline)
 	})
 })
 
 describe('every failure refuses', () => {
+	it('lets pre-cancellation outrank a missing store', async () => {
+		const caller = new AbortController()
+		const reason = new Error('attachment resolution cancelled')
+		caller.abort(reason)
+
+		await expect(resolveAttachment(stored(), undefined, { signal: caller.signal })).rejects.toBe(
+			reason,
+		)
+	})
+
+	it('does not publish bytes after authority is withdrawn at the await boundary', async () => {
+		let release!: (bytes: StoredBytes) => void
+		const held = new Promise<StoredBytes>((resolve) => {
+			release = resolve
+		})
+		const caller = new AbortController()
+		const reason = new Error('attachment authority withdrawn')
+		const pending = resolveAttachment(
+			stored(),
+			{
+				put: async () => 'unused',
+				get: () => held,
+			},
+			{ signal: caller.signal },
+		)
+
+		release({ data: 'late-bytes', mediaType: 'image/png' })
+		queueMicrotask(() => caller.abort(reason))
+
+		await expect(pending).rejects.toBe(reason)
+	})
+
 	it('refuses a ref with no store', async () => {
 		await expect(resolveAttachment(stored(), undefined)).rejects.toThrow(NoAttachmentStoreError)
 	})
@@ -125,6 +165,18 @@ describe('resolving a whole conversation', () => {
 	const withAttachments = (attachments: MessageAttachment[]): Message =>
 		({ ...createUserMessage('look'), attachments }) as Message
 
+	it('lets pre-cancellation outrank the unchanged fast path', async () => {
+		const caller = new AbortController()
+		const reason = new Error('conversation resolution cancelled')
+		caller.abort(reason)
+
+		await expect(
+			resolveAttachments([createUserMessage('plain')], undefined, {
+				signal: caller.signal,
+			}),
+		).rejects.toBe(reason)
+	})
+
 	it('returns the SAME array when nothing was stored', async () => {
 		// So the common case costs one scan and no allocation, and so a caller
 		// cannot tell resolved from unresolved by identity and get it wrong.
@@ -157,7 +209,11 @@ describe('resolving a whole conversation', () => {
 	})
 
 	it('resolves a message that mixes stored and inline', async () => {
-		const inline: MessageAttachment = { type: 'image', data: 'INLINE', mediaType: 'image/png' }
+		const inline: MessageAttachment = {
+			type: 'image',
+			data: 'INLINE',
+			mediaType: 'image/png',
+		}
 		const messages: Message[] = [withAttachments([inline, stored()])]
 
 		const resolved = await resolveAttachments(
@@ -194,9 +250,13 @@ describe('the predicate', () => {
 	it('recognises a stored attachment and nothing else', () => {
 		expect(isStoredAttachment(stored())).toBe(true)
 		expect(isStoredAttachment({ type: 'image', data: 'A', mediaType: 'image/png' })).toBe(false)
-		expect(isStoredAttachment({ type: 'document', data: 'A', mediaType: 'application/pdf' })).toBe(
-			false,
-		)
+		expect(
+			isStoredAttachment({
+				type: 'document',
+				data: 'A',
+				mediaType: 'application/pdf',
+			}),
+		).toBe(false)
 		// An attachment with no `type` is an image — that is what every
 		// attachment was before documents existed.
 		expect(isStoredAttachment({ data: 'A', mediaType: 'image/png' })).toBe(false)

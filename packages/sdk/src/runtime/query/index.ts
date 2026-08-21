@@ -42,6 +42,7 @@ import {
 	parentContext,
 	serializeSpan,
 } from '../../telemetry/attributes.js'
+import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { recordRunDuration } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
@@ -91,6 +92,7 @@ import type {
 } from '../../types/run/index.js'
 import type { PromoteMemory } from '../../types/run/memory-promotion.js'
 import { memoryCandidateFor } from '../../types/run/memory-promotion.js'
+import type { RunState } from '../../types/run/state.js'
 import type { RunStore } from '../../types/run/store.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
@@ -757,6 +759,12 @@ export interface QueryParams {
 	strictCapabilities?: boolean
 }
 
+type SelectedResumeState = RunState & {
+	readonly checkpointId: CheckpointId
+	readonly traceContext?: SerializedSpanContext
+}
+const selectedResumeStates = new WeakMap<QueryParams, SelectedResumeState>()
+
 /**
  * Refuse to price a run whose tokens two differently-priced members may produce.
  *
@@ -970,6 +978,8 @@ function withoutOwnedResumeTurn(
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
+	const selectedResumeState = selectedResumeStates.get(params)
+	selectedResumeStates.delete(params)
 	// Resolved at the DOOR, before a run id exists or a logger is built.
 	// A caller who set both spellings of a renamed field has a config bug,
 	// and refusing it here costs them nothing; refusing it at the read site
@@ -1176,10 +1186,26 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// image is a model answering about a picture it never saw.
 	const seeded: Message[] =
 		queuedForThisRun.length > 0 ? [...queuedForThisRun, ...params.messages] : params.messages
-	let resolvedInitialMessages: Message[] = [
-		...(await resolveAttachments(seeded, params.attachmentStore)),
-	]
-	if (params.projectInstructionContext?.prepareInitialSnapshot) {
+	let resolvedInitialMessages: Message[]
+	let attachmentResolutionCancelled = false
+	try {
+		resolvedInitialMessages = [
+			...(await resolveAttachments(seeded, params.attachmentStore, {
+				signal: params.signal,
+			})),
+		]
+		params.signal?.throwIfAborted()
+	} catch (error) {
+		// Attachment materialization precedes RunContext construction so stored
+		// bytes never enter a live run's checkpoints. Cancellation still belongs
+		// to that run: preserve the exact input refs, build the context below, and
+		// let its normal terminal path classify/persist a cancelled Run. Every
+		// other store failure remains a pre-run refusal.
+		if (!params.signal?.aborted || error !== params.signal.reason) throw error
+		resolvedInitialMessages = [...seeded]
+		attachmentResolutionCancelled = true
+	}
+	if (!attachmentResolutionCancelled && params.projectInstructionContext?.prepareInitialSnapshot) {
 		const preparationSignal = params.signal ?? new AbortController().signal
 		let snapshot: UserMessage | null | undefined
 		try {
@@ -1334,6 +1360,108 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const eventTranslator = new EventTranslator(ctx.runMgr, undefined, ctx.log)
 	eventTranslator.wireActivityStore(ctx.activityStore, ctx.runId)
 	eventTranslator.wirePlanManager(ctx.planManager, ctx.runId)
+	eventTranslator.setGeneration(params.claimFence)
+
+	if (attachmentResolutionCancelled) {
+		// Attachment materialization happens before RunContext exists. Once it
+		// observes cancellation, do only the work required to leave an honest
+		// durable run: initialize the record, retain the unresolved references,
+		// and settle through the ordinary cancellation classifier. Prompt
+		// contributions/cache, host callbacks, tools, plugins, sandbox, guardrails,
+		// advisors, and providers are all authority-bearing work and stay out.
+		if (params.resumeFromCheckpoint && !selectedResumeState) {
+			// The canonical resume surface hands query the checkpoint state it
+			// already selected. A raw resume query has no such snapshot; after
+			// cancellation, reading the store again could hang without a signal,
+			// while persisting without it would erase the existing transcript.
+			// Refuse before binding/persisting rather than choose either failure.
+			ctx.abortController.signal.throwIfAborted()
+		}
+
+		const cancelledPrompt = params.systemPrompt ?? ''
+		const cancelledAssembler = new ResultAssembler({
+			runMgr: ctx.runMgr,
+			planManager: ctx.planManager,
+			activityStore: ctx.activityStore,
+			log: ctx.log,
+			emitEvent: eventTranslator.emitEvent,
+			drainPending: () => eventTranslator.drainPending(),
+			signal: ctx.abortController.signal,
+		})
+		const rootSpan = getTracer().startSpan(
+			agentRunSpanName(params.agentName),
+			{},
+			parentContext(params.parentSpan ?? selectedResumeState?.traceContext),
+		)
+		rootSpan.setAttributes({
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[GENAI.AGENT_NAME]: params.agentName,
+			[GENAI.AGENT_ID]: params.agentId,
+			[GENAI.REQUEST_MODEL]: runConfig.model,
+			[GENAI.SYSTEM]: params.provider.id,
+		})
+
+		try {
+			await ctx.runMgr.init()
+			if (selectedResumeState) {
+				ctx.runMgr.restoreUsage(
+					selectedResumeState.tokenUsage,
+					selectedResumeState.costInfo,
+					selectedResumeState.currentIteration,
+				)
+				for (const message of selectedResumeState.messages) ctx.runMgr.pushMessage(message)
+				for (const queued of queuedForThisRun) ctx.runMgr.pushMessage(queued)
+			} else if (params.continuationMode) {
+				for (const message of initialMessages) ctx.runMgr.pushMessage(message)
+			} else {
+				ctx.runMgr.pushMessage(createSystemMessage(cancelledPrompt, 'cache'))
+				for (const message of initialMessages) ctx.runMgr.pushMessage(message)
+			}
+			if (params.eventCursor) {
+				yield* catchUpFromCursor(
+					ctx.runMgr,
+					params.eventCursor,
+					params.onEventReplay,
+					params.claimFence,
+					(error) => {
+						ctx.log.warn('Replay observer failed after attachment cancellation', {
+							'exception.message': toErrorMessage(error),
+						})
+					},
+				)
+			}
+			if (selectedResumeState) {
+				await eventTranslator.emitEvent({
+					type: 'run_resuming',
+					runId: ctx.runId,
+					fromCheckpointId: selectedResumeState.checkpointId,
+				})
+				yield* eventTranslator.drainPending()
+			}
+			ctx.runMgr.markRunning()
+			await eventTranslator.emitEvent({
+				type: 'run_started',
+				runId: ctx.runId,
+				systemPrompt: cancelledPrompt,
+			})
+			yield* eventTranslator.drainPending()
+			ctx.abortController.signal.throwIfAborted()
+		} catch (error) {
+			// Attachment resolution has already observed the caller's abort. A
+			// reconnect callback can still throw while replay is being reported,
+			// but it cannot replace that terminal cause or turn a cancelled run
+			// into an unpersisted rejection.
+			const terminalError = ctx.abortController.signal.aborted
+				? ctx.abortController.signal.reason
+				: error
+			yield* cancelledAssembler.handleError(terminalError, rootSpan)
+		} finally {
+			rootSpan.end()
+		}
+
+		return await cancelledAssembler.finalize()
+	}
+
 	const unsubscribeTaskStore = params.taskStore
 		? eventTranslator.wireTaskStore(params.taskStore, ctx.runId)
 		: undefined
@@ -1756,9 +1884,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// waterfall, and for a replay fork (which mints a new run id) not
 		// even that. An explicit caller-supplied parent still wins: it is
 		// the more specific statement about where this run belongs.
-		const resumedTrace = params.resumeFromCheckpoint
-			? await checkpointMgr.readTraceContext(params.resumeFromCheckpoint)
-			: undefined
+		const resumedTrace = selectedResumeState
+			? selectedResumeState.traceContext
+			: params.resumeFromCheckpoint
+				? await checkpointMgr.readTraceContext(params.resumeFromCheckpoint)
+				: undefined
 
 		const rootSpan = tracer.startSpan(
 			agentRunSpanName(params.agentName),
@@ -1777,11 +1907,6 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// fence exists, the refusal exists, and no checkpoint a RUN writes ever
 		// carries a number — so a stalled worker is refused nowhere.
 		checkpointMgr.setClaimFence(params.claimFence)
-		// And every EVENT it records carries the same fence as its generation,
-		// so a consumer whose cursor was minted under an older holding is told
-		// the sequence space changed rather than handed a splice from it.
-		eventTranslator.setGeneration(params.claimFence)
-
 		// A question raised from inside a tool becomes a real checkpoint
 		// here. It used to park under a synthetic id nothing ever wrote, so
 		// the checkpoint did not exist: nothing on disk said a human owed
@@ -1869,23 +1994,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					params.eventCursor,
 					params.onEventReplay,
 					params.claimFence,
+					(error) => {
+						ctx.log.warn('Replay observer failed', {
+							'exception.message': toErrorMessage(error),
+						})
+					},
 				)
 			}
-
-			// Handed over here, and the position is load-bearing in BOTH
-			// directions. It has to follow `wirePlanManager`, or a host that
-			// builds its plan in this callback — which is what the callback is
-			// for — does it into silence: `plan_ready`, `plan_approved` and
-			// every `plan_step_updated` are emitted with nothing subscribed,
-			// and the host then watches a stream that never mentions the plan
-			// it just created. It also has to follow `runMgr.init()`, because
-			// emitting appends to the run store and an uninitialised store
-			// throws — moving it up to the wiring alone traded a silent drop
-			// for 25 unhandled rejections.
-			//
-			// Still before the iteration loop, which is the guarantee the
-			// callback actually makes.
-			params.onContextCreated?.({ planManager: ctx.planManager })
 
 			ctx.log.info('Starting query', {
 				[NAMZU.RUN_ID]: ctx.runMgr.id,
@@ -2109,6 +2224,25 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				systemPrompt: assembledPrompt,
 			})
 			yield* eventTranslator.drainPending()
+
+			// Pre-run materialization can observe cancellation before RunContext
+			// exists. The exact input has now been seeded and the run is writable;
+			// hand the cancellation to the normal terminal path before invoking
+			// any host callback, guardrail, plugin, sandbox, or provider. Those
+			// boundaries are not all cooperative and must not regain withdrawn
+			// authority merely because the run record still had to be created.
+			ctx.abortController.signal.throwIfAborted()
+
+			// Handed over here, and the position is load-bearing in three
+			// directions. It has to follow `wirePlanManager`, or a host that
+			// builds its plan in this callback does it into silence. It has to
+			// follow `runMgr.init()` and `run_started`, because plan events append
+			// to that durable run. It also has to follow the pre-model abort fence:
+			// a callback invoked after attachment resolution observed cancellation
+			// would regain withdrawn authority and could replace the cancellation
+			// with its own failure. This is still before the iteration loop, which
+			// is the guarantee the callback makes.
+			params.onContextCreated?.({ planManager: ctx.planManager })
 
 			// The box is handed out HERE, after `run_started`, and the position
 			// is load-bearing rather than tidy. It moved twice:
@@ -2545,6 +2679,7 @@ async function* catchUpFromCursor(
 	cursor: RunEventCursor,
 	onEventReplay: ((replay: RunEventReplay) => void) | undefined,
 	generation: FencingToken | undefined,
+	onReplayObserverError: (error: unknown) => void,
 ): AsyncGenerator<RunEvent, void> {
 	const missed = await runMgr.getRunStore().readEvents({ sinceSeq: cursor.sinceSeq })
 	const replay = resolveRunEventReplay(
@@ -2556,10 +2691,42 @@ async function* catchUpFromCursor(
 		missed,
 	)
 
-	onEventReplay?.(replay)
+	if (onEventReplay) {
+		try {
+			// A callback typed `void` may still be implemented with `async` in
+			// TypeScript. Observe that runtime Promise so a late rejection cannot
+			// become process-wide, but never await host code here: replay delivery
+			// and an already-cancelled run must not inherit observer liveness.
+			const settlement = onEventReplay(replay)
+			void Promise.resolve(settlement).catch(onReplayObserverError)
+		} catch (error) {
+			onReplayObserverError(error)
+		}
+	}
 
 	if (replay.status !== 'replayed') return
 	for (const event of replay.events) yield event
+}
+
+type DrainQueryParams = Omit<QueryParams, 'resumeHandler'> & {
+	resumeHandler?: ResumeHandler
+}
+
+async function drainPreparedQuery(
+	fullParams: QueryParams,
+	listener?: RunEventListener,
+): Promise<Run> {
+	const gen = query(fullParams)
+	let result = await gen.next()
+
+	while (!result.done) {
+		if (listener) {
+			await listener(result.value)
+		}
+		result = await gen.next()
+	}
+
+	return result.value
 }
 
 export async function drainQuery(
@@ -2572,17 +2739,42 @@ export async function drainQuery(
 		...params,
 		resumeHandler: params.resumeHandler ?? autoApproveHandler,
 	}
-	const gen = query(fullParams)
-	let result = await gen.next()
+	return await drainPreparedQuery(fullParams, listener)
+}
 
-	while (!result.done) {
-		if (listener) {
-			await listener(result.value)
-		}
-		result = await gen.next()
+/** @internal Canonical resume state already selected by `resumeRun`. */
+export async function drainQueryWithSelectedResumeState(
+	params: DrainQueryParams,
+	state: SelectedResumeState,
+	listener?: RunEventListener,
+): Promise<Run> {
+	const fullParams: QueryParams = {
+		...params,
+		resumeHandler: params.resumeHandler ?? autoApproveHandler,
 	}
+	if (fullParams.resumeFromCheckpoint !== state.checkpointId) {
+		throw new Error('The selected resume state does not match the requested checkpoint.')
+	}
+	assertSelectedResumeAttribution(fullParams, state)
+	selectedResumeStates.set(fullParams, state)
+	return await drainPreparedQuery(fullParams, listener)
+}
 
-	return result.value
+function assertSelectedResumeAttribution(params: QueryParams, state: SelectedResumeState): void {
+	const mismatchedFields: string[] = []
+	if (params.runId !== state.runId) mismatchedFields.push('runId')
+	if (params.sessionId !== state.sessionId) mismatchedFields.push('sessionId')
+	if (params.topicId !== state.topicId) mismatchedFields.push('topicId')
+	if (params.projectId !== state.projectId) mismatchedFields.push('projectId')
+	if (params.tenantId !== state.tenantId) mismatchedFields.push('tenantId')
+	if (params.parentRunId !== state.parentRunId) mismatchedFields.push('parentRunId')
+	if (mismatchedFields.length === 0) return
+
+	throw new NamzuError({
+		code: 'invalid_config',
+		message: 'The selected resume state does not match the run attribution supplied to the query.',
+		details: { fields: mismatchedFields },
+	})
 }
 
 function withDeferredDiscoveryTool(

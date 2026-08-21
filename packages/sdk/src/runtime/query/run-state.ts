@@ -88,13 +88,22 @@ export async function loadRunState(
 	scope: RunStateScope,
 	checkpointId?: CheckpointId,
 ): Promise<RunState | null> {
+	return (await loadSelectedRunState(store, scope, checkpointId))?.state ?? null
+}
+
+/** @internal The exact checkpoint selected together with its public run-state projection. */
+export async function loadSelectedRunState(
+	store: CheckpointStore,
+	scope: RunStateScope,
+	checkpointId?: CheckpointId,
+): Promise<{ readonly state: RunState; readonly checkpoint: IterationCheckpoint } | null> {
 	const checkpoint = checkpointId
 		? await store.readCheckpoint(scope, checkpointId)
 		: ((await findPendingCheckpoint(store, scope)) ?? (await newest(store, scope)))
 
 	if (!checkpoint) return null
 
-	return {
+	const state: RunState = {
 		version: RUN_STATE_VERSION,
 		runId: checkpoint.runId,
 		sessionId: scope.sessionId,
@@ -113,6 +122,7 @@ export async function loadRunState(
 		...(checkpoint.pending ? { pending: checkpoint.pending } : {}),
 		capturedAt: Date.now(),
 	}
+	return { state, checkpoint }
 }
 
 async function newest(

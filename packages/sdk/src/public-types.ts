@@ -335,6 +335,7 @@ export type {
 } from './connector/web/index.js'
 
 export type {
+	AttachmentOperationOptions,
 	AttachmentStore,
 	StoredAttachment,
 	StoredBytes,
