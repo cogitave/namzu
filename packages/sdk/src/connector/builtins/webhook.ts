@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto'
 import { z } from 'zod'
 import type {
 	AuthConfig,
+	AuthType,
 	ConnectionType,
 	ConnectorExecuteResult,
 	ConnectorExecutionMetadata,
@@ -63,6 +64,7 @@ export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 	readonly name = 'Webhook Connector'
 	readonly description = 'Send webhook payloads to configured endpoints with optional HMAC signing'
 	readonly connectionType: ConnectionType = 'webhook'
+	override readonly supportedAuth: readonly AuthType[] = ['none', 'bearer']
 	readonly configSchema = WebhookConnectorConfigSchema
 	readonly methods: ConnectorMethod[] = [
 		{

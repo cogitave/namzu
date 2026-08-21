@@ -2,6 +2,8 @@ import type { BaseConnector } from '../../connector/BaseConnector.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
 import type {
+	AuthConfig,
+	AuthType,
 	ConnectorConfig,
 	ConnectorEventListener,
 	ConnectorExecuteParams,
@@ -64,17 +66,24 @@ export class TenantConnectorManager {
 		this.registry = config.registry
 		this.credentialVault = config.credentialVault
 		this.defaultRateLimit = config.defaultRateLimit
-		this.log = resolveLogger(config.log).child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
+		this.log = resolveLogger(config.log).child({
+			[SCOPE_ATTRIBUTE]: 'manager/connector',
+		})
 	}
 
 	registerTenant(descriptor: TenantDescriptor, rateLimit?: TenantRateLimitConfig): void {
 		if (this.tenants.has(descriptor.id)) {
-			this.log.warn('Tenant already registered, skipping', { [NAMZU.TENANT_ID]: descriptor.id })
+			this.log.warn('Tenant already registered, skipping', {
+				[NAMZU.TENANT_ID]: descriptor.id,
+			})
 			return
 		}
 
 		const tenantLog = this.log.child({ [NAMZU.TENANT_ID]: descriptor.id })
-		const manager = new ConnectorManager({ registry: this.registry, log: tenantLog })
+		const manager = new ConnectorManager({
+			registry: this.registry,
+			log: tenantLog,
+		})
 
 		manager.on((event) => {
 			this.emitTenantEvent(descriptor.id, event)
@@ -151,18 +160,19 @@ export class TenantConnectorManager {
 		if (this.credentialVault) {
 			const instance = state.manager.getInstance(instanceId)
 			if (instance && !instance.config.auth) {
-				const creds = await this.credentialVault.list(tenantId, instance.connectorId)
-				const credId = creds[0]?.id
-				if (credId) {
-					const auth = await this.credentialVault.retrieve(credId)
-					if (auth) {
-						instance.config.auth = auth
-						this.log.info('Auto-resolved credential for instance', {
-							[NAMZU.CREDENTIAL_ID]: credId,
-							'namzu.connector.instance_id': instanceId,
-							[NAMZU.TENANT_ID]: tenantId,
-						})
-					}
+				const connectorId = state.manager.getInstanceConnectorId(instanceId)
+				const creds = await this.credentialVault.list(tenantId, connectorId)
+				for (const ref of creds) {
+					if (!state.manager.supportsAuth(instanceId, ref.authType)) continue
+					const auth = await this.credentialVault.retrieveForScope(tenantId, connectorId, ref.id)
+					if (!auth || !state.manager.supportsAuth(instanceId, auth.type)) continue
+					state.manager.setInstanceAuth(instanceId, auth)
+					this.log.info('Auto-resolved credential for instance', {
+						[NAMZU.CREDENTIAL_ID]: ref.id,
+						'namzu.connector.instance_id': instanceId,
+						[NAMZU.TENANT_ID]: tenantId,
+					})
+					break
 				}
 			}
 		}
@@ -184,13 +194,16 @@ export class TenantConnectorManager {
 		if (!instance) {
 			throw new Error(`Connector instance not found: "${instanceId}"`)
 		}
+		const connectorId = state.manager.getInstanceConnectorId(instanceId)
 
-		const auth = await this.credentialVault.retrieve(credentialId)
+		const auth = await this.credentialVault.retrieveForScope(tenantId, connectorId, credentialId)
 		if (!auth) {
-			throw new Error(`Credential not found: "${credentialId}"`)
+			throw new Error(
+				`Credential "${credentialId}" is unavailable for tenant "${tenantId}" and connector "${connectorId}"`,
+			)
 		}
 
-		instance.config.auth = auth
+		state.manager.setInstanceAuth(instanceId, auth)
 		this.log.info('Credential applied to instance', {
 			[NAMZU.CREDENTIAL_ID]: credentialId,
 			'namzu.connector.instance_id': instanceId,
@@ -203,12 +216,13 @@ export class TenantConnectorManager {
 		tenantId: TenantId,
 		connectorId: ConnectorId,
 		label: string,
-		auth: import('../../types/connector/index.js').AuthConfig,
+		auth: AuthConfig,
 	): Promise<import('../../types/connector/index.js').CredentialRef> {
 		if (!this.credentialVault) {
 			throw new Error('No credential vault configured on TenantConnectorManager')
 		}
 		this.getTenantOrThrow(tenantId)
+		this.requireDefinitionSupportsAuth(connectorId, auth.type)
 		return this.credentialVault.store(tenantId, connectorId, label, auth)
 	}
 
@@ -223,11 +237,12 @@ export class TenantConnectorManager {
 		return this.credentialVault.list(tenantId, connectorId)
 	}
 
-	async revokeCredential(credentialId: CredentialId): Promise<boolean> {
+	async revokeCredential(tenantId: TenantId, credentialId: CredentialId): Promise<boolean> {
 		if (!this.credentialVault) {
 			return false
 		}
-		return this.credentialVault.revoke(credentialId)
+		this.getTenantOrThrow(tenantId)
+		return this.credentialVault.revokeForTenant(tenantId, credentialId)
 	}
 
 	async disconnect(tenantId: TenantId, instanceId: ConnectorInstanceId): Promise<void> {
@@ -326,5 +341,13 @@ export class TenantConnectorManager {
 			throw new Error(`Tenant not found: "${tenantId}". Register it first via registerTenant().`)
 		}
 		return state
+	}
+
+	private requireDefinitionSupportsAuth(connectorId: ConnectorId, authType: AuthType): void {
+		const supported = this.registry.getOrThrow(connectorId).supportedAuth
+		if (supported === undefined || supported.includes(authType)) return
+		throw new Error(
+			`Connector "${connectorId}" does not support auth scheme "${authType}". Supported: ${supported.join(', ') || 'none'}`,
+		)
 	}
 }

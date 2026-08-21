@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type {
 	AuthConfig,
+	AuthType,
 	ConnectionType,
 	ConnectorExecuteResult,
 	ConnectorExecutionMetadata,
@@ -84,6 +85,14 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 	readonly name = 'HTTP Connector'
 	readonly description = 'Generic HTTP/REST API connector for making HTTP requests'
 	readonly connectionType: ConnectionType = 'http'
+	override readonly supportedAuth: readonly AuthType[] = [
+		'none',
+		'api_key',
+		'bearer',
+		'basic',
+		'oauth2',
+		'custom',
+	]
 	readonly configSchema = HttpConnectorConfigSchema
 	readonly methods: ConnectorMethod[] = [
 		{

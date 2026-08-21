@@ -6,6 +6,13 @@ import type { LogAttributes } from '../utils/log/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
+function copyAuth(auth: AuthConfig): AuthConfig {
+	return {
+		type: auth.type,
+		...(auth.credentials ? { credentials: { ...auth.credentials } } : {}),
+	}
+}
+
 export class InMemoryCredentialVault implements CredentialVault {
 	private refs: Map<CredentialId, CredentialRef> = new Map()
 	private secrets: Map<CredentialId, AuthConfig> = new Map()
@@ -32,18 +39,30 @@ export class InMemoryCredentialVault implements CredentialVault {
 		}
 
 		this.refs.set(id, ref)
-		this.secrets.set(id, auth)
+		this.secrets.set(id, copyAuth(auth))
 		const storedAttributes: LogAttributes = {
 			[NAMZU.CREDENTIAL_ID]: id,
 			[NAMZU.CREDENTIAL_LABEL]: label,
 			[NAMZU.TENANT_ID]: tenantId,
 		}
 		this.log.info('Credential stored', storedAttributes)
-		return ref
+		return { ...ref }
 	}
 
 	async retrieve(credentialId: CredentialId): Promise<AuthConfig | undefined> {
-		return this.secrets.get(credentialId)
+		const auth = this.secrets.get(credentialId)
+		return auth ? copyAuth(auth) : undefined
+	}
+
+	async retrieveForScope(
+		tenantId: TenantId,
+		connectorId: ConnectorId,
+		credentialId: CredentialId,
+	): Promise<AuthConfig | undefined> {
+		const ref = this.refs.get(credentialId)
+		if (!ref || ref.tenantId !== tenantId || ref.connectorId !== connectorId) return undefined
+		const auth = this.secrets.get(credentialId)
+		return auth ? copyAuth(auth) : undefined
 	}
 
 	async revoke(credentialId: CredentialId): Promise<boolean> {
@@ -59,12 +78,18 @@ export class InMemoryCredentialVault implements CredentialVault {
 		return existed
 	}
 
+	async revokeForTenant(tenantId: TenantId, credentialId: CredentialId): Promise<boolean> {
+		const ref = this.refs.get(credentialId)
+		if (!ref || ref.tenantId !== tenantId) return false
+		return this.revoke(credentialId)
+	}
+
 	async list(tenantId: TenantId, connectorId?: ConnectorId): Promise<CredentialRef[]> {
 		const results: CredentialRef[] = []
 		for (const ref of this.refs.values()) {
 			if (ref.tenantId !== tenantId) continue
 			if (connectorId && ref.connectorId !== connectorId) continue
-			results.push(ref)
+			results.push({ ...ref })
 		}
 		return results
 	}

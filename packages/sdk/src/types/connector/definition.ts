@@ -18,15 +18,12 @@ export interface ConnectorDefinition<TConfig = unknown> {
 	category?: ConnectorCategory
 	connectionType: ConnectionType
 	/**
-	 * **Not consulted.** A connector declaring this is not checked against
-	 * the auth an instance is actually configured with, so a mismatch
-	 * surfaces as a 401 from the upstream rather than as a refusal here.
-	 *
-	 * Worth wiring where instances are created, not at request time: the
-	 * point of declaring supported schemes is to reject a misconfiguration
-	 * before anything is sent.
+	 * Authentication schemes this connector can consume. When present, the
+	 * manager refuses an unsupported explicit credential before publishing an
+	 * instance and revalidates the effective scheme immediately before connect.
+	 * Omit only when a custom connector intentionally accepts every scheme.
 	 */
-	supportedAuth?: AuthType[]
+	supportedAuth?: readonly AuthType[]
 	configSchema: z.ZodType<TConfig, z.ZodTypeDef, unknown>
 	methods: ConnectorMethod[]
 	/** Declared, not implemented — see {@link ConnectorTrigger}. */
@@ -34,18 +31,18 @@ export interface ConnectorDefinition<TConfig = unknown> {
 }
 
 export interface ConnectorConfig {
-	connectorId: ConnectorId
+	readonly connectorId: ConnectorId
 	name: string
 	auth?: AuthConfig
 	options?: Record<string, unknown>
 }
 
 export interface ConnectorInstance {
-	id: ConnectorInstanceId
-	connectorId: ConnectorId
-	config: ConnectorConfig
+	readonly id: ConnectorInstanceId
+	readonly connectorId: ConnectorId
+	readonly config: ConnectorConfig
 	status: ConnectorStatus
-	createdAt: number
+	readonly createdAt: number
 	connectedAt?: number
 	lastUsedAt?: number
 	error?: string
@@ -96,13 +93,21 @@ export interface ConnectorLifecycle<TConfig = unknown> {
 export type ConnectorLifecycleEvent =
 	| { type: 'connector_registered'; connectorId: ConnectorId }
 	| { type: 'connector_unregistered'; connectorId: ConnectorId }
-	| { type: 'instance_created'; instanceId: ConnectorInstanceId; connectorId: ConnectorId }
+	| {
+			type: 'instance_created'
+			instanceId: ConnectorInstanceId
+			connectorId: ConnectorId
+	  }
 	| { type: 'instance_connecting'; instanceId: ConnectorInstanceId }
 	| { type: 'instance_connected'; instanceId: ConnectorInstanceId }
 	| { type: 'instance_disconnected'; instanceId: ConnectorInstanceId }
 	| { type: 'instance_error'; instanceId: ConnectorInstanceId; error: string }
 	| { type: 'instance_removed'; instanceId: ConnectorInstanceId }
-	| { type: 'action_executing'; instanceId: ConnectorInstanceId; method: string }
+	| {
+			type: 'action_executing'
+			instanceId: ConnectorInstanceId
+			method: string
+	  }
 	| {
 			type: 'action_completed'
 			instanceId: ConnectorInstanceId

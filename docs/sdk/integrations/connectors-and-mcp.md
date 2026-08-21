@@ -7,7 +7,7 @@ diataxis: how-to
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-19
+lastReviewed: 2026-08-21
 tags: [sdk]
 ---
 
@@ -97,6 +97,71 @@ Important boundaries:
 - `ConnectorRegistry` knows definitions
 - `ConnectorManager` knows live instances and connection state
 - the concrete connector object performs the actual external I/O
+
+### Authentication admission and tenant credentials
+
+`ConnectorDefinition.supportedAuth` is an admission policy, not descriptive
+metadata. When a definition declares schemes, `ConnectorManager`:
+
+- rejects an explicit unsupported credential before publishing the instance
+- verifies that the live connector has the same id and auth declaration as
+  the registered definition
+- snapshots that policy for the instance, so replacing a registry entry does
+  not change an already-created connector's authority
+- rechecks the effective scheme immediately before `connect`, including a
+  credential attached after instance creation; no credential is the `none`
+  scheme
+
+The built-in HTTP connector accepts `none`, `api_key`, `bearer`, `basic`,
+`oauth2`, and `custom`. The built-in Webhook connector accepts only `none` and
+`bearer`; other schemes were previously ignored while the connector still
+reported success. A custom connector may omit `supportedAuth` only when it
+intentionally accepts every `AuthType`.
+
+For multi-tenant hosts, a credential id is a locator, not authority. Use
+`TenantConnectorManager` with a `CredentialVault`; its connection path resolves
+the secret atomically under both tenant and connector scope:
+
+```ts
+import {
+  ConnectorRegistry,
+  InMemoryCredentialVault,
+  TenantConnectorManager,
+} from '@namzu/sdk'
+import type { ConnectorId, ConnectorInstance, TenantId } from '@namzu/sdk'
+
+declare const connectorRegistry: ConnectorRegistry
+declare const tenantId: TenantId
+declare const connectorId: ConnectorId
+declare const instance: ConnectorInstance
+
+const credentialVault = new InMemoryCredentialVault()
+const tenants = new TenantConnectorManager({
+  registry: connectorRegistry,
+  credentialVault,
+})
+
+tenants.registerTenant({ id: tenantId, name: 'Acme' })
+const credential = await tenants.storeCredential(
+  tenantId,
+  connectorId,
+  'production bearer',
+  { type: 'bearer', credentials: { token: process.env.API_TOKEN! } },
+)
+
+// The instance also belongs to tenantId and connectorId. A credential from a
+// different tenant or connector is unavailable even when its id is known.
+await tenants.connectWithCredential(tenantId, instance.id, credential.id)
+await tenants.revokeCredential(tenantId, credential.id)
+```
+
+The raw `CredentialVault.retrieve(id)` and `revoke(id)` methods are explicit
+host-authority operations. Tenant-facing code uses `retrieveForScope` and
+`revokeForTenant`; custom vault implementations must make each comparison and
+secret read/delete one atomic store operation. Do not implement a scoped call
+as an unscoped lookup followed by a separate metadata check. Credential refs
+are immutable snapshots, and the in-memory vault also copies credential maps
+at its boundary so caller mutation cannot change stored authority.
 
 ## 4. Execute Connector Methods Directly
 

@@ -48,8 +48,32 @@ export function wrapVaultWithProbes(
 			return result
 		},
 
+		async retrieveForScope(
+			tenantId: TenantId,
+			connectorId: ConnectorId,
+			credentialId: CredentialId,
+		): Promise<AuthConfig | undefined> {
+			const result = await vault.retrieveForScope(tenantId, connectorId, credentialId)
+			probes.dispatch(
+				{
+					type: 'vault_lookup',
+					vaultId,
+					credentialId,
+					tenantId,
+					found: result !== undefined,
+					runId,
+				},
+				buildProbeContext({ runId }),
+			)
+			return result
+		},
+
 		revoke(credentialId: CredentialId): Promise<boolean> {
 			return vault.revoke(credentialId)
+		},
+
+		revokeForTenant(tenantId: TenantId, credentialId: CredentialId): Promise<boolean> {
+			return vault.revokeForTenant(tenantId, credentialId)
 		},
 
 		list(tenantId: TenantId, connectorId?: ConnectorId): Promise<CredentialRef[]> {

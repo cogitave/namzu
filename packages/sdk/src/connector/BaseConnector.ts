@@ -2,6 +2,7 @@ import type { z } from 'zod'
 import { NAMZU } from '../constants/telemetry/index.js'
 import type {
 	AuthConfig,
+	AuthType,
 	ConnectionType,
 	ConnectorDefinition,
 	ConnectorExecuteResult,
@@ -18,6 +19,8 @@ export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifec
 	abstract readonly name: string
 	abstract readonly description: string
 	abstract readonly connectionType: ConnectionType
+	/** Omit only when the connector intentionally accepts every auth scheme. */
+	readonly supportedAuth?: readonly AuthType[]
 	abstract readonly configSchema: z.ZodType<TConfig, z.ZodTypeDef, unknown>
 	abstract readonly methods: ConnectorMethod[]
 
@@ -47,6 +50,7 @@ export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifec
 			name: this.name,
 			description: this.description,
 			connectionType: this.connectionType,
+			...(this.supportedAuth ? { supportedAuth: [...this.supportedAuth] } : {}),
 			configSchema: this.configSchema,
 			methods: this.methods,
 		}

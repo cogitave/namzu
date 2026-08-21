@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { hostLogger } from '../__fixtures__/host-logger.js'
-import type { TenantId } from '../types/ids/index.js'
+import type { AuthConfig } from '../types/connector/index.js'
+import type { ConnectorId, TenantId } from '../types/ids/index.js'
 import { jsonLinesSink } from '../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../utils/log/process-sink.js'
 
@@ -45,7 +46,10 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 		const hostileLabel = 'x\n[2026-01-01T00:00:00Z] [ERROR] [audit] forged'
 		const vault = new InMemoryCredentialVault(hostLogger(jsonLinesSink(stream), 'info'))
 
-		await vault.store(tenant, connector, hostileLabel, { type: 'apiKey', apiKey: 's' } as never)
+		await vault.store(tenant, connector, hostileLabel, {
+			type: 'apiKey',
+			apiKey: 's',
+		} as never)
 
 		const lines = chunks.join('').trim().split('\n')
 		expect(lines).toHaveLength(1)
@@ -62,7 +66,10 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 		const hostileTenant = 'tnt_x\n[2026-01-01T00:00:00Z] [ERROR] [audit] forged' as TenantId
 		const vault = new InMemoryCredentialVault(hostLogger(jsonLinesSink(stream), 'info'))
 
-		await vault.store(hostileTenant, connector, 'k', { type: 'apiKey', apiKey: 's' } as never)
+		await vault.store(hostileTenant, connector, 'k', {
+			type: 'apiKey',
+			apiKey: 's',
+		} as never)
 
 		const lines = chunks.join('').trim().split('\n')
 		expect(lines).toHaveLength(1)
@@ -76,7 +83,10 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 		installProcessSink(jsonLinesSink(stream), 'info')
 
 		const vault = new InMemoryCredentialVault(hostLogger(jsonLinesSink(stream), 'info'))
-		const ref = await vault.store(tenant, connector, 'k', { type: 'apiKey', apiKey: 's' } as never)
+		const ref = await vault.store(tenant, connector, 'k', {
+			type: 'apiKey',
+			apiKey: 's',
+		} as never)
 		await vault.revoke(ref.id)
 
 		const records = chunks
@@ -88,5 +98,41 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 
 		expect(revoked).toBeDefined()
 		expect(revoked.attributes['namzu.credential.id']).toBe(ref.id)
+	})
+})
+
+describe('InMemoryCredentialVault — scoped authority', () => {
+	it('atomically checks tenant and connector before returning secret material', async () => {
+		const vault = new InMemoryCredentialVault()
+		const otherTenant = 'tnt_other' as TenantId
+		const otherConnector = 'conn_other' as ConnectorId
+		const credentials = { token: 'original' }
+		const input: AuthConfig = { type: 'bearer', credentials }
+		const ref = await vault.store(tenant, connector, 'k', input)
+
+		credentials.token = 'mutated-by-caller'
+		;(ref as { tenantId: TenantId }).tenantId = otherTenant
+		const listed = await vault.list(tenant, connector)
+		;(listed[0] as unknown as { connectorId: ConnectorId }).connectorId = otherConnector
+
+		expect(await vault.retrieveForScope(otherTenant, connector, ref.id)).toBeUndefined()
+		expect(await vault.retrieveForScope(tenant, otherConnector, ref.id)).toBeUndefined()
+		expect(await vault.retrieveForScope(tenant, connector, ref.id)).toEqual({
+			type: 'bearer',
+			credentials: { token: 'original' },
+		})
+	})
+
+	it('scopes tenant deletion while retaining explicit host-authority revoke', async () => {
+		const vault = new InMemoryCredentialVault()
+		const otherTenant = 'tnt_other' as TenantId
+		const ref = await vault.store(tenant, connector, 'k', { type: 'none' })
+
+		expect(await vault.revokeForTenant(otherTenant, ref.id)).toBe(false)
+		expect(await vault.retrieveForScope(tenant, connector, ref.id)).toEqual({
+			type: 'none',
+		})
+		expect(await vault.revokeForTenant(tenant, ref.id)).toBe(true)
+		expect(await vault.retrieve(ref.id)).toBeUndefined()
 	})
 })

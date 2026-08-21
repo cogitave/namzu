@@ -1,7 +1,10 @@
 import type { BaseConnector } from '../../connector/BaseConnector.js'
 import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
 import type {
+	AuthConfig,
+	AuthType,
 	ConnectorConfig,
+	ConnectorDefinition,
 	ConnectorEventListener,
 	ConnectorExecuteParams,
 	ConnectorExecuteResult,
@@ -30,6 +33,31 @@ export interface ConnectorManagerConfig {
 }
 
 type Settled<T> = { kind: 'fulfilled'; value: T } | { kind: 'rejected'; reason: unknown }
+
+interface InstanceAdmission {
+	readonly connectorId: ConnectorId
+	readonly definition: ConnectorDefinition
+	readonly supportedAuth?: ReadonlySet<AuthType>
+}
+
+function copyAuth(auth: AuthConfig): AuthConfig {
+	return {
+		type: auth.type,
+		...(auth.credentials ? { credentials: { ...auth.credentials } } : {}),
+	}
+}
+
+function sameAuthPolicy(
+	registered: readonly AuthType[] | undefined,
+	implementation: readonly AuthType[] | undefined,
+): boolean {
+	if (registered === undefined || implementation === undefined) {
+		return registered === implementation
+	}
+	const expected = new Set(registered)
+	const actual = new Set(implementation)
+	return expected.size === actual.size && [...expected].every((authType) => actual.has(authType))
+}
 
 async function settleWithSignal<T>(
 	operation: Promise<T>,
@@ -84,12 +112,15 @@ export class ConnectorManager {
 	private registry: ConnectorRegistry
 	private instances: Map<ConnectorInstanceId, ConnectorInstance> = new Map()
 	private liveConnectors: Map<ConnectorInstanceId, BaseConnector<unknown>> = new Map()
+	private admissions: Map<ConnectorInstanceId, InstanceAdmission> = new Map()
 	private listeners: ConnectorEventListener[] = []
 	private log: Logger
 
 	constructor(config: ConnectorManagerConfig) {
 		this.registry = config.registry
-		this.log = resolveLogger(config.log).child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
+		this.log = resolveLogger(config.log).child({
+			[SCOPE_ATTRIBUTE]: 'manager/connector',
+		})
 	}
 
 	on(listener: ConnectorEventListener): void {
@@ -106,6 +137,22 @@ export class ConnectorManager {
 		connector: BaseConnector<unknown>,
 	): Promise<ConnectorInstance> {
 		const definition = this.registry.getOrThrow(config.connectorId)
+		if (connector.id !== config.connectorId) {
+			throw new Error(
+				`Connector implementation id "${connector.id}" does not match requested definition "${config.connectorId}"`,
+			)
+		}
+		if (!sameAuthPolicy(definition.supportedAuth, connector.supportedAuth)) {
+			throw new Error(
+				`Connector implementation "${connector.id}" does not match its registered auth policy`,
+			)
+		}
+		const admission: InstanceAdmission = {
+			connectorId: config.connectorId,
+			definition,
+			...(definition.supportedAuth ? { supportedAuth: new Set(definition.supportedAuth) } : {}),
+		}
+		if (config.auth) this.requireSupportedAuth(admission, config.connectorId, config.auth.type)
 
 		const parsedConfig = definition.configSchema.safeParse(config.options ?? {})
 		if (!parsedConfig.success) {
@@ -126,7 +173,12 @@ export class ConnectorManager {
 
 		this.instances.set(instanceId, instance)
 		this.liveConnectors.set(instanceId, connector)
-		this.emit({ type: 'instance_created', instanceId, connectorId: config.connectorId })
+		this.admissions.set(instanceId, admission)
+		this.emit({
+			type: 'instance_created',
+			instanceId,
+			connectorId: config.connectorId,
+		})
 		this.log.info('Connector instance created', {
 			'namzu.connector.instance_id': instanceId,
 			'namzu.connector.id': config.connectorId,
@@ -138,18 +190,24 @@ export class ConnectorManager {
 	async connect(instanceId: ConnectorInstanceId): Promise<void> {
 		const instance = this.getInstanceOrThrow(instanceId)
 		const connector = this.getConnectorOrThrow(instanceId)
-
-		this.updateStatus(instanceId, 'connecting')
-		this.emit({ type: 'instance_connecting', instanceId })
+		const admission = this.getAdmissionOrThrow(instanceId)
 
 		try {
-			const definition = this.registry.getOrThrow(instance.connectorId)
-			const parsedConfig = definition.configSchema.parse(instance.config.options ?? {})
+			const parsedConfig = admission.definition.configSchema.parse(instance.config.options ?? {})
+			this.requireSupportedAuth(
+				admission,
+				admission.connectorId,
+				instance.config.auth?.type ?? 'none',
+			)
+			this.updateStatus(instanceId, 'connecting')
+			this.emit({ type: 'instance_connecting', instanceId })
 			await connector.connect(parsedConfig, instance.config.auth)
 			this.updateStatus(instanceId, 'connected')
 			instance.connectedAt = Date.now()
 			this.emit({ type: 'instance_connected', instanceId })
-			this.log.info('Connector connected', { 'namzu.connector.instance_id': instanceId })
+			this.log.info('Connector connected', {
+				'namzu.connector.instance_id': instanceId,
+			})
 		} catch (err) {
 			const message = toErrorMessage(err)
 			this.updateStatus(instanceId, 'error', message)
@@ -169,7 +227,9 @@ export class ConnectorManager {
 			await connector.disconnect()
 			this.updateStatus(instanceId, 'disconnected')
 			this.emit({ type: 'instance_disconnected', instanceId })
-			this.log.info('Connector disconnected', { 'namzu.connector.instance_id': instanceId })
+			this.log.info('Connector disconnected', {
+				'namzu.connector.instance_id': instanceId,
+			})
 		} catch (err) {
 			const message = toErrorMessage(err)
 			this.log.error('Connector disconnect failed', {
@@ -215,11 +275,17 @@ export class ConnectorManager {
 			}
 		}
 
-		this.emit({ type: 'action_executing', instanceId: params.instanceId, method: params.method })
+		this.emit({
+			type: 'action_executing',
+			instanceId: params.instanceId,
+			method: params.method,
+		})
 		const start = performance.now()
 		try {
 			const result = await settleWithSignal(
-				connector.execute(params.method, params.input, { signal: params.signal }),
+				connector.execute(params.method, params.input, {
+					signal: params.signal,
+				}),
 				params.signal,
 				(result) =>
 					result.metadata?.remoteOutcome === 'response_received' ||
@@ -252,7 +318,12 @@ export class ConnectorManager {
 					: `Execution failed: ${message}`,
 				durationMs,
 				...(params.signal?.aborted
-					? { metadata: { remoteOutcome: 'unknown' as const, retrySafety: 'unknown' as const } }
+					? {
+							metadata: {
+								remoteOutcome: 'unknown' as const,
+								retrySafety: 'unknown' as const,
+							},
+						}
 					: {}),
 			}
 		}
@@ -273,8 +344,11 @@ export class ConnectorManager {
 
 		this.instances.delete(instanceId)
 		this.liveConnectors.delete(instanceId)
+		this.admissions.delete(instanceId)
 		this.emit({ type: 'instance_removed', instanceId })
-		this.log.info('Connector instance removed', { 'namzu.connector.instance_id': instanceId })
+		this.log.info('Connector instance removed', {
+			'namzu.connector.instance_id': instanceId,
+		})
 	}
 
 	getRegistry(): ConnectorRegistry {
@@ -289,12 +363,31 @@ export class ConnectorManager {
 		return this.liveConnectors.get(instanceId)
 	}
 
+	getInstanceConnectorId(instanceId: ConnectorInstanceId): ConnectorId {
+		return this.getAdmissionOrThrow(instanceId).connectorId
+	}
+
+	supportsAuth(instanceId: ConnectorInstanceId, authType: AuthType): boolean {
+		const supported = this.getAdmissionOrThrow(instanceId).supportedAuth
+		return supported === undefined || supported.has(authType)
+	}
+
+	/** Validate before mutating the live instance's effective credential. */
+	setInstanceAuth(instanceId: ConnectorInstanceId, auth: AuthConfig): void {
+		const instance = this.getInstanceOrThrow(instanceId)
+		const admission = this.getAdmissionOrThrow(instanceId)
+		this.requireSupportedAuth(admission, admission.connectorId, auth.type)
+		instance.config.auth = copyAuth(auth)
+	}
+
 	listInstances(): ConnectorInstance[] {
 		return Array.from(this.instances.values())
 	}
 
 	listInstancesByConnector(connectorId: ConnectorId): ConnectorInstance[] {
-		return this.listInstances().filter((i) => i.connectorId === connectorId)
+		return this.listInstances().filter(
+			(instance) => this.getAdmissionOrThrow(instance.id).connectorId === connectorId,
+		)
 	}
 
 	listConnectedInstances(): ConnectorInstance[] {
@@ -320,6 +413,27 @@ export class ConnectorManager {
 			throw new Error(`Live connector not found for instance: "${instanceId}"`)
 		}
 		return connector
+	}
+
+	private getAdmissionOrThrow(instanceId: ConnectorInstanceId): InstanceAdmission {
+		const admission = this.admissions.get(instanceId)
+		if (!admission) {
+			throw new Error(`Connector admission policy not found for instance: "${instanceId}"`)
+		}
+		return admission
+	}
+
+	private requireSupportedAuth(
+		admission: InstanceAdmission,
+		connectorId: ConnectorId,
+		authType: AuthType,
+	): void {
+		const supported = admission.supportedAuth
+		if (supported === undefined || supported.has(authType)) return
+		const available = [...supported].join(', ') || 'none'
+		throw new Error(
+			`Connector "${connectorId}" does not support auth scheme "${authType}". Supported: ${available}`,
+		)
 	}
 
 	private updateStatus(

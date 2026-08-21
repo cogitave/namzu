@@ -17,8 +17,14 @@ describe('wrapVaultWithProbes', () => {
 		reg.onAny((event) => seen.push(event as AgentBusEvent))
 
 		const inner = new InMemoryCredentialVault()
-		const ref = await inner.store(tenant, connector, 'k', { type: 'apiKey', apiKey: 's' } as never)
-		const wrapped = wrapVaultWithProbes(inner, { probes: reg, vaultId: 'in-memory' })
+		const ref = await inner.store(tenant, connector, 'k', {
+			type: 'apiKey',
+			apiKey: 's',
+		} as never)
+		const wrapped = wrapVaultWithProbes(inner, {
+			probes: reg,
+			vaultId: 'in-memory',
+		})
 
 		const result = await wrapped.retrieve(ref.id)
 		expect(result).toBeDefined()
@@ -49,12 +55,34 @@ describe('wrapVaultWithProbes', () => {
 		expect(event.credentialId).toBe(missing)
 	})
 
+	it('uses the operation tenant for a scoped lookup instead of the construction hint', async () => {
+		const reg = createProbeRegistry()
+		const seen: AgentBusEvent[] = []
+		reg.onAny((event) => seen.push(event as AgentBusEvent))
+		const otherTenant = 'tnt_other' as TenantId
+		const inner = new InMemoryCredentialVault()
+		const ref = await inner.store(tenant, connector, 'k', { type: 'bearer' })
+		const wrapped = wrapVaultWithProbes(inner, {
+			probes: reg,
+			tenantId: otherTenant,
+		})
+
+		expect(await wrapped.retrieveForScope(tenant, connector, ref.id)).toEqual({
+			type: 'bearer',
+		})
+		const event = seen[0] as AgentBusEvent & { type: 'vault_lookup' }
+		expect(event.tenantId).toBe(tenant)
+		expect(event.found).toBe(true)
+	})
+
 	it('does not emit on store/revoke/list — retrieve is the audit point', async () => {
 		const reg = createProbeRegistry()
 		const seen: AgentBusEvent[] = []
 		reg.onAny((event) => seen.push(event as AgentBusEvent))
 
-		const wrapped = wrapVaultWithProbes(new InMemoryCredentialVault(), { probes: reg })
+		const wrapped = wrapVaultWithProbes(new InMemoryCredentialVault(), {
+			probes: reg,
+		})
 		const ref = await wrapped.store(tenant, connector, 'k', {
 			type: 'apiKey',
 			apiKey: 's',
@@ -88,7 +116,10 @@ describe('wrapVaultWithProbes', () => {
 		reg.onAny((event) => seen.push(event as AgentBusEvent))
 
 		const inner = new InMemoryCredentialVault()
-		const ref = await inner.store(tenant, connector, 'k', { type: 'apiKey', apiKey: 's' } as never)
+		const ref = await inner.store(tenant, connector, 'k', {
+			type: 'apiKey',
+			apiKey: 's',
+		} as never)
 		const wrapped = wrapVaultWithProbes(inner, { probes: reg })
 		await wrapped.retrieve(ref.id)
 

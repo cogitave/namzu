@@ -23,6 +23,7 @@ import { z } from 'zod'
 
 import type {
 	AuthConfig,
+	AuthType,
 	ConnectionType,
 	ConnectorExecuteResult,
 	ConnectorMethod,
@@ -36,6 +37,7 @@ class TestConnector extends BaseConnector<{ base: string }> {
 	readonly name = 'Test'
 	readonly description = 'Test connector'
 	readonly connectionType: ConnectionType = 'custom'
+	override readonly supportedAuth: readonly AuthType[] = ['none', 'bearer']
 	readonly configSchema = z.object({ base: z.string() })
 	readonly methods: ConnectorMethod[] = [
 		{
@@ -81,6 +83,8 @@ describe('BaseConnector', () => {
 		expect(def.name).toBe('Test')
 		expect(def.description).toBe('Test connector')
 		expect(def.connectionType).toBe('custom')
+		expect(def.supportedAuth).toEqual(['none', 'bearer'])
+		expect(def.supportedAuth).not.toBe(c.supportedAuth)
 		expect(def.methods).toHaveLength(1)
 	})
 
@@ -106,7 +110,9 @@ describe('BaseConnector', () => {
 	it('validateInput passes through parsed data on success', () => {
 		const c = new TestConnector()
 		const method = c.publicRequireMethod('echo')
-		expect(c.publicValidateInput(method, { value: 'hi' })).toEqual({ value: 'hi' })
+		expect(c.publicValidateInput(method, { value: 'hi' })).toEqual({
+			value: 'hi',
+		})
 	})
 
 	it('validateInput throws with joined issue messages on failure', () => {

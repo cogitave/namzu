@@ -406,7 +406,7 @@ This is why `PromptBuilder` splits a request into static and dynamic segments: t
 
 ### 18. Vault (`vault/`)
 
-The vault holds BYOK credentials and arbitrary secrets. `InMemoryCredentialVault` is the default backend; the `CredentialVault` interface lets you plug in your own. Credentials are tenant-scoped — tenant A cannot see tenant B's keys. Tools, providers, and connectors resolve credentials through the vault rather than reading environment variables directly, so you can rotate without redeploying and you can audit who accessed what.
+The vault holds BYOK credentials and arbitrary secrets. `InMemoryCredentialVault` is the default backend; the `CredentialVault` interface lets you plug in your own. A credential id is a locator, not tenant authority: connector managers resolve through an atomic tenant-plus-connector scoped operation and tenant deletion carries the owning tenant too. The raw id-only lookup and revoke methods are reserved for a host that already holds the whole vault. Credentials are therefore tenant-scoped — tenant A cannot read or revoke tenant B's keys — and connector-scoped, so a key declared for one integration cannot be attached to another. Connector definitions also admit only their declared auth schemes before connection; each live instance retains the policy it was created under. Tools, providers, and connectors resolve credentials through the vault rather than reading environment variables directly, so you can rotate without redeploying and audit who accessed what.
 
 ### 19. Telemetry (`telemetry/`)
 
