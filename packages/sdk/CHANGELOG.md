@@ -1,5 +1,561 @@
 # Changelog
 
+## 31.0.0
+
+### Major Changes
+
+- bebad69: Refuse host background jobs when a run is sandboxed.
+
+  `bash` previously sent foreground commands through `Sandbox.exec`, but sent the same command directly to a host-spawning `BackgroundJobRegistry` when `run_in_background: true`. A caller that supplied both `sandboxProvider` and `backgroundJobs` therefore exposed both capabilities to every tool, and one input boolean moved work outside the configured boundary.
+
+  Sandboxed tool contexts no longer receive the host background-job reference. `bash run_in_background` reports that the two capabilities cannot be composed, while foreground `bash` continues through the sandbox and unsandboxed runs can continue to use the registry.
+
+  **What breaks:** a run configured with both `sandboxProvider` and `backgroundJobs` can no longer start a background job. Omit `sandboxProvider` only when host execution is the intended policy, run the command in the foreground to keep the sandbox boundary, or provide a future persistent-process backend that owns confinement as well as lifetime.
+
+- f3bf47b: Require every `PluginLifecycleManager` host to provide project and user
+  `scopeRoots`. Plugin installation now canonicalizes a candidate against that
+  declared filesystem authority, refuses symlinked or non-regular plugin
+  manifests, and keeps executable admission and lifecycle ownership private to
+  the manager instead of trusting mutable `PluginRegistry` records.
+
+  Hosts constructing the SDK manager must pass
+  `scopeRoots: { project: trustedWorkingDirectory, user: userHomeDirectory }`.
+  Move plugins under the matching root instead of relying on a symlink or an
+  out-of-scope registry record. The CLI applies those roots automatically and no
+  longer loads project or user plugins through links that leave the admitted
+  scope.
+
+- 27667cc: Provider requests now limit accumulated inline user attachments and rich tool-result images/documents to 24 MiB by default. Over-budget requests replace the oldest payloads with model-visible markers without modifying `Run.messages`, durable history, checkpoints, or tool call/result identity. This changes the previous unbounded default; set `maxRequestRichContentBytes: 0` on the run or agent config to retain it. The effective value is persisted in run metadata, and `DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES` exposes the shipped default.
+- fd5fcea: Bound sandbox lifecycle ownership across run cancellation and teardown.
+
+  Sandbox creation now receives run cancellation and the run's remaining wall-clock timeout, cannot publish a handle after either boundary wins, and releases any handle that arrives late. A setup that ignores its signal therefore settles the run with `stopReason: 'timeout'` instead of pinning it forever. Teardown receives a fresh signal and waits for 30 seconds by default without allowing an implementation that ignores cancellation to pin the run. Set `sandboxTeardownTimeoutMs: 0` on SDK runs or agents to retain the former unbounded teardown wait. Custom providers should honor `SandboxCreateConfig.signal` and `SandboxDestroyOptions.signal`; remote allocation protocols still need a client-owned reconciliation key or fleet reaper for a resource committed behind a lost response.
+
+  The CLI exposes the same compatibility control as `sandbox.teardownTimeoutMs` and carries it to live turns, delegated child agents, and durable resumes. Children and resumed runs now use the session's sandbox provider instead of silently executing through the host boundary; set `sandbox.enabled: false` only when host execution is intentional.
+
+- f528acd: Make every disk-backed message-feedback update a real compare-and-set commit across concurrent processes, not only the first write.
+
+  `DiskMessageFeedbackStore` now publishes complete immutable owner-version files through exclusive hard links, lists committed values even when the best-effort legacy projection is absent or behind, reads previous single-file records forward, refuses damaged or mixed-version projection/head states, validates runtime id prefixes before callbacks, and confines run/message keys to injective filesystem segments. Distinct message ids whose previous lossy filenames collide no longer overwrite one projection.
+
+  **What breaks:** the disk feedback store now requires hard-link support and refuses unsupported filesystems instead of falling back to a racy update. Stop every process using an older SDK before opening a shared feedback root with this version; mixed-version rolling writers are unsupported. Calls that bypassed the branded types with a run or message id lacking its required prefix now reject before message validation or persistence.
+
+- 0a7bd58: Make topic-state and objective revisions real compare-and-set commits across concurrent calls and processes.
+
+  The in-memory stores now keep each read/check/write in one JavaScript turn. The disk stores publish complete, immutable revision files through exclusive hard links, preserve the former single-file record as a forward-readable compatibility projection, reject damaged or mixed-version projection/head states, and encode opaque ids so they cannot escape the configured root. Cross-tenant mutations now reject with `TenantIsolationError` instead of treating a hidden record as absent, and objective `maxRounds` must be a positive safe integer.
+
+  **What breaks:** disk-backed topic stores now require hard-link support and refuse unsupported filesystems instead of degrading to a racy read-check-replace write. Stop every process using an older SDK before opening a shared store root with this version; mixed-version rolling writers are unsupported because the old implementation cannot see immutable revision commits. Callers that passed fractional, infinite, `NaN`, or unsafe `maxRounds` values must pass a positive safe integer, and callers performing cross-tenant mutations must handle `TenantIsolationError`.
+
+- ce8cd61: Make registered connector methods the authoritative execution contract.
+
+  `ConnectorManager` now requires the registered definition and concrete
+  connector to expose the same unique method names, captures that definition at
+  instance admission, and refuses unknown methods or invalid input before
+  connector I/O. Input schemas use asynchronous parsing and their canonical
+  transformed value is passed to the connector exactly once. Successful outputs
+  are asynchronously validated and transformed when `outputSchema` is present;
+  an invalid or unprovable output is quarantined instead of reaching a caller,
+  tool result, MCP response, or later model request.
+
+  **What breaks:** connectors can no longer execute undeclared methods, consume
+  raw pre-transform input through `ConnectorManager`, return schema-invalid data
+  as success, or change a live instance's method surface by replacing its
+  registry entry. Align the concrete connector and registered definition before
+  creating an instance. Third-party `BaseConnector` subclasses that call
+  `validateInput` inside `execute` must change that call to
+  `await this.validateInput(method, input, options)` so a managed canonical value
+  is not parsed twice; standalone calls remain validated.
+
+  Per-method tools now keep their model-facing method schema separate from their
+  pass-through runtime decoder, and MCP projections carry connector output
+  schemas, including non-object JSON Schema values. `MCPToolDefinition.outputSchema`
+  therefore widens from object-only `MCPJsonSchema` to `MCPValueJsonSchema`.
+
+- 2d16ca2: Isolate every live agent-client protocol session by identity, working
+  directory, cancellation and exact provider history.
+
+  **What breaks in the SDK:** one ACP session now permits only one unsettled
+  prompt, and session working directories must be absolute. Hosts that submitted
+  overlapping prompts under one id must wait, cancel, or use distinct sessions;
+  hosts that passed a relative `cwd` must resolve it first. Session creation and
+  loading also share one collision-refusing namespace, so loading or generating
+  an already open id no longer replaces its live record.
+
+  Gateways may return the settled conversation beside the stop reason so the next
+  prompt receives exact replay state. The CLI drives that seam with one runtime
+  session per wire id, activates trusted target config only at the first prompt,
+  routes events and permissions to the owning id, and closes late or connection-
+  owned sessions on teardown. Cancelling during lazy runtime construction now
+  settles the wire prompt immediately while retaining ownership of, and later
+  closing, any session candidate that arrives after cancellation.
+
+- a3a632f: Stop delegated `SupervisorAgent` runs from publishing `ask_user_question`, including a host tool registered under the same name. Existing hosts that let child supervisors prompt an operator must route that decision through the root supervisor instead. Delegated runs still inherit `resumeHandler` for REVIEW-tier tool authorization; the change does not auto-approve child tool calls.
+
+  Make `AgentManager` authoritative for child `depth` and `parentRunId` after config builders and per-spawn overrides. Builders that deliberately replaced those lineage fields can no longer do so; derive child behavior from the manager-stamped lineage instead.
+
+- 99ff79e: Stop exposing an unconfined host pseudo-terminal as a local sandbox capability.
+
+  `LocalSandboxProvider` previously implemented `Sandbox.openTerminal` by starting a host PTY in `rootDir`. That changed only the working directory: it bypassed the provider's selected isolation tier, accepted host process configuration, and was not owned or awaited by `Sandbox.destroy()`.
+
+  Local sandboxes no longer expose `openTerminal`. Supplying the legacy `LocalSandboxProviderOptions.ptyLoader` injection now fails with the boundary reason instead of accepting configuration the provider cannot honour. The option and the optional `Sandbox.openTerminal` member remain deprecated for a release window; the contract now requires an implementing backend to confine the complete terminal process tree and to kill and await it during `destroy()`.
+
+  **What breaks:** code that opened a terminal from `LocalSandboxProvider` must stop doing so. Use `loadPty` and `openTerminalWith` directly only when intentional host execution and externally owned teardown are correct, or provide a terminal backend that owns both confinement and the complete session lifetime. The generic helpers no longer claim to create a sandbox.
+
+- 15f8ee4: Bound provider stream silence, including query-owned advisory calls and
+  RouterAgent routing decisions, compaction verifiers and model-graded eval
+  judges, to five minutes by default and abort the stalled provider transport,
+  with network-classified retry and fallback recovery where those policies
+  apply. This changes the previous default, under which a provider iterator could
+  remain silent forever. Set `streamIdleTimeoutMs: 0` on the run, agent, manual
+  compaction, verifier, or judge config to keep the old unbounded behavior, or set
+  a positive millisecond value to choose a different bound.
+
+  Queries whose caller signal is already aborted now settle as cancelled before
+  starting provider, provider-metadata, or tool work. A later cancellation also
+  settles while an optional context-window resolver remains pending, even when
+  that resolver ignores its signal. With no caller cancellation, `timeoutMs`
+  bounds the optional metadata lookup, aborts its private transport signal, and
+  falls back to the static context-window table instead of blocking the run.
+
+  The OpenRouter context-window lookup now forwards cancellation to its model-list
+  transport. Only fulfilled listings are cached, so cancelling one concurrent
+  query cannot abort another query's shared metadata request or force that query
+  onto the static context-window table.
+
+  `runExperiment({ timeoutMs })` now applies one validated wall-clock deadline to
+  both case execution and scoring. Scorers receive its optional cancellation
+  signal; a non-cooperative scorer is detached, and `judgeScorer` forwards the
+  signal to its bounded provider transport. Values outside the positive platform
+  timer range are refused before a case starts; omit the field for the prior
+  unbounded case behavior.
+
+  Compaction verification inside a query now carries the run cancellation cause
+  to its provider transport without placing a second idle timer around retry and
+  fallback. Public `buildVerifiedSummary`, `compactNow`, and `compactRegion`
+  calls bound raw provider silence themselves and accept optional `signal` and
+  `streamIdleTimeoutMs`; malformed values and pre-cancelled manual work are
+  refused before provider work or a no-op result.
+
+  HTTP embedding batches now have a 30-second whole-request default, including
+  response-body reads, where the previous default could wait forever. Set
+  `requestTimeoutMs: 0` on `HttpEmbeddingProvider` to keep the former unbounded
+  behavior. Invalid timeout values and non-positive or fractional `batchSize`
+  or `dimensions` values are refused at construction instead of silently
+  disabling the bound or entering a non-progressing batch loop. Successful HTTP
+  responses must contain exactly one unique, in-range result per input and finite
+  vectors of the configured dimension; malformed or incomplete batches are
+  refused atomically instead of reaching ingestion with missing embeddings.
+
+  Public RAG operations accept optional cancellation context. The shipped
+  `knowledge_search` tool forwards its run-owned signal through
+  `KnowledgeBase`, retrieval or ingestion, and the embedding provider. The HTTP
+  provider preserves the caller's exact cancellation reason while aborting only
+  its private fetch transport. Custom embedding providers receive the signal as
+  a cooperative request; callers still own their wait boundary if a custom
+  implementation ignores it. Default retrieval and ingestion recheck authority
+  after that custom call settles, so a late result cannot start a vector search
+  or persist chunks after cancellation. `VectorStore.search` and `upsert` now
+  receive the same optional operation context. The default pipelines also race
+  those store promises against cancellation, so a non-cooperative custom store
+  cannot leave the public query or ingestion call pending forever.
+
+  A2A agent-card discovery now has a 30-second whole fetch-and-body default and
+  accepts an optional caller signal and `timeoutMs`; set `timeoutMs: 0` to retain
+  the former unbounded behavior. `A2ADelegate.timeoutMs` now starts before
+  `message/send` and bounds the whole delegation instead of polling only. A
+  pre-cancelled dispatch starts no remote work, pending fetch and body promises
+  cannot hold `waitForTask`, and caller cancellation preserves its exact cause on
+  the private transport. Poll and delegation timers are validated at
+  construction. Once a safe task id exists, cancellation or timeout sends one
+  independently bounded `tasks/cancel`; during initial task creation the client
+  keeps a short cleanup grace and explicitly reports an unknown remote outcome if
+  the peer never returns an addressable id. Poll replies are bound to that initial
+  id, and transport or protocol failures after it is known make the same bounded
+  cleanup attempt before the original failure is returned. An `input-required`
+  task is also bounded-cancelled before the delegate reports that it cannot
+  supply the requested input.
+
+  Connector execution now carries optional operation authority through the
+  manager, every connector-tool adapter, real query runs, tenant/environment
+  facades, health checks, and `MCPConnectorBridge.callTool`. Custom connectors
+  receive the signal; if they ignore it, the manager settles with an honest
+  unknown remote outcome and rejects a late success that does not identify a
+  received response. A tenant call cancelled before admission no longer spends a
+  rate-limit slot.
+
+  `HttpConnector` and `WebhookConnector` now apply one validated 30-second
+  fetch-and-body deadline and a streaming 2 MiB response limit by default. Set
+  positive `timeoutMs` and `maxResponseBytes` values to choose different bounds.
+  Cancellation, deadline, or response-size failure aborts only the private
+  transport/body reader and preserves the caller's exact cause. Result metadata
+  distinguishes `not_started`, `unknown`, and `response_received`, includes retry
+  safety, and keeps a received status visible when its body is unavailable.
+
+  Dynamic HTTP paths and webhook URL overrides must remain on the configured
+  origin. Model-authored routing headers are refused, redirects are not followed,
+  and 3xx responses are no longer reported as success. Configure a separate
+  connector instance for each authorized origin; callers that previously used a
+  cross-origin webhook override must migrate to that instance.
+
+  `GuardedFetchProvider` now applies one validated 30-second deadline across DNS
+  resolution, every manually admitted redirect fetch, and the final response
+  body, while preserving a caller's exact cancellation cause on a private
+  transport signal. Its 2 MiB default response cap is enforced from streamed
+  bytes rather than after `response.text()` allocates the whole body; overflow
+  cancels the reader and returns a valid UTF-8 prefix. Redirect bodies are
+  cancelled when abandoned, and a spent redirect budget causes no DNS lookup for
+  the next target. Set positive `timeoutMs` and `maxBytes` values or a
+  non-negative integer `maxRedirects` to choose other bounds. Custom
+  `GuardedFetchConfig.resolve` functions may now accept the operation signal as
+  a second argument. IPv4-mapped IPv6 literals are canonicalized back to their
+  IPv4 address before range checks, closing the hexadecimal mapped loopback and
+  link-local bypass; the full IPv6 link-local and multicast ranges are also
+  refused.
+
+  MCP request methods now accept optional cancellation authority, and generated
+  MCP tool and prompt adapters forward the run-owned tool signal. A pre-aborted
+  request starts no transport work; a pending request preserves the caller's
+  exact cause, aborts a private transport, removes its correlated pending id, and
+  makes a one-second best-effort `notifications/cancelled` attempt. The
+  notification does not prove that an already-started remote side effect stopped.
+  Paged list calls recheck the same signal before each page.
+
+  `MCPClient.requestTimeoutMs` and HTTP MCP transport `timeoutMs` values must now
+  be positive platform-range integers. A shorter transport deadline remains a
+  request-timeout terminal and emits the same correlated cancellation. HTTP
+  fetches and response-body reads share operation authority; disconnect owns
+  active requests and cancellation cleanup. Reconnects fence late POST responses
+  and SSE batches from prior generations, clear Streamable session state, and
+  accept session ids only from successful `initialize` responses. Per-send
+  failure no longer marks a Streamable client connection-wide errored or rejects
+  unrelated concurrent calls. `MCPTransport.send` now accepts optional
+  `MCPTransportSendOptions`; custom transports should refuse pre-aborted work and
+  stop their per-send I/O when its signal fires.
+
+  Provider model listings and credential probes now accept optional cancellation
+  signals. Retry, fallback, stream-idle and instrumentation decorators preserve
+  that authority, and every bundled CLI driver forwards it to the underlying
+  transport where supported or refuses a result that arrived after cancellation.
+  Existing zero-argument provider implementations remain valid.
+
+  The interactive provider picker now cancels model discovery, credential checks
+  and subscription sign-in when the operator backs out, supersedes the work, or
+  leaves the screen. Late results cannot reopen an old model step, accept a
+  credential, re-probe the application, or persist a subscription credential
+  after cancellation. Model listing and credential probing both settle after a
+  three-second bound even when a custom provider ignores its signal.
+
+  Between-turn and durable-resume subscription refreshes now settle on caller
+  cancellation and apply one 30-second bound across the token request and response
+  body. Refreshes in one session are serialized and re-read their source at the
+  head of the queue, preventing a later stale caller from downgrading a token
+  published by an earlier one. Namzu's credential file uses an exact conditional
+  replacement under a cross-process, atomically published lock; an external
+  rotation or logout wins, and an uncertain publication refuses instead of using
+  an uncommitted refresh. Borrowed macOS Keychain credentials are read-only: a
+  changed or removed entry wins, and a successful refresh of an unchanged entry
+  remains session-local.
+
+- 317360a: `WriteFileTool` now refuses an existing file whose complete body differs from the exact body captured by the run's `FileReadTracker`, instead of silently replacing that newer body. Read the file again and recompute the full replacement before retrying. Hosts that implement only the older boolean read tracker retain their previous behavior; the guard is an admission-time preflight and does not claim cross-process compare-and-swap publication.
+- 192d90e: Make connector credentials tenant- and connector-authorized instead of
+  globally authorized by credential id. Custom `CredentialVault`
+  implementations must add atomic `retrieveForScope(tenantId, connectorId, id)`
+  and `revokeForTenant(tenantId, id)` operations; keep `retrieve(id)` and
+  `revoke(id)` only for callers that intentionally hold host-wide vault
+  authority. `TenantConnectorManager.revokeCredential` now requires `tenantId`,
+  and credential plus connector-instance identity fields are readonly snapshots.
+
+  `ConnectorDefinition.supportedAuth` is now enforced. Align a concrete
+  connector's declaration with its registered definition, include `none` when an
+  unauthenticated connection is valid, and declare every scheme it can consume.
+  Unsupported explicit credentials are refused before instance publication and
+  late credentials are rechecked before connection. Existing live instances keep
+  the auth policy captured at creation instead of following later registry
+  replacement.
+
+- 1792bcb: `argument_pattern` reads a command line as the commands it runs, not as one string
+
+  An anchored pattern was tested against the argument's whole value, so a rule
+  matching `^git push` saw `git push origin main` and did not see
+  `true; git push origin main`. A rule that fails to match reaches the permission
+  mode, and a run with no terminal resolves that to `auto` — so an operator's
+  prohibition was bypassed by typing four characters in front of it, in exactly
+  the unattended case the prohibition exists for. The `bash` tool's own
+  description tells the model to use `&&` / `;` chaining, so the evading form is
+  the documented one rather than an exotic input.
+
+  The rule now decomposes the value into its commands — chain operators, subshell
+  grouping and a nested `sh -c` payload, with quoting respected — and the two
+  decisions read that decomposition differently:
+
+  - `deny` matches when **any** command on the line matches.
+  - `allow` matches only when **every** command on the line matches, and never
+    when the line runs something the decomposition cannot see (`$(…)`, backticks,
+    `<(…)`, `eval`).
+
+  **What breaks.** An `allow` rule stops approving a chain that carries a command
+  it does not name: `git status && rm -rf ~` was approved by a rule written for
+  `^git status` and is now left undecided, falling through to the permission mode.
+  A `deny` rule refuses more than it used to, which is the change it exists for.
+  To keep a compound line approved, write a pattern that matches every command on
+  it, or approve the tool by name.
+
+  A value with no chain operator, no nested shell and nothing opaque is matched
+  exactly as before, byte for byte, so rules about a path, a URL or a number are
+  unaffected.
+
+  `ToolDefinition` and `defineTool` gain an optional `commandArgument`, naming the
+  argument that holds a command line — `bash` declares `command`. A host
+  compiling operator permissions has a tool name and needs an argument to attach a
+  pattern to, and every other way of learning that is a list elsewhere that
+  drifts. `builtinCommandArguments()` and `commandArgumentOf()` read it back.
+
+- 095c936: Use Topic terminology across the public lifecycle authority and its rejection shapes.
+
+  **What breaks:** `TopicManager`, `InMemoryTopicStore`, `AgentManager`, and the handoff helpers now reject with `TopicArchivedError`, `TopicNotEmptyError`, and `StaleTopicError`. Their `error.name`, message, JSON serialization, and structured details use Topic vocabulary; replace `details.threadId` with `details.topicId` and branch on the new classes exported from `@namzu/sdk`.
+
+  Inject the lifecycle authority through the canonical `topicManager` dependency key. The deprecated `threadManager` key remains accepted for a migration window, but supplying two different manager instances is now refused instead of choosing one implicitly.
+
+- bf26200: Make a run's surviving messages readable and bind their publication to the durable event log.
+
+  `RunStore.readMessages()` is now required and returns an explicit `RunMessageSnapshot`: `available` includes the messages and the event sequence they were published through, `unavailable` means no snapshot was published, and `legacy-unverified` preserves access to older raw arrays without claiming which log head they represent. The built-in disk and memory stores implement the same contract, and `readRunMessagesIn(runDir)` reads a disk snapshot without creating a run directory.
+
+  `RunQuery.fullTranscript()` can now read the surviving snapshot from its bound store when the caller omits the message argument. It combines that verified snapshot with durable `compaction_shed` records and refuses with `RunTranscriptUnavailableError` when publication was interrupted, the snapshot is legacy-unverified, or a resumed run has advanced beyond the snapshot boundary. A missing file is never reported as an empty conversation.
+
+  **What breaks:** custom `RunStore` implementations must add `readMessages()` and change `writeMessages(run)` to `writeMessages(run, throughEventSeq)`. Return `unavailable` until a write has actually published the snapshot; do not use an available empty list for missing data. Code that reads the built-in `messages.json` directly must migrate from the former raw array to the versioned `{ format, throughEventSeq, messages }` envelope, or call `readRunMessagesIn`. Older raw-array files remain readable as `legacy-unverified` but cannot support a complete-transcript claim.
+
+### Minor Changes
+
+- 777b444: Bind stored image and document resolution to the run's caller signal. A pre-cancelled run now starts no attachment-store or provider work, and a store that ignores cancellation can no longer hold the run open or publish bytes after authority is withdrawn. Cancelled runs retain the unresolved attachment references in their durable messages. Canonical resumes also retain the selected checkpoint's history and usage without rereading that checkpoint after cancellation.
+
+  Custom `AttachmentStore` implementations may accept the new optional `AttachmentOperationOptions` argument on `get` and should use its signal to stop owned I/O. Existing one-argument implementations remain compatible.
+
+  `resumeRun` now refuses contradictory run, session, topic, project, tenant, or explicit parent attribution before provider work instead of allowing checkpoint history to cross those boundaries. Its selected checkpoint also supplies the trace parent for a cancelled cross-process resume without a second checkpoint read.
+
+- 780a471: Expand `ReasoningEffort` with `none`, `minimal`, and `ultra`, while making the vocabulary explicitly model-specific rather than a universal capability claim. The OpenAI Chat Completions driver now carries a requested effort to `reasoning_effort`, refuses levels outside each recognized model family's published set before transport, and exposes `openAIReasoningEffortLevels()` with an honest `undefined` result for unknown compatible-endpoint model ids.
+- 74705e2: Add `/compact`, which shrinks a conversation when you ask rather than when a threshold decides.
+
+  The machinery already existed — `compactNow` is exported from `@namzu/sdk` and its comment says it is "compaction a host can ASK for" — and no host asked. A long session could only be compacted by crossing a token threshold mid-turn, which is the moment you least want a model call, or by clearing it and losing everything.
+
+  `/compact` summarises the older half and keeps the recent turns. What it does with the transcript is the part worth knowing: the transcript is **trimmed** to the surviving turns rather than rebuilt from the returned messages. The two are not the same list — the transcript also holds tool rows, per-tool glyphs and collapsed bodies the model never saw, and rebuilding would produce a correct conversation while erasing how the surviving turns looked. Tool rows belonging to a kept turn stay with it, because an answer on screen with no visible cause is worse than a longer transcript.
+
+  A conversation too short to shed anything says so instead of reporting a compaction that did not happen, and the summary is attached to the row as collapsible detail — it is what the model reads from here on, so it has to be inspectable.
+
+  `CompactNowInput` and `CompactionResult` are now exported from `@namzu/sdk`. `compactNow` was on the public surface and its parameter and return types were not, so the first host to call it had to inline the shapes.
+
+- 45e8f56: Deprecate `ConnectorDefinition.triggers`, `ConnectorTrigger`, and
+  `ConnectorEvent`. The SDK has never subscribed to these declarations, emitted
+  their event shape, or started a run from them. Existing hosts may continue to
+  read trigger metadata back from `ConnectorRegistry` during this migration
+  release.
+
+  Move inbound subscription metadata and the event envelope into the host that
+  owns delivery before the next SDK major. That host must continue to own
+  de-duplication, claim recovery, trust, and run admission; registering a trigger
+  with Namzu does not activate an inbound event path.
+
+- 3c61c94: Make manual compaction the conversation history used after the command, not only a transcript notice.
+
+  The CLI now sends the compaction summary on the next turn and restores the same compacted history through `/resume`. It waits for pending turn writes before atomically replacing the durable conversation projection, refuses to compact an active turn, and pauses input while the snapshot is owned. Expanded file mentions and image attachments also remain in later model requests instead of being rebuilt from their lossy transcript rows. `/clear` continues to clear only the visible transcript.
+
+  The SDK adds optional `SessionStore.replaceMessages` support to its memory and disk stores. The disk implementation keeps the physical message log append-only by writing one replacement record, then projects later reads from it. `isCompactionMessage` is now exported for hosts that restore summary rows in their own views.
+
+- 924df56: `edit` can carry several replacements for one file, committed together
+
+  A change that spans four places in a file is one change, and sending it as four
+  calls makes it four. Each call is a fresh chance to stop halfway, and the file
+  left after the third succeeded and the fourth did not is in a state nobody wrote
+  and nobody is looking at — a rename applied at two of its five call sites
+  compiles nowhere and reads like a bug in the code rather than an unfinished
+  edit.
+
+  `edits` takes a list of `{old_string, new_string}` for one `path`:
+
+  ```json
+  {
+    "path": "src/user.ts",
+    "edits": [
+      { "old_string": "function getUser(", "new_string": "function loadUser(" },
+      { "old_string": "getUser(id)", "new_string": "loadUser(id)" }
+    ]
+  }
+  ```
+
+  Every entry is applied in memory, in order, against the content the entries
+  before it left — so a later one can target text an earlier one produced. The
+  file is written once, at the end, through the same atomic writer. If any entry
+  does not apply — not found, ambiguous, or a no-op — nothing is written at all
+  and the error names the entry by index, because by the time a later one fails
+  the string it wanted may have been consumed by an earlier one, and "not found"
+  alone sends the model to re-check the wrong hunk.
+
+  A call carrying both an `edits` list and a top-level `old_string` is refused
+  rather than resolved. That is two intentions in one object, and any precedence
+  would be a guess about which was meant, silently dropping an edit somebody
+  believes was made.
+
+  The guarantee is per file: `edits` names one `path`. Atomicity across several
+  files is not something this tool can enforce, so it is not offered.
+
+  Two fields became optional in the input type — the top-level `replace_all` and
+  each entry's — because `execute` takes the schema's output type and a defaulted
+  field is required of every hand-built call, including batch calls where the
+  top-level flag means nothing. The default is applied during normalization, so
+  behaviour is unchanged. `new_string` also left the model schema's `required`
+  list, the same trade `old_string` made when line insertion was added: which
+  fields a shape needs is decided by refinements that name what is missing.
+
+- 94d3306: Add the chain-aware `reasoningEffortLevelsFor(model, thinking)` provider capability while retaining `effortLevelsFor` as a deprecated compatibility member. The four capability states now distinguish a driver with no menu, an unknown model, an explicitly unsupported model, and an exact selectable set; fallback chains expose only levels every reachable member accepts.
+
+  The TUI adds session-scoped `/effort [level|default]`, sends the selection to later main-query turns, and resets it atomically when a provider/model replacement succeeds. Failed or cancelled replacements preserve the current selection.
+
+  OpenAI publishes exact known-model menus and keeps unknown compatible-endpoint models unknown. DeepSeek explicitly publishes no supported levels. Anthropic now refuses unsupported effort levels before transport instead of silently dropping them; callers upgrading Anthropic must choose a level returned by `reasoningEffortLevelsFor()` or omit `effort` to retain the provider default.
+
+- 45d7014: Export `isWorkingMemoryMessage` so hosts can preserve the kernel's state-bearing artifact ledger across fresh runs without copying its private sentinel or persisting the per-run system prompt floor.
+- 99127d8: Expose unsupported document inputs through the public `capability_warning` run event before provider settlement. Consumers handling that event must accept the new `documents` capability value.
+
+  Render provider capability warnings in the interactive transcript, and pause already-queued follow-ups after a failed or abnormally stopped human turn until the operator submits a continuation or successfully changes provider/model.
+
+- 7a45aa4: Add a Linux sandbox tier that actually confines the filesystem.
+
+  Until now the strongest tier a Linux host could get was `linux-namespace`, and `isolation.ts` has always said what that is worth: `{ filesystem: false, network: true, process: true }`. It unshares a mount namespace and never remounts, so the child still sees — and can write to — the whole host filesystem. `read`, `edit` and the code-navigation tools are path-contained by a shared helper, but a model-issued shell command is not, and no OS boundary stood behind it.
+
+  `linux-bwrap` is the tier that remounts. It builds a fresh mount table holding the sandbox root read-write, the system paths a binary needs read-only, a private `/proc`, `/dev` and `/tmp`, and nothing else. A host path is not unreadable, it is **absent** — `ENOENT`, not `EACCES` — which is the difference between a boundary and a permission bit. `--unshare-all` supplies the network and process controls in the same call, so all three rows of the tier's isolation report come from one spawn.
+
+  Detection prefers it and probes it the way the existing tier is probed: by running the real confinement, not by asking the binary its version. A host with `bwrap` present but unprivileged user namespaces disabled falls through to the weaker tier rather than claiming a control it cannot deliver — the rule `assertIsolation` already enforces.
+
+  The interpreter's own prefix is bound read-only, because a Node installed outside the distribution's packages is otherwise not there at all, and the failure reads as a broken command rather than as the sandbox working.
+
+  `SANDBOX_ENVIRONMENTS` is now exported: the tier list was spelled out by hand in a doctor test, which broke on the first tier added after it was written.
+
+  Nothing changes on macOS, where `macos-seatbelt` already reported `filesystem: true`, or on hosts without `bwrap`.
+
+- 79faa99: Add a host-owned live project-instruction context to the SDK. Queries and all
+  agent front doors can rebuild a retained snapshot before the first provider
+  request, observe completed top-level and nested registry executions, and
+  durably replace that snapshot after a complete tool batch without creating a
+  human continuation. Callbacks receive the run cancellation signal and accepted
+  message prefix; each returned snapshot is committed before the next observation
+  begins, so cancellation retains accepted policy state while rejecting an
+  unfinished suffix. Project-instruction messages carry bounded canonical
+  project-relative `AGENTS.md` provenance and survive compaction.
+
+  BREAKING: the CLI now represents repository instructions as scoped, retained
+  conversation context instead of a frozen system-prompt block. Hosts that inspect
+  raw provider messages or persisted session history must handle the
+  `project-instructions` user-message source. This lets nested instructions take
+  effect during the session and lets reconstruction re-read current disk content
+  instead of replaying stale policy prose.
+
+- 8de3582: Allow `PluginLifecycleManager.install()` to admit manifest-declared skills when the manager owns a `SkillRegistry`, so the supported `install → enable` lifecycle reaches the model without hosts fabricating registry records. `loadPluginManifest()` now accepts an optional, fail-closed `PluginEnablementCapabilities` argument for hosts that call the loader directly.
+- 487ed4e: Repair provider-invalid tool history chronologically before the first model
+  call. Abandoned calls receive an explicit unknown-outcome error result while
+  checkpoint calls still owned by approval or crash recovery retain their exact
+  assistant state and execute only through that authority path. The SDK adds the
+  public `repairToolMessageHistory` projection and `message_history_repaired`
+  `RunEvent`; CLI transcripts surface the measured repair without exposing tool
+  content.
+- c933952: Return exact verifier token usage from `compactNow` and `compactRegion`. Every non-null `CompactionResult` now includes `usage`; an all-zero record means the pass made no verifier request. Hosts that account for provider work should include this record in their own ledger.
+
+  After `/compact`, remove the old context-fill gauge only after the replacement conversation has been durably published. A pending or failed replacement keeps the old transcript and measurement; a successful replacement remains unmeasured until the next model request reports the new context size.
+
+- fd280c0: Make the first structured-memory search after process startup see records that
+  were already persisted on disk.
+
+  `buildMemoryTools(store)` is a new store-authoritative composition whose
+  `search_memory` tool awaits the store's asynchronous `list()` boundary. This is
+  the default for lazy and disk-backed stores. The existing
+  `buildMemoryTools(store, index)` form remains index-authoritative and performs
+  no store read, preserving custom pre-populated or independently managed search
+  indexes.
+
+  The CLI now uses the store-authoritative form for both its main and delegated
+  agent registries, so a fresh session can recall prior run memories without an
+  unrelated read or write first warming the in-memory index.
+
+- ee4fd1d: Persist provider-native reasoning state with the exact provider, model, and fallback-chain member that produced it. Same-route sessions now replay native reasoning after restart, `/resume`, and `/fork`; a model, provider, or member switch keeps portable assistant/tool history without sending foreign native reasoning metadata.
+
+  `@namzu/sdk` adds `ProviderRoute`, `AssistantMessageSource`, optional assistant source/replay fields, and the provider request/stream/response plumbing. Fallback and forced-final turns now attribute provenance and cost to the member that actually answered.
+
+  `@namzu/cli` preserves and validates the additive assistant source shape in stateless and durable history.
+
+  **What breaks in the drivers:** hand-built assistant reasoning and histories written by earlier versions do not carry a validated route-bound replay envelope, so they are no longer emitted as native `reasoning_content` or signed thinking. Their portable assistant text and tool exchanges remain available, but an upstream that requires native metadata for an old tool continuation may refuse that request; compact or start a fresh conversation before continuing such legacy history. Preserve the complete assistant message returned by new runs, including `source.replayState`. Direct callers of the exported DeepSeek `toDeepSeekMessages` converter must also pass the target `ProviderRoute` as its second argument.
+
+- 143b8d9: Add session-owned durable completion goals, direct `/goal` operator control,
+  and race-fenced automatic continuation.
+
+  SDK consumers can persist, inspect, and transition a `SessionGoal` through
+  tenant-authorized in-memory or disk stores with exact revision checks. CLI
+  operators can create, inspect, edit, pause, resume, and clear the goal belonging
+  to the active durable conversation without sending those commands to the model.
+
+  The SDK also exposes atomic admitted-round accounting, finite caps,
+  process-local activation, host provenance for goal-sourced user messages, and
+  run-scoped goal tools. The CLI drives those primitives only at a durable idle
+  boundary, keeps human prompts ahead across admission races, withholds goal tools
+  from ordinary and child runs, disarms on abnormal or non-durable settlement,
+  and preserves automatic-turn attribution through resume and verified export.
+
+- bb8cb05: Export the 45 types that exported signatures already named.
+
+  Each is the parameter or the result of a function that was already public, and none of them was reachable. A consumer could call `createLogger` and had no name for its options or its return; could call `compactRegion`, `runBidi`, the handoff helpers, the replay helpers, and had to inline every shape or reach for `any`. The package's vocabulary stopped at the function name.
+
+  Additive: the original 28 function-signature types plus constructor contracts including `AgentManagerDeps`, `TopicManagerDeps`, `ProjectManagerDeps`, `DiskTopicStateStoreConfig`, `DiskMessageFeedbackStoreConfig`, `MessageExistenceCheck`, `EnvCredentialProviderOptions`, `FileLockManagerConfig`, `GitWorktreeDriverConfig`, `CapacityDimension`, `HandoffLockRejectedReason`, `SessionSummaryMaterializerDeps`, `ArchivalManagerDeps`, `ArchiveBackendRef`, `DiskArchiveBackendConfig`, `SlidingWindowManagerConfig`, and `SubprocessComputerUseHostOptions`.
+
+  Nothing changes for existing code.
+
+  A CI step keeps it that way. `check-signature-types-exported.mjs` resolves exported function signatures and public class constructors, then fails when a type they name is declared in the package and not exported. The constructor branch has its own self-check so removing it cannot turn the gate silently green.
+
+- c6ebb31: Add `/export [path]` to write a no-clobber Markdown conversation from durable CLI turn bindings and event-head-verified SDK run evidence. Legacy conversations and unresolved fork prefixes refuse instead of producing a partial file.
+
+  Add `ReadRunEventsOptions.integrity`. The default `tolerant` mode retains the existing damaged-line skip behavior; `strict` refuses torn, malformed, or discontinuously numbered event logs for callers that need a completeness proof.
+
+### Patch Changes
+
+- 0e678a8: Keep host-triggered compaction state intact when a conversation starts a fresh run.
+
+  `compactNow` and `compactRegion` now extract real structured state from the messages they replace instead of producing an empty summary when model verification is disabled. Their summaries are retained because no run-scoped state manager exists between queries to reproduce them.
+
+  Fresh `query()` calls restore compacted-context summaries and working-memory artifact ledgers after rebuilding the current system prompt, while continuing to discard arbitrary historical system messages. An inherited compaction summary remains pinned through later automatic compaction, including context-overflow retries and the final persisted run-message snapshot.
+
+- 753b037: Make disk-backed memory reads and mutations fail closed on incomplete,
+  malformed, unsafe, or uncommitted durable state.
+
+  Indexed content is now validated before it is returned or updated. Missing
+  content, invalid JSON, newer schemas, mismatched IDs, invalid field shapes,
+  unsafe filename IDs, and content directories resolving outside the memory
+  root refuse the operation instead of becoming a false not-found or success.
+
+  Disk-memory operations sharing one canonical index path are serialized within
+  the SDK process and reload the authoritative index before acting. Concurrent
+  CLI parent/delegate saves no longer lose all but the last record, warmed
+  readers observe sibling writes, and create/update/delete publish live state
+  only after their required durable operations succeed. Cross-process writers
+  still require a single owner or storage-level conditional publication.
+
+- ade6c85: Allow host-triggered whole-history compaction to establish a retained summary floor for user/assistant-only conversations. Compaction now preserves every retained message together with the user boundary and complete tool exchange needed for a provider-valid turn, and manual whole-history and region passes decline before provider work when those survivors leave nothing to shed.
+- 5581dde: Probe local sandbox wrappers through the same direct child-process and stdout boundary used for execution, then pin the verified canonical absolute wrapper path. Hosts where a wrapper is reachable only through a shell now fall back honestly, and per-run `PATH` overrides can no longer replace a verified isolation wrapper.
+- fd6683b: Preserve the non-secret Windows core environment when `LocalSandboxProvider` launches a child. Windows environment names now merge case-insensitively, so session and per-call overrides replace ambient variants deterministically, while POSIX sandbox and MCP inheritance policies remain unchanged.
+- 43620d9: Publish `token_usage_updated` immediately after every automatic context edit, before the next provider request. The event keeps cumulative usage and cost intact while reporting the estimated post-compaction context and window provenance. An insufficient stale-tool-result clear is now staged until summary verification succeeds, so cancellation or verification failure cannot leave half of a compaction visible.
+- 63e8148: Refuse an unreadable or structurally invalid persistent-memory index instead
+  of treating it as an empty store.
+
+  `DiskMemoryStore` now validates every persisted index entry before publishing
+  it into the live projection. Invalid JSON, newer schema data, unrecognized or
+  duplicate memory IDs, wrong field types, unknown statuses and invalid
+  timestamps leave the original index byte-identical and make the operation
+  fail. Once the durable file is repaired, the same store instance may retry.
+
+  The CLI's memory tools inherit the fail-closed boundary, so `save_memory`
+  cannot overwrite an index the current SDK could not safely understand.
+
+- c8753a7: Propagate run cancellation through every plugin hook and preserve cancellation
+  when it occurs before the iteration loop. Hook code now receives a signal that
+  combines the run lifetime with its hook deadline, and a hook that ignores that
+  signal can no longer keep the run waiting.
+
+  Make CLI session shutdown cancel and settle in-flight sends, manual compaction,
+  and durable resumes before external tool servers are closed. Calls made after
+  session close now refuse before starting provider work.
+
 ## 30.2.0
 
 ### Minor Changes
