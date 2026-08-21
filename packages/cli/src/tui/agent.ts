@@ -37,6 +37,7 @@ import {
 	type LLMProvider,
 	type LogAttributes,
 	type Message,
+	type PluginLifecycleManager,
 	type ProjectId,
 	type ProjectInstructionContext,
 	type PromoteMemory,
@@ -52,6 +53,8 @@ import {
 	SearchToolsTool,
 	type SessionGoalStore,
 	type SessionId,
+	type Skill,
+	type SkillRegistry,
 	type StopReason,
 	type TaskScheduler,
 	type TaskStore,
@@ -79,7 +82,7 @@ import {
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
-import type { SandboxConfig } from '../config/schema.js'
+import type { PluginConfig, SandboxConfig } from '../config/schema.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
 import { ProjectInstructionTracker } from '../context/project-tracker.js'
@@ -95,6 +98,7 @@ import {
 	type McpServersConfig,
 	connectMcpServers,
 } from '../integrations/mcp/servers.js'
+import { createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import {
 	type AgentOAuthCredential,
 	CredentialRefreshRejectedError,
@@ -865,6 +869,13 @@ function buildToolRegistry(cwd: string): BuiltTools {
 	return { registry, memoryStore }
 }
 
+/** Refresh plugin skill metadata before each provider operation. */
+async function currentPluginSkills(registry: SkillRegistry): Promise<Skill[]> {
+	const names = registry.list().map((skill) => skill.metadata.name)
+	for (const name of names) await registry.load(name, 'metadata')
+	return registry.list()
+}
+
 export interface AgentSessionOptions {
 	/** Session/thread/project/tenant identity for this run. Minted when absent. */
 	readonly scope?: RunScope
@@ -895,6 +906,8 @@ export interface AgentSessionOptions {
 	 * config. Absent means none, which is what it meant before they existed.
 	 */
 	readonly mcpServers?: McpServersConfig
+	/** Executable extension runtime. Absent or disabled performs no discovery. */
+	readonly plugins?: PluginConfig
 	/**
 	 * Judge the answer a turn is about to settle with, and hand it back with
 	 * feedback when it is not good enough.
@@ -1177,11 +1190,9 @@ export async function createAgentSession(
 	// after the count would report a session smaller than the one that runs.
 	const mcp = await connectMcpServers(options.mcpServers, { cwd })
 	if (mcp.tools.length > 0) registry.register([...mcp.tools])
-	// Connectors are the one discovery source THIS function performs —
-	// plugins and skills are loaded elsewhere (`run-flags.ts`'s
-	// `loadSkillsContext`, per turn) and neither is wired to the boot path
-	// yet, so a fabricated "plugins 0 · skills 0" here would claim a
-	// measurement that was never taken. This reports only what was.
+	// External connector discovery is reported separately from executable
+	// plugin discovery. Folding both counts together would make a failed server
+	// indistinguishable from a plugin that never enabled.
 	cliLogger().info('discovery complete', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
 		'namzu.discovery.kind': 'connector',
@@ -1324,6 +1335,26 @@ export async function createAgentSession(
 	// settle — is what this repository has been doing all along by accident.
 	// A run that learned nothing still writes nothing.
 	const promoteMemory = createMemoryPromoter({ store: memoryStore })
+	// Plugins are the last fallible startup resource. The ordering is ownership:
+	// a malformed MCP entry cannot strand imported plugin hooks, and a plugin
+	// refusal closes the MCP processes already opened for this candidate before
+	// returning an inert session. Sub-agents were built above from their own
+	// registries, so executable plugins remain a top-level-session capability.
+	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
+	try {
+		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd)
+	} catch (error) {
+		await mcp.close()
+		return emptySession(describeError(error))
+	}
+	if (pluginRuntime) {
+		cliLogger().info('discovery complete', {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
+			'namzu.discovery.kind': 'plugin',
+			'namzu.discovery.count': pluginRuntime.pluginCount,
+			'namzu.discovery.skill_count': pluginRuntime.skills.size,
+		})
+	}
 	// The one terminal POSITIVE event on this path, emitted exactly once —
 	// every early return above goes through `emptySession`, which emits
 	// `namzu.boot.refused` instead, and the `resolveSandbox` throw path above
@@ -1334,7 +1365,13 @@ export async function createAgentSession(
 	cliLogger().info('agent session ready', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_READY,
 	})
-	const operations = new SessionOperationOwner(() => mcp.close())
+	const operations = new SessionOperationOwner(async () => {
+		const results = await Promise.allSettled([pluginRuntime?.close(), mcp.close()])
+		const failures = results
+			.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+			.map((result) => result.reason)
+		if (failures.length > 0) throw new AggregateError(failures, 'Session cleanup failed.')
+	})
 	return {
 		hasProvider: true,
 		sandbox: {
@@ -1403,6 +1440,9 @@ export async function createAgentSession(
 					// runs — midnight passes, and the agent checks out a branch itself.
 					// Its text only changes when a fact changes, so it costs a prompt-cache
 					// miss exactly when a hit would have been a stale claim.
+					const pluginSkills = pluginRuntime
+						? await currentPluginSkills(pluginRuntime.skills)
+						: undefined
 					const memoryPrompt = composeMemoryPrompt(readMemory())
 					const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
 					const systemPrompt =
@@ -1450,6 +1490,9 @@ export async function createAgentSession(
 							fallbackProviders: fallbackPlan.build(currentToken),
 							model,
 							tools: registry,
+							pluginManager: pluginRuntime?.manager,
+							skillRegistry: pluginRuntime?.skills,
+							skills: pluginSkills,
 							scope,
 							workingDirectory: cwd,
 							rules: options.rules,
@@ -1491,6 +1534,9 @@ export async function createAgentSession(
 				// fallback chain has to be built AFTER that so its members do not
 				// hold a client the refresh just replaced.
 				await refreshTokenIfNeeded(ownedSignal)
+				const pluginSkills = pluginRuntime
+					? await currentPluginSkills(pluginRuntime.skills)
+					: undefined
 				const memoryPrompt = composeMemoryPrompt(readMemory())
 				const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
 				const systemPrompt =
@@ -1502,6 +1548,9 @@ export async function createAgentSession(
 					provider,
 					fallbackProviders: fallbackPlan.build(currentToken),
 					tools: registry,
+					pluginManager: pluginRuntime?.manager,
+					skillRegistry: pluginRuntime?.skills,
+					skills: pluginSkills,
 					taskStore,
 					...(subagentGateway ? { taskGateway: subagentGateway } : {}),
 					authorizationGate: gateFor(options.rules),
@@ -2002,6 +2051,9 @@ interface RunTurnParams {
 	readonly fallbackProviders: readonly ProviderChainMember[]
 	readonly model: string
 	readonly tools: ToolRegistry
+	readonly pluginManager: PluginLifecycleManager | undefined
+	readonly skillRegistry: SkillRegistry | undefined
+	readonly skills: Skill[] | undefined
 	readonly scope: RunScope
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
@@ -2037,6 +2089,9 @@ async function* runTurn({
 	fallbackProviders,
 	model,
 	tools,
+	pluginManager,
+	skillRegistry,
+	skills,
 	scope,
 	workingDirectory,
 	rules,
@@ -2071,6 +2126,9 @@ async function* runTurn({
 			// where `[]` reads as "this run has a chain with nothing in it".
 			...(fallbackProviders.length > 0 ? { fallbackProviders } : {}),
 			tools,
+			...(pluginManager ? { pluginManager } : {}),
+			...(skillRegistry ? { skillRegistry } : {}),
+			...(skills ? { skills } : {}),
 			// Withheld at both provider and executor boundaries on every ordinary
 			// turn. An admitted send owns the exact run-scoped authority above.
 			...(!opts?.goalRound ? { deniedTools: SESSION_GOAL_TOOL_NAMES } : {}),

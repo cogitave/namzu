@@ -12,8 +12,14 @@ import type { FormatName } from '../output/index.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 
-/** What one profile may set: anything in the config except more profiles. */
-export type ProfileConfig = Omit<NamzuCliConfig, 'profiles'>
+/**
+ * What one profile may set.
+ *
+ * Executable plugins are intentionally excluded as well as nested profiles:
+ * `NAMZU_PROFILE` may select a declared profile, and ambient shell state must
+ * not be able to turn code loading on.
+ */
+export type ProfileConfig = Omit<NamzuCliConfig, 'profiles' | 'plugins'>
 
 export type ProfilesConfig = Readonly<Record<string, ProfileConfig>>
 
@@ -34,6 +40,27 @@ export interface TuiConfig {
 	readonly notifications?: boolean | readonly TerminalNotificationEvent[]
 	/** Terminal protocol to write. Defaults to `osc9` when notifications are on. */
 	readonly notificationMethod?: TerminalNotificationMethod
+}
+
+/** Where the CLI may discover executable plugin bundles. */
+export type PluginScope = 'project' | 'user'
+
+/**
+ * Session plugin runtime settings.
+ *
+ * Plugins may import JavaScript hooks and tools, so the runtime is disabled
+ * unless an operator opts in explicitly. Project plugins are considered only
+ * after the existing project trust gate has pinned the canonical cwd.
+ */
+export interface PluginConfig {
+	/** Start the plugin runtime. Only the exact value `true` enables it. */
+	readonly enabled?: boolean
+	/** Scan admitted plugin directories. Defaults to `true` once enabled. */
+	readonly autoDiscovery?: boolean
+	/** Locations the discovery pass may read. Defaults to project and user. */
+	readonly allowedScopes?: readonly PluginScope[]
+	/** Per-hook deadline in milliseconds. Defaults to the SDK runtime default. */
+	readonly hookTimeoutMs?: number
 }
 
 export interface NamzuCliConfig {
@@ -69,9 +96,12 @@ export interface NamzuCliConfig {
 	 *
 	 * Selecting one applies it as a layer above the file it came from, so a
 	 * profile overrides that file's own base values and is in turn overridden
-	 * by the environment. A profile may set anything except `profiles`: a
+	 * by the environment. A profile may set anything except `profiles` and
+	 * executable `plugins`: a
 	 * profile that carried profiles would be a cascade inside a cascade, and
 	 * the question "which one is active" would stop having one answer.
+	 * Plugins are excluded because `NAMZU_PROFILE` can select a profile; shell
+	 * state must not be an executable-code authority.
 	 */
 	readonly profiles?: ProfilesConfig
 	/**
@@ -82,6 +112,8 @@ export interface NamzuCliConfig {
 	 * means no external servers, which is what it meant before this existed.
 	 */
 	readonly mcpServers?: McpServersConfig
+	/** Executable extension bundles. Absent keeps discovery and imports off. */
+	readonly plugins?: PluginConfig
 	/**
 	 * Isolation for the commands this CLI runs.
 	 *

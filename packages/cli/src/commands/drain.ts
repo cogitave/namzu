@@ -307,6 +307,7 @@ export const drainCommand: CommandDef = {
 			rules: permissions.rules,
 			permissionMode: 'auto',
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+			...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		})
 		if (!session.hasProvider) {

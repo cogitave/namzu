@@ -243,6 +243,41 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+describe('trusted runtime config reaches hydration', () => {
+	it('passes plugin authority into the real createAgentSession hop', async () => {
+		let seen: Parameters<typeof createSession>[2]
+		createSession = async (_prefs, _detected, options) => {
+			seen = options
+			return sessionFixture()
+		}
+		const harness = render(
+			<App
+				ctx={{
+					...ctx,
+					plugins: {
+						enabled: true,
+						allowedScopes: ['project'],
+						hookTimeoutMs: 321,
+					},
+				}}
+			/>,
+		)
+		mounted.push(harness)
+		await vi.waitFor(() => expect(seen).toBeDefined())
+
+		expect(seen).toEqual(
+			expect.objectContaining({
+				cwd: '/w',
+				plugins: {
+					enabled: true,
+					allowedScopes: ['project'],
+					hookTimeoutMs: 321,
+				},
+			}),
+		)
+	})
+})
+
 /** A ready session, then `/model` to open the picker over the top of it. */
 async function pickerFromModelCommand() {
 	withSession = true

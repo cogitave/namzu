@@ -750,6 +750,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 				rules: activeCtx.rules,
 				...(sessionsRef.current ? { sessionGoals: sessionsRef.current.goals } : {}),
 				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
+				...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 				...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 			})
 			if (signal?.aborted) {

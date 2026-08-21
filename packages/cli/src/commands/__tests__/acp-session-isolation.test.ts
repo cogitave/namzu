@@ -269,11 +269,13 @@ describe('the CLI ACP runtime', () => {
 						? {
 								permissions: { bash: 'deny' },
 								mcpServers: { alpha: { command: 'alpha-server' } },
+								plugins: { enabled: true, allowedScopes: ['project'] },
 								sandbox: { enabled: true, teardownTimeoutMs: 101 },
 							}
 						: {
 								permissions: { read: 'allow' },
 								mcpServers: { beta: { command: 'beta-server' } },
+								plugins: { enabled: true, allowedScopes: ['user'] },
 								sandbox: { enabled: false, teardownTimeoutMs: 202 },
 							},
 				),
@@ -332,6 +334,7 @@ describe('the CLI ACP runtime', () => {
 			expect.objectContaining({
 				cwd: '/canonical/a',
 				mcpServers: { alpha: { command: 'alpha-server' } },
+				plugins: { enabled: true, allowedScopes: ['project'] },
 				sandbox: { enabled: true, teardownTimeoutMs: 101 },
 			}),
 		)
@@ -339,6 +342,7 @@ describe('the CLI ACP runtime', () => {
 			expect.objectContaining({
 				cwd: '/canonical/b',
 				mcpServers: { beta: { command: 'beta-server' } },
+				plugins: { enabled: true, allowedScopes: ['user'] },
 				sandbox: { enabled: false, teardownTimeoutMs: 202 },
 			}),
 		)

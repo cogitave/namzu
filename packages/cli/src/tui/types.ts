@@ -7,7 +7,7 @@
 import type { AuthorizationRule } from '@namzu/sdk'
 
 import type { ConfigDebugSnapshot } from '../config/debug.js'
-import type { SandboxConfig, TuiConfig } from '../config/schema.js'
+import type { PluginConfig, SandboxConfig, TuiConfig } from '../config/schema.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 
@@ -80,6 +80,8 @@ export interface TuiContext {
 	 * they declared has to be there whichever way they started namzu.
 	 */
 	readonly mcpServers?: McpServersConfig
+	/** Executable plugins from the trusted, project-aware config. */
+	readonly plugins?: PluginConfig
 	/**
 	 * Isolation config, by the same reasoning as the two above: it belongs
 	 * to the user, not to a command, so it has to reach the session

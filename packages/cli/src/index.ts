@@ -71,6 +71,8 @@ export {
 export {
 	DEFAULT_CONFIG,
 	type NamzuCliConfig,
+	type PluginConfig,
+	type PluginScope,
 	type TerminalNotificationEvent,
 	type TerminalNotificationMethod,
 	type TuiConfig,

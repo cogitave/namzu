@@ -103,6 +103,65 @@ describe('loadConfig cascade', () => {
 	})
 })
 
+describe('plugin runtime config', () => {
+	it('reads the explicit default-off controls without inventing defaults in the file layer', () => {
+		const home = userConfig(
+			'plugins:\n  enabled: true\n  autoDiscovery: false\n  allowedScopes: [project]\n  hookTimeoutMs: 2500\n',
+		)
+
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).plugins).toEqual({
+			enabled: true,
+			autoDiscovery: false,
+			allowedScopes: ['project'],
+			hookTimeoutMs: 2500,
+		})
+	})
+
+	it.each([
+		['plugins.enabled', 'plugins:\n  enabled: yes\n'],
+		['plugins.autoDiscovery', 'plugins:\n  autoDiscovery: later\n'],
+		['plugins.allowedScopes[1]', 'plugins:\n  allowedScopes: [project, global]\n'],
+		['plugins.allowedScopes', 'plugins:\n  allowedScopes: [project, project]\n'],
+		['plugins.hookTimeoutMs', 'plugins:\n  hookTimeoutMs: 0\n'],
+		['plugins.enable', 'plugins:\n  enable: true\n'],
+	] as const)('refuses malformed or misspelled setting %s at its exact path', (path, yaml) => {
+		const home = userConfig(yaml)
+		let error: unknown
+		try {
+			loadConfig({ home, cwd: tmpdir(), env: {} })
+		} catch (cause) {
+			error = cause
+		}
+
+		expect(error).toBeInstanceOf(ConfigValueError)
+		expect(error).toMatchObject({ settingPath: path })
+	})
+
+	it('does not enable executable plugins from an environment variable', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+
+		expect(
+			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_PLUGINS: 'true' } }).plugins,
+		).toBeUndefined()
+		expect(ENV_VARIABLE_NAMES.plugins).toBeUndefined()
+	})
+
+	it('does not let NAMZU_PROFILE become an executable-code authority', () => {
+		const home = userConfig(
+			'profiles:\n  executable:\n    plugins:\n      enabled: true\n      allowedScopes: [project]\n',
+		)
+		let error: unknown
+		try {
+			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_PROFILE: 'executable' } })
+		} catch (cause) {
+			error = cause
+		}
+
+		expect(error).toBeInstanceOf(ConfigValueError)
+		expect(error).toMatchObject({ settingPath: 'profiles.executable.plugins' })
+	})
+})
+
 describe('pre-trust bootstrap config', () => {
 	it('does not read or validate the project layer before trust', () => {
 		const home = userConfig('format: yaml\n')

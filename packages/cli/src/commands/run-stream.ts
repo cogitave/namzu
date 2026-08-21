@@ -323,6 +323,7 @@ export const runStreamCommand: CommandDef = {
 			...(gate ?? {}),
 			permissionMode: modeResult.mode,
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
+			...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		})
 		if (!session.hasProvider) {

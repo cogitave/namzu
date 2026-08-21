@@ -582,13 +582,59 @@ one shell keeps working after somebody picks a profile.
 The same profile name may appear in both files. Each is applied as its own
 layer, in the usual file order, so the project's wins *and* the boot log still
 names the file each value actually came from. A profile may set anything except
-`profiles`: nesting them would make "which one is active" stop having one
-answer.
+`profiles` and `plugins`: nesting profiles would make "which one is active"
+stop having one answer, while allowing `plugins` would let `NAMZU_PROFILE`
+turn executable code loading on from ambient shell state.
 
 **A profile name no file declares is refused, not ignored.** The error lists the
 names that do exist and the files that declare them, because the mistake is
 almost always a typo — and the alternative is running under settings nobody
 chose while reporting success.
+
+### Plugins
+
+The CLI can own the SDK plugin lifecycle for an interactive session, `run`,
+`run-stream`, `drain`, or an ACP session. It is deliberately off unless the
+exact value `plugins.enabled: true` appears in a config file:
+
+```json
+{
+  "plugins": {
+    "enabled": true,
+    "autoDiscovery": true,
+    "allowedScopes": ["project"],
+    "hookTimeoutMs": 5000
+  }
+}
+```
+
+Project plugins live under `<working-directory>/.namzu/plugins`; user plugins
+live under `~/.namzu/plugins`. Once enabled, both scopes are admitted by
+default. Set `allowedScopes` explicitly when only one authority should be read.
+A disallowed scope is not scanned, and `autoDiscovery: false` scans neither.
+The project scope is reached only after the existing trust gate has accepted
+and pinned the project's real path.
+
+This is executable-code authority, not a theme or metadata switch. A plugin
+may import JavaScript tool and hook modules, load namespaced skills, and start
+its declared stdio MCP servers. The CLI installs and enables every admitted
+plugin before publishing the session; a refusal rolls back earlier plugin
+contributions and closes connectors already opened for that candidate. A live
+session uses the same manager and skill registry for ordinary turns and durable
+resumes, and closing the session first cancels and settles provider work, then
+uninstalls plugins and their MCP processes.
+
+Plugin skills are shown to the model by their namespaced metadata and loaded
+through the `skill` tool only when requested. Plugin tools are namespaced and
+deferred according to the SDK lifecycle. Hooks receive the run's cancellation
+signal and the configured per-hook deadline. The current CLI scope is the
+top-level agent session: delegated child agents keep their separate registry
+and do not inherit executable plugin contributions.
+
+There is no `NAMZU_PLUGINS` setting, and `plugins` is forbidden inside a
+profile. A project file, user file or managed file therefore remains the
+reviewable source that turns plugin code on. See [Plugins and MCP
+Servers](../sdk/integrations/plugins.md) for manifest and module formats.
 
 ### The managed file
 
@@ -639,15 +685,17 @@ valid.
 | `quiet` | `boolean` | Default `false`. Also `NAMZU_QUIET` (`1`/`true`/`0`/`false`) |
 | `permissions` | tool → effect, or tool → { pattern → effect } | Effects are `allow`, `ask`, `deny`. Absent means every mutating tool prompts |
 | `permissionChecks` | list of `{ tool, input, expect }` | Checks the compiled permission table at startup and reports each mismatch or malformed entry |
-| `profiles` | name → config mapping | Select with `--profile` or `NAMZU_PROFILE`; a profile cannot contain `profiles` |
+| `profiles` | name → config mapping | Select with `--profile` or `NAMZU_PROFILE`; a profile cannot contain `profiles` or executable `plugins` |
 | `mcpServers` | name → `{ command, args }` or `{ url }` | Tools arrive prefixed with the server's name |
+| `plugins` | `{ enabled?, autoDiscovery?, allowedScopes?, hookTimeoutMs? }` | Default off. Exact `enabled: true` admits executable bundles; scopes are `project` / `user` and hook timeouts are positive integer milliseconds |
 | `sandbox` | `{ enabled?, requireIsolation?, teardownTimeoutMs? }` | `enabled` defaults to **on**. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start. `teardownTimeoutMs` defaults to `30000`; `0` restores the former unbounded wait |
 | `telemetry` | `{ sessionExport?: { destination, eventTypes?, redactors? } }` | Writes run events to a JSONL file. `redactors: []` means no redaction and has to be written to mean it |
 | `tui` | `{ notifications?, notificationMethod? }` | Interactive notifications; events are `turn-settled` / `approval-required`, method is `osc9` / `bel` |
 
 Only `format` and `quiet` are settable from the environment. `telemetry` is
 deliberately not: a variable in a shell profile could otherwise start exporting
-conversation content with nothing in the config file to show for it. Separately,
+conversation content with nothing in the config file to show for it. Plugins
+are likewise file-only because enabling them imports executable code. Separately,
 `NAMZU_LOG_LEVEL` and `NAMZU_LOG_FORMAT` govern the log records on stderr rather
 than this config, and `--verbose` / `--quiet` on the command line beat them.
 
@@ -665,6 +713,10 @@ intended policy for every path.
   },
   "mcpServers": {
     "tickets": { "command": "node", "args": ["./tickets-server.js"] }
+  },
+  "plugins": {
+    "enabled": true,
+    "allowedScopes": ["project"]
   },
   "sandbox": {
     "requireIsolation": ["filesystem", "network"],

@@ -252,7 +252,10 @@ describe('namzu run in a folder nobody has trusted', () => {
 	it('resolves project config from --cwd rather than the ambient folder', async () => {
 		writeFileSync(
 			join(stranger, 'namzu.config.json'),
-			JSON.stringify({ sandbox: { enabled: true } }),
+			JSON.stringify({
+				sandbox: { enabled: true },
+				plugins: { enabled: true, allowedScopes: ['project'] },
+			}),
 		)
 		const ambient = mkdtempSync(join(tmpdir(), 'namzu-ambient-'))
 		const previousCwd = process.cwd()
@@ -265,7 +268,11 @@ describe('namzu run in a folder nobody has trusted', () => {
 
 			expect(code).toBe(0)
 			expect(sessionConfigs.at(-1)).toEqual(
-				expect.objectContaining({ cwd: stranger, sandbox: { enabled: true } }),
+				expect.objectContaining({
+					cwd: stranger,
+					sandbox: { enabled: true },
+					plugins: { enabled: true, allowedScopes: ['project'] },
+				}),
 			)
 		} finally {
 			process.chdir(previousCwd)
@@ -475,7 +482,10 @@ describe('namzu run-stream in a folder nobody has trusted', () => {
 	it('the real CLI activates the target project sandbox only after --trust', async () => {
 		writeFileSync(
 			join(stranger, 'namzu.config.json'),
-			JSON.stringify({ sandbox: { enabled: true } }),
+			JSON.stringify({
+				sandbox: { enabled: true },
+				plugins: { enabled: true, allowedScopes: ['project'] },
+			}),
 		)
 		const previousCwd = process.cwd()
 		const originalWrite = process.stdout.write.bind(process.stdout)
@@ -499,7 +509,11 @@ describe('namzu run-stream in a folder nobody has trusted', () => {
 
 			expect(code).toBe(0)
 			expect(sessionConfigs.at(-1)).toEqual(
-				expect.objectContaining({ cwd: stranger, sandbox: { enabled: true } }),
+				expect.objectContaining({
+					cwd: stranger,
+					sandbox: { enabled: true },
+					plugins: { enabled: true, allowedScopes: ['project'] },
+				}),
 			)
 		} finally {
 			process.stdout.write = originalWrite
@@ -549,6 +563,7 @@ describe('namzu drain crosses the same project trust boundary', () => {
 			JSON.stringify({
 				permissions: { bash: 'deny' },
 				sandbox: { enabled: true },
+				plugins: { enabled: true, allowedScopes: ['project'] },
 			}),
 		)
 		const store = join(stranger, 'runs')
@@ -569,6 +584,7 @@ describe('namzu drain crosses the same project trust boundary', () => {
 					permissionMode: 'auto',
 					rules: [{ type: 'deny_by_name', toolNames: ['bash'] }],
 					sandbox: { enabled: true },
+					plugins: { enabled: true, allowedScopes: ['project'] },
 				}),
 			)
 		} finally {

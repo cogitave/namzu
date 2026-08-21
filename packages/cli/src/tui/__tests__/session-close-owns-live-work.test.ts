@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createUserMessage } from '@namzu/sdk'
@@ -12,6 +12,9 @@ const operations = vi.hoisted(() => ({
 	calls: [] as Array<{
 		kind: 'send' | 'compact' | 'resume'
 		signal: AbortSignal | undefined
+		pluginManager?: unknown
+		skillRegistry?: unknown
+		skills?: readonly { metadata?: { name?: string } }[]
 	}>,
 	order: [] as string[],
 	releases: [] as Array<() => void>,
@@ -19,8 +22,12 @@ const operations = vi.hoisted(() => ({
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
-	const hold = (kind: 'send' | 'compact' | 'resume', signal: AbortSignal | undefined) => {
-		operations.calls.push({ kind, signal })
+	const hold = (
+		kind: 'send' | 'compact' | 'resume',
+		signal: AbortSignal | undefined,
+		details: Omit<(typeof operations.calls)[number], 'kind' | 'signal'> = {},
+	) => {
+		operations.calls.push({ kind, signal, ...details })
 		return new Promise<void>((resolve, reject) => {
 			let settled = false
 			const finish = (settle: () => void) => {
@@ -39,8 +46,13 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 
 	return {
 		...actual,
-		query: (params: { signal?: AbortSignal }) => {
-			operations.calls.push({ kind: 'send', signal: params.signal })
+		query: (params: {
+			signal?: AbortSignal
+			pluginManager?: unknown
+			skillRegistry?: unknown
+			skills?: readonly { metadata?: { name?: string } }[]
+		}) => {
+			operations.calls.push({ kind: 'send', ...params, signal: params.signal })
 			return (async function* () {
 				try {
 					yield {
@@ -67,8 +79,13 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 			await hold('compact', input.signal)
 			return null
 		},
-		resumeRun: async (params: { signal?: AbortSignal }) => {
-			await hold('resume', params.signal)
+		resumeRun: async (params: {
+			signal?: AbortSignal
+			pluginManager?: unknown
+			skillRegistry?: unknown
+			skills?: readonly { metadata?: { name?: string } }[]
+		}) => {
+			await hold('resume', params.signal, params)
 			return { resumed: false, reason: 'no-checkpoint' } as const
 		},
 	}
@@ -147,7 +164,10 @@ describe('AgentSession close owns its live work', () => {
 			)
 			[Symbol.asyncIterator]()
 
-		await expect(stream.next()).resolves.toEqual({ done: false, value: 'ready' })
+		await expect(stream.next()).resolves.toEqual({
+			done: false,
+			value: 'ready',
+		})
 		await expect(stream.throw?.(new Error('consumer injection'))).resolves.toEqual({
 			done: false,
 			value: 'caught',
@@ -177,7 +197,25 @@ describe('AgentSession close owns its live work', () => {
 				alternatives: [],
 			} as unknown as DetectedProvider,
 		]
-		const session = await createAgentSession(preferences, detected, { cwd })
+		const pluginDir = join(cwd, '.namzu', 'plugins', 'owner', 'skills', 'settle')
+		mkdirSync(pluginDir, { recursive: true })
+		writeFileSync(
+			join(cwd, '.namzu', 'plugins', 'owner', 'plugin.json'),
+			JSON.stringify({
+				name: 'owner',
+				version: '1.0.0',
+				description: 'session ownership fixture',
+				skills: ['skills/settle'],
+			}),
+		)
+		writeFileSync(
+			join(pluginDir, 'SKILL.md'),
+			'---\nname: settle\ndescription: settle session work\n---\n\nOwned body.\n',
+		)
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			plugins: { enabled: true, allowedScopes: ['project'] },
+		})
 		const sendCaller = new AbortController()
 		const resumeCaller = new AbortController()
 		const stream = session
@@ -204,6 +242,13 @@ describe('AgentSession close owns its live work', () => {
 			.catch((error: unknown) => error)
 
 		await waitForCalls(3)
+		const sendCall = operations.calls.find((call) => call.kind === 'send')
+		const resumeCall = operations.calls.find((call) => call.kind === 'resume')
+		expect(sendCall?.pluginManager).toBeDefined()
+		expect(resumeCall?.pluginManager).toBe(sendCall?.pluginManager)
+		expect(resumeCall?.skillRegistry).toBe(sendCall?.skillRegistry)
+		expect(sendCall?.skills?.map((skill) => skill.metadata?.name)).toEqual(['owner__settle'])
+		expect(resumeCall?.skills?.map((skill) => skill.metadata?.name)).toEqual(['owner__settle'])
 		const close = session.close()
 		expect(session.close()).toBe(close)
 		const allSettled = Promise.all([close, compactOutcome, resumeOutcome])
@@ -243,6 +288,18 @@ describe('AgentSession close owns its live work', () => {
 			expect(eventIndex, `${event} was observed`).toBeGreaterThan(-1)
 			expect(eventIndex, `${event} preceded MCP close`).toBeLessThan(mcpClose)
 		}
+		expect((sendCall?.skillRegistry as { list(): readonly unknown[] } | undefined)?.list()).toEqual(
+			[],
+		)
+		await expect(
+			(
+				sendCall?.pluginManager as
+					| {
+							executeHooks(event: string, context: unknown): Promise<readonly unknown[]>
+					  }
+					| undefined
+			)?.executeHooks('pre_llm_call', { runId: 'run_after_close' }),
+		).resolves.toEqual([])
 
 		const callsAfterClose = operations.calls.length
 		await expect(session.compact([])).rejects.toThrow('Agent session closed')

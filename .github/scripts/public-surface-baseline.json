@@ -98,6 +98,8 @@
         "LoadConfigOptions",
         "NAMZU_OPTIONAL_CAPABILITIES",
         "NamzuCliConfig",
+        "PluginConfig",
+        "PluginScope",
         "RegisterOptions",
         "RunCliOptions",
         "RunDoctorOptions",

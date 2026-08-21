@@ -34,6 +34,7 @@ import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import { configMetadataLiteral } from './debug.js'
 import type {
+	PluginConfig,
 	ProfileConfig,
 	ProfilesConfig,
 	SessionExportRedactorName,
@@ -513,6 +514,65 @@ const CONFIG_READERS: ConfigReaders = {
 		if (isConfigMapping(v)) return v as McpServersConfig
 		return invalidConfigValue(context, [], 'must be a mapping of server names')
 	},
+	plugins: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const known = new Set(['enabled', 'autoDiscovery', 'allowedScopes', 'hookTimeoutMs'])
+		for (const key of Object.keys(v)) {
+			if (!known.has(key)) {
+				return invalidConfigValue(context, [key], 'is not a recognized plugin setting')
+			}
+		}
+		const raw = v as {
+			enabled?: unknown
+			autoDiscovery?: unknown
+			allowedScopes?: unknown
+			hookTimeoutMs?: unknown
+		}
+		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
+			return invalidConfigValue(context, ['enabled'], 'must be a boolean')
+		}
+		if (raw.autoDiscovery !== undefined && typeof raw.autoDiscovery !== 'boolean') {
+			return invalidConfigValue(context, ['autoDiscovery'], 'must be a boolean')
+		}
+		let allowedScopes: PluginConfig['allowedScopes']
+		if (raw.allowedScopes !== undefined) {
+			if (!Array.isArray(raw.allowedScopes)) {
+				return invalidConfigValue(context, ['allowedScopes'], 'must be a list')
+			}
+			const invalidIndex = raw.allowedScopes.findIndex(
+				(scope) => scope !== 'project' && scope !== 'user',
+			)
+			if (invalidIndex >= 0) {
+				return invalidConfigValue(
+					context,
+					['allowedScopes', invalidIndex],
+					'must be one of "project" or "user"',
+				)
+			}
+			if (new Set(raw.allowedScopes).size !== raw.allowedScopes.length) {
+				return invalidConfigValue(context, ['allowedScopes'], 'must not contain duplicates')
+			}
+			allowedScopes = raw.allowedScopes as readonly ('project' | 'user')[]
+		}
+		if (
+			raw.hookTimeoutMs !== undefined &&
+			(!Number.isInteger(raw.hookTimeoutMs) ||
+				(raw.hookTimeoutMs as number) <= 0 ||
+				(raw.hookTimeoutMs as number) > 2_147_483_647)
+		) {
+			return invalidConfigValue(
+				context,
+				['hookTimeoutMs'],
+				'must be an integer from 1 to 2147483647',
+			)
+		}
+		return {
+			...(raw.enabled !== undefined ? { enabled: raw.enabled } : {}),
+			...(raw.autoDiscovery !== undefined ? { autoDiscovery: raw.autoDiscovery } : {}),
+			...(allowedScopes !== undefined ? { allowedScopes } : {}),
+			...(raw.hookTimeoutMs !== undefined ? { hookTimeoutMs: raw.hookTimeoutMs as number } : {}),
+		}
+	},
 	// Read field by field rather than shape-only, unlike the two above.
 	// Those hand their entries to a compiler that reports a bad one by name;
 	// this one is consumed directly, and a misspelled `require_isolation` or
@@ -705,6 +765,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// it does not set a config field.
 	profiles: undefined,
 	mcpServers: undefined,
+	// Executable code must never be enabled by ambient shell state. The file
+	// and its provenance are the reviewable source of this authority.
+	plugins: undefined,
 	sandbox: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`
 	// in a shell profile would start exporting conversation content with
@@ -771,11 +834,13 @@ function sanitize(
 	const out: MutableConfig = {}
 	for (const key of Object.keys(CONFIG_READERS) as (keyof NamzuCliConfig)[]) {
 		if (!Object.hasOwn(v, key)) continue
-		if (key === 'profiles' && !allowProfiles) {
+		if (!allowProfiles && (key === 'profiles' || key === 'plugins')) {
 			throw new ConfigValueError(
 				source,
 				formatSettingPath([...prefix, key]),
-				'cannot be declared inside a profile',
+				key === 'plugins'
+					? 'cannot be declared inside a profile because profiles may be selected by the environment'
+					: 'cannot be declared inside a profile',
 			)
 		}
 		const parsed = CONFIG_READERS[key](v[key], {

@@ -74,6 +74,15 @@ scope. The current snapshot is retained in durable model context, while a
 resumed session uses its validated project-relative paths to re-read the files
 from disk instead of trusting stale saved prose.
 
+Executable SDK plugins are available but default off. Opt in from a config file
+with `plugins.enabled: true`, then restrict discovery to `project`, `user`, or
+both scopes. Project plugins are not read before the project trust gate, and
+plugin settings cannot be activated by an environment-selected profile. The
+same plugin hooks and skills reach interactive turns, headless runs, durable
+resumes, and ACP sessions; session shutdown settles live work before unloading
+them. See the [operator configuration
+reference](https://github.com/cogitave/namzu/blob/main/docs/cli/reference.md#plugins).
+
 ## Headless runs
 
 ```bash

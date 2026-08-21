@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -106,6 +106,35 @@ describe('the discovery row', () => {
 		expect(row?.attributes['namzu.discovery.kind']).toBe('connector')
 		expect(row?.attributes['namzu.discovery.count']).toBe(0)
 		expect(row?.attributes['namzu.discovery.tool_count']).toBe(0)
+	})
+
+	it('reports enabled plugin discovery separately from connectors', async () => {
+		const records = capturingSink()
+		const work = cwd()
+		const plugin = join(work, '.namzu', 'plugins', 'fixture')
+		mkdirSync(plugin, { recursive: true })
+		writeFileSync(
+			join(plugin, 'plugin.json'),
+			JSON.stringify({
+				name: 'fixture',
+				version: '1.0.0',
+				description: 'boot record fixture',
+			}),
+		)
+		const s = await createAgentSession(
+			{ version: 3, providers: [{ id: 'anthropic' }] } as never,
+			detectedAnthropic,
+			{ cwd: work, plugins: { enabled: true, allowedScopes: ['project'] } },
+		)
+		open.push(s)
+
+		const row = records.find(
+			(r) =>
+				r.eventName === 'namzu.discovery.completed' &&
+				r.attributes['namzu.discovery.kind'] === 'plugin',
+		)
+		expect(row?.attributes['namzu.discovery.count']).toBe(1)
+		expect(row?.attributes['namzu.discovery.skill_count']).toBe(0)
 	})
 })
 

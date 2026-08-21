@@ -282,6 +282,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					rules: permissions.rules,
 					logging: resolvedCtx.logging,
 					...(resolvedCtx.config.mcpServers ? { mcpServers: resolvedCtx.config.mcpServers } : {}),
+					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
 				}

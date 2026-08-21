@@ -37,6 +37,7 @@ describe('configuration provenance reaches the TUI launch', () => {
 			JSON.stringify({
 				profiles: { ci: { format: 'json', quiet: false } },
 				permissions: { bash: { '*': 'ask' } },
+				plugins: { enabled: true, allowedScopes: ['project'] },
 			}),
 		)
 		vi.spyOn(process, 'cwd').mockReturnValue(cwd)
@@ -55,6 +56,7 @@ describe('configuration provenance reaches the TUI launch', () => {
 		expect(trusted).toEqual(
 			expect.objectContaining({
 				cwd,
+				plugins: { enabled: true, allowedScopes: ['project'] },
 				configDebug: expect.objectContaining({
 					selectedProfile: { name: 'ci', selectedBy: '--profile' },
 					sources: expect.objectContaining({

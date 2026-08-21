@@ -120,6 +120,27 @@ for (const pluginDir of pluginDirs.project) {
 }
 ```
 
+### The CLI host path
+
+`@namzu/cli` can construct this lifecycle on behalf of an operator. Its
+top-level `plugins` config remains disabled unless `enabled` is exactly `true`,
+and it forwards `autoDiscovery`, `allowedScopes`, and `hookTimeoutMs` to the
+same SDK boundaries shown here. The CLI mounts a host-owned `SkillRegistry`
+and `SkillTool`, passes the manager, registry, and current skill manifest into
+both fresh queries and durable resumes, and uninstalls the runtime only after
+the session's live provider operations settle.
+
+The project directory is discovered only after the CLI trust gate pins its
+real path. Plugin settings cannot be selected through an environment variable
+or a named profile, so ambient shell state cannot turn JavaScript imports on.
+If a later plugin refuses, contributions from earlier plugins are uninstalled
+in reverse order; if plugin startup refuses after ordinary MCP connectors were
+opened, those connectors are closed before the candidate session is rejected.
+
+This CLI integration currently belongs to the top-level agent session.
+Delegated child agents build separate registries and do not inherit plugin
+tools, skills, or hooks.
+
 ### Restricting where plugins may come from
 
 `discoverAllPluginDirs` scans two locations: `.namzu/plugins` under the working
