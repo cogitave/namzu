@@ -110,6 +110,57 @@ describe('what an extension is shown about a model call', () => {
 		expect(response?.usage).toMatchObject({ promptTokens: 11, completionTokens: 4 })
 	})
 
+	it('threads one run-owned cancellation signal through every lifecycle hook', async () => {
+		const seen: Seen[] = []
+		const tools = new ToolRegistry()
+		tools.register({
+			name: 'lookup',
+			description: 'look something up',
+			inputSchema: z.object({}),
+			execute: () => Promise.resolve({ success: true, output: 'found it' }),
+		})
+		await drainQuery({
+			provider: new MockLLMProvider({
+				turns: [{ toolCalls: [{ name: 'lookup', args: {} }] }, { text: 'done' }],
+			}),
+			tools,
+			agentId: 'a',
+			agentName: 'A',
+			messages: [{ role: 'user', content: 'look it up' }],
+			workingDirectory: process.cwd(),
+			runConfig: {
+				model: 'mock-model',
+				tokenBudget: 100_000,
+				timeoutMs: 30_000,
+				maxIterations: 3,
+				maxResponseTokens: 512,
+			},
+			projectId: generateProjectId(),
+			sessionId: generateSessionId(),
+			topicId: generateTopicId(),
+			tenantId: generateTenantId(),
+			pluginManager: recordingManager(seen),
+		})
+
+		const expected = [
+			'run_start',
+			'iteration_start',
+			'pre_llm_call',
+			'post_llm_call',
+			'pre_tool_use',
+			'post_tool_use',
+			'iteration_end',
+			'run_end',
+		] satisfies PluginHookEvent[]
+		const firstSignal = seen[0]?.ctx.signal
+		expect(firstSignal).toBeInstanceOf(AbortSignal)
+		for (const event of expected) {
+			const contexts = seen.filter((entry) => entry.event === event).map((entry) => entry.ctx)
+			expect(contexts.length, `${event} was not reached`).toBeGreaterThan(0)
+			for (const context of contexts) expect(context.signal, event).toBe(firstSignal)
+		}
+	})
+
 	it('refuses a hook that writes into the request', async () => {
 		// One hook shaping the request for the next would make the outcome
 		// depend on registration order, and the last one registered would

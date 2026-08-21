@@ -368,7 +368,22 @@ neither declared nor stable. Convention is guards below 100, observers above.
 
 The default hook timeout is five seconds unless you override `hookTimeoutMs`.
 
-That means plugin hooks should be fast, bounded, and deliberate. They are runtime controls, not background jobs.
+The `context.signal` passed to every hook combines that deadline with the
+owning run's cancellation signal. A signal already aborted starts no hook. If
+Stop arrives while a hook is pending, the runtime stops waiting immediately,
+settles the run as cancelled rather than as a plugin failure, and publishes no
+completed-hook event for the abandoned result. The same run-owned signal is
+used at all eight hook sites, including tool and model calls.
+
+That signal is a cooperative boundary for the plugin's own code. Namzu can
+stop awaiting an in-process JavaScript promise, but it cannot kill JavaScript
+that deliberately ignores cancellation. Hook I/O must forward
+`context.signal`, and code that publishes an external side effect must check it
+again after an await. A late return value is ignored; an uncooperative side
+effect cannot be revoked without moving the plugin into a worker or process.
+
+That means plugin hooks should be fast, bounded, cancellation-aware, and
+deliberate. They are runtime controls, not background jobs.
 
 ## 7. Plugin-Managed MCP Servers
 

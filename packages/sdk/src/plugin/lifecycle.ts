@@ -595,6 +595,8 @@ export class PluginLifecycleManager {
 		context: Omit<PluginHookContext, 'pluginId' | 'event'>,
 		emitRunEvent?: (event: RunEvent) => Promise<void>,
 	): Promise<PluginHookResult[]> {
+		const callerSignal = context.signal
+		callerSignal?.throwIfAborted()
 		const handlers = this.hookHandlers.get(event)
 		if (!handlers || handlers.length === 0) {
 			return []
@@ -639,6 +641,7 @@ export class PluginLifecycleManager {
 					pluginId,
 					hookEvent: event,
 				})
+				callerSignal?.throwIfAborted()
 			}
 
 			const start = performance.now()
@@ -652,11 +655,15 @@ export class PluginLifecycleManager {
 			// until the last one expired. Nothing failed — it just hung, for
 			// up to the timeout, every time.
 			const deadline = new AbortController()
+			const hookSignal = callerSignal
+				? AbortSignal.any([callerSignal, deadline.signal])
+				: deadline.signal
 			let timer: ReturnType<typeof setTimeout> | undefined
+			let onCallerAbort: (() => void) | undefined
 
 			try {
-				result = await Promise.race([
-					handlerFn({ ...hookContext, signal: deadline.signal }),
+				const races: Promise<PluginHookResult>[] = [
+					Promise.resolve().then(() => handlerFn({ ...hookContext, signal: hookSignal })),
 					new Promise<PluginHookResult>((_, reject) => {
 						timer = setTimeout(() => {
 							// Told, not just abandoned: a hook holding a socket
@@ -665,14 +672,33 @@ export class PluginLifecycleManager {
 							reject(new Error('Hook timeout'))
 						}, this.hookTimeoutMs)
 					}),
-				])
+				]
+				if (callerSignal) {
+					races.push(
+						new Promise<PluginHookResult>((_, reject) => {
+							onCallerAbort = () => reject(callerSignal.reason)
+							callerSignal.addEventListener('abort', onCallerAbort, {
+								once: true,
+							})
+							if (callerSignal.aborted) onCallerAbort()
+						}),
+					)
+				}
+				result = await Promise.race(races)
+				callerSignal?.throwIfAborted()
 			} catch (err) {
+				// Cancellation belongs to the run, not to the plugin. Turning it
+				// into a hook error would let the query continue after its caller
+				// withdrew authority and would report Stop as a plugin failure.
+				if (callerSignal?.aborted) throw callerSignal.reason
 				const message = toErrorMessage(err)
 				result = { action: 'error', message }
 			} finally {
 				if (timer !== undefined) clearTimeout(timer)
+				if (onCallerAbort) callerSignal?.removeEventListener('abort', onCallerAbort)
 			}
 
+			callerSignal?.throwIfAborted()
 			const durationMs = Math.round(performance.now() - start)
 
 			this.emit({
@@ -683,6 +709,7 @@ export class PluginLifecycleManager {
 			})
 
 			if (emitRunEvent) {
+				callerSignal?.throwIfAborted()
 				await emitRunEvent({
 					type: 'plugin_hook_completed',
 					runId: context.runId,
@@ -690,6 +717,7 @@ export class PluginLifecycleManager {
 					hookEvent: event,
 					result,
 				})
+				callerSignal?.throwIfAborted()
 			}
 
 			results.push(result)

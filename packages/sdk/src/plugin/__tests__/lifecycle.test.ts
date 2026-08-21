@@ -89,6 +89,81 @@ describe('PluginLifecycleManager', () => {
 			expect(hook2Handler).toHaveBeenCalled()
 		})
 
+		it('refuses a pre-aborted run before a hook or event starts', async () => {
+			const reason = new Error('operator stopped before the hook')
+			const caller = new AbortController()
+			caller.abort(reason)
+			const handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
+			const emitRunEvent = vi.fn(async () => {})
+			manager.registerHook(mockPluginId, { event: 'pre_llm_call', handler })
+
+			await expect(
+				manager.executeHooks(
+					'pre_llm_call',
+					{ runId: mockRunId, signal: caller.signal },
+					emitRunEvent,
+				),
+			).rejects.toBe(reason)
+			expect(handler).not.toHaveBeenCalled()
+			expect(emitRunEvent).not.toHaveBeenCalled()
+		})
+
+		it('propagates caller cancellation even when the hook ignores its signal', async () => {
+			const reason = new Error('operator stopped during the hook')
+			const caller = new AbortController()
+			let enter!: () => void
+			const entered = new Promise<void>((resolve) => {
+				enter = resolve
+			})
+			let release!: (result: PluginHookResult) => void
+			const held = new Promise<PluginHookResult>((resolve) => {
+				release = resolve
+			})
+			let hookSignal: AbortSignal | undefined
+			const handler = vi.fn((context: PluginHookContext) => {
+				hookSignal = context.signal
+				enter()
+				return held
+			})
+			const emitted: string[] = []
+			manager.registerHook(mockPluginId, { event: 'pre_llm_call', handler })
+
+			const execution = manager.executeHooks(
+				'pre_llm_call',
+				{ runId: mockRunId, signal: caller.signal },
+				async (event) => {
+					emitted.push(event.type)
+				},
+			)
+			await entered
+			caller.abort(reason)
+
+			const safety = Symbol('hook cancellation did not settle')
+			const outcome = await Promise.race([
+				execution.then(
+					(value) => ({ kind: 'resolved' as const, value }),
+					(error: unknown) => ({ kind: 'rejected' as const, error }),
+				),
+				new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 250)),
+			])
+			try {
+				expect(outcome).not.toBe(safety)
+				if (outcome === safety) return
+				expect(outcome.kind).toBe('rejected')
+				if (outcome.kind === 'rejected') expect(outcome.error).toBe(reason)
+				expect(hookSignal?.aborted).toBe(true)
+				expect(hookSignal?.reason).toBe(reason)
+				expect(emitted).toEqual(['plugin_hook_executing'])
+
+				release({ action: 'continue' })
+				await Promise.resolve()
+				expect(emitted).toEqual(['plugin_hook_executing'])
+			} finally {
+				release({ action: 'continue' })
+				await execution.catch(() => {})
+			}
+		})
+
 		it('should handle hook timeout', async () => {
 			const slowHandler = vi.fn(
 				() =>

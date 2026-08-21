@@ -175,12 +175,14 @@ export interface PluginHookContext {
 	 */
 	readonly response?: Readonly<PluginModelResponse>
 	/**
-	 * Aborts when this hook's deadline expires.
+	 * Aborts when this hook's run is cancelled or its deadline expires.
 	 *
-	 * The runtime stops waiting on a slow hook either way, but without a
-	 * signal the hook itself never learns it was abandoned: an HTTP request
-	 * inside it keeps a socket open and its eventual result is written into
-	 * a run that moved on without it. A hook doing I/O should forward this.
+	 * The runtime stops waiting on a slow hook either way, but in-process
+	 * JavaScript cannot be forcibly stopped. Without a signal the hook itself
+	 * never learns it was abandoned: an HTTP request inside it keeps a socket
+	 * open and its eventual side effects can happen after the run moved on. A
+	 * hook doing I/O must forward this signal and stop publishing when it
+	 * aborts.
 	 */
 	readonly signal?: AbortSignal
 }

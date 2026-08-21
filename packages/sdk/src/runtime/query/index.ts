@@ -2179,7 +2179,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			if (params.pluginManager) {
 				const hookResults = await params.pluginManager.executeHooks(
 					'run_start',
-					{ runId: ctx.runId },
+					{ runId: ctx.runId, signal: ctx.abortController.signal },
 					eventTranslator.emitEvent,
 				)
 				applyLifecycleHookResults('run_start', hookResults)
@@ -2374,7 +2374,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			if (params.pluginManager) {
 				const hookResults = await params.pluginManager.executeHooks(
 					'run_end',
-					{ runId: ctx.runId },
+					{ runId: ctx.runId, signal: ctx.abortController.signal },
 					eventTranslator.emitEvent,
 				)
 				applyLifecycleHookResults('run_end', hookResults)

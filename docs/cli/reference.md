@@ -164,6 +164,11 @@ After publication the old gauge disappears with the superseded history; the
 next model request supplies a fresh context measurement rather than the shell
 presenting the pre-compaction percentage as current.
 
+Manual compaction is owned by the same live session as a model turn. Replacing
+or closing that session cancels and settles the pass before its provider and
+tool-server resources are released; a compaction request made after close is
+refused before provider work starts.
+
 Automatic compaction updates that same gauge at the moment the kernel commits
 its edit, before it starts the next model request. The cumulative token and cost
 figures do not fall, but the context percentage does and is marked approximate
@@ -398,7 +403,10 @@ a prompt settles it even while provider, tool-server or sandbox startup is
 still pending; any candidate that arrives later is closed instead of used.
 Cancellation also revokes its pending permission question: a late approval
 cannot affect the next turn, and the stopped prompt reports `cancelled` rather
-than `error`.
+than `error`. Connection shutdown likewise cancels and settles every live
+send, manual compaction and durable resume before closing that session's
+external tool servers; a session never tears resources out from under its own
+run.
 
 ## Headless runs
 

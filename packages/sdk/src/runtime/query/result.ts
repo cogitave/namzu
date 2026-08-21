@@ -1,7 +1,7 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
-import { isProviderRequestError } from '../../provider/errors.js'
+import { isCallerAbortError, isProviderRequestError } from '../../provider/errors.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { GENAI, NAMZU } from '../../telemetry/attributes.js'
 import { explainError } from '../../types/errors/catalog.js'
@@ -122,6 +122,17 @@ export class ResultAssembler {
 
 	async *handleError(err: unknown, rootSpan: Span): AsyncGenerator<RunEvent> {
 		const { runMgr, planManager, log, emitEvent, drainPending } = this.config
+		if (isCallerAbortError(err, this.config.signal)) {
+			// Cancellation may happen before the iteration loop owns control —
+			// project preparation, a run-start hook and a pre-model hook all sit
+			// outside its catch. The loop already settles its own aborts, but an
+			// abort escaping one of these boundaries reached the outer catch and
+			// was historically rewritten as a run failure. Preserve the caller's
+			// control-flow verdict and let the normal terminal-event path report it.
+			runMgr.markCancelled()
+			yield* this.completeRun(rootSpan)
+			return
+		}
 		const errorMessage = toErrorMessage(err)
 		// The classifier at the provider boundary already walked the cause
 		// chain over status, errno and `Retry-After`, so a fully-populated

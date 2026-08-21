@@ -342,7 +342,11 @@ export class IterationOrchestrator {
 					if (this.ctx.pluginManager) {
 						const hookResults = await this.ctx.pluginManager.executeHooks(
 							'iteration_start',
-							{ runId: runMgr.id, iteration: iterationNum },
+							{
+								runId: runMgr.id,
+								iteration: iterationNum,
+								signal: this.ctx.abortController.signal,
+							},
 							this.ctx.emitEvent,
 						)
 						applyLifecycleHookResults('iteration_start', hookResults)
@@ -501,6 +505,7 @@ export class IterationOrchestrator {
 							{
 								runId: runMgr.id,
 								iteration: iterationNum,
+								signal: this.ctx.abortController.signal,
 								// Built inside the guard: a run with no plugins installed
 								// pays nothing for a projection nobody reads.
 								request: Object.freeze({
@@ -645,6 +650,7 @@ export class IterationOrchestrator {
 							{
 								runId: runMgr.id,
 								iteration: iterationNum,
+								signal: this.ctx.abortController.signal,
 								response: Object.freeze({
 									content: response.message.content,
 									toolNames: Object.freeze(
@@ -1196,7 +1202,11 @@ export class IterationOrchestrator {
 					if (this.ctx.pluginManager) {
 						const hookResults = await this.ctx.pluginManager.executeHooks(
 							'iteration_end',
-							{ runId: runMgr.id, iteration: iterationNum },
+							{
+								runId: runMgr.id,
+								iteration: iterationNum,
+								signal: this.ctx.abortController.signal,
+							},
 							this.ctx.emitEvent,
 						)
 						applyLifecycleHookResults('iteration_end', hookResults)

@@ -366,6 +366,9 @@ export interface AgentSession {
 	 * summary would cost a model call and save nothing. That is a real answer
 	 * and the caller says so, rather than reporting a compaction that did not
 	 * happen.
+	 *
+	 * Session close cancels and settles an in-flight pass before releasing the
+	 * provider/tool resources it may still use.
 	 */
 	readonly compact: (messages: readonly Message[]) => Promise<CompactionResult | null>
 	readonly errorHint: string | null
@@ -485,11 +488,13 @@ export interface AgentSession {
 	 */
 	resumeDurable(params: ResumeDurableParams): Promise<ResumeOutcome>
 	/**
-	 * Release what the session holds — today, the external tool servers.
+	 * Cancel and settle live sends, compactions and durable resumes, then release
+	 * what the session holds — today, the external tool servers.
 	 *
-	 * A stdio server is a CHILD PROCESS, and nothing else in this package owned
-	 * one, which is why a session had no shutdown path at all. Idempotent, and
-	 * safe to call on a session that connected nothing.
+	 * A stdio server is a CHILD PROCESS, and closing it while a live run still
+	 * owns one of its tools is a use-after-close race. Idempotent, waits for the
+	 * operations it cancelled, and safe to call on a session that connected
+	 * nothing. Calls made after close refuse before provider work starts.
 	 */
 	close(): Promise<void>
 }
@@ -545,6 +550,185 @@ async function observeWithSignal<T>(operation: PromiseLike<T>, signal: AbortSign
 	} finally {
 		signal.removeEventListener('abort', onAbort)
 	}
+}
+
+/**
+ * Own every asynchronous operation that can still touch a session resource.
+ *
+ * A caller-owned signal remains caller-owned: closing the session aborts the
+ * fused operation signal, never the controller the caller passed. Streams are
+ * registered when handed out rather than when first pulled, so a consumer that
+ * abandons one between yields cannot leave the session's provider/tool owners
+ * alive past `close()`.
+ */
+export class SessionOperationOwner {
+	private readonly lifetime = new AbortController()
+	private readonly active = new Set<Promise<void>>()
+	private readonly streamClosers = new Set<() => Promise<void>>()
+	private readonly closeReason = new DOMException('Agent session closed.', 'AbortError')
+	private closed = false
+	private closePromise: Promise<void> | undefined
+
+	constructor(private readonly cleanup: () => Promise<void>) {}
+
+	promise<T>(
+		callerSignal: AbortSignal | undefined,
+		start: (signal: AbortSignal) => Promise<T>,
+	): Promise<T> {
+		let signal: AbortSignal
+		try {
+			signal = this.operationSignal(callerSignal)
+		} catch (error) {
+			return Promise.reject(error)
+		}
+
+		const operation = Promise.resolve().then(() => {
+			signal.throwIfAborted()
+			return start(signal)
+		})
+		this.track(operation)
+		return operation
+	}
+
+	stream<T>(
+		callerSignal: AbortSignal | undefined,
+		start: (signal: AbortSignal) => AsyncIterable<T>,
+	): AsyncIterable<T> {
+		let signal: AbortSignal
+		try {
+			signal = this.operationSignal(callerSignal)
+		} catch (error) {
+			return {
+				[Symbol.asyncIterator]() {
+					return {
+						next: () => Promise.reject(error),
+					}
+				},
+			}
+		}
+
+		const source = (async function* () {
+			signal.throwIfAborted()
+			yield* start(signal)
+		})()[Symbol.asyncIterator]()
+		let settled = false
+		let settle!: () => void
+		const settlement = new Promise<void>((resolve) => {
+			settle = resolve
+		})
+		let operationTail = Promise.resolve()
+		let returnStarted = false
+		let closeStreamPromise: Promise<void> | undefined
+		const finish = () => {
+			if (settled) return
+			settled = true
+			this.streamClosers.delete(closeStream)
+			settle()
+		}
+		const enqueue = <R>(operation: () => Promise<R>): Promise<R> => {
+			const result = operationTail.then(operation)
+			operationTail = result.then(
+				() => {},
+				() => {},
+			)
+			return result
+		}
+		const observe = async (
+			operation: () => Promise<IteratorResult<T>>,
+		): Promise<IteratorResult<T>> => {
+			try {
+				const result = await enqueue(operation)
+				if (result.done) finish()
+				return result
+			} catch (error) {
+				finish()
+				throw error
+			}
+		}
+		const requestReturn = (value?: unknown): Promise<IteratorResult<T>> => {
+			return observe(async () => {
+				returnStarted = true
+				return source.return
+					? await source.return(value as never)
+					: ({ done: true, value } as IteratorResult<T>)
+			})
+		}
+		const closeStream = (): Promise<void> => {
+			if (closeStreamPromise) return closeStreamPromise
+			closeStreamPromise = (async () => {
+				try {
+					await enqueue(async () => {
+						if (settled) return
+						let result: IteratorResult<T>
+						if (returnStarted) {
+							result = await source.next()
+						} else if (source.return) {
+							returnStarted = true
+							result = await source.return(undefined as never)
+						} else {
+							return
+						}
+						while (!result.done) result = await source.next()
+					})
+				} finally {
+					finish()
+				}
+			})()
+			return closeStreamPromise
+		}
+		const managed: AsyncIterableIterator<T> = {
+			next: (value?: unknown) => observe(() => source.next(value as never)),
+			return: requestReturn,
+			throw: (error?: unknown) =>
+				observe(async () => {
+					if (source.throw) return await source.throw(error)
+					throw error
+				}),
+			[Symbol.asyncIterator]() {
+				return this
+			},
+		}
+
+		this.streamClosers.add(closeStream)
+		this.track(settlement)
+		return managed
+	}
+
+	close(): Promise<void> {
+		if (this.closePromise) return this.closePromise
+		this.closed = true
+		this.lifetime.abort(this.closeReason)
+		this.closePromise = this.finishClose()
+		return this.closePromise
+	}
+
+	private operationSignal(callerSignal: AbortSignal | undefined): AbortSignal {
+		if (this.closed) throw this.closeReason
+		return callerSignal
+			? AbortSignal.any([callerSignal, this.lifetime.signal])
+			: this.lifetime.signal
+	}
+
+	private track(operation: PromiseLike<unknown>): void {
+		const settlement = Promise.resolve(operation).then(
+			() => {},
+			() => {},
+		)
+		this.active.add(settlement)
+		void settlement.then(() => this.active.delete(settlement))
+	}
+
+	private async finishClose(): Promise<void> {
+		await Promise.allSettled([...this.streamClosers].map((close) => close()))
+		await Promise.allSettled([...this.active])
+		await this.cleanup()
+	}
+}
+
+async function drainIterator(iterator: AsyncIterator<unknown>): Promise<void> {
+	if (!iterator.return) return
+	let result = await iterator.return(undefined as never)
+	while (!result.done) result = await iterator.next()
 }
 
 /**
@@ -1150,6 +1334,7 @@ export async function createAgentSession(
 	cliLogger().info('agent session ready', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_READY,
 	})
+	const operations = new SessionOperationOwner(() => mcp.close())
 	return {
 		hasProvider: true,
 		sandbox: {
@@ -1161,12 +1346,15 @@ export async function createAgentSession(
 		providerSummary: entry.label,
 		modelSummary: model,
 		compact: (messages) =>
-			compactNow({
-				messages,
-				config: COMPACTION_CONFIG,
-				provider,
-				model,
-			}),
+			operations.promise(undefined, (signal) =>
+				compactNow({
+					messages,
+					config: COMPACTION_CONFIG,
+					provider,
+					model,
+					signal,
+				}),
+			),
 		// Reads the same registry object the deferred registration mutates, at
 		// call time — the pair of `promptExemptTools` below, and for the same
 		// reason.
@@ -1191,175 +1379,181 @@ export async function createAgentSession(
 			),
 			...fallbackPlan.notices,
 		],
-		close: () => mcp.close(),
+		close: () => operations.close(),
 		errorHint: null,
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
 		approvalLatched: () => approval.all,
 		promptExemptTools: () =>
 			promptExemptToolNames(registry).filter((name) => !goalToolNames.has(name)),
-		send: async function* (messages, opts) {
-			// Renew a lapsed OAuth token before the turn runs (no-op for valid
-			// tokens and non-subscription credentials).
-			await refreshTokenIfNeeded(opts?.signal)
-			// namzu identity first (so it establishes who the agent is even when
-			// the credential layer prepends whatever prefix its token requires),
-			// then memory and per-turn extra context. Project instructions are a
-			// separate retained user-context snapshot prepared by the controller;
-			// that is what lets nested scopes be replaced and persisted safely.
-			//
-			// The environment block is read fresh every turn because both facts in it
-			// can change WHILE the session
-			// runs — midnight passes, and the agent checks out a branch itself.
-			// Its text only changes when a fact changes, so it costs a prompt-cache
-			// miss exactly when a hit would have been a stale claim.
-			const memoryPrompt = composeMemoryPrompt(readMemory())
-			const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
-			const systemPrompt =
-				[NAMZU_IDENTITY, environmentPrompt, memoryPrompt, opts?.extraSystem]
-					.filter((s): s is string => Boolean(s))
-					.join('\n\n') || undefined
-			let capturedAuthority: GoalRoundAuthority | undefined
-			if (opts?.goalRound) {
-				if (!opts.runId) throw new Error('A goal round requires a caller-reserved runId.')
-				if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
-				if (
-					opts.goalRound.sessionId !== scope.sessionId ||
-					opts.goalRound.tenantId !== scope.tenantId
-				) {
-					throw new Error('Goal-round authority does not belong to this agent session scope.')
-				}
-				const current = await options.sessionGoals.getGoal(scope.sessionId, scope.tenantId)
-				if (
-					!current ||
-					current.phase !== 'active' ||
-					current.id !== opts.goalRound.id ||
-					current.revision !== opts.goalRound.revision ||
-					current.objective !== opts.goalRound.objective ||
-					current.roundsAdmitted !== opts.goalRound.round ||
-					current.maxGoalRounds !== opts.goalRound.maxGoalRounds
-				) {
-					throw new Error('Goal-round authority is stale or does not match the durable goal.')
-				}
-				if (goalAuthorities.has(opts.runId)) {
-					throw new Error(`Run ${opts.runId} already owns goal-round authority.`)
-				}
-				capturedAuthority = Object.freeze({ ...opts.goalRound })
-				goalAuthorities.set(opts.runId, capturedAuthority)
-			}
-			try {
-				yield* runTurn({
+		send: (messages, opts) =>
+			operations.stream(opts?.signal, (signal) =>
+				(async function* () {
+					// Renew a lapsed OAuth token before the turn runs (no-op for valid
+					// tokens and non-subscription credentials).
+					await refreshTokenIfNeeded(signal)
+					// namzu identity first (so it establishes who the agent is even when
+					// the credential layer prepends whatever prefix its token requires),
+					// then memory and per-turn extra context. Project instructions are a
+					// separate retained user-context snapshot prepared by the controller;
+					// that is what lets nested scopes be replaced and persisted safely.
+					//
+					// The environment block is read fresh every turn because both facts in it
+					// can change WHILE the session
+					// runs — midnight passes, and the agent checks out a branch itself.
+					// Its text only changes when a fact changes, so it costs a prompt-cache
+					// miss exactly when a hit would have been a stale claim.
+					const memoryPrompt = composeMemoryPrompt(readMemory())
+					const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
+					const systemPrompt =
+						[NAMZU_IDENTITY, environmentPrompt, memoryPrompt, opts?.extraSystem]
+							.filter((s): s is string => Boolean(s))
+							.join('\n\n') || undefined
+					let capturedAuthority: GoalRoundAuthority | undefined
+					if (opts?.goalRound) {
+						if (!opts.runId) throw new Error('A goal round requires a caller-reserved runId.')
+						if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
+						if (
+							opts.goalRound.sessionId !== scope.sessionId ||
+							opts.goalRound.tenantId !== scope.tenantId
+						) {
+							throw new Error('Goal-round authority does not belong to this agent session scope.')
+						}
+						const current = await options.sessionGoals.getGoal(scope.sessionId, scope.tenantId)
+						if (
+							!current ||
+							current.phase !== 'active' ||
+							current.id !== opts.goalRound.id ||
+							current.revision !== opts.goalRound.revision ||
+							current.objective !== opts.goalRound.objective ||
+							current.roundsAdmitted !== opts.goalRound.round ||
+							current.maxGoalRounds !== opts.goalRound.maxGoalRounds
+						) {
+							throw new Error('Goal-round authority is stale or does not match the durable goal.')
+						}
+						if (goalAuthorities.has(opts.runId)) {
+							throw new Error(`Run ${opts.runId} already owns goal-round authority.`)
+						}
+						capturedAuthority = Object.freeze({ ...opts.goalRound })
+						goalAuthorities.set(opts.runId, capturedAuthority)
+					}
+					try {
+						yield* runTurn({
+							provider,
+							// Constructed HERE, per turn, and that is not an optimisation to
+							// undo. `refreshTokenIfNeeded` above replaces the head's client
+							// object when an OAuth token rotates, so a member list built once at
+							// session creation would hand the kernel a client holding a token
+							// that expired hours ago — and a chain whose own members are stale
+							// is a fallback that fails for the reason the fallback exists to
+							// survive. Building a driver is a client object, not a request.
+							fallbackProviders: fallbackPlan.build(currentToken),
+							model,
+							tools: registry,
+							scope,
+							workingDirectory: cwd,
+							rules: options.rules,
+							permissionMode: options.permissionMode,
+							reviewAnswer: options.reviewAnswer,
+							maxAnswerReviews: options.maxAnswerReviews,
+							promoteMemory,
+							approval,
+							taskStore,
+							systemPrompt,
+							messages,
+							projectInstructionContext: projectInstructions.createRunContext(),
+							opts: { ...opts, signal },
+							taskGateway: subagentGateway,
+							onRunEvent: options.onRunEvent,
+							childSteps,
+							...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
+							...(options.sandbox?.teardownTimeoutMs !== undefined
+								? {
+										sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs,
+									}
+								: {}),
+						})
+					} finally {
+						if (
+							opts?.runId &&
+							capturedAuthority &&
+							goalAuthorities.get(opts.runId) === capturedAuthority
+						) {
+							goalAuthorities.delete(opts.runId)
+						}
+					}
+				})(),
+			),
+		resumeDurable: ({ entry, checkpointStore, claimFence, signal }) =>
+			operations.promise(signal, async (ownedSignal) => {
+				// The same prelude a turn runs, and for the same reasons: a lapsed
+				// OAuth token has to be renewed before the provider is used, and the
+				// fallback chain has to be built AFTER that so its members do not
+				// hold a client the refresh just replaced.
+				await refreshTokenIfNeeded(ownedSignal)
+				const memoryPrompt = composeMemoryPrompt(readMemory())
+				const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
+				const systemPrompt =
+					[NAMZU_IDENTITY, environmentPrompt, memoryPrompt]
+						.filter((s): s is string => Boolean(s))
+						.join('\n\n') || undefined
+
+				return resumeRun({
 					provider,
-					// Constructed HERE, per turn, and that is not an optimisation to
-					// undo. `refreshTokenIfNeeded` above replaces the head's client
-					// object when an OAuth token rotates, so a member list built once at
-					// session creation would hand the kernel a client holding a token
-					// that expired hours ago — and a chain whose own members are stale
-					// is a fallback that fails for the reason the fallback exists to
-					// survive. Building a driver is a client object, not a request.
 					fallbackProviders: fallbackPlan.build(currentToken),
-					model,
 					tools: registry,
-					scope,
-					workingDirectory: cwd,
-					rules: options.rules,
-					permissionMode: options.permissionMode,
-					reviewAnswer: options.reviewAnswer,
-					maxAnswerReviews: options.maxAnswerReviews,
-					promoteMemory,
-					approval,
 					taskStore,
-					systemPrompt,
-					messages,
+					...(subagentGateway ? { taskGateway: subagentGateway } : {}),
+					authorizationGate: gateFor(options.rules),
+					compactionConfig: COMPACTION_CONFIG,
 					projectInstructionContext: projectInstructions.createRunContext(),
-					opts,
-					taskGateway: subagentGateway,
-					onRunEvent: options.onRunEvent,
-					childSteps,
 					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 					...(options.sandbox?.teardownTimeoutMs !== undefined
 						? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
 						: {}),
+					// NOT `emergencySave`, unlike a turn. The manager is a singleton
+					// whose `attach` detaches whoever held it before, so a caller
+					// resuming several runs in one process would leave only the last
+					// one covered — and would look covered. A turn owns its process
+					// end to end; a drainer does not.
+					runConfig: {
+						model,
+						timeoutMs: 600_000,
+						tokenBudget: 1_000_000,
+						maxIterations: 50,
+						maxResponseTokens: 8192,
+						permissionMode: 'auto',
+					},
+					agentId: 'namzu',
+					agentName: 'namzu',
+					...(systemPrompt ? { systemPrompt } : {}),
+					workingDirectory: cwd,
+					// No `onPermission`: there is nobody at a drainer's terminal, so a
+					// prompt would block the pass forever on a run nobody is watching.
+					// The gate's deny rules still apply.
+					// One presenter for the whole stream, built from the registry this
+					// scope already holds. It was the absence of the registry HERE that
+					// forced presentation to be name matching: `toAgentEvent` was pure
+					// over a `RunEvent` and could not ask a tool anything.
+					resumeHandler: makeResumeHandler(approval, undefined, options.permissionMode, (n, i) =>
+						isPromptExempt(registry, n, i),
+					),
+					signal: ownedSignal,
+					// Attribution comes from the ENTRY, not from this session: the run
+					// belongs to whoever started it, and stamping the drainer's ids onto
+					// it would file another tenant's work under this one.
+					tenantId: entry.tenantId,
+					projectId: entry.projectId,
+					sessionId: entry.sessionId,
+					// …except the topic, which no checkpoint records — see
+					// `RunStateScope`. This one is the drainer's, and honestly so:
+					// supplied here rather than pretended to have been recovered.
+					topicId: scope.topicId,
+					scope: { ...entry, topicId: scope.topicId },
+					checkpointStore,
+					...(claimFence !== undefined ? { claimFence } : {}),
 				})
-			} finally {
-				if (
-					opts?.runId &&
-					capturedAuthority &&
-					goalAuthorities.get(opts.runId) === capturedAuthority
-				) {
-					goalAuthorities.delete(opts.runId)
-				}
-			}
-		},
-		resumeDurable: async ({ entry, checkpointStore, claimFence, signal }) => {
-			// The same prelude a turn runs, and for the same reasons: a lapsed
-			// OAuth token has to be renewed before the provider is used, and the
-			// fallback chain has to be built AFTER that so its members do not
-			// hold a client the refresh just replaced.
-			await refreshTokenIfNeeded(signal)
-			const memoryPrompt = composeMemoryPrompt(readMemory())
-			const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
-			const systemPrompt =
-				[NAMZU_IDENTITY, environmentPrompt, memoryPrompt]
-					.filter((s): s is string => Boolean(s))
-					.join('\n\n') || undefined
-
-			return resumeRun({
-				provider,
-				fallbackProviders: fallbackPlan.build(currentToken),
-				tools: registry,
-				taskStore,
-				...(subagentGateway ? { taskGateway: subagentGateway } : {}),
-				authorizationGate: gateFor(options.rules),
-				compactionConfig: COMPACTION_CONFIG,
-				projectInstructionContext: projectInstructions.createRunContext(),
-				...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
-				...(options.sandbox?.teardownTimeoutMs !== undefined
-					? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
-					: {}),
-				// NOT `emergencySave`, unlike a turn. The manager is a singleton
-				// whose `attach` detaches whoever held it before, so a caller
-				// resuming several runs in one process would leave only the last
-				// one covered — and would look covered. A turn owns its process
-				// end to end; a drainer does not.
-				runConfig: {
-					model,
-					timeoutMs: 600_000,
-					tokenBudget: 1_000_000,
-					maxIterations: 50,
-					maxResponseTokens: 8192,
-					permissionMode: 'auto',
-				},
-				agentId: 'namzu',
-				agentName: 'namzu',
-				...(systemPrompt ? { systemPrompt } : {}),
-				workingDirectory: cwd,
-				// No `onPermission`: there is nobody at a drainer's terminal, so a
-				// prompt would block the pass forever on a run nobody is watching.
-				// The gate's deny rules still apply.
-				// One presenter for the whole stream, built from the registry this
-				// scope already holds. It was the absence of the registry HERE that
-				// forced presentation to be name matching: `toAgentEvent` was pure
-				// over a `RunEvent` and could not ask a tool anything.
-				resumeHandler: makeResumeHandler(approval, undefined, options.permissionMode, (n, i) =>
-					isPromptExempt(registry, n, i),
-				),
-				...(signal ? { signal } : {}),
-				// Attribution comes from the ENTRY, not from this session: the run
-				// belongs to whoever started it, and stamping the drainer's ids onto
-				// it would file another tenant's work under this one.
-				tenantId: entry.tenantId,
-				projectId: entry.projectId,
-				sessionId: entry.sessionId,
-				// …except the topic, which no checkpoint records — see
-				// `RunStateScope`. This one is the drainer's, and honestly so:
-				// supplied here rather than pretended to have been recovered.
-				topicId: scope.topicId,
-				scope: { ...entry, topicId: scope.topicId },
-				checkpointStore,
-				...(claimFence !== undefined ? { claimFence } : {}),
-			})
-		},
+			}),
 	}
 }
 
@@ -1981,7 +2175,7 @@ async function* runTurn({
 			// Manual iteration is what exposes the generator's Run return value.
 			// Preserve `for await`'s other guarantee too: a consumer that stops
 			// early must close the live query instead of abandoning its transport.
-			if (!settled) await events.return(undefined as never)
+			if (!settled) await drainIterator(events)
 		}
 	} catch (err) {
 		yield {

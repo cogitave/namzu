@@ -42,7 +42,7 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Personas.** YAML-defined identity, expertise, reflexes, and output format with inheritance — specialize a base persona by merging a single field, no prompt concatenation.
 - **Advisory system.** Mid-execution consultation with specialized advisors. Provider-agnostic: put a security advisor on Bedrock, an architecture advisor on OpenRouter, and let the main agent decide when to consult whom.
 - **Human-in-the-loop.** Structured plan review, per-tool approval with destructiveness flags, typed decision contracts, checkpoint/resume across sessions.
-- **Plugin system.** Lifecycle-hooked plugin loader with MCP contributions, tool contributions, and manifest-driven resolution.
+- **Plugin system.** Lifecycle-hooked plugin loader with skill, MCP and tool contributions, capability-gated installation, and manifest-driven resolution.
 - **Multi-tenant isolation from day one.** Connector registries, vaults, config, and stores are tenant-scoped. Two organizations can share a process without cross-contamination.
 - **Provider abstraction.** Seven drivers ship today, each its own package installed only if you use it, plus a scriptable mock pre-registered in the kernel. The `LLMProvider` interface is narrow enough that adding another is an afternoon. BYOK everywhere, no hidden hot paths for any vendor. Every run also applies a finite per-chunk silence bound inside retry and fallback, so a request that opened and then stopped producing cannot hold the lifecycle forever.
 - **Telemetry.** OpenTelemetry-native spans and metrics. Cost accounting (input tokens, output tokens, cached tokens, cache write tokens, cache discount) flows from the provider into per-run, per-tenant rollups.
@@ -99,7 +99,7 @@ exists to be checked against the source, not against anybody else.
 | File ownership | Edit locking so two concurrent writes cannot clobber |
 | Circuit breakers | On the internal bus |
 | Skills | Disclosure-tiered, separate from tools |
-| Plugins | Install, enable, disable, with a hook lifecycle |
+| Plugins | Capability-gated install, enable and disable, with skills and a hook lifecycle |
 | Vault / BYOK | Tenant-scoped |
 | Telemetry | OpenTelemetry natively, with GenAI conventions |
 | Provider lock-in | None; the driver is a config choice |
@@ -453,7 +453,17 @@ OpenTelemetry-native. The SDK's telemetry constants define the correlation keys 
 
 ### 20. Plugin System (`plugin/`)
 
-Plugins extend the kernel at runtime. A plugin manifest declares what it contributes (tools, MCP servers, advisors, connectors), and the kernel's `plugin/loader.ts` reads manifests from disk, `plugin/resolver.ts` namespaces everything safely, and `plugin/lifecycle.ts` hooks plugin init / shutdown into the kernel's own lifecycle. Plugins can subscribe to iteration hooks via `runtime/query/plugin-hooks.ts` and shape what the LLM sees.
+Plugins extend the kernel at runtime. A plugin manifest declares what it contributes
+(skills, tools, MCP servers, advisors, connectors), and the kernel's
+`plugin/loader.ts` reads manifests from disk, `plugin/resolver.ts` namespaces
+everything safely, and `plugin/lifecycle.ts` hooks plugin init / shutdown into
+the kernel's own lifecycle. Installation receives an explicit capability set:
+code-bearing contributions are refused unless their capability was admitted,
+while a skill can be installed only when the host supplied the registry that
+will own it. Plugins can subscribe to all eight run, iteration, model and tool
+hooks. Every hook receives the run-owned cancellation signal fused with its
+deadline, so Stop settles the run even when plugin code fails to cooperate;
+in-process side effects remain cooperative and must honor that signal.
 
 Plugins are how a community ecosystem grows around the kernel without the kernel having to ship batteries for every use case.
 

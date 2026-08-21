@@ -1262,7 +1262,12 @@ export class ToolExecutor {
 		if (!this.config.pluginManager) return { kind: 'continue', input }
 		const results = await this.config.pluginManager.executeHooks(
 			'pre_tool_use',
-			{ runId: this.config.runId, toolName, toolInput: input },
+			{
+				runId: this.config.runId,
+				toolName,
+				toolInput: input,
+				signal: this.config.abortSignal,
+			},
 			this.emitEvent,
 		)
 		return this.interpretPreToolResults(toolName, input, results)
@@ -1511,7 +1516,13 @@ export class ToolExecutor {
 		if (!this.config.pluginManager) return { override: null, retry: false }
 		const results = await this.config.pluginManager.executeHooks(
 			'post_tool_use',
-			{ runId: this.config.runId, toolName, toolInput: input, toolResult },
+			{
+				runId: this.config.runId,
+				toolName,
+				toolInput: input,
+				toolResult,
+				signal: this.config.abortSignal,
+			},
 			this.emitEvent,
 		)
 		let override: PostToolOverride | null = null
