@@ -38,7 +38,7 @@ import {
 	type CliSessions,
 	type RecentConversation,
 	listRecent,
-	loadConversation,
+	loadResumableConversation,
 } from '../integrations/sessions/store.js'
 
 export interface ResumeRequest {
@@ -80,9 +80,16 @@ export async function resolveResume(
 		}
 	}
 
-	const recent = await listRecent(sessions, 50)
-
 	if (request.continueLast) {
+		let recent: RecentConversation[]
+		try {
+			recent = await listRecent(sessions, 50)
+		} catch (err) {
+			return {
+				kind: 'error',
+				message: `conversations in ${cwd} cannot be resumed: ${err instanceof Error ? err.message : String(err)}`,
+			}
+		}
 		const latest = recent[0]
 		if (!latest) {
 			// Its own sentence, because the cause is different from a bad id and
@@ -93,31 +100,20 @@ export async function resolveResume(
 				message: `no previous conversation in ${cwd} — run without --continue to start one, or pass --cwd if you meant a different directory`,
 			}
 		}
-		return await load(sessions, latest)
+		return await load(sessions, latest.id, cwd)
 	}
 
 	const wanted = request.sessionId as string
-	const match = recent.find((c) => c.id === wanted)
-	if (!match) {
-		const known = recent.length
-		return {
-			kind: 'error',
-			message:
-				known === 0
-					? `no conversation "${wanted}" in ${cwd}, and no others either — pass --cwd if you meant a different directory`
-					: `no conversation "${wanted}" in ${cwd}. ${known} other${known === 1 ? '' : 's'} here; \`namzu history\` lists them`,
-		}
-	}
-	return await load(sessions, match)
+	// An exact id is not a request for a row in the recent picker. The previous
+	// implementation searched a 50-row list, so the 51st valid conversation was
+	// reported missing even though its durable record was intact.
+	return await load(sessions, wanted, cwd)
 }
 
-async function load(
-	sessions: CliSessions,
-	conversation: RecentConversation,
-): Promise<ResumeOutcome> {
+async function load(sessions: CliSessions, sessionId: string, cwd: string): Promise<ResumeOutcome> {
 	let messages: readonly Message[]
 	try {
-		messages = await loadConversation(sessions, conversation.id)
+		messages = await loadResumableConversation(sessions, sessionId)
 	} catch (err) {
 		// Reading the transcript failed after the conversation was found. NOT
 		// recoverable by carrying on with an empty history: that is the
@@ -125,7 +121,7 @@ async function load(
 		// session that had been resumed.
 		return {
 			kind: 'error',
-			message: `conversation "${conversation.id}" could not be read: ${
+			message: `conversation "${sessionId}" could not be resumed in ${cwd}: ${
 				err instanceof Error ? err.message : String(err)
 			}`,
 		}
@@ -133,8 +129,8 @@ async function load(
 	if (messages.length === 0) {
 		return {
 			kind: 'error',
-			message: `conversation "${conversation.id}" has no messages to resume — its transcript is empty`,
+			message: `conversation "${sessionId}" has no messages to resume — its transcript is empty`,
 		}
 	}
-	return { kind: 'resumed', sessionId: conversation.id, messages }
+	return { kind: 'resumed', sessionId, messages }
 }

@@ -104,6 +104,7 @@ vi.mock('../../integrations/updates.js', () => ({
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'current',
+	requireWritableConversation: async () => {},
 	appendMessages: async (_sessions: unknown, _id: string, messages: readonly Message[]) => {
 		persisted.push([...messages])
 	},

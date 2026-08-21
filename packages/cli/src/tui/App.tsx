@@ -92,6 +92,7 @@ import {
 	loadConversation,
 	openSessions,
 	replaceConversation,
+	requireWritableConversation,
 	setTitle,
 	startConversation,
 	titleOf,
@@ -1853,6 +1854,34 @@ export function App({ ctx: initialCtx }: AppProps) {
 			) {
 				return
 			}
+			// Reserve the turn synchronously before the first await below. Leaving
+			// state idle while the admission read was pending let a second submit
+			// start beside it and broke the queue's FIFO ownership.
+			setState('thinking')
+			// A conversation can be closed outside this App after it was opened or
+			// resumed. Re-check at the actual turn boundary, before expanding file
+			// mentions, recording run evidence, or creating a provider iterator.
+			// The persistence helpers repeat the same check at their own boundary;
+			// neither read is claimed to serialize a concurrent archive (that needs
+			// a store-level lease shared with ProjectManager).
+			const destination = scopeRef.current?.sessionId ?? null
+			const turnSessions = sessionsRef.current
+			if (turnSessions && destination) {
+				try {
+					await requireWritableConversation(turnSessions, destination, 'start conversation turn')
+				} catch (err) {
+					if (prompt.kind === 'goal' && prompt.goalRound) {
+						goalActivation.disarm(prompt.goalRound.sessionId, prompt.goalRound)
+						wakeGoalDriver()
+					}
+					pushMessage(
+						'system',
+						`This turn was not started: ${err instanceof Error ? err.message : String(err)}`,
+					)
+					setState('idle')
+					return
+				}
+			}
 			// `@path` mentions: the visible human message keeps the readable token,
 			// but the model receives the file contents inlined. An automatic goal
 			// prompt is already host-authored context and is never reinterpreted as
@@ -1906,7 +1935,6 @@ export function App({ ctx: initialCtx }: AppProps) {
 					metaParts.length > 0 ? metaParts.join(' · ') : undefined,
 				)
 			}
-			setState('thinking')
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
 			const st: StreamState = {
@@ -1952,8 +1980,6 @@ export function App({ ctx: initialCtx }: AppProps) {
 			// conversation happened to be open when it finished, and that record
 			// outlives the process. A string captured now cannot be reassigned by
 			// anyone.
-			const destination = scopeRef.current?.sessionId ?? null
-			const turnSessions = sessionsRef.current
 			const turnGeneration = conversationGenRef.current
 			unsettledTurnGenerationsRef.current.set(turnToken, turnGeneration)
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration

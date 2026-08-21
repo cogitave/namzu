@@ -120,6 +120,21 @@ moves on from that opening question. `/title <name>` fixes one in place, bare
 one. A named row is shown in quotes so the two kinds are distinguishable in the
 list.
 
+Resume authority comes from the current workspace, not from the globally
+locatable session id or the fixed CLI topic id. The picker and `--continue`
+therefore list only non-archived sessions under the Project selected by this
+directory's `.namzu/cli.json`; stale Projects under the same store root cannot
+contribute rows. Exact `--resume <id>` resolves that durable id directly rather
+than requiring it to fit inside the 50-row recent index, but applies the same
+Project and archive checks. A closed Project or archived Session remains
+readable through history and export, while resume, keyed continuation, fork and
+message mutation refuse before a new model turn. Namzu does not silently reopen
+a tombstone: an archived SDK Session may be compensation for incomplete work,
+and there is no general Session restore operation that could prove otherwise.
+These checks establish the state observed at each operation boundary; a host
+that closes a Project concurrently with a live turn must serialize those two
+operations through its own durable lease.
+
 **`/fork` continues in a copy and leaves the original where it is.** The
 transcript on screen carries over, the next turn is written to the copy, and the
 conversation you forked from is unchanged and still in `/resume`. The copy is

@@ -44,6 +44,7 @@ vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
+	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	listRecent: async () => [],
 	loadConversation: async () => [],

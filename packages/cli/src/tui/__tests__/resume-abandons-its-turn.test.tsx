@@ -133,6 +133,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 		},
 	}),
 	startConversation: async () => STARTED_IN,
+	requireWritableConversation: async () => {},
 	appendMessages: async (_s: unknown, sessionId: string, messages: readonly { content: unknown }[]) => {
 		appended.push({
 			sessionId,
