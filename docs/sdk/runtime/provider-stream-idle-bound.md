@@ -137,6 +137,17 @@ fused into the private signal passed to a cooperative driver, so it can close
 its metadata transport without either cancellation path aborting the caller's
 own controller.
 
+Plugin hooks are not provider streams and do not borrow the provider idle
+timer. Their own hook deadline is fused with this same run cancellation signal
+at all eight run, iteration, model, and tool boundaries. The lifecycle manager
+also races cancellation independently, so a hook promise that ignores its
+signal cannot keep the run waiting or publish a late completed-hook event.
+Cancellation before the iteration loop—including a held `run_start` or
+`pre_llm_call` hook—settles as `cancelled` and starts no provider request.
+In-process plugin code remains cooperative: its I/O and external side effects
+must honor the supplied signal even though the runtime has stopped awaiting
+its result.
+
 ## Compaction verification
 
 Structured compaction can make a verifier model call before replacing older
