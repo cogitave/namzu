@@ -666,7 +666,10 @@ function buildToolRegistry(cwd: string): BuiltTools {
 	// why it sat on the no-prompt list; it writes into the user's project.
 	// Separate from the user-curated MEMORY.md that is injected into the prompt.
 	const memoryStore = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
-	registry.register(buildMemoryTools(memoryStore, memoryStore.getIndex()))
+	// Search through the store's async boundary. Its concrete index is lazy:
+	// handing `getIndex()` to the synchronous overload before the first store
+	// read makes a new process report every persisted memory as absent.
+	registry.register(buildMemoryTools(memoryStore))
 	// `search_tools` is deliberately NOT registered here. It is only useful
 	// where deferred tools exist, and that differs between this function's two
 	// callers: the session below passes a `taskStore`, so query() registers the

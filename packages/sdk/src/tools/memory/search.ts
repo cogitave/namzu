@@ -1,9 +1,16 @@
 import { z } from 'zod'
-import type { MemoryIndex } from '../../types/memory/index.js'
+import type {
+	MemoryIndex,
+	MemorySearchParams,
+	MemorySearchResult,
+	MemoryStore,
+} from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
-export function buildSearchMemoryTool(index: MemoryIndex): ToolDefinition {
+type SearchMemory = (params: MemorySearchParams) => MemorySearchResult | Promise<MemorySearchResult>
+
+function defineSearchMemoryTool(search: SearchMemory): ToolDefinition {
 	return defineTool({
 		name: 'search_memory',
 		description:
@@ -19,7 +26,7 @@ export function buildSearchMemoryTool(index: MemoryIndex): ToolDefinition {
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ query, tags, limit }) {
-			const result = index.search({ query, tags, limit })
+			const result = await search({ query, tags, limit })
 
 			if (result.entries.length === 0) {
 				return {
@@ -49,4 +56,14 @@ export function buildSearchMemoryTool(index: MemoryIndex): ToolDefinition {
 			}
 		},
 	})
+}
+
+/** Build search over a caller-owned, already-ready synchronous index. */
+export function buildSearchMemoryTool(index: MemoryIndex): ToolDefinition {
+	return defineSearchMemoryTool((params) => index.search(params))
+}
+
+/** Build search over the store's authoritative asynchronous read boundary. */
+export function buildStoreSearchMemoryTool(store: MemoryStore): ToolDefinition {
+	return defineSearchMemoryTool((params) => store.list(params))
 }

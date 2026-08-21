@@ -272,7 +272,7 @@ describe('isPromptExempt', () => {
 	const registry = new ToolRegistry()
 	const store = new DiskMemoryStore({ baseDir: join(tmpdir(), 'namzu-exempt-test') })
 	registry.register(getBuiltinTools())
-	registry.register(buildMemoryTools(store, store.getIndex()))
+	registry.register(buildMemoryTools(store))
 
 	it('exempts tools that declare themselves read-only', () => {
 		expect(isPromptExempt(registry, 'read', {})).toBe(true)

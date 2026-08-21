@@ -18,8 +18,8 @@ import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DiskMemoryStore } from '@namzu/sdk'
-import type { RunMemoryCandidate } from '@namzu/sdk'
+import { DiskMemoryStore, ToolRegistry } from '@namzu/sdk'
+import type { RunId, RunMemoryCandidate, ToolContext } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
@@ -103,6 +103,16 @@ async function drive(): Promise<(c: RunMemoryCandidate) => void | Promise<void>>
 	return promoteMemory as (c: RunMemoryCandidate) => void | Promise<void>
 }
 
+function toolContext(): ToolContext {
+	return {
+		runId: 'run_cli_memory_search' as RunId,
+		workingDirectory: cwd,
+		abortSignal: new AbortController().signal,
+		env: {},
+		log: () => {},
+	}
+}
+
 describe('the run memory promoter', () => {
 	it('is handed to every turn', async () => {
 		await drive()
@@ -121,6 +131,28 @@ describe('the run memory promoter', () => {
 		const page = await store.list()
 		expect(page.totalCount).toBe(1)
 		expect(page.entries[0]?.title).toContain('invoice')
+	})
+
+	it('finds persisted memory on the first search of a new CLI session', async () => {
+		const writer = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		await writer.create({
+			title: 'cold CLI memory',
+			summary: 'must survive a new session',
+			content: 'persisted before createAgentSession',
+		})
+
+		await drive()
+		const tools = queryCalls[0]?.tools
+		expect(tools).toBeInstanceOf(ToolRegistry)
+		const result = await (tools as ToolRegistry).execute(
+			'search_memory',
+			{ query: 'cold CLI', limit: 10 },
+			toolContext(),
+		)
+
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('cold CLI memory')
+		expect(result.output).not.toBe('No memories found.')
 	})
 
 	it('leaves the store empty for a run that learned nothing', async () => {
