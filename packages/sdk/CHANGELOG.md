@@ -1,5 +1,11 @@
 # Changelog
 
+## 31.1.0
+
+### Minor Changes
+
+- 77242a0: Expose optional per-model input modalities through `ModelInfo`, add inline image input for DeepSeek's vision preview while refusing images on text models and documents on every DeepSeek model, and label models whose listing explicitly advertises image input in the CLI picker.
+
 ## 31.0.0
 
 ### Major Changes
