@@ -1,5 +1,23 @@
 # @namzu/cli
 
+## 14.1.0
+
+### Minor Changes
+
+- e28f7dc: Let `/copy` choose the whole latest assistant response, an exact fenced-code body,
+  or an exact prose blockquote. The picker stays anchored to the response it opened
+  with and holds queued work until the operator selects or cancels it.
+- 77242a0: Expose optional per-model input modalities through `ModelInfo`, add inline image input for DeepSeek's vision preview while refusing images on text models and documents on every DeepSeek model, and label models whose listing explicitly advertises image input in the CLI picker.
+- cc9917b: Reuse a sole signed-in Claude or Codex subscription automatically on first run,
+  ask only between those subscriptions when both exist, and keep the Claude/Codex
+  Namzu sign-in choice reachable when an optional API key was also detected.
+
+### Patch Changes
+
+- Updated dependencies [77242a0]
+  - @namzu/sdk@31.1.0
+  - @namzu/deepseek@1.1.0
+
 ## 14.0.0
 
 ### Major Changes
