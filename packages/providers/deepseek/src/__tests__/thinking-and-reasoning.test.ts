@@ -289,25 +289,6 @@ describe('reasoning blocks are replayed onto the wire', () => {
 	})
 })
 
-describe('attachments', () => {
-	it('are refused, because this driver declares neither vision nor documents', () => {
-		// Encoding an image for a text-only model answers about a picture it
-		// never saw, confidently, with nothing to say why.
-		expect(() =>
-			toDeepSeekMessages(
-				[
-					{
-						role: 'user',
-						content: 'what is this',
-						attachments: [{ type: 'image', mediaType: 'image/png', data: 'AAAA' }],
-					},
-				] as ChatCompletionParams['messages'],
-				ROUTE,
-			),
-		).toThrow(/no vision or document support/)
-	})
-})
-
 describe('the stream maps reasoning_content onto reasoning deltas', () => {
 	function providerOver(chunks: unknown[]): DeepSeekProvider {
 		const provider = new DeepSeekProvider({ apiKey: 'sk-test' })

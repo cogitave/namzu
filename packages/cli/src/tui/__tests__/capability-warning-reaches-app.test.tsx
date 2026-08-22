@@ -1,4 +1,4 @@
-/** Real provider capability warnings cross the full rendered App boundary. */
+/** Model-scoped rich-content refusals cross the full rendered App boundary. */
 
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -77,7 +77,7 @@ async function until(check: () => boolean, why: string): Promise<void> {
 	expect(check(), why).toBe(true)
 }
 
-it('renders the real DeepSeek vision warning before its local attachment error', async () => {
+it('renders the real DeepSeek text-model refusal without a false driver warning', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-deepseek-capability-app-'))
 	roots.push(cwd)
 	const network = vi.fn(() => {
@@ -104,9 +104,8 @@ it('renders the real DeepSeek vision warning before its local attachment error',
 	)
 
 	const rendered = harness.frames.join('\n')
-	const warningIndex = rendered.indexOf('Capability warning (vision)')
-	const errorIndex = rendered.indexOf('Error:')
-	expect(warningIndex).toBeGreaterThanOrEqual(0)
-	expect(errorIndex).toBeGreaterThan(warningIndex)
+	expect(rendered).not.toContain('Capability warning (vision)')
+	expect(rendered).toContain("model 'deepseek-v4-flash' does not accept image input")
+	expect(rendered).toContain("Select 'deepseek-v4-flash-vision-exp'")
 	expect(network).not.toHaveBeenCalled()
 })

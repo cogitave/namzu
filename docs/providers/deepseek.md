@@ -1,13 +1,13 @@
 ---
 uid: namzu.providers.deepseek
-title: The DeepSeek driver — thinking mode, reasoning replay and what this wire refuses
-description: Reference for @namzu/deepseek — why thinking mode makes this a separate package rather than a base-URL override on the OpenAI driver, how reasoning_content maps onto the kernel reasoning blocks both ways, and the two parameters it refuses.
+title: The DeepSeek driver — image input, thinking mode and reasoning replay
+description: Reference for @namzu/deepseek — model-scoped inline image input, why thinking mode makes this a separate driver, how reasoning_content maps onto kernel reasoning blocks, and what the wire refuses.
 type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+timestamp: 2026-08-22T00:00:00Z
+lastReviewed: 2026-08-22
 resource: packages/providers/deepseek/src/client.ts
 tags: [provider, deepseek, reasoning, reference]
 ---
@@ -19,8 +19,10 @@ endpoint, which is OpenAI-shaped — and then diverges in the one place that
 matters, so this is its own package rather than a `baseURL` on
 `@namzu/openai`.
 
-Every claim on this page was measured against the live API on 2026-08-17. Where
-the vendor's documentation and the endpoint disagree, the disagreement is
+The thinking, reasoning-replay and parameter claims on this page were measured
+against the live API on 2026-08-17. The image projection and three-model
+catalogue were verified against the provider's reference harness on 2026-08-22.
+Where a published contract and the endpoint disagree, the disagreement is
 stated rather than resolved silently.
 
 ## Why not the OpenAI driver with a baseURL
@@ -46,15 +48,49 @@ pnpm add @namzu/sdk @namzu/deepseek
 
 | Model | Notes |
 |---|---|
-| `deepseek-v4-flash` | the smaller, faster model |
-| `deepseek-v4-pro` | the larger one |
+| `deepseek-v4-flash` | text input; the smaller, faster model |
+| `deepseek-v4-pro` | text input; the larger model |
+| `deepseek-v4-flash-vision-exp` | text and image input; experimental vision model |
 
 `deepseek-chat` and `deepseek-reasoner` were **discontinued on 2026-07-24**.
 They are not aliases any more; a config carrying either resolves to nothing.
-The live model listing returns exactly the two names above.
-Both that listing and the authenticated credential probe accept an optional
-`AbortSignal`, which is passed to the underlying request and rechecked before a
-result is published.
+After a successful model-list request, the driver merges the response with this
+three-model catalogue. That keeps the vision preview selectable when the
+account listing endpoint lags its release while preserving unknown gateway
+models without inventing modalities for them. Both listing and the
+authenticated credential probe accept an optional `AbortSignal`, which is
+passed to the underlying request and rechecked before a result is published.
+
+## Image input
+
+`DEEPSEEK_CAPABILITIES.supportsVision` is `true` because the driver now maps
+image input. That is a driver-level fact, not a claim that every DeepSeek model
+can see. `ModelInfo.inputModalities` marks only
+`deepseek-v4-flash-vision-exp` with `['text', 'image']`; the two known text
+models carry `['text']`, and unknown models omit the field.
+
+On the vision model, user text remains first and each attachment follows as an
+OpenAI-compatible `image_url` data URL. Consecutive rich tool results remain
+individual `role: "tool"` messages with their exact `tool_call_id`; their
+images are grouped in one following user message. This ordering preserves the
+assistant call/result relationship rather than replacing a tool result with a
+user attachment.
+
+PNG, JPEG, WebP and GIF media types are accepted. The representation is the
+upstream adapter's inline fallback path: this release does not upload through
+the Files API, normalize pixels, or decode bytes to verify that their content
+matches the declared media type. `ImageAttachment.data` therefore retains its
+SDK contract: base64 image bytes without a `data:` prefix.
+
+The SDK applies `maxRequestRichContentBytes` across user attachments and rich
+tool results before this projection. Omitted-request markers stay text, while
+the original image blocks remain exact in `Run.messages`, checkpoints and
+session history.
+
+The driver refuses before transport when an image targets either text model,
+when a stored ref reaches it unresolved, or when the media type is outside the
+four listed formats. Documents remain unsupported on every model, including in
+tool results; route those turns to a document-capable driver.
 
 ## Thinking mode
 
@@ -170,15 +206,15 @@ with `samplingInThinkingMode: 'ignore'`.
 ```ts
 import { DEEPSEEK_CAPABILITIES } from '@namzu/deepseek'
 
-// supportsTools, supportsStreaming and supportsFunctionCalling are true;
-// supportsVision and supportsDocuments are false.
+// supportsTools, supportsStreaming, supportsFunctionCalling and
+// supportsVision are true; supportsDocuments is false.
 console.log(DEEPSEEK_CAPABILITIES.supportsVision)
 ```
 
-The wire has `image_url` content parts, because it is OpenAI's. The models
-behind it are text-only. A capability set is a claim about what a call will do,
-not about what the request format can express, so this driver refuses a message
-carrying attachments rather than encoding an image the model cannot read.
+The capability says the driver has a real image mapping. The per-model
+`inputModalities` list and the driver's pre-transport model guard say where that
+mapping is legal. Documents remain false because no document mapping is
+implemented.
 
 ## Cost
 

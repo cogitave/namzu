@@ -34,6 +34,21 @@ describe('modelStep', () => {
 		expect(step.choices.filter((c) => c.id === DEFAULT)).toHaveLength(1)
 	})
 
+	it('labels image input only when the model listing establishes it', () => {
+		const step = modelStep(DEFAULT, {
+			kind: 'ok',
+			models: [
+				{ id: 'text', name: 'Text', inputModalities: ['text'] },
+				{ id: 'vision', name: 'Vision', inputModalities: ['text', 'image'] },
+				{ id: 'unknown', name: 'Unknown' },
+			],
+		})
+
+		expect(step.choices.find((choice) => choice.id === 'vision')?.note).toBe('(image input)')
+		expect(step.choices.find((choice) => choice.id === 'text')?.note).toBeUndefined()
+		expect(step.choices.find((choice) => choice.id === 'unknown')?.note).toBeUndefined()
+	})
+
 	it('starts on the model already in force', () => {
 		const step = modelStep(
 			DEFAULT,

@@ -37,6 +37,7 @@ import {
 	type LLMProvider,
 	type LogAttributes,
 	type Message,
+	type ModelInfo,
 	type PluginLifecycleManager,
 	type ProjectId,
 	type ProjectInstructionContext,
@@ -1919,7 +1920,7 @@ export function constructProvider(
 export type ModelListing =
 	| {
 			readonly kind: 'ok'
-			readonly models: ReadonlyArray<{ id: string; name: string }>
+			readonly models: readonly Pick<ModelInfo, 'id' | 'name' | 'inputModalities'>[]
 	  }
 	/** The driver does not implement `listModels`. */
 	| { readonly kind: 'unsupported' }
@@ -1999,7 +2000,11 @@ export async function describeProviderModels(
 
 		return {
 			kind: 'ok',
-			models: models.map((m) => ({ id: m.id, name: m.name || m.id })),
+			models: models.map((m) => ({
+				id: m.id,
+				name: m.name || m.id,
+				...(m.inputModalities !== undefined ? { inputModalities: [...m.inputModalities] } : {}),
+			})),
 		}
 	} catch (err) {
 		if (signal?.aborted) throw signal.reason

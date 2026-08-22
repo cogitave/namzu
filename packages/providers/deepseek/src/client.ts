@@ -1,8 +1,10 @@
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
+	ImageAttachment,
 	LLMProvider,
 	ModelInfo,
+	ModelInputModality,
 	ProviderCapabilities,
 	ProviderRoute,
 	ReasoningBlock,
@@ -11,6 +13,7 @@ import type {
 	ThinkingConfig,
 	TokenUsage,
 	ToolChoice,
+	ToolResultContent,
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
@@ -18,7 +21,7 @@ import {
 	isCallerAbortError,
 	isProviderRequestError,
 	providerVendorError,
-	toolResultToText,
+	toToolResultBlocks,
 } from '@namzu/sdk'
 import OpenAI from 'openai'
 import type {
@@ -28,24 +31,29 @@ import type {
 } from 'openai/resources/chat/completions'
 import type { DeepSeekConfig } from './types.js'
 
-/**
- * No vision, no documents.
- *
- * The wire is OpenAI's Chat Completions, which has `image_url` content parts —
- * but the models behind this endpoint are text-only, and a capability set is a
- * claim about what a call will actually do, not about what the request format
- * can express. Claiming vision here would route an image-bearing run to a
- * driver that sends the image and gets prose about nothing.
- */
+/** Driver-level mapping capabilities; model input support is listed separately. */
 export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
-	supportsVision: false,
+	supportsVision: true,
 	supportsDocuments: false,
 }
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
+const VISION_MODEL = 'deepseek-v4-flash-vision-exp'
+const TEXT_MODALITIES = Object.freeze(['text'] as const)
+const VISION_MODALITIES = Object.freeze(['text', 'image'] as const)
+const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const KNOWN_MODELS = Object.freeze([
+	{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: TEXT_MODALITIES },
+	{ id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: TEXT_MODALITIES },
+	{
+		id: VISION_MODEL,
+		name: 'DeepSeek-V4-Flash-Vision-Exp',
+		inputModalities: VISION_MODALITIES,
+	},
+] as const)
 
 type DeepSeekFinishReason =
 	| 'stop'
@@ -294,26 +302,59 @@ export function toDeepSeekMessages(
 	messages: ChatCompletionParams['messages'],
 	targetRoute: ProviderRoute,
 ): ChatCompletionMessageParam[] {
-	return messages.map((msg): ChatCompletionMessageParam => {
-		if (msg.role === 'system') return { role: 'system', content: msg.content }
+	assertDeepSeekRichContent(messages, targetRoute.model)
+
+	type ImagePart = { type: 'image_url'; image_url: { url: string } }
+	type UserPart = { type: 'text'; text: string } | ImagePart
+	const imagePart = (image: ImageAttachment): ImagePart => ({
+		type: 'image_url',
+		image_url: { url: `data:${image.mediaType};base64,${image.data}` },
+	})
+	const wire: ChatCompletionMessageParam[] = []
+	let pendingToolImages: ImagePart[] = []
+	const flushToolImages = (): void => {
+		if (pendingToolImages.length === 0) return
+		wire.push({
+			role: 'user',
+			content: [
+				{ type: 'text', text: 'Attached image(s) from tool result:' },
+				...pendingToolImages,
+			],
+		})
+		pendingToolImages = []
+	}
+
+	for (const msg of messages) {
+		if (msg.role !== 'tool') flushToolImages()
+		if (msg.role === 'system') {
+			wire.push({ role: 'system', content: msg.content })
+			continue
+		}
 		if (msg.role === 'user') {
-			// No attachment branch, deliberately. `DEEPSEEK_CAPABILITIES` says
-			// this driver has neither vision nor documents, and a driver that
-			// quietly encoded an image the model cannot read would answer about
-			// a picture it never saw.
-			if (msg.attachments && msg.attachments.length > 0) {
-				throw new Error(
-					'DeepSeekProvider: this driver has no vision or document support, and a message carried attachments. Route multimodal turns to a provider whose capabilities include them.',
-				)
+			if (!msg.attachments || msg.attachments.length === 0) {
+				wire.push({ role: 'user', content: msg.content })
+				continue
 			}
-			return { role: 'user', content: msg.content }
+			const content: UserPart[] = []
+			if (msg.content.length > 0) content.push({ type: 'text', text: msg.content })
+			for (const attachment of msg.attachments) {
+				// The preflight above proves these are inline images. This local check
+				// keeps the narrowing explicit instead of casting a public union.
+				if (attachment.type === 'stored' || attachment.type === 'document') continue
+				content.push(imagePart(attachment))
+			}
+			wire.push({ role: 'user', content })
+			continue
 		}
 		if (msg.role === 'tool') {
-			return {
+			const { text, images } = splitToolResult(msg.content)
+			wire.push({
 				role: 'tool',
-				content: toolResultToText(msg.content),
+				content: text || '(no output)',
 				tool_call_id: msg.toolCallId,
-			}
+			})
+			pendingToolImages.push(...images.map(imagePart))
+			continue
 		}
 		const assistant: ChatCompletionMessageParam = {
 			role: 'assistant',
@@ -333,8 +374,82 @@ export function toDeepSeekMessages(
 		if (replayed !== undefined) {
 			;(assistant as { reasoning_content?: string }).reasoning_content = replayed
 		}
-		return assistant
-	})
+		wire.push(assistant)
+	}
+	flushToolImages()
+	return wire
+}
+
+function splitToolResult(content: ToolResultContent): {
+	readonly text: string
+	readonly images: readonly ImageAttachment[]
+} {
+	const text: string[] = []
+	const images: ImageAttachment[] = []
+	for (const block of toToolResultBlocks(content)) {
+		if (block.type === 'text') text.push(block.text)
+		else if (block.type === 'image') images.push(block)
+	}
+	return { text: text.join('\n'), images }
+}
+
+/**
+ * Refuse every rich-content shape this exact model/wire cannot represent.
+ *
+ * This runs before the request object is built, so a text model never sees an
+ * image data URL and a document never reaches a wire that would silently drop
+ * it. Stored user refs should have been resolved by the SDK attachment store;
+ * accepting one here would serialize a reference rather than its bytes.
+ */
+function assertDeepSeekRichContent(
+	messages: ChatCompletionParams['messages'],
+	model: string,
+): void {
+	let hasImage = false
+	const acceptImage = (mediaType: string): void => {
+		if (!IMAGE_MEDIA_TYPES.has(mediaType)) {
+			throw new Error(
+				`DeepSeekProvider: image type '${mediaType}' is not supported. Use image/png, image/jpeg, image/webp, or image/gif.`,
+			)
+		}
+		hasImage = true
+	}
+	for (const message of messages) {
+		if (message.role === 'user') {
+			for (const attachment of message.attachments ?? []) {
+				if (attachment.type === 'stored') {
+					throw new Error(
+						'DeepSeekProvider: an unresolved stored attachment reached the driver. Configure an AttachmentStore so Namzu can resolve its bytes before the model request.',
+					)
+				}
+				if (attachment.type === 'document') {
+					throw new Error(
+						'DeepSeekProvider: this Chat Completions driver does not support document input. Route the turn to a document-capable provider.',
+					)
+				}
+				acceptImage(attachment.mediaType)
+			}
+			continue
+		}
+		if (message.role !== 'tool') continue
+		for (const block of toToolResultBlocks(message.content)) {
+			if (block.type === 'document') {
+				throw new Error(
+					'DeepSeekProvider: this Chat Completions driver does not support document tool results. Route the turn to a document-capable provider.',
+				)
+			}
+			if (block.type === 'image') acceptImage(block.mediaType)
+		}
+	}
+	if (hasImage && model !== VISION_MODEL) {
+		throw new Error(
+			`DeepSeekProvider: model '${model}' does not accept image input. Select '${VISION_MODEL}' or remove the images.`,
+		)
+	}
+}
+
+function inputModalitiesFor(model: string): readonly ModelInputModality[] | undefined {
+	return KNOWN_MODELS.find((candidate) => candidate.id === model)?.inputModalities
 }
 
 export function toDeepSeekTools(params: ChatCompletionParams): ChatCompletionTool[] | undefined {
@@ -580,14 +695,25 @@ export class DeepSeekProvider implements LLMProvider {
 		signal?.throwIfAborted()
 		const page = await this.client.models.list(signal ? { signal } : undefined)
 		signal?.throwIfAborted()
-		return page.data.map((m) => ({
-			id: m.id,
-			name: m.id,
-			inputPrice: 0,
-			outputPrice: 0,
-			supportsToolUse: true,
-			supportsStreaming: true,
-		}))
+		const models = new Map<string, { id: string; name: string }>()
+		for (const model of page.data) models.set(model.id, { id: model.id, name: model.id })
+		// The preview model is part of the source adapter's verified default
+		// catalogue but may lag the account listing endpoint. A successful list
+		// therefore augments rather than erases the known selectable catalogue.
+		for (const model of KNOWN_MODELS) {
+			models.set(model.id, { id: model.id, name: model.name })
+		}
+		return [...models.values()].map((model) => {
+			const inputModalities = inputModalitiesFor(model.id)
+			return {
+				...model,
+				...(inputModalities !== undefined ? { inputModalities } : {}),
+				inputPrice: 0,
+				outputPrice: 0,
+				supportsToolUse: true,
+				supportsStreaming: true,
+			}
+		})
 	}
 
 	async healthCheck(): Promise<boolean> {

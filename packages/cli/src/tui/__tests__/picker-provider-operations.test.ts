@@ -48,6 +48,33 @@ afterEach(() => {
 })
 
 describe('picker provider operations', () => {
+	it('preserves model input modalities for the picker', async () => {
+		provider = base({
+			listModels: async () => [
+				{
+					id: 'vision-model',
+					name: 'Vision Model',
+					inputModalities: ['text', 'image'],
+					inputPrice: 0,
+					outputPrice: 0,
+					supportsToolUse: true,
+					supportsStreaming: true,
+				},
+			],
+		})
+
+		await expect(describeProviderModels(providerId, detected)).resolves.toEqual({
+			kind: 'ok',
+			models: [
+				{
+					id: 'vision-model',
+					name: 'Vision Model',
+					inputModalities: ['text', 'image'],
+				},
+			],
+		})
+	})
+
 	it('does not construct a provider for an already-cancelled choice', async () => {
 		const controller = new AbortController()
 		const cause = new Error('choice was already cancelled')

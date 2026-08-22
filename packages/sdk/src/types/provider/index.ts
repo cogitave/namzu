@@ -8,7 +8,7 @@ export type {
 	ThinkingConfig,
 } from './chat.js'
 export type { StreamChunk } from './stream.js'
-export type { ModelInfo } from './model.js'
+export type { ModelInfo, ModelInputModality } from './model.js'
 export type { LLMProvider } from './interface.js'
 export type {
 	ProviderErrorInfo,

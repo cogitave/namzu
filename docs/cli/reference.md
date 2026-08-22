@@ -130,6 +130,11 @@ cancellation signal. Cancelling subscription sign-in reaches the loopback
 listener and token exchange, and no credential is written after the attempt is
 withdrawn.
 
+When a provider's model listing explicitly includes `image` in
+`inputModalities`, the model row is labelled `(image input)`. An absent modality
+list gets no negative label: it means the driver did not establish the answer,
+not that the model is text-only.
+
 Between turns and before a durable resume, a lapsed **Namzu-owned** subscription
 token gets one 30-second-bounded refresh attempt under that operation's
 cancellation signal.

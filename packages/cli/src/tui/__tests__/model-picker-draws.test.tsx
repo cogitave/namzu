@@ -54,7 +54,7 @@ const listing: ModelListing = {
 	kind: 'ok',
 	models: [
 		{ id: 'model-one', name: 'Model One' },
-		{ id: 'model-two', name: 'Model Two' },
+		{ id: 'model-two', name: 'Model Two', inputModalities: ['text', 'image'] },
 	],
 }
 
@@ -89,6 +89,7 @@ describe('the model step', () => {
 		expect(lastFrame()).toContain('Choose a model')
 		expect(lastFrame()).toContain('Model One')
 		expect(lastFrame()).toContain('Model Two')
+		expect(lastFrame()).toContain('(image input)')
 		unmount()
 	})
 

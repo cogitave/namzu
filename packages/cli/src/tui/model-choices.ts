@@ -94,10 +94,13 @@ export function modelStep(
 	for (const m of listing.models) {
 		if (seen.has(m.id)) continue
 		seen.add(m.id)
+		const notes: string[] = []
+		if (m.id === defaultModel) notes.push('namzu default')
+		if (m.inputModalities?.includes('image')) notes.push('image input')
 		choices.push({
 			id: m.id,
 			label: m.name,
-			...(m.id === defaultModel ? { note: '(namzu default)' } : {}),
+			...(notes.length > 0 ? { note: `(${notes.join(' · ')})` } : {}),
 		})
 	}
 	if (!seen.has(defaultModel)) {

@@ -1,6 +1,19 @@
+/** A kind of input a model is known to accept. */
+export type ModelInputModality = 'text' | 'image' | 'document'
+
 export interface ModelInfo {
 	id: string
 	name: string
+	/**
+	 * Input kinds this exact model is known to accept.
+	 *
+	 * This is model metadata, not a replacement for
+	 * `LLMProvider.capabilities`: the provider capability says whether the
+	 * DRIVER can map an input kind at all, while this field says which models
+	 * behind that driver accept it. Absent means the listing did not establish
+	 * the answer; it must not be read as text-only.
+	 */
+	inputModalities?: readonly ModelInputModality[]
 	/**
 	 * Tokens the model's context holds, when the driver knows.
 	 *

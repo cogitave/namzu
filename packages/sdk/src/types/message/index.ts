@@ -5,9 +5,10 @@ export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 export type CacheHint = 'cache' | 'ephemeral' | 'none'
 
 /**
- * An image attached to a user message (vision input). Additive: providers
- * that support vision emit it as an image content block
- * alongside the text; providers that don't simply ignore it.
+ * An image attached to a user message (vision input). Drivers that declare
+ * vision support emit it alongside the text. A shipped driver that cannot
+ * map it refuses or causes the runtime to warn according to capability
+ * policy; silently ignoring image bytes is not a supported fallback.
  */
 export interface ImageAttachment {
 	/**

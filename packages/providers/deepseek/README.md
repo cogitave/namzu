@@ -3,8 +3,8 @@ type: Reference
 title: "@namzu/deepseek"
 description: >-
   The DeepSeek model driver for the Namzu agent kernel. Chat Completions with
-  streaming and tool use, and thinking mode mapped onto the kernel's reasoning
-  blocks in both directions.
+  streaming, tool use and inline image input, with thinking mode mapped onto
+  the kernel's reasoning blocks in both directions.
 tags: [readme, package, provider, deepseek]
 timestamp: 2026-08-20T00:00:00Z
 status: active
@@ -21,7 +21,7 @@ diataxis: reference
 [![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
 
-[Install](#install) · [Usage](#usage) · [Thinking mode](#thinking-mode) · [Documentation](#documentation)
+[Install](#install) · [Usage](#usage) · [Image input](#image-input) · [Thinking mode](#thinking-mode) · [Documentation](#documentation)
 
 </div>
 
@@ -63,8 +63,23 @@ for await (const chunk of provider.chatStream({
 }
 ```
 
-Models are `deepseek-v4-flash` and `deepseek-v4-pro`. `deepseek-chat` and
-`deepseek-reasoner` were discontinued on 2026-07-24 and are not aliases.
+The built-in catalogue offers `deepseek-v4-flash`, `deepseek-v4-pro`, and
+`deepseek-v4-flash-vision-exp`. `deepseek-chat` and `deepseek-reasoner` were
+discontinued on 2026-07-24 and are not aliases.
+
+## Image input
+
+Only `deepseek-v4-flash-vision-exp` accepts images. User attachments are sent
+as ordered `image_url` data-URL parts. Images returned by tools keep their
+`role: "tool"` result and follow it in a separate user image message, so the
+tool-call/result sequence remains valid. PNG, JPEG, WebP and GIF are accepted.
+
+The SDK's accumulated request-rich-content budget still applies before this
+projection and leaves durable `Run.messages` unchanged. This driver currently
+uses inline base64 only; it does not upload through the Files API or claim to
+normalize or decode caller-supplied image bytes. Documents, unresolved stored
+refs, unsupported image types, and images sent to either text model are refused
+before transport.
 
 ## Thinking mode
 
@@ -83,7 +98,7 @@ is on. Both refusals, and how to opt out, are in the documentation below.
 
 ## Documentation
 
-- [The DeepSeek driver](https://github.com/cogitave/namzu/blob/main/docs/providers/deepseek.md) — thinking mode, reasoning replay, what this wire refuses, and why it carries no price rows
+- [The DeepSeek driver](https://github.com/cogitave/namzu/blob/main/docs/providers/deepseek.md) — image input, thinking mode, reasoning replay, what this wire refuses, and why it carries no price rows
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

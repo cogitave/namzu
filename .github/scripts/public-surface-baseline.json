@@ -1991,6 +1991,7 @@
         "MockTurn",
         "ModelIdGrammar",
         "ModelInfo",
+        "ModelInputModality",
         "ModelPricing",
         "ModelVersion",
         "ModuleImporter",
