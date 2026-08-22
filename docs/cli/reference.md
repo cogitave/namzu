@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+timestamp: 2026-08-22T00:00:00Z
+lastReviewed: 2026-08-22
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -37,7 +37,7 @@ pipe, a CI step — it prints a single line saying an interactive session needs 
 terminal and exits `0`, so a script that reaches the bare binary by accident does
 not hang against a renderer with nothing to render into.
 
-Three things happen on the way in, and they are the difference between a toy and
+Four things happen on the way in, and they are the difference between a toy and
 something you point at a real repository:
 
 - **A folder nobody has trusted is not one it works in.** Launching in an
@@ -61,6 +61,13 @@ something you point at a real repository:
   do not collide. A server that fails to start is named with its reason: the
   interactive session reports and carries on, because a person can read the line
   and decide, and a headless run refuses, because nobody is watching.
+- **It reuses device sessions before asking for another credential.** A usable
+  `Claude` or `Codex` CLI session is discovered from that tool's own credential
+  file and remains read-only. If both are available the provider picker asks
+  which one Namzu should use. A Namzu-owned subscription login is the fallback
+  for a machine with no usable external session, or an explicit operator
+  choice; API keys are optional alternatives rather than a first-run
+  requirement.
 
 Inside the session, grouped by the question each one answers:
 
@@ -75,6 +82,22 @@ Inside the session, grouped by the question each one answers:
 Commands the kernel's own registry contributes are merged in beside them; a name
 claimed by both raises an error rather than letting one silently shadow the
 other.
+
+Bare `/login` opens a subscription choice with `Claude` and `Codex`; it never
+silently defaults to `Claude`. The shell equivalents are `namzu login claude`
+and `namzu login codex`. `Claude` uses a browser callback, while `Codex` uses a
+device code that can be approved in any reachable browser. Both write only to
+Namzu's credential store. `/logout` and `namzu logout` remove those Namzu-owned
+records together; they never delete or revoke credentials owned by another
+installed tool.
+
+Discovery order is intentional. A current external device session wins over a
+Namzu-owned credential for the same provider, and a Namzu-owned credential wins
+over an optional environment/API-key source. Alternative sources remain visible
+in diagnostics, but fields are never blended between them. `Claude` is read from
+its exact device credential envelope, `Codex` from its exact `auth.json` envelope
+(honouring `CODEX_HOME`), and both reads are bounded and structurally validated
+before a provider can be selected.
 
 `/permissions` reports the effective tool-review mode and the rules that still
 outrank it. `/permissions prompt`, `/permissions auto`, and `/permissions
@@ -107,16 +130,22 @@ cancellation signal. Cancelling subscription sign-in reaches the loopback
 listener and token exchange, and no credential is written after the attempt is
 withdrawn.
 
-Between turns and before a durable resume, a lapsed subscription token gets one
-30-second-bounded refresh attempt under that operation's cancellation signal.
+Between turns and before a durable resume, a lapsed **Namzu-owned** subscription
+token gets one 30-second-bounded refresh attempt under that operation's
+cancellation signal.
 Concurrent operations in one session take this boundary in order and re-read
 the credential only when they reach its head, so an earlier success cannot be
 overwritten by a stale sibling. A credential in Namzu's own file is replaced
 only when it still exactly matches the value that authorized the refresh; an
 external rotation or logout wins. If that comparison cannot be published
-safely, the operation refuses instead of using an uncommitted token. A borrowed
-macOS Keychain credential is never overwritten: an external change wins, while
-an otherwise successful refresh remains local to the live session.
+safely, the operation refuses instead of using an uncommitted token.
+
+A borrowed `Claude` or `Codex` device credential is never refreshed or overwritten
+by Namzu. Each operation re-reads the exact admitted source; deletion, expiry or
+rotation wins over the provider object already in memory. `Claude` tells the
+operator to run `claude login`, while Codex tells them to run `codex login`.
+This keeps single-use refresh grants with their owner instead of racing a
+co-installed client and logging it out.
 
 An authorization server response of `400 invalid_grant` is not retried as a
 transient outage. It means that exact refresh grant is no longer usable, so the
@@ -394,7 +423,7 @@ refuses rather than choosing one lookalike source turn.
 | `namzu skills-json` | The skills discovered for a working directory, as JSON |
 | `namzu providers-json` | Providers and their per-provider models, as JSON |
 | `namzu doctor` | Health checks against this machine |
-| `namzu login` / `namzu logout` | Store, or remove, a provider subscription credential |
+| `namzu login <claude\|codex>` / `namzu logout` | Store a Namzu-owned provider subscription credential, or remove all Namzu-owned subscription credentials |
 | `namzu drain` | Continue runs another process left behind — one pass, then exit |
 | `namzu eval` | Run eval suites and set an exit code |
 | `namzu acp` | Speak the agent-client protocol over this process's stdio |

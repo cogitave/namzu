@@ -111,8 +111,9 @@ describe('agent.ts:713 — the token-refresh rebuild catch', () => {
 
 		const detectedOAuth = {
 			...detectedAnthropic,
+			source: { kind: 'stored' as const, path: '/owned/credentials.json' },
 			apiKey: 'cc-oauth-token',
-			oauth: { origin: 'keychain' as const, refreshToken: 'r', expiresAt: 0 },
+			oauth: { origin: 'stored' as const, refreshToken: 'r', expiresAt: 0 },
 		}
 		const s = await createAgentSession(
 			{ version: 3, providers: [{ id: 'anthropic' }] } as never,

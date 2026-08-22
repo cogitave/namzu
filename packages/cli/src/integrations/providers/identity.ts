@@ -58,21 +58,13 @@ export const SUBSCRIPTION_REDIRECT_PORT = 53692
 export const REDIRECT_URI = `http://localhost:${SUBSCRIPTION_REDIRECT_PORT}/callback`
 
 /**
- * Asked for at sign-in.
+ * The smallest source-verified scope set used by the current Claude harness.
  *
- * This is WIDER than namzu needs, and that is a knowing compromise rather
- * than an oversight. Least privilege would ask for an identity and the right
- * to run inference, and stop; this set also admits key creation and file
- * upload. It is the set the client identity above is exercised with by the
- * implementations that are known to work, and a narrower request cannot be
- * tested from here — nobody on this side of the flow holds a plan-backed
- * account to try it against. Guessing narrow fails in the worst place: the
- * sign-in succeeds, and inference is refused afterwards with an error about
- * scope that the operator cannot act on.
- *
- * So it is recorded as debt with the measurement that would settle it: sign
- * in with `user:profile user:inference` alone and send one message. If that
- * works, this shrinks to those two.
+ * Do not copy every scope a historical client happened to request. Unknown
+ * scopes make the authorization page reject the whole request before the
+ * operator can sign in, and key creation is not inference authority. These
+ * three are the live harness contract: identify the account, run inference,
+ * and retain the ability to create an API key from that harness when the
+ * account permits it.
  */
-export const OAUTH_SCOPES =
-	'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload'
+export const OAUTH_SCOPES = 'org:create_api_key user:profile user:inference'

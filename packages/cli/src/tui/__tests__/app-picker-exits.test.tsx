@@ -46,6 +46,10 @@ let beginLogin: typeof import('../../integrations/providers/index.js').beginSubs
 	async () => {
 		throw new Error('sign-in was not arranged by this test')
 	}
+let beginCodexLogin: typeof import('../../integrations/providers/index.js').beginCodexDeviceLogin =
+	async () => {
+		throw new Error('Codex sign-in was not arranged by this test')
+	}
 let createSession: typeof import('../agent.js').createAgentSession
 
 const DETECTED = [
@@ -135,8 +139,13 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 		beginSubscriptionLogin: (
 			...args: Parameters<typeof actual.beginSubscriptionLogin>
 		): ReturnType<typeof actual.beginSubscriptionLogin> => beginLogin(...args),
+		beginCodexDeviceLogin: (
+			...args: Parameters<typeof actual.beginCodexDeviceLogin>
+		): ReturnType<typeof actual.beginCodexDeviceLogin> => beginCodexLogin(...args),
 	}
 })
+
+vi.mock('../open-browser.js', () => ({ openInBrowser: () => true }))
 
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
@@ -236,11 +245,21 @@ beforeEach(() => {
 	beginLogin = async () => {
 		throw new Error('sign-in was not arranged by this test')
 	}
+	beginCodexLogin = async () => {
+		throw new Error('Codex sign-in was not arranged by this test')
+	}
 })
 
-afterEach(() => {
+
+afterEach(async () => {
+	// Several cases finish on the same tick that an async iterator publishes its
+	// terminal frame. Let Ink commit that owned update before disposing Yoga's
+	// tree; tearing the renderer down mid-commit makes later tests inherit a
+	// closed WASM node even though the App operation itself already settled.
+	await tick(80)
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
+	await tick()
 	vi.restoreAllMocks()
 })
 
@@ -539,6 +558,10 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Reasoning effort changed to max')
 		await submit(harness, '/model')
 		await frameShows(harness.lastFrame, 'Choose a provider')
+		// The frame can publish before Ink installs the picker input handler.
+		// Let that handler own stdin before sending the selection, otherwise a
+		// preceding test's delayed escape parsing can make Enter disappear.
+		await tick(60)
 		const { stdin, lastFrame } = harness
 
 		stdin.write('\x1B[B')
@@ -693,6 +716,8 @@ describe('cancelling the picker on first run', () => {
 
 		await tick(80)
 		stdin.write('l')
+		await frameShows(lastFrame, 'Choose a subscription')
+		stdin.write('\r')
 		await vi.waitFor(() => expect(pickerSignal).toBeDefined())
 		stdin.write('\x1B')
 		await exitedWithin()
@@ -765,5 +790,51 @@ describe('the picker hint', () => {
 
 		expect(frame).toContain('keep current')
 		expect(frame).toContain('Ctrl+C')
+	})
+})
+
+describe('subscription selection from the ready TUI', () => {
+	it('routes /login through the Claude-or-Codex picker and starts the chosen device flow', async () => {
+		const cancel = vi.fn()
+		let ownedSignal: AbortSignal | undefined
+		beginCodexLogin = async (options = {}) => {
+			ownedSignal = options.signal
+			return {
+				url: 'https://auth.example.test/codex/device',
+				userCode: 'ABCD-EFGH',
+				waitForCompletion: () =>
+					new Promise((resolve) => {
+						const settleCancelled = () =>
+							resolve({
+								ok: false as const,
+								reason: 'The Codex sign-in was cancelled.',
+							})
+						if (options.signal?.aborted) settleCancelled()
+						else
+							options.signal?.addEventListener('abort', settleCancelled, {
+								once: true,
+							})
+					}),
+				cancel,
+			}
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, '/login')
+		await frameShows(harness.lastFrame, 'Choose a subscription')
+		expect(harness.lastFrame()).toContain('Anthropic (Claude)')
+		expect(harness.lastFrame()).toContain('OpenAI (Codex subscription)')
+
+		harness.stdin.write('\x1B[B')
+		await tick()
+		harness.stdin.write('\r')
+		await vi.waitFor(() => expect(ownedSignal).toBeDefined())
+		await frameShows(harness.lastFrame, 'ABCD-EFGH')
+
+		expect(ownedSignal?.aborted).toBe(false)
+		expect(cancel).not.toHaveBeenCalled()
 	})
 })

@@ -74,7 +74,13 @@ describe('the no-credential screen', () => {
 		expect(lastFrame()).toMatch(/press .*l.* to sign in|l: sign in/s)
 		stdin.write('l')
 		await flush()
+		expect(lastFrame()).toContain('Choose a subscription')
+		expect(lastFrame()).toContain('Anthropic (Claude)')
+		expect(lastFrame()).toContain('OpenAI (Codex subscription)')
+		stdin.write('\r')
+		await flush()
 		expect(onLogin).toHaveBeenCalledTimes(1)
+		expect(onLogin.mock.calls[0]?.[0]).toBe('anthropic')
 		unmount()
 	})
 
@@ -83,7 +89,23 @@ describe('the no-credential screen', () => {
 		const { stdin, unmount } = open({ onLogin })
 		stdin.write('L')
 		await flush()
+		stdin.write('\r')
+		await flush()
 		expect(onLogin).toHaveBeenCalledTimes(1)
+		unmount()
+	})
+
+	it('lets the operator choose Codex instead of hard-coding Claude', async () => {
+		const onLogin = vi.fn()
+		const { stdin, unmount } = open({ onLogin })
+		stdin.write('l')
+		await flush()
+		stdin.write('\x1B[B')
+		await flush()
+		stdin.write('\r')
+		await flush()
+		expect(onLogin).toHaveBeenCalledTimes(1)
+		expect(onLogin.mock.calls[0]?.[0]).toBe('codex')
 		unmount()
 	})
 
@@ -161,7 +183,10 @@ describe('the credential prompt', () => {
 
 	it('surfaces the provider’s own reason when a key is rejected', async () => {
 		const { lastFrame, stdin, unmount, onCredential } = open({
-			verify: async () => ({ kind: 'rejected', reason: 'HTTP 401 invalid x-api-key' }),
+			verify: async () => ({
+				kind: 'rejected',
+				reason: 'HTTP 401 invalid x-api-key',
+			}),
 		})
 		stdin.write('k')
 		await flush()

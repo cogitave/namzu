@@ -683,7 +683,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'login',
-		description: 'Sign in with a subscription: /login, then /login <address> if asked.',
+		description: 'Sign in with a Claude or Codex subscription.',
 		action: (_ctx, args) =>
 			isCompletionArgument(args)
 				? { kind: 'login', pasted: args.join(' ').trim() }

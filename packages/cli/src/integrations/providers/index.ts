@@ -6,18 +6,45 @@ export {
 	findDetected,
 } from './discover.js'
 export {
+	type CodexOAuthCredential,
+	claudeCredentialsPath,
+	codexCredentialsPath,
+	readClaudeCredentialFile,
+	readClaudeFileCredential,
+	readCodexCredentialFile,
+	readCodexFileCredential,
+} from './harness-credentials.js'
+export {
 	type AgentOAuthCredential,
 	isAnthropicOAuthToken,
 	readAgentKeychainCredential,
 } from './keychain.js'
 export {
+	beginCodexDeviceLogin,
+	CODEX_AUTH_ORIGIN,
+	CODEX_OAUTH_CLIENT_ID,
+	type CodexDeviceLogin,
+	type CodexDeviceLoginOptions,
+	type CodexDeviceLoginOutcome,
+} from './codex-device-login.js'
+export {
+	clearAllStoredCredentials,
 	clearStoredSubscriptionCredential,
+	clearStoredCodexCredential,
 	CREDENTIALS_FILE_VERSION,
 	CredentialStoreError,
 	credentialsPath,
 	readStoredSubscriptionCredential,
+	readStoredCodexCredential,
+	replaceStoredCodexCredential,
+	type StoredCodexCredential,
 	writeStoredSubscriptionCredential,
+	writeStoredCodexCredential,
 } from './credential-store.js'
+export {
+	ensureFreshStoredCodexCredential,
+	type StoredCodexRefreshOptions,
+} from './codex-oauth.js'
 export { OAUTH_SCOPES, REDIRECT_URI } from './identity.js'
 export {
 	CredentialPublicationError,
@@ -64,6 +91,7 @@ export {
 	PROVIDER_REGISTRY,
 	type ProviderId,
 	type ProviderRegistryEntry,
+	type SubscriptionProviderId,
 	type SdkProviderType,
 	unsupportedProviderMessage,
 } from './registry.js'

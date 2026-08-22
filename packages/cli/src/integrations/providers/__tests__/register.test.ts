@@ -74,7 +74,10 @@ const CLI_DEPENDENCIES: Record<string, string> = JSON.parse(
  */
 describe('constructible agrees with what this package actually depends on', () => {
 	it.each([...ALL_PROVIDER_IDS])('%s', (id) => {
-		expect(`@namzu/${id}` in CLI_DEPENDENCIES).toBe(PROVIDER_REGISTRY[id].constructible)
+		const driverPackage = PROVIDER_REGISTRY[id].driverPackage
+		expect(driverPackage !== undefined && driverPackage in CLI_DEPENDENCIES).toBe(
+			PROVIDER_REGISTRY[id].constructible,
+		)
 	})
 
 	it.each([...UNBUNDLED_IDS])('refuses %s, rather than merely being flagged', async (id) => {

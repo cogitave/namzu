@@ -60,6 +60,25 @@ export function describeLoginStart(start: {
 	return lines.join('\n')
 }
 
+export function describeCodexDeviceLoginStart(start: {
+	readonly url: string
+	readonly userCode: string
+	readonly browserOpened: boolean
+}): string {
+	return [
+		start.browserOpened
+			? 'Opening your browser to sign in with ChatGPT. If nothing opened, use this address:'
+			: 'Open this address to sign in with ChatGPT:',
+		'',
+		start.url,
+		'',
+		'Enter this one-time device code:',
+		`  ${start.userCode}`,
+		'',
+		'Continue only if you started this sign-in in Namzu. The code expires after 15 minutes.',
+	].join('\n')
+}
+
 /**
  * What the operator reads when the attempt ends, either way.
  *

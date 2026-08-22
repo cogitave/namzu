@@ -40,6 +40,7 @@ import {
 	readStoredSubscriptionCredential,
 	replaceStoredSubscriptionCredential,
 } from './credential-store.js'
+import { readClaudeFileCredential } from './harness-credentials.js'
 import { OAUTH_CLIENT_ID, OAUTH_TOKEN_URL } from './identity.js'
 import { type AgentOAuthCredential, readAgentKeychainCredential } from './keychain.js'
 
@@ -98,11 +99,12 @@ async function awaitWithSignal<T>(operation: PromiseLike<T>, signal: AbortSignal
  * at detection; everything after that is told, not asked.
  */
 export function readSubscriptionCredential(origin: CredentialOrigin): AgentOAuthCredential | null {
-	return origin === 'stored' ? readStoredSubscriptionCredential() : readAgentKeychainCredential()
+	if (origin === 'stored') return readStoredSubscriptionCredential()
+	return origin === 'claude-file' ? readClaudeFileCredential() : readAgentKeychainCredential()
 }
 
 /** Which store a subscription credential came from and therefore who owns publication. */
-export type CredentialOrigin = 'stored' | 'keychain'
+export type CredentialOrigin = 'stored' | 'keychain' | 'claude-file'
 
 export interface OAuthMetadata {
 	readonly refreshToken?: string
@@ -116,8 +118,8 @@ export interface OAuthMetadata {
 export class CredentialWithdrawnError extends Error {
 	override readonly name = 'CredentialWithdrawnError'
 
-	constructor() {
-		super('The subscription credential was removed while it was being refreshed.')
+	constructor(message = 'The subscription credential was removed while it was being refreshed.') {
+		super(message)
 	}
 }
 
@@ -197,12 +199,13 @@ function publishRefreshed(
 	refreshed: AgentOAuthCredential,
 	origin: CredentialOrigin,
 ): AgentOAuthCredential {
-	if (origin === 'keychain') {
+	if (origin !== 'stored') {
 		// This entry belongs to another product, whose writer cannot participate
 		// in a Namzu lock or conditional update. Never overwrite it. A rotation
 		// that landed while the request was pending wins for this session; when it
 		// is unchanged, the refreshed token remains session-local.
-		const current = readAgentKeychainCredential()
+		const current =
+			origin === 'claude-file' ? readClaudeFileCredential() : readAgentKeychainCredential()
 		if (!current) throw new CredentialWithdrawnError()
 		return !sameOAuthCredential(current, expected) ? current : refreshed
 	}

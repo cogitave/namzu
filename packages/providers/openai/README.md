@@ -2,10 +2,10 @@
 type: Reference
 title: "@namzu/openai"
 description: >-
-  Implements the kernel's `LLMProvider` interface over the official OpenAI
-  SDK, and over any endpoint that speaks the same wire format.
+  Implements the kernel's `LLMProvider` interface for OpenAI API keys and
+  account-routed ChatGPT subscription sessions.
 tags: [readme, package, provider, openai]
-timestamp: 2026-08-17T00:00:00Z
+timestamp: 2026-08-22T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -14,7 +14,7 @@ diataxis: reference
 
 <h1>@namzu/openai</h1>
 
-**The OpenAI model driver for [Namzu](https://github.com/cogitave/namzu).**
+**OpenAI API-key and ChatGPT subscription drivers for [Namzu](https://github.com/cogitave/namzu).**
 
 [![npm](https://img.shields.io/npm/v/@namzu/openai.svg)](https://www.npmjs.com/package/@namzu/openai)
 [![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
@@ -26,9 +26,11 @@ diataxis: reference
 
 ---
 
-Implements the kernel's `LLMProvider` interface over the official OpenAI
-SDK, and over any endpoint that speaks the same wire format. Installed only
-if you use it — the kernel has no preferred vendor and no driver is a
+Implements the kernel's `LLMProvider` interface over the official OpenAI SDK.
+The package has two explicit transports: `OpenAIProvider` speaks Chat
+Completions with an API key, while `CodexProvider` speaks the account-routed
+Responses backend with a ChatGPT subscription session. Installed only if you
+use either one — the kernel has no preferred vendor and no driver is a
 dependency of it.
 
 ## Install
@@ -40,6 +42,8 @@ pnpm add @namzu/sdk @namzu/openai
 `@namzu/sdk` is a peer dependency. Install both.
 
 ## Usage
+
+### OpenAI API key
 
 ```ts
 import { ProviderRegistry } from '@namzu/sdk'
@@ -65,6 +69,31 @@ for await (const chunk of provider.chatStream({
 `chatStream` is the only model entry point; a non-streaming call is that
 stream collected. In practice the kernel's run loop calls it and hands you
 events.
+
+### ChatGPT subscription
+
+```ts
+import { ProviderRegistry } from '@namzu/sdk'
+import { registerCodex } from '@namzu/openai'
+
+declare const accessToken: string
+declare const accountId: string
+
+registerCodex()
+
+const { provider } = ProviderRegistry.create({
+  type: 'codex',
+  accessToken,
+  accountId,
+  model: 'gpt-5.6-luna',
+})
+```
+
+`accessToken` and `accountId` must come from a user-authorized ChatGPT session.
+The driver does not discover, refresh or persist credentials; that ownership
+belongs to the host. Namzu CLI can reuse a usable device session owned by the
+Codex CLI, without copying it into Namzu's credential store, or create a
+separate Namzu-owned device login when no external session is available.
 
 ## Documentation
 

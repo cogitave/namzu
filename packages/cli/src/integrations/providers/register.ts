@@ -67,6 +67,11 @@ export async function ensureRegistered(id: ProviderId): Promise<void> {
 			mod.registerOpenAI()
 			break
 		}
+		case 'codex': {
+			const mod = await import('@namzu/openai')
+			mod.registerCodex()
+			break
+		}
 		case 'deepseek': {
 			const mod = await import('@namzu/deepseek')
 			mod.registerDeepSeek()
@@ -117,7 +122,10 @@ export async function resolveChainCapabilities(
 	const out: MemberCapabilities[] = []
 	for (const member of members) {
 		if (!(member.id in PROVIDER_REGISTRY)) {
-			out.push({ kind: 'unresolved', reason: `"${member.id}" is not a provider namzu knows` })
+			out.push({
+				kind: 'unresolved',
+				reason: `"${member.id}" is not a provider namzu knows`,
+			})
 			continue
 		}
 		try {

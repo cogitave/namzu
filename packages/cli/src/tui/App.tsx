@@ -11,78 +11,57 @@
  *      empty-state mode (explains where to put credentials).
  */
 
+import { join, relative } from 'node:path'
 import {
+	type CostInfo,
 	DiskMessageFeedbackStore,
+	type GoalRoundAuthority,
 	GoalRoundLimitError,
 	HostCommandRegistry,
-	SessionGoalActivation,
-	StaleGoalError,
-	kernelHostCommands,
-	type CostInfo,
-	type GoalRoundAuthority,
 	type Message,
 	type MessageAttachment,
 	type MessageId,
 	type ReasoningEffort,
 	type RunId,
+	SessionGoalActivation,
+	StaleGoalError,
 	createAssistantMessage,
 	createUserMessage,
 	generateRunId,
 	isCompactionMessage,
+	kernelHostCommands,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
-import { join, relative } from 'node:path'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { visibleProjectInstructionPath } from '../context/project-path.js'
 import {
 	pinTrustedProjectPath,
 	resolveTrustedProjectContext,
 } from '../config/trusted-project-context.js'
+import { visibleProjectInstructionPath } from '../context/project-path.js'
 
-import {
-	beginSubscriptionLogin,
-	clearStoredSubscriptionCredential,
-	credentialsPath,
-	type DetectedProvider,
-	type Preferences,
-	type ProviderId,
-	primaryProvider,
-	readStoredSubscriptionCredential,
-	type SubscriptionLogin,
-	writePreferences,
-} from '../integrations/providers/index.js'
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
 	writeTerminalNotification,
 } from '../integrations/notifications/terminal.js'
-import { describeLoginOutcome, describeLoginStart, describeLogout } from './login-prompt.js'
-import { openInBrowser } from './open-browser.js'
-import { isTrusted, trustDir } from '../integrations/trust/store.js'
-import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
-import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
-import { checkUpdates } from '../integrations/updates.js'
-import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
-import { bottomSpacerRows } from './bottom-spacer.js'
-import { expandFileMentions } from './mentions.js'
-import { Composer, type ComposerDraft } from './Composer.js'
-import { EditPromptPicker } from './EditPromptPicker.js'
-import { TrustPrompt } from './TrustPrompt.js'
 import {
-	NAMZU_MARK,
-	NAMZU_MARK_COLOR,
-	NAMZU_WORDMARK,
-	NAMZU_WORDMARK_GRADIENT,
-	NAMZU_WORDMARK_MIN_WIDTH,
-} from './logo.js'
-import { PermissionOverlay } from './PermissionOverlay.js'
-import { approvalIsDeliberate } from './consent-timing.js'
-import { Picker } from './Picker.js'
-import { type ContextFill, StatusBar } from './StatusBar.js'
-import { Transcript, willCollapse } from './Transcript.js'
-import { liveWindow, transcriptLines } from './live-window.js'
+	type CodexDeviceLogin,
+	type DetectedProvider,
+	type Preferences,
+	type ProviderId,
+	type SubscriptionLogin,
+	type SubscriptionProviderId,
+	beginCodexDeviceLogin,
+	beginSubscriptionLogin,
+	clearAllStoredCredentials,
+	credentialsPath,
+	primaryProvider,
+	readStoredCodexCredential,
+	readStoredSubscriptionCredential,
+	writePreferences,
+} from '../integrations/providers/index.js'
 import {
 	type CliSessions,
 	type RecentConversation,
@@ -102,6 +81,25 @@ import {
 	conversationMarkdown,
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
+import type {
+	ConversationTurnOutcome,
+	ConversationTurnStartedRecord,
+} from '../integrations/sessions/turn-evidence.js'
+import { isTrusted, trustDir } from '../integrations/trust/store.js'
+import { checkUpdates } from '../integrations/updates.js'
+import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
+import type { PermissionMode } from '../permissions/mode.js'
+import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
+import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
+import { Composer, type ComposerDraft } from './Composer.js'
+import { EditPromptPicker } from './EditPromptPicker.js'
+import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
+import { PermissionOverlay } from './PermissionOverlay.js'
+import { Picker } from './Picker.js'
+import { ResumePicker } from './ResumePicker.js'
+import { type ContextFill, StatusBar } from './StatusBar.js'
+import { Transcript, willCollapse } from './Transcript.js'
+import { TrustPrompt } from './TrustPrompt.js'
 import {
 	type AgentEvent,
 	type AgentSession,
@@ -111,11 +109,27 @@ import {
 	createAgentSession,
 	probeAgentSession,
 } from './agent.js'
-import { ResumePicker } from './ResumePicker.js'
-import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
+import { bottomSpacerRows } from './bottom-spacer.js'
+import { keepRecentRows } from './compact-transcript.js'
+import { approvalIsDeliberate } from './consent-timing.js'
 import { planTurnPublication } from './conversation-history.js'
-import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
-import type { PermissionMode } from '../permissions/mode.js'
+import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
+import { liveWindow, transcriptLines } from './live-window.js'
+import {
+	describeCodexDeviceLoginStart,
+	describeLoginOutcome,
+	describeLoginStart,
+	describeLogout,
+} from './login-prompt.js'
+import {
+	NAMZU_MARK,
+	NAMZU_MARK_COLOR,
+	NAMZU_WORDMARK,
+	NAMZU_WORDMARK_GRADIENT,
+	NAMZU_WORDMARK_MIN_WIDTH,
+} from './logo.js'
+import { expandFileMentions } from './mentions.js'
+import { openInBrowser } from './open-browser.js'
 import {
 	type SlashContext,
 	hostCommandNames,
@@ -128,12 +142,7 @@ import {
 import { splitCompleteBlocks } from './stream-blocks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
-import { keepRecentRows } from './compact-transcript.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
-import type {
-	ConversationTurnOutcome,
-	ConversationTurnStartedRecord,
-} from '../integrations/sessions/turn-evidence.js'
 
 export interface AppProps {
 	readonly ctx: TuiContext
@@ -379,6 +388,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * chosen yet would be answering a question that was not asked.
 	 */
 	const [keyEntryFor, setKeyEntryFor] = useState<ProviderId | null>(null)
+	/** Which decision owns the next picker mount. */
+	const [pickerInitialView, setPickerInitialView] = useState<'providers' | 'subscriptions'>(
+		'providers',
+	)
 	/** The chain read from disk, held while the picker repairs its credential. */
 	const savedPrefsRef = useRef<Preferences | null>(null)
 	/**
@@ -505,12 +518,15 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * which the code that comes back cannot be exchanged for anything.
 	 */
 	const loginRef = useRef<SubscriptionLogin | null>(null)
+	const codexLoginRef = useRef<CodexDeviceLogin | null>(null)
 	const loginAbortCleanupRef = useRef<(() => void) | null>(null)
 	const cancelPendingLogin = useCallback(() => {
 		loginAbortCleanupRef.current?.()
 		loginAbortCleanupRef.current = null
 		loginRef.current?.cancel()
 		loginRef.current = null
+		codexLoginRef.current?.cancel()
+		codexLoginRef.current = null
 	}, [])
 	const runProbeRef = useRef<((signal?: AbortSignal) => Promise<void>) | null>(null)
 	useEffect(() => cancelPendingLogin, [cancelPendingLogin])
@@ -871,9 +887,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 	/**
 	 * Sign in to a subscription without leaving namzu.
 	 *
-	 * Two calls, one command. Bare `/login` starts an attempt and parks it in
-	 * `loginRef`; `/login <address>` finishes that one. Nothing here parses the
-	 * argument — `slashCommands` already decided which of the two this is.
+	 * A bare `/login` no longer guesses a provider: it mounts the subscription
+	 * picker first. The argument form remains the paste-completion half of the
+	 * browser-callback attempt already in flight.
 	 *
 	 * ## Why it re-probes instead of installing the credential directly
 	 *
@@ -905,47 +921,18 @@ export function App({ ctx: initialCtx }: AppProps) {
 				loginAbortCleanupRef.current?.()
 				loginAbortCleanupRef.current = null
 				pushMessage('system', describeLoginOutcome(outcome))
-				if (outcome.ok) await runProbeRef.current?.()
+				if (outcome.ok) {
+					setPickerInitialView('providers')
+					await runProbeRef.current?.()
+				}
 				return
 			}
 
 			cancelPendingLogin()
-			let start: SubscriptionLogin
-			try {
-				start = await beginSubscriptionLogin()
-			} catch (err) {
-				pushMessage(
-					'system',
-					`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
-				)
-				return
-			}
-			loginRef.current = start
-			pushMessage(
-				'system',
-				describeLoginStart({
-					url: start.url,
-					loopback: start.loopback,
-					browserOpened: openInBrowser(start.url),
-				}),
-			)
-			// The automatic half, when there is one. Not awaited by the caller:
-			// the composer stays live throughout, so the operator can paste
-			// instead — or type anything else — while this waits.
-			const waiting = start.waitForCallback()
-			if (!waiting) return
-			const outcome = await waiting
-			if (loginRef.current !== start) return // superseded, or finished by paste
-			loginRef.current = null
-			loginAbortCleanupRef.current?.()
-			loginAbortCleanupRef.current = null
-			start.cancel()
-			// A cancelled listener resolves to a refusal, and saying "sign-in
-			// failed" when the operator finished it another way would be a lie
-			// about their own successful login.
-			if (!outcome.ok && outcome.reason.includes('cancelled')) return
-			pushMessage('system', describeLoginOutcome(outcome))
-			if (outcome.ok) await runProbeRef.current?.()
+			setPickerNotice(null)
+			setKeyEntryFor(null)
+			setPickerInitialView('subscriptions')
+			setPhase('picker')
 		},
 		[cancelPendingLogin, pushMessage],
 	)
@@ -966,9 +953,44 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * address from standard input and exists for exactly that machine.
 	 */
 	const startLoginFromPicker = useCallback(
-		async (signal: AbortSignal) => {
+		async (provider: SubscriptionProviderId, signal: AbortSignal) => {
 			if (signal.aborted) return
 			cancelPendingLogin()
+			if (provider === 'codex') {
+				let start: CodexDeviceLogin
+				try {
+					start = await beginCodexDeviceLogin({ signal })
+				} catch (error) {
+					if (!signal.aborted) {
+						setPickerNotice(
+							`Could not start Codex sign-in: ${error instanceof Error ? error.message : String(error)}`,
+						)
+					}
+					return
+				}
+				if (signal.aborted) {
+					start.cancel()
+					return
+				}
+				codexLoginRef.current = start
+				setPickerNotice(
+					describeCodexDeviceLoginStart({
+						url: start.url,
+						userCode: start.userCode,
+						browserOpened: openInBrowser(start.url),
+					}),
+				)
+				const outcome = await start.waitForCompletion()
+				if (codexLoginRef.current !== start || signal.aborted) return
+				codexLoginRef.current = null
+				start.cancel()
+				setPickerNotice(describeLoginOutcome(outcome))
+				if (outcome.ok) {
+					setPickerInitialView('providers')
+					await runProbeRef.current?.(signal)
+				}
+				return
+			}
 			let start: SubscriptionLogin
 			try {
 				start = await beginSubscriptionLogin({ signal })
@@ -1018,7 +1040,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 			start.cancel()
 			if (!outcome.ok && outcome.reason.includes('cancelled')) return
 			setPickerNotice(describeLoginOutcome(outcome))
-			if (outcome.ok) await runProbeRef.current?.(signal)
+			if (outcome.ok) {
+				setPickerInitialView('providers')
+				await runProbeRef.current?.(signal)
+			}
 		},
 		[cancelPendingLogin],
 	)
@@ -2350,6 +2375,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 						// been solved — the session behind this picker is running.
 						setPickerNotice(null)
 						setKeyEntryFor(null)
+						setPickerInitialView('providers')
 						setPhase('picker')
 						return
 					case 'permission-mode': {
@@ -2440,9 +2466,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 						return
 					case 'logout': {
 						const path = credentialsPath()
-						const had = readStoredSubscriptionCredential() !== null
+						const had =
+							readStoredSubscriptionCredential() !== null || readStoredCodexCredential() !== null
 						try {
-							clearStoredSubscriptionCredential()
+							clearAllStoredCredentials()
 						} catch (err) {
 							pushMessage(
 								'system',
@@ -3282,6 +3309,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * what the empty picker's own footer has always claimed `esc` does.
 	 */
 	const handlePickerCancel = useCallback(() => {
+		setPickerInitialView('providers')
 		if (session?.hasProvider) {
 			setPhase('ready')
 			return
@@ -3501,10 +3529,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 						detected={detected}
 						currentProvider={currentProvider}
 						currentModel={session?.modelSummary ?? null}
+						initialView={pickerInitialView}
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
 						onCredential={handleTypedCredential}
-						onLogin={(signal) => void startLoginFromPicker(signal)}
+						onLogin={(provider, signal) => void startLoginFromPicker(provider, signal)}
 						keyEntryFor={keyEntryFor}
 						notice={pickerNotice}
 					/>

@@ -40,7 +40,7 @@ export const credentialSourcesCheck: DoctorCheck = {
 				status: 'warn',
 				message: 'no LLM credential found',
 				remediation:
-					'namzu scans environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, …), the macOS Keychain, and local servers (Ollama, LM Studio). It no longer reads the secrets file of the peer daemon it used to integrate with — that integration was removed in @namzu/cli 0.7.0. If your key lived only in that file, export it as one of the environment variables above.',
+					'Namzu no longer reads the secrets file. It first reuses current Claude and Codex sessions on this device, then subscriptions signed in with `namzu login claude|codex`. API keys remain optional alternatives through ANTHROPIC_API_KEY or OPENAI_API_KEY; local Ollama and LM Studio servers are also detected.',
 			}
 		}
 
@@ -50,10 +50,16 @@ export const credentialSourcesCheck: DoctorCheck = {
 					return `${d.entry.id} (env · ${d.source.envName})`
 				case 'keychain':
 					return `${d.entry.id} (keychain · ${d.source.service})`
+				case 'claude-file':
+					return `${d.entry.id} (Claude session · ${d.source.path})`
+				case 'codex-file':
+					return `${d.entry.id} (Codex session · ${d.source.path})`
 				case 'stored':
 					return `${d.entry.id} (signed in · ${d.source.path})`
 				case 'probe':
 					return `${d.entry.id} (local · ${d.source.url.replace(/^https?:\/\//, '')})`
+				case 'session':
+					return `${d.entry.id} (typed · current session)`
 			}
 		})
 		return {

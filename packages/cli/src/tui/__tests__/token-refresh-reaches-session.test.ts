@@ -25,6 +25,14 @@ const stored = vi.hoisted(() => ({
 		scopes?: readonly string[]
 	},
 }))
+const borrowedExternal = vi.hoisted(() => ({
+	current: null as null | {
+		accessToken: string
+		refreshToken?: string
+		expiresAt?: number
+		scopes?: readonly string[]
+	},
+}))
 const readStored = vi.hoisted(() => vi.fn(() => stored.current))
 const writeStored = vi.hoisted(() =>
 	vi.fn(
@@ -82,6 +90,15 @@ vi.mock('../../integrations/providers/credential-store.js', async (importOrigina
 	}
 })
 
+vi.mock('../../integrations/providers/harness-credentials.js', async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import('../../integrations/providers/harness-credentials.js')>()
+	return {
+		...actual,
+		readClaudeFileCredential: () => borrowedExternal.current,
+	}
+})
+
 const runCalls = vi.hoisted(() => ({
 	queries: [] as Record<string, unknown>[],
 	resumes: [] as Record<string, unknown>[],
@@ -117,6 +134,7 @@ const preferences = {
 const roots: string[] = []
 const sessions: AgentSession[] = []
 const constructedTokens: string[] = []
+const EXTERNAL_SESSION_EXPIRED = 'Claude session on this device has expired'
 
 function detectedSubscription() {
 	return [
@@ -128,6 +146,22 @@ function detectedSubscription() {
 				refreshToken: 'rt-old',
 				expiresAt: 0,
 				origin: 'stored' as const,
+			},
+			alternatives: [],
+		},
+	]
+}
+
+function detectedBorrowedSubscription() {
+	return [
+		{
+			entry: PROVIDER_REGISTRY['anthropic'],
+			source: { kind: 'claude-file', path: '/tmp/.claude/.credentials.json' },
+			apiKey: 'cc-borrowed',
+			oauth: {
+				refreshToken: 'rt-borrowed',
+				expiresAt: Date.now() + 3_600_000,
+				origin: 'claude-file' as const,
 			},
 			alternatives: [],
 		},
@@ -169,6 +203,16 @@ async function session(): Promise<AgentSession> {
 	return result
 }
 
+async function borrowedSession(): Promise<AgentSession> {
+	const cwd = mkdtempSync(join(tmpdir(), 'namzu-borrowed-claude-session-'))
+	roots.push(cwd)
+	const result = await createAgentSession(preferences, detectedBorrowedSubscription() as never, {
+		cwd,
+	})
+	sessions.push(result)
+	return result
+}
+
 beforeEach(() => {
 	stored.current = {
 		accessToken: 'cc-old',
@@ -176,6 +220,7 @@ beforeEach(() => {
 		expiresAt: 0,
 		scopes: ['account:read'],
 	}
+	borrowedExternal.current = null
 	readStored.mockClear()
 	writeStored.mockClear()
 	replaceStored.mockClear()
@@ -197,6 +242,27 @@ afterEach(async () => {
 })
 
 describe('a run owns the token refresh that precedes it', () => {
+	it('refuses an expired borrowed Claude session without consuming its refresh grant', async () => {
+		borrowedExternal.current = {
+			accessToken: 'cc-borrowed',
+			refreshToken: 'rt-owned-by-claude',
+			expiresAt: Date.now() - 1,
+		}
+		const fetchSpy = vi.fn<typeof fetch>()
+		vi.stubGlobal('fetch', fetchSpy)
+		const agent = await borrowedSession()
+
+		const next = agent
+			.send([createUserMessage('must wait for claude login')])
+			[Symbol.asyncIterator]()
+			.next()
+
+		await expect(next).rejects.toThrow(EXTERNAL_SESSION_EXPIRED)
+		expect(fetchSpy).not.toHaveBeenCalled()
+		expect(runCalls.queries).toEqual([])
+		expect(constructedTokens).toEqual(['cc-borrowed'])
+	})
+
 	it('cancels an uncooperative refresh before send reaches query', async () => {
 		let requestSignal: AbortSignal | undefined
 		vi.stubGlobal(

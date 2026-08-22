@@ -8,6 +8,7 @@
 
 export type ProviderId =
 	| 'anthropic'
+	| 'codex'
 	| 'openai'
 	| 'openrouter'
 	| 'deepseek'
@@ -18,6 +19,8 @@ export type ProviderId =
 
 /** SDK type passed to `ProviderRegistry.create({type, ...})`. */
 export type SdkProviderType = ProviderId
+
+export type SubscriptionProviderId = 'anthropic' | 'codex'
 
 export interface ProviderRegistryEntry {
 	readonly id: ProviderId
@@ -50,6 +53,10 @@ export interface ProviderRegistryEntry {
 	readonly defaultModel: string
 	/** Does this provider require an apiKey? `false` for purely local. */
 	readonly requiresApiKey: boolean
+	/** Whether the picker may accept an opaque credential typed by the operator. */
+	readonly acceptsTypedCredential: boolean
+	/** Namzu-owned login protocol, when this provider has one. */
+	readonly subscriptionLogin?: 'browser' | 'device'
 	/**
 	 * Can THIS BUILD of the CLI construct one?
 	 *
@@ -70,6 +77,8 @@ export interface ProviderRegistryEntry {
 	 * arm with no flag would refuse a provider that works.
 	 */
 	readonly constructible: boolean
+	/** Package this CLI imports for the driver. Multiple transports may share one. */
+	readonly driverPackage?: `@namzu/${string}`
 }
 
 export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntry>> = Object.freeze(
@@ -83,7 +92,25 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			envVars: ['ANTHROPIC_API_KEY', 'ANTHROPIC_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
 			defaultModel: 'claude-opus-5',
 			requiresApiKey: true,
+			acceptsTypedCredential: true,
+			subscriptionLogin: 'browser',
 			constructible: true,
+			driverPackage: '@namzu/anthropic',
+		},
+		codex: {
+			id: 'codex',
+			label: 'OpenAI (Codex subscription)',
+			// A Codex subscription token is never accepted through an environment
+			// variable here. It is a Responses credential with account routing, not
+			// an OpenAI API key; discovery reads its complete owned envelope instead.
+			envVars: [],
+			defaultBaseUrl: 'https://chatgpt.com/backend-api/codex',
+			defaultModel: 'gpt-5.6-sol',
+			requiresApiKey: true,
+			acceptsTypedCredential: false,
+			subscriptionLogin: 'device',
+			constructible: true,
+			driverPackage: '@namzu/openai',
 		},
 		openai: {
 			id: 'openai',
@@ -91,7 +118,9 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			envVars: ['OPENAI_API_KEY'],
 			defaultModel: 'gpt-4o',
 			requiresApiKey: true,
+			acceptsTypedCredential: true,
 			constructible: true,
+			driverPackage: '@namzu/openai',
 		},
 		deepseek: {
 			id: 'deepseek',
@@ -103,7 +132,9 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			// were discontinued on 2026-07-24 and resolve to nothing.
 			defaultModel: 'deepseek-v4-flash',
 			requiresApiKey: true,
+			acceptsTypedCredential: true,
 			constructible: true,
+			driverPackage: '@namzu/deepseek',
 		},
 		openrouter: {
 			id: 'openrouter',
@@ -112,7 +143,9 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			defaultBaseUrl: 'https://openrouter.ai/api/v1',
 			defaultModel: 'anthropic/claude-opus-5',
 			requiresApiKey: true,
+			acceptsTypedCredential: true,
 			constructible: true,
+			driverPackage: '@namzu/openrouter',
 		},
 		ollama: {
 			id: 'ollama',
@@ -122,7 +155,9 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			probeUrl: 'http://localhost:11434/api/tags',
 			defaultModel: 'llama3.2',
 			requiresApiKey: false,
+			acceptsTypedCredential: false,
 			constructible: true,
+			driverPackage: '@namzu/ollama',
 		},
 		lmstudio: {
 			id: 'lmstudio',
@@ -132,6 +167,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			probeUrl: 'http://localhost:1234/v1/models',
 			defaultModel: 'auto',
 			requiresApiKey: false,
+			acceptsTypedCredential: false,
 			constructible: false,
 		},
 		bedrock: {
@@ -149,6 +185,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			// means this build cannot construct the driver at all.
 			defaultModel: 'anthropic.claude-opus-4-7-v1:0',
 			requiresApiKey: true,
+			acceptsTypedCredential: true,
 			constructible: false,
 		},
 		http: {
@@ -159,6 +196,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			envVars: [],
 			defaultModel: 'gpt-4o',
 			requiresApiKey: true,
+			acceptsTypedCredential: true,
 			constructible: false,
 		},
 	},

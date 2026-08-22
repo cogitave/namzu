@@ -7,8 +7,14 @@ describe('parseLoginFlags', () => {
 	it('defaults to launching a browser and waiting five minutes', () => {
 		const flags = parseLoginFlags([])
 		expect(flags.noBrowser).toBe(false)
+		expect(flags.provider).toBeUndefined()
 		expect(flags.timeoutMs).toBe(300_000)
 		expect(flags.unknown).toEqual([])
+	})
+
+	it('requires an explicit subscription and accepts both user-facing names', () => {
+		expect(parseLoginFlags(['claude']).provider).toBe('anthropic')
+		expect(parseLoginFlags(['codex']).provider).toBe('codex')
 	})
 
 	it('takes --no-browser, which is the container case', () => {
@@ -68,7 +74,11 @@ describe('a surface names its own spelling of the command', () => {
 
 	it('and names namzu logout on success', () => {
 		const text = describeLoginOutcome(
-			{ ok: true, credential: { accessToken: 'zzz-secret' }, storedAt: '/p/credentials.json' },
+			{
+				ok: true,
+				credential: { accessToken: 'zzz-secret' },
+				storedAt: '/p/credentials.json',
+			},
 			{ retry: 'namzu login', remove: 'namzu logout' },
 		)
 		expect(text).toContain('namzu logout')

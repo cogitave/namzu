@@ -26,3 +26,20 @@ export interface OpenAIConfig {
 export interface OpenAIProviderConfig extends OpenAIConfig {
 	type: 'openai'
 }
+
+/** ChatGPT subscription transport used by the Codex Responses backend. */
+export interface CodexConfig {
+	accessToken: string
+	accountId: string
+	/** Default model. Can be overridden per call. */
+	model?: string
+	/** Defaults to the ChatGPT Codex backend. */
+	baseURL?: string
+	/** Request timeout in milliseconds. */
+	timeout?: number
+	defaultHeaders?: Record<string, string>
+}
+
+export interface CodexProviderConfig extends CodexConfig {
+	type: 'codex'
+}

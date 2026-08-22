@@ -16,6 +16,7 @@ import {
 	PROVIDER_REGISTRY,
 	type ProviderId,
 	type ProviderRegistryEntry,
+	type SubscriptionProviderId,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
@@ -32,12 +33,11 @@ import { theme } from './theme.js'
 export interface PickerProps {
 	readonly detected: readonly DetectedProvider[]
 	readonly currentProvider?: string | null
+	/** Open directly on the subscription choice when `/login` owns this mount. */
+	readonly initialView?: 'providers' | 'subscriptions'
 	/** The model in force, so re-opening starts on it rather than the default. */
 	readonly currentModel?: string | null
-	readonly onSubmit: (
-		selection: { provider: string; model?: string },
-		signal: AbortSignal,
-	) => void
+	readonly onSubmit: (selection: { provider: string; model?: string }, signal: AbortSignal) => void
 	readonly onCancel: () => void
 	/**
 	 * Seam for tests: how the picker asks a provider what it has.
@@ -72,7 +72,7 @@ export interface PickerProps {
 	 * sources it scans, offered a key to paste, and said to restart, while a
 	 * working sign-in sat one unreachable keystroke away.
 	 */
-	readonly onLogin?: (signal: AbortSignal) => void
+	readonly onLogin?: (provider: SubscriptionProviderId, signal: AbortSignal) => void
 	/**
 	 * Seam for tests: how a typed key is checked. Defaulted to the real thing,
 	 * so no production caller knows this exists.
@@ -113,7 +113,13 @@ export interface PickerProps {
 
 /** Providers that take a typed credential. Local servers do not. */
 function keyCapableProviders(): ProviderRegistryEntry[] {
-	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter((e) => e.requiresApiKey)
+	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter((e) => e.acceptsTypedCredential)
+}
+
+function subscriptionProviders(): ProviderRegistryEntry[] {
+	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter(
+		(entry) => entry.subscriptionLogin !== undefined,
+	)
 }
 
 /**
@@ -126,7 +132,7 @@ function keyCapableProviders(): ProviderRegistryEntry[] {
 function keyEntryTarget(keyEntryFor: ProviderId | null | undefined): ProviderRegistryEntry | null {
 	if (keyEntryFor) {
 		const entry = PROVIDER_REGISTRY[keyEntryFor]
-		if (entry?.requiresApiKey) return entry
+		if (entry?.acceptsTypedCredential) return entry
 	}
 	return keyCapableProviders()[0] ?? null
 }
@@ -135,6 +141,7 @@ export function Picker({
 	detected,
 	currentProvider,
 	currentModel,
+	initialView = 'providers',
 	onSubmit,
 	onCancel,
 	describeModels = describeProviderModels,
@@ -153,7 +160,10 @@ export function Picker({
 	 * as the operator changes their mind.
 	 */
 	const operationGenerationRef = useRef(0)
-	const operationRef = useRef<{ generation: number; controller: AbortController } | null>(null)
+	const operationRef = useRef<{
+		generation: number
+		controller: AbortController
+	} | null>(null)
 	const invalidateOperation = useCallback(() => {
 		operationGenerationRef.current += 1
 		operationRef.current?.controller.abort(new Error('The picker operation was cancelled.'))
@@ -194,6 +204,8 @@ export function Picker({
 		readonly provider: DetectedProvider
 		readonly step: ModelStep | undefined
 	} | null>(null)
+	const [loginPhase, setLoginPhase] = useState(initialView === 'subscriptions')
+	useEffect(() => setLoginPhase(initialView === 'subscriptions'), [initialView])
 	// Key entry. `value` is the secret and never leaves this component except as
 	// a mask or as the credential handed to `onCredential`.
 	//
@@ -303,18 +315,21 @@ export function Picker({
 		// reaches with nothing usable. Checked BEFORE `k` only in the sense of
 		// sitting beside it — the letters do not collide, and navigation is
 		// arrows and digits.
-		if ((detected.length === 0 || keyEntryFor) && onLogin && (input === 'l' || input === 'L')) {
-			const operation = beginOperation()
-			try {
-				onLogin(operation.controller.signal)
-			} catch (error) {
-				if (ownsOperation(operation)) {
-					finishOperation(operation)
-					setErrorHint(
-						`Could not start sign-in: ${error instanceof Error ? error.message : String(error)}`,
-					)
-				}
-			}
+		const loginTarget = keyEntryFor ? PROVIDER_REGISTRY[keyEntryFor] : undefined
+		const canLogin =
+			detected.length === 0 ||
+			(loginTarget !== undefined && loginTarget.subscriptionLogin !== undefined)
+		if (canLogin && onLogin && (input === 'l' || input === 'L')) {
+			invalidateOperation()
+			setLoginPhase(true)
+			setCursor(
+				loginTarget?.subscriptionLogin
+					? Math.max(
+							0,
+							subscriptionProviders().findIndex((entry) => entry.id === loginTarget.id),
+						)
+					: 0,
+			)
 			return
 		}
 
@@ -334,6 +349,12 @@ export function Picker({
 		}
 
 		if (key.escape) {
+			if (loginPhase) {
+				invalidateOperation()
+				setLoginPhase(false)
+				setCursor(0)
+				return
+			}
 			// From the model step, back to the provider list rather than out of
 			// the picker: escape should undo one decision, not two.
 			if (modelPhase) {
@@ -343,6 +364,39 @@ export function Picker({
 			}
 			invalidateOperation()
 			onCancel()
+			return
+		}
+
+		if (loginPhase) {
+			const choices = subscriptionProviders()
+			if (key.upArrow) {
+				setCursor((current) => Math.max(0, current - 1))
+				return
+			}
+			if (key.downArrow) {
+				setCursor((current) => Math.min(choices.length - 1, current + 1))
+				return
+			}
+			if (key.return) {
+				const chosen = choices[cursor]
+				if (!chosen || !chosen.subscriptionLogin) return
+				const operation = beginOperation()
+				try {
+					onLogin?.(chosen.id as SubscriptionProviderId, operation.controller.signal)
+				} catch (error) {
+					if (ownsOperation(operation)) {
+						finishOperation(operation)
+						setErrorHint(
+							`Could not start sign-in: ${error instanceof Error ? error.message : String(error)}`,
+						)
+					}
+				}
+				return
+			}
+			const selected = Number.parseInt(input, 10)
+			if (Number.isFinite(selected) && selected >= 1 && selected <= choices.length) {
+				setCursor(selected - 1)
+			}
 			return
 		}
 
@@ -417,7 +471,10 @@ export function Picker({
 					finishOperation(operation)
 					const step = modelStep(
 						current.entry.defaultModel,
-						{ kind: 'failed', reason: error instanceof Error ? error.message : String(error) },
+						{
+							kind: 'failed',
+							reason: error instanceof Error ? error.message : String(error),
+						},
 						currentModel ?? undefined,
 					)
 					setModelPhase({ provider: current, step })
@@ -475,8 +532,8 @@ export function Picker({
 					)}
 					{keyEntry.value.length > 0 && kind === 'subscription-token' ? (
 						<Text color={theme.status.warn}>
-							Reads as a subscription token — it expires in a few hours and namzu has no
-							refresh data for a pasted one.
+							Reads as a subscription token — it expires in a few hours and namzu has no refresh
+							data for a pasted one.
 						</Text>
 					) : null}
 					{keyEntry.problem ? <Text color={theme.status.warn}>{keyEntry.problem}</Text> : null}
@@ -499,6 +556,33 @@ export function Picker({
 		)
 	}
 
+	if (loginPhase) {
+		const choices = subscriptionProviders()
+		return (
+			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
+				{noticeBox}
+				<Text color={theme.accent.system} bold>
+					Choose a subscription
+				</Text>
+				<Text color={theme.text.muted}>
+					Use an existing device session when one is available; this creates a Namzu-owned sign-in.
+				</Text>
+				<Box flexDirection="column" paddingTop={1}>
+					{choices.map((entry, index) => (
+						<Text key={entry.id} color={index === cursor ? theme.text.primary : theme.text.muted}>
+							{index === cursor ? '❯' : ' '} {index + 1}. {entry.label}
+							{entry.subscriptionLogin === 'device' ? ' · device code' : ' · browser sign-in'}
+						</Text>
+					))}
+				</Box>
+				<Box paddingTop={1} flexDirection="column">
+					<Text color={theme.text.muted}>↑↓ or 1-2 navigate · enter sign in · esc back</Text>
+					{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
+				</Box>
+			</Box>
+		)
+	}
+
 	// Non-null exactly when `k` is live on the populated list — the same
 	// condition the key handler uses, read from one place so the hint and the
 	// keyboard cannot drift apart.
@@ -506,12 +590,7 @@ export function Picker({
 
 	if (detected.length === 0) {
 		return (
-			<Box
-				flexDirection="column"
-				borderStyle="round"
-				borderColor={theme.status.warn}
-				paddingX={1}
-			>
+			<Box flexDirection="column" borderStyle="round" borderColor={theme.status.warn} paddingX={1}>
 				{noticeBox}
 				<Text color={theme.status.warn} bold>
 					No providers detected
@@ -520,10 +599,6 @@ export function Picker({
 					<Text color={theme.text.primary}>
 						namzu scans these sources, in order, for an LLM credential:
 					</Text>
-					<Text color={theme.text.muted}>
-						{' '}
-						· env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, …)
-					</Text>
 					{/* The summary line on the populated screen names the same sources;
 					    this list is the same set and must not name fewer. It is the
 					    screen shown to the person with no credential, so an omission
@@ -531,11 +606,16 @@ export function Picker({
 					    what happened to the store below when the sign-in shipped. */}
 					<Text color={theme.text.muted}>
 						{' '}
-						· a subscription signed in to from namzu (~/.namzu/credentials.json)
+						· existing {subscriptionProviders().map((entry) => entry.label).join(' and ')} sessions
+						on this device
 					</Text>
 					<Text color={theme.text.muted}>
 						{' '}
-						· macOS Keychain (an existing OAuth sign-in; macOS only)
+						· subscriptions signed in to from namzu (~/.namzu/credentials.json)
+					</Text>
+					<Text color={theme.text.muted}>
+						{' '}
+						· env vars / API keys (optional alternatives: ANTHROPIC_API_KEY, OPENAI_API_KEY, …)
 					</Text>
 					<Text color={theme.text.muted}>
 						{' '}
@@ -545,15 +625,15 @@ export function Picker({
 				{onLogin ? (
 					<Box paddingTop={1}>
 						<Text color={theme.text.primary}>
-							Press <Text color={theme.accent.system}>l</Text> to sign in with a subscription —
-							no API key, and namzu keeps it for next time.
+							Press <Text color={theme.accent.system}>l</Text> to sign in with a subscription — no
+							API key, and namzu keeps it for next time.
 						</Text>
 					</Box>
 				) : null}
 				<Box paddingTop={1}>
 					<Text color={theme.text.primary}>
-						Or press <Text color={theme.accent.system}>k</Text> to paste a credential now and use
-						it for this session.
+						Or press <Text color={theme.accent.system}>k</Text> to paste a credential now and use it
+						for this session.
 					</Text>
 				</Box>
 				<Box paddingTop={1}>
@@ -578,7 +658,8 @@ export function Picker({
 					Choose a provider
 				</Text>
 				<Text color={theme.text.muted}>
-					{detected.length} detected · credentials resolved from env / keychain / local probes
+					{detected.length} detected · device sessions / Namzu sign-ins / optional keys / local
+					probes
 				</Text>
 			</Box>
 			<Box flexDirection="column">
@@ -637,10 +718,7 @@ function ModelStepView({
 					) : null}
 					<Box flexDirection="column">
 						{step.choices.map((c, i) => (
-							<Text
-								key={c.id}
-								color={i === cursor ? theme.accent.system : theme.text.primary}
-							>
+							<Text key={c.id} color={i === cursor ? theme.accent.system : theme.text.primary}>
 								{i === cursor ? '❯ ' : '  '}
 								{i + 1}. {c.label}
 								{c.note ? ` ${c.note}` : ''}
@@ -686,13 +764,7 @@ function ProviderRow({
 			<Text color={selected ? theme.border.focus : theme.text.muted}>{cursor} </Text>
 			<Text color={theme.text.muted}>{number} </Text>
 			<Text
-				color={
-					usable
-						? selected
-							? theme.border.focus
-							: theme.text.primary
-						: theme.text.muted
-				}
+				color={usable ? (selected ? theme.border.focus : theme.text.primary) : theme.text.muted}
 				bold={usable && selected}
 				dimColor={!usable}
 			>
@@ -714,6 +786,10 @@ function describeSource(d: DetectedProvider): string {
 			return `local · ${d.source.url.replace(/^https?:\/\//, '')}`
 		case 'keychain':
 			return `keychain · ${d.source.service}`
+		case 'claude-file':
+			return 'Claude session · this device'
+		case 'codex-file':
+			return 'Codex session · this device'
 		case 'stored':
 			// Named for what the operator DID, not for where the bytes live. They
 			// signed in; the path is in `/doctor` for when it matters.

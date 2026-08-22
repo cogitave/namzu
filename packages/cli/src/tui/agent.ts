@@ -116,12 +116,14 @@ import {
 	describeCapabilityRefusal,
 	discoverProviders,
 	ensureFreshAnthropicToken,
+	ensureFreshStoredCodexCredential,
 	ensureRegistered,
 	findDetected,
 	isAnthropicOAuthToken,
 	isRegistered,
 	missingCredentialMessage,
 	primaryProvider,
+	readCodexCredentialFile,
 	readPreferences,
 	readSubscriptionCredential,
 	resolveChainCapabilities,
@@ -1066,10 +1068,17 @@ export async function createAgentSession(
 	// credential from discovery rather than being assumed here: namzu's own
 	// store can be conditionally replaced; the borrowed Keychain entry is
 	// read-only and a refreshed value may live only in this session.
-	const subscriptionRefresh = primary.id === 'anthropic' && Boolean(det?.oauth)
+	const subscriptionRefresh = primary.id === 'anthropic' && det?.oauth?.origin === 'stored'
+	const borrowedAnthropic =
+		primary.id === 'anthropic' &&
+		(det?.oauth?.origin === 'claude-file' || det?.oauth?.origin === 'keychain')
+	const borrowedCodexPath =
+		primary.id === 'codex' && det?.source.kind === 'codex-file' ? det.source.path : undefined
+	const storedCodex = primary.id === 'codex' && det?.codex?.origin === 'stored'
 	const credentialOrigin = det?.oauth?.origin ?? 'keychain'
 	let currentToken = det?.apiKey
-	let refreshTail: Promise<void> = Promise.resolve()
+	let currentCodexAccount = det?.codex?.accountId
+	let credentialTail: Promise<void> = Promise.resolve()
 	let rejectedRefresh:
 		| {
 				readonly credential: AgentOAuthCredential
@@ -1142,17 +1151,100 @@ export async function createAgentSession(
 			)
 		}
 	}
-	const refreshTokenIfNeeded = (signal?: AbortSignal): Promise<void> => {
-		if (!subscriptionRefresh) {
+	const rereadBorrowedCodex = (signal?: AbortSignal): void => {
+		signal?.throwIfAborted()
+		if (!borrowedCodexPath) return
+		const credential = readCodexCredentialFile(borrowedCodexPath)
+		if (!credential) {
+			throw new CredentialWithdrawnError(
+				'The Codex session Namzu borrowed is no longer available. Run `codex login` or choose another provider.',
+			)
+		}
+		if (credential.expiresAt !== undefined && credential.expiresAt - Date.now() <= 60_000) {
+			throw new CredentialWithdrawnError(
+				'The Codex session on this device has expired. Run `codex login` to let its owner refresh the session, then retry in Namzu.',
+			)
+		}
+		if (credential.accessToken === currentToken && credential.accountId === currentCodexAccount) {
+			return
+		}
+		const refreshedProvider = constructProvider(
+			'codex',
+			{
+				...(det as DetectedProvider),
+				apiKey: credential.accessToken,
+				codex: {
+					accountId: credential.accountId,
+					expiresAt: credential.expiresAt,
+					origin: 'codex-file',
+				},
+			},
+			model,
+		)
+		provider = refreshedProvider
+		currentToken = credential.accessToken
+		currentCodexAccount = credential.accountId
+	}
+	const rereadBorrowedAnthropic = (signal?: AbortSignal): void => {
+		signal?.throwIfAborted()
+		if (!borrowedAnthropic) return
+		const credential = readSubscriptionCredential(credentialOrigin)
+		if (!credential) {
+			throw new CredentialWithdrawnError(
+				'The Claude session Namzu borrowed is no longer available. Run `claude login` or choose another provider.',
+			)
+		}
+		if (credential.expiresAt !== undefined && credential.expiresAt - Date.now() <= 60_000) {
+			throw new CredentialWithdrawnError(
+				'The Claude session on this device has expired. Run `claude login` to let its owner refresh the session, then retry in Namzu.',
+			)
+		}
+		if (credential.accessToken === currentToken) return
+		provider = constructProvider(
+			'anthropic',
+			{ ...(det as DetectedProvider), apiKey: credential.accessToken },
+			model,
+		)
+		currentToken = credential.accessToken
+	}
+	const refreshStoredCodex = async (signal?: AbortSignal): Promise<void> => {
+		const credential = await ensureFreshStoredCodexCredential(signal)
+		if (credential.accessToken === currentToken && credential.accountId === currentCodexAccount) {
+			return
+		}
+		const refreshedProvider = constructProvider(
+			'codex',
+			{
+				...(det as DetectedProvider),
+				apiKey: credential.accessToken,
+				codex: {
+					accountId: credential.accountId,
+					expiresAt: credential.expiresAt,
+					origin: 'stored',
+				},
+			},
+			model,
+		)
+		provider = refreshedProvider
+		currentToken = credential.accessToken
+		currentCodexAccount = credential.accountId
+	}
+	const prepareProviderCredential = (signal?: AbortSignal): Promise<void> => {
+		if (!subscriptionRefresh && !borrowedAnthropic && !borrowedCodexPath && !storedCodex) {
 			signal?.throwIfAborted()
 			return Promise.resolve()
 		}
 		signal?.throwIfAborted()
-		const queued = refreshTail.then(() => performRefresh(signal))
+		const queued = credentialTail.then(async () => {
+			if (subscriptionRefresh) await performRefresh(signal)
+			else if (borrowedAnthropic) rereadBorrowedAnthropic(signal)
+			else if (storedCodex) await refreshStoredCodex(signal)
+			else rereadBorrowedCodex(signal)
+		})
 		// Keep later owners behind this slot even if its caller stops observing it.
 		// The catch makes the private tail non-rejecting without changing the
 		// exact outcome returned to the owner below.
-		refreshTail = queued.catch(() => {})
+		credentialTail = queued.catch(() => {})
 		return signal ? observeWithSignal(queued, signal) : queued
 	}
 	// Session-owned discovery with one drain cursor per run. A child shares the
@@ -1422,15 +1514,16 @@ export async function createAgentSession(
 		modelSummary: model,
 		reasoningEffortLevels,
 		compact: (messages) =>
-			operations.promise(undefined, (signal) =>
-				compactNow({
+			operations.promise(undefined, async (signal) => {
+				await prepareProviderCredential(signal)
+				return compactNow({
 					messages,
 					config: COMPACTION_CONFIG,
 					provider,
 					model,
 					signal,
-				}),
-			),
+				})
+			}),
 		// Reads the same registry object the deferred registration mutates, at
 		// call time — the pair of `promptExemptTools` below, and for the same
 		// reason.
@@ -1471,7 +1564,7 @@ export async function createAgentSession(
 				(async function* () {
 					// Renew a lapsed OAuth token before the turn runs (no-op for valid
 					// tokens and non-subscription credentials).
-					await refreshTokenIfNeeded(signal)
+					await prepareProviderCredential(signal)
 					// namzu identity first (so it establishes who the agent is even when
 					// the credential layer prepends whatever prefix its token requires),
 					// then memory and per-turn extra context. Project instructions are a
@@ -1576,7 +1669,7 @@ export async function createAgentSession(
 				// OAuth token has to be renewed before the provider is used, and the
 				// fallback chain has to be built AFTER that so its members do not
 				// hold a client the refresh just replaced.
-				await refreshTokenIfNeeded(ownedSignal)
+				await prepareProviderCredential(ownedSignal)
 				const pluginSkills = pluginRuntime
 					? await currentPluginSkills(pluginRuntime.skills)
 					: undefined
@@ -1764,6 +1857,21 @@ export function constructProvider(
 				type: 'openai',
 				apiKey: det?.apiKey ?? '',
 				baseURL: det?.baseUrl,
+				model,
+			})
+			return provider
+		}
+		case 'codex': {
+			if (!det?.codex?.accountId) {
+				throw new Error(
+					'Codex subscription credentials require ChatGPT account routing. Sign in with Codex again or choose the OpenAI API-key provider.',
+				)
+			}
+			const { provider } = ProviderRegistry.create({
+				type: 'codex',
+				accessToken: det.apiKey ?? '',
+				accountId: det.codex.accountId,
+				baseURL: det.baseUrl,
 				model,
 			})
 			return provider

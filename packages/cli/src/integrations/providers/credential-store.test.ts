@@ -17,12 +17,15 @@ import {
 	CredentialStoreError,
 	assertOwnerOnlyMode,
 	assertSoleOwnerSddl,
+	clearStoredCodexCredential,
 	clearStoredSubscriptionCredential,
 	credentialsPath,
 	currentUserSid,
 	readAclSddl,
+	readStoredCodexCredential,
 	readStoredSubscriptionCredential,
 	replaceStoredSubscriptionCredential,
+	writeStoredCodexCredential,
 	writeStoredSubscriptionCredential,
 } from './credential-store.js'
 
@@ -89,6 +92,29 @@ describe('round trip', () => {
 		expect(readStoredSubscriptionCredential(home)?.accessToken).toBe('second')
 		const raw = readFileSync(credentialsPath(home), 'utf8')
 		expect(raw).not.toContain('first')
+	})
+
+	it('keeps Claude and Codex subscriptions independent in the same private file', () => {
+		writeStoredSubscriptionCredential({ accessToken: 'claude-access' }, home)
+		writeStoredCodexCredential(
+			{
+				accessToken: 'codex-access',
+				refreshToken: 'codex-refresh',
+				accountId: 'account-1',
+			},
+			home,
+		)
+		expect(readStoredSubscriptionCredential(home)?.accessToken).toBe('claude-access')
+		expect(readStoredCodexCredential(home)).toMatchObject({
+			accessToken: 'codex-access',
+			accountId: 'account-1',
+		})
+
+		clearStoredSubscriptionCredential(home)
+		expect(readStoredSubscriptionCredential(home)).toBeNull()
+		expect(readStoredCodexCredential(home)?.accessToken).toBe('codex-access')
+		clearStoredCodexCredential(home)
+		expect(existsSync(credentialsPath(home))).toBe(false)
 	})
 
 	it('conditionally replaces the exact credential a refresh used', () => {

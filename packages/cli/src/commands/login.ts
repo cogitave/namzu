@@ -37,34 +37,45 @@ import { createInterface } from 'node:readline'
 import { EXIT_FAIL, EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
 import {
 	type LoginOutcome,
+	type SubscriptionProviderId,
+	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
-	clearStoredSubscriptionCredential,
+	clearAllStoredCredentials,
 	credentialsPath,
+	readStoredCodexCredential,
 	readStoredSubscriptionCredential,
 } from '../integrations/providers/index.js'
-import { describeLoginOutcome, describeLoginStart, describeLogout } from '../tui/login-prompt.js'
+import {
+	describeCodexDeviceLoginStart,
+	describeLoginOutcome,
+	describeLoginStart,
+	describeLogout,
+} from '../tui/login-prompt.js'
 import { openInBrowser } from '../tui/open-browser.js'
 import type { CommandDef } from './types.js'
 
-const LOGIN_HELP = `Usage: namzu login [options]
-
-Sign in with a provider subscription and store the credential on this machine.
-
-Options:
-  --no-browser        Do not try to launch a browser; just print the address.
-  --timeout <seconds> Give up waiting after this long (default: 300).
-  -h, --help          Show this help.
-
-namzu prints an address to open. Finish the sign-in in a browser and namzu
-picks it up automatically; if your browser is on another machine, paste the
-address it lands on into this terminal and press enter.
-
-The credential is written to ~/.namzu/credentials.json, readable only by your
-account. Run 'namzu logout' to remove it.`
+const LOGIN_HELP = [
+	'Usage: namzu login <claude|codex> [options]',
+	'',
+	'Sign in with a provider subscription and store the credential on this machine.',
+	'',
+	'Options:',
+	'  --no-browser        Do not try to launch a browser; just print the address.',
+	'  --timeout <seconds> Give up waiting after this long (default: 300).',
+	'  -h, --help          Show this help.',
+	'',
+	'Claude sign-in opens a browser callback; on a remote machine, paste the final',
+	'callback address into this terminal. Codex sign-in prints a device code and',
+	'polls while you approve it in the browser.',
+	'',
+	'The credential is written to ~/.namzu/credentials.json, readable only by your',
+	"account. Run 'namzu logout' to remove it.",
+].join('\n')
 
 const DEFAULT_TIMEOUT_SECONDS = 300
 
 interface LoginFlags {
+	readonly provider?: SubscriptionProviderId
 	readonly noBrowser: boolean
 	readonly timeoutMs: number
 	readonly unknown: readonly string[]
@@ -72,6 +83,7 @@ interface LoginFlags {
 
 export function parseLoginFlags(argv: readonly string[]): LoginFlags {
 	let noBrowser = false
+	let provider: SubscriptionProviderId | undefined
 	let timeoutMs = DEFAULT_TIMEOUT_SECONDS * 1_000
 	const unknown: string[] = []
 	for (let i = 0; i < argv.length; i++) {
@@ -94,9 +106,19 @@ export function parseLoginFlags(argv: readonly string[]): LoginFlags {
 			timeoutMs = seconds * 1_000
 			continue
 		}
+		if (arg === 'claude' || arg === 'anthropic') {
+			if (provider) unknown.push(arg)
+			else provider = 'anthropic'
+			continue
+		}
+		if (arg === 'codex' || arg === 'chatgpt') {
+			if (provider) unknown.push(arg)
+			else provider = 'codex'
+			continue
+		}
 		if (arg !== undefined) unknown.push(arg)
 	}
-	return { noBrowser, timeoutMs, unknown }
+	return { provider, noBrowser, timeoutMs, unknown }
 }
 
 /**
@@ -146,6 +168,50 @@ export const loginCommand: CommandDef = {
 			})
 			return EXIT_USAGE
 		}
+		if (!flags.provider) {
+			ctx.formatter.print({
+				text: `Choose which subscription Namzu should own:\n  namzu login claude\n  namzu login codex\n\nAPI keys remain optional alternatives.\n\n${LOGIN_HELP}`,
+			})
+			return EXIT_USAGE
+		}
+
+		if (flags.provider === 'codex') {
+			let login: Awaited<ReturnType<typeof beginCodexDeviceLogin>>
+			try {
+				login = await beginCodexDeviceLogin()
+			} catch (error) {
+				ctx.formatter.print({
+					text: `Could not start Codex sign-in: ${error instanceof Error ? error.message : String(error)}`,
+				})
+				return EXIT_FAIL
+			}
+			ctx.formatter.print({
+				text: describeCodexDeviceLoginStart({
+					url: login.url,
+					userCode: login.userCode,
+					browserOpened: flags.noBrowser ? false : openInBrowser(login.url),
+				}),
+			})
+			const timeout = new Promise<LoginOutcome>((resolve) =>
+				setTimeout(
+					() =>
+						resolve({
+							ok: false,
+							reason: 'Timed out waiting for Codex sign-in. Nothing was stored.',
+						}),
+					flags.timeoutMs,
+				).unref(),
+			)
+			const outcome = await Promise.race([login.waitForCompletion(), timeout])
+			login.cancel()
+			ctx.formatter.print({
+				text: describeLoginOutcome(outcome, {
+					retry: 'namzu login codex',
+					remove: 'namzu logout',
+				}),
+			})
+			return outcome.ok ? EXIT_OK : EXIT_FAIL
+		}
 
 		let login: Awaited<ReturnType<typeof beginSubscriptionLogin>>
 		try {
@@ -185,7 +251,10 @@ export const loginCommand: CommandDef = {
 		login.cancel()
 
 		ctx.formatter.print({
-			text: describeLoginOutcome(outcome, { retry: 'namzu login', remove: 'namzu logout' }),
+			text: describeLoginOutcome(outcome, {
+				retry: 'namzu login claude',
+				remove: 'namzu logout',
+			}),
 		})
 		return outcome.ok ? EXIT_OK : EXIT_FAIL
 	},
@@ -196,9 +265,9 @@ export const logoutCommand: CommandDef = {
 	description: 'Remove the subscription credential namzu stored on this machine.',
 	handler: async ({ ctx }) => {
 		const path = credentialsPath()
-		const had = readStoredSubscriptionCredential() !== null
+		const had = readStoredSubscriptionCredential() !== null || readStoredCodexCredential() !== null
 		try {
-			clearStoredSubscriptionCredential()
+			clearAllStoredCredentials()
 		} catch (err) {
 			ctx.formatter.print({
 				text: `Could not remove ${path}: ${err instanceof Error ? err.message : String(err)}`,

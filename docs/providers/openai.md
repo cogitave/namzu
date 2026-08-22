@@ -1,29 +1,34 @@
 ---
 uid: namzu.providers.openai
-title: The OpenAI driver — configuration, refusals and compatible endpoints
-description: Reference for @namzu/openai: every configuration field, what the driver refuses rather than approximating, the health and model-listing surfaces, and what changes when you point it at an OpenAI-compatible endpoint.
+title: The OpenAI package — API-key and ChatGPT subscription transports
+description: Reference for @namzu/openai: the Chat Completions API-key driver, the account-routed ChatGPT subscription transport, their capabilities, refusals, health checks and model-listing surfaces.
 type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+timestamp: 2026-08-22T00:00:00Z
+lastReviewed: 2026-08-22
 resource: packages/providers/openai/src/index.ts
 tags: [provider, openai, reference]
 ---
 
-# The OpenAI driver — configuration, refusals and compatible endpoints
+# The OpenAI package — API-key and ChatGPT subscription transports
 
 
 `@namzu/sdk` has no preferred model vendor. It defines the `LLMProvider`
 contract and ships a scriptable mock; every real service is a separate driver
 package, installed only if you call that service.
 
-This is the driver for OpenAI. It wraps the official
-[`openai`](https://www.npmjs.com/package/openai) client and speaks the **Chat
-Completions API**: one streaming entry point, tool use with optional
-constrained generation, image and document attachments, and the kernel's error
-taxonomy on every failure path.
+This package wraps the official
+[`openai`](https://www.npmjs.com/package/openai) client and exposes two distinct
+provider registrations:
+
+- `OpenAIProvider` / `registerOpenAI()` speaks the **Chat Completions API**
+  with an API key. It supports tool use with optional constrained generation,
+  image and document attachments, and OpenAI-compatible base URLs.
+- `CodexProvider` / `registerCodex()` speaks the account-routed **Responses
+  backend** used by a ChatGPT subscription. It takes an OAuth access token plus
+  ChatGPT account id and deliberately declares no image or document support.
 
 Nothing here is a second way to talk to the model. The driver's job is to turn
 the kernel's request into this vendor's request and its response back into
@@ -31,7 +36,7 @@ the kernel's request into this vendor's request and its response back into
 this wire cannot carry.
 
 
-## Use it
+## Use the API-key transport
 
 ```ts
 import { ProviderRegistry } from '@namzu/sdk'
@@ -113,7 +118,36 @@ import { OpenAIProvider } from '@namzu/openai'
 const provider = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! })
 ```
 
-## Configuration
+## Use the ChatGPT subscription transport
+
+```ts
+import { ProviderRegistry } from '@namzu/sdk'
+import { registerCodex } from '@namzu/openai'
+
+declare const accessToken: string
+declare const accountId: string
+
+registerCodex()
+
+const { provider } = ProviderRegistry.create({
+  type: 'codex',
+  accessToken,
+  accountId,
+  model: 'gpt-5.6-luna',
+})
+```
+
+The class form is `new CodexProvider({ accessToken, accountId, model })`.
+`registerCodex()` adds the separate `'codex'` registry type; it does not
+replace or alias `'openai'`.
+
+The access token and account id must come from a user-authorized ChatGPT
+session. This package intentionally does not discover, refresh or persist that
+credential. A host owns those decisions. Namzu CLI first looks for a usable
+device session owned by the Codex CLI and treats it as read-only; only an
+explicit Namzu login writes a separate credential under `~/.namzu`.
+
+## API-key configuration
 
 | Field | Default | Notes |
 |---|---|---|
@@ -141,7 +175,30 @@ it. The driver sends one `User-Agent` header identifying the kernel and its
 version, merged so that anything you put in `defaultHeaders` wins — including
 that header, if you would rather send your own.
 
-## Capabilities
+## ChatGPT subscription configuration
+
+| Field | Default | Notes |
+|---|---|---|
+| `accessToken` | — | required OAuth access token; never inferred from `OPENAI_API_KEY` |
+| `accountId` | — | required ChatGPT account id used by backend routing |
+| `model` | — | default model, overridden by `params.model` on a call |
+| `baseURL` | `https://chatgpt.com/backend-api/codex` | override for a compatible account-routed backend |
+| `timeout` | the `openai` client's default | per-request, in milliseconds |
+| `defaultHeaders` | — | merged over the driver's attribution and account-routing headers |
+
+```ts
+import type { CodexConfig, CodexProviderConfig } from '@namzu/openai'
+// CodexProviderConfig is CodexConfig plus the `type: 'codex'` discriminator.
+```
+
+The transport sends the account id in `ChatGPT-Account-Id`, streams the
+Responses API, and retains provider-native response items in the assistant
+message replay state. A later turn replays those exact items only when the
+durable source route still matches the current provider, model and chain
+member; a route change falls back to the portable text and function-call
+projection.
+
+## API-key capabilities
 
 ```ts
 import { OPENAI_CAPABILITIES } from '@namzu/openai'
@@ -189,6 +246,34 @@ tool completion from the end of the stream. It emits no reasoning deltas and no
 citation deltas either. Effort still changes how much work the model does; it
 does not claim that this Chat Completions driver can return the model's hidden
 reasoning blocks.
+
+## ChatGPT subscription capabilities
+
+```ts
+import { CODEX_CAPABILITIES } from '@namzu/openai'
+
+// {
+//   supportsTools: true,
+//   supportsStreaming: true,
+//   supportsFunctionCalling: true,
+//   supportsVision: false,
+//   supportsDocuments: false,
+// }
+```
+
+The Responses transport maps text messages, function calls and function-call
+outputs, and streams text, reasoning summaries, tool-call boundaries and token
+usage. User image or document attachments refuse before transport instead of
+being dropped.
+
+Function tools are sent with `strict: false` even when the kernel supplies an
+`enforceToolInputSchema` hint. This is deliberate and matches the Codex
+transport's own tool boundary: the backend's strict schema subset requires
+every composition branch to have an explicit type and every object property to
+be required, while Namzu tools may express conditional shapes whose selected
+branch is validated at execution. Claiming strictness would reject the entire
+request before the model could answer. The original model-facing schema is
+preserved and the kernel still validates every emitted call before execution.
 
 ## Reasoning effort
 

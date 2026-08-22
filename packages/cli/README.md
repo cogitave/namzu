@@ -6,7 +6,7 @@ description: >-
   you get. Interactive sessions, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
-timestamp: 2026-08-20T00:00:00Z
+timestamp: 2026-08-22T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -64,8 +64,17 @@ probes for.
 ```bash
 namzu                       # interactive session in the current directory
 namzu doctor                # what this host can actually do, and what is missing
-namzu login                 # store a credential in the vault
+namzu login claude          # create a Namzu-owned Claude subscription session
+namzu login codex           # create a Namzu-owned ChatGPT subscription session
 ```
+
+On startup, Namzu first reuses usable `Claude` and `Codex` sessions already owned
+by their installed command-line clients. If both are available, the provider
+picker asks which one to use. These borrowed credentials remain read-only and
+are never copied into `~/.namzu`. A Namzu-owned sign-in is needed only when no
+usable device session exists or when you explicitly want a separate login.
+API keys remain optional alternatives through environment variables or the
+session-only credential picker.
 
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after

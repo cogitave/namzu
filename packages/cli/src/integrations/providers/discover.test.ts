@@ -1,9 +1,14 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
+import {
+	writeStoredCodexCredential,
+	writeStoredSubscriptionCredential,
+} from './credential-store.js'
 import { discoverProviders, findDetected } from './discover.js'
+import { claudeCredentialsPath, codexCredentialsPath } from './harness-credentials.js'
 
 function tmpHome(): string {
 	const home = mkdtempSync(join(tmpdir(), 'namzu-discover-'))
@@ -61,6 +66,104 @@ describe('discoverProviders — env-var scan', () => {
 		})
 		expect(findDetected(list, 'anthropic')).not.toBeNull()
 		expect(findDetected(list, 'openai')).not.toBeNull()
+	})
+})
+
+describe('discoverProviders — installed harness sessions', () => {
+	it('finds Claude and Codex together and keeps API-key entry optional', async () => {
+		const home = tmpHome()
+		const write = (path: string, value: unknown) => {
+			mkdirSync(dirname(path), { recursive: true })
+			writeFileSync(path, JSON.stringify(value), { mode: 0o600 })
+		}
+		write(claudeCredentialsPath(home), {
+			claudeAiOauth: {
+				accessToken: 'claude-harness',
+				refreshToken: 'claude-refresh',
+			},
+		})
+		write(codexCredentialsPath(home, {}), {
+			tokens: { access_token: 'codex-harness', account_id: 'account-1' },
+		})
+
+		const list = await discoverProviders({
+			...HERMETIC,
+			env: { ANTHROPIC_API_KEY: 'optional-api-key' },
+			home,
+		})
+		const anthropic = findDetected(list, 'anthropic')
+		const codex = findDetected(list, 'codex')
+		expect(anthropic?.apiKey).toBe('claude-harness')
+		expect(anthropic?.source.kind).toBe('claude-file')
+		expect(anthropic?.alternatives).toContainEqual({
+			kind: 'env',
+			envName: 'ANTHROPIC_API_KEY',
+		})
+		expect(codex).toMatchObject({
+			apiKey: 'codex-harness',
+			source: { kind: 'codex-file' },
+			codex: { accountId: 'account-1', origin: 'codex-file' },
+		})
+	})
+
+	it('prefers usable device sessions over Namzu-owned fallback credentials', async () => {
+		const home = tmpHome()
+		mkdirSync(dirname(claudeCredentialsPath(home)), { recursive: true })
+		writeFileSync(
+			claudeCredentialsPath(home),
+			JSON.stringify({ claudeAiOauth: { accessToken: 'device-claude' } }),
+		)
+		mkdirSync(dirname(codexCredentialsPath(home, {})), { recursive: true })
+		writeFileSync(
+			codexCredentialsPath(home, {}),
+			JSON.stringify({
+				tokens: { access_token: 'device-codex', account_id: 'device-account' },
+			}),
+		)
+		writeStoredSubscriptionCredential({ accessToken: 'namzu-claude' }, home)
+		writeStoredCodexCredential({ accessToken: 'namzu-codex', accountId: 'namzu-account' }, home)
+
+		const list = await discoverProviders({ ...HERMETIC, env: {}, home })
+		expect(findDetected(list, 'anthropic')).toMatchObject({
+			apiKey: 'device-claude',
+			source: { kind: 'claude-file' },
+		})
+		expect(findDetected(list, 'codex')).toMatchObject({
+			apiKey: 'device-codex',
+			source: { kind: 'codex-file' },
+			codex: { accountId: 'device-account' },
+		})
+	})
+
+	it('does not advertise an expired borrowed session as usable', async () => {
+		const home = tmpHome()
+		mkdirSync(dirname(claudeCredentialsPath(home)), { recursive: true })
+		writeFileSync(
+			claudeCredentialsPath(home),
+			JSON.stringify({
+				claudeAiOauth: {
+					accessToken: 'expired',
+					expiresAt: Date.now() - 1_000,
+				},
+			}),
+		)
+		const payload = Buffer.from(
+			JSON.stringify({
+				exp: Math.floor(Date.now() / 1_000) - 60,
+				'https://api.openai.com/auth': {
+					chatgpt_account_id: 'expired-account',
+				},
+			}),
+		).toString('base64url')
+		mkdirSync(dirname(codexCredentialsPath(home, {})), { recursive: true })
+		writeFileSync(
+			codexCredentialsPath(home, {}),
+			JSON.stringify({ tokens: { access_token: `h.${payload}.s` } }),
+		)
+
+		const list = await discoverProviders({ ...HERMETIC, env: {}, home })
+		expect(findDetected(list, 'anthropic')).toBeNull()
+		expect(findDetected(list, 'codex')).toBeNull()
 	})
 })
 

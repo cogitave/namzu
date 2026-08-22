@@ -1,7 +1,7 @@
 {
 	"name": "@namzu/cli",
 	"version": "13.0.0",
-	"description": "Operator CLI for the Namzu agent platform — namzu doctor + future commands. Dual-purpose: standalone bin (`namzu doctor`) and library (`import { runDoctor } from '@namzu/cli'`).",
+	"description": "Interactive and headless terminal agent for Namzu, with provider discovery, durable sessions, tools and diagnostics.",
 	"keywords": [
 		"namzu",
 		"ai",

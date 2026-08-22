@@ -33,6 +33,16 @@ import { ALL_PROVIDER_IDS, PROVIDER_REGISTRY } from './registry.js'
 const CONSTRUCTIBLE = ALL_PROVIDER_IDS.filter((id) => PROVIDER_REGISTRY[id].constructible)
 const NOT_CONSTRUCTIBLE = ALL_PROVIDER_IDS.filter((id) => !PROVIDER_REGISTRY[id].constructible)
 
+function constructionCredential(id: (typeof ALL_PROVIDER_IDS)[number]) {
+	if (id === 'codex') {
+		return {
+			apiKey: 'codex-access',
+			codex: { accountId: 'account-agreement', origin: 'codex-file' as const },
+		} as never
+	}
+	return { apiKey: 'sk-agreement' } as never
+}
+
 describe('ensureRegistered agrees with PROVIDER_REGISTRY.constructible', () => {
 	it('has at least one of each kind, so neither loop below is vacuous', () => {
 		// Without this, emptying `ALL_PROVIDER_IDS` would make both suites pass
@@ -50,9 +60,7 @@ describe('ensureRegistered agrees with PROVIDER_REGISTRY.constructible', () => {
 		await ensureRegistered(id)
 		// A credential shaped like one and reaching nothing: what is under test
 		// is that an arm EXISTS, not that the vendor answers.
-		expect(() =>
-			constructProvider(id, { apiKey: 'sk-agreement' } as never, 'a-model'),
-		).not.toThrow()
+		expect(() => constructProvider(id, constructionCredential(id), 'a-model')).not.toThrow()
 	})
 
 	it.each(NOT_CONSTRUCTIBLE)(

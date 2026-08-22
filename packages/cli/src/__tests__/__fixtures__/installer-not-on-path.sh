@@ -35,10 +35,11 @@ chmod +x "$W/fakebin/npm"
 # EMPTY, so naming it is visibly wrong rather than merely unproven.
 mkdir -p "$W/home/.namzu/bin"
 
-NODE_DIR="$(dirname "$(command -v node)")"
+NODE_BIN="$(command -v node)"
+ln -s "$NODE_BIN" "$W/fakebin/node"
 
 set +e
-OUT="$(PATH="$W/fakebin:$NODE_DIR:/usr/bin:/bin" \
+OUT="$(PATH="$W/fakebin:/usr/bin:/bin" \
        HOME="$W/home" \
        NAMZU_PREFIX="$W/home/.namzu" \
        sh "$INSTALLER" 2>&1)"

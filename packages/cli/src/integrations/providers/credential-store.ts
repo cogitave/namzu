@@ -35,11 +35,12 @@
  * ## What is in the file
  *
  *   { "version": 1,
- *     "subscription": { "accessToken", "refreshToken", "expiresAt", "scopes" } }
+ *     "subscription": { "accessToken", "refreshToken", "expiresAt", "scopes" },
+ *     "codexSubscription": { "accessToken", "refreshToken", "expiresAt", "accountId" } }
  *
- * `subscription` is the credential a person's plan grants, obtained by the
- * login flow in `subscription-login.ts` and refreshed in place by `oauth.ts`.
- * Nothing else writes here.
+ * Each sibling is owned by Namzu's corresponding login flow and conditionally
+ * refreshed in place. Credentials borrowed from Claude or Codex remain in
+ * their owners' files/keychain and are never copied here.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -76,6 +77,23 @@ export type ConditionalCredentialWrite =
 	| { readonly replaced: true; readonly current: AgentOAuthCredential }
 	| { readonly replaced: false; readonly current: AgentOAuthCredential | null }
 
+export interface StoredCodexCredential extends AgentOAuthCredential {
+	readonly accountId: string
+}
+
+export type ConditionalCodexCredentialWrite =
+	| { readonly replaced: true; readonly current: StoredCodexCredential }
+	| {
+			readonly replaced: false
+			readonly current: StoredCodexCredential | null
+	  }
+
+interface CredentialDocument {
+	readonly version: typeof CREDENTIALS_FILE_VERSION
+	readonly subscription?: AgentOAuthCredential
+	readonly codexSubscription?: StoredCodexCredential
+}
+
 export function credentialsPath(home: string = homedir()): string {
 	return join(home, '.namzu', 'credentials.json')
 }
@@ -92,6 +110,15 @@ export function credentialsPath(home: string = homedir()): string {
 export function readStoredSubscriptionCredential(
 	home: string = homedir(),
 ): AgentOAuthCredential | null {
+	return readCredentialDocument(home)?.subscription ?? null
+}
+
+/** The Namzu-owned ChatGPT/Codex subscription, if one was obtained here. */
+export function readStoredCodexCredential(home: string = homedir()): StoredCodexCredential | null {
+	return readCredentialDocument(home)?.codexSubscription ?? null
+}
+
+function readCredentialDocument(home: string): CredentialDocument | null {
 	let raw: string
 	try {
 		raw = readFileSync(credentialsPath(home), 'utf8')
@@ -105,9 +132,32 @@ export function readStoredSubscriptionCredential(
 		return null
 	}
 	if (typeof parsed !== 'object' || parsed === null) return null
-	const sub = (parsed as { subscription?: unknown }).subscription
-	if (typeof sub !== 'object' || sub === null) return null
-	const rec = sub as Record<string, unknown>
+	const root = parsed as {
+		subscription?: unknown
+		codexSubscription?: unknown
+	}
+	const subscription = parseCredential(root.subscription)
+	const codexBase = parseCredential(root.codexSubscription)
+	const codexRecord =
+		typeof root.codexSubscription === 'object' && root.codexSubscription !== null
+			? (root.codexSubscription as Record<string, unknown>)
+			: null
+	const accountId = codexRecord?.accountId
+	const codexSubscription =
+		codexBase && typeof accountId === 'string' && accountId.length > 0
+			? { ...codexBase, accountId }
+			: undefined
+	if (!subscription && !codexSubscription) return null
+	return {
+		version: CREDENTIALS_FILE_VERSION,
+		...(subscription ? { subscription } : {}),
+		...(codexSubscription ? { codexSubscription } : {}),
+	}
+}
+
+function parseCredential(value: unknown): AgentOAuthCredential | null {
+	if (typeof value !== 'object' || value === null) return null
+	const rec = value as Record<string, unknown>
 	const accessToken = rec.accessToken
 	if (typeof accessToken !== 'string' || accessToken.length === 0) return null
 	return {
@@ -135,7 +185,55 @@ export function writeStoredSubscriptionCredential(
 ): string {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
-	return withCredentialStoreLock(path, () => writeStoredSubscriptionCredentialUnlocked(cred, path))
+	return withCredentialStoreLock(path, () => {
+		const current = readCredentialDocument(home)
+		return writeCredentialDocumentUnlocked(
+			{ version: CREDENTIALS_FILE_VERSION, ...current, subscription: cred },
+			path,
+		)
+	})
+}
+
+export function writeStoredCodexCredential(
+	cred: StoredCodexCredential,
+	home: string = homedir(),
+): string {
+	const path = credentialsPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	return withCredentialStoreLock(path, () => {
+		const current = readCredentialDocument(home)
+		return writeCredentialDocumentUnlocked(
+			{
+				version: CREDENTIALS_FILE_VERSION,
+				...current,
+				codexSubscription: cred,
+			},
+			path,
+		)
+	})
+}
+
+export function replaceStoredCodexCredential(
+	expected: StoredCodexCredential,
+	replacement: StoredCodexCredential,
+	home: string = homedir(),
+): ConditionalCodexCredentialWrite {
+	const path = credentialsPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	return withCredentialStoreLock(path, () => {
+		const current = readStoredCodexCredential(home)
+		if (!sameCodexCredential(current, expected)) return { replaced: false, current }
+		const document = readCredentialDocument(home)
+		writeCredentialDocumentUnlocked(
+			{
+				version: CREDENTIALS_FILE_VERSION,
+				...document,
+				codexSubscription: replacement,
+			},
+			path,
+		)
+		return { replaced: true, current: replacement }
+	})
 }
 
 /**
@@ -157,29 +255,22 @@ export function replaceStoredSubscriptionCredential(
 	return withCredentialStoreLock(path, () => {
 		const current = readStoredSubscriptionCredential(home)
 		if (!sameCredential(current, expected)) return { replaced: false, current }
-		writeStoredSubscriptionCredentialUnlocked(replacement, path)
+		const document = readCredentialDocument(home)
+		writeCredentialDocumentUnlocked(
+			{
+				version: CREDENTIALS_FILE_VERSION,
+				...document,
+				subscription: replacement,
+			},
+			path,
+		)
 		return { replaced: true, current: replacement }
 	})
 }
 
-function writeStoredSubscriptionCredentialUnlocked(
-	cred: AgentOAuthCredential,
-	path: string,
-): string {
+function writeCredentialDocumentUnlocked(document: CredentialDocument, path: string): string {
 	const tmp = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
-	const body = `${JSON.stringify(
-		{
-			version: CREDENTIALS_FILE_VERSION,
-			subscription: {
-				accessToken: cred.accessToken,
-				...(cred.refreshToken ? { refreshToken: cred.refreshToken } : {}),
-				...(cred.expiresAt ? { expiresAt: cred.expiresAt } : {}),
-				...(cred.scopes ? { scopes: cred.scopes } : {}),
-			},
-		},
-		null,
-		2,
-	)}\n`
+	const body = `${JSON.stringify(serializeDocument(document), null, 2)}\n`
 
 	let fd: number | undefined
 	try {
@@ -214,8 +305,66 @@ function writeStoredSubscriptionCredentialUnlocked(
 	return path
 }
 
+function serializeDocument(document: CredentialDocument): Record<string, unknown> {
+	const credential = (value: AgentOAuthCredential) => ({
+		accessToken: value.accessToken,
+		...(value.refreshToken ? { refreshToken: value.refreshToken } : {}),
+		...(value.expiresAt ? { expiresAt: value.expiresAt } : {}),
+		...(value.scopes ? { scopes: value.scopes } : {}),
+	})
+	return {
+		version: CREDENTIALS_FILE_VERSION,
+		...(document.subscription ? { subscription: credential(document.subscription) } : {}),
+		...(document.codexSubscription
+			? {
+					codexSubscription: {
+						...credential(document.codexSubscription),
+						accountId: document.codexSubscription.accountId,
+					},
+				}
+			: {}),
+	}
+}
+
 /** Remove the stored credential. Absence is success. */
 export function clearStoredSubscriptionCredential(home: string = homedir()): void {
+	const path = credentialsPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	withCredentialStoreLock(path, () => {
+		const current = readCredentialDocument(home)
+		if (!current?.codexSubscription) {
+			rmSync(path, { force: true })
+			return
+		}
+		writeCredentialDocumentUnlocked(
+			{
+				version: CREDENTIALS_FILE_VERSION,
+				codexSubscription: current.codexSubscription,
+			},
+			path,
+		)
+	})
+}
+
+/** Remove only the Namzu-owned Codex subscription; borrowed harness auth is untouched. */
+export function clearStoredCodexCredential(home: string = homedir()): void {
+	const path = credentialsPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	withCredentialStoreLock(path, () => {
+		const current = readCredentialDocument(home)
+		if (!current?.subscription) {
+			rmSync(path, { force: true })
+			return
+		}
+		writeCredentialDocumentUnlocked(
+			{ version: CREDENTIALS_FILE_VERSION, subscription: current.subscription },
+			path,
+		)
+	})
+}
+
+/** Remove every credential Namzu owns in one store mutation. */
+export function clearAllStoredCredentials(home: string = homedir()): void {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
 	withCredentialStoreLock(path, () => rmSync(path, { force: true }))
@@ -236,6 +385,13 @@ function sameCredential(left: AgentOAuthCredential | null, right: AgentOAuthCred
 		leftScopes.length === rightScopes.length &&
 		leftScopes.every((scope, index) => scope === rightScopes[index])
 	)
+}
+
+function sameCodexCredential(
+	left: StoredCodexCredential | null,
+	right: StoredCodexCredential,
+): boolean {
+	return left?.accountId === right.accountId && sameCredential(left, right)
 }
 
 /**

@@ -1,12 +1,10 @@
 /**
  * Credential discoverer for LLM provider clients.
  *
- * For each entry in `PROVIDER_REGISTRY`, ask four questions in order:
- *   1. Is one of its env vars set in `process.env`?
- *   2. Is there a subscription credential in namzu's own store — the one the
- *      login flow writes? (every platform, and only `anthropic` consumes it.)
- *   3. Is there an OAuth credential in the login Keychain? (macOS only, and
- *      only `anthropic` consumes it.)
+ * For each entry in `PROVIDER_REGISTRY`, ask four questions:
+ *   1. Is there a usable session owned by an installed Claude or Codex harness?
+ *   2. Is there a subscription credential in namzu's own store?
+ *   3. Is one of its optional API-key env vars set in `process.env`?
  *   4. Is the probe URL (if any) reachable right now?
  *
  * The header used to say "three" and list two, and the one it omitted was the
@@ -19,14 +17,12 @@
  * hole.** `readAgentKeychainCredential` returns `null` on any other platform
  * before it looks at anything; it reads a credential belonging to a
  * co-installed tool, so it can only ever help someone who has that tool, on
- * that operating system. namzu's own store is asked first among the credential
- * sources and works everywhere, which is what makes signing in from inside
- * namzu useful on a machine that has neither.
+ * that operating system. namzu's own store works everywhere, which is what
+ * makes signing in from inside namzu useful on a machine that has neither.
  *
- * Order between the two matters when both answer. namzu's own store wins,
- * because it is the one namzu wrote and refreshes; preferring a borrowed
- * credential over the operator's own sign-in would make the login look
- * ineffective on precisely the machine where they bothered to run it.
+ * Order matters when both answer. A current device-harness session wins; a
+ * Namzu-owned sign-in is the fallback for a machine that has no usable harness
+ * session. API-key/env sources remain optional alternatives after both.
  *
  * The first positive answer per provider wins; subsequent sources are
  * recorded as "also available from" so the picker can show alternatives
@@ -63,7 +59,18 @@
 
 import { EnvCredentialProvider } from '@namzu/sdk'
 
-import { credentialsPath, readStoredSubscriptionCredential } from './credential-store.js'
+import {
+	credentialsPath,
+	readStoredCodexCredential,
+	readStoredSubscriptionCredential,
+} from './credential-store.js'
+import {
+	claudeCredentialsPath,
+	codexCredentialsPath,
+	preferFresherCredential,
+	readClaudeFileCredential,
+	readCodexFileCredential,
+} from './harness-credentials.js'
 import { KEYCHAIN_SERVICE, readAgentKeychainCredential } from './keychain.js'
 import type { CredentialOrigin } from './oauth.js'
 import { PROVIDER_REGISTRY, type ProviderId, type ProviderRegistryEntry } from './registry.js'
@@ -72,6 +79,10 @@ export type DetectionSource =
 	| { readonly kind: 'env'; readonly envName: string }
 	| { readonly kind: 'probe'; readonly url: string }
 	| { readonly kind: 'keychain'; readonly service: string }
+	/** A read-only Claude Code OAuth envelope owned by the Claude CLI. */
+	| { readonly kind: 'claude-file'; readonly path: string }
+	/** A read-only ChatGPT/Codex OAuth envelope owned by the Codex CLI. */
+	| { readonly kind: 'codex-file'; readonly path: string }
 	/**
 	 * namzu's own credential store — a subscription the operator signed in to
 	 * from inside namzu. Carries the path because "where did this come from"
@@ -110,6 +121,12 @@ export interface DetectedProvider {
 		readonly refreshToken?: string
 		readonly expiresAt?: number
 		readonly origin?: CredentialOrigin
+	}
+	/** Account-routed OAuth metadata for the Codex Responses backend. */
+	readonly codex?: {
+		readonly accountId: string
+		readonly expiresAt?: number
+		readonly origin: 'codex-file' | 'stored'
 	}
 	/** Other sources that also satisfy this provider — informational. */
 	readonly alternatives: readonly DetectionSource[]
@@ -175,15 +192,102 @@ export async function discoverProviders(
 	const storedCredential = opts.skipStored
 		? null
 		: readStoredSubscriptionCredential(...(opts.home === undefined ? [] : [opts.home]))
+	const storedCodexCredential = opts.skipStored
+		? null
+		: readStoredCodexCredential(...(opts.home === undefined ? [] : [opts.home]))
 	// macOS-only: the OAuth credential a co-installed tool keeps in the login
 	// Keychain.
 	const keychainCredential = opts.skipKeychain ? null : readAgentKeychainCredential()
+	const claudeFileCredential = readClaudeFileCredential(opts.home)
+	const codexFileCredential = readCodexFileCredential(opts.home, env)
+	const usableCodexFileCredential =
+		codexFileCredential?.expiresAt === undefined ||
+		codexFileCredential.expiresAt - Date.now() > 60_000
+			? codexFileCredential
+			: null
 
 	for (const id of Object.keys(PROVIDER_REGISTRY) as readonly ProviderId[]) {
 		const entry = PROVIDER_REGISTRY[id]
 		const sources: DetectionSource[] = []
 		let apiKey: string | undefined
 		let oauth: DetectedProvider['oauth']
+		let codex: DetectedProvider['codex']
+
+		if (id === 'anthropic') {
+			const borrowed = preferFresherCredential(claudeFileCredential, keychainCredential)
+			const usableBorrowed =
+				borrowed?.expiresAt === undefined || borrowed.expiresAt - Date.now() > 60_000
+					? borrowed
+					: null
+			const borrowedSource: DetectionSource | undefined =
+				usableBorrowed === claudeFileCredential && usableBorrowed
+					? {
+							kind: 'claude-file',
+							path: claudeCredentialsPath(opts.home),
+						}
+					: usableBorrowed
+						? { kind: 'keychain', service: KEYCHAIN_SERVICE }
+						: undefined
+			if (usableBorrowed && borrowedSource) {
+				if (apiKey === undefined) {
+					apiKey = usableBorrowed.accessToken
+					oauth = {
+						refreshToken: usableBorrowed.refreshToken,
+						expiresAt: usableBorrowed.expiresAt,
+						origin: borrowedSource.kind === 'claude-file' ? 'claude-file' : 'keychain',
+					}
+				}
+				sources.push(borrowedSource)
+			}
+			const otherBorrowedSource: DetectionSource | undefined =
+				usableBorrowed && usableBorrowed === claudeFileCredential && keychainCredential
+					? { kind: 'keychain', service: KEYCHAIN_SERVICE }
+					: usableBorrowed && usableBorrowed === keychainCredential && claudeFileCredential
+						? {
+								kind: 'claude-file',
+								path: claudeCredentialsPath(opts.home),
+							}
+						: undefined
+			if (otherBorrowedSource) sources.push(otherBorrowedSource)
+			if (storedCredential) {
+				if (apiKey === undefined) {
+					apiKey = storedCredential.accessToken
+					oauth = {
+						refreshToken: storedCredential.refreshToken,
+						expiresAt: storedCredential.expiresAt,
+						origin: 'stored',
+					}
+				}
+				sources.push({
+					kind: 'stored',
+					path: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
+				})
+			}
+		}
+
+		if (id === 'codex' && (storedCodexCredential || usableCodexFileCredential)) {
+			const credential = usableCodexFileCredential ?? storedCodexCredential
+			if (!credential) throw new Error('unreachable')
+			apiKey = credential.accessToken
+			sources.push({
+				kind: usableCodexFileCredential ? 'codex-file' : 'stored',
+				path: usableCodexFileCredential
+					? codexCredentialsPath(opts.home, env)
+					: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
+			})
+			codex = {
+				accountId: credential.accountId,
+				expiresAt: credential.expiresAt,
+				origin: usableCodexFileCredential ? 'codex-file' : 'stored',
+			}
+			if (storedCodexCredential && usableCodexFileCredential) {
+				sources.push({
+					kind: 'stored',
+					path: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
+				})
+			}
+		}
+
 		for (const envName of entry.envVars) {
 			// Through the SDK's seam rather than a direct `env[envName]`. The
 			// read is identical; what changes is that a host embedding the SDK
@@ -194,33 +298,6 @@ export async function discoverProviders(
 			if (resolved) {
 				if (apiKey === undefined) apiKey = resolved.value
 				sources.push({ kind: 'env', envName })
-			}
-		}
-		if (id === 'anthropic' && storedCredential) {
-			if (apiKey === undefined) apiKey = storedCredential.accessToken
-			sources.push({
-				kind: 'stored',
-				path: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
-			})
-			// Only carry refresh metadata when this token is the one we'll
-			// actually use (an env/secrets token has no refresh path).
-			if (apiKey === storedCredential.accessToken) {
-				oauth = {
-					refreshToken: storedCredential.refreshToken,
-					expiresAt: storedCredential.expiresAt,
-					origin: 'stored',
-				}
-			}
-		}
-		if (id === 'anthropic' && keychainCredential) {
-			if (apiKey === undefined) apiKey = keychainCredential.accessToken
-			sources.push({ kind: 'keychain', service: KEYCHAIN_SERVICE })
-			if (apiKey === keychainCredential.accessToken) {
-				oauth = {
-					refreshToken: keychainCredential.refreshToken,
-					expiresAt: keychainCredential.expiresAt,
-					origin: 'keychain',
-				}
 			}
 		}
 		if (sources.length === 0 && entry.probeUrl && !opts.skipProbes) {
@@ -236,6 +313,7 @@ export async function discoverProviders(
 				apiKey,
 				baseUrl: entry.defaultBaseUrl,
 				...(oauth ? { oauth } : {}),
+				...(codex ? { codex } : {}),
 				alternatives: sources.slice(1),
 			})
 		}
@@ -251,7 +329,10 @@ async function probe(url: string, opts: DiscoverOptions): Promise<boolean> {
 		opts.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
 	)
 	try {
-		const res = await fetchFn(url, { method: 'GET', signal: controller.signal })
+		const res = await fetchFn(url, {
+			method: 'GET',
+			signal: controller.signal,
+		})
 		return res.ok
 	} catch {
 		return false

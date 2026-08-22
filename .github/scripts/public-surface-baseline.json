@@ -343,17 +343,25 @@
   "@namzu/openai": {
     ".": {
       "runtime": [
+        "CODEX_CAPABILITIES",
+        "CodexProvider",
         "OPENAI_CAPABILITIES",
         "OpenAIProvider",
         "openAIReasoningEffortLevels",
+        "registerCodex",
         "registerOpenAI"
       ],
       "declared": [
+        "CODEX_CAPABILITIES",
+        "CodexConfig",
+        "CodexProvider",
+        "CodexProviderConfig",
         "OPENAI_CAPABILITIES",
         "OpenAIConfig",
         "OpenAIProvider",
         "OpenAIProviderConfig",
         "openAIReasoningEffortLevels",
+        "registerCodex",
         "registerOpenAI"
       ],
       "deprecated": []
