@@ -69,12 +69,14 @@ namzu login codex           # create a Namzu-owned ChatGPT subscription session
 ```
 
 On startup, Namzu first reuses usable `Claude` and `Codex` sessions already owned
-by their installed command-line clients. If both are available, the provider
-picker asks which one to use. These borrowed credentials remain read-only and
-are never copied into `~/.namzu`. A Namzu-owned sign-in is needed only when no
-usable device session exists or when you explicitly want a separate login.
-API keys remain optional alternatives through environment variables or the
-session-only credential picker.
+by their installed command-line clients. With no saved choice, one signed-in
+subscription starts directly; if both are available, a narrowed picker asks
+which one to use and proceeds with its default model. These borrowed credentials
+remain read-only and are never copied into `~/.namzu`. A Namzu-owned sign-in is
+needed only when no usable device session exists or when you explicitly want a
+separate login. API keys remain optional alternatives through environment
+variables or the session-only credential picker, and detecting one does not hide
+the subscription sign-in action.
 
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after

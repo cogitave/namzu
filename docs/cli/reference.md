@@ -63,11 +63,13 @@ something you point at a real repository:
   and decide, and a headless run refuses, because nobody is watching.
 - **It reuses device sessions before asking for another credential.** A usable
   `Claude` or `Codex` CLI session is discovered from that tool's own credential
-  file and remains read-only. If both are available the provider picker asks
-  which one Namzu should use. A Namzu-owned subscription login is the fallback
-  for a machine with no usable external session, or an explicit operator
-  choice; API keys are optional alternatives rather than a first-run
-  requirement.
+  file and remains read-only. With no saved provider choice, one usable signed-in
+  subscription starts directly; if both are available, a narrowed picker asks
+  only which subscription Namzu should use and then starts its default model.
+  Automatic single-session reuse is not persisted as if the operator had made a
+  permanent choice. A Namzu-owned subscription login is the fallback for a
+  machine with no usable external session, or an explicit operator choice; API
+  keys are optional alternatives rather than a first-run requirement.
 
 Inside the session, grouped by the question each one answers:
 
@@ -89,7 +91,9 @@ and `namzu login codex`. `Claude` uses a browser callback, while `Codex` uses a
 device code that can be approved in any reachable browser. Both write only to
 Namzu's credential store. `/logout` and `namzu logout` remove those Namzu-owned
 records together; they never delete or revoke credentials owned by another
-installed tool.
+installed tool. The `l` sign-in action remains reachable from a general provider
+picker even when an environment API key or local server was detected; discovery
+does not turn those optional sources into a forced authentication choice.
 
 Discovery order is intentional. A current external device session wins over a
 Namzu-owned credential for the same provider, and a Namzu-owned credential wins

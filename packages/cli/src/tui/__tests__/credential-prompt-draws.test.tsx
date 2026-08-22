@@ -25,6 +25,7 @@ import { render } from 'ink-testing-library'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { DetectedProvider } from '../../integrations/providers/index.js'
+import { PROVIDER_REGISTRY } from '../../integrations/providers/index.js'
 import { Picker } from '../Picker.js'
 
 const KEY = 'sk-ant-api03-notarealkey-0123beef'
@@ -45,6 +46,20 @@ function open(overrides: Partial<Parameters<typeof Picker>[0]> = {}) {
 		/>,
 	)
 	return { ...harness, onCredential }
+}
+
+const SIGNED_IN_CLAUDE: DetectedProvider = {
+	entry: PROVIDER_REGISTRY['anthropic'],
+	source: { kind: 'claude-file', path: '/device/.claude/.credentials.json' },
+	apiKey: 'never-render-this-token',
+	alternatives: [],
+}
+
+const API_KEY_OPENAI: DetectedProvider = {
+	entry: PROVIDER_REGISTRY['openai'],
+	source: { kind: 'env', envName: 'OPENAI_API_KEY' },
+	apiKey: 'never-render-this-key',
+	alternatives: [],
 }
 
 describe('the no-credential screen', () => {
@@ -124,6 +139,49 @@ describe('the no-credential screen', () => {
 		// source it never mentioned.
 		const { lastFrame, unmount } = open()
 		expect(lastFrame()).toContain('.namzu/credentials.json')
+		unmount()
+	})
+})
+
+describe('subscription-first provider choice', () => {
+	it('uses an already signed-in provider directly without a second model screen', async () => {
+		const onSubmit = vi.fn()
+		const { lastFrame, stdin, unmount } = render(
+			<Picker
+				detected={[SIGNED_IN_CLAUDE]}
+				selectionKind="signed-in-subscription"
+				onSubmit={onSubmit}
+				onCancel={vi.fn()}
+			/>,
+		)
+
+		expect(lastFrame()).toContain('Choose a signed-in subscription')
+		expect(lastFrame()).toContain('no API key required')
+		stdin.write('\r')
+		await flush()
+
+		expect(onSubmit).toHaveBeenCalledTimes(1)
+		expect(onSubmit.mock.calls[0]?.[0]).toEqual({ provider: 'anthropic' })
+		expect(lastFrame()).not.toContain('Choose a model')
+		unmount()
+	})
+
+	it('keeps subscription sign-in reachable when an optional API key was detected', async () => {
+		const onLogin = vi.fn()
+		const { lastFrame, stdin, unmount } = render(
+			<Picker
+				detected={[API_KEY_OPENAI]}
+				onSubmit={vi.fn()}
+				onCancel={vi.fn()}
+				onLogin={onLogin}
+			/>,
+		)
+
+		expect(lastFrame()).toContain('l create a Namzu sign-in')
+		stdin.write('l')
+		await flush()
+		expect(lastFrame()).toContain('Anthropic (Claude)')
+		expect(lastFrame()).toContain('OpenAI (Codex subscription)')
 		unmount()
 	})
 })

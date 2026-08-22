@@ -4,6 +4,7 @@ export {
 	type DiscoverOptions,
 	discoverProviders,
 	findDetected,
+	signedInSubscriptionProviders,
 } from './discover.js'
 export {
 	type CodexOAuthCredential,

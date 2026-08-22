@@ -33,6 +33,13 @@ import { theme } from './theme.js'
 export interface PickerProps {
 	readonly detected: readonly DetectedProvider[]
 	readonly currentProvider?: string | null
+	/**
+	 * A first-run choice between credentials that are already signed in needs
+	 * only a provider decision. Model selection remains available later through
+	 * `/model`; asking it here would turn "use the session already on this
+	 * device" back into a two-screen setup flow.
+	 */
+	readonly selectionKind?: 'provider-and-model' | 'signed-in-subscription'
 	/** Open directly on the subscription choice when `/login` owns this mount. */
 	readonly initialView?: 'providers' | 'subscriptions'
 	/** The model in force, so re-opening starts on it rather than the default. */
@@ -140,6 +147,7 @@ function keyEntryTarget(keyEntryFor: ProviderId | null | undefined): ProviderReg
 export function Picker({
 	detected,
 	currentProvider,
+	selectionKind = 'provider-and-model',
 	currentModel,
 	initialView = 'providers',
 	onSubmit,
@@ -310,16 +318,18 @@ export function Picker({
 		// at a list that named every provider except a way to fix the one they
 		// chose. The letter does not collide with anything: navigation is arrows
 		// and digits.
-		// `l` starts a subscription sign-in, on exactly the screens `k` is live
-		// on and for the same reason: these are the two states an operator
-		// reaches with nothing usable. Checked BEFORE `k` only in the sense of
-		// sitting beside it — the letters do not collide, and navigation is
-		// arrows and digits.
+		// `l` starts a Namzu-owned subscription sign-in from the general provider
+		// screen as well as the empty one. The already-signed-in choice deliberately
+		// omits it: external auth exists there, and a newly stored credential would
+		// lose to that external source on the required discovery re-read.
 		const loginTarget = keyEntryFor ? PROVIDER_REGISTRY[keyEntryFor] : undefined
+		// Sign-in is an alternative to every provider source, including an API key
+		// or local server that discovery happened to find. Hiding `l` on a
+		// populated first-run list made those optional sources act like a decision
+		// the operator had already made. The model step remains model-only.
 		const canLogin =
-			detected.length === 0 ||
-			(loginTarget !== undefined && loginTarget.subscriptionLogin !== undefined)
-		if (canLogin && onLogin && (input === 'l' || input === 'L')) {
+			onLogin !== undefined && modelPhase === null && selectionKind !== 'signed-in-subscription'
+		if (canLogin && (input === 'l' || input === 'L')) {
 			invalidateOperation()
 			setLoginPhase(true)
 			setCursor(
@@ -450,6 +460,11 @@ export function Picker({
 			// that refuses to start.
 			if (!current.entry.constructible) {
 				setErrorHint(unsupportedProviderMessage(current.entry.id))
+				return
+			}
+			if (selectionKind === 'signed-in-subscription') {
+				const operation = beginOperation()
+				onSubmit({ provider: current.entry.id }, operation.controller.signal)
 				return
 			}
 			// Ask the provider what it has, then show the model step. The list is
@@ -606,7 +621,8 @@ export function Picker({
 					    what happened to the store below when the sign-in shipped. */}
 					<Text color={theme.text.muted}>
 						{' '}
-						· existing {subscriptionProviders().map((entry) => entry.label).join(' and ')} sessions
+						· existing{' '}
+						{subscriptionProviders().map((entry) => entry.label).join(' and ')} sessions
 						on this device
 					</Text>
 					<Text color={theme.text.muted}>
@@ -655,11 +671,14 @@ export function Picker({
 			{noticeBox}
 			<Box flexDirection="column" paddingBottom={1}>
 				<Text color={theme.accent.system} bold>
-					Choose a provider
+					{selectionKind === 'signed-in-subscription'
+						? 'Choose a signed-in subscription'
+						: 'Choose a provider'}
 				</Text>
 				<Text color={theme.text.muted}>
-					{detected.length} detected · device sessions / Namzu sign-ins / optional keys / local
-					probes
+					{selectionKind === 'signed-in-subscription'
+						? `${detected.length} already usable · no API key required`
+						: `${detected.length} detected · device sessions / Namzu sign-ins / optional keys / local probes`}
 				</Text>
 			</Box>
 			<Box flexDirection="column">
@@ -678,9 +697,12 @@ export function Picker({
 				    advertises a key this screen ignores is the same defect as a
 				    message whose advice cannot be followed, one size down. */}
 				<Text color={theme.text.muted}>
-					↑↓ or 1-9 navigate · enter accept
+					↑↓ or 1-9 navigate · enter {selectionKind === 'signed-in-subscription' ? 'use' : 'accept'}
 					{entryTarget ? ` · k enter a credential for ${entryTarget.label}` : ''}
-					{keyEntryFor && onLogin ? ' · l sign in with a subscription' : ''} · esc cancel
+					{onLogin && selectionKind !== 'signed-in-subscription'
+						? ' · l create a Namzu sign-in'
+						: ''}{' '}
+					· esc cancel
 				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>

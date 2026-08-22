@@ -7,7 +7,7 @@ import {
 	writeStoredCodexCredential,
 	writeStoredSubscriptionCredential,
 } from './credential-store.js'
-import { discoverProviders, findDetected } from './discover.js'
+import { discoverProviders, findDetected, signedInSubscriptionProviders } from './discover.js'
 import { claudeCredentialsPath, codexCredentialsPath } from './harness-credentials.js'
 
 function tmpHome(): string {
@@ -104,6 +104,29 @@ describe('discoverProviders — installed harness sessions', () => {
 			source: { kind: 'codex-file' },
 			codex: { accountId: 'account-1', origin: 'codex-file' },
 		})
+		expect(signedInSubscriptionProviders(list).map((provider) => provider.entry.id)).toEqual([
+			'anthropic',
+			'codex',
+		])
+	})
+
+	it('does not mistake an API key for a signed-in subscription', async () => {
+		const home = tmpHome()
+		const apiKeyOnly = await discoverProviders({
+			...HERMETIC,
+			env: { ANTHROPIC_API_KEY: 'optional-api-key' },
+			home,
+		})
+		expect(signedInSubscriptionProviders(apiKeyOnly)).toEqual([])
+
+		const claudeSession = await discoverProviders({
+			...HERMETIC,
+			env: { CLAUDE_CODE_OAUTH_TOKEN: 'device-session-token' },
+			home,
+		})
+		expect(
+			signedInSubscriptionProviders(claudeSession).map((provider) => provider.entry.id),
+		).toEqual(['anthropic'])
 	})
 
 	it('prefers usable device sessions over Namzu-owned fallback credentials', async () => {

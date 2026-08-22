@@ -24,7 +24,11 @@ import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Message } from '@namzu/sdk'
-import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
+import {
+	type DetectedProvider,
+	type Preferences,
+	PROVIDER_REGISTRY,
+} from '../../integrations/providers/index.js'
 
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiContext } from '../types.js'
@@ -42,14 +46,13 @@ let exited = false
 let probeCalls = 0
 let detectedProviders: readonly DetectedProvider[]
 let writePrefs = vi.fn()
-let beginLogin: typeof import('../../integrations/providers/index.js').beginSubscriptionLogin =
-	async () => {
-		throw new Error('sign-in was not arranged by this test')
-	}
-let beginCodexLogin: typeof import('../../integrations/providers/index.js').beginCodexDeviceLogin =
-	async () => {
-		throw new Error('Codex sign-in was not arranged by this test')
-	}
+type ProviderIntegrations = typeof import('../../integrations/providers/index.js')
+let beginLogin: ProviderIntegrations['beginSubscriptionLogin'] = async () => {
+	throw new Error('sign-in was not arranged by this test')
+}
+let beginCodexLogin: ProviderIntegrations['beginCodexDeviceLogin'] = async () => {
+	throw new Error('Codex sign-in was not arranged by this test')
+}
 let createSession: typeof import('../agent.js').createAgentSession
 
 const DETECTED = [
@@ -81,6 +84,24 @@ const DETECTED_B = {
 	apiKey: 'also-not-a-real-key',
 	alternatives: [],
 } as unknown as DetectedProvider
+
+const CLAUDE_DEVICE: DetectedProvider = {
+	entry: PROVIDER_REGISTRY['anthropic'],
+	source: { kind: 'claude-file', path: '/device/.claude/.credentials.json' },
+	apiKey: 'claude-device-token',
+	alternatives: [],
+}
+
+const CODEX_DEVICE: DetectedProvider = {
+	entry: PROVIDER_REGISTRY.codex,
+	source: { kind: 'codex-file', path: '/device/.codex/auth.json' },
+	apiKey: 'codex-device-token',
+	codex: {
+		accountId: 'account-1',
+		origin: 'codex-file',
+	},
+	alternatives: [],
+}
 
 function sessionFixture(providerSummary = 'a-provider', close = vi.fn()): AgentSession {
 	return {
@@ -337,6 +358,108 @@ async function pickerOnFirstRun(expected = 'Choose a provider') {
 	await tick(80)
 	return harness
 }
+
+describe('first-run signed-in subscriptions', () => {
+	it('uses the sole device session immediately without persisting an implicit preference', async () => {
+		withSession = false
+		detectedProviders = [CLAUDE_DEVICE, ...DETECTED]
+		const constructed: Preferences[] = []
+		createSession = async (prefs) => {
+			constructed.push(prefs)
+			return sessionFixture('claude-device-session')
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+
+		await frameShows(harness.lastFrame, 'Connected to claude-device-session')
+		expect(constructed).toEqual([
+			{
+				version: 3,
+				providers: [{ id: 'anthropic' }],
+				subagents: { active: [] },
+			},
+		])
+		expect(writePrefs).not.toHaveBeenCalled()
+		expect(harness.lastFrame()).not.toContain('Choose a provider')
+	})
+
+	it('asks only between Claude and Codex, then accepts the provider without a model detour', async () => {
+		withSession = false
+		// The API-key provider remains an optional later /model choice; it is not
+		// allowed to crowd the first decision between already signed-in sessions.
+		detectedProviders = [CLAUDE_DEVICE, CODEX_DEVICE, ...DETECTED]
+		const constructed: string[] = []
+		const candidate = deferred<AgentSession>()
+		createSession = async (prefs) => {
+			const id = prefs.providers[0]?.id ?? 'none'
+			constructed.push(id)
+			return candidate.promise
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+
+		await frameShows(harness.lastFrame, 'Choose a signed-in subscription')
+		const choiceFrame = harness.lastFrame() ?? ''
+		expect(choiceFrame).toContain('Anthropic (Claude)')
+		expect(choiceFrame).toContain('OpenAI (Codex subscription)')
+		expect(choiceFrame).not.toContain('A Provider')
+
+		harness.stdin.write('\x1B[B')
+		await frameShows(harness.lastFrame, '› 2. OpenAI (Codex subscription)')
+		harness.stdin.write('\r')
+		await vi.waitFor(() => expect(constructed).toEqual(['codex']))
+		expect(harness.lastFrame()).toContain('Choose a signed-in subscription')
+		expect(harness.lastFrame()).not.toContain('l create a Namzu sign-in')
+		candidate.resolve(sessionFixture('codex-device-session'))
+		await frameShows(harness.lastFrame, 'Connected to codex-device-session')
+
+		expect(writePrefs).toHaveBeenCalledWith({
+			version: 3,
+			providers: [{ id: 'codex' }],
+			subagents: { active: [] },
+		})
+		expect(harness.lastFrame()).not.toContain('Choose a model')
+	})
+
+	it('closes a sole-session candidate that arrives after the TUI is gone', async () => {
+		withSession = false
+		detectedProviders = [CLAUDE_DEVICE]
+		const candidate = deferred<AgentSession>()
+		const close = vi.fn(async () => {})
+		let constructionStarted = false
+		createSession = async () => {
+			constructionStarted = true
+			return candidate.promise
+		}
+		const harness = render(<App ctx={ctx} />)
+		await vi.waitFor(() => expect(constructionStarted).toBe(true))
+
+		harness.unmount()
+		candidate.resolve(sessionFixture('late-device-session', close))
+		await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1))
+	})
+
+	it('keeps an actionable choice when the automatic candidate cannot start', async () => {
+		withSession = false
+		detectedProviders = [CLAUDE_DEVICE]
+		const close = vi.fn(async () => {})
+		createSession = async () => ({
+			...sessionFixture('unusable-device-session', close),
+			hasProvider: false,
+			errorHint: 'The borrowed Claude session was refused.',
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+
+		await frameShows(harness.lastFrame, 'session could not start')
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('The borrowed Claude session was')
+		expect(frame).toContain('refused.')
+		expect(frame).toContain('Choose a provider')
+		expect(frame).toContain('l create a Namzu sign-in')
+		expect(close).toHaveBeenCalledTimes(1)
+	})
+})
 
 describe('publishing a picker selection', () => {
 	it('applies and clears reasoning effort at the mounted App send boundary', async () => {

@@ -4,11 +4,11 @@
  *
  * Session lifecycle:
  *   1. Mount → probeAgentSession() (readPreferences + discoverProviders).
- *   2. If a v2 preferences file exists → createAgentSession(prefs, detected) → ready.
- *   3. If preferences missing OR v1 (legacy) → show <Picker/>.
- *      After picker submit, writePreferences + hydrate session.
- *   4. If discovery returned zero providers → show <Picker/> in
- *      empty-state mode (explains where to put credentials).
+ *   2. If a current preferences file exists → createAgentSession(prefs, detected) → ready.
+ *   3. With no preferences, reuse one signed-in installed-harness subscription
+ *      directly, or ask between available subscriptions when there is a choice.
+ *   4. Otherwise show <Picker/>. An explicit picker choice is persisted;
+ *      automatic reuse is not mistaken for a durable operator preference.
  */
 
 import { join, relative } from 'node:path'
@@ -60,6 +60,7 @@ import {
 	primaryProvider,
 	readStoredCodexCredential,
 	readStoredSubscriptionCredential,
+	signedInSubscriptionProviders,
 	writePreferences,
 } from '../integrations/providers/index.js'
 import {
@@ -401,6 +402,12 @@ export function App({ ctx: initialCtx }: AppProps) {
 	const [pickerInitialView, setPickerInitialView] = useState<'providers' | 'subscriptions'>(
 		'providers',
 	)
+	/** A narrowed first-run roster; null keeps the complete discovered list. */
+	const [pickerDetected, setPickerDetected] = useState<readonly DetectedProvider[] | null>(null)
+	/** Whether Enter accepts the provider directly or continues to model choice. */
+	const [pickerSelectionKind, setPickerSelectionKind] = useState<
+		'provider-and-model' | 'signed-in-subscription'
+	>('provider-and-model')
 	/** The chain read from disk, held while the picker repairs its credential. */
 	const savedPrefsRef = useRef<Preferences | null>(null)
 	/**
@@ -537,6 +544,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 	const loginRef = useRef<SubscriptionLogin | null>(null)
 	const codexLoginRef = useRef<CodexDeviceLogin | null>(null)
 	const loginAbortCleanupRef = useRef<(() => void) | null>(null)
+	/** Revokes automatic first-run construction when this App no longer exists. */
+	const [appLifetime] = useState(() => new AbortController())
+	useEffect(() => () => appLifetime.abort(new Error('The Namzu TUI was closed.')), [appLifetime])
 	const cancelPendingLogin = useCallback(() => {
 		loginAbortCleanupRef.current?.()
 		loginAbortCleanupRef.current = null
@@ -997,6 +1007,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 			cancelPendingLogin()
 			setPickerNotice(null)
 			setKeyEntryFor(null)
+			setPickerDetected(null)
+			setPickerSelectionKind('provider-and-model')
 			setPickerInitialView('subscriptions')
 			setPhase('picker')
 		},
@@ -1122,6 +1134,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 				if (signal?.aborted) return
 				setDetected(probe.detected)
 				if (probe.needsRepickReason) {
+					setPickerDetected(null)
+					setPickerSelectionKind('provider-and-model')
+					setPickerInitialView('providers')
 					pushMessage('system', probe.needsRepickReason)
 					setPickerNotice(probe.needsRepickReason)
 					setPhase('picker')
@@ -1138,6 +1153,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 					// so the chain it declares — model pins and fallbacks included — is
 					// still the operator's answer once one is supplied.
 					savedPrefsRef.current = probe.preferences
+					setPickerDetected(null)
+					setPickerSelectionKind('provider-and-model')
+					setPickerInitialView('providers')
 					setKeyEntryFor(probe.credentialGap.providerId)
 					pushMessage('system', probe.credentialGap.reason)
 					setPickerNotice(probe.credentialGap.reason)
@@ -1145,9 +1163,52 @@ export function App({ ctx: initialCtx }: AppProps) {
 					return
 				}
 				if (probe.preferences) {
+					setPickerDetected(null)
+					setPickerSelectionKind('provider-and-model')
 					await hydrateSession(probe.preferences, probe.detected, signal)
 					return
 				}
+				const signedIn = signedInSubscriptionProviders(probe.detected)
+				if (signedIn.length === 1) {
+					const chosen = signedIn[0]
+					if (!chosen) throw new Error('A signed-in provider disappeared during discovery.')
+					const automaticPreferences: Preferences = {
+						version: 3,
+						providers: [{ id: chosen.entry.id }],
+						subagents: { active: [] },
+					}
+					// Use the picker-grade transactional admission even though no picker had
+					// to be drawn. A provider-less candidate must leave an actionable choice,
+					// not strand first run on the disabled unhealthy screen.
+					const admissionSignal = signal ?? appLifetime.signal
+					try {
+						await hydrateSession(automaticPreferences, probe.detected, admissionSignal)
+						return
+					} catch (error) {
+						if (admissionSignal.aborted) return
+						setPickerDetected(null)
+						setPickerSelectionKind('provider-and-model')
+						setPickerInitialView('providers')
+						setPickerNotice(
+							`The signed-in ${chosen.entry.label} session could not start: ${error instanceof Error ? error.message : String(error)}`,
+						)
+						setPhase('picker')
+						return
+					}
+				}
+				if (signedIn.length > 1) {
+					setPickerDetected(signedIn)
+					setPickerSelectionKind('signed-in-subscription')
+					setPickerInitialView('providers')
+					setPickerNotice(
+						'Claude and Codex subscriptions are already signed in on this device. Choose which one Namzu should use.',
+					)
+					setPhase('picker')
+					return
+				}
+				setPickerDetected(null)
+				setPickerSelectionKind('provider-and-model')
+				setPickerInitialView('providers')
 				setPhase('picker')
 			} catch (err) {
 				if (signal?.aborted) return
@@ -1158,7 +1219,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 				)
 			}
 		},
-		[hydrateSession, pushMessage],
+		[appLifetime.signal, hydrateSession, pushMessage],
 	)
 
 	// `startOrFinishLogin` is declared above `runProbe` and calls it, so it
@@ -2441,6 +2502,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 						// been solved — the session behind this picker is running.
 						setPickerNotice(null)
 						setKeyEntryFor(null)
+						setPickerDetected(null)
+						setPickerSelectionKind('provider-and-model')
 						setPickerInitialView('providers')
 						setPhase('picker')
 						return
@@ -3257,6 +3320,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			prefs: Preferences,
 			detectedNow: readonly DetectedProvider[],
 			signal: AbortSignal,
+			revealAllOnFailure = false,
 		): Promise<void> => {
 			try {
 				await hydrateSession(prefs, detectedNow, signal)
@@ -3265,6 +3329,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 				// eventual session object is disposed inside `hydrateSession`; a live
 				// choice stays on the picker with the actionable construction error.
 				if (signal.aborted) return
+				if (revealAllOnFailure) {
+					setPickerDetected(null)
+					setPickerSelectionKind('provider-and-model')
+					setPickerInitialView('providers')
+				}
 				setPickerNotice(
 					`Could not start the selected provider: ${err instanceof Error ? err.message : String(err)}`,
 				)
@@ -3286,6 +3355,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 			const next = [credential, ...detected.filter((d) => d.entry.id !== credential.entry.id)]
 			setDetected(next)
 			setKeyEntryFor(null)
+			setPickerDetected(null)
+			setPickerSelectionKind('provider-and-model')
 			setPickerNotice(null)
 			// The disposition, not the key. `credential` never reaches a message.
 			pushMessage('system', disposition)
@@ -3334,7 +3405,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 				)
 				return
 			}
-			void hydrateFromPicker(prefs, detected, signal)
+			// Keep a narrowed signed-in roster stable while construction is pending.
+			// Only a real refusal broadens back to the general, sign-in-capable picker.
+			void hydrateFromPicker(prefs, detected, signal, true)
 		},
 		[detected, hydrateFromPicker, pushMessage],
 	)
@@ -3359,6 +3432,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 */
 	const handlePickerCancel = useCallback(() => {
 		setPickerInitialView('providers')
+		setPickerDetected(null)
+		setPickerSelectionKind('provider-and-model')
 		if (session?.hasProvider) {
 			setPhase('ready')
 			return
@@ -3602,8 +3677,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 					<EditPromptPicker prompts={editList} selected={selectedEdit} />
 				) : phase === 'picker' ? (
 					<Picker
-						detected={detected}
+						detected={pickerDetected ?? detected}
 						currentProvider={currentProvider}
+						selectionKind={pickerSelectionKind}
 						currentModel={session?.modelSummary ?? null}
 						initialView={pickerInitialView}
 						onSubmit={handlePickerSubmit}

@@ -149,6 +149,35 @@ export interface DiscoverOptions {
 	readonly skipStored?: boolean
 }
 
+/**
+ * Providers backed by a subscription session that is already usable now.
+ *
+ * This is intentionally narrower than "detected providers". An API key, a
+ * custom endpoint, and a local model are all valid optional choices, but none
+ * means the operator has already signed in to Claude or Codex. First-run
+ * routing uses this distinction to avoid asking for a second credential when
+ * the device already owns one.
+ *
+ * `CLAUDE_CODE_OAUTH_TOKEN` is included because it is the environment form of
+ * the same Claude device session. Generic Anthropic token/key variables are
+ * not: they are explicit API credentials and remain ordinary picker choices.
+ */
+export function signedInSubscriptionProviders(
+	detected: readonly DetectedProvider[],
+): readonly DetectedProvider[] {
+	return detected.filter((provider) => {
+		if (provider.entry.subscriptionLogin === undefined) return false
+		return [provider.source, ...provider.alternatives].some(
+			(source) =>
+				source.kind === 'claude-file' ||
+				source.kind === 'codex-file' ||
+				source.kind === 'keychain' ||
+				source.kind === 'stored' ||
+				(source.kind === 'env' && source.envName === 'CLAUDE_CODE_OAUTH_TOKEN'),
+		)
+	})
+}
+
 const DEFAULT_PROBE_TIMEOUT_MS = 500
 
 export async function discoverProviders(
