@@ -92,6 +92,7 @@ import type { PermissionMode } from '../permissions/mode.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import { Composer, type ComposerDraft } from './Composer.js'
+import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
@@ -113,6 +114,10 @@ import { bottomSpacerRows } from './bottom-spacer.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { planTurnPublication } from './conversation-history.js'
+import {
+	type CopyResponseTarget,
+	copyTargetsForResponse,
+} from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import { liveWindow, transcriptLines } from './live-window.js'
 import {
@@ -150,6 +155,10 @@ export interface AppProps {
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
 type ConversationMutation = 'fork' | 'edit' | 'new'
+type CopyPickerState = {
+	readonly targets: readonly CopyResponseTarget[]
+	readonly provenance: 'normal-completion' | 'persisted'
+}
 
 /**
  * The streaming assistant bubble, carried across events within one turn.
@@ -502,6 +511,14 @@ export function App({ ctx: initialCtx }: AppProps) {
 	const [editList, setEditList] = useState<readonly EditablePrompt[]>([])
 	const [selectedEdit, setSelectedEdit] = useState<number>(0)
 	const editCommittedRef = useRef(false)
+	/** `/copy` owns this exact response snapshot until selection or cancellation. */
+	const [copyPicker, setCopyPickerState] = useState<CopyPickerState | null>(null)
+	const copyPickerRef = useRef<CopyPickerState | null>(null)
+	const [selectedCopy, setSelectedCopy] = useState(0)
+	const setCopyPicker = useCallback((next: CopyPickerState | null) => {
+		copyPickerRef.current = next
+		setCopyPickerState(next)
+	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const composerDraftTokenRef = useRef(0)
 	const exitArmedRef = useRef<boolean>(false)
@@ -704,6 +721,55 @@ export function App({ ctx: initialCtx }: AppProps) {
 			return id
 		},
 		[nextId],
+	)
+
+	const sendCopyRequest = useCallback(
+		(index: number) => {
+			const picker = copyPickerRef.current
+			const target = picker?.targets[index]
+			if (!picker || !target) return
+			// Release the overlay synchronously before its transcript notice lands.
+			// The queue pump still observes React state and can proceed only after
+			// this event has finished publishing the result.
+			setCopyPicker(null)
+			const result = writeClipboardText(target.text, {
+				isTTY: stdout.isTTY,
+				write: writeStdout,
+			})
+			const origin =
+				picker.provenance === 'persisted'
+					? 'the latest persisted assistant output'
+					: 'the latest normally completed answer'
+			const selection = target.kind === 'whole' ? origin : `${target.label} from ${origin}`
+			switch (result.kind) {
+				case 'request-sent':
+					pushMessage(
+						'system',
+						`Copy request sent for ${selection} (${result.bytes.toLocaleString()} bytes). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
+					)
+					break
+				case 'unavailable':
+					pushMessage(
+						'system',
+						`Cannot send a copy request here — ${result.detail}. /copy needs an interactive terminal with OSC 52 clipboard support.`,
+					)
+					break
+				case 'too-large':
+					pushMessage(
+						'system',
+						`Cannot send this selection to the terminal clipboard — it is ${result.bytes.toLocaleString()} bytes and the OSC 52 safety limit is ${result.limit.toLocaleString()}. Nothing was truncated.`,
+					)
+					break
+				case 'write-failed':
+					pushMessage('system', `Could not send the terminal copy request: ${result.detail}`)
+					break
+				default: {
+					const exhaustive: never = result
+					void exhaustive
+				}
+			}
+		},
+		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout],
 	)
 
 	const sendTerminalNotification = useCallback(
@@ -2890,42 +2956,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 							)
 							return
 						}
-
-						const result = writeClipboardText(target.text, {
-							isTTY: stdout.isTTY,
-							write: writeStdout,
+						setSelectedCopy(0)
+						setCopyPicker({
+							targets: copyTargetsForResponse(target.text),
+							provenance: target.provenance,
 						})
-						switch (result.kind) {
-							case 'request-sent':
-								pushMessage(
-									'system',
-									`Copy request sent for the ${
-										target.provenance === 'persisted'
-											? 'latest persisted assistant output'
-											: 'latest normally completed answer'
-									} (${result.bytes.toLocaleString()} bytes). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
-								)
-								break
-							case 'unavailable':
-								pushMessage(
-									'system',
-									`Cannot send a copy request here — ${result.detail}. /copy needs an interactive terminal with OSC 52 clipboard support.`,
-								)
-								break
-							case 'too-large':
-								pushMessage(
-									'system',
-									`Cannot send this answer to the terminal clipboard — it is ${result.bytes.toLocaleString()} bytes and the OSC 52 safety limit is ${result.limit.toLocaleString()}. Nothing was truncated.`,
-								)
-								break
-							case 'write-failed':
-								pushMessage('system', `Could not send the terminal copy request: ${result.detail}`)
-								break
-							default: {
-								const exhaustive: never = result
-								void exhaustive
-							}
-						}
 						return
 					}
 					case 'raw': {
@@ -3039,6 +3074,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			pushMessage,
 			rawOutput,
 			resetTranscript,
+			setCopyPicker,
 			setReasoningEffort,
 			slashCtx,
 			startFreshConversation,
@@ -3067,6 +3103,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			conversationMutationRef.current ||
 			exportingRef.current ||
 			compactingRef.current ||
+			copyPickerRef.current ||
 			goalCommandInFlightRef.current
 		) {
 			return
@@ -3092,6 +3129,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 					conversationMutationRef.current ||
 					exportingRef.current ||
 					compactingRef.current ||
+					copyPickerRef.current ||
 					goalCommandInFlightRef.current ||
 					queuedRef.current.length > 0 ||
 					!goalActivation.isArmed(sessionId, armed)
@@ -3163,6 +3201,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 		conversationMutation,
 		session,
 		state,
+		copyPicker,
 		wakeGoalDriver,
 	])
 
@@ -3179,6 +3218,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			conversationMutationRef.current ||
 			exportingRef.current ||
 			compactingRef.current ||
+			copyPickerRef.current ||
 			goalCommandInFlightRef.current
 		)
 			return
@@ -3188,7 +3228,16 @@ export function App({ ctx: initialCtx }: AppProps) {
 		// erase it.
 		const next = dequeueQueued()
 		if (next !== undefined) void runTurn(next)
-	}, [state, phase, queued, queuePause, dequeueQueued, hasUnsettledTurn, runTurn])
+	}, [
+		state,
+		phase,
+		queued,
+		queuePause,
+		copyPicker,
+		dequeueQueued,
+		hasUnsettledTurn,
+		runTurn,
+	])
 
 	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.
@@ -3423,6 +3472,33 @@ export function App({ ctx: initialCtx }: AppProps) {
 				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
 				return
 			}
+			// `/copy` holds a source snapshot, not a lifecycle phase. Permission
+			// stays above it in this handler so an approval request that arrives
+			// while the picker is open cannot have its keys stolen by the chooser.
+			if (copyPickerRef.current) {
+				const targets = copyPickerRef.current.targets
+				if (key.escape || (key.ctrl && input === 'c')) {
+					setCopyPicker(null)
+					return
+				}
+				if (key.upArrow) {
+					setSelectedCopy((index) => Math.max(0, index - 1))
+					return
+				}
+				if (key.downArrow) {
+					setSelectedCopy((index) => Math.min(targets.length - 1, index + 1))
+					return
+				}
+				if (key.return) {
+					sendCopyRequest(selectedCopy)
+					return
+				}
+				if (/^[1-9]$/.test(input)) {
+					const index = Number(input) - 1
+					if (targets[index]) sendCopyRequest(index)
+				}
+				return
+			}
 			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
 			// the Ctrl+C interrupt path: abort, drop the queue, one "Interrupted." line.
 			if (key.escape && abortRef.current) {
@@ -3577,12 +3653,21 @@ export function App({ ctx: initialCtx }: AppProps) {
 						    trigger. The composer now stays mounted and draws
 						    nothing while the prompt is up, so its state survives a
 						    decision it had nothing to do with. */}
-						{permission ? <PermissionOverlay toolCalls={permission.toolCalls} /> : null}
+						{permission ? (
+							<PermissionOverlay toolCalls={permission.toolCalls} />
+						) : copyPicker ? (
+							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
+						) : null}
 						<ComposerFrame
-							focus={state === 'idle' && phase === 'ready' && conversationMutation === null}
-							hidden={permission !== null}
+							focus={
+								state === 'idle' &&
+								phase === 'ready' &&
+								conversationMutation === null &&
+								copyPicker === null
+							}
+							hidden={permission !== null || copyPicker !== null}
 						>
-							{queued.length > 0 && permission === null ? (
+							{queued.length > 0 && permission === null && copyPicker === null ? (
 								<Box paddingX={1}>
 									<Text color={theme.text.muted}>
 										{queuePause ? '⏸' : '⏎'} {queued.length} message
@@ -3600,7 +3685,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 									compacting ||
 									conversationMutation !== null
 								}
-								hidden={permission !== null}
+								hidden={permission !== null || copyPicker !== null}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
 								escapeInterrupts={!compacting && (state === 'thinking' || state === 'tool')}
@@ -3636,7 +3721,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 										? 'starting a fresh conversation — input is paused'
 										: compacting
 											? 'compacting conversation — input is paused'
-											: hintForPhase(phase, state, session?.hasProvider === true)
+											: permission
+												? hintForPhase(phase, state, session?.hasProvider === true)
+												: copyPicker
+													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
+													: hintForPhase(phase, state, session?.hasProvider === true)
 						}
 						usage={usage}
 						context={context}

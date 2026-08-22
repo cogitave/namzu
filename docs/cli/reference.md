@@ -351,21 +351,31 @@ tools. Tool inputs and results are not copied into the warning. A checkpoint
 call still owned by an approval or crash-resume record is completed by that path
 instead, so the warning never stands in for a durable human decision.
 
-**`/copy` asks the terminal to copy the latest available assistant output.** It
-sends the raw, unrendered Markdown through OSC 52 instead of reconstructing text
-from the screen or starting a host clipboard process. While a new answer is
-streaming, the previous normally completed answer remains the target; a cancelled,
-guarded or otherwise partial answer does not replace it. `/clear-screen` and
-`/compact` keep the target. `/clear` and `/new` clear it with the model context;
-`/resume` replaces it with the newest non-empty assistant output in the resumed
-conversation, labelled as persisted because older durable records do not carry
-the stop reason needed to prove a normal completion.
+**`/copy` chooses source from the latest available assistant output and asks the
+terminal to copy it.** The picker offers the whole response, every fenced code
+block, and every blockquote that contains prose. Code copies omit the surrounding
+fence; quote copies omit one structural outer `>` while retaining nested quote
+markers. Line endings, trailing whitespace, Markdown and ordinary Unicode come
+from the raw model response rather than being reconstructed from the rendered
+screen. Labels and previews use terminal-safe visible escapes without changing
+the selected source bytes.
 
-The request is refused outside an interactive terminal and above 100,000 UTF-8
-bytes; oversized text is never truncated. OSC 52 has no portable acknowledgement,
-so success means only that the request was sent. A terminal, multiplexer or remote
-session policy may still ignore it, and the UI says so rather than claiming the
-clipboard changed.
+The picker owns the response snapshot it opened with. A newer answer may settle
+without retargeting an open selection, and no queued human or automatic goal turn
+starts until the picker is selected or cancelled. While a new answer is streaming,
+the previous normally completed answer remains available; a cancelled, guarded
+or otherwise partial answer does not replace it. `/clear-screen` and `/compact`
+keep the target. `/clear` and `/new` clear it with the model context; `/resume`
+replaces it with the newest non-empty assistant output in the resumed conversation,
+labelled as persisted because older durable records do not carry the stop reason
+needed to prove a normal completion.
+
+The selected region is refused outside an interactive terminal and above 100,000
+UTF-8 bytes; oversized text is never truncated. A small code or quote region can
+therefore still be copied from a response whose whole source exceeds the limit.
+OSC 52 has no portable acknowledgement, so success means only that the request
+was sent. A terminal, multiplexer or remote session policy may still ignore it,
+and the UI says so rather than claiming the clipboard changed.
 
 **`/raw [on|off]` changes the retained transcript between rich and literal
 rendering.** Bare `/raw` toggles. Raw mode removes role glyphs and Markdown

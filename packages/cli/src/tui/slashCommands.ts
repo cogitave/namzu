@@ -80,7 +80,7 @@ export type SlashAction =
 	 * command decides; `App` performs and reports.
 	 */
 	| { kind: 'compact' }
-	/** Ask the terminal to copy the latest available assistant output. */
+	/** Choose a raw source region from the latest available assistant output. */
 	| { kind: 'copy' }
 	/** Toggle or explicitly select copy-friendly plain transcript rendering. */
 	| { kind: 'raw'; enabled: boolean | 'toggle' }
@@ -729,7 +729,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'copy',
-		description: 'Send the latest available assistant output to the terminal clipboard.',
+		description: 'Choose the whole latest answer, a code block, or a quote to copy.',
 		action: () => ({ kind: 'copy' }),
 	},
 	{

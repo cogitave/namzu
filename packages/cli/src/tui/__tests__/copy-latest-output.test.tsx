@@ -152,6 +152,22 @@ async function submit(harness: { stdin: { write: (value: string) => void } }, te
 	harness.stdin.write('\r')
 }
 
+async function openCopyPicker(harness: {
+	readonly frames: readonly string[]
+	stdin: { write: (value: string) => void }
+}) {
+	await submit(harness, '/copy')
+	await frameShows(harness, 'Copy from response')
+}
+
+async function chooseWholeResponse(harness: {
+	readonly frames: readonly string[]
+	stdin: { write: (value: string) => void }
+}) {
+	await openCopyPicker(harness)
+	harness.stdin.write('\r')
+}
+
 async function mountReady() {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
@@ -182,10 +198,10 @@ it('sends the exact raw Markdown and keeps it after /clear-screen', async () => 
 	await submit(harness, 'answer me')
 	await waitUntil(() => sendCalls === 1)
 	await tick(80)
-	await submit(harness, '/copy')
+	await chooseWholeResponse(harness)
 	await frameShows(harness, 'Terminal, multiplexer or remote-session policy may ignore OSC 52')
 	await submit(harness, '/clear-screen')
-	await submit(harness, '/copy')
+	await chooseWholeResponse(harness)
 
 	await waitUntil(() => requested.length === 2)
 	expect(requested).toEqual([raw, raw])
@@ -207,15 +223,94 @@ it('uses the previous completed answer while the next one is still streaming', a
 	// block is intentionally still buffered, so screen text cannot be the
 	// synchronisation signal here; the held generator is the completion fence.
 	await tick(40)
-	await submit(harness, '/copy')
+	await openCopyPicker(harness)
+	expect(requested).toEqual([])
+
+	// The open picker owns the first completion even when a newer answer settles.
+	// Selection must not re-read the live latest-output ref.
+	releaseHeldTurn()
+	await frameShows(harness, 'SECOND FINISHED')
+	harness.stdin.write('\r')
 	await waitUntil(() => requested.length === 1)
 	expect(requested).toEqual(['FIRST FINISHED'])
 
-	releaseHeldTurn()
-	await frameShows(harness, 'SECOND FINISHED')
-	await submit(harness, '/copy')
+	await chooseWholeResponse(harness)
 	await waitUntil(() => requested.length === 2)
 	expect(requested).toEqual(['FIRST FINISHED', 'SECOND FINISHED'])
+})
+
+it('copies exact fenced-code and prose-quote source regions', async () => {
+	const raw =
+		"Intro\n\n```python\r\nprint('hi')  \r\n```\r\n\r\n> quoted **source**\r\n> > nested marker\r\n"
+	turns = [{ text: raw, stopReason: 'end_turn' }]
+	const harness = await mountReady()
+
+	await submit(harness, 'regions')
+	await frameShows(harness, 'quoted source')
+	await tick(80)
+	await openCopyPicker(harness)
+	await frameShows(harness, 'python code')
+	await frameShows(harness, 'Blockquote')
+	harness.stdin.write('\x1B[B')
+	await frameShows(harness, '2/3')
+	harness.stdin.write('\r')
+	await waitUntil(() => requested.length === 1)
+
+	await openCopyPicker(harness)
+	harness.stdin.write('3')
+	await waitUntil(() => requested.length === 2)
+
+	expect(requested).toEqual([
+		"print('hi')  \r\n",
+		'quoted **source**\r\n> nested marker\r\n',
+	])
+})
+
+it('holds queued work until the source picker closes', async () => {
+	turns = [
+		{ text: 'FIRST', stopReason: 'end_turn' },
+		{ text: 'SECOND', stopReason: 'end_turn', hold: true },
+		{ text: 'THIRD', stopReason: 'end_turn' },
+	]
+	const harness = await mountReady()
+
+	await submit(harness, 'first')
+	await frameShows(harness, 'FIRST')
+	await tick(80)
+	await submit(harness, 'second')
+	await waitUntil(() => sendCalls === 2)
+	await submit(harness, 'third')
+	await openCopyPicker(harness)
+
+	releaseHeldTurn()
+	await frameShows(harness, 'SECOND')
+	await tick(100)
+	expect(sendCalls).toBe(2)
+	expect(requested).toEqual([])
+
+	harness.stdin.write('\u001b')
+	await waitUntil(() => sendCalls === 3)
+	await frameShows(harness, 'THIRD')
+})
+
+it('allows a bounded region even when the whole answer exceeds the clipboard limit', async () => {
+	const small = 'small target\n'
+	turns = [
+		{
+			text: `${'x'.repeat(100_001)}\n\n\`\`\`text\n${small}\`\`\`\n`,
+			stopReason: 'end_turn',
+		},
+	]
+	const harness = await mountReady()
+
+	await submit(harness, 'large')
+	await waitUntil(() => sendCalls === 1)
+	await tick(100)
+	await openCopyPicker(harness)
+	harness.stdin.write('2')
+	await waitUntil(() => requested.length === 1)
+
+	expect(requested).toEqual([small])
 })
 
 it('does not promote partial text from an abnormal done event', async () => {
@@ -231,7 +326,7 @@ it('does not promote partial text from an abnormal done event', async () => {
 	await submit(harness, 'blocked')
 	await frameShows(harness, 'REFUSED_PARTIAL')
 	await tick(80)
-	await submit(harness, '/copy')
+	await chooseWholeResponse(harness)
 	await waitUntil(() => requested.length === 1)
 
 	expect(requested).toEqual(['SAFE_COMPLETE'])
@@ -258,7 +353,7 @@ it('hydrates the copy target from the resumed conversation, not the one left beh
 	await frameShows(harness, 'A resumed conversation')
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Resumed: A resumed conversation')
-	await submit(harness, '/copy')
+	await chooseWholeResponse(harness)
 	await waitUntil(() => requested.length === 1)
 
 	expect(requested).toEqual(['LATEST_RESUMED_RAW_MARKDOWN **here**'])
@@ -308,7 +403,7 @@ describe('clipboard adapter results reach the operator', () => {
 		await submit(harness, 'go')
 		await frameShows(harness, 'COPY_TARGET')
 		await tick(80)
-		await submit(harness, '/copy')
+		await chooseWholeResponse(harness)
 		await frameShows(harness, expected)
 
 		expect(requested).toEqual(['COPY_TARGET'])
