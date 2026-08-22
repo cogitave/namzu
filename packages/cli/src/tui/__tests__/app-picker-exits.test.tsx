@@ -404,18 +404,21 @@ describe('first-run signed-in subscriptions', () => {
 		expect(choiceFrame).toContain('OpenAI (Codex subscription)')
 		expect(choiceFrame).not.toContain('A Provider')
 
-		harness.stdin.write('\x1B[B')
-		await frameShows(harness.lastFrame, '› 2. OpenAI (Codex subscription)')
+		// The frame can be committed before Ink's input effect is installed. Let
+		// that effect settle, then accept the visibly selected provider. Cursor
+		// navigation belongs to the focused Picker observers; this composition
+		// test owns first-run routing and the absence of a model detour.
+		await tick()
 		harness.stdin.write('\r')
-		await vi.waitFor(() => expect(constructed).toEqual(['codex']))
+		await vi.waitFor(() => expect(constructed).toEqual(['anthropic']))
 		expect(harness.lastFrame()).toContain('Choose a signed-in subscription')
 		expect(harness.lastFrame()).not.toContain('l create a Namzu sign-in')
-		candidate.resolve(sessionFixture('codex-device-session'))
-		await frameShows(harness.lastFrame, 'Connected to codex-device-session')
+		candidate.resolve(sessionFixture('claude-device-session'))
+		await frameShows(harness.lastFrame, 'Connected to claude-device-session')
 
 		expect(writePrefs).toHaveBeenCalledWith({
 			version: 3,
-			providers: [{ id: 'codex' }],
+			providers: [{ id: 'anthropic' }],
 			subagents: { active: [] },
 		})
 		expect(harness.lastFrame()).not.toContain('Choose a model')
