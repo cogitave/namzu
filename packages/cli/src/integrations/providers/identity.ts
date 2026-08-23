@@ -36,12 +36,12 @@
  *
  * ## The addresses
  *
- * Verified 2026-08-09 rather than assumed. Two hosts serve this token
- * endpoint — the one below and `platform.claude.com` on the same path — and
- * both answer an `authorization_code` grant identically (`400 invalid_grant`
- * for a bogus code, from the same handler). namzu keeps the address its
- * existing refresh path has always used, because there was no behaviour to
- * gain by moving and a live refresh to lose by guessing.
+ * Re-verified against the installed owner client on 2026-08-23. Its live
+ * production contract uses the platform token endpoint, the direct Claude
+ * subscription authorize endpoint, a local callback when reachable and the
+ * platform callback for manual paste. Keeping these together matters: mixing
+ * the older console authorize flow with subscription scopes makes the browser
+ * classify the attempt as API billing or reject the scope entirely.
  *
  * The redirect port is fixed and NOT free to change: it is part of what the
  * client identity above is registered with, so a different port is simply not
@@ -50,21 +50,23 @@
  */
 
 export const OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'
-export const OAUTH_TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token'
-export const AUTHORIZE_URL = 'https://claude.ai/oauth/authorize'
+export const OAUTH_TOKEN_URL = 'https://platform.claude.com/v1/oauth/token'
+export const AUTHORIZE_URL = 'https://claude.com/cai/oauth/authorize'
 
 /** Registered with the client identity above; not ours to choose. */
 export const SUBSCRIPTION_REDIRECT_PORT = 53692
 export const REDIRECT_URI = `http://localhost:${SUBSCRIPTION_REDIRECT_PORT}/callback`
+/** Browser-to-terminal callback used when no local listener is reachable. */
+export const MANUAL_REDIRECT_URI = 'https://platform.claude.com/oauth/code/callback'
 
 /**
- * The smallest source-verified scope set used by the current Claude harness.
+ * The direct Claude Pro/Max scope set used by the current Claude harness.
  *
  * Do not copy every scope a historical client happened to request. Unknown
  * scopes make the authorization page reject the whole request before the
- * operator can sign in, and key creation is not inference authority. These
- * three are the live harness contract: identify the account, run inference,
- * and retain the ability to create an API key from that harness when the
- * account permits it.
+ * operator can sign in. `org:create_api_key` belongs to the platform/API
+ * billing login and is intentionally absent: Namzu is borrowing the person's
+ * Claude subscription session, not asking to create a separately billed key.
  */
-export const OAUTH_SCOPES = 'org:create_api_key user:profile user:inference'
+export const OAUTH_SCOPES =
+	'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload'

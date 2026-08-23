@@ -65,11 +65,9 @@ import {
 	readStoredSubscriptionCredential,
 } from './credential-store.js'
 import {
-	claudeCredentialsPath,
-	codexCredentialsPath,
 	preferFresherCredential,
-	readClaudeFileCredential,
-	readCodexFileCredential,
+	readClaudeFileCredentialCandidates,
+	readCodexFileCredentialCandidates,
 } from './harness-credentials.js'
 import { KEYCHAIN_SERVICE, readAgentKeychainCredential } from './keychain.js'
 import type { CredentialOrigin } from './oauth.js'
@@ -121,6 +119,8 @@ export interface DetectedProvider {
 		readonly refreshToken?: string
 		readonly expiresAt?: number
 		readonly origin?: CredentialOrigin
+		/** Exact Claude owner file admitted by discovery. */
+		readonly sourcePath?: string
 	}
 	/** Account-routed OAuth metadata for the Codex Responses backend. */
 	readonly codex?: {
@@ -147,6 +147,8 @@ export interface DiscoverOptions {
 	readonly skipKeychain?: boolean
 	/** Skip namzu's own credential store (tests, and `--no-stored-credential`). */
 	readonly skipStored?: boolean
+	/** Explicit paired Windows home for a WSL credential fixture. */
+	readonly windowsHome?: string | null
 }
 
 /**
@@ -227,13 +229,25 @@ export async function discoverProviders(
 	// macOS-only: the OAuth credential a co-installed tool keeps in the login
 	// Keychain.
 	const keychainCredential = opts.skipKeychain ? null : readAgentKeychainCredential()
-	const claudeFileCredential = readClaudeFileCredential(opts.home)
-	const codexFileCredential = readCodexFileCredential(opts.home, env)
-	const usableCodexFileCredential =
-		codexFileCredential?.expiresAt === undefined ||
-		codexFileCredential.expiresAt - Date.now() > 60_000
-			? codexFileCredential
-			: null
+	const claudeFileCredentials = readClaudeFileCredentialCandidates(opts.home, env, opts.windowsHome)
+	const codexFileCredentials = readCodexFileCredentialCandidates(
+		opts.home,
+		env,
+		opts.windowsHome,
+	).filter(
+		(candidate) =>
+			candidate.credential.expiresAt === undefined ||
+			candidate.credential.expiresAt - Date.now() > 60_000,
+	)
+	const usableCodexFileCredential = codexFileCredentials.reduce<
+		(typeof codexFileCredentials)[number] | null
+	>((current, candidate) => {
+		if (!current) return candidate
+		return preferFresherCredential(current.credential, candidate.credential) ===
+			candidate.credential
+			? candidate
+			: current
+	}, null)
 
 	for (const id of Object.keys(PROVIDER_REGISTRY) as readonly ProviderId[]) {
 		const entry = PROVIDER_REGISTRY[id]
@@ -243,41 +257,51 @@ export async function discoverProviders(
 		let codex: DetectedProvider['codex']
 
 		if (id === 'anthropic') {
-			const borrowed = preferFresherCredential(claudeFileCredential, keychainCredential)
-			const usableBorrowed =
-				borrowed?.expiresAt === undefined || borrowed.expiresAt - Date.now() > 60_000
-					? borrowed
-					: null
-			const borrowedSource: DetectionSource | undefined =
-				usableBorrowed === claudeFileCredential && usableBorrowed
-					? {
-							kind: 'claude-file',
-							path: claudeCredentialsPath(opts.home),
-						}
-					: usableBorrowed
-						? { kind: 'keychain', service: KEYCHAIN_SERVICE }
-						: undefined
-			if (usableBorrowed && borrowedSource) {
+			const borrowedCandidates = [
+				...claudeFileCredentials.map(({ credential, path }) => ({
+					credential,
+					source: { kind: 'claude-file', path } as const,
+				})),
+				...(keychainCredential
+					? [
+							{
+								credential: keychainCredential,
+								source: { kind: 'keychain', service: KEYCHAIN_SERVICE } as const,
+							},
+						]
+					: []),
+			].filter(
+				(candidate) =>
+					candidate.credential.expiresAt === undefined ||
+					candidate.credential.expiresAt - Date.now() > 60_000 ||
+					(candidate.source.kind === 'claude-file' &&
+						candidate.credential.refreshToken !== undefined),
+			)
+			const borrowed = borrowedCandidates.reduce<(typeof borrowedCandidates)[number] | null>(
+				(current, candidate) => {
+					if (!current) return candidate
+					return preferFresherCredential(current.credential, candidate.credential) ===
+						candidate.credential
+						? candidate
+						: current
+				},
+				null,
+			)
+			if (borrowed) {
 				if (apiKey === undefined) {
-					apiKey = usableBorrowed.accessToken
+					apiKey = borrowed.credential.accessToken
 					oauth = {
-						refreshToken: usableBorrowed.refreshToken,
-						expiresAt: usableBorrowed.expiresAt,
-						origin: borrowedSource.kind === 'claude-file' ? 'claude-file' : 'keychain',
+						refreshToken: borrowed.credential.refreshToken,
+						expiresAt: borrowed.credential.expiresAt,
+						origin: borrowed.source.kind === 'claude-file' ? 'claude-file' : 'keychain',
+						...(borrowed.source.kind === 'claude-file' ? { sourcePath: borrowed.source.path } : {}),
 					}
 				}
-				sources.push(borrowedSource)
+				sources.push(borrowed.source)
 			}
-			const otherBorrowedSource: DetectionSource | undefined =
-				usableBorrowed && usableBorrowed === claudeFileCredential && keychainCredential
-					? { kind: 'keychain', service: KEYCHAIN_SERVICE }
-					: usableBorrowed && usableBorrowed === keychainCredential && claudeFileCredential
-						? {
-								kind: 'claude-file',
-								path: claudeCredentialsPath(opts.home),
-							}
-						: undefined
-			if (otherBorrowedSource) sources.push(otherBorrowedSource)
+			for (const candidate of borrowedCandidates) {
+				if (candidate !== borrowed) sources.push(candidate.source)
+			}
 			if (storedCredential) {
 				if (apiKey === undefined) {
 					apiKey = storedCredential.accessToken
@@ -295,13 +319,13 @@ export async function discoverProviders(
 		}
 
 		if (id === 'codex' && (storedCodexCredential || usableCodexFileCredential)) {
-			const credential = usableCodexFileCredential ?? storedCodexCredential
+			const credential = usableCodexFileCredential?.credential ?? storedCodexCredential
 			if (!credential) throw new Error('unreachable')
 			apiKey = credential.accessToken
 			sources.push({
 				kind: usableCodexFileCredential ? 'codex-file' : 'stored',
 				path: usableCodexFileCredential
-					? codexCredentialsPath(opts.home, env)
+					? usableCodexFileCredential.path
 					: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
 			})
 			codex = {
@@ -314,6 +338,11 @@ export async function discoverProviders(
 					kind: 'stored',
 					path: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
 				})
+			}
+			for (const candidate of codexFileCredentials) {
+				if (candidate !== usableCodexFileCredential) {
+					sources.push({ kind: 'codex-file', path: candidate.path })
+				}
 			}
 		}
 

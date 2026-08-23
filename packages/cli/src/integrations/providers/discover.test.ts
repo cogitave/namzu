@@ -70,6 +70,57 @@ describe('discoverProviders — env-var scan', () => {
 })
 
 describe('discoverProviders — installed harness sessions', () => {
+	it('uses active Windows harness sessions from WSL when the Linux records are empty', async () => {
+		const linuxHome = tmpHome()
+		const windowsHome = tmpHome()
+		const write = (path: string, value: unknown) => {
+			mkdirSync(dirname(path), { recursive: true })
+			writeFileSync(path, JSON.stringify(value), { mode: 0o600 })
+		}
+		write(claudeCredentialsPath(linuxHome), {
+			claudeAiOauth: {
+				accessToken: '',
+				refreshToken: '',
+				expiresAt: 0,
+				subscriptionType: 'max',
+			},
+		})
+		write(claudeCredentialsPath(windowsHome), {
+			claudeAiOauth: {
+				accessToken: 'windows-claude',
+				refreshToken: 'windows-claude-refresh',
+				expiresAt: Date.now() + 120_000,
+			},
+		})
+		write(codexCredentialsPath(windowsHome, {}), {
+			tokens: { access_token: 'windows-codex', account_id: 'windows-account' },
+		})
+
+		const list = await discoverProviders({
+			...HERMETIC,
+			env: { WSL_DISTRO_NAME: 'test' },
+			home: linuxHome,
+			windowsHome,
+		})
+		expect(findDetected(list, 'anthropic')).toMatchObject({
+			apiKey: 'windows-claude',
+			source: { kind: 'claude-file', path: claudeCredentialsPath(windowsHome) },
+			oauth: {
+				origin: 'claude-file',
+				sourcePath: claudeCredentialsPath(windowsHome),
+			},
+		})
+		expect(findDetected(list, 'codex')).toMatchObject({
+			apiKey: 'windows-codex',
+			source: { kind: 'codex-file', path: codexCredentialsPath(windowsHome, {}) },
+			codex: { accountId: 'windows-account' },
+		})
+		expect(signedInSubscriptionProviders(list).map((provider) => provider.entry.id)).toEqual([
+			'anthropic',
+			'codex',
+		])
+	})
+
 	it('finds Claude and Codex together and keeps API-key entry optional', async () => {
 		const home = tmpHome()
 		const write = (path: string, value: unknown) => {
@@ -158,7 +209,35 @@ describe('discoverProviders — installed harness sessions', () => {
 		})
 	})
 
-	it('does not advertise an expired borrowed session as usable', async () => {
+	it('admits an expired Claude file only when its rotating grant can refresh it', async () => {
+		const home = tmpHome()
+		mkdirSync(dirname(claudeCredentialsPath(home)), { recursive: true })
+		writeFileSync(
+			claudeCredentialsPath(home),
+			JSON.stringify({
+				claudeAiOauth: {
+					accessToken: 'expired-but-refreshable',
+					refreshToken: 'owner-refresh-grant',
+					expiresAt: Date.now() - 1_000,
+				},
+			}),
+		)
+
+		const anthropic = findDetected(
+			await discoverProviders({ ...HERMETIC, env: {}, home }),
+			'anthropic',
+		)
+		expect(anthropic).toMatchObject({
+			apiKey: 'expired-but-refreshable',
+			oauth: {
+				origin: 'claude-file',
+				sourcePath: claudeCredentialsPath(home),
+			},
+		})
+		expect(signedInSubscriptionProviders(anthropic ? [anthropic] : [])).toHaveLength(1)
+	})
+
+	it('does not advertise expired borrowed sessions without a refresh grant', async () => {
 		const home = tmpHome()
 		mkdirSync(dirname(claudeCredentialsPath(home)), { recursive: true })
 		writeFileSync(

@@ -423,6 +423,11 @@ it('disarms after an abnormal turn and requires an explicit /goal resume', async
 	await tick(120)
 	expect(calls).toBe(1)
 
+	await submit(harness, '/goal pause')
+	await until(
+		() => harness.lastFrame()?.includes('Goal paused (/goal resume)') === true,
+		'the durable paused goal did not reach the footer',
+	)
 	await submit(harness, '/goal')
 	await until(
 		() => harness.frames.join('\n').includes('Automatic continuation: disarmed'),

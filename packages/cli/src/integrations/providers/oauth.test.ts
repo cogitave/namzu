@@ -40,6 +40,44 @@ vi.mock('./credential-store.js', async (importOriginal) => {
 	}
 })
 
+const claudeOwner = vi.hoisted(() => ({
+	current: null as null | {
+		accessToken: string
+		refreshToken?: string
+		expiresAt?: number
+		scopes?: readonly string[]
+	},
+}))
+const readClaude = vi.hoisted(() => vi.fn(() => claudeOwner.current))
+const replaceClaude = vi.hoisted(() =>
+	vi.fn(
+		(
+			_path: string,
+			expected: { accessToken: string; refreshToken?: string; expiresAt?: number },
+			replacement: { accessToken: string; refreshToken?: string; expiresAt?: number },
+		) => {
+			if (
+				!claudeOwner.current ||
+				claudeOwner.current.accessToken !== expected.accessToken ||
+				claudeOwner.current.refreshToken !== expected.refreshToken ||
+				claudeOwner.current.expiresAt !== expected.expiresAt
+			) {
+				return { replaced: false, current: claudeOwner.current }
+			}
+			claudeOwner.current = replacement
+			return { replaced: true, current: replacement }
+		},
+	),
+)
+vi.mock('./harness-credentials.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./harness-credentials.js')>()
+	return {
+		...actual,
+		readClaudeCredentialFile: readClaude,
+		replaceClaudeCredentialFile: replaceClaude,
+	}
+})
+
 import {
 	CredentialPublicationError,
 	CredentialRefreshRejectedError,
@@ -57,6 +95,7 @@ afterEach(() => {
 	vi.useRealTimers()
 	vi.unstubAllGlobals()
 	vi.clearAllMocks()
+	claudeOwner.current = null
 })
 
 async function within<T>(operation: Promise<T>, ms = 250): Promise<T> {
@@ -125,6 +164,41 @@ describe('a refreshed credential is written back to its own store', () => {
 		expect(token).toBe('cc-fresh')
 		expect(writeKeychain).not.toHaveBeenCalled()
 		expect(writeStored).not.toHaveBeenCalled()
+	})
+
+	it('publishes a rotating grant to the exact Claude owner file', async () => {
+		respondWithFreshToken()
+		claudeOwner.current = {
+			accessToken: 'cc-stale',
+			refreshToken: 'rt',
+			expiresAt: 0,
+		}
+		const path = '/device/.claude/.credentials.json'
+		const token = await ensureFreshAnthropicToken('cc-stale', {
+			refreshToken: 'rt',
+			expiresAt: 0,
+			origin: 'claude-file',
+			sourcePath: path,
+		})
+
+		expect(token).toBe('cc-fresh')
+		expect(replaceClaude).toHaveBeenCalledWith(
+			path,
+			expect.objectContaining({ accessToken: 'cc-stale', refreshToken: 'rt' }),
+			expect.objectContaining({ accessToken: 'cc-fresh', refreshToken: 'rt' }),
+		)
+		expect(claudeOwner.current?.accessToken).toBe('cc-fresh')
+	})
+
+	it('requires the exact Claude owner file before consuming its grant', async () => {
+		respondWithFreshToken()
+		await expect(
+			ensureFreshAnthropicToken('cc-stale', {
+				refreshToken: 'rt',
+				expiresAt: 0,
+				origin: 'claude-file',
+			}),
+		).rejects.toBeInstanceOf(CredentialPublicationError)
 	})
 
 	it('also leaves the borrowed Keychain untouched when an older caller omits origin', async () => {
@@ -239,12 +313,21 @@ describe('readSubscriptionCredential', () => {
 		readSubscriptionCredential('keychain')
 		expect(readStored).not.toHaveBeenCalled()
 	})
+
+	it('reads a Claude session only from the exact discovered owner file', () => {
+		claudeOwner.current = { accessToken: 'from-windows-claude' }
+		expect(
+			readSubscriptionCredential('claude-file', '/mnt/c/Users/A/.claude/.credentials.json'),
+		).toEqual({ accessToken: 'from-windows-claude' })
+		expect(readClaude).toHaveBeenCalledWith('/mnt/c/Users/A/.claude/.credentials.json')
+		expect(readSubscriptionCredential('claude-file')).toBeNull()
+	})
 })
 
 describe('refreshAgentOAuthToken', () => {
 	it('exchanges the refresh token and maps the response', async () => {
-		mockFetch(
-			(async () =>
+		const fetchSpy = vi.fn(
+			async (_url: string | URL | Request, _init?: RequestInit) =>
 				new Response(
 					JSON.stringify({
 						access_token: 'cc-new-access',
@@ -252,13 +335,22 @@ describe('refreshAgentOAuthToken', () => {
 						expires_in: 3600,
 					}),
 					{ status: 200 },
-				)) as typeof fetch,
+				),
 		)
+		mockFetch(fetchSpy as typeof fetch)
 		const before = Date.now()
 		const cred = await refreshAgentOAuthToken('rt-old')
 		expect(cred?.accessToken).toBe('cc-new-access')
 		expect(cred?.refreshToken).toBe('rt-new')
 		expect(cred?.expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000)
+		expect(
+			JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as Record<string, string>,
+		).toMatchObject({
+			grant_type: 'refresh_token',
+			refresh_token: 'rt-old',
+			scope:
+				'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+		})
 	})
 
 	it('keeps the old refresh token when the response omits one', async () => {
@@ -495,10 +587,11 @@ describe('ensureFreshAnthropicToken', () => {
 	})
 
 	it('refreshes an expired token', async () => {
+		const expiresAt = Date.now() - 1000
 		readKeychain.mockReturnValueOnce({
 			accessToken: 'cc-stale',
 			refreshToken: 'rt',
-			expiresAt: Date.now() - 1000,
+			expiresAt,
 		} as never)
 		mockFetch(
 			(async () =>
@@ -508,7 +601,7 @@ describe('ensureFreshAnthropicToken', () => {
 		)
 		const token = await ensureFreshAnthropicToken('cc-stale', {
 			refreshToken: 'rt',
-			expiresAt: Date.now() - 1000,
+			expiresAt,
 		})
 		expect(token).toBe('cc-fresh')
 	})

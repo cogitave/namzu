@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { credentialsPath, readStoredSubscriptionCredential } from './credential-store.js'
 import { discoverProviders } from './discover.js'
-import { OAUTH_CLIENT_ID, OAUTH_TOKEN_URL, REDIRECT_URI } from './identity.js'
+import {
+	AUTHORIZE_URL,
+	MANUAL_REDIRECT_URI,
+	OAUTH_CLIENT_ID,
+	OAUTH_SCOPES,
+	OAUTH_TOKEN_URL,
+} from './identity.js'
 import {
 	beginSubscriptionLogin,
 	parsePastedInput,
@@ -65,16 +71,33 @@ async function settlesWithin<T>(promise: Promise<T>, milliseconds = 250): Promis
 	}
 }
 
-const GOOD = { access_token: ACCESS, refresh_token: REFRESH, expires_in: 28_800 }
+const GOOD = {
+	access_token: ACCESS,
+	refresh_token: REFRESH,
+	expires_in: 28_800,
+	scope: OAUTH_SCOPES,
+}
 
 describe('the authorization request', () => {
+	it('pins the current direct Claude subscription protocol instead of the API-billing flow', () => {
+		expect(AUTHORIZE_URL).toBe('https://claude.com/cai/oauth/authorize')
+		expect(OAUTH_TOKEN_URL).toBe('https://platform.claude.com/v1/oauth/token')
+		expect(MANUAL_REDIRECT_URI).toBe('https://platform.claude.com/oauth/code/callback')
+		expect(OAUTH_SCOPES).toBe(
+			'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+		)
+	})
+
 	it('asks for a code with a S256 challenge, and never carries the verifier', async () => {
 		const login = await beginSubscriptionLogin({ home, loopback: false })
 		const url = new URL(login.url)
+		expect(url.origin + url.pathname).toBe(AUTHORIZE_URL)
 		expect(url.searchParams.get('response_type')).toBe('code')
 		expect(url.searchParams.get('client_id')).toBe(OAUTH_CLIENT_ID)
 		expect(url.searchParams.get('code_challenge_method')).toBe('S256')
-		expect(url.searchParams.get('redirect_uri')).toBe(REDIRECT_URI)
+		expect(url.searchParams.get('redirect_uri')).toBe(MANUAL_REDIRECT_URI)
+		expect(url.searchParams.get('scope')).toBe(OAUTH_SCOPES)
+		expect(url.searchParams.get('scope')).not.toContain('org:create_api_key')
 		const challenge = url.searchParams.get('code_challenge') ?? ''
 		expect(challenge.length).toBeGreaterThan(20)
 		login.cancel()
@@ -129,7 +152,7 @@ describe('a completed sign-in', () => {
 		const body = JSON.parse(String(seen.init?.body)) as Record<string, string>
 		expect(body.grant_type).toBe('authorization_code')
 		expect(body.code).toBe(CODE)
-		expect(body.redirect_uri).toBe(REDIRECT_URI)
+		expect(body.redirect_uri).toBe(MANUAL_REDIRECT_URI)
 		expect(body.code_verifier?.length).toBeGreaterThan(20)
 
 		// The credential landed where discovery looks — the property that makes
@@ -137,6 +160,7 @@ describe('a completed sign-in', () => {
 		expect(readStoredSubscriptionCredential(home)).toMatchObject({
 			accessToken: ACCESS,
 			refreshToken: REFRESH,
+			scopes: OAUTH_SCOPES.split(' '),
 		})
 
 		// And it is usable NOW, as a provider a session can be built from,

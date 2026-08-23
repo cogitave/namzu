@@ -16,7 +16,7 @@
  *
  * ## Where a refreshed token is written back
  *
- * There are two places a subscription credential can live and they are not
+ * There are three places a subscription credential can live and they are not
  * interchangeable, so `origin` says which one this credential came from and
  * therefore which publication rule applies:
  *
@@ -24,6 +24,9 @@
  *    every platform. A refresh replaces only the exact credential it used.
  *  - `'keychain'` — a co-installed tool's macOS entry, which namzu reads but
  *    does not own. A refresh is session-local and never writes that entry.
+ *  - `'claude-file'` — Claude's device-session file. A rotating refresh grant
+ *    must publish its successor back to the exact admitted file or it would
+ *    log the owner out, so publication preserves Claude's full envelope.
  *
  * `origin` is optional and defaults to `'keychain'` because that is the only
  * source that existed when this file was written. Every namzu-owned caller
@@ -40,8 +43,8 @@ import {
 	readStoredSubscriptionCredential,
 	replaceStoredSubscriptionCredential,
 } from './credential-store.js'
-import { readClaudeFileCredential } from './harness-credentials.js'
-import { OAUTH_CLIENT_ID, OAUTH_TOKEN_URL } from './identity.js'
+import { readClaudeCredentialFile, replaceClaudeCredentialFile } from './harness-credentials.js'
+import { OAUTH_CLIENT_ID, OAUTH_SCOPES, OAUTH_TOKEN_URL } from './identity.js'
 import { type AgentOAuthCredential, readAgentKeychainCredential } from './keychain.js'
 
 /** Refresh a few seconds early so an about-to-expire token isn't used. */
@@ -98,9 +101,15 @@ async function awaitWithSignal<T>(operation: PromiseLike<T>, signal: AbortSignal
  * One credential, one store, for its whole life. `discover.ts` decides which
  * at detection; everything after that is told, not asked.
  */
-export function readSubscriptionCredential(origin: CredentialOrigin): AgentOAuthCredential | null {
+export function readSubscriptionCredential(
+	origin: CredentialOrigin,
+	sourcePath?: string,
+): AgentOAuthCredential | null {
 	if (origin === 'stored') return readStoredSubscriptionCredential()
-	return origin === 'claude-file' ? readClaudeFileCredential() : readAgentKeychainCredential()
+	if (origin === 'claude-file') {
+		return sourcePath ? readClaudeCredentialFile(sourcePath) : null
+	}
+	return readAgentKeychainCredential()
 }
 
 /** Which store a subscription credential came from and therefore who owns publication. */
@@ -112,6 +121,8 @@ export interface OAuthMetadata {
 	readonly scopes?: readonly string[]
 	/** Defaults to `'keychain'` — see the note at the top of this file. */
 	readonly origin?: CredentialOrigin
+	/** Exact owner file admitted by discovery; required for `'claude-file'`. */
+	readonly sourcePath?: string
 }
 
 /** The credential that authorized a refresh was removed before publication. */
@@ -159,7 +170,7 @@ export async function ensureFreshAnthropicToken(
 	if (fresh) return accessToken
 	if (!oauth.refreshToken) return accessToken
 
-	const refreshed = await refreshAgentOAuthToken(oauth.refreshToken, signal)
+	const refreshed = await refreshAgentOAuthToken(oauth.refreshToken, signal, oauth.scopes)
 	if (!refreshed) return accessToken
 	// The response body was the final foreign await. Re-check immediately at
 	// the durable boundary so a stopped run cannot rotate a credential later.
@@ -170,7 +181,8 @@ export async function ensureFreshAnthropicToken(
 		expiresAt: oauth.expiresAt,
 		scopes: oauth.scopes,
 	}
-	return publishRefreshed(expected, refreshed, oauth.origin ?? 'keychain').accessToken
+	return publishRefreshed(expected, refreshed, oauth.origin ?? 'keychain', oauth.sourcePath)
+		.accessToken
 }
 
 /**
@@ -198,16 +210,30 @@ function publishRefreshed(
 	expected: AgentOAuthCredential,
 	refreshed: AgentOAuthCredential,
 	origin: CredentialOrigin,
+	sourcePath?: string,
 ): AgentOAuthCredential {
-	if (origin !== 'stored') {
+	if (origin === 'keychain') {
 		// This entry belongs to another product, whose writer cannot participate
 		// in a Namzu lock or conditional update. Never overwrite it. A rotation
 		// that landed while the request was pending wins for this session; when it
 		// is unchanged, the refreshed token remains session-local.
-		const current =
-			origin === 'claude-file' ? readClaudeFileCredential() : readAgentKeychainCredential()
+		const current = readAgentKeychainCredential()
 		if (!current) throw new CredentialWithdrawnError()
 		return !sameOAuthCredential(current, expected) ? current : refreshed
+	}
+	if (origin === 'claude-file') {
+		if (!sourcePath) throw new CredentialPublicationError()
+		let result: ReturnType<typeof replaceClaudeCredentialFile>
+		try {
+			result = replaceClaudeCredentialFile(sourcePath, expected, refreshed)
+		} catch (error) {
+			throw new CredentialPublicationError({ cause: error })
+		}
+		if (!result.replaced) {
+			if (!result.current) throw new CredentialWithdrawnError()
+			return result.current
+		}
+		return refreshed
 	}
 	let result: ReturnType<typeof replaceStoredSubscriptionCredential>
 	try {
@@ -263,6 +289,7 @@ export function sameOAuthCredential(
 export async function refreshAgentOAuthToken(
 	refreshToken: string,
 	signal?: AbortSignal,
+	scopes: readonly string[] = OAUTH_SCOPES.split(' '),
 ): Promise<AgentOAuthCredential | null> {
 	signal?.throwIfAborted()
 	const requestController = new AbortController()
@@ -281,6 +308,7 @@ export async function refreshAgentOAuthToken(
 					grant_type: 'refresh_token',
 					refresh_token: refreshToken,
 					client_id: OAUTH_CLIENT_ID,
+					scope: scopes.join(' '),
 				}),
 				signal: requestController.signal,
 			}),
@@ -302,6 +330,7 @@ export async function refreshAgentOAuthToken(
 			access_token?: unknown
 			refresh_token?: unknown
 			expires_in?: unknown
+			scope?: unknown
 		}
 		if (typeof data.access_token !== 'string' || data.access_token.length === 0) return null
 		return {
@@ -309,6 +338,7 @@ export async function refreshAgentOAuthToken(
 			refreshToken: typeof data.refresh_token === 'string' ? data.refresh_token : refreshToken,
 			expiresAt:
 				typeof data.expires_in === 'number' ? Date.now() + data.expires_in * 1_000 : undefined,
+			scopes: typeof data.scope === 'string' ? data.scope.split(' ').filter(Boolean) : [...scopes],
 		}
 	} catch (error) {
 		if (error instanceof CredentialRefreshRejectedError) throw error

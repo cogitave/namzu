@@ -1,16 +1,19 @@
-/**
- * Read-only adapters for credentials owned by co-installed agent harnesses.
- *
- * These files are authorities, not migration inputs. Namzu reads the whole
- * record, validates only the fields its provider wire needs, and never writes
- * either file. In particular, refresh tokens remain owned by the harness that
- * obtained them; consuming a single-use refresh grant here would race that
- * owner and could log it out.
- */
+/** Adapters for credentials owned by co-installed agent harnesses. */
 
-import { readFileSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
+import {
+	closeSync,
+	fsyncSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import type { AgentOAuthCredential } from './keychain.js'
 
@@ -20,8 +23,78 @@ export interface CodexOAuthCredential extends AgentOAuthCredential {
 	readonly accountId: string
 }
 
+export interface HarnessCredentialCandidate<T extends AgentOAuthCredential> {
+	readonly path: string
+	readonly credential: T
+}
+
+export interface ClaudeCredentialReplaceResult {
+	readonly replaced: boolean
+	readonly current: AgentOAuthCredential | null
+}
+
 export function claudeCredentialsPath(home: string = homedir()): string {
 	return join(home, '.claude', '.credentials.json')
+}
+
+/** Convert an absolute Windows path into the drive mount WSL exposes. */
+export function windowsPathToWsl(path: string): string | null {
+	const normalized = path.trim().replaceAll('\\', '/')
+	const match = /^([A-Za-z]):\/(.+)$/u.exec(normalized)
+	if (!match?.[1] || !match[2] || match[2].split('/').includes('..')) return null
+	return `/mnt/${match[1].toLowerCase()}/${match[2]}`
+}
+
+/**
+ * Resolve the Windows account paired with this WSL process.
+ *
+ * The Windows executable is pinned instead of searched through PATH: this
+ * lookup decides where a credential may be read, so a project-local `cmd.exe`
+ * must not be able to redirect it. Failure is an ordinary "no second home"
+ * result; native Linux never starts a process.
+ */
+export function wslWindowsHome(
+	env: NodeJS.ProcessEnv = process.env,
+	run: typeof execFileSync = execFileSync,
+	command = '/mnt/c/Windows/System32/cmd.exe',
+): string | null {
+	if (!env.WSL_DISTRO_NAME && !env.WSL_INTEROP) return null
+	try {
+		if (!statSync(command).isFile()) return null
+		const output = run(command, ['/d', '/s', '/c', 'echo', '%USERPROFILE%'], {
+			encoding: 'utf8',
+			timeout: 1_000,
+			windowsHide: true,
+			stdio: ['ignore', 'pipe', 'ignore'],
+		})
+		return windowsPathToWsl(String(output))
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Usable Claude sessions visible from this process, freshest first.
+ *
+ * WSL is one device with two home directories in practice. Claude may be
+ * installed and signed in on Windows while Namzu runs inside WSL; treating the
+ * Linux home as the whole device turns that valid subscription into a missing
+ * credential. An explicit `home` remains hermetic for embeds and tests.
+ */
+export function readClaudeFileCredentialCandidates(
+	home: string | undefined,
+	env: NodeJS.ProcessEnv = process.env,
+	windowsHome: string | null | undefined = home === undefined ? wslWindowsHome(env) : null,
+): readonly HarnessCredentialCandidate<AgentOAuthCredential>[] {
+	const paths = [
+		claudeCredentialsPath(home),
+		...(windowsHome ? [claudeCredentialsPath(windowsHome)] : []),
+	]
+	const unique = [...new Set(paths)]
+	return unique.flatMap((path) => {
+		const credential = readClaudeCredentialFile(path)
+		return credential ? [{ path, credential }] : []
+	})
 }
 
 export function codexCredentialsPath(
@@ -82,6 +155,81 @@ export function readClaudeCredentialFile(path: string): AgentOAuthCredential | n
 	}
 }
 
+function sameClaudeCredential(left: AgentOAuthCredential, right: AgentOAuthCredential): boolean {
+	return (
+		left.accessToken === right.accessToken &&
+		left.refreshToken === right.refreshToken &&
+		left.expiresAt === right.expiresAt &&
+		JSON.stringify(left.scopes ?? []) === JSON.stringify(right.scopes ?? [])
+	)
+}
+
+/**
+ * Publish a refreshed Claude session back to the exact owner file discovered.
+ *
+ * Claude refresh grants may rotate. Keeping the successor only in Namzu would
+ * consume the owner's grant and leave its file unusable, so this preserves the
+ * full envelope and atomically replaces only its OAuth fields. The final
+ * re-read lets an owner rotation that completed during the network request win.
+ * Claude does not participate in Namzu's lock, so this is intentionally not
+ * described as a cross-process CAS; it is the strongest owner-compatible
+ * publication available for this shared file format.
+ */
+export function replaceClaudeCredentialFile(
+	path: string,
+	expected: AgentOAuthCredential,
+	replacement: AgentOAuthCredential,
+): ClaudeCredentialReplaceResult {
+	const root = record(readCredentialJson(path))
+	const oauth = record(root?.claudeAiOauth)
+	const current = readClaudeCredentialFile(path)
+	if (!root || !oauth || !current) return { replaced: false, current }
+	if (!sameClaudeCredential(current, expected)) return { replaced: false, current }
+
+	const updated = {
+		...root,
+		claudeAiOauth: {
+			...oauth,
+			accessToken: replacement.accessToken,
+			...(replacement.refreshToken === undefined ? {} : { refreshToken: replacement.refreshToken }),
+			...(replacement.expiresAt === undefined ? {} : { expiresAt: replacement.expiresAt }),
+			...(replacement.scopes === undefined ? {} : { scopes: replacement.scopes }),
+		},
+	}
+	const tempPath = join(
+		dirname(path),
+		`.${basename(path)}.namzu-${process.pid}-${randomBytes(8).toString('hex')}.tmp`,
+	)
+	let descriptor: number | undefined
+	try {
+		descriptor = openSync(tempPath, 'wx', 0o600)
+		writeFileSync(descriptor, `${JSON.stringify(updated, null, 2)}\n`, 'utf8')
+		fsyncSync(descriptor)
+		closeSync(descriptor)
+		descriptor = undefined
+
+		const beforeCommit = readClaudeCredentialFile(path)
+		if (!beforeCommit || !sameClaudeCredential(beforeCommit, expected)) {
+			return { replaced: false, current: beforeCommit }
+		}
+		renameSync(tempPath, path)
+		return { replaced: true, current: replacement }
+	} finally {
+		if (descriptor !== undefined) {
+			try {
+				closeSync(descriptor)
+			} catch {
+				// The primary publication error remains authoritative.
+			}
+		}
+		try {
+			unlinkSync(tempPath)
+		} catch {
+			// A successful rename has already consumed the temporary name.
+		}
+	}
+}
+
 interface JwtClaims {
 	readonly expiresAt?: number
 	readonly accountId?: string
@@ -134,6 +282,26 @@ export function readCodexFileCredential(
 	env: NodeJS.ProcessEnv = process.env,
 ): CodexOAuthCredential | null {
 	return readCodexCredentialFile(codexCredentialsPath(home, env))
+}
+
+/** Usable Codex sessions visible from this process, including a paired WSL host. */
+export function readCodexFileCredentialCandidates(
+	home: string | undefined,
+	env: NodeJS.ProcessEnv = process.env,
+	windowsHome: string | null | undefined = home === undefined ? wslWindowsHome(env) : null,
+): readonly HarnessCredentialCandidate<CodexOAuthCredential>[] {
+	// CODEX_HOME is an explicit authority choice. Do not silently add another
+	// store beside it, because two owners could then refresh independently.
+	const paths = env.CODEX_HOME?.trim()
+		? [codexCredentialsPath(home, env)]
+		: [
+				codexCredentialsPath(home, env),
+				...(windowsHome ? [codexCredentialsPath(windowsHome, {})] : []),
+			]
+	return [...new Set(paths)].flatMap((path) => {
+		const credential = readCodexCredentialFile(path)
+		return credential ? [{ path, credential }] : []
+	})
 }
 
 /** Read a Codex-owned credential from the exact path discovery admitted. */

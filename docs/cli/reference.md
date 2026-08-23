@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-22T00:00:00Z
-lastReviewed: 2026-08-22
+timestamp: 2026-08-23T00:00:00Z
+lastReviewed: 2026-08-23
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -63,9 +63,10 @@ something you point at a real repository:
   and decide, and a headless run refuses, because nobody is watching.
 - **It reuses device sessions before asking for another credential.** A usable
   `Claude` or `Codex` CLI session is discovered from that tool's own credential
-  file and remains read-only. With no saved provider choice, one usable signed-in
-  subscription starts directly; if both are available, a narrowed picker asks
-  only which subscription Namzu should use and then starts its default model.
+  file, including the paired Windows home when Namzu runs inside WSL. With no
+  saved provider choice, one usable signed-in subscription starts directly; if
+  both are available, a narrowed picker asks only which subscription Namzu
+  should use and then starts its default model.
   Automatic single-session reuse is not persisted as if the operator had made a
   permanent choice. A Namzu-owned subscription login is the fallback for a
   machine with no usable external session, or an explicit operator choice; API
@@ -89,7 +90,9 @@ Bare `/login` opens a subscription choice with `Claude` and `Codex`; it never
 silently defaults to `Claude`. The shell equivalents are `namzu login claude`
 and `namzu login codex`. `Claude` uses a browser callback, while `Codex` uses a
 device code that can be approved in any reachable browser. Both write only to
-Namzu's credential store. `/logout` and `namzu logout` remove those Namzu-owned
+Namzu's credential store. The `Claude` route uses the direct subscription
+authorization flow, not the platform/API-usage billing login. `/logout` and
+`namzu logout` remove those Namzu-owned
 records together; they never delete or revoke credentials owned by another
 installed tool. The `l` sign-in action remains reachable from a general provider
 picker even when an environment API key or local server was detected; discovery
@@ -103,27 +106,32 @@ its exact device credential envelope, `Codex` from its exact `auth.json` envelop
 (honouring `CODEX_HOME`), and both reads are bounded and structurally validated
 before a provider can be selected.
 
-`/permissions` reports the effective tool-review mode and the rules that still
-outrank it. `/permissions prompt`, `/permissions auto`, and `/permissions
-strict` select how otherwise-undecided calls are handled on later turns: ask the
-operator, approve automatically, or reject automatically. A change is accepted
-only while the session is idle, and it revokes any earlier **approve all**
-choice before publishing the new mode. Declarative deny rules and the built-in
-safety gate remain authoritative in every mode. `--yolo` (the
+Bare `/permissions` opens a finite chooser for the effective tool-review mode;
+`/permissions prompt`, `/permissions auto`, and `/permissions strict` remain
+scriptable forms. They select how otherwise-undecided calls are handled on later
+turns: ask the operator, approve automatically, or reject automatically. A
+change is accepted only while the session is idle, and it revokes any earlier
+**approve all** choice before publishing the new mode. Declarative deny rules
+and the built-in safety gate remain authoritative in every mode. `--yolo` (the
 `--dangerously-skip-permissions` alias) therefore chooses the initial `auto`
 mode; it does not permanently remove the prompt boundary, and `/permissions
 prompt` can narrow the same live session without reconnecting its provider or
 tools.
 
-`/effort` reports the current session selection and the exact levels accepted
-by every usable member of the current provider/model chain. `/effort <level>`
-applies that level to later main-query turns; `/effort default` restores the
-provider default. Unknown model metadata disables selection rather than
-inventing a menu, while an empty menu reports that the chain explicitly offers
-none. A successful `/model` selection resets effort before the replacement
+Bare `/effort` opens a finite chooser containing the provider default and the
+exact levels accepted by every usable member of the current provider/model
+chain. `/effort <level>` applies that level to later main-query turns;
+`/effort default` restores the provider default. Unknown model metadata disables
+selection rather than inventing a menu, while an empty menu reports that the
+chain explicitly offers none. A successful `/model` selection resets effort before the replacement
 session or any paused queue is released; a failed or cancelled selection keeps
 the current session and its effort unchanged. Subagents and manual compaction
 continue to use their own provider defaults.
+
+The one-line footer keeps the active model, reasoning effort and working
+directory on the left. A durable goal state or the current interaction hint
+owns the right edge, so a deep path cannot hide `Goal stalled (/goal resume)` or
+the key needed to leave a prompt.
 
 The provider picker owns the asynchronous work started by the current choice.
 Escaping, choosing again or leaving the screen cancels model discovery,
@@ -149,12 +157,14 @@ only when it still exactly matches the value that authorized the refresh; an
 external rotation or logout wins. If that comparison cannot be published
 safely, the operation refuses instead of using an uncommitted token.
 
-A borrowed `Claude` or `Codex` device credential is never refreshed or overwritten
-by Namzu. Each operation re-reads the exact admitted source; deletion, expiry or
-rotation wins over the provider object already in memory. `Claude` tells the
-operator to run `claude login`, while Codex tells them to run `codex login`.
-This keeps single-use refresh grants with their owner instead of racing a
-co-installed client and logging it out.
+A borrowed `Codex` device credential remains read-only and is re-read before
+each operation. A borrowed `Claude` credential is also re-read from the exact
+admitted file, but its refresh grant rotates: when Namzu must consume that grant,
+it preserves the owner's complete envelope and atomically publishes the successor
+access/refresh pair back to the same owner file. Keeping the successor only in
+memory would log the owner client out. An owner rotation or deletion that lands first
+wins; an unprovable publication refuses provider work. An already-invalid grant
+cannot be recovered by either client and requires a new `Claude` sign-in.
 
 An authorization server response of `400 invalid_grant` is not retried as a
 transient outage. It means that exact refresh grant is no longer usable, so the

@@ -1,14 +1,18 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
 	claudeCredentialsPath,
 	codexCredentialsPath,
 	preferFresherCredential,
+	readClaudeCredentialFile,
 	readClaudeFileCredential,
 	readCodexFileCredential,
+	replaceClaudeCredentialFile,
+	windowsPathToWsl,
+	wslWindowsHome,
 } from './harness-credentials.js'
 
 function home(): string {
@@ -52,6 +56,100 @@ describe('readClaudeFileCredential', () => {
 		expect(readClaudeFileCredential(root)).toBeNull()
 		writeFileSync(claudeCredentialsPath(root), 'x'.repeat(1024 * 1024 + 1))
 		expect(readClaudeFileCredential(root)).toBeNull()
+	})
+
+	it('publishes a rotating refresh grant back to the exact owner envelope', () => {
+		const root = home()
+		const path = claudeCredentialsPath(root)
+		writeJson(path, {
+			claudeAiOauth: {
+				accessToken: 'claude-access',
+				refreshToken: 'claude-refresh',
+				expiresAt: 42,
+				scopes: ['user:inference'],
+				subscriptionType: 'max',
+			},
+			primaryApiKey: 'preserve-this-owner-field',
+		})
+		const expected = readClaudeCredentialFile(path)
+		expect(expected).not.toBeNull()
+		const replacement = {
+			accessToken: 'claude-next-access',
+			refreshToken: 'claude-next-refresh',
+			expiresAt: 99,
+		}
+
+		expect(replaceClaudeCredentialFile(path, expected!, replacement)).toEqual({
+			replaced: true,
+			current: replacement,
+		})
+		const stored = JSON.parse(readFileSync(path, 'utf8'))
+		expect(stored).toEqual({
+			claudeAiOauth: {
+				accessToken: 'claude-next-access',
+				refreshToken: 'claude-next-refresh',
+				expiresAt: 99,
+				scopes: ['user:inference'],
+				subscriptionType: 'max',
+			},
+			primaryApiKey: 'preserve-this-owner-field',
+		})
+		expect(statSync(path).mode & 0o777).toBe(0o600)
+	})
+
+	it('lets a newer owner credential win instead of overwriting it', () => {
+		const root = home()
+		const path = claudeCredentialsPath(root)
+		writeJson(path, {
+			claudeAiOauth: {
+				accessToken: 'owner-winner',
+				refreshToken: 'owner-refresh',
+				expiresAt: 100,
+			},
+		})
+		const before = readFileSync(path, 'utf8')
+		expect(
+			replaceClaudeCredentialFile(
+				path,
+				{ accessToken: 'stale', refreshToken: 'stale-refresh', expiresAt: 1 },
+				{ accessToken: 'derived', refreshToken: 'derived-refresh', expiresAt: 200 },
+			),
+		).toEqual({
+			replaced: false,
+			current: {
+				accessToken: 'owner-winner',
+				refreshToken: 'owner-refresh',
+				expiresAt: 100,
+			},
+		})
+		expect(readFileSync(path, 'utf8')).toBe(before)
+	})
+})
+
+describe('the paired Windows home visible from WSL', () => {
+	it('converts only absolute drive paths without traversal', () => {
+		expect(windowsPathToWsl('C:\\Users\\Arda\r\n')).toBe('/mnt/c/Users/Arda')
+		expect(windowsPathToWsl('D:/People/Ada')).toBe('/mnt/d/People/Ada')
+		expect(windowsPathToWsl('C:\\Users\\..\\Other')).toBeNull()
+		expect(windowsPathToWsl('/home/arda')).toBeNull()
+	})
+
+	it('uses the pinned system command only on WSL', () => {
+		const root = home()
+		const command = join(root, 'cmd.exe')
+		writeFileSync(command, '')
+		const run = vi.fn(() => 'C:\\Users\\Arda\r\n')
+		expect(wslWindowsHome({ WSL_DISTRO_NAME: 'test' }, run as never, command)).toBe(
+			'/mnt/c/Users/Arda',
+		)
+		expect(run).toHaveBeenCalledWith(
+			command,
+			['/d', '/s', '/c', 'echo', '%USERPROFILE%'],
+			expect.objectContaining({ timeout: 1_000 }),
+		)
+		const nativeRun = vi.fn()
+		expect(wslWindowsHome({}, nativeRun as never, command)).toBeNull()
+		expect(nativeRun).not.toHaveBeenCalled()
 	})
 })
 

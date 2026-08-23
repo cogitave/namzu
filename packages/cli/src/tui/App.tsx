@@ -23,6 +23,7 @@ import {
 	type MessageId,
 	type ReasoningEffort,
 	type RunId,
+	type SessionGoal,
 	SessionGoalActivation,
 	StaleGoalError,
 	createAssistantMessage,
@@ -92,6 +93,7 @@ import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.j
 import type { PermissionMode } from '../permissions/mode.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
+import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import { Composer, type ComposerDraft } from './Composer.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
@@ -115,10 +117,7 @@ import { bottomSpacerRows } from './bottom-spacer.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { planTurnPublication } from './conversation-history.js'
-import {
-	type CopyResponseTarget,
-	copyTargetsForResponse,
-} from './copy-targets.js'
+import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import { liveWindow, transcriptLines } from './live-window.js'
 import {
@@ -160,6 +159,21 @@ type CopyPickerState = {
 	readonly targets: readonly CopyResponseTarget[]
 	readonly provenance: 'normal-completion' | 'persisted'
 }
+type ChoicePickerState =
+	| {
+			readonly kind: 'permission-mode'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly PermissionMode[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			readonly kind: 'reasoning-effort'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly (ReasoningEffort | undefined)[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
 
 /**
  * The streaming assistant bubble, carried across events within one turn.
@@ -526,6 +540,14 @@ export function App({ ctx: initialCtx }: AppProps) {
 		copyPickerRef.current = next
 		setCopyPickerState(next)
 	}, [])
+	/** Finite slash-command choice owned synchronously until apply or cancel. */
+	const [choicePicker, setChoicePickerState] = useState<ChoicePickerState | null>(null)
+	const choicePickerRef = useRef<ChoicePickerState | null>(null)
+	const [selectedChoice, setSelectedChoice] = useState(0)
+	const setChoicePicker = useCallback((next: ChoicePickerState | null) => {
+		choicePickerRef.current = next
+		setChoicePickerState(next)
+	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const composerDraftTokenRef = useRef(0)
 	const exitArmedRef = useRef<boolean>(false)
@@ -597,6 +619,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 	const [goalActivation] = useState(() => new SessionGoalActivation())
 	const goalDriveInFlightRef = useRef(false)
 	const [goalDriveVersion, setGoalDriveVersion] = useState(0)
+	const [goalStatus, setGoalStatus] = useState<SessionGoal | null>(null)
 	const wakeGoalDriver = useCallback(() => setGoalDriveVersion((version) => version + 1), [])
 	/**
 	 * Conversation writes in the order the operator produced them.
@@ -731,6 +754,108 @@ export function App({ ctx: initialCtx }: AppProps) {
 			return id
 		},
 		[nextId],
+	)
+
+	const applyPermissionMode = useCallback(
+		(mode: PermissionMode): void => {
+			if (!session?.hasProvider) {
+				pushMessage('system', 'No active session — pick a provider before changing permissions.')
+				return
+			}
+			if (
+				state !== 'idle' ||
+				abortRef.current !== null ||
+				hasUnsettledTurn() ||
+				queuedRef.current.length > 0 ||
+				permissionResolveRef.current !== null ||
+				compactingRef.current
+			) {
+				pushMessage(
+					'system',
+					'Permission mode was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+				)
+				return
+			}
+			if (!session.resetApprovalLatch) {
+				pushMessage(
+					'system',
+					'Permission mode was not changed: this embedded session cannot revoke an earlier "approve all" choice. Reconnect it before changing modes.',
+				)
+				return
+			}
+			session.resetApprovalLatch()
+			permissionModeRef.current = mode
+			permissionModeSourceRef.current = 'session'
+			setPermissionModeState(mode)
+			pushMessage(
+				'system',
+				`Permission mode changed to ${mode}. Any earlier "approve all" choice was revoked. Declarative deny rules and the built-in safety gate still take precedence.`,
+			)
+		},
+		[hasUnsettledTurn, pushMessage, session, state],
+	)
+
+	const applyReasoningEffort = useCallback(
+		(effort: ReasoningEffort | undefined): void => {
+			if (!session?.hasProvider) {
+				pushMessage(
+					'system',
+					'No active session — pick a provider before changing reasoning effort.',
+				)
+				return
+			}
+			if (
+				state !== 'idle' ||
+				abortRef.current !== null ||
+				hasUnsettledTurn() ||
+				queuedRef.current.length > 0 ||
+				permissionResolveRef.current !== null ||
+				compactingRef.current
+			) {
+				pushMessage(
+					'system',
+					'Reasoning effort was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+				)
+				return
+			}
+			if (effort === undefined) {
+				setReasoningEffort(undefined)
+				pushMessage(
+					'system',
+					'Reasoning effort reset to the provider default for future main-query turns.',
+				)
+				return
+			}
+			if (!session.reasoningEffortLevels?.includes(effort)) {
+				pushMessage(
+					'system',
+					`Reasoning effort was not changed: ${effort} is not offered by every usable provider-chain member for this model.`,
+				)
+				return
+			}
+			setReasoningEffort(effort)
+			pushMessage(
+				'system',
+				`Reasoning effort changed to ${effort} for future main-query turns in this session.`,
+			)
+		},
+		[hasUnsettledTurn, pushMessage, session, setReasoningEffort, state],
+	)
+
+	const applyChoiceSelection = useCallback(
+		(index: number): void => {
+			const picker = choicePickerRef.current
+			if (!picker) return
+			const value = picker.values[index]
+			if (index < 0 || index >= picker.values.length) return
+			setChoicePicker(null)
+			if (picker.kind === 'permission-mode') {
+				applyPermissionMode(value as PermissionMode)
+				return
+			}
+			applyReasoningEffort(value as ReasoningEffort | undefined)
+		},
+		[applyPermissionMode, applyReasoningEffort, setChoicePicker],
 	)
 
 	const sendCopyRequest = useCallback(
@@ -2508,6 +2633,10 @@ export function App({ ctx: initialCtx }: AppProps) {
 						setPhase('picker')
 						return
 					case 'permission-mode': {
+						applyPermissionMode(slash.mode)
+						return
+					}
+					case 'permission-mode-picker': {
 						if (!session?.hasProvider) {
 							pushMessage(
 								'system',
@@ -2521,36 +2650,40 @@ export function App({ ctx: initialCtx }: AppProps) {
 							hasUnsettledTurn() ||
 							queuedRef.current.length > 0 ||
 							permissionResolveRef.current !== null ||
-							compactingRef.current
+							compactingRef.current ||
+							!session.resetApprovalLatch
 						) {
 							pushMessage(
 								'system',
-								'Permission mode was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+								'Permission choices are unavailable until the active turn, prompt, compaction, queued work, or embedded-session approval latch can be safely settled.',
 							)
 							return
 						}
-						if (!session.resetApprovalLatch) {
-							pushMessage(
-								'system',
-								'Permission mode was not changed: this embedded session cannot revoke an earlier "approve all" choice. Reconnect it before changing modes.',
-							)
-							return
-						}
-						session.resetApprovalLatch()
-						permissionModeRef.current = slash.mode
-						permissionModeSourceRef.current = 'session'
-						setPermissionModeState(slash.mode)
-						pushMessage(
-							'system',
-							`Permission mode changed to ${slash.mode}. Any earlier "approve all" choice was revoked. Declarative deny rules and the built-in safety gate still take precedence.`,
-						)
+						const values = ['prompt', 'auto', 'strict'] as const
+						setSelectedChoice(Math.max(0, values.indexOf(permissionModeRef.current)))
+						setChoicePicker({
+							kind: 'permission-mode',
+							title: 'Select Permission Mode',
+							notice: permissionPickerNotice(session),
+							values,
+							options: values.map((mode) => ({
+								label: mode,
+								description: permissionModeDescription(mode),
+								current: mode === permissionModeRef.current,
+							})),
+						})
 						return
 					}
 					case 'reasoning-effort': {
-						if (!session?.hasProvider) {
+						applyReasoningEffort(slash.effort ?? undefined)
+						return
+					}
+					case 'reasoning-effort-picker': {
+						const levels = session?.reasoningEffortLevels
+						if (!session?.hasProvider || levels === undefined) {
 							pushMessage(
 								'system',
-								'No active session — pick a provider before changing reasoning effort.',
+								'No exact reasoning-effort menu is available for the current session.',
 							)
 							return
 						}
@@ -2564,30 +2697,28 @@ export function App({ ctx: initialCtx }: AppProps) {
 						) {
 							pushMessage(
 								'system',
-								'Reasoning effort was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+								'Reasoning-effort choices are unavailable until the active turn, prompt, compaction, and queued work settle.',
 							)
 							return
 						}
-						if (slash.effort === null) {
-							setReasoningEffort(undefined)
-							pushMessage(
-								'system',
-								'Reasoning effort reset to the provider default for future main-query turns.',
-							)
-							return
-						}
-						if (!session.reasoningEffortLevels?.includes(slash.effort)) {
-							pushMessage(
-								'system',
-								`Reasoning effort was not changed: ${slash.effort} is not offered by every usable provider-chain member for this model.`,
-							)
-							return
-						}
-						setReasoningEffort(slash.effort)
-						pushMessage(
-							'system',
-							`Reasoning effort changed to ${slash.effort} for future main-query turns in this session.`,
+						const values: readonly (ReasoningEffort | undefined)[] = [undefined, ...levels]
+						const current = reasoningEffortRef.current
+						setSelectedChoice(
+							Math.max(
+								0,
+								values.findIndex((value) => value === current),
+							),
 						)
+						setChoicePicker({
+							kind: 'reasoning-effort',
+							title: `Select Reasoning Level for ${session.modelSummary ?? 'current model'}`,
+							values,
+							options: values.map((effort) => ({
+								label: effort ?? 'default',
+								description: reasoningEffortDescription(effort),
+								current: effort === current,
+							})),
+						})
 						return
 					}
 					case 'login':
@@ -3128,6 +3259,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 		[
 			activeSkills,
 			advanceQueueContinuation,
+			applyPermissionMode,
+			applyReasoningEffort,
 			ctx.cwd,
 			doResume,
 			enqueueQueued,
@@ -3137,6 +3270,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			pushMessage,
 			rawOutput,
 			resetTranscript,
+			setChoicePicker,
 			setCopyPicker,
 			setReasoningEffort,
 			slashCtx,
@@ -3144,6 +3278,40 @@ export function App({ ctx: initialCtx }: AppProps) {
 			state,
 		],
 	)
+
+	// Keep the footer on the same durable goal record the driver mutates. A ref
+	// alone cannot repaint React, so every goal mutation bumps goalDriveVersion;
+	// generation/session checks stop a late disk read labelling a resumed chat.
+	useEffect(() => {
+		void goalDriveVersion
+		const sessions = sessionsRef.current
+		const scope = scopeRef.current
+		if (!sessions?.goals || !scope) {
+			setGoalStatus(null)
+			return
+		}
+		const generation = conversationGenRef.current
+		const sessionId = scope.sessionId
+		let disposed = false
+		void sessions.goals
+			.getGoal(sessionId, sessions.tenantId)
+			.then((goal) => {
+				if (
+					disposed ||
+					conversationGenRef.current !== generation ||
+					scopeRef.current?.sessionId !== sessionId
+				) {
+					return
+				}
+				setGoalStatus(goal)
+			})
+			.catch(() => {
+				if (!disposed && conversationGenRef.current === generation) setGoalStatus(null)
+			})
+		return () => {
+			disposed = true
+		}
+	}, [goalDriveVersion, phase, session])
 
 	// Admit automatic work only at a whole-App durable boundary. This effect
 	// reserves; it never starts a turn itself. The one queue pump below remains
@@ -3166,6 +3334,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			conversationMutationRef.current ||
 			exportingRef.current ||
 			compactingRef.current ||
+			choicePickerRef.current ||
 			copyPickerRef.current ||
 			goalCommandInFlightRef.current
 		) {
@@ -3192,6 +3361,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 					conversationMutationRef.current ||
 					exportingRef.current ||
 					compactingRef.current ||
+					choicePickerRef.current ||
 					copyPickerRef.current ||
 					goalCommandInFlightRef.current ||
 					queuedRef.current.length > 0 ||
@@ -3264,6 +3434,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 		conversationMutation,
 		session,
 		state,
+		choicePicker,
 		copyPicker,
 		wakeGoalDriver,
 	])
@@ -3281,6 +3452,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			conversationMutationRef.current ||
 			exportingRef.current ||
 			compactingRef.current ||
+			choicePickerRef.current ||
 			copyPickerRef.current ||
 			goalCommandInFlightRef.current
 		)
@@ -3296,6 +3468,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 		phase,
 		queued,
 		queuePause,
+		choicePicker,
 		copyPicker,
 		dequeueQueued,
 		hasUnsettledTurn,
@@ -3547,6 +3720,33 @@ export function App({ ctx: initialCtx }: AppProps) {
 				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
 				return
 			}
+			// Finite slash-command choices own the keyboard below a live permission
+			// request and above the ordinary composer. Their values are a captured
+			// menu, so a provider/session change cannot silently reinterpret Enter.
+			if (choicePickerRef.current) {
+				const options = choicePickerRef.current.options
+				if (key.escape || (key.ctrl && input === 'c')) {
+					setChoicePicker(null)
+					return
+				}
+				if (key.upArrow) {
+					setSelectedChoice((index) => Math.max(0, index - 1))
+					return
+				}
+				if (key.downArrow) {
+					setSelectedChoice((index) => Math.min(options.length - 1, index + 1))
+					return
+				}
+				if (key.return) {
+					applyChoiceSelection(selectedChoice)
+					return
+				}
+				if (/^[1-9]$/.test(input)) {
+					const index = Number(input) - 1
+					if (options[index]) applyChoiceSelection(index)
+				}
+				return
+			}
 			// `/copy` holds a source snapshot, not a lifecycle phase. Permission
 			// stays above it in this handler so an approval request that arrives
 			// while the picker is open cannot have its keys stolen by the chooser.
@@ -3731,6 +3931,13 @@ export function App({ ctx: initialCtx }: AppProps) {
 						    decision it had nothing to do with. */}
 						{permission ? (
 							<PermissionOverlay toolCalls={permission.toolCalls} />
+						) : choicePicker ? (
+							<ChoicePicker
+								title={choicePicker.title}
+								notice={choicePicker.notice}
+								options={choicePicker.options}
+								selected={selectedChoice}
+							/>
 						) : copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
@@ -3739,11 +3946,15 @@ export function App({ ctx: initialCtx }: AppProps) {
 								state === 'idle' &&
 								phase === 'ready' &&
 								conversationMutation === null &&
+								choicePicker === null &&
 								copyPicker === null
 							}
-							hidden={permission !== null || copyPicker !== null}
+							hidden={permission !== null || choicePicker !== null || copyPicker !== null}
 						>
-							{queued.length > 0 && permission === null && copyPicker === null ? (
+							{queued.length > 0 &&
+							permission === null &&
+							choicePicker === null &&
+							copyPicker === null ? (
 								<Box paddingX={1}>
 									<Text color={theme.text.muted}>
 										{queuePause ? '⏸' : '⏎'} {queued.length} message
@@ -3761,7 +3972,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 									compacting ||
 									conversationMutation !== null
 								}
-								hidden={permission !== null || copyPicker !== null}
+								hidden={permission !== null || choicePicker !== null || copyPicker !== null}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
 								escapeInterrupts={!compacting && (state === 'thinking' || state === 'tool')}
@@ -3782,9 +3993,17 @@ export function App({ ctx: initialCtx }: AppProps) {
 					<StatusBar
 						cwd={ctx.cwd}
 						provider={session?.providerSummary ?? null}
-						model={
-							session?.modelSummary
-								? `${session.modelSummary}${reasoningEffort ? ` · effort ${reasoningEffort}` : ''}`
+						model={session?.modelSummary ?? null}
+						effort={reasoningEffort ?? 'default'}
+						goal={
+							phase === 'ready' &&
+							state === 'idle' &&
+							conversationMutation === null &&
+							!compacting &&
+							permission === null &&
+							choicePicker === null &&
+							copyPicker === null
+								? goalStatusLabel(goalStatus)
 								: null
 						}
 						state={state}
@@ -3799,9 +4018,17 @@ export function App({ ctx: initialCtx }: AppProps) {
 											? 'compacting conversation — input is paused'
 											: permission
 												? hintForPhase(phase, state, session?.hasProvider === true)
+											: choicePicker
+												? 'choice open — ↑↓ / 1–9 select · enter apply · esc cancel'
 												: copyPicker
 													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
-													: hintForPhase(phase, state, session?.hasProvider === true)
+													: goalStatus && phase === 'ready' && state === 'idle'
+														? undefined
+														: hintForPhase(
+																phase,
+																state,
+																session?.hasProvider === true,
+															)
 						}
 						usage={usage}
 						context={context}
@@ -3954,6 +4181,64 @@ function hintForPhase(
 	if (state === 'awaiting-permission') return 'y approve · n / esc reject · a approve all'
 	if (state !== 'idle') return 'agent is working — esc to interrupt'
 	return '/help · Esc×2 edit previous · @file / Ctrl+V attach · Ctrl+C ×2 to exit'
+}
+
+function goalStatusLabel(goal: SessionGoal | null): string | null {
+	if (!goal) return null
+	switch (goal.phase) {
+		case 'active':
+			return 'Pursuing goal'
+		case 'paused':
+			return 'Goal paused (/goal resume)'
+		case 'blocked':
+			return 'Goal stalled (/goal resume)'
+		case 'complete':
+			return 'Goal achieved'
+	}
+}
+
+function permissionModeDescription(mode: PermissionMode): string {
+	switch (mode) {
+		case 'prompt':
+			return 'Ask before an undecided tool call runs'
+		case 'auto':
+			return 'Approve undecided calls unless a rule or safety gate refuses'
+		case 'strict':
+			return 'Refuse undecided calls; explicit allow rules still work'
+	}
+}
+
+function permissionPickerNotice(session: AgentSession): string | undefined {
+	const notices: string[] = []
+	if (session.approvalLatched()) {
+		notices.push('Approve all is active; applying any mode revokes it.')
+	}
+	const exempt = session.promptExemptTools()
+	if (exempt.length > 0) notices.push(`Never prompted: ${exempt.join(', ')}.`)
+	return notices.length > 0 ? notices.join(' ') : undefined
+}
+
+function reasoningEffortDescription(effort: ReasoningEffort | undefined): string {
+	switch (effort) {
+		case undefined:
+			return 'Use the provider and model default'
+		case 'none':
+			return 'No deliberate reasoning where the model supports it'
+		case 'minimal':
+			return 'Fastest responses with minimal reasoning'
+		case 'low':
+			return 'Fast responses with light reasoning'
+		case 'medium':
+			return 'Balance speed and reasoning depth'
+		case 'high':
+			return 'Deeper reasoning for complex problems'
+		case 'xhigh':
+			return 'Very deep reasoning for hard problems'
+		case 'max':
+			return 'Maximum reasoning depth offered by this model'
+		case 'ultra':
+			return 'Highest host-level reasoning setting when supported'
+	}
 }
 
 /**

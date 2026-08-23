@@ -10,6 +10,7 @@ import {
 	mergeHostCommands,
 	parseSlash,
 	renderAgents,
+	renderPermissions,
 	runSlash,
 } from './slashCommands.js'
 
@@ -35,6 +36,13 @@ function permissions(over: Partial<SlashContext['permissions']> = {}): SlashCont
 		approvalLatched: () => false,
 		neverPrompted: () => [],
 		...over,
+	}
+}
+
+function permissionsReadout(ctx: SlashContext) {
+	return {
+		kind: 'message' as const,
+		content: renderPermissions(ctx.permissions),
 	}
 }
 
@@ -347,6 +355,12 @@ describe('/cost', () => {
 })
 
 describe('/permissions', () => {
+	it('opens the finite chooser when no mode is typed', () => {
+		expect(runSlash('/permissions', context())).toEqual({
+			kind: 'permission-mode-picker',
+		})
+	})
+
 	it('parses an explicit session mode instead of sending it to the model', () => {
 		expect(runSlash('/permissions strict', context())).toEqual({
 			kind: 'permission-mode',
@@ -371,13 +385,12 @@ describe('/permissions', () => {
 	})
 
 	it('reports that unreviewed calls are asked about by default', () => {
-		const r = runSlash('/permissions', context())
+		const r = permissionsReadout(context())
 		if (r?.kind === 'message') expect(r.content).toContain('you are asked')
 	})
 
 	it('names the flag when approval is automatic', () => {
-		const r = runSlash(
-			'/permissions',
+		const r = permissionsReadout(
 			context({
 				permissions: permissions({
 					currentMode: () => ({ mode: 'auto', source: 'launch-bypass' }),
@@ -391,8 +404,7 @@ describe('/permissions', () => {
 	})
 
 	it('lists configured rules with their verb', () => {
-		const r = runSlash(
-			'/permissions',
+		const r = permissionsReadout(
 			context({
 				permissions: permissions({
 					rules: [
@@ -414,8 +426,7 @@ describe('/permissions', () => {
 		// The defect this readout was rewritten for. One `a` at a prompt turns
 		// every later tool call into an automatic approval, and the page whose
 		// job is to report that posture kept reporting the opposite.
-		const r = runSlash(
-			'/permissions',
+		const r = permissionsReadout(
 			context({ permissions: permissions({ approvalLatched: () => true }) }),
 		)
 		if (r?.kind === 'message') {
@@ -426,8 +437,7 @@ describe('/permissions', () => {
 	})
 
 	it('reports strict as rejection even if an older approve-all latch exists', () => {
-		const r = runSlash(
-			'/permissions',
+		const r = permissionsReadout(
 			context({
 				permissions: permissions({
 					currentMode: () => ({ mode: 'strict', source: 'session' }),
@@ -453,12 +463,12 @@ describe('/permissions', () => {
 			permissions: permissions({ approvalLatched: () => latched }),
 		})
 
-		const before = runSlash('/permissions', ctxLive)
+		const before = permissionsReadout(ctxLive)
 		if (before?.kind === 'message') expect(before.content).toContain('you are asked')
 
 		latched = true
 
-		const after = runSlash('/permissions', ctxLive)
+		const after = permissionsReadout(ctxLive)
 		if (after?.kind === 'message') {
 			expect(after.content).toContain('approved automatically')
 			expect(after.content).not.toContain('you are asked')
@@ -468,8 +478,7 @@ describe('/permissions', () => {
 	it('discloses the tools that never reach a prompt', () => {
 		// Undiscoverable by using namzu: these calls simply never appear, so
 		// their absence reads as "the agent did not use any".
-		const r = runSlash(
-			'/permissions',
+		const r = permissionsReadout(
 			context({
 				permissions: permissions({
 					neverPrompted: () => ['glob', 'read', 'task_create'],
@@ -490,8 +499,7 @@ describe('/permissions', () => {
 		// A `permissions` table compiles every per-pattern entry to
 		// `custom_pattern`, so this is the shape of the commonest real config.
 		// It used to render as the single word `custom_pattern`.
-		const r = runSlash(
-			'/permissions',
+		const r = permissionsReadout(
 			context({
 				permissions: permissions({
 					rules: [
@@ -513,8 +521,7 @@ describe('/permissions', () => {
 	})
 
 	it('describes an argument rule by naming the argument it tests', () => {
-		const r = runSlash(
-			'/permissions',
+		const r = permissionsReadout(
 			context({
 				permissions: permissions({
 					rules: [
@@ -538,7 +545,7 @@ describe('/permissions', () => {
 
 	it('points at the config in the syntax the config is actually written in', () => {
 		// It said `[permissions] table`, which is TOML, in a file that is JSON.
-		const r = runSlash('/permissions', context())
+		const r = permissionsReadout(context())
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('namzu.config.json')
 			expect(r.content, 'TOML syntax for a JSON file').not.toContain('[permissions]')
@@ -550,7 +557,7 @@ describe('/permissions', () => {
 		// it actually decides it", and used to begin one step in. The gate is
 		// hardcoded on and no flag reaches it, so leaving it out let "a rule
 		// decides first" read as the whole story.
-		const r = runSlash('/permissions', context())
+		const r = permissionsReadout(context())
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('safety gate')
 			expect(r.content).toContain('every mode')
@@ -560,8 +567,7 @@ describe('/permissions', () => {
 	it('states that a rule outranks the approval setting', () => {
 		// The precedence people get wrong, and wrong in the dangerous direction:
 		// assuming the bypass flag lifts a `deny` they wrote. It does not.
-		const r = runSlash(
-			'/permissions',
+		const r = permissionsReadout(
 			context({
 				permissions: permissions({
 					currentMode: () => ({ mode: 'auto', source: 'launch-bypass' }),
@@ -573,7 +579,7 @@ describe('/permissions', () => {
 })
 
 describe('/effort', () => {
-	it('shows the live selection and exact chain menu', () => {
+	it('opens the exact chain menu in the TUI', () => {
 		const result = runSlash(
 			'/effort',
 			context({
@@ -586,12 +592,7 @@ describe('/effort', () => {
 			}),
 		)
 
-		expect(result?.kind).toBe('message')
-		if (result?.kind === 'message') {
-			expect(result.content).toContain('Current reasoning effort: high')
-			expect(result.content).toContain('none, low, medium, high, xhigh')
-			expect(result.content).toContain('/model resets it')
-		}
+		expect(result).toEqual({ kind: 'reasoning-effort-picker' })
 	})
 
 	it('selects only an exact published level', () => {
@@ -640,8 +641,7 @@ describe('/effort', () => {
 			}),
 		)
 
-		expect(result?.kind).toBe('message')
-		if (result?.kind === 'message') expect(result.content).toContain('Selectable levels: none')
+		expect(result).toEqual({ kind: 'reasoning-effort-picker' })
 	})
 })
 

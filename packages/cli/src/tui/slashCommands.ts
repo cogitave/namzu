@@ -48,8 +48,12 @@ export type SlashAction =
 	| { kind: 'repick' }
 	/** Select how the next TUI turn resolves otherwise-undecided tool calls. */
 	| { kind: 'permission-mode'; mode: PermissionMode }
+	/** Open the finite permission-mode chooser. */
+	| { kind: 'permission-mode-picker' }
 	/** Select model-specific reasoning effort for future main-query turns. */
 	| { kind: 'reasoning-effort'; effort: ReasoningEffort | null }
+	/** Open the current model's finite reasoning-effort chooser. */
+	| { kind: 'reasoning-effort-picker' }
 	| { kind: 'remember'; text: string }
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
@@ -775,15 +779,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'permissions',
-		description: 'Show or select how undecided tool calls are handled: /permissions [mode].',
-		action: (ctx, args) => {
-			if (args.length === 0) {
-				return {
-					kind: 'message',
-					role: 'system',
-					content: renderPermissions(ctx.permissions),
-				}
-			}
+		description: 'Choose how undecided tool calls are handled: /permissions [mode].',
+		action: (_ctx, args) => {
+			if (args.length === 0) return { kind: 'permission-mode-picker' }
 			const mode = args.length === 1 ? args[0]?.toLowerCase() : undefined
 			if (isPermissionMode(mode)) return { kind: 'permission-mode', mode }
 			return {
@@ -795,14 +793,24 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'effort',
-		description: 'Show or select reasoning effort for future turns: /effort [level|default].',
+		description: 'Choose reasoning effort for future turns: /effort [level|default].',
 		action: (ctx, args) => {
 			if (args.length === 0) {
-				return {
-					kind: 'message',
-					role: 'system',
-					content: renderReasoningEffort(ctx),
+				if (!ctx.providerSummary) {
+					return {
+						kind: 'message',
+						role: 'system',
+						content: 'No active session — pick a provider with /model before changing effort.',
+					}
 				}
+				if (ctx.reasoningEffort.levels === undefined) {
+					return {
+						kind: 'message',
+						role: 'system',
+						content: `Reasoning effort cannot be selected here: ${ctx.modelSummary ?? 'the current model'} or one of its usable fallback models does not publish an exact effort menu.`,
+					}
+				}
+				return { kind: 'reasoning-effort-picker' }
 			}
 			if (!ctx.providerSummary) {
 				return {

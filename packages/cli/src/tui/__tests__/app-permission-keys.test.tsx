@@ -361,7 +361,7 @@ describe('the permission prompt', () => {
  * So this drives the whole path — press `a` at a real prompt, then ask.
  */
 describe('/permissions after approve-all', () => {
-	it('reports automatic approval once `a` has been pressed', async () => {
+	it('opens a finite chooser without hiding the active approval latch', async () => {
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
 
 		settle()
@@ -385,9 +385,9 @@ describe('/permissions after approve-all', () => {
 		await tick(200)
 
 		const frame = lastFrame() ?? ''
-		expect(frame, 'the readout never rendered').toContain('Unreviewed calls')
-		expect(frame).toContain('approved automatically')
-		expect(frame, 'still claims calls are reviewed').not.toContain('you are asked')
+		expect(frame, 'the chooser never rendered').toContain('Select Permission Mode')
+		expect(frame).toContain('Approve all is active')
+		expect(frame).toContain('applying any mode revokes it')
 		// And that App hands the readout the REAL never-prompted set. The unit
 		// test supplies its own list, so it would pass just as happily against an
 		// empty one — this is the assertion that fails if the wiring is dropped.
@@ -453,8 +453,8 @@ describe('/permissions session mode', () => {
 		stdin.write('\r')
 		await tick(160)
 		const frame = lastFrame() ?? ''
-		expect(frame).toContain('Current mode: prompt')
-		expect(frame).toContain('you are asked')
+		expect(frame).toContain('Select Permission Mode')
+		expect(frame).toContain('Ask before an undecided tool call runs (current)')
 		expect(frame).not.toContain('approved automatically (--dangerously-skip-permissions)')
 	})
 

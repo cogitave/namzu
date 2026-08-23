@@ -1067,16 +1067,17 @@ export async function createAgentSession(
 	//
 	// `origin` decides WHICH publication rule applies, and travels with the
 	// credential from discovery rather than being assumed here: namzu's own
-	// store can be conditionally replaced; the borrowed Keychain entry is
-	// read-only and a refreshed value may live only in this session.
-	const subscriptionRefresh = primary.id === 'anthropic' && det?.oauth?.origin === 'stored'
-	const borrowedAnthropic =
+	// store can be conditionally replaced; the owner's rotating grant is published
+	// back to its exact owner file; the borrowed Keychain entry remains read-only.
+	const subscriptionRefresh =
 		primary.id === 'anthropic' &&
-		(det?.oauth?.origin === 'claude-file' || det?.oauth?.origin === 'keychain')
+		(det?.oauth?.origin === 'stored' || det?.oauth?.origin === 'claude-file')
+	const borrowedAnthropic = primary.id === 'anthropic' && det?.oauth?.origin === 'keychain'
 	const borrowedCodexPath =
 		primary.id === 'codex' && det?.source.kind === 'codex-file' ? det.source.path : undefined
 	const storedCodex = primary.id === 'codex' && det?.codex?.origin === 'stored'
 	const credentialOrigin = det?.oauth?.origin ?? 'keychain'
+	const credentialPath = det?.oauth?.sourcePath
 	let currentToken = det?.apiKey
 	let currentCodexAccount = det?.codex?.accountId
 	let credentialTail: Promise<void> = Promise.resolve()
@@ -1091,7 +1092,7 @@ export async function createAgentSession(
 		// Read only after this owner reaches the head. A sibling may have rotated
 		// the durable credential while we waited; reading before the queue would
 		// make its success invisible and permit a stale-token downgrade.
-		const cred = readSubscriptionCredential(credentialOrigin)
+		const cred = readSubscriptionCredential(credentialOrigin, credentialPath)
 		// This store is the authority for the whole session. Its absence is a
 		// credential withdrawal, not permission to keep using the client object
 		// that happens to remain in memory after logout or another process's clear.
@@ -1111,6 +1112,7 @@ export async function createAgentSession(
 					expiresAt: cred.expiresAt,
 					scopes: cred.scopes,
 					origin: credentialOrigin,
+					sourcePath: credentialPath,
 				},
 				signal,
 			)
@@ -1120,7 +1122,7 @@ export async function createAgentSession(
 				// network wait. A concurrent login must not inherit the old grant's
 				// permanent classification.
 				signal?.throwIfAborted()
-				const current = readSubscriptionCredential(credentialOrigin)
+				const current = readSubscriptionCredential(credentialOrigin, credentialPath)
 				if (!current) throw new CredentialWithdrawnError()
 				if (sameOAuthCredential(current, cred)) {
 					rejectedRefresh = { credential: cred, error }
@@ -1189,7 +1191,7 @@ export async function createAgentSession(
 	const rereadBorrowedAnthropic = (signal?: AbortSignal): void => {
 		signal?.throwIfAborted()
 		if (!borrowedAnthropic) return
-		const credential = readSubscriptionCredential(credentialOrigin)
+		const credential = readSubscriptionCredential(credentialOrigin, credentialPath)
 		if (!credential) {
 			throw new CredentialWithdrawnError(
 				'The Claude session Namzu borrowed is no longer available. Run `claude login` or choose another provider.',

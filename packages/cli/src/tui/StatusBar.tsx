@@ -1,9 +1,9 @@
 /**
  * One-line status footer.
  *
- * Layout: `cwd · provider · model · state    hint` (provider/model elided
- * when null). A `│` divider separates the metadata cluster from the hint
- * so the eye can find the help-text without parsing the whole line.
+ * Layout follows the operator's reading order: `model effort · cwd` on the
+ * left, current goal or interaction status on the right. The right side owns
+ * its columns first so a deep path cannot erase the key that exits a prompt.
  */
 
 import type { CostInfo } from '@namzu/sdk'
@@ -29,6 +29,9 @@ export interface StatusBarProps {
 	readonly cwd: string
 	readonly provider: string | null
 	readonly model: string | null
+	readonly effort?: string | null
+	/** Ambient durable goal status; interaction hints take precedence. */
+	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	readonly hint?: string
 	readonly usage?: { totalTokens: number; cost: CostInfo } | null
@@ -36,52 +39,54 @@ export interface StatusBarProps {
 	readonly context?: ContextFill | null
 }
 
-export function StatusBar({ cwd, provider, model, state, hint, usage, context }: StatusBarProps) {
+export function StatusBar({
+	cwd,
+	provider,
+	model,
+	effort,
+	goal,
+	state,
+	hint,
+	usage,
+	context,
+}: StatusBarProps) {
 	const { stdout } = useStdout()
-	const gaugeRaw = buildGauge(context)
-	const stateLabel = stateGlyph(state)
-	// Decide what fits before rendering, rather than letting the terminal cut
-	// the line wherever it runs out. `truncate-end` alone always sacrifices the
-	// hint, because the hint is last — see `fitStatusLine`.
-	const { meta, showGauge } = fitStatusLine({
-		columns: stdout?.columns ?? 80,
+	const gauge = buildGauge(context)
+	const layout = fitStatusLine({
+		// App gives the footer one cell of horizontal padding on each side. Ink's
+		// stdout width is the whole terminal, so reserve those cells here rather
+		// than letting its final two characters be clipped after fitting succeeds.
+		columns: Math.max(0, (stdout?.columns ?? 80) - 2),
 		cwd: shortenCwd(cwd),
 		provider,
 		model,
+		effort: model ? (effort ?? 'default') : null,
 		usage: usage && usage.totalTokens > 0 ? formatUsage(usage) : null,
-		// ` · ctx ` + bar + optional `~` + up to `100%`
-		gaugeCells: gaugeRaw ? GAUGE_WIDTH + 12 : 0,
-		stateLabel,
+		context: gauge
+			? `ctx ${gauge.bar} ${gauge.approximate ? '~' : ''}${gauge.pct}%`
+			: null,
+		stateLabel: stateGlyph(state),
 		hint,
+		goal,
 	})
-	const gauge = showGauge ? gaugeRaw : null
-	// A single Text with `truncate-end` keeps the footer to exactly one line
-	// on narrow terminals (it shrinks with an ellipsis instead of wrapping),
-	// while nested Text spans preserve per-segment color.
 	return (
 		<Text wrap="truncate-end">
-			<Text color={theme.text.muted}>{meta}</Text>
-			{gauge ? (
+			{layout.primary ? (
+				<Text color={theme.status.warn} bold>
+					{layout.primary}
+				</Text>
+			) : null}
+			{layout.effort ? <Text color={theme.text.secondary}> {layout.effort}</Text> : null}
+			{layout.cwd ? (
 				<>
-					<Text color={theme.text.muted}> · ctx </Text>
-					{/* The `~` sits on the number rather than in a legend: this
-					    footer is the only place the figure appears, so a reader
-					    who never finds a legend still sees which of the two
-					    readings they are being given. */}
-					<Text color={gauge.color}>
-						{gauge.bar} {gauge.approximate ? '~' : ''}
-						{gauge.pct}%
-					</Text>
+					{layout.primary ? <Text color={theme.text.muted}> · </Text> : null}
+					<Text color={theme.status.ok}>{layout.cwd}</Text>
 				</>
 			) : null}
-			<Text color={theme.text.muted}> │ </Text>
-			<Text color={colorForState(state)}>{stateLabel}</Text>
-			{hint ? (
-				<>
-					<Text color={theme.text.muted}> │ </Text>
-					<Text color={theme.text.secondary}>{hint}</Text>
-				</>
-			) : null}
+			<Text>{layout.gap}</Text>
+			<Text color={goal && !hint ? theme.accent.system : colorForState(state)}>
+				{layout.right}
+			</Text>
 		</Text>
 	)
 }
@@ -198,108 +203,83 @@ export function shortenPathToFit(path: string, max: number): string {
 	return `…${snapped}`
 }
 
+export interface StatusLineLayout {
+	readonly primary: string | null
+	readonly effort: string | null
+	readonly cwd: string | null
+	readonly gap: string
+	readonly right: string
+}
+
 /**
- * What fits on the status line, and in what order things yield.
+ * Fit the left identity around an authoritative right-side indicator.
  *
- * The line is one row that truncates from the end, and the hint sits at the
- * end — so anything ahead of it that grows pushes it off the screen. The hint
- * is the only place any key is advertised: the trust gate's `Esc`, the
- * permission prompt's `y`/`n`/`a`, the picker's exits all exist on screen here
- * and nowhere else. Losing it strands the operator on a screen whose exits have
- * become undiscoverable, so it is the one thing never dropped.
- *
- * Everything else is recoverable elsewhere and yields in this order:
- *
- * 1. **usage** — `/cost` prints it exactly, and this is the abbreviation.
- * 2. **the context gauge** — same figure, same command.
- * 3. **provider** — the longest segment and the least distinctive, since the
- *    model name already implies it. A credential-qualified provider label runs
- *    to about thirty columns and repeats a vendor the model string has already
- *    named.
- * 4. **the working directory, shortened** — a shortened path still orients,
- *    so it is cut before anything else is given up.
- * 5. **model**, and only then the path entirely. Both are on the banner and in
- *    `/model`, but between them these are the two facts worth keeping longest:
- *    where you are, and what is answering you.
- *
- * The order was corrected by the tests: dropping the path first discarded a
- * two-character cwd to save five columns while a thirty-column provider label
- * survived, which is the wrong trade in every case it can happen.
- *
- * Measured rather than assumed, and the measurement changed the design: a
- * SHORT path still lost the hint at 100 columns, because a realistic provider
- * and model fill the line between them. Shortening the path alone would have
- * fixed the case that was easiest to picture and left the common one broken.
+ * A hint can be the only on-screen explanation of how to leave a prompt, and
+ * a goal label is the durable work state the screenshot is meant to expose.
+ * Both therefore reserve their width before a path does. The path shortens
+ * from the left; effort then yields; the model is the last left-side fact.
  */
 export function fitStatusLine(input: {
 	readonly columns: number
 	readonly cwd: string
 	readonly provider: string | null
 	readonly model: string | null
+	readonly effort?: string | null
 	readonly usage: string | null
-	readonly gaugeCells: number
+	readonly context: string | null
 	readonly stateLabel: string
 	readonly hint?: string | undefined
-}): { readonly meta: string; readonly showGauge: boolean } {
-	const { columns, cwd, provider, model, usage, gaugeCells, stateLabel, hint } = input
-	// Reserved, in order of what cannot move: the hint and its divider, then the
-	// state and its divider.
-	const reserved = (hint ? 3 + hint.length : 0) + 3 + stateLabel.length
-	let budget = Math.max(0, columns - reserved)
+	readonly goal?: string | null | undefined
+}): StatusLineLayout {
+	const columns = Math.max(0, input.columns)
+	const ambient = [input.context, input.usage, input.stateLabel].filter(
+		(value): value is string => Boolean(value),
+	)
+	let right = input.hint
+		? [...ambient.slice(0, -1), `${input.stateLabel} · ${input.hint}`].join(' · ')
+		: input.goal
+			? input.goal
+			: ambient.join(' · ')
+	if (right.length > columns) right = shortenRightToFit(right, columns)
 
-	let showGauge = gaugeCells > 0
-	let withUsage = usage !== null
-	let withCwd = true
-	let withModel = model !== null
-	let withProvider = provider !== null
+	const primarySource = input.model ?? input.provider
+	let primary = primarySource
+	let effort = primary && input.model ? (input.effort ?? null) : null
+	let cwd: string | null = input.cwd.length > 0 ? input.cwd : null
+	const gapWidth = right.length > 0 ? 1 : 0
+	const leftBudget = Math.max(0, columns - right.length - gapWidth)
 
-	const build = (cwdText: string): string => {
-		const parts: string[] = []
-		if (withCwd && cwdText.length > 0) parts.push(cwdText)
-		if (withProvider && provider) parts.push(provider)
-		if (withModel && model) parts.push(model)
-		if (withUsage && usage) parts.push(usage)
-		return parts.join(' · ')
+	const left = (): string => {
+		const identity = [primary, effort].filter((value): value is string => Boolean(value)).join(' ')
+		return [identity, cwd].filter((value): value is string => Boolean(value)).join(' · ')
 	}
 
-	const width = (cwdText: string): number =>
-		build(cwdText).length + (showGauge ? gaugeCells : 0)
-
-	// Everything fits as-is.
-	if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
-
-	// Drop the two figures `/cost` reprints exactly.
-	if (withUsage) {
-		withUsage = false
-		if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
+	if (left().length > leftBudget && cwd) {
+		const identityWidth = [primary, effort]
+			.filter((value): value is string => Boolean(value))
+			.join(' ').length
+		const room = leftBudget - identityWidth - (identityWidth > 0 ? 3 : 0)
+		cwd = room >= 8 ? shortenPathToFit(cwd, room) : null
 	}
-	if (showGauge) {
-		showGauge = false
-		if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
+	if (left().length > leftBudget) effort = null
+	if (left().length > leftBudget) cwd = null
+	if (left().length > leftBudget && primary) {
+		primary = shortenRightToFit(primary, leftBudget)
 	}
+	if (left().length > leftBudget) primary = null
 
-	// Then the provider label, which the model name already implies.
-	if (withProvider) {
-		withProvider = false
-		if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
-	}
+	const leftWidth = left().length
+	const visibleGap = leftWidth > 0 && right.length > 0 ? 1 : 0
+	const gap = ' '.repeat(Math.max(visibleGap, columns - leftWidth - right.length))
+	return { primary, effort, cwd, gap, right }
+}
 
-	// Then shorten the path into whatever room is left, before giving it up.
-	const withoutCwd = build('').length
-	const roomForCwd = budget - withoutCwd - (withoutCwd > 0 ? 3 : 0)
-	if (roomForCwd >= 8) {
-		const short = shortenPathToFit(cwd, roomForCwd)
-		if (width(short) <= budget) return { meta: build(short), showGauge }
-	}
-
-	// Then the model, and only then the path entirely.
-	withModel = false
-	if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
-	if (roomForCwd >= 8) {
-		const short = shortenPathToFit(cwd, Math.max(0, budget))
-		if (width(short) <= budget) return { meta: build(short), showGauge }
-	}
-
-	withCwd = false
-	return { meta: build(''), showGauge }
+/** Preserve both the status identity and its trailing key/action on tiny screens. */
+function shortenRightToFit(value: string, max: number): string {
+	if (max <= 0) return ''
+	if (value.length <= max) return value
+	if (max === 1) return '…'
+	const available = max - 1
+	const head = Math.ceil(available * 0.45)
+	return `${value.slice(0, head)}…${value.slice(-(available - head))}`
 }

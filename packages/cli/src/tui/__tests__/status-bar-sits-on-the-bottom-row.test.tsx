@@ -54,6 +54,31 @@ function bottomPinned(cwd: string) {
 }
 
 describe("the status bar on a real screen", () => {
+	it("puts model and effort on the left and the durable goal on the right", async () => {
+		const screen = await renderToScreen(
+			<Box flexDirection="column" height={ROWS}>
+				<Box flexGrow={1} />
+				<StatusBar
+					cwd="/home/dev/work/namzu"
+					provider="OpenAI (Codex subscription)"
+					model="gpt-5.6-sol"
+					effort="xhigh"
+					goal="Goal stalled (/goal resume)"
+					state="idle"
+				/>
+			</Box>,
+			{ cols: COLS, rows: ROWS },
+		);
+		try {
+			const row = screen.row(-1);
+			expect(row).toContain("gpt-5.6-sol xhigh · /home/dev/work/namzu");
+			expect(row.trimEnd()).toMatch(/Goal stalled \(\/goal resume\)$/);
+			expect(row).not.toContain("Codex subscription");
+		} finally {
+			await screen.unmount();
+		}
+	});
+
 	it("draws on the bottom row of the viewport", async () => {
 		const screen = await renderToScreen(bottomPinned(DEEP_CWD), {
 			cols: COLS,

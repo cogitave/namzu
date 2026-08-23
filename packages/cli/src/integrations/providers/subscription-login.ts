@@ -42,6 +42,7 @@ import { writeStoredSubscriptionCredential } from './credential-store.js'
 import type { DetectedProvider } from './discover.js'
 import {
 	AUTHORIZE_URL,
+	MANUAL_REDIRECT_URI,
 	OAUTH_CLIENT_ID,
 	OAUTH_SCOPES,
 	OAUTH_TOKEN_URL,
@@ -136,6 +137,7 @@ export async function beginSubscriptionLogin(
 
 	const listener = options.loopback === false ? null : await openLoopback(state, attemptSignal)
 	attemptSignal.throwIfAborted()
+	const redirectUri = listener ? REDIRECT_URI : MANUAL_REDIRECT_URI
 
 	let settled = false
 	const exchangeOnce = async (code: string, seenState: string): Promise<LoginOutcome> => {
@@ -148,12 +150,12 @@ export async function beginSubscriptionLogin(
 			}
 		}
 		settled = true
-		return exchange(code, state, verifier, exchangeOptions)
+		return exchange(code, state, verifier, redirectUri, exchangeOptions)
 	}
 
 	return {
-		url: authorizeUrl(challenge, state),
-		redirectUri: REDIRECT_URI,
+		url: authorizeUrl(challenge, state, redirectUri),
+		redirectUri,
 		loopback: listener !== null,
 		waitForCallback: () =>
 			listener === null
@@ -216,12 +218,12 @@ export function subscriptionDetectedProvider(
 	}
 }
 
-function authorizeUrl(challenge: string, state: string): string {
+function authorizeUrl(challenge: string, state: string, redirectUri: string): string {
 	const params = new URLSearchParams({
 		code: 'true',
 		client_id: OAUTH_CLIENT_ID,
 		response_type: 'code',
-		redirect_uri: REDIRECT_URI,
+		redirect_uri: redirectUri,
 		scope: OAUTH_SCOPES,
 		code_challenge: challenge,
 		code_challenge_method: 'S256',
@@ -264,6 +266,7 @@ async function exchange(
 	code: string,
 	state: string,
 	verifier: string,
+	redirectUri: string,
 	options: SubscriptionLoginOptions,
 ): Promise<LoginOutcome> {
 	const cancelled = (): LoginOutcome => ({
@@ -289,7 +292,7 @@ async function exchange(
 					client_id: OAUTH_CLIENT_ID,
 					code,
 					state,
-					redirect_uri: REDIRECT_URI,
+					redirect_uri: redirectUri,
 					code_verifier: verifier,
 				}),
 				signal: requestSignal,
@@ -315,7 +318,12 @@ async function exchange(
 			reason: `The sign-in service refused the exchange (HTTP ${res.status}). The code may have already been used, or expired. Nothing was stored.`,
 		}
 	}
-	let data: { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown }
+	let data: {
+		access_token?: unknown
+		refresh_token?: unknown
+		expires_in?: unknown
+		scope?: unknown
+	}
 	try {
 		data = (await awaitWithSignal(res.json(), requestSignal)) as typeof data
 	} catch {
@@ -342,6 +350,9 @@ async function exchange(
 		...(typeof data.expires_in === 'number'
 			? { expiresAt: Date.now() + data.expires_in * 1_000 }
 			: {}),
+		...(typeof data.scope === 'string'
+			? { scopes: data.scope.split(' ').filter(Boolean) }
+			: { scopes: OAUTH_SCOPES.split(' ') }),
 	}
 	let storedAt: string
 	try {

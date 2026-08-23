@@ -26,8 +26,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Message } from '@namzu/sdk'
 import {
 	type DetectedProvider,
-	type Preferences,
 	PROVIDER_REGISTRY,
+	type Preferences,
 } from '../../integrations/providers/index.js'
 
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
@@ -126,6 +126,7 @@ function sessionFixture(providerSummary = 'a-provider', close = vi.fn()): AgentS
 		},
 		close,
 		approvalLatched: () => false,
+		resetApprovalLatch: () => {},
 		promptExemptTools: () => [],
 		send: async function* (): AsyncIterable<AgentEvent> {
 			yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
@@ -270,7 +271,6 @@ beforeEach(() => {
 		throw new Error('Codex sign-in was not arranged by this test')
 	}
 })
-
 
 afterEach(async () => {
 	// Several cases finish on the same tick that an async iterator publishes its
@@ -465,6 +465,47 @@ describe('first-run signed-in subscriptions', () => {
 })
 
 describe('publishing a picker selection', () => {
+	it('opens and applies finite effort and permission choices without typed arguments', async () => {
+		const efforts: unknown[] = []
+		const modes: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture('a-session'),
+			reasoningEffortLevels: ['low', 'high'] as const,
+			send: async function* (
+				_messages: readonly Message[],
+				opts?: SendOptions,
+			): AsyncIterable<AgentEvent> {
+				efforts.push(opts?.effort)
+				modes.push(opts?.permissionMode)
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, '/effort')
+		await frameShows(harness.lastFrame, 'Select Reasoning Level for a-model')
+		expect(harness.lastFrame()).toContain('default')
+		expect(harness.lastFrame()).toContain('low')
+		expect(harness.lastFrame()).toContain('high')
+		harness.stdin.write('2')
+		await frameShows(harness.lastFrame, 'Reasoning effort changed to low')
+
+		await submit(harness, '/permissions')
+		await frameShows(harness.lastFrame, 'Select Permission Mode')
+		expect(harness.lastFrame()).toContain('prompt')
+		expect(harness.lastFrame()).toContain('auto')
+		expect(harness.lastFrame()).toContain('strict')
+		harness.stdin.write('3')
+		await frameShows(harness.lastFrame, 'Permission mode changed to strict')
+
+		await submit(harness, 'use the selected settings')
+		await vi.waitFor(() => expect(efforts).toEqual(['low']))
+		expect(modes).toEqual(['strict'])
+	})
+
 	it('applies and clears reasoning effort at the mounted App send boundary', async () => {
 		const efforts: unknown[] = []
 		createSession = async () => ({

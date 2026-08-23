@@ -6,7 +6,7 @@ description: >-
   you get. Interactive sessions, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
-timestamp: 2026-08-22T00:00:00Z
+timestamp: 2026-08-23T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -69,14 +69,23 @@ namzu login codex           # create a Namzu-owned ChatGPT subscription session
 ```
 
 On startup, Namzu first reuses usable `Claude` and `Codex` sessions already owned
-by their installed command-line clients. With no saved choice, one signed-in
-subscription starts directly; if both are available, a narrowed picker asks
-which one to use and proceeds with its default model. These borrowed credentials
-remain read-only and are never copied into `~/.namzu`. A Namzu-owned sign-in is
-needed only when no usable device session exists or when you explicitly want a
-separate login. API keys remain optional alternatives through environment
-variables or the session-only credential picker, and detecting one does not hide
-the subscription sign-in action.
+by their installed command-line clients, including the paired Windows home from
+WSL. With no saved choice, one signed-in subscription starts directly; if both
+are available, a narrowed picker asks which one to use and proceeds with its
+default model. Codex credentials remain read-only. If an expired `Claude` session
+must rotate its refresh grant, Namzu preserves the complete owner envelope and
+publishes the successor pair back to that exact file so `Claude` is not logged
+out. A Namzu-owned sign-in is needed only when no usable device session exists
+or when you explicitly want a separate login; its `Claude` route uses direct
+subscription authorization rather than API-usage billing. API keys remain
+optional alternatives through environment variables or the session-only
+credential picker, and detecting one does not hide the subscription sign-in
+action.
+
+Bare `/effort` and `/permissions` open finite keyboard choosers; their argument
+forms remain available for scripts. The footer keeps `model effort · cwd` on the
+left and reserves the right edge for the active interaction or durable goal
+state.
 
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after
