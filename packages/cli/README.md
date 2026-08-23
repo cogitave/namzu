@@ -77,15 +77,17 @@ must rotate its refresh grant, Namzu preserves the complete owner envelope and
 publishes the successor pair back to that exact file so `Claude` is not logged
 out. A Namzu-owned sign-in is needed only when no usable device session exists
 or when you explicitly want a separate login; its `Claude` route uses direct
-subscription authorization rather than API-usage billing. API keys remain
-optional alternatives through environment variables or the session-only
-credential picker, and detecting one does not hide the subscription sign-in
-action.
+subscription authorization rather than API-usage billing, and its returned
+authorization code can be pasted back into the same picker that started it.
+API keys remain optional alternatives through environment variables or the
+session-only credential picker, and detecting one does not hide the subscription
+sign-in action.
 
 Bare `/effort` and `/permissions` open finite keyboard choosers; their argument
 forms remain available for scripts. The footer keeps `model effort · cwd` on the
-left and reserves the right edge for the active interaction or durable goal
-state.
+left and reserves the right edge for a state-specific interaction or durable
+goal state. Idle conversation leaves the key legend to `/help` instead of
+repeating it on every frame.
 
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after

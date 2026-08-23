@@ -62,9 +62,7 @@ export function StatusBar({
 		model,
 		effort: model ? (effort ?? 'default') : null,
 		usage: usage && usage.totalTokens > 0 ? formatUsage(usage) : null,
-		context: gauge
-			? `ctx ${gauge.bar} ${gauge.approximate ? '~' : ''}${gauge.pct}%`
-			: null,
+		context: gauge ? `ctx ${gauge.bar} ${gauge.approximate ? '~' : ''}${gauge.pct}%` : null,
 		stateLabel: stateGlyph(state),
 		hint,
 		goal,
@@ -84,17 +82,15 @@ export function StatusBar({
 				</>
 			) : null}
 			<Text>{layout.gap}</Text>
-			<Text color={goal && !hint ? theme.accent.system : colorForState(state)}>
-				{layout.right}
-			</Text>
+			<Text color={goal && !hint ? theme.accent.system : colorForState(state)}>{layout.right}</Text>
 		</Text>
 	)
 }
 
-function stateGlyph(state: StatusBarProps['state']): string {
+function stateGlyph(state: StatusBarProps['state']): string | null {
 	switch (state) {
 		case 'idle':
-			return '● idle'
+			return null
 		case 'thinking':
 			return '◐ thinking'
 		case 'tool':
@@ -166,7 +162,8 @@ export function buildGauge(context: ContextFill | null | undefined): ContextGaug
 	const clamped = Math.max(0, Math.min(1, tokens / windowTokens))
 	const filled = Math.round(clamped * GAUGE_WIDTH)
 	const bar = '█'.repeat(filled) + '░'.repeat(GAUGE_WIDTH - filled)
-	const color = clamped < 0.7 ? theme.status.ok : clamped < 0.9 ? theme.status.warn : theme.status.error
+	const color =
+		clamped < 0.7 ? theme.status.ok : clamped < 0.9 ? theme.status.warn : theme.status.error
 	return {
 		bar,
 		pct: Math.round(clamped * 100),
@@ -227,16 +224,21 @@ export function fitStatusLine(input: {
 	readonly effort?: string | null
 	readonly usage: string | null
 	readonly context: string | null
-	readonly stateLabel: string
+	readonly stateLabel: string | null
 	readonly hint?: string | undefined
 	readonly goal?: string | null | undefined
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
-	const ambient = [input.context, input.usage, input.stateLabel].filter(
-		(value): value is string => Boolean(value),
+	const ambient = [input.context, input.usage, input.stateLabel].filter((value): value is string =>
+		Boolean(value),
 	)
+	const interaction = [input.stateLabel, input.hint]
+		.filter((value): value is string => Boolean(value))
+		.join(' · ')
 	let right = input.hint
-		? [...ambient.slice(0, -1), `${input.stateLabel} · ${input.hint}`].join(' · ')
+		? [input.context, input.usage, interaction]
+				.filter((value): value is string => Boolean(value))
+				.join(' · ')
 		: input.goal
 			? input.goal
 			: ambient.join(' · ')

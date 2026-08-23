@@ -6,8 +6,9 @@ import { AnthropicProvider } from '../client.js'
 /**
  * The OAuth branch's user-agent is authentication, not labelling.
  *
- * `claude-cli/<version> (external, cli)` is there because the
- * token-exchange endpoint rejects subscription tokens without it. Merging
+ * `claude-code/<version> (external, cli)` and `x-app: cli` signals are there
+ * because the Messages endpoint routes subscription tokens by this identity.
+ * Merging
  * attribution into that branch would not improve the label — it would
  * break the login, intermittently and with a 401 or a 500 that names none
  * of this.
@@ -24,12 +25,14 @@ function defaultHeaders(provider: AnthropicProvider): Record<string, string> {
 }
 
 describe('attribution and the OAuth user-agent', () => {
-	it('leaves the OAuth branch carrying its own user-agent', () => {
+	it('leaves the OAuth branch carrying the exact subscription-routing identity', () => {
 		const provider = new AnthropicProvider({ authToken: 'oauth-token' })
 
 		const headers = defaultHeaders(provider)
 
-		expect(headers['user-agent']).toContain('claude-cli/')
+		expect(headers['anthropic-beta']).toBe('claude-code-20250219,oauth-2025-04-20')
+		expect(headers['user-agent']).toMatch(/^claude-code\/\d+\.\d+\.\d+ \(external, cli\)$/)
+		expect(headers['x-app']).toBe('cli')
 		expect(headers['user-agent']).not.toContain('namzu/')
 	})
 

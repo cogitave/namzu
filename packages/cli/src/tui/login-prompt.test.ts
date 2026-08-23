@@ -13,29 +13,20 @@ const URL_ = 'https://example.invalid/oauth/authorize?client_id=x&code_challenge
 describe('describeLoginStart', () => {
 	it('prints the address whether or not a browser was launched', () => {
 		for (const browserOpened of [true, false]) {
-			expect(describeLoginStart({ url: URL_, loopback: true, browserOpened })).toContain(URL_)
+			expect(describeLoginStart({ url: URL_, browserOpened })).toContain(URL_)
 		}
 	})
 
 	it('does not claim a browser opened when none was launched', () => {
-		const text = describeLoginStart({ url: URL_, loopback: true, browserOpened: false })
+		const text = describeLoginStart({ url: URL_, browserOpened: false })
 		expect(text).not.toContain('Opening your browser')
 	})
 
-	it('says the automatic hand-back is missing when there is no listener', () => {
-		const without = describeLoginStart({ url: URL_, loopback: false, browserOpened: true })
-		// The case an operator must be told about: they would otherwise wait for
-		// something that is never going to happen.
-		expect(without).toContain('not available')
-		expect(without).toContain('/login <the address, or just the code>')
-	})
-
-	it('offers the paste route even when the listener came up', () => {
-		// The remote-browser case: the listener exists and is unreachable from
-		// wherever the person is actually looking at a browser.
-		const withListener = describeLoginStart({ url: URL_, loopback: true, browserOpened: true })
-		expect(withListener).toContain('/login <the address, or just the code>')
-		expect(withListener).toContain('automatically')
+	it('names the registered paste completion route', () => {
+		const text = describeLoginStart({ url: URL_, browserOpened: true })
+		expect(text).toContain('/login <the address, or just the code>')
+		expect(text).toContain('authorization code')
+		expect(text).not.toContain('automatically')
 	})
 })
 
@@ -55,7 +46,10 @@ describe('describeLoginOutcome', () => {
 	})
 
 	it('repeats the refusal it was given and says how to retry', () => {
-		const text = describeLoginOutcome({ ok: false, reason: 'HTTP 400 something.' })
+		const text = describeLoginOutcome({
+			ok: false,
+			reason: 'HTTP 400 something.',
+		})
 		expect(text).toContain('HTTP 400 something.')
 		expect(text).toContain('/login')
 	})

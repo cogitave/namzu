@@ -88,9 +88,10 @@ other.
 
 Bare `/login` opens a subscription choice with `Claude` and `Codex`; it never
 silently defaults to `Claude`. The shell equivalents are `namzu login claude`
-and `namzu login codex`. `Claude` uses a browser callback, while `Codex` uses a
-device code that can be approved in any reachable browser. Both write only to
-Namzu's credential store. The `Claude` route uses the direct subscription
+and `namzu login codex`. `Claude` uses a registered browser flow whose returned
+code is pasted into the picker or shell, while `Codex` uses a device code that
+can be approved in any reachable browser. Both write only to Namzu's credential
+store. The `Claude` route uses the direct subscription
 authorization flow, not the platform/API-usage billing login. `/logout` and
 `namzu logout` remove those Namzu-owned
 records together; they never delete or revoke credentials owned by another
@@ -123,24 +124,25 @@ exact levels accepted by every usable member of the current provider/model
 chain. `/effort <level>` applies that level to later main-query turns;
 `/effort default` restores the provider default. Unknown model metadata disables
 selection rather than inventing a menu, while an empty menu reports that the
-chain explicitly offers none. A successful `/model` selection resets effort before the replacement
-session or any paused queue is released; a failed or cancelled selection keeps
-the current session and its effort unchanged. Subagents and manual compaction
-continue to use their own provider defaults.
+chain explicitly offers none. A successful `/model` selection resets effort
+before the replacement session or any paused queue is released; a failed or
+cancelled selection keeps the current session and its effort unchanged.
+Subagents and manual compaction continue to use their own provider defaults.
 
 The one-line footer keeps the active model, reasoning effort and working
-directory on the left. A durable goal state or the current interaction hint
+directory on the left. A durable goal state or a state-specific interaction hint
 owns the right edge, so a deep path cannot hide `Goal stalled (/goal resume)` or
-the key needed to leave a prompt.
+the key needed to leave a prompt. The idle footer does not repeat a permanent
+key legend; the composer points to `/help`, while pickers and approval screens
+name the keys that are active there.
 
 The provider picker owns the asynchronous work started by the current choice.
 Escaping, choosing again or leaving the screen cancels model discovery,
 credential verification and subscription sign-in; a result that arrives later
 cannot reopen a model list or accept a credential. Listing and verification are
 also bounded to three seconds, including custom drivers that ignore their
-cancellation signal. Cancelling subscription sign-in reaches the loopback
-listener and token exchange, and no credential is written after the attempt is
-withdrawn.
+cancellation signal. Cancelling subscription sign-in reaches the paste/token
+exchange attempt, and no credential is written after the attempt is withdrawn.
 
 When a provider's model listing explicitly includes `image` in
 `inputModalities`, the model row is labelled `(image input)`. An absent modality

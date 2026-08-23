@@ -46,7 +46,7 @@ export {
 	ensureFreshStoredCodexCredential,
 	type StoredCodexRefreshOptions,
 } from './codex-oauth.js'
-export { OAUTH_SCOPES, REDIRECT_URI } from './identity.js'
+export { MANUAL_REDIRECT_URI, OAUTH_SCOPES } from './identity.js'
 export {
 	CredentialPublicationError,
 	CredentialRefreshRejectedError,

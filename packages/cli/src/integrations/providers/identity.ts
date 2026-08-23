@@ -36,37 +36,32 @@
  *
  * ## The addresses
  *
- * Re-verified against the installed owner client on 2026-08-23. Its live
- * production contract uses the platform token endpoint, the direct Claude
- * subscription authorize endpoint, a local callback when reachable and the
- * platform callback for manual paste. Keeping these together matters: mixing
- * the older console authorize flow with subscription scopes makes the browser
- * classify the attempt as API billing or reject the scope entirely.
- *
- * The redirect port is fixed and NOT free to change: it is part of what the
- * client identity above is registered with, so a different port is simply not
- * an accepted redirect. That is why a busy port degrades to the paste flow
- * rather than picking another one.
+ * Re-verified by capturing the exact URL emitted by the installed owner client
+ * (`claude auth login --claudeai`, 2.1.241) on 2026-08-23. Its live production
+ * contract uses the CAI authorize endpoint, the platform token endpoint and
+ * the platform callback below. That client does not offer a loopback redirect
+ * on this flow. A localhost callback may be valid OAuth in general, but it is
+ * not registered for this client identity; sending one makes the consent page
+ * refuse the request before sign-in.
  */
 
 export const OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'
 export const OAUTH_TOKEN_URL = 'https://platform.claude.com/v1/oauth/token'
 export const AUTHORIZE_URL = 'https://claude.com/cai/oauth/authorize'
 
-/** Registered with the client identity above; not ours to choose. */
-export const SUBSCRIPTION_REDIRECT_PORT = 53692
-export const REDIRECT_URI = `http://localhost:${SUBSCRIPTION_REDIRECT_PORT}/callback`
-/** Browser-to-terminal callback used when no local listener is reachable. */
+/** Registered browser-to-terminal callback; not ours to replace with localhost. */
 export const MANUAL_REDIRECT_URI = 'https://platform.claude.com/oauth/code/callback'
 
 /**
  * The direct Claude Pro/Max scope set used by the current Claude harness.
  *
- * Do not copy every scope a historical client happened to request. Unknown
- * scopes make the authorization page reject the whole request before the
- * operator can sign in. `org:create_api_key` belongs to the platform/API
- * billing login and is intentionally absent: Namzu is borrowing the person's
- * Claude subscription session, not asking to create a separately billed key.
+ * This looks broader than the inference capability Namzu consumes, but it is
+ * the exact set the current owner client sends for `--claudeai`, not its
+ * separately selected `--console` flow. The CAI endpoint validates the whole
+ * registered request shape; deleting `org:create_api_key` because its name
+ * sounds unrelated produces "Invalid request format" before the account can
+ * authorize anything. Keep this as one captured protocol value rather than a
+ * hand-curated list of what Namzu later uses.
  */
 export const OAUTH_SCOPES =
-	'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload'
+	'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload'

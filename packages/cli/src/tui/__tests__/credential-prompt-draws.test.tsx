@@ -24,7 +24,10 @@
 import { render } from 'ink-testing-library'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { DetectedProvider } from '../../integrations/providers/index.js'
+import type {
+	DetectedProvider,
+	SubscriptionProviderId,
+} from '../../integrations/providers/index.js'
 import { PROVIDER_REGISTRY } from '../../integrations/providers/index.js'
 import { Picker } from '../Picker.js'
 
@@ -32,6 +35,11 @@ const KEY = 'sk-ant-api03-notarealkey-0123beef'
 
 /** Let ink flush a render after input. */
 const flush = () => new Promise((r) => setTimeout(r, 20))
+
+const awaitPastedCode = async (
+	_provider: SubscriptionProviderId,
+	_signal: AbortSignal,
+): Promise<'awaiting-input'> => 'awaiting-input'
 
 function open(overrides: Partial<Parameters<typeof Picker>[0]> = {}) {
 	const onCredential = vi.fn()
@@ -84,7 +92,7 @@ describe('the no-credential screen', () => {
 	 * variable and restart.
 	 */
 	it('offers the sign-in, which is the only exit that needs no credential at all', async () => {
-		const onLogin = vi.fn()
+		const onLogin = vi.fn(awaitPastedCode)
 		const { lastFrame, stdin, unmount } = open({ onLogin })
 		expect(lastFrame()).toMatch(/press .*l.* to sign in|l: sign in/s)
 		stdin.write('l')
@@ -100,7 +108,7 @@ describe('the no-credential screen', () => {
 	})
 
 	it('accepts the capital, because a person reading "press l" may hold shift', async () => {
-		const onLogin = vi.fn()
+		const onLogin = vi.fn(awaitPastedCode)
 		const { stdin, unmount } = open({ onLogin })
 		stdin.write('L')
 		await flush()
@@ -111,7 +119,7 @@ describe('the no-credential screen', () => {
 	})
 
 	it('lets the operator choose Codex instead of hard-coding Claude', async () => {
-		const onLogin = vi.fn()
+		const onLogin = vi.fn(awaitPastedCode)
 		const { stdin, unmount } = open({ onLogin })
 		stdin.write('l')
 		await flush()
@@ -167,7 +175,7 @@ describe('subscription-first provider choice', () => {
 	})
 
 	it('keeps subscription sign-in reachable when an optional API key was detected', async () => {
-		const onLogin = vi.fn()
+		const onLogin = vi.fn(awaitPastedCode)
 		const { lastFrame, stdin, unmount } = render(
 			<Picker
 				detected={[API_KEY_OPENAI]}

@@ -10,21 +10,11 @@
  *
  * ## The flow
  *
- * Authorization code with PKCE (RFC 7636, S256), redirected to a loopback
- * address (RFC 8252 §7.3). Two ways to finish, and BOTH are always offered:
- *
- *  1. **Loopback.** A one-request server on `127.0.0.1` at the port the
- *     redirect is registered under. The browser lands on it and the code
- *     never touches a screen.
- *  2. **Paste.** The operator copies the code — or the whole redirect URL —
- *     out of a browser and hands it back.
- *
- * The second is not a consolation prize. A container, a remote shell over
- * SSH, a machine with no graphical session: none of them can be redirected
- * to, and on all of them the loopback server is either unreachable from
- * wherever the browser actually is or cannot bind at all. `start()` says
- * which of the two it managed to arrange (`loopback`), and the paste path
- * works whether or not it did.
+ * Authorization code with PKCE (RFC 7636, S256), redirected to the platform
+ * callback registered for the owner client's public identity. The operator
+ * copies the code — or the whole finished address — back to the initiating
+ * surface. This flow deliberately does not invent a localhost redirect: the
+ * authorization server rejects an unregistered callback before sign-in.
  *
  * ## What never happens here
  *
@@ -36,7 +26,6 @@
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { type Server, createServer } from 'node:http'
 
 import { writeStoredSubscriptionCredential } from './credential-store.js'
 import type { DetectedProvider } from './discover.js'
@@ -46,8 +35,6 @@ import {
 	OAUTH_CLIENT_ID,
 	OAUTH_SCOPES,
 	OAUTH_TOKEN_URL,
-	REDIRECT_URI,
-	SUBSCRIPTION_REDIRECT_PORT,
 } from './identity.js'
 import type { AgentOAuthCredential } from './keychain.js'
 import { PROVIDER_REGISTRY } from './registry.js'
@@ -67,26 +54,9 @@ export interface SubscriptionLogin {
 	/** The page to open. Safe to print — it carries a challenge, never a secret. */
 	readonly url: string
 	readonly redirectUri: string
-	/**
-	 * Whether the loopback listener came up.
-	 *
-	 * `false` is not a failure: the port was busy, or the environment forbids
-	 * listening. The paste path is unaffected, and a surface should say so
-	 * rather than imply the login is broken.
-	 */
-	readonly loopback: boolean
-	/**
-	 * Resolve when the browser reaches the loopback listener, or never.
-	 *
-	 * `null` when `loopback` is false, so a caller cannot await a promise that
-	 * has no way to settle. Racing this against `completeWithPastedCode` is the
-	 * intended use; whichever finishes first wins and `cancel()` releases the
-	 * other.
-	 */
-	waitForCallback(): Promise<LoginOutcome> | null
 	/** Finish from a pasted redirect URL, `code#state`, or a bare code. */
 	completeWithPastedCode(input: string): Promise<LoginOutcome>
-	/** Release the listener. Safe to call twice, and safe to call after success. */
+	/** Withdraw the attempt. Safe to call twice, and safe to call after success. */
 	cancel(): void
 }
 
@@ -95,19 +65,12 @@ export interface SubscriptionLoginOptions {
 	readonly home?: string
 	/** Override the token-exchange transport (tests inject a stub). */
 	readonly fetch?: typeof fetch
-	/**
-	 * Try to listen on the loopback redirect. Default true.
-	 *
-	 * A caller that knows there is no browser here — `--no-browser`, a
-	 * container — passes false and skips a bind that would only ever time out.
-	 */
-	readonly loopback?: boolean
 	/** Authority of the surface that started this attempt. */
 	readonly signal?: AbortSignal
 }
 
 /**
- * Begin a login. Returns the page to open plus the two ways to finish it.
+ * Begin a login. Returns the page to open plus the paste-completion handle.
  *
  * Deliberately does NOT open a browser. Which of `open`, `xdg-open` or a
  * Windows protocol handler to spawn — and whether spawning anything is even
@@ -123,7 +86,10 @@ export async function beginSubscriptionLogin(
 	const attemptSignal = options.signal
 		? AbortSignal.any([options.signal, cancelController.signal])
 		: cancelController.signal
-	const exchangeOptions: SubscriptionLoginOptions = { ...options, signal: attemptSignal }
+	const exchangeOptions: SubscriptionLoginOptions = {
+		...options,
+		signal: attemptSignal,
+	}
 	const verifier = base64Url(randomBytes(32))
 	const challenge = base64Url(createHash('sha256').update(verifier).digest())
 	// An independent value, not the verifier reused.
@@ -135,9 +101,7 @@ export async function beginSubscriptionLogin(
 	// the verifier.
 	const state = base64Url(randomBytes(16))
 
-	const listener = options.loopback === false ? null : await openLoopback(state, attemptSignal)
-	attemptSignal.throwIfAborted()
-	const redirectUri = listener ? REDIRECT_URI : MANUAL_REDIRECT_URI
+	const redirectUri = MANUAL_REDIRECT_URI
 
 	let settled = false
 	const exchangeOnce = async (code: string, seenState: string): Promise<LoginOutcome> => {
@@ -156,23 +120,6 @@ export async function beginSubscriptionLogin(
 	return {
 		url: authorizeUrl(challenge, state, redirectUri),
 		redirectUri,
-		loopback: listener !== null,
-		waitForCallback: () =>
-			listener === null
-				? null
-				: listener.received.then((got) =>
-						got === null
-							? ({
-									ok: false,
-									reason: 'The sign-in was cancelled before the browser came back.',
-								} as LoginOutcome)
-							: got.error
-								? ({
-										ok: false,
-										reason: `The sign-in did not complete (${got.error}). Nothing was stored.`,
-									} as LoginOutcome)
-								: exchangeOnce(got.code, got.state),
-					),
 		completeWithPastedCode: async (input) => {
 			const parsed = parsePastedInput(input)
 			if (!parsed.code) {
@@ -186,7 +133,6 @@ export async function beginSubscriptionLogin(
 		},
 		cancel: () => {
 			cancelController.abort(new Error('The sign-in attempt was cancelled.'))
-			listener?.close()
 		},
 	}
 }
@@ -286,7 +232,10 @@ async function exchange(
 		res = await awaitWithSignal(
 			fetchFn(OAUTH_TOKEN_URL, {
 				method: 'POST',
-				headers: { 'content-type': 'application/json', accept: 'application/json' },
+				headers: {
+					'content-type': 'application/json',
+					accept: 'application/json',
+				},
 				body: JSON.stringify({
 					grant_type: 'authorization_code',
 					client_id: OAUTH_CLIENT_ID,
@@ -372,112 +321,6 @@ async function exchange(
 	return { ok: true, credential, storedAt }
 }
 
-interface Loopback {
-	readonly received: Promise<{ code: string; state: string; error?: string } | null>
-	close(): void
-}
-
-/**
- * A single-purpose listener on the loopback redirect, or `null`.
- *
- * `null` on every failure to bind — the port is in use (a second namzu, or
- * another product's login mid-flight), the sandbox forbids listening, there
- * is no loopback interface. None of those is fatal, because the paste path
- * does not need this.
- */
-async function openLoopback(expectedState: string, signal?: AbortSignal): Promise<Loopback | null> {
-	signal?.throwIfAborted()
-	let settle: (v: { code: string; state: string; error?: string } | null) => void = () => {}
-	const received = new Promise<{ code: string; state: string; error?: string } | null>((r) => {
-		let done = false
-		settle = (v) => {
-			if (done) return
-			done = true
-			r(v)
-		}
-	})
-
-	const server: Server = createServer((req, res) => {
-		const url = new URL(req.url ?? '/', `http://127.0.0.1:${SUBSCRIPTION_REDIRECT_PORT}`)
-		const error = url.searchParams.get('error')
-		const code = url.searchParams.get('code')
-		const state = url.searchParams.get('state')
-		const finish = (status: number, text: string) => {
-			res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' })
-			res.end(text)
-		}
-		if (error) {
-			finish(400, 'Sign-in did not complete. Return to namzu.')
-			settle({ code: '', state: '', error })
-			return
-		}
-		if (!code || !state) {
-			// Not our redirect — a browser probing the port, a favicon request.
-			// Answering and NOT settling keeps the listener alive for the real one.
-			finish(404, 'Not the sign-in callback.')
-			return
-		}
-		if (!constantTimeEquals(state, expectedState)) {
-			// Refused here as well as at the exchange. This is the request a
-			// cross-site attempt would make, and answering it with "done" would
-			// tell whoever made it that the port is a live login.
-			finish(400, 'Sign-in did not complete. Return to namzu.')
-			return
-		}
-		finish(200, 'Signed in. You can close this tab and return to namzu.')
-		settle({ code, state })
-	})
-
-	let bindOwned = true
-	let closeOwned = false
-	let abortBind: (() => void) | undefined
-	const close = () => {
-		if (closeOwned) return
-		closeOwned = true
-		settle(null)
-		try {
-			server.close()
-		} catch {
-			// A cancellation can win before `listen()` owns a handle. There is no
-			// resource to close in that branch, and the bind promise is rejected.
-		}
-	}
-	const bound = await new Promise<boolean>((resolve, reject) => {
-		const finish = (value: boolean) => {
-			if (!bindOwned) return
-			bindOwned = false
-			resolve(value)
-		}
-		abortBind = () => {
-			if (!bindOwned) return
-			bindOwned = false
-			close()
-			reject(signal?.reason)
-		}
-		signal?.addEventListener('abort', abortBind, { once: true })
-		server.once('error', () => finish(false))
-		server.listen(SUBSCRIPTION_REDIRECT_PORT, '127.0.0.1', () => finish(true))
-		if (signal?.aborted) abortBind()
-	})
-	if (abortBind) signal?.removeEventListener('abort', abortBind)
-	if (!bound) {
-		close()
-		return null
-	}
-	if (signal?.aborted) {
-		close()
-		throw signal.reason
-	}
-	signal?.addEventListener('abort', close, { once: true })
-	return {
-		received,
-		close: () => {
-			signal?.removeEventListener('abort', close)
-			close()
-		},
-	}
-}
-
 /**
  * Pull a code (and a state, when there is one) out of whatever got pasted.
  *
@@ -487,7 +330,10 @@ async function openLoopback(expectedState: string, signal?: AbortSignal): Promis
  * — guessing at a fifth shape would send an arbitrary string to a token
  * endpoint as if it were an authorization code.
  */
-export function parsePastedInput(input: string): { code?: string; state?: string } {
+export function parsePastedInput(input: string): {
+	code?: string
+	state?: string
+} {
 	const value = input.trim()
 	if (value.length === 0) return {}
 

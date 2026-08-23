@@ -868,13 +868,6 @@ describe('cancelling the picker on first run', () => {
 			release = resolve
 		})
 		const cancel = vi.fn()
-		const waitForCallback = vi.fn(() =>
-			Promise.resolve({
-				ok: true as const,
-				credential: { accessToken: 'not-a-real-token' },
-				storedAt: '/not/written',
-			}),
-		)
 		beginLogin = (options = {}) => {
 			pickerSignal = options.signal
 			return pendingStart
@@ -892,16 +885,13 @@ describe('cancelling the picker on first run', () => {
 
 		release({
 			url: 'https://example.test/authorize',
-			redirectUri: 'http://127.0.0.1/callback',
-			loopback: true,
-			waitForCallback,
+			redirectUri: 'https://callback.example.test/oauth/code',
 			completeWithPastedCode: async () => ({ ok: false, reason: 'not used' }),
 			cancel,
 		})
 		await tick(80)
 
 		expect(cancel).toHaveBeenCalledTimes(1)
-		expect(waitForCallback).not.toHaveBeenCalled()
 		expect(probeCalls, 'a cancelled login re-probed the machine').toBe(1)
 		expect(lastFrame()).not.toContain('example.test')
 	})
@@ -961,6 +951,42 @@ describe('the picker hint', () => {
 })
 
 describe('subscription selection from the ready TUI', () => {
+	it('finishes Claude browser sign-in in the picker that started it', async () => {
+		const completeWithPastedCode = vi.fn(async () => ({
+			ok: true as const,
+			credential: { accessToken: 'not-a-real-token' },
+			storedAt: '/home/test/.namzu/credentials.json',
+		}))
+		const cancel = vi.fn()
+		beginLogin = async () => ({
+			url: 'https://browser.example.test/authorize?state=test',
+			redirectUri: 'https://callback.example.test/oauth/code',
+			completeWithPastedCode,
+			cancel,
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, '/login')
+		await frameShows(harness.lastFrame, 'Choose a subscription')
+		expect(harness.lastFrame()).toContain('Anthropic (Claude)')
+		expect(harness.lastFrame()).toContain('OpenAI (Codex subscription)')
+
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'Complete Anthropic (Claude) sign-in')
+		expect(harness.lastFrame()).toContain('paste it below and press enter')
+		await tick()
+		harness.stdin.write('copied-code')
+		await tick()
+		harness.stdin.write('\r')
+
+		await vi.waitFor(() => expect(completeWithPastedCode).toHaveBeenCalledWith('copied-code'))
+		await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
+		expect(harness.lastFrame()).not.toContain('copied-code')
+	})
+
 	it('routes /login through the Claude-or-Codex picker and starts the chosen device flow', async () => {
 		const cancel = vi.fn()
 		let ownedSignal: AbortSignal | undefined

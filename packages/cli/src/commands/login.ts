@@ -27,9 +27,9 @@
  * started. There is no `--code` flag for that reason: it would look like it
  * should work and could not.
  *
- * Instead this waits on BOTH routes at once. The loopback listener takes the
- * browser that lands on this machine; standard input takes the address pasted
- * back from a browser somewhere else. Whichever answers first wins.
+ * The registered browser callback shows a code rather than returning to a
+ * local listener. Standard input takes that code or the finished address;
+ * the timeout bounds an unattended terminal.
  */
 
 import { createInterface } from 'node:readline'
@@ -64,8 +64,8 @@ const LOGIN_HELP = [
 	'  --timeout <seconds> Give up waiting after this long (default: 300).',
 	'  -h, --help          Show this help.',
 	'',
-	'Claude sign-in opens a browser callback; on a remote machine, paste the final',
-	'callback address into this terminal. Codex sign-in prints a device code and',
+	'Claude sign-in opens a registered browser flow; paste the returned code or',
+	'finished address into this terminal. Codex sign-in prints a device code and',
 	'polls while you approve it in the browser.',
 	'',
 	'The credential is written to ~/.namzu/credentials.json, readable only by your',
@@ -133,25 +133,37 @@ export function parseLoginFlags(argv: readonly string[]): LoginFlags {
  * authorization code", and the attempt was over before the browser had loaded
  * the page.
  *
- * **A closed or absent stream never resolves.** This is raced against the
- * loopback listener and a timeout, so a stdin that is not there (a service,
- * `< /dev/null`) must not read as "the operator declined" and cancel a browser
- * sign-in still in progress.
+ * **A closed or absent stream resolves as absent, not as a blank code.** A
+ * pending promise with only an unref'd timeout does not keep Node alive, so
+ * `< /dev/null` otherwise exits zero before printing an outcome. The caller
+ * turns absence into an explicit failed login.
  */
-function firstStdinLine(signal: AbortSignal): Promise<string> {
+
+export function firstStdinLine(
+	signal: AbortSignal,
+	input: NodeJS.ReadableStream = process.stdin,
+): Promise<string | null> {
+	if (!input.readable) return Promise.resolve(null)
 	return new Promise((resolve) => {
-		if (!process.stdin.readable) return
-		const rl = createInterface({ input: process.stdin })
-		const done = () => {
+		const rl = createInterface({ input })
+		let settled = false
+		const finish = (value: string | null) => {
+			if (settled) return
+			settled = true
+			signal.removeEventListener('abort', onAbort)
+			resolve(value)
+		}
+		const onAbort = () => {
+			finish(null)
 			rl.close()
 		}
-		signal.addEventListener('abort', done, { once: true })
+		signal.addEventListener('abort', onAbort, { once: true })
 		rl.on('line', (line) => {
 			if (line.trim().length === 0) return
-			signal.removeEventListener('abort', done)
+			finish(line)
 			rl.close()
-			resolve(line)
 		})
+		rl.once('close', () => finish(null))
 	})
 }
 
@@ -226,7 +238,6 @@ export const loginCommand: CommandDef = {
 		ctx.formatter.print({
 			text: describeLoginStart({
 				url: login.url,
-				loopback: login.loopback,
 				browserOpened: flags.noBrowser ? false : openInBrowser(login.url),
 				completionHint: 'paste it here and press enter',
 			}),
@@ -243,10 +254,16 @@ export const loginCommand: CommandDef = {
 				flags.timeoutMs,
 			).unref(),
 		)
-		const pasted = firstStdinLine(stop.signal).then((line) => login.completeWithPastedCode(line))
-		const callback = login.waitForCallback()
-
-		const outcome = await Promise.race(callback ? [callback, pasted, timeout] : [pasted, timeout])
+		const pasted = firstStdinLine(stop.signal).then((line): Promise<LoginOutcome> | LoginOutcome =>
+			line === null
+				? {
+						ok: false,
+						reason:
+							'Standard input closed before an authorization code was pasted. Nothing was stored.',
+					}
+				: login.completeWithPastedCode(line),
+		)
+		const outcome = await Promise.race([pasted, timeout])
 		stop.abort()
 		login.cancel()
 

@@ -81,6 +81,7 @@ describe('the hint at a realistic width', () => {
 	it('leaves a short line completely alone', () => {
 		const frame = frameFor('/w')
 		expect(frame).toContain('/w')
-		expect(frame).toContain('idle')
+		expect(frame).toContain('Ctrl+C')
+		expect(frame).not.toContain('idle')
 	})
 })

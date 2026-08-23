@@ -46,15 +46,13 @@ beforeEach(() => {
 	starts.codex.mockReset()
 	starts.browser.mockResolvedValue({
 		url: 'https://browser.example.test/authorize',
-		redirectUri: 'http://127.0.0.1/callback',
-		loopback: true,
-		waitForCallback: () =>
+		redirectUri: 'https://callback.example.test/oauth/code',
+		completeWithPastedCode: () =>
 			Promise.resolve({
 				ok: true as const,
 				credential: { accessToken: 'claude-secret' },
 				storedAt: '/home/test/.namzu/credentials.json',
 			}),
-		completeWithPastedCode: vi.fn(),
 		cancel: vi.fn(),
 	})
 	starts.codex.mockResolvedValue({
@@ -86,7 +84,10 @@ describe('namzu login provider routing', () => {
 	it('starts only the Claude browser flow when Claude is selected', async () => {
 		const { ctx, lines } = context()
 
-		const code = await loginCommand.handler({ ctx, rawArgs: ['claude'] })
+		const pending = loginCommand.handler({ ctx, rawArgs: ['claude'] })
+		await vi.waitFor(() => expect(starts.browser).toHaveBeenCalledTimes(1))
+		process.stdin.emit('data', 'copied-code\n')
+		const code = await pending
 
 		expect(code).toBe(EXIT_OK)
 		expect(starts.browser).toHaveBeenCalledTimes(1)

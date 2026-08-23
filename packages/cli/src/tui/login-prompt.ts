@@ -25,7 +25,6 @@ import type { LoginOutcome } from '../integrations/providers/index.js'
  */
 export function describeLoginStart(start: {
 	readonly url: string
-	readonly loopback: boolean
 	readonly browserOpened: boolean
 	/**
 	 * How the operator hands the result back HERE, in the surface they are
@@ -49,12 +48,7 @@ export function describeLoginStart(start: {
 		'',
 	]
 	lines.push(
-		start.loopback
-			? 'When the page finishes, namzu will pick it up automatically. If your browser is somewhere this machine cannot be reached from — a container, a remote shell — copy the address it lands on:'
-			: // Said plainly. The listener is what makes the automatic path work,
-				// and an operator who is not told it is missing will sit waiting for
-				// something that is never going to happen.
-				'The automatic hand-back is not available in this session (the port is in use, or this environment does not allow listening), so finish it by hand. Copy the address the browser lands on:',
+		'Claude will show an authorization code when sign-in finishes. Copy that code, or the finished address, back here:',
 	)
 	lines.push('', `  ${start.completionHint ?? '/login <the address, or just the code>'}`)
 	return lines.join('\n')

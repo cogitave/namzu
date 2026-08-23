@@ -79,7 +79,12 @@ export interface PickerProps {
 	 * sources it scans, offered a key to paste, and said to restart, while a
 	 * working sign-in sat one unreachable keystroke away.
 	 */
-	readonly onLogin?: (provider: SubscriptionProviderId, signal: AbortSignal) => void
+	readonly onLogin?: (
+		provider: SubscriptionProviderId,
+		signal: AbortSignal,
+	) => Promise<'awaiting-input' | 'finished' | 'failed'>
+	/** Finish the browser flow from the code/address pasted into this picker. */
+	readonly onLoginComplete?: (input: string, signal: AbortSignal) => Promise<'retry' | 'finished'>
 	/**
 	 * Seam for tests: how a typed key is checked. Defaulted to the real thing,
 	 * so no production caller knows this exists.
@@ -155,6 +160,7 @@ export function Picker({
 	describeModels = describeProviderModels,
 	onCredential,
 	onLogin,
+	onLoginComplete,
 	verify = verifyCredential,
 	keyEntryFor,
 	notice,
@@ -214,6 +220,12 @@ export function Picker({
 	} | null>(null)
 	const [loginPhase, setLoginPhase] = useState(initialView === 'subscriptions')
 	useEffect(() => setLoginPhase(initialView === 'subscriptions'), [initialView])
+	const [loginEntry, setLoginEntry] = useState<{
+		readonly entry: ProviderRegistryEntry
+		readonly value: string
+		readonly status: 'starting' | 'typing' | 'checking'
+		readonly problem?: string
+	} | null>(null)
 	// Key entry. `value` is the secret and never leaves this component except as
 	// a mask or as the credential handed to `onCredential`.
 	//
@@ -281,7 +293,74 @@ export function Picker({
 		)
 	}
 
+	const acceptLogin = async (): Promise<void> => {
+		const entry = loginEntry
+		const operation = operationRef.current
+		if (!entry || entry.status !== 'typing' || !operation || !onLoginComplete) return
+		if (entry.value.trim().length === 0) {
+			setLoginEntry({
+				...entry,
+				problem: 'Paste the authorization code or finished address first.',
+			})
+			return
+		}
+		setLoginEntry({ ...entry, status: 'checking', problem: undefined })
+		try {
+			const disposition = await onLoginComplete(entry.value, operation.controller.signal)
+			if (!ownsOperation(operation)) return
+			if (disposition === 'retry') {
+				setLoginEntry({
+					...entry,
+					status: 'typing',
+					problem:
+						'That value could not finish this sign-in. Check the address or code and try again.',
+				})
+				return
+			}
+			finishOperation(operation)
+			setLoginEntry(null)
+		} catch (error) {
+			if (!ownsOperation(operation)) return
+			setLoginEntry({
+				...entry,
+				status: 'typing',
+				problem: `Could not finish sign-in: ${error instanceof Error ? error.message : String(error)}`,
+			})
+		}
+	}
+
 	useInput((input, key) => {
+		if (loginEntry) {
+			if (key.escape) {
+				invalidateOperation()
+				setLoginEntry(null)
+				return
+			}
+			if (loginEntry.status !== 'typing') return
+			if (key.return) {
+				void acceptLogin()
+				return
+			}
+			if (key.backspace || key.delete) {
+				setLoginEntry((current) =>
+					current
+						? {
+								...current,
+								value: current.value.slice(0, -1),
+								problem: undefined,
+							}
+						: current,
+				)
+				return
+			}
+			if (input && !key.ctrl && !key.meta) {
+				setLoginEntry((current) =>
+					current ? { ...current, value: current.value + input, problem: undefined } : current,
+				)
+			}
+			return
+		}
+
 		// Key entry owns the keyboard while it is open: every printable character
 		// is part of a secret, so nothing here may fall through to a shortcut.
 		if (keyEntry) {
@@ -390,17 +469,30 @@ export function Picker({
 			if (key.return) {
 				const chosen = choices[cursor]
 				if (!chosen || !chosen.subscriptionLogin) return
+				if (!onLogin) {
+					setErrorHint('Subscription sign-in is not available on this screen.')
+					return
+				}
 				const operation = beginOperation()
-				try {
-					onLogin?.(chosen.id as SubscriptionProviderId, operation.controller.signal)
-				} catch (error) {
-					if (ownsOperation(operation)) {
+				setLoginEntry({ entry: chosen, value: '', status: 'starting' })
+				void onLogin(chosen.id as SubscriptionProviderId, operation.controller.signal)
+					.then((disposition) => {
+						if (!ownsOperation(operation)) return
+						if (disposition === 'awaiting-input') {
+							setLoginEntry({ entry: chosen, value: '', status: 'typing' })
+							return
+						}
 						finishOperation(operation)
+						setLoginEntry(null)
+					})
+					.catch((error: unknown) => {
+						if (!ownsOperation(operation)) return
+						finishOperation(operation)
+						setLoginEntry(null)
 						setErrorHint(
 							`Could not start sign-in: ${error instanceof Error ? error.message : String(error)}`,
 						)
-					}
-				}
+					})
 				return
 			}
 			const selected = Number.parseInt(input, 10)
@@ -512,6 +604,46 @@ export function Picker({
 		</Box>
 	) : null
 
+	if (loginEntry) {
+		const waitsForDeviceApproval = loginEntry.entry.subscriptionLogin === 'device'
+		const painted = loginEntry.value
+			? `${'•'.repeat(Math.min(loginEntry.value.length, 32))}${loginEntry.value.length > 32 ? '…' : ''}`
+			: '(nothing pasted yet)'
+		return (
+			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
+				{noticeBox}
+				<Text color={theme.accent.system} bold>
+					Complete {loginEntry.entry.label} sign-in
+				</Text>
+				{waitsForDeviceApproval ? (
+					<Text color={theme.text.muted}>
+						Approve the device code shown above in your browser. esc cancels.
+					</Text>
+				) : (
+					<>
+						<Text color={theme.text.muted}>
+							Paste the authorization code, or the finished browser address, then press enter. esc
+							cancels.
+						</Text>
+						<Box paddingTop={1}>
+							<Text color={loginEntry.value ? theme.text.primary : theme.text.muted}>{painted}</Text>
+						</Box>
+					</>
+				)}
+				<Box paddingTop={1} flexDirection="column">
+					{loginEntry.status === 'starting' ? (
+						<Text color={theme.text.muted}>
+							{waitsForDeviceApproval ? 'Waiting for browser approval…' : 'Starting browser sign-in…'}
+						</Text>
+					) : loginEntry.status === 'checking' ? (
+						<Text color={theme.text.muted}>Finishing sign-in…</Text>
+					) : null}
+					{loginEntry.problem ? <Text color={theme.status.warn}>{loginEntry.problem}</Text> : null}
+				</Box>
+			</Box>
+		)
+	}
+
 	if (keyEntry) {
 		const { entry } = keyEntry
 		// What the operator has typed SO FAR, classified live. It settles as they
@@ -622,8 +754,10 @@ export function Picker({
 					<Text color={theme.text.muted}>
 						{' '}
 						· existing{' '}
-						{subscriptionProviders().map((entry) => entry.label).join(' and ')} sessions
-						on this device
+						{subscriptionProviders()
+							.map((entry) => entry.label)
+							.join(' and ')}{' '}
+						sessions on this device
 					</Text>
 					<Text color={theme.text.muted}>
 						{' '}

@@ -84,20 +84,31 @@ describe('the authorization request', () => {
 		expect(OAUTH_TOKEN_URL).toBe('https://platform.claude.com/v1/oauth/token')
 		expect(MANUAL_REDIRECT_URI).toBe('https://platform.claude.com/oauth/code/callback')
 		expect(OAUTH_SCOPES).toBe(
-			'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+			'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
 		)
 	})
 
-	it('asks for a code with a S256 challenge, and never carries the verifier', async () => {
-		const login = await beginSubscriptionLogin({ home, loopback: false })
+	it('matches the installed owner client request, including its registered callback', async () => {
+		const login = await beginSubscriptionLogin({ home })
 		const url = new URL(login.url)
 		expect(url.origin + url.pathname).toBe(AUTHORIZE_URL)
+		expect([...url.searchParams.keys()]).toEqual([
+			'code',
+			'client_id',
+			'response_type',
+			'redirect_uri',
+			'scope',
+			'code_challenge',
+			'code_challenge_method',
+			'state',
+		])
+		expect(url.searchParams.get('code')).toBe('true')
 		expect(url.searchParams.get('response_type')).toBe('code')
 		expect(url.searchParams.get('client_id')).toBe(OAUTH_CLIENT_ID)
 		expect(url.searchParams.get('code_challenge_method')).toBe('S256')
 		expect(url.searchParams.get('redirect_uri')).toBe(MANUAL_REDIRECT_URI)
 		expect(url.searchParams.get('scope')).toBe(OAUTH_SCOPES)
-		expect(url.searchParams.get('scope')).not.toContain('org:create_api_key')
+		expect(login.redirectUri).toBe(MANUAL_REDIRECT_URI)
 		const challenge = url.searchParams.get('code_challenge') ?? ''
 		expect(challenge.length).toBeGreaterThan(20)
 		login.cancel()
@@ -110,7 +121,7 @@ describe('the authorization request', () => {
 		// proves nothing: reusing the verifier as state leaves state and
 		// challenge different, because one is the hash of the other.
 		const { fetchFn, seen } = stubEndpoint(200, GOOD)
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const params = new URL(login.url).searchParams
 		const state = params.get('state') as string
 		await login.completeWithPastedCode(`${CODE}#${state}`)
@@ -124,8 +135,8 @@ describe('the authorization request', () => {
 	})
 
 	it('mints a different state and challenge on every attempt', async () => {
-		const a = await beginSubscriptionLogin({ home, loopback: false })
-		const b = await beginSubscriptionLogin({ home, loopback: false })
+		const a = await beginSubscriptionLogin({ home })
+		const b = await beginSubscriptionLogin({ home })
 		const sa = new URL(a.url).searchParams
 		const sb = new URL(b.url).searchParams
 		expect(sa.get('state')).not.toBe(sb.get('state'))
@@ -138,11 +149,11 @@ describe('the authorization request', () => {
 describe('a completed sign-in', () => {
 	it('stores a credential a session can make a request with', async () => {
 		const { fetchFn, seen } = stubEndpoint(200, GOOD)
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 
 		const outcome = await login.completeWithPastedCode(
-			`http://localhost:53692/callback?code=${CODE}&state=${state}`,
+			`${MANUAL_REDIRECT_URI}?code=${CODE}&state=${state}`,
 		)
 		expect(outcome.ok).toBe(true)
 		if (!outcome.ok) return
@@ -171,16 +182,27 @@ describe('a completed sign-in', () => {
 		expect(detected.oauth?.origin).toBe('stored')
 
 		// The same credential, found by discovery on a cold start.
-		const found = await discoverProviders({ home, env: {}, skipProbes: true, skipKeychain: true })
+		const found = await discoverProviders({
+			home,
+			env: {},
+			skipProbes: true,
+			skipKeychain: true,
+		})
 		const anthropic = found.find((d) => d.entry.id === 'anthropic')
 		expect(anthropic?.apiKey).toBe(ACCESS)
-		expect(anthropic?.source).toEqual({ kind: 'stored', path: credentialsPath(home) })
-		expect(anthropic?.oauth).toMatchObject({ refreshToken: REFRESH, origin: 'stored' })
+		expect(anthropic?.source).toEqual({
+			kind: 'stored',
+			path: credentialsPath(home),
+		})
+		expect(anthropic?.oauth).toMatchObject({
+			refreshToken: REFRESH,
+			origin: 'stored',
+		})
 	})
 
 	it('records an expiry so the refresh path knows when to run', async () => {
 		const { fetchFn } = stubEndpoint(200, GOOD)
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		const before = Date.now()
 		await login.completeWithPastedCode(`${CODE}#${state}`)
@@ -190,7 +212,7 @@ describe('a completed sign-in', () => {
 
 	it('cannot be replayed — a second completion is refused', async () => {
 		const { fetchFn } = stubEndpoint(200, GOOD)
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		expect((await login.completeWithPastedCode(`${CODE}#${state}`)).ok).toBe(true)
 		const second = await login.completeWithPastedCode(`${CODE}#${state}`)
@@ -211,7 +233,7 @@ describe('a failed sign-in leaves nothing behind', () => {
 
 	it('when the endpoint refuses the exchange', async () => {
 		const { fetchFn } = stubEndpoint(400, { error: 'invalid_grant' })
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		const outcome = await login.completeWithPastedCode(`${CODE}#${state}`)
 		expect(outcome.ok).toBe(false)
@@ -220,7 +242,7 @@ describe('a failed sign-in leaves nothing behind', () => {
 
 	it('when the state does not match — and it never reaches the endpoint', async () => {
 		const { fetchFn, seen } = stubEndpoint(200, GOOD)
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const outcome = await login.completeWithPastedCode(`${CODE}#not-the-state-we-sent`)
 		expect(outcome.ok).toBe(false)
 		expect(seen.url).toBeUndefined()
@@ -229,7 +251,7 @@ describe('a failed sign-in leaves nothing behind', () => {
 
 	it('when the endpoint answers 200 with no token in it', async () => {
 		const { fetchFn } = stubEndpoint(200, { refresh_token: REFRESH })
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		const outcome = await login.completeWithPastedCode(`${CODE}#${state}`)
 		expect(outcome.ok).toBe(false)
@@ -238,7 +260,7 @@ describe('a failed sign-in leaves nothing behind', () => {
 
 	it('when the endpoint answers with something that is not JSON', async () => {
 		const { fetchFn } = stubEndpoint(200, '<html>gateway</html>')
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		const outcome = await login.completeWithPastedCode(`${CODE}#${state}`)
 		expect(outcome.ok).toBe(false)
@@ -249,7 +271,7 @@ describe('a failed sign-in leaves nothing behind', () => {
 		const fetchFn = (async () => {
 			throw new Error('getaddrinfo ENOTFOUND')
 		}) as unknown as typeof fetch
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		const outcome = await login.completeWithPastedCode(`${CODE}#${state}`)
 		expect(outcome.ok).toBe(false)
@@ -258,7 +280,7 @@ describe('a failed sign-in leaves nothing behind', () => {
 
 	it('when nothing usable was pasted', async () => {
 		const { fetchFn, seen } = stubEndpoint(200, GOOD)
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		for (const junk of ['', '   ', 'I signed in already', 'https://not a url']) {
 			expect((await login.completeWithPastedCode(junk)).ok).toBe(false)
 		}
@@ -284,7 +306,6 @@ describe('a failed sign-in leaves nothing behind', () => {
 		}) as typeof fetch
 		const login = await beginSubscriptionLogin({
 			home,
-			loopback: false,
 			fetch: fetchFn,
 			signal: controller.signal,
 		})
@@ -313,7 +334,6 @@ describe('a failed sign-in leaves nothing behind', () => {
 		}) as typeof fetch
 		const login = await beginSubscriptionLogin({
 			home,
-			loopback: false,
 			fetch: fetchFn,
 			signal: controller.signal,
 		})
@@ -349,7 +369,6 @@ describe('a failed sign-in leaves nothing behind', () => {
 		}) as typeof fetch
 		const login = await beginSubscriptionLogin({
 			home,
-			loopback: false,
 			fetch: fetchFn,
 			signal: controller.signal,
 		})
@@ -381,7 +400,7 @@ describe('a failed sign-in leaves nothing behind', () => {
 				},
 			} as unknown as Response
 		}) as typeof fetch
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		const completion = login.completeWithPastedCode(`${CODE}#${state}`)
 		await vi.waitFor(() => expect(bodyStarted).toBe(true))
@@ -414,7 +433,6 @@ describe('a failed sign-in leaves nothing behind', () => {
 			}) as Response) as typeof fetch
 		const login = await beginSubscriptionLogin({
 			home,
-			loopback: false,
 			fetch: fetchFn,
 			signal: controller.signal,
 		})
@@ -460,7 +478,7 @@ describe('no token is ever printed, logged, or put in a message', () => {
 			error_description: `token ${ACCESS} was already used`,
 			refresh_token: REFRESH,
 		})
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		const outcome = await login.completeWithPastedCode(`${CODE}#${state}`)
 
@@ -475,7 +493,7 @@ describe('no token is ever printed, logged, or put in a message', () => {
 
 	it('not in the outcome of a SUCCESSFUL login, whose message names only the path', async () => {
 		const { fetchFn } = stubEndpoint(200, GOOD)
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		const outcome = await login.completeWithPastedCode(`${CODE}#${state}`)
 		expect(outcome.ok).toBe(true)
@@ -485,7 +503,7 @@ describe('no token is ever printed, logged, or put in a message', () => {
 	})
 
 	it('and the authorization URL carries no secret either', async () => {
-		const login = await beginSubscriptionLogin({ home, loopback: false })
+		const login = await beginSubscriptionLogin({ home })
 		expect(login.url).not.toContain(ACCESS)
 		expect(login.url).not.toContain(REFRESH)
 		login.cancel()
@@ -493,7 +511,7 @@ describe('no token is ever printed, logged, or put in a message', () => {
 
 	it('the store file is the only place the secret exists', async () => {
 		const { fetchFn } = stubEndpoint(200, GOOD)
-		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const login = await beginSubscriptionLogin({ home, fetch: fetchFn })
 		const state = new URL(login.url).searchParams.get('state') as string
 		await login.completeWithPastedCode(`${CODE}#${state}`)
 		const dir = dirname(credentialsPath(home))
@@ -504,7 +522,7 @@ describe('no token is ever printed, logged, or put in a message', () => {
 	})
 })
 
-describe('waitForCallback', () => {
+describe('paste-only admission', () => {
 	it('does no work for a caller that already withdrew the attempt', async () => {
 		const controller = new AbortController()
 		const cause = new Error('already cancelled')
@@ -514,54 +532,11 @@ describe('waitForCallback', () => {
 		expect(readStoredSubscriptionCredential(home)).toBeNull()
 	})
 
-	it('releases a loopback bind cancelled before its handle is returned', async () => {
-		const controller = new AbortController()
-		const cause = new Error('cancelled during bind')
-		const pending = beginSubscriptionLogin({ home, signal: controller.signal })
-		controller.abort(cause)
-
-		await expect(pending).rejects.toBe(cause)
-	})
-
-	it('is null when no loopback listener was arranged, so nothing awaits forever', async () => {
-		const login = await beginSubscriptionLogin({ home, loopback: false })
-		expect(login.loopback).toBe(false)
-		expect(login.waitForCallback()).toBeNull()
-		login.cancel()
-	})
-
-	it('resolves to a refusal when the attempt is cancelled', async () => {
+	it('does not expose a listener API for the registered platform callback', async () => {
 		const login = await beginSubscriptionLogin({ home })
-		if (!login.loopback) {
-			// The port was busy on this machine; the claim under test needs the
-			// listener, and the paste path is covered above.
-			expect(login.waitForCallback()).toBeNull()
-			return
-		}
-		const pending = login.waitForCallback() as Promise<{ ok: boolean }>
+		expect(login.redirectUri).toBe(MANUAL_REDIRECT_URI)
+		expect('waitForCallback' in login).toBe(false)
 		login.cancel()
-		expect((await pending).ok).toBe(false)
-	})
-
-	it('lets the caller signal cancel a live listener', async () => {
-		const controller = new AbortController()
-		const login = await beginSubscriptionLogin({ home, signal: controller.signal })
-		if (!login.loopback) return
-		const pending = login.waitForCallback() as Promise<{ ok: boolean; reason?: string }>
-		controller.abort(new Error('left picker'))
-		const outcome = await pending
-		expect(outcome.ok).toBe(false)
-		expect(outcome.reason).toContain('cancelled')
-	})
-
-	it('does not bind twice — a second attempt degrades to paste-only', async () => {
-		const first = await beginSubscriptionLogin({ home })
-		if (!first.loopback) return
-		const second = await beginSubscriptionLogin({ home })
-		expect(second.loopback).toBe(false)
-		expect(second.waitForCallback()).toBeNull()
-		first.cancel()
-		second.cancel()
 	})
 })
 
@@ -574,8 +549,14 @@ describe('parsePastedInput', () => {
 	})
 
 	it('reads a query string on its own, with or without the leading question mark', () => {
-		expect(parsePastedInput('code=abc&state=xyz')).toEqual({ code: 'abc', state: 'xyz' })
-		expect(parsePastedInput('?code=abc&state=xyz')).toEqual({ code: 'abc', state: 'xyz' })
+		expect(parsePastedInput('code=abc&state=xyz')).toEqual({
+			code: 'abc',
+			state: 'xyz',
+		})
+		expect(parsePastedInput('?code=abc&state=xyz')).toEqual({
+			code: 'abc',
+			state: 'xyz',
+		})
 	})
 
 	it('reads the hash-joined pair a consent screen offers for copying', () => {
@@ -587,7 +568,10 @@ describe('parsePastedInput', () => {
 	})
 
 	it('trims what a terminal paste adds', () => {
-		expect(parsePastedInput('  abc#xyz \n')).toEqual({ code: 'abc', state: 'xyz' })
+		expect(parsePastedInput('  abc#xyz \n')).toEqual({
+			code: 'abc',
+			state: 'xyz',
+		})
 	})
 
 	it('finds no code in a sentence, rather than posting the sentence', () => {

@@ -86,7 +86,7 @@ describe("the status bar on a real screen", () => {
 		});
 		try {
 			expect(screen.row(-1)).toContain("Ctrl+C");
-			expect(screen.row(-1)).toContain("idle");
+			expect(screen.row(-1)).not.toContain("idle");
 		} finally {
 			await screen.unmount();
 		}

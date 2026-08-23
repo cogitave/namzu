@@ -218,22 +218,24 @@ describe('the expand key, on a body that is still on screen', () => {
 		// pads that much less, and the composer stops sitting where this feature
 		// exists to put it.
 		//
-		// The bar is not asked to be exactly on the bottom row: the spacer holds
+		// The composer is not asked to be exactly on the bottom row: the spacer holds
 		// back a safety margin by design, and the window's own height is
 		// deliberately over-counted on top of it, because over-padding is what
 		// pushes the composer out of view. The measured float is eleven rows —
 		// the margin plus the allowance on two windowed rows — against
-		// twenty-four when the window is counted twice.
+		// twenty-four when the window is counted twice. The persistent status row
+		// is intentionally absent while idle, so the composer's placeholder sits
+		// two rows above the old measurement point.
 		const screen = await aCollapsedBody()
 
 		const viewport = screen.viewport()
-		const bar = viewport.findIndex((line) => line.includes('Ctrl+C ×2 to exit'))
-		expect(bar, 'the status bar is not on screen').toBeGreaterThan(-1)
-		const fromBottom = viewport.length - 1 - bar
+		const composer = viewport.findIndex((line) => line.includes('Type a message'))
+		expect(composer, 'the composer is not on screen').toBeGreaterThan(-1)
+		const fromBottom = viewport.length - 1 - composer
 		expect(
 			fromBottom,
 			`the composer floated ${fromBottom} rows above the foot of the screen`,
-		).toBeLessThanOrEqual(SAFETY_ROWS + 6)
+		).toBeLessThanOrEqual(SAFETY_ROWS + 8)
 	}, 30_000)
 
 	it('still reaches the rows of the conversation after /clear-screen', async () => {

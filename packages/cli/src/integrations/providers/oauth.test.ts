@@ -53,8 +53,16 @@ const replaceClaude = vi.hoisted(() =>
 	vi.fn(
 		(
 			_path: string,
-			expected: { accessToken: string; refreshToken?: string; expiresAt?: number },
-			replacement: { accessToken: string; refreshToken?: string; expiresAt?: number },
+			expected: {
+				accessToken: string
+				refreshToken?: string
+				expiresAt?: number
+			},
+			replacement: {
+				accessToken: string
+				refreshToken?: string
+				expiresAt?: number
+			},
 		) => {
 			if (
 				!claudeOwner.current ||
@@ -349,7 +357,7 @@ describe('refreshAgentOAuthToken', () => {
 			grant_type: 'refresh_token',
 			refresh_token: 'rt-old',
 			scope:
-				'user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
+				'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',
 		})
 	})
 

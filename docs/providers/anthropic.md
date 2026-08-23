@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+timestamp: 2026-08-23T00:00:00Z
+lastReviewed: 2026-08-23
 resource: packages/providers/anthropic/src/client.ts
 tags: [provider, anthropic, reference]
 ---
@@ -34,6 +34,11 @@ Exactly one of `apiKey` or `authToken` must be set.
 Conventionally the key comes from `ANTHROPIC_API_KEY`. The kernel's credential
 vault can hold it instead, so it never has to reach the driver's config as a
 plain string.
+
+The OAuth branch also carries the beta, CLI application and user-agent identity
+required to route a plan-backed token as subscription inference. Those signals
+are not added to the API-key branch, whose requests retain normal Namzu
+attribution.
 
 They are mutually exclusive rather than merged: two credentials on one request
 means whichever the transport prefers decides which identity the call is billed

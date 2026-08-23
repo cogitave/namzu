@@ -58,6 +58,7 @@ import {
 	beginSubscriptionLogin,
 	clearAllStoredCredentials,
 	credentialsPath,
+	parsePastedInput,
 	primaryProvider,
 	readStoredCodexCredential,
 	readStoredSubscriptionCredential,
@@ -1149,15 +1150,17 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * nobody can see. Everything this path says goes into `pickerNotice`, which
 	 * the picker renders.
 	 *
-	 * It uses the browser route only. There is no paste input on this screen,
-	 * and rather than invent one — a second text field beside the credential
-	 * one, on the screen an operator reaches when they are already stuck — the
-	 * no-browser case is handed to `namzu login`, which reads the pasted
-	 * address from standard input and exists for exactly that machine.
+	 * The registered browser callback shows a code rather than returning to a
+	 * local listener. The picker therefore owns the matching paste field; sending a
+	 * first-run operator to another terminal would make the sign-in technically
+	 * started here but impossible to finish on the screen that started it.
 	 */
 	const startLoginFromPicker = useCallback(
-		async (provider: SubscriptionProviderId, signal: AbortSignal) => {
-			if (signal.aborted) return
+		async (
+			provider: SubscriptionProviderId,
+			signal: AbortSignal,
+		): Promise<'awaiting-input' | 'finished' | 'failed'> => {
+			if (signal.aborted) return 'failed'
 			cancelPendingLogin()
 			if (provider === 'codex') {
 				let start: CodexDeviceLogin
@@ -1169,11 +1172,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 							`Could not start Codex sign-in: ${error instanceof Error ? error.message : String(error)}`,
 						)
 					}
-					return
+					return 'failed'
 				}
 				if (signal.aborted) {
 					start.cancel()
-					return
+					return 'failed'
 				}
 				codexLoginRef.current = start
 				setPickerNotice(
@@ -1184,7 +1187,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 					}),
 				)
 				const outcome = await start.waitForCompletion()
-				if (codexLoginRef.current !== start || signal.aborted) return
+				if (codexLoginRef.current !== start || signal.aborted) return 'failed'
 				codexLoginRef.current = null
 				start.cancel()
 				setPickerNotice(describeLoginOutcome(outcome))
@@ -1192,21 +1195,21 @@ export function App({ ctx: initialCtx }: AppProps) {
 					setPickerInitialView('providers')
 					await runProbeRef.current?.(signal)
 				}
-				return
+				return 'finished'
 			}
 			let start: SubscriptionLogin
 			try {
 				start = await beginSubscriptionLogin({ signal })
 			} catch (err) {
-				if (signal.aborted) return
+				if (signal.aborted) return 'failed'
 				setPickerNotice(
 					`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
 				)
-				return
+				return 'failed'
 			}
 			if (signal.aborted) {
 				start.cancel()
-				return
+				return 'failed'
 			}
 			loginRef.current = start
 			const cancelForPicker = () => {
@@ -1219,36 +1222,47 @@ export function App({ ctx: initialCtx }: AppProps) {
 			signal.addEventListener('abort', cancelForPicker, { once: true })
 			if (signal.aborted) {
 				cancelForPicker()
-				return
+				return 'failed'
 			}
 			setPickerNotice(
 				describeLoginStart({
 					url: start.url,
-					loopback: start.loopback,
 					browserOpened: openInBrowser(start.url),
-					// Named for THIS screen. Telling someone at the picker to type a
-					// slash command is what made the feature unreachable; telling them
-					// to run a command in another terminal is something they can do
-					// from where they are sitting.
-					completionHint: 'run "namzu login" in a terminal and paste it there',
+					completionHint: 'paste it below and press enter',
 				}),
 			)
-			const waiting = start.waitForCallback()
-			if (!waiting) return
-			const outcome = await waiting
-			if (loginRef.current !== start || signal.aborted) return
+			return 'awaiting-input'
+		},
+		[cancelPendingLogin],
+	)
+
+	const finishLoginFromPicker = useCallback(
+		async (pasted: string, signal: AbortSignal): Promise<'retry' | 'finished'> => {
+			const pending = loginRef.current
+			if (!pending) {
+				setPickerNotice('There is no Claude sign-in waiting for this code. Start it again.')
+				return 'finished'
+			}
+			if (!parsePastedInput(pasted).code) {
+				setPickerNotice(
+					'That does not contain an authorization code. Paste the whole finished address, or the code Claude showed.',
+				)
+				return 'retry'
+			}
+			const outcome = await pending.completeWithPastedCode(pasted)
+			if (loginRef.current !== pending || signal.aborted) return 'finished'
 			loginRef.current = null
-			cleanup()
+			loginAbortCleanupRef.current?.()
 			loginAbortCleanupRef.current = null
-			start.cancel()
-			if (!outcome.ok && outcome.reason.includes('cancelled')) return
+			pending.cancel()
 			setPickerNotice(describeLoginOutcome(outcome))
 			if (outcome.ok) {
 				setPickerInitialView('providers')
 				await runProbeRef.current?.(signal)
 			}
+			return 'finished'
 		},
-		[cancelPendingLogin],
+		[],
 	)
 
 	const runProbe = useCallback(
@@ -3855,19 +3869,6 @@ export function App({ ctx: initialCtx }: AppProps) {
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	return (
 		<Box flexDirection="column">
-			{/* Before the chat is ready (trust / picker / probing) the banner
-			    lives in the live region. Once ready it moves into the <Static>
-			    transcript as row 0, so it prints once to the top of scrollback
-			    and messages flow beneath it (a live-region banner would be
-			    pushed down as static output accumulates above it). */}
-			{phase !== 'ready' ? (
-				<Banner
-					version={ctx.version}
-					session={session}
-					permissionMode={permissionMode}
-					cwd={ctx.cwd}
-				/>
-			) : null}
 			<Box flexDirection="column" paddingX={1}>
 				{phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
@@ -3885,7 +3886,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
 						onCredential={handleTypedCredential}
-						onLogin={(provider, signal) => void startLoginFromPicker(provider, signal)}
+						onLogin={startLoginFromPicker}
+						onLoginComplete={finishLoginFromPicker}
 						keyEntryFor={keyEntryFor}
 						notice={pickerNotice}
 					/>
@@ -4018,17 +4020,13 @@ export function App({ ctx: initialCtx }: AppProps) {
 											? 'compacting conversation — input is paused'
 											: permission
 												? hintForPhase(phase, state, session?.hasProvider === true)
-											: choicePicker
-												? 'choice open — ↑↓ / 1–9 select · enter apply · esc cancel'
-												: copyPicker
-													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
-													: goalStatus && phase === 'ready' && state === 'idle'
-														? undefined
-														: hintForPhase(
-																phase,
-																state,
-																session?.hasProvider === true,
-															)
+												: choicePicker
+													? 'choice open — ↑↓ / 1–9 select · enter apply · esc cancel'
+													: copyPicker
+														? 'copy target open — ↑↓ / 1–9 select · esc cancel'
+														: goalStatus && phase === 'ready' && state === 'idle'
+															? undefined
+															: hintForPhase(phase, state, session?.hasProvider === true)
 						}
 						usage={usage}
 						context={context}
@@ -4180,7 +4178,10 @@ function hintForPhase(
 	// permission gate in the key handler above.
 	if (state === 'awaiting-permission') return 'y approve · n / esc reject · a approve all'
 	if (state !== 'idle') return 'agent is working — esc to interrupt'
-	return '/help · Esc×2 edit previous · @file / Ctrl+V attach · Ctrl+C ×2 to exit'
+	// The composer already points to /help. Keeping the complete key legend in
+	// every idle frame made ordinary conversation read like a permanent setup
+	// screen; only state-specific actions belong in the footer.
+	return ''
 }
 
 function goalStatusLabel(goal: SessionGoal | null): string | null {

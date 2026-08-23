@@ -49,8 +49,9 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 0
 // Claude Code OAuth tokens are scoped to Claude Code usage. Anthropic
 // authorizes them only when three signals are all present, else 401:
 //   1. the OAuth beta headers,
-//   2. a `claude-cli/<version>` user-agent (version validated server-side),
-//   3. a system prompt whose first block is the Claude Code identity line.
+//   2. a `claude-code/<version>` user-agent (version validated server-side),
+//   3. the CLI application marker,
+//   4. a system prompt whose first block is the Claude Code identity line.
 const OAUTH_BETAS = 'claude-code-20250219,oauth-2025-04-20'
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude."
 const CLAUDE_CODE_VERSION_FALLBACK = '2.1.74'
@@ -832,20 +833,21 @@ export class AnthropicProvider implements LLMProvider {
 		if (config.authToken) {
 			clientOpts.authToken = config.authToken
 			// OAuth routes require both beta flags + a Claude Code user-agent;
-			// without them Anthropic rejects subscription / Claude Code OAuth
-			// tokens (intermittent 401/500). The system-prompt identity block
-			// is added per-request in buildCreateParams.
+			// without that identity the Messages endpoint does not admit the token
+			// as Claude Code subscription traffic. The system-prompt identity block
+			// is added per request in buildCreateParams.
 			const headers: Record<string, string> = {
 				'anthropic-beta': OAUTH_BETAS,
-				'user-agent': `claude-cli/${detectClaudeCodeVersion()} (external, cli)`,
+				'user-agent': `claude-code/${detectClaudeCodeVersion()} (external, cli)`,
+				'x-app': 'cli',
 				...(config.defaultHeaders ?? {}),
 			}
 			clientOpts.defaultHeaders = headers
 		} else {
 			clientOpts.apiKey = config.apiKey
 			// This branch ONLY. The OAuth branch above sends a Claude Code
-			// user-agent because the token-exchange endpoint requires it —
-			// that is load-bearing impersonation, and merging attribution
+			// user-agent because subscription inference requires it — that is
+			// load-bearing impersonation, and merging attribution
 			// into it would break authentication, not improve labelling.
 			clientOpts.defaultHeaders = {
 				...attributionHeaders(),

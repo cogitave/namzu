@@ -1,7 +1,8 @@
+import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 
 import { describeLoginOutcome, describeLoginStart } from '../../tui/login-prompt.js'
-import { loginCommand, logoutCommand, parseLoginFlags } from '../login.js'
+import { firstStdinLine, loginCommand, logoutCommand, parseLoginFlags } from '../login.js'
 
 describe('parseLoginFlags', () => {
 	it('defaults to launching a browser and waiting five minutes', () => {
@@ -35,6 +36,26 @@ describe('parseLoginFlags', () => {
 
 	it('refuses an unrecognised flag rather than ignoring it', () => {
 		expect(parseLoginFlags(['--code', 'abc']).unknown).toContain('--code')
+	})
+})
+
+describe('the pasted-code input boundary', () => {
+	it('ignores blank lines and returns the first real value', async () => {
+		const input = new PassThrough()
+		const line = firstStdinLine(new AbortController().signal, input)
+
+		input.write('\n  \nreturned-code\n')
+
+		await expect(line).resolves.toBe('returned-code')
+	})
+
+	it('reports a closed stream instead of letting the process exit as success', async () => {
+		const input = new PassThrough()
+		const line = firstStdinLine(new AbortController().signal, input)
+
+		input.end()
+
+		await expect(line).resolves.toBeNull()
 	})
 })
 
@@ -93,7 +114,6 @@ describe('a surface names its own spelling of the command', () => {
 	it('the completion hint is the surface’s own, not the chat’s', () => {
 		const terminal = describeLoginStart({
 			url: 'https://example.invalid/a',
-			loopback: true,
 			browserOpened: false,
 			completionHint: 'paste it here and press enter',
 		})
