@@ -133,7 +133,9 @@ Alt+Enter add a newline; Up/Down and Ctrl+P/Ctrl+N move between authored lines
 before crossing into prompt history, where returning to the newest entry
 restores the unsent draft. Ctrl+R searches matching prompts from newest to
 oldest, Ctrl+S walks back toward the draft, and Esc restores the exact text and
-cursor that started the search. Alt+B/F and modified arrows move by words,
+cursor that started the search. Direct shell resume and the in-TUI resume
+picker add restored operator-authored prompts to this history while keeping
+runtime context and automatic goal turns out. Alt+B/F and modified arrows move by words,
 Alt+Backspace/Alt+D delete words, and Ctrl+D deletes the next complete
 displayed character. Conversation rows flow
 downward from the banner while unused viewport

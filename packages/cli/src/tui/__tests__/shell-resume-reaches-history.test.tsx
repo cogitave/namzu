@@ -162,6 +162,45 @@ describe('the shell resume handoff inside App', () => {
 		}
 	})
 
+	it('hydrates Ctrl+R from authored prompts without exposing runtime context as input history', async () => {
+		loadResumableConversation.mockResolvedValue([
+			...existing,
+			{
+				role: 'user',
+				content: 'automatic continuation that was not typed',
+				timestamp: 3,
+				source: { type: 'runtime-context', kind: 'auto-continuation' },
+			},
+		])
+		const screen = await renderToScreen(
+			<App
+				ctx={{
+					cwd: '/workspace',
+					version: '0.0.0-test',
+					initialConversationId: 'ses_existing',
+				}}
+			/>,
+			{ cols: 100, rows: 24 },
+		)
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Connected to provider')),
+				'App never became ready',
+			)
+			screen.press('\x12')
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 1, 'recalled resumed prompt never ran')
+
+			expect(sent[0]?.at(-1)).toMatchObject({
+				role: 'user',
+				content: 'remember the blue door',
+			})
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('refuses a missing exact conversation before provider discovery or construction', async () => {
 		loadResumableConversation.mockRejectedValue(new Error('conversation was not found'))
 		const screen = await renderToScreen(

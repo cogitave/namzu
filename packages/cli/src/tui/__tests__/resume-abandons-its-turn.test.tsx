@@ -373,6 +373,19 @@ async function appendsReach(n: number, timeoutMs = 3_000): Promise<void> {
 }
 
 describe('/resume while a turn is running', () => {
+	it('adds the restored operator prompt to live composer history', async () => {
+		const harness = await pickerOpenMidTurn()
+
+		harness.stdin.write('\r')
+		await untilFrame(harness, 'RESTOREDANSWER', 'the selected conversation never opened')
+		harness.stdin.write('\x12')
+		await untilFrame(
+			harness,
+			'RESTOREDQUESTION▏',
+			'the restored operator prompt never entered composer history',
+		)
+	})
+
 	it('aborts it, keeps its output out of the resumed transcript, and saves it where it belongs', async () => {
 		const harness = await pickerOpenMidTurn()
 

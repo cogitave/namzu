@@ -275,6 +275,15 @@ function latestAssistantOutput(messages: readonly Message[]): string | null {
 	return null
 }
 
+/** Exact operator-authored prompts that belong in terminal input history. */
+export function promptHistoryFromConversation(messages: readonly Message[]): readonly string[] {
+	return messages.flatMap((message) =>
+		message.role === 'user' && !message.source && message.content.trim().length > 0
+			? [message.content]
+			: [],
+	)
+}
+
 /** Build the transcript projection of exact model-visible history. */
 export function projectConversation(
 	messages: readonly Message[],
@@ -1409,6 +1418,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				sessionId = asSessionId(requestedConversationId)
 				modelHistoryRef.current = restored
 				setMessages(projectConversation(restored, nextId))
+				setHistory(promptHistoryFromConversation(restored))
 				const persistedOutput = latestAssistantOutput(restored)
 				lastCompletedOutputRef.current = persistedOutput
 					? { text: persistedOutput, provenance: 'persisted' }
@@ -2131,6 +2141,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 			resetTranscript()
 			setMessages(restored)
 			modelHistoryRef.current = msgs
+			setHistory((previous) => [...previous, ...promptHistoryFromConversation(msgs)])
 			const persistedOutput = latestAssistantOutput(msgs)
 			lastCompletedOutputRef.current = persistedOutput
 				? { text: persistedOutput, provenance: 'persisted' }

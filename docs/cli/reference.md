@@ -422,7 +422,11 @@ case-insensitive substring search from the current draft and walks matching
 submissions from newest to oldest; Ctrl+S walks toward the original draft.
 Repeated keys use synchronous search state, and Esc restores the exact text and
 cursor that existed before search, including when search began from ordinary
-Up/Down history browsing. The slash
+Up/Down history browsing. Both `namzu resume <id>` and the in-TUI `/resume`
+picker append the restored conversation's operator-authored user messages to
+input history. User-role project instructions, automatic goal rounds and
+runtime context remain model history but are never offered as authored drafts.
+The slash
 palette gives descriptions the terminal width
 left after the longest visible command name and scrolls its six-row window so
 every matching command remains reachable with Up/Down. It prints the absolute
