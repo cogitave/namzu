@@ -1,5 +1,10 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { removeTempDir } from './__fixtures__/temp-dir.js'
 import { runCli } from './cli.js'
 
 describe('runCli', () => {
@@ -7,8 +12,10 @@ describe('runCli', () => {
 	let stderr: string
 	let originalStdoutWrite: typeof process.stdout.write
 	let originalStderrWrite: typeof process.stderr.write
+	let tempRoots: string[]
 
 	beforeEach(() => {
+		tempRoots = []
 		stdout = ''
 		stderr = ''
 		originalStdoutWrite = process.stdout.write.bind(process.stdout)
@@ -26,6 +33,7 @@ describe('runCli', () => {
 	afterEach(() => {
 		process.stdout.write = originalStdoutWrite
 		process.stderr.write = originalStderrWrite
+		for (const root of tempRoots) removeTempDir(root)
 	})
 
 	const invoke = (args: string[]) => runCli({ argv: ['node', 'namzu', ...args] })
@@ -90,26 +98,89 @@ describe('runCli', () => {
 		expect(stderr).toMatch(/unknown command|too many arguments/)
 	})
 
-	it('stub commands print a structured marker and exit 0', async () => {
-		const code = await invoke(['skills'])
+	function skillProject(contents: string): string {
+		const root = mkdtempSync(join(tmpdir(), 'namzu-cli-skills-'))
+		tempRoots.push(root)
+		mkdirSync(join(root, 'skills', 'release'), { recursive: true })
+		writeFileSync(join(root, 'skills', 'release', 'SKILL.md'), contents)
+		return root
+	}
+
+	it('skills discovers the trusted target instead of printing a milestone stub', async () => {
+		const cwd = skillProject(
+			'---\nname: release\ndescription: prepare a verified release\n---\n\nDo the work.',
+		)
+		const code = await invoke(['skills', '--cwd', cwd, '--trust'])
 		expect(code).toBe(0)
-		expect(stdout).toContain('M5')
-		expect(stdout).toContain('skills')
+		expect(stdout).toContain(`Skills available for ${cwd}`)
+		expect(stdout).toContain('release [project] — prepare a verified release')
+		expect(stdout).not.toContain('M5')
 	})
 
-	it('--format json renders stubs as JSON', async () => {
-		const code = await invoke(['--format', 'json', 'skills'])
-		expect(code).toBe(0)
-		const parsed = JSON.parse(stdout) as { stub: boolean; milestone: string }
-		expect(parsed.stub).toBe(true)
-		expect(parsed.milestone).toBe('M5')
+	it('skills refuses an untrusted target before reading its roster', async () => {
+		const cwd = skillProject(
+			'---\nname: should-not-leak\ndescription: this project is not trusted\n---\n\nBody.',
+		)
+		const code = await invoke(['skills', '--cwd', cwd])
+		expect(code).toBe(77)
+		expect(stdout).not.toContain('should-not-leak')
+		expect(stderr).toContain('folder nobody has trusted')
 	})
 
-	it('--format yaml renders stubs as YAML', async () => {
-		const code = await invoke(['--format', 'yaml', 'skills'])
+	it('--format json renders the discovered skill records', async () => {
+		const cwd = skillProject(
+			'---\nname: release\ndescription: prepare a verified release\n---\n\nDo the work.',
+		)
+		const code = await invoke(['--format', 'json', 'skills', '--cwd', cwd, '--trust'])
 		expect(code).toBe(0)
-		expect(stdout).toContain('stub: true')
-		expect(stdout).toContain('milestone: M5')
+		const parsed = JSON.parse(stdout) as {
+			cwd: string
+			count: number
+			skills: Array<{ name: string; source: string; usable: boolean }>
+		}
+		expect(parsed.cwd).toBe(cwd)
+		expect(parsed.count).toBeGreaterThanOrEqual(1)
+		expect(parsed.skills).toContainEqual(
+			expect.objectContaining({ name: 'release', source: 'project', usable: true }),
+		)
+	})
+
+	it('text output exposes project-controlled terminal controls as visible escapes', async () => {
+		const root = mkdtempSync(join(tmpdir(), 'namzu-cli-skills-controls-'))
+		tempRoots.push(root)
+		const unsafeName = 'unsafe\u001b\u202e'
+		mkdirSync(join(root, 'skills', unsafeName), { recursive: true })
+		writeFileSync(join(root, 'skills', unsafeName, 'SKILL.md'), 'Body without frontmatter.')
+
+		const code = await invoke(['skills', '--cwd', root, '--trust'])
+		expect(code).toBe(0)
+		expect(stdout).toContain('unsafe\\u{001b}\\u{202e}')
+		expect(stdout).not.toContain('\u001b')
+		expect(stdout).not.toContain('\u202e')
+	})
+
+	it('--format yaml keeps a refused skill visible with its reason', async () => {
+		const cwd = skillProject('---\nname: broken\ninvalid frontmatter')
+		const code = await invoke(['--format', 'yaml', 'skills', '--cwd', cwd, '--trust'])
+		expect(code).toBe(0)
+		expect(stdout).toContain('name: release')
+		// The directory name survives malformed frontmatter so one broken skill
+		// cannot erase the whole roster or its reason.
+		expect(stdout).toContain('usable: false')
+		expect(stdout).toContain('problem:')
+	})
+
+	it('skills refuses malformed arguments with EX_USAGE', async () => {
+		const code = await invoke(['skills', '--cwd'])
+		expect(code).toBe(64)
+		expect(stderr).toContain('--cwd requires a directory path')
+	})
+
+	it('skills --help documents discovery without crossing the project trust gate', async () => {
+		const code = await invoke(['skills', '--help'])
+		expect(code).toBe(0)
+		expect(stdout).toContain('Usage: namzu skills [--cwd <path>] [--trust]')
+		expect(stdout).toMatch(/Project\s+skills shadow user skills/)
 	})
 
 	it('doctor command pass-through preserves --help routing to the doctor', async () => {

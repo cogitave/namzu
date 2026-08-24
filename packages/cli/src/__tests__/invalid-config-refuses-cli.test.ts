@@ -48,7 +48,7 @@ function runCliProcess(
 
 describe('invalid explicit config reaches the real CLI refusal', () => {
 	it('rejects an invalid --format as usage before the command action runs', () => {
-		const result = runCliProcess(['--format', 'xml', 'skills'])
+		const result = runCliProcess(['--format', 'xml', 'serve'])
 
 		expect(result.status).toBe(64)
 		expect(result.stdout).toBe('')
@@ -56,7 +56,7 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 	})
 
 	it('maps an invalid environment setting to EX_CONFIG and names the variable', () => {
-		const result = runCliProcess(['skills'], { env: { NAMZU_FORMAT: 'xml' } })
+		const result = runCliProcess(['serve'], { env: { NAMZU_FORMAT: 'xml' } })
 
 		expect(result.status).toBe(78)
 		expect(result.stdout).toBe('')
@@ -67,7 +67,7 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 	it.each(['toString', 'constructor', '__proto__'])(
 		'refuses inherited profile name %s selected by --profile',
 		(name) => {
-			const result = runCliProcess(['--profile', name, 'skills'], {
+			const result = runCliProcess(['--profile', name, 'serve'], {
 				config: JSON.stringify({ profiles: { safe: { format: 'json' } } }),
 			})
 
@@ -80,7 +80,7 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 	it.each(['toString', 'constructor', '__proto__'])(
 		'refuses inherited profile name %s selected by NAMZU_PROFILE',
 		(name) => {
-			const result = runCliProcess(['skills'], {
+			const result = runCliProcess(['serve'], {
 				config: JSON.stringify({ profiles: { safe: { format: 'json' } } }),
 				env: { NAMZU_PROFILE: name },
 			})
@@ -92,11 +92,11 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 	)
 
 	it('selects an Object.prototype-shaped name when it is an own profile', () => {
-		const result = runCliProcess(['--profile', 'toString', 'skills'], {
+		const result = runCliProcess(['--profile', 'toString', 'serve'], {
 			config: '{"profiles":{"toString":{"format":"json"}}}',
 		})
 
 		expect(result.status).toBe(0)
-		expect(JSON.parse(result.stdout)).toMatchObject({ stub: true, milestone: 'M5' })
+		expect(result.stderr).toContain('namzu has no daemon')
 	})
 })

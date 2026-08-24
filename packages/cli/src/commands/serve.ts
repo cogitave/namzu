@@ -1,29 +1,4 @@
-/**
- * Stub commands that advertise the future surface of the CLI.
- *
- * Each stub corresponds to a milestone in the M0→M7 plan and exits 0 after
- * printing a structured marker. The implementations themselves land in
- * their respective milestone sessions (agent working memory, gitignored).
- */
-
-import type { CommandDef, CommandHandler } from './types.js'
-
-function stubHandler(milestone: string, what: string): CommandHandler {
-	return async ({ ctx }) => {
-		ctx.formatter.print({
-			stub: true,
-			milestone,
-			message: `${milestone} will implement ${what}.`,
-		})
-		return 0
-	}
-}
-
-export const skillsCommand: CommandDef = {
-	name: 'skills',
-	description: 'Manage agentskills.io-compatible skills (M5)',
-	handler: stubHandler('M5', 'the skills subsystem'),
-}
+import type { CommandDef } from './types.js'
 
 /**
  * Kept as a command rather than deleted, because someone typing it deserves an
@@ -45,5 +20,3 @@ export const serveCommand: CommandDef = {
 		return 0
 	},
 }
-
-export const stubCommands: readonly CommandDef[] = [skillsCommand, serveCommand]

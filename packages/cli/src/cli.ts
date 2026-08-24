@@ -28,7 +28,8 @@ import {
 	skillsJSONCommand,
 } from './commands/run-stream.js'
 import { runCommand } from './commands/run.js'
-import { stubCommands } from './commands/stubs.js'
+import { serveCommand } from './commands/serve.js'
+import { skillsCommand } from './commands/skills.js'
 import type { CommandContext } from './commands/types.js'
 import { upgradeCommand } from './commands/upgrade.js'
 import {
@@ -238,10 +239,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		evalCommand,
 		runStreamCommand,
 		historyCommand,
+		skillsCommand,
 		skillsJSONCommand,
 		providersJSONCommand,
 		upgradeCommand,
-		...stubCommands,
+		serveCommand,
 	]) {
 		registerAll(program, [def], {
 			getContext:
@@ -249,6 +251,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				def === runCommand ||
 				def === runStreamCommand ||
 				def === drainCommand ||
+				def === skillsCommand ||
 				def === upgradeCommand
 					? getBootstrapContext
 					: getContext,

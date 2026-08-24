@@ -598,6 +598,7 @@ refuses rather than choosing one lookalike source turn.
 | `namzu run <prompt…>` | One prompt, headless. The reply goes to stdout, status lines to stderr |
 | `namzu run-stream <prompt…>` | The same run, one JSON event per line, for a host UI that renders progress |
 | `namzu history --session <id>` | That session's persisted messages, as JSON |
+| `namzu skills [--cwd <path>] [--trust]` | List the usable and refused user/project skills available to that trusted working directory |
 | `namzu skills-json` | The skills discovered for a working directory, as JSON |
 | `namzu providers-json` | Providers and their per-provider models, as JSON |
 | `namzu doctor` | Health checks against this machine |
@@ -607,7 +608,6 @@ refuses rather than choosing one lookalike source turn.
 | `namzu eval` | Run eval suites and set an exit code |
 | `namzu acp` | Speak the agent-client protocol over this process's stdio |
 | `namzu serve` | Answers that there is no daemon: a run is an ordinary process |
-| `namzu skills` | **Not implemented.** Prints a marker naming the milestone that will implement it, rather than answering "unknown command" |
 
 `namzu upgrade --check` is read-only. Bare `namzu upgrade` recognizes the Unix
 and Windows npm-global layouts from the package root that is actually running,
