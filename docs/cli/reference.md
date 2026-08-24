@@ -548,6 +548,15 @@ OSC 52 has no portable acknowledgement, so success means only that the request
 was sent. A terminal, multiplexer or remote session policy may still ignore it,
 and the UI says so rather than claiming the clipboard changed.
 
+In rich transcript mode, Markdown web-link labels become OSC 8 hyperlinks only
+when Namzu recognizes a directly attached terminal family that supports them.
+Unknown terminals, non-TTY output, remote shells and multiplexers retain the
+destination beside the label as ordinary visible text. The click target is
+re-serialized from a bounded absolute HTTP(S) URL; relative paths, local-file
+links, other schemes and targets containing terminal or directional controls
+are never given terminal authority. This projection does not alter model
+history, raw mode, copy source or exported Markdown.
+
 **`/raw [on|off]` changes the retained transcript between rich and literal
 rendering.** Bare `/raw` toggles. Raw mode removes role glyphs and Markdown
 styling, preserves Markdown source markers, and prints complete tool bodies

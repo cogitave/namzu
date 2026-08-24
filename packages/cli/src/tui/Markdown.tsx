@@ -18,6 +18,7 @@ import { memo, useRef } from 'react'
 import { type BlockCache, createBlockCache } from './markdown-block-cache.js'
 import { type InlineSpan, type MdBlock, parseInline } from './markdownParser.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { terminalWebHyperlink } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
 
 const CODE_COLOR = theme.status.ok
@@ -25,6 +26,8 @@ const CODE_COLOR = theme.status.ok
 export interface MarkdownProps {
 	readonly text: string
 	readonly color?: string
+	/** Emit admitted HTTP(S) labels as OSC 8 links on a known-capable terminal. */
+	readonly hyperlinks?: boolean
 }
 
 /**
@@ -41,14 +44,20 @@ export interface MarkdownProps {
  * `markdown-block-cache.ts` for why the key is the block's raw text and why
  * the tail of the document is never stored.
  */
-export function Markdown({ text, color = theme.text.primary }: MarkdownProps) {
+export function Markdown({ text, color = theme.text.primary, hyperlinks = false }: MarkdownProps) {
 	const cache = useRef<BlockCache>(undefined)
 	cache.current ??= createBlockCache()
 	const blocks = cache.current.parse(terminalDisplayText(text))
 	return (
 		<Box flexDirection="column">
 			{blocks.map((block, i) => (
-				<BlockView key={`b-${i}`} block={block} prev={blocks[i - 1]} color={color} />
+				<BlockView
+					key={`b-${i}`}
+					block={block}
+					prev={blocks[i - 1]}
+					color={color}
+					hyperlinks={hyperlinks}
+				/>
 			))}
 		</Box>
 	)
@@ -67,10 +76,12 @@ const BlockView = memo(function BlockView({
 	block,
 	prev,
 	color,
+	hyperlinks,
 }: {
 	readonly block: MdBlock
 	readonly prev: MdBlock | undefined
 	readonly color: string
+	readonly hyperlinks: boolean
 }) {
 	// One blank line between blocks, except: nothing before the first block,
 	// and consecutive list items stay tight (no gap between bullets).
@@ -80,7 +91,7 @@ const BlockView = memo(function BlockView({
 			return (
 				<Box marginTop={gap}>
 					<Text bold color={block.level <= 2 ? theme.accent.user : color}>
-						<Inline spans={parseInline(block.text)} color={color} />
+						<Inline spans={parseInline(block.text)} color={color} hyperlinks={hyperlinks} />
 					</Text>
 				</Box>
 			)
@@ -93,7 +104,7 @@ const BlockView = memo(function BlockView({
 					</Box>
 					<Box flexGrow={1}>
 						<Text color={color} wrap="wrap">
-							<Inline spans={parseInline(block.text)} color={color} />
+							<Inline spans={parseInline(block.text)} color={color} hyperlinks={hyperlinks} />
 						</Text>
 					</Box>
 				</Box>
@@ -130,7 +141,7 @@ const BlockView = memo(function BlockView({
 			return (
 				<Box marginTop={gap}>
 					<Text color={color} wrap="wrap">
-						<Inline spans={parseInline(block.text)} color={color} />
+						<Inline spans={parseInline(block.text)} color={color} hyperlinks={hyperlinks} />
 					</Text>
 				</Box>
 			)
@@ -184,7 +195,15 @@ function TableView({
 	)
 }
 
-function Inline({ spans, color }: { readonly spans: readonly InlineSpan[]; readonly color: string }) {
+function Inline({
+	spans,
+	color,
+	hyperlinks,
+}: {
+	readonly spans: readonly InlineSpan[]
+	readonly color: string
+	readonly hyperlinks: boolean
+}) {
 	return (
 		<>
 			{spans.map((span, i) => {
@@ -196,14 +215,15 @@ function Inline({ spans, color }: { readonly spans: readonly InlineSpan[]; reado
 					)
 				}
 				if (span.link) {
+					const linkedLabel = hyperlinks ? terminalWebHyperlink(span.text, span.link) : null
 					// Link text in accent + underline; the URL trails dim unless it's
-					// identical to the text (e.g. a bare URL link).
+					// identical to the text or the terminal owns an admitted click target.
 					return (
 						<Text key={`s-${i}`}>
 							<Text color={theme.accent.user} underline>
-								{span.text}
+								{linkedLabel ?? span.text}
 							</Text>
-							{span.link !== span.text ? (
+							{!linkedLabel && span.link !== span.text ? (
 								<Text color={theme.text.muted}> ({span.link})</Text>
 							) : null}
 						</Text>

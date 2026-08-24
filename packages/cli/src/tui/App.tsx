@@ -117,6 +117,7 @@ import { ResumePicker } from './ResumePicker.js'
 import { type ContextFill, StatusBar } from './StatusBar.js'
 import { TextPrompt } from './TextPrompt.js'
 import { Transcript, willCollapse } from './Transcript.js'
+import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
 	type AgentEvent,
@@ -584,6 +585,7 @@ export function App({
 	}, [initialCtx])
 	const { exit } = useApp()
 	const { stdout, write: writeStdout } = useStdout()
+	const hyperlinks = terminalSupportsHyperlinks(process.env, stdout.isTTY === true)
 	/**
 	 * The last assistant message id the run reported, for `/feedback`.
 	 *
@@ -5127,6 +5129,7 @@ export function App({
 								settled={window.settled}
 								resetKey={resetKey}
 								raw={rawOutput}
+								hyperlinks={hyperlinks}
 								header={
 									phase === 'ready' ? (
 										<Banner

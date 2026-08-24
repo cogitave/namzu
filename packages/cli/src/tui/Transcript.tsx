@@ -41,6 +41,8 @@ export interface TranscriptProps {
 	readonly resetKey: number
 	/** Render selection-friendly source with terminal controls exposed as visible escapes. */
 	readonly raw?: boolean
+	/** Render admitted Markdown links as terminal hyperlinks. */
+	readonly hyperlinks?: boolean
 	/**
 	 * Header (banner) printed once as the first <Static> row. It must live
 	 * inside <Static> — Ink writes static output to scrollback *above* the
@@ -69,6 +71,7 @@ export function Transcript({
 	settled,
 	resetKey,
 	raw = false,
+	hyperlinks = false,
 	header,
 }: TranscriptProps) {
 	const spinner = useSpinner(state !== 'idle')
@@ -103,7 +106,13 @@ export function Transcript({
 					) : raw ? (
 						<RawMessageRow key={row.message.id} message={row.message} prev={row.prev} />
 					) : (
-						<MessageRow key={row.message.id} message={row.message} prev={row.prev} spinner="" />
+						<MessageRow
+							key={row.message.id}
+							message={row.message}
+							prev={row.prev}
+							spinner=""
+							hyperlinks={hyperlinks}
+						/>
 					)
 				}
 			</Static>
@@ -116,13 +125,19 @@ export function Transcript({
 						message={message}
 						prev={messages[inScrollback + i - 1]}
 						spinner=""
+						hyperlinks={hyperlinks}
 					/>
 				),
 			)}
 			{pending && raw ? (
 				<RawMessageRow message={pending} prev={messages[messages.length - 1]} />
 			) : pending ? (
-				<MessageRow message={pending} prev={messages[messages.length - 1]} spinner={spinner} />
+				<MessageRow
+					message={pending}
+					prev={messages[messages.length - 1]}
+					spinner={spinner}
+					hyperlinks={hyperlinks}
+				/>
 			) : null}
 			{messages.length === 0 && !pending ? (
 				<Box paddingY={1}>
@@ -190,10 +205,12 @@ function MessageRow({
 	message,
 	prev,
 	spinner,
+	hyperlinks,
 }: {
 	readonly message: TranscriptMessage
 	readonly prev: TranscriptMessage | undefined
 	readonly spinner: string
+	readonly hyperlinks: boolean
 }) {
 	// Assistant content is projected inside <Markdown>, its actual renderer.
 	// The other roles flow straight into Ink here and need the projection now.
@@ -217,7 +234,11 @@ function MessageRow({
 				</Box>
 				<Box flexGrow={1}>
 					{message.role === 'assistant' && content.length > 0 ? (
-						<Markdown text={message.content} color={contentColorForRole(message.role)} />
+						<Markdown
+							text={message.content}
+							color={contentColorForRole(message.role)}
+							hyperlinks={hyperlinks}
+						/>
 					) : (
 						<Text color={contentColorForRole(message.role)} wrap="wrap">
 							{content}

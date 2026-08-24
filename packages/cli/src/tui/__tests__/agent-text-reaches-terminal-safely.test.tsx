@@ -15,6 +15,10 @@ const UNSAFE = `SOURCE${BEL} bell ${CSI}31m colour ${BIDI}reordered`
 const VISIBLE = 'SOURCE\\u{0007} bell \\u{009b}31m colour \\u{202e}reordered'
 const PROGRESS_UNSAFE = `PROGRESS${BEL}${CSI}${BIDI}compiled 40/120`
 const PROGRESS_VISIBLE = 'PROGRESS\\u{0007}\\u{009b}\\u{202e}compiled 40/120'
+const LINK_TARGET = 'https://docs.example.test/guide'
+const LINK_LABEL = 'operator guide'
+const LINK_OSC = `\u001b]8;;${LINK_TARGET}\u001b\\${LINK_LABEL}\u001b]8;;\u001b\\`
+const LOCAL_TARGET = 'file:///tmp/private'
 const REQUEST: PermissionRequest = Object.freeze({
 	toolCalls: Object.freeze([
 		Object.freeze({
@@ -81,7 +85,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			send: async function* (_messages, options): AsyncIterable<AgentEvent> {
-				yield { kind: 'delta', text: 'permission follows' } as AgentEvent
+				yield {
+					kind: 'delta',
+					text: `permission follows — [${LINK_LABEL}](${LINK_TARGET}) and [local](${LOCAL_TARGET})\n\n`,
+				} as AgentEvent
+				// Real stream chunks arrive across async pulls. Let Ink publish this
+				// one before the permission callback temporarily owns the viewport.
+				await new Promise<void>((resolve) => setImmediate(resolve))
 				const decision = await options?.onPermission?.(REQUEST)
 				if (!decision || decision.kind === 'reject') return
 				yield {
@@ -122,6 +132,12 @@ let mounted: Screen | null = null
 beforeEach(() => {
 	releaseLiveTool = null
 	nowMs = 1_000_000
+	vi.stubEnv('TERM_PROGRAM', 'WezTerm')
+	vi.stubEnv('TERM', 'xterm-256color')
+	vi.stubEnv('TMUX', '')
+	vi.stubEnv('STY', '')
+	vi.stubEnv('SSH_TTY', '')
+	vi.stubEnv('SSH_CONNECTION', '')
 	vi.spyOn(Date, 'now').mockImplementation(() => nowMs)
 })
 
@@ -129,6 +145,7 @@ afterEach(async () => {
 	releaseLiveTool?.()
 	await mounted?.unmount()
 	mounted = null
+	vi.unstubAllEnvs()
 	vi.restoreAllMocks()
 })
 
@@ -164,6 +181,10 @@ it('escapes permission, live-tool and transcript output while preserving the req
 
 	await submit(screen, 'run the proposed call')
 	await waitUntil(screen, () => painted(screen).includes('wants to run'))
+	expect(screen.writes().join('')).toContain(LINK_OSC)
+	expect(painted(screen)).toContain(LINK_LABEL)
+	expect(painted(screen)).not.toContain(`(${LINK_TARGET})`)
+	expect(painted(screen)).toContain(`local (${LOCAL_TARGET})`)
 	expect(painted(screen)).toContain(VISIBLE)
 	expectNoAgentControls(screen)
 	expect(REQUEST).toEqual(REQUEST_SOURCE)
@@ -179,5 +200,33 @@ it('escapes permission, live-tool and transcript output while preserving the req
 	await waitUntil(screen, () => painted(screen).includes(`✓ Bash(${VISIBLE})`))
 	expect(painted(screen)).toContain(VISIBLE)
 	expectNoAgentControls(screen)
+	expect(REQUEST).toEqual(REQUEST_SOURCE)
+})
+
+it('keeps the destination visible when the terminal path is not known to support links', async () => {
+	vi.stubEnv('TERM_PROGRAM', 'Apple_Terminal')
+	vi.stubEnv('TERM', 'xterm-256color')
+	for (const name of [
+		'WT_SESSION',
+		'KITTY_WINDOW_ID',
+		'KONSOLE_VERSION',
+		'VTE_VERSION',
+		'ALACRITTY_SOCKET',
+		'GHOSTTY_RESOURCES_DIR',
+	]) {
+		vi.stubEnv(name, '')
+	}
+
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 180,
+		rows: 32,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
+	await submit(screen, 'run the proposed call')
+	await waitUntil(screen, () => painted(screen).includes('wants to run'))
+
+	expect(screen.writes().join('')).not.toContain('\u001b]8;;')
+	expect(painted(screen)).toContain(`${LINK_LABEL} (${LINK_TARGET})`)
 	expect(REQUEST).toEqual(REQUEST_SOURCE)
 })

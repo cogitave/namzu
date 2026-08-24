@@ -171,6 +171,11 @@ root are not inlined. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
 boot and sandbox diagnostics are reserved for crashes.
 
+Markdown web-link labels are clickable on terminals whose OSC 8 support Namzu
+can identify. Unknown terminals, remote shells and multiplexers retain the
+destination beside the label as visible text. Only absolute HTTP(S) targets are
+admitted; local files and other schemes remain non-clickable and visible.
+
 The buffered capability summary reports the capabilities attached to the live
 session. In particular, `sandbox yes` describes the local runtime provider that
 will execute tools; it is independent of the optional-package installation row
