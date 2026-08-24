@@ -9,7 +9,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentSession } from '../agent.js'
+import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -18,6 +18,25 @@ const PREFS: Preferences = {
 	providers: [{ id: 'openai' }],
 	subagents: { active: [] },
 }
+
+const feedback = vi.hoisted(() => ({ writes: [] as Record<string, unknown>[] }))
+
+vi.mock('@namzu/sdk', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('@namzu/sdk')>()
+	return {
+		...actual,
+		DiskMessageFeedbackStore: class {
+			async listMessageFeedback() {
+				return []
+			}
+
+			async putMessageFeedback(input: Record<string, unknown>) {
+				feedback.writes.push(input)
+				return { ...input, ownerVersion: 1 }
+			}
+		},
+	}
+})
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -69,7 +88,15 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('not used by the picker test')
 			},
 			close: async () => {},
-			send: async function* () {},
+			send: async function* () {
+				yield {
+					kind: 'delta',
+					text: 'A completed answer with an exact feedback identity.',
+					runId: 'run_feedback',
+					messageId: 'msg_feedback',
+				} as AgentEvent
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
 		}),
 	}
 })
@@ -81,6 +108,7 @@ let mounted: Screen | null = null
 afterEach(async () => {
 	await mounted?.unmount()
 	mounted = null
+	feedback.writes.length = 0
 })
 
 async function waitUntil(screen: Screen, predicate: () => boolean, attempts = 80): Promise<void> {
@@ -122,4 +150,39 @@ it('paints /permissions choices before a later key can select one', async () => 
 	await waitUntil(screen, () => painted(screen).includes('Permission mode changed to strict'))
 	output = painted(screen)
 	expect(output.match(/Permission mode changed to strict/g)).toHaveLength(1)
+})
+
+it('opens bare /feedback as a finite chooser for the completed answer', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+
+	screen.press('answer me')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('exact feedback identity'))
+
+	screen.press('/feedback')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Rate the latest answer'))
+
+	const output = screen.viewport().join('\n')
+	expect(output).toContain('good')
+	expect(output).toContain('The answer was useful and correct.')
+	expect(output).toContain('bad')
+	expect(output).toContain('The answer needs improvement.')
+
+	screen.press('\r')
+	await waitUntil(screen, () => feedback.writes.length === 1)
+	expect(feedback.writes).toEqual([
+		expect.objectContaining({
+			runId: 'run_feedback',
+			messageId: 'msg_feedback',
+			rating: 'good',
+		}),
+	])
 })

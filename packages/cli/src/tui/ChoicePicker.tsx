@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink'
 
+import { selectionWindow } from './selection-window.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -18,9 +19,7 @@ export interface ChoicePickerProps {
 
 /** Finite command chooser; App owns keys and applies the selected authority. */
 export function ChoicePicker({ title, notice, options, selected }: ChoicePickerProps) {
-	const windowSize = 7
-	const start = Math.max(0, Math.min(selected - 3, options.length - windowSize))
-	const visible = options.slice(start, start + windowSize)
+	const { start, items: visible } = selectionWindow(options, selected)
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">

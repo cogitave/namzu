@@ -180,6 +180,15 @@ type ChoicePickerState =
 			readonly values: readonly (ReasoningEffort | undefined)[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
+	| {
+			readonly kind: 'feedback-rating'
+			readonly title: string
+			readonly notice?: string
+			readonly runId: string
+			readonly messageId: string
+			readonly values: readonly ('good' | 'bad')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
 
 /**
  * The streaming assistant bubble, carried across events within one turn.
@@ -960,6 +969,42 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 		[hasUnsettledTurn, pushMessage, session, setReasoningEffort, state],
 	)
 
+	const recordFeedback = useCallback(
+		(runIdValue: string, messageIdValue: string, rating: 'good' | 'bad', note?: string) => {
+			// Written under the same `<cwd>/.namzu` root the runs live in, so a
+			// rating and the transcript it judges travel together.
+			const store = new DiskMessageFeedbackStore({
+				rootDir: join(ctx.cwd, '.namzu', 'feedback'),
+				runsDir: join(ctx.cwd, '.namzu', 'runs'),
+			})
+			const runId = runIdValue as RunId
+			const messageId = messageIdValue as MessageId
+			void (async () => {
+				try {
+					// A later rating replaces the first. Read-then-write preserves the
+					// store's owner-version collision check instead of blind overwrite.
+					const current = (await store.listMessageFeedback({ runId })).find(
+						(record) => record.messageId === messageId,
+					)
+					const record = await store.putMessageFeedback({
+						runId,
+						messageId,
+						rating,
+						...(note ? { note } : {}),
+						expectedVersion: current?.ownerVersion ?? 0,
+					})
+					pushMessage('system', `Recorded ${record.rating} for ${record.messageId}.`)
+				} catch (error) {
+					pushMessage(
+						'system',
+						`Could not record feedback: ${error instanceof Error ? error.message : String(error)}`,
+					)
+				}
+			})()
+		},
+		[ctx.cwd, pushMessage],
+	)
+
 	const applyChoiceSelection = useCallback(
 		(index: number): void => {
 			const picker = choicePickerRef.current
@@ -971,9 +1016,13 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				applyPermissionMode(value as PermissionMode)
 				return
 			}
+			if (picker.kind === 'feedback-rating') {
+				recordFeedback(picker.runId, picker.messageId, value as 'good' | 'bad')
+				return
+			}
 			applyReasoningEffort(value as ReasoningEffort | undefined)
 		},
-		[applyPermissionMode, applyReasoningEffort, setChoicePicker],
+		[applyPermissionMode, applyReasoningEffort, recordFeedback, setChoicePicker],
 	)
 
 	const sendCopyRequest = useCallback(
@@ -3227,48 +3276,34 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 						})()
 						return
 					}
-					case 'feedback': {
+					case 'feedback-picker': {
 						const target = lastAssistantMessage.current
-						// Written under the same `<cwd>/.namzu` root the runs live
-						// in, so a rating and the transcript it judges are one
-						// directory apart and travel together.
-						if (!target) {
+						if (!target || target.messageId !== slash.messageId) {
 							pushMessage('system', 'Nothing to rate yet.')
 							return
 						}
-						const store = new DiskMessageFeedbackStore({
-							rootDir: join(ctx.cwd, '.namzu', 'feedback'),
-							runsDir: join(ctx.cwd, '.namzu', 'runs'),
+						const values = ['good', 'bad'] as const
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'feedback-rating',
+							title: 'Rate the latest answer',
+							runId: target.runId,
+							messageId: target.messageId,
+							values,
+							options: [
+								{ label: 'good', description: 'The answer was useful and correct.' },
+								{ label: 'bad', description: 'The answer needs improvement.' },
+							],
 						})
-						const runId = target.runId as RunId
-						const messageId = slash.messageId as MessageId
-						// Fire-and-forget: this switch is synchronous, and the
-						// transcript reports the outcome either way rather than
-						// blocking a keystroke on a disk write.
-						void (async () => {
-							try {
-								// A first rating expects nothing; a second replaces the
-								// first, which is what a rater changing their mind does.
-								// Read-then-write rather than blind overwrite, so two
-								// raters on one message still collide loudly.
-								const current = (await store.listMessageFeedback({ runId })).find(
-									(r) => r.messageId === messageId,
-								)
-								const record = await store.putMessageFeedback({
-									runId,
-									messageId,
-									rating: slash.rating,
-									...(slash.note ? { note: slash.note } : {}),
-									expectedVersion: current?.ownerVersion ?? 0,
-								})
-								pushMessage('system', `Recorded ${record.rating} for ${record.messageId}.`)
-							} catch (err) {
-								pushMessage(
-									'system',
-									`Could not record feedback: ${err instanceof Error ? err.message : String(err)}`,
-								)
-							}
-						})()
+						return
+					}
+					case 'feedback': {
+						const target = lastAssistantMessage.current
+						if (!target || target.messageId !== slash.messageId) {
+							pushMessage('system', 'Nothing to rate yet.')
+							return
+						}
+						recordFeedback(target.runId, slash.messageId, slash.rating, slash.note)
 						return
 					}
 					case 'review': {

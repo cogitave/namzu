@@ -54,6 +54,8 @@ export type SlashAction =
 	| { kind: 'reasoning-effort'; effort: ReasoningEffort | null }
 	/** Open the current model's finite reasoning-effort chooser. */
 	| { kind: 'reasoning-effort-picker' }
+	/** Open the finite good/bad chooser for one exact assistant message. */
+	| { kind: 'feedback-picker'; messageId: string }
 	| { kind: 'remember'; text: string }
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
@@ -509,8 +511,18 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'feedback',
-		description: 'Rate the last answer: /feedback good|bad [note].',
+		description: 'Rate the last answer; choose good/bad or add an optional note.',
 		action: (ctx, args) => {
+			if (args.length === 0) {
+				const messageId = ctx.lastAssistantMessageId()
+				return messageId
+					? { kind: 'feedback-picker', messageId }
+					: {
+							kind: 'message',
+							role: 'system',
+							content: 'Nothing to rate yet — /feedback applies to the last answer in this run.',
+						}
+			}
 			const [rating, ...rest] = args
 			if (rating !== 'good' && rating !== 'bad') {
 				return {

@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink'
 
 import type { CopyResponseTarget } from './copy-targets.js'
+import { selectionWindow } from './selection-window.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -11,9 +12,7 @@ export interface CopyPickerProps {
 
 /** Source-target chooser; App owns keys, clipboard output and queue admission. */
 export function CopyPicker({ targets, selected }: CopyPickerProps) {
-	const windowSize = 7
-	const start = Math.max(0, Math.min(selected - 3, targets.length - windowSize))
-	const visible = targets.slice(start, start + windowSize)
+	const { start, items: visible } = selectionWindow(targets, selected)
 	return (
 		<Box
 			flexDirection="column"

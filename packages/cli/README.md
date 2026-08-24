@@ -96,11 +96,13 @@ API keys remain optional alternatives through environment variables or the
 session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
 
-Bare `/effort` and `/permissions` open finite keyboard choosers; their argument
-forms remain available for scripts. The footer keeps `model effort · cwd` on the
-left and reserves the right edge for a state-specific interaction or durable
-goal state. Idle conversation leaves the key legend to `/help` instead of
-repeating it on every frame.
+Bare `/effort`, `/permissions`, and `/feedback` open finite keyboard choosers;
+their argument forms remain available for scripts. Long model and resume lists
+keep a seven-row window around the active choice and show its absolute position,
+so arrow navigation never moves the selection beyond the visible terminal. The
+footer keeps `model effort · cwd` on the left and reserves the right edge for a
+state-specific interaction or durable goal state. Idle conversation leaves the
+key legend to `/help` instead of repeating it on every frame.
 
 While a turn runs, Return steers that turn at the next model-safe response
 boundary and Tab queues a separate follow-up; at idle either key starts the

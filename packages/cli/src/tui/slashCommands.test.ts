@@ -853,6 +853,13 @@ describe('/feedback', () => {
 			args,
 		)
 
+	it('opens a finite chooser on the exact latest message when no rating is typed', () => {
+		expect(run([], 'msg_42')).toEqual({
+			kind: 'feedback-picker',
+			messageId: 'msg_42',
+		})
+	})
+
 	it('names the message it is rating', () => {
 		// The id comes from the command, not from App re-deriving it later.
 		// Re-deriving would open a window where the answer moved between the
@@ -883,14 +890,17 @@ describe('/feedback', () => {
 		expect((result as { content: string }).content).toMatch(/Nothing to rate/)
 	})
 
+	it('also refuses the bare chooser when there is no answer yet', () => {
+		const result = run([], null)
+
+		expect(result?.kind).toBe('message')
+		expect((result as { content: string }).content).toMatch(/Nothing to rate/)
+	})
+
 	it('refuses a rating that is not one of the two', () => {
 		const result = run(['meh'], 'msg_42')
 
 		expect(result?.kind).toBe('message')
 		expect((result as { content: string }).content).toMatch(/good\|bad/)
-	})
-
-	it('refuses an empty argument list', () => {
-		expect(run([], 'msg_42')?.kind).toBe('message')
 	})
 })

@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink'
 
 import type { EditablePrompt } from './edit-prompts.js'
+import { selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
 
 export interface EditPromptPickerProps {
@@ -10,9 +11,7 @@ export interface EditPromptPickerProps {
 
 /** Bounded preview for choosing the source-preserving prompt-edit boundary. */
 export function EditPromptPicker({ prompts, selected }: EditPromptPickerProps) {
-	const windowSize = 7
-	const start = Math.max(0, Math.min(selected - 3, prompts.length - windowSize))
-	const visible = prompts.slice(start, start + windowSize)
+	const { start, items: visible } = selectionWindow(prompts, selected)
 	return (
 		<Box
 			flexDirection="column"

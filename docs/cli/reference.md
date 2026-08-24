@@ -132,6 +132,16 @@ before the replacement session or any paused queue is released; a failed or
 cancelled selection keeps the current session and its effort unchanged.
 Subagents and manual compaction continue to use their own provider defaults.
 
+Bare `/feedback` opens a `good`/`bad` chooser for the exact latest completed
+assistant message. `/feedback good|bad [note]` remains the direct form when a
+note is useful. The chooser captures the run and message identity when it opens,
+so an answer that settles later cannot move the rating to another message.
+
+Finite overlays render at most seven choices around their absolute cursor.
+Model catalogues and the fifty-entry recent-conversation index therefore keep
+the active row visible as arrow navigation crosses a page; the position counter
+continues to describe the complete list rather than the visible slice.
+
 The one-line footer keeps the active model, reasoning effort and working
 directory on the left. A durable goal state or a state-specific interaction hint
 owns the right edge, so a deep path cannot hide `Goal stalled (/goal resume)` or

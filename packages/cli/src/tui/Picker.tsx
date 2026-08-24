@@ -29,6 +29,7 @@ import {
 	sessionCredential,
 } from './credential-entry.js'
 import { type ModelStep, modelStep } from './model-choices.js'
+import { selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
 
 export interface PickerProps {
@@ -906,13 +907,21 @@ function ModelStepView({
 	readonly cursor: number
 	readonly errorHint: string | null
 }) {
+	const window = step ? selectionWindow(step.choices, cursor) : null
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-			<Box flexDirection="column" paddingBottom={1}>
-				<Text color={theme.accent.system} bold>
-					Choose a model
-				</Text>
-				<Text color={theme.text.muted}>{providerLabel}</Text>
+			<Box justifyContent="space-between" paddingBottom={1}>
+				<Box flexDirection="column">
+					<Text color={theme.accent.system} bold>
+						Choose a model
+					</Text>
+					<Text color={theme.text.muted}>{providerLabel}</Text>
+				</Box>
+				{step && step.choices.length > 0 ? (
+					<Text color={theme.text.muted}>
+						{cursor + 1}/{step.choices.length}
+					</Text>
+				) : null}
 			</Box>
 			{step === undefined ? (
 				<Text color={theme.text.muted}>Asking {providerLabel} what it has…</Text>
@@ -924,13 +933,19 @@ function ModelStepView({
 						</Box>
 					) : null}
 					<Box flexDirection="column">
-						{step.choices.map((c, i) => (
-							<Text key={c.id} color={i === cursor ? theme.accent.system : theme.text.primary}>
-								{i === cursor ? '❯ ' : '  '}
-								{i + 1}. {c.label}
-								{c.note ? ` ${c.note}` : ''}
-							</Text>
-						))}
+						{window?.items.map((c, visibleIndex) => {
+							const index = window.start + visibleIndex
+							return (
+								<Text
+									key={c.id}
+									color={index === cursor ? theme.accent.system : theme.text.primary}
+								>
+									{index === cursor ? '❯ ' : '  '}
+									{index + 1}. {c.label}
+									{c.note ? ` ${c.note}` : ''}
+								</Text>
+							)
+						})}
 					</Box>
 				</>
 			)}
