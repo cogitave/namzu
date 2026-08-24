@@ -139,6 +139,12 @@ the key needed to leave a prompt. The idle footer does not repeat a permanent
 key legend; the composer points to `/help`, while pickers and approval screens
 name the keys that are active there.
 
+While a tool is running, its live row shows the newest progress message and,
+when the tool knows it, a percentage. Progress is bounded and coalesced under a
+slow terminal rather than queued without limit; it is escaped at the terminal
+boundary and disappears with the matching completed call. The complete tool
+result remains in the transcript independently of this live projection.
+
 The provider picker owns the asynchronous work started by the current choice.
 Escaping, choosing again or leaving the screen cancels model discovery,
 credential verification and subscription sign-in; a result that arrives later

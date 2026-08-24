@@ -17,6 +17,9 @@ export interface ActiveTool {
 	/** Display label, e.g. `Bash(npm test)`. */
 	readonly label: string
 	readonly startedAt: number
+	/** Latest bounded progress state; intermediate updates are intentionally coalesced. */
+	readonly progress?: string
+	readonly fraction?: number
 }
 
 export interface LiveActivityProps {
@@ -37,17 +40,30 @@ export function LiveActivity({ activeTools, thinking }: LiveActivityProps) {
 	if (activeTools.length > 0) {
 		return (
 			<Box flexDirection="column">
-				{activeTools.map((t) => (
-					<Box key={t.id} flexDirection="row">
-						<Box width={2} flexShrink={0}>
-							<Text color={theme.accent.tool}>{spinner}</Text>
+				{activeTools.map((t) => {
+					const percent = t.fraction === undefined ? '' : `${Math.round(t.fraction * 100)}% · `
+					return (
+						<Box key={t.id} flexDirection="column">
+							<Box flexDirection="row">
+								<Box width={2} flexShrink={0}>
+									<Text color={theme.accent.tool}>{spinner}</Text>
+								</Box>
+								<Text color={theme.text.secondary} wrap="truncate-end">
+									{terminalDisplayText(t.label)}
+									<Text color={theme.text.muted}> · {formatElapsed(now - t.startedAt)}</Text>
+								</Text>
+							</Box>
+							{t.progress !== undefined ? (
+								<Box flexDirection="row" paddingLeft={2}>
+									<Text color={theme.text.muted} wrap="truncate-end">
+										{percent}
+										{terminalDisplayText(t.progress)}
+									</Text>
+								</Box>
+							) : null}
 						</Box>
-						<Text color={theme.text.secondary} wrap="truncate-end">
-							{terminalDisplayText(t.label)}
-							<Text color={theme.text.muted}> · {formatElapsed(now - t.startedAt)}</Text>
-						</Text>
-					</Box>
-				))}
+					)
+				})}
 			</Box>
 		)
 	}

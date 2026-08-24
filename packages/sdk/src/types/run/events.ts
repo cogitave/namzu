@@ -334,7 +334,10 @@ type CoreRunEvent =
 	 * duration: the host could show that a tool had started and then nothing
 	 * at all until it either finished or timed out. The model never sees
 	 * these; they answer "is it still working?", which is a question only a
-	 * human asks.
+	 * human asks. It is latest state rather than a lossless log: the executor
+	 * bounds each UTF-8 message and coalesces intermediate updates when the
+	 * live consumer falls behind. Complete output belongs to the terminal
+	 * `tool_completed` result.
 	 */
 	| {
 			type: 'tool_progress'

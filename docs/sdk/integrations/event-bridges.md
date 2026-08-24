@@ -6,8 +6,8 @@ type: Guide
 diataxis: explanation
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-09T00:00:00Z
-lastReviewed: 2026-08-16
+timestamp: 2026-08-24T00:00:00Z
+lastReviewed: 2026-08-24
 tags: [sdk]
 ---
 
@@ -118,6 +118,13 @@ things arrive that way:
   transient write failure, and no retry or reconnect will produce one.
 
 A client must not advance its cursor onto any of them.
+
+`tool.progress` is a bounded latest-state signal, not a lossless output log.
+Each message is at most 8 KiB of UTF-8; when a live consumer is slower than the
+tool, intermediate pending updates are replaced by the newest one. Every update
+the executor accepted settles before that call's `tool.completed` event. Put
+complete output in the tool result and recover it from the durable terminal
+event; reconnect never replays progress.
 
 It is keyed on the event's **own** run, not on the stream it arrives on. A
 parent's stream carries its children's events and each run numbers its own log,

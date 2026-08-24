@@ -7,12 +7,16 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import type { SessionId, TenantId } from '../../../types/ids/index.js'
+import { ActivityStore } from '../../../store/activity/memory.js'
+import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import { isEphemeralEvent } from '../../../types/run/events.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
+import { NOOP_LOGGER } from '../../../utils/log/create-logger.js'
+import { ToolExecutor } from '../executor.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -40,7 +44,7 @@ function reportingTool(report: (ctx: ToolContext) => void): ToolDefinition {
 	} as unknown as ToolDefinition
 }
 
-async function run(tool: ToolDefinition) {
+async function run(tool: ToolDefinition, observe?: (event: RunEvent) => void | Promise<void>) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-progress-'))
 	dirs.push(workingDirectory)
 
@@ -70,8 +74,9 @@ async function run(tool: ToolDefinition) {
 			projectId: 'prj_p' as ProjectId,
 			tenantId: 'tnt_p' as TenantId,
 		},
-		(e) => {
+		async (e) => {
 			events.push(e)
+			await observe?.(e)
 		},
 	)
 
@@ -146,6 +151,126 @@ describe('a long-running tool can say how far along it is', () => {
 
 		expect(threw).toBe(false)
 		expect(result.result).toBe('done')
+	})
+
+	it('coalesces behind a slow host, bounds UTF-8 bytes, and settles before completion', async () => {
+		let releaseFirst!: () => void
+		const firstReleased = new Promise<void>((resolve) => {
+			releaseFirst = resolve
+		})
+		let observeFirst!: () => void
+		const firstObserved = new Promise<void>((resolve) => {
+			observeFirst = resolve
+		})
+		let held = false
+		const finalTail = 'LATEST-STATE-😀'
+		const pending = run(
+			reportingTool((ctx) => {
+				ctx.report?.('first state', 0.01)
+				for (let index = 0; index < 10_000; index += 1) {
+					ctx.report?.(`intermediate ${index}`)
+				}
+				ctx.report?.(`${'x'.repeat(20_000)}${finalTail}`, 0.75)
+			}),
+			async (event) => {
+				if (event.type !== 'tool_progress' || held) return
+				held = true
+				observeFirst()
+				await firstReleased
+			},
+		)
+
+		await firstObserved
+		releaseFirst()
+		const { events, result } = await pending
+		const progress = events.filter(
+			(event): event is Extract<RunEvent, { type: 'tool_progress' }> =>
+				event.type === 'tool_progress',
+		)
+		expect(progress).toHaveLength(2)
+		expect(progress[0]?.message).toBe('first state')
+		expect(progress[1]?.message.startsWith('… ')).toBe(true)
+		expect(progress[1]?.message.endsWith(finalTail)).toBe(true)
+		expect(Buffer.byteLength(progress[1]?.message ?? '', 'utf8')).toBeLessThanOrEqual(8 * 1024)
+		expect(progress[1]?.fraction).toBe(0.75)
+
+		const lastProgress = events.map((event) => event.type).lastIndexOf('tool_progress')
+		const completed = events.findIndex(
+			(event) => event.type === 'tool_completed' && event.toolName === 'build',
+		)
+		expect(lastProgress).toBeGreaterThan(-1)
+		expect(completed).toBeGreaterThan(lastProgress)
+		// Event bounding is a live-view projection only. The durable tool result
+		// remains the exact value the tool returned.
+		expect(result.messages).toContainEqual(
+			expect.objectContaining({ role: 'tool', content: 'built' }),
+		)
+	})
+
+	it('does not publish completion while an accepted progress update is still held', async () => {
+		let releaseProgress!: () => void
+		const progressReleased = new Promise<void>((resolve) => {
+			releaseProgress = resolve
+		})
+		let observeProgress!: () => void
+		const progressObserved = new Promise<void>((resolve) => {
+			observeProgress = resolve
+		})
+		const observed: string[] = []
+		const runId = 'run_progress_order' as RunId
+		const tools = new ToolRegistry()
+		tools.register(
+			reportingTool((ctx) => {
+				ctx.report?.('held')
+				ctx.report?.('latest')
+			}),
+		)
+		const executor = new ToolExecutor(
+			{
+				tools,
+				runId,
+				workingDirectory: process.cwd(),
+				permissionMode: 'auto',
+				env: {},
+				abortSignal: new AbortController().signal,
+			},
+			new ActivityStore(runId, {
+				enabled: false,
+				trackToolCalls: false,
+				trackLlmTurns: false,
+			}),
+			async (event) => {
+				observed.push(event.type)
+				if (event.type !== 'tool_progress' || event.message !== 'held') return
+				observeProgress()
+				await progressReleased
+			},
+			NOOP_LOGGER,
+		)
+		const response = {
+			id: 'response_progress',
+			model: 'mock-model',
+			message: {
+				role: 'assistant',
+				content: null,
+				toolCalls: [
+					{ id: 'call_progress', type: 'function', function: { name: 'build', arguments: '{}' } },
+				],
+			},
+			finishReason: 'tool_calls',
+			usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+		} as ChatCompletionResponse
+		const pending = executor.executeBatch(response)
+
+		await progressObserved
+		// Drain the current turn's promise continuations. With no progress fence,
+		// executeSingle reaches tool_completed before this event-loop boundary.
+		await new Promise<void>((resolve) => setImmediate(resolve))
+		expect(observed).not.toContain('tool_completed')
+		releaseProgress()
+		await pending
+		expect(observed.filter((type) => type === 'tool_progress')).toHaveLength(2)
+		expect(observed.at(-1)).toBe('tool_completed')
 	})
 
 	it('a tool that reports nothing produces no events', async () => {

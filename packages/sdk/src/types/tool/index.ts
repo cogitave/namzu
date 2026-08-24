@@ -335,10 +335,16 @@ export interface ToolContext {
 	 * timed out.
 	 *
 	 * Fire-and-forget and never throws, so a tool can call it freely
-	 * without wrapping it. The model never sees these: progress answers
-	 * "is it still working?", which is a question only a human asks, and
-	 * putting it in the conversation would spend tokens telling the model
-	 * something it cannot act on.
+	 * without wrapping it. This is latest state, not a log: while a host is
+	 * consuming one update, later calls replace the single pending update.
+	 * Each published message is capped at 8 KiB of UTF-8 with a visible
+	 * omission marker, and every accepted update settles before that call's
+	 * terminal event. Put complete output in `ToolResult`, not here.
+	 *
+	 * The model never sees these: progress answers "is it still working?",
+	 * which is a question only a human asks, and putting it in the
+	 * conversation would spend tokens telling the model something it cannot
+	 * act on.
 	 *
 	 * Absent when the executing surface has no event stream to write to.
 	 */

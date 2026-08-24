@@ -71,6 +71,103 @@ export const DEFAULT_TOOL_TIMEOUT_MS = 120_000
  */
 export const DEFAULT_TOOL_CONCURRENCY = 8
 
+/** Maximum UTF-8 size of one ephemeral tool-progress update. */
+const MAX_TOOL_PROGRESS_BYTES = 8 * 1024
+
+/** A visible marker: this event is a display projection, not durable output. */
+const TOOL_PROGRESS_OMISSION = '… '
+
+function boundedToolProgress(message: string): string {
+	if (Buffer.byteLength(message, 'utf8') <= MAX_TOOL_PROGRESS_BYTES) return message
+
+	const tailBudget = MAX_TOOL_PROGRESS_BYTES - Buffer.byteLength(TOOL_PROGRESS_OMISSION, 'utf8')
+	let low = 0
+	let high = message.length
+	while (low < high) {
+		const middle = Math.floor((low + high) / 2)
+		if (Buffer.byteLength(message.slice(middle), 'utf8') > tailBudget) low = middle + 1
+		else high = middle
+	}
+	// Do not turn the low half of a retained surrogate pair into U+FFFD.
+	if (
+		low > 0 &&
+		low < message.length &&
+		message.charCodeAt(low) >= 0xdc00 &&
+		message.charCodeAt(low) <= 0xdfff &&
+		message.charCodeAt(low - 1) >= 0xd800 &&
+		message.charCodeAt(low - 1) <= 0xdbff
+	) {
+		low += 1
+	}
+	return `${TOOL_PROGRESS_OMISSION}${message.slice(low)}`
+}
+
+/**
+ * Latest-state publisher for one tool call.
+ *
+ * `ToolContext.report()` is synchronous by contract, while host event
+ * listeners may be arbitrarily slow. Starting one promise per report makes a
+ * chatty tool an unbounded allocation source. Progress is state rather than a
+ * transcript, so one in-flight update plus the latest pending update is the
+ * complete useful working set; intermediate states may be replaced.
+ */
+class ToolProgressPublisher {
+	private pending: { readonly message: string; readonly fraction?: number } | undefined
+	private draining: Promise<void> | null = null
+	private accepting = true
+
+	constructor(
+		private readonly emitEvent: EmitEvent,
+		private readonly base: Omit<
+			Extract<RunEvent, { type: 'tool_progress' }>,
+			'message' | 'fraction'
+		>,
+	) {}
+
+	report(message: string, fraction?: number): void {
+		if (!this.accepting) return
+		this.pending = {
+			message,
+			...(fraction !== undefined ? { fraction: Math.min(1, Math.max(0, fraction)) } : {}),
+		}
+		this.startDrain()
+	}
+
+	async close(): Promise<void> {
+		this.accepting = false
+		this.startDrain()
+		while (this.draining) await this.draining
+	}
+
+	private startDrain(): void {
+		if (this.draining || !this.pending) return
+		const current = this.drain()
+		this.draining = current
+		void current.finally(() => {
+			if (this.draining !== current) return
+			this.draining = null
+			// A report can land after the final loop check but before this
+			// settlement callback. It is still an accepted update and must be
+			// drained even when close() has since stopped new reports.
+			this.startDrain()
+		})
+	}
+
+	private async drain(): Promise<void> {
+		while (this.pending) {
+			const update = this.pending
+			this.pending = undefined
+			// A progress observer is diagnostic. Its failure cannot become a tool
+			// failure, and report() never hands a rejection back to the tool.
+			await this.emitEvent({
+				...this.base,
+				message: boundedToolProgress(update.message),
+				...(update.fraction !== undefined ? { fraction: update.fraction } : {}),
+			}).catch(() => {})
+		}
+	}
+}
+
 /**
  * Re-runs granted to a `post_tool_use` hook that returns `{action:'retry'}`
  * on a tool which did not opt into {@link ToolDefinition.maxRetries}.
@@ -548,6 +645,12 @@ export class ToolExecutor {
 			// Per-call, because the event has to name which call it is about:
 			// a batch can run several tools at once and a host rendering them
 			// side by side needs to know whose progress this is.
+			const progress = new ToolProgressPublisher(this.emitEvent, {
+				type: 'tool_progress',
+				runId: this.config.runId,
+				toolUseId: toolCall.id as ToolUseId,
+				toolName: toolCall.function.name,
+			})
 			const ctx: ToolContext = {
 				...baseContext,
 				toolUseId: toolCall.id,
@@ -559,22 +662,16 @@ export class ToolExecutor {
 				// Per-call for the same reason: a pause has to be routed back
 				// to the call that raised it, and a batch can raise several.
 				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
-				report: (message: string, fraction?: number) => {
-					// Fire-and-forget: a tool reporting progress must never be
-					// able to fail because the host's listener threw, and must
-					// never have to await the emit mid-work.
-					void this.emitEvent({
-						type: 'tool_progress',
-						runId: this.config.runId,
-						toolUseId: toolCall.id as ToolUseId,
-						toolName: toolCall.function.name,
-						message,
-						...(fraction !== undefined ? { fraction: Math.min(1, Math.max(0, fraction)) } : {}),
-					}).catch(() => {})
-				},
+				report: (message: string, fraction?: number) => progress.report(message, fraction),
 			}
 			const run = async () => {
-				results[i] = await this.executeSingle(toolCall, ctx, recordObservation)
+				try {
+					results[i] = await this.executeSingle(toolCall, ctx, recordObservation, () =>
+						progress.close(),
+					)
+				} finally {
+					await progress.close()
+				}
 			}
 			const gated = async () => {
 				await gate.acquire()
@@ -759,6 +856,7 @@ export class ToolExecutor {
 		toolCall: ToolCall,
 		toolContext: ToolContext,
 		recordObservation: (observation: ToolResultObservation) => void,
+		settleProgress: () => Promise<void>,
 	): Promise<ToolCallOutcome> {
 		let toolName = toolCall.function.name
 
@@ -1095,6 +1193,11 @@ export class ToolExecutor {
 			}
 		}
 
+		// The terminal event closes the live row. Every accepted progress update
+		// must settle before it, otherwise a slow host can receive an update for a
+		// call it has already removed. Detached work reporting after a timeout is
+		// ignored because close() also revokes the publisher.
+		await settleProgress()
 		await this.emitEvent({
 			type: 'tool_completed',
 			runId: this.config.runId,

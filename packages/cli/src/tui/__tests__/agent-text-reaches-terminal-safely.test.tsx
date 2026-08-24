@@ -13,6 +13,8 @@ const CSI = String.fromCodePoint(0x9b)
 const BIDI = String.fromCodePoint(0x202e)
 const UNSAFE = `SOURCE${BEL} bell ${CSI}31m colour ${BIDI}reordered`
 const VISIBLE = 'SOURCE\\u{0007} bell \\u{009b}31m colour \\u{202e}reordered'
+const PROGRESS_UNSAFE = `PROGRESS${BEL}${CSI}${BIDI}compiled 40/120`
+const PROGRESS_VISIBLE = 'PROGRESS\\u{0007}\\u{009b}\\u{202e}compiled 40/120'
 const REQUEST: PermissionRequest = Object.freeze({
 	toolCalls: Object.freeze([
 		Object.freeze({
@@ -89,6 +91,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 					summary: UNSAFE,
 					detail: [UNSAFE],
 				} as AgentEvent
+				yield {
+					kind: 'tool-progress',
+					toolUseId: 'call-unsafe',
+					toolName: 'bash',
+					message: PROGRESS_UNSAFE,
+					fraction: 0.33,
+				} as AgentEvent
 				await new Promise<void>((resolve) => {
 					releaseLiveTool = resolve
 				})
@@ -161,7 +170,8 @@ it('escapes permission, live-tool and transcript output while preserving the req
 
 	nowMs += APPROVAL_SETTLE_MS + 1
 	screen.press('y')
-	await waitUntil(screen, () => painted(screen).includes(`Bash(${VISIBLE})`))
+	await waitUntil(screen, () => painted(screen).includes(`33% · ${PROGRESS_VISIBLE}`))
+	expect(painted(screen)).toContain(`Bash(${VISIBLE})`)
 	expectNoAgentControls(screen)
 
 	releaseLiveTool?.()

@@ -165,6 +165,14 @@ export type AgentEvent =
 			readonly detail?: readonly string[]
 	  }
 	| {
+			readonly kind: 'tool-progress'
+			readonly toolUseId: string
+			readonly toolName: string
+			/** Bounded latest-state text from the executing tool. */
+			readonly message: string
+			readonly fraction?: number
+	  }
+	| {
 			readonly kind: 'tool-end'
 			readonly toolUseId: string
 			readonly toolName: string
@@ -2580,6 +2588,14 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 					const view = presenter.presentCall(event.toolName, event.input)
 					return { summary: viewToSummary(view), detail: viewToLines(view) }
 				})(),
+			}
+		case 'tool_progress':
+			return {
+				kind: 'tool-progress',
+				toolUseId: event.toolUseId,
+				toolName: event.toolName,
+				message: event.message,
+				...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 			}
 		case 'tool_completed':
 			return {

@@ -108,6 +108,24 @@ describe('toAgentEvent', () => {
 		})
 	})
 
+	it('maps bounded tool progress to the live call it belongs to', () => {
+		const ev = {
+			type: 'tool_progress',
+			toolUseId,
+			toolName: 'bash',
+			message: 'compiled 40/120 files',
+			fraction: 0.33,
+			...env,
+		} as unknown as RunEvent
+		expect(toAgentEvent(ev, presenter)).toEqual({
+			kind: 'tool-progress',
+			toolUseId,
+			toolName: 'bash',
+			message: 'compiled 40/120 files',
+			fraction: 0.33,
+		})
+	})
+
 	it('maps tool_completed to tool-end with a first-line summary + detail lines', () => {
 		const ev = {
 			type: 'tool_completed',

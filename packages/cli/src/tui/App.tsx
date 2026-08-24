@@ -2083,6 +2083,27 @@ export function App({ ctx: initialCtx }: AppProps) {
 					setActiveTools(activeToolsRef.current)
 					break
 				}
+				case 'tool-progress': {
+					const running = activeToolsRef.current
+					const index = running.findIndex((tool) => tool.id === event.toolUseId)
+					// A terminal event may already have removed this call. Never recreate
+					// a live row from late diagnostic state.
+					if (index < 0) break
+					const current = running[index] as RunningTool
+					const { fraction: _fraction, ...withoutFraction } = current
+					const updated: RunningTool = {
+						...withoutFraction,
+						progress: event.message,
+						...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
+					}
+					activeToolsRef.current = [
+						...running.slice(0, index),
+						updated,
+						...running.slice(index + 1),
+					]
+					setActiveTools(activeToolsRef.current)
+					break
+				}
 				case 'tool-end': {
 					const running = activeToolsRef.current
 					// Match strictly by toolUseId. Never fall back to "the first
