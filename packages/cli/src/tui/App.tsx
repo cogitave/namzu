@@ -4504,6 +4504,19 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				}
 				return
 			}
+			// Terminal-native display clear. It deliberately shares `/clear-screen`'s
+			// view-only boundary: model history, durable history and the active
+			// conversation remain untouched. A live turn is refused instead of
+			// erasing the only visible account of work that is still changing.
+			if (key.ctrl && input === 'l') {
+				if (state !== 'idle' || abortRef.current || hasUnsettledTurn()) {
+					pushMessage('system', 'Ctrl+L is unavailable while a turn is still in progress.')
+					return
+				}
+				setMessages([])
+				resetTranscript()
+				return
+			}
 			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
 			// the Ctrl+C interrupt path: abort, drop the queue, one "Interrupted." line.
 			if (key.escape && abortRef.current) {

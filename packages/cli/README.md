@@ -153,6 +153,11 @@ same terminal burst. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
 boot and sandbox diagnostics are reserved for crashes.
 
+Ctrl+L clears only the rendered terminal transcript while idle. It preserves
+model context, durable conversation history and copy/export targets, matching
+`/clear-screen`; an active turn keeps its visible output and reports that the
+shortcut is temporarily unavailable.
+
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after
 successful reads, writes and edits, and labels every file with its directory

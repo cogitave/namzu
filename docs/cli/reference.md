@@ -361,6 +361,8 @@ context and running turn intact.
 `/clear-screen` is the narrower display operation: it remounts an empty transcript
 without changing model context, durable history, or the active conversation. It
 exists for operators who want a clean terminal while continuing the same chat.
+Ctrl+L reaches that exact display-only operation while idle; it refuses while a
+turn is running so changing output is not erased from under the operator.
 The transcript is only a view of model history; expanded `@file` contents and
 image attachments can remain in that history after their readable token or
 composer chip has left the screen.
