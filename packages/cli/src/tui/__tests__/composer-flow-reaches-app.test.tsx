@@ -221,6 +221,38 @@ describe('the two composer destinations', () => {
 		}
 	})
 
+	it('searches prior App submissions and sends the selected prompt', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'fix alpha', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'first history turn did not start')
+			releaseFirstTurn()
+			await waitUntil(screen, () => delivered.length === 1, 'first history turn did not settle')
+
+			screen.press('fix')
+			screen.press('\x12')
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('history “fix” · 1/1')),
+				'App did not expose the history selection',
+			)
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 2, 'selected history prompt did not start')
+
+			expect(sent[1]?.at(-1)).toMatchObject({ role: 'user', content: 'fix alpha' })
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('drains Return into the active SDK turn and keeps Tab for the following turn', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,

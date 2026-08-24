@@ -5,7 +5,8 @@
  * Keys: Enter submits/steers (or runs the highlighted command while the
  * autocomplete dropdown is open), Tab completes that command or queues the
  * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
- * else browse history, Ctrl+W rubs out a word, Backspace deletes.
+ * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
+ * Backspace deletes.
  */
 
 import type { MessageAttachment } from '@namzu/sdk'
@@ -90,6 +91,14 @@ interface ComposerDisplay {
 	readonly after: string
 	readonly leadingEllipsis: boolean
 	readonly trailingEllipsis: boolean
+}
+
+interface HistorySearchState {
+	readonly draft: { readonly value: string; readonly cursor: number }
+	readonly query: string
+	readonly matches: readonly string[]
+	/** -1 is the original draft; zero is the newest matching history entry. */
+	readonly position: number
 }
 
 function graphemeBoundaries(source: string): number[] {
@@ -290,6 +299,8 @@ export function Composer({
 	const [, setHistoryIndexState] = useState<number>(-1)
 	const historyIndexRef = useRef(-1)
 	const historyDraftRef = useRef<{ readonly value: string; readonly cursor: number } | null>(null)
+	const [historySearch, setHistorySearchState] = useState<HistorySearchState | null>(null)
+	const historySearchRef = useRef<HistorySearchState | null>(null)
 	const verticalColumnRef = useRef<number | null>(null)
 	const [selected, setSelected] = useState<number>(0)
 	// Large pastes are held as attachments (shown as chips) instead of being
@@ -330,26 +341,33 @@ export function Composer({
 		setHistoryIndexState(next)
 	}, [])
 
+	const setHistorySearch = useCallback((next: HistorySearchState | null) => {
+		historySearchRef.current = next
+		setHistorySearchState(next)
+	}, [])
+
 	const editBuffer = useCallback(
 		(nextValue: string, nextCursor = nextValue.length) => {
 			verticalColumnRef.current = null
 			historyDraftRef.current = null
+			setHistorySearch(null)
 			setHistoryIndex(-1)
 			setBuffer(nextValue, nextCursor)
 		},
-		[setBuffer, setHistoryIndex],
+		[setBuffer, setHistoryIndex, setHistorySearch],
 	)
 
 	const reset = useCallback(() => {
 		verticalColumnRef.current = null
 		historyDraftRef.current = null
+		setHistorySearch(null)
 		setBuffer('', 0)
 		setHistoryIndex(-1)
 		setSelected(0)
 		setPastes([])
 		setAttachments([])
 		setEditPreviousArmed(false)
-	}, [setBuffer, setHistoryIndex])
+	}, [setBuffer, setHistoryIndex, setHistorySearch])
 
 	useEffect(() => {
 		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
@@ -359,11 +377,12 @@ export function Composer({
 		setSelected(0)
 		verticalColumnRef.current = null
 		historyDraftRef.current = null
+		setHistorySearch(null)
 		setPastes([])
 		setAttachments(draftToRestore.attachments ? [...draftToRestore.attachments] : [])
 		setEditPreviousArmed(false)
 		onDraftRestored?.(draftToRestore.token)
-	}, [draftToRestore, onDraftRestored, setBuffer, setHistoryIndex])
+	}, [draftToRestore, onDraftRestored, setBuffer, setHistoryIndex, setHistorySearch])
 
 	useInput(
 		(input, key) => {
@@ -401,6 +420,34 @@ export function Composer({
 				)
 				return
 			}
+			if (key.ctrl && (input === 'r' || input === 's')) {
+				verticalColumnRef.current = null
+				const browsedHistoryDraft = historyDraftRef.current
+				historyDraftRef.current = null
+				setHistoryIndex(-1)
+				let search = historySearchRef.current
+				if (!search) {
+					const query = valueRef.current
+					const normalizedQuery = query.toLowerCase()
+					search = {
+						draft: browsedHistoryDraft ?? { value: query, cursor: cursorRef.current },
+						query,
+						matches: [...history]
+							.reverse()
+							.filter((entry) => entry.toLowerCase().includes(normalizedQuery)),
+						position: -1,
+					}
+				}
+				const position =
+					input === 'r'
+						? Math.min(search.position + 1, search.matches.length - 1)
+						: Math.max(search.position - 1, -1)
+				const next = { ...search, position }
+				setHistorySearch(next)
+				if (position < 0) setBuffer(next.draft.value, next.draft.cursor)
+				else setBuffer(next.matches[position] ?? next.draft.value)
+				return
+			}
 			if (key.return) {
 				if (showSuggestions) {
 					// Run the highlighted command.
@@ -426,6 +473,12 @@ export function Composer({
 				// and clearing the draft too would punish the operator for
 				// following the hint the status bar is showing them.
 				if (escapeInterrupts) return
+				const activeSearch = historySearchRef.current
+				if (activeSearch) {
+					setBuffer(activeSearch.draft.value, activeSearch.draft.cursor)
+					setHistorySearch(null)
+					return
+				}
 				const empty =
 					valueRef.current.length === 0 && pastes.length === 0 && attachments.length === 0
 				if (empty && onEditPrevious) {
@@ -635,6 +688,9 @@ export function Composer({
 
 	const promptGlyph = disabled ? '…' : '>'
 	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
+	const historySearchQuery = historySearch
+		? composerDisplayValue(historySearch.query, historySearch.query.length)
+		: null
 	return (
 		<Box flexDirection="column">
 			{pastes.length > 0 || attachments.length > 0 ? (
@@ -673,6 +729,18 @@ export function Composer({
 					)}
 				</Box>
 			</Box>
+			{historySearch && historySearchQuery ? (
+				<Box paddingX={1} paddingTop={1}>
+					<Text color={theme.text.muted}>
+						history “{historySearchQuery.leadingEllipsis ? '… ' : ''}
+						{historySearchQuery.before}” ·{' '}
+						{historySearch.position < 0
+							? `draft · ${historySearch.matches.length} match${historySearch.matches.length === 1 ? '' : 'es'}`
+							: `${historySearch.position + 1}/${historySearch.matches.length}`}{' '}
+						· Ctrl+R older · Ctrl+S newer · Esc restore
+					</Text>
+				</Box>
+			) : null}
 			{showSuggestions ? (
 				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
 					{visibleSuggestions.map((cmd, i) => {

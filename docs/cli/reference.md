@@ -417,7 +417,12 @@ Alt+Enter do the same when the terminal reports their modifiers. Up/Down and
 Ctrl+P/Ctrl+N retain the preferred displayed-character column while moving
 through authored lines. Only after reaching the first or last line do they
 cross into submitted prompt history, and returning to its newest edge restores
-the exact unsent text and cursor instead of clearing the draft. The slash
+the exact unsent text and cursor instead of clearing the draft. Ctrl+R starts a
+case-insensitive substring search from the current draft and walks matching
+submissions from newest to oldest; Ctrl+S walks toward the original draft.
+Repeated keys use synchronous search state, and Esc restores the exact text and
+cursor that existed before search, including when search began from ordinary
+Up/Down history browsing. The slash
 palette gives descriptions the terminal width
 left after the longest visible command name and scrolls its six-row window so
 every matching command remains reachable with Up/Down. A short transcript flows

@@ -27,6 +27,15 @@ function composer(
 	return <Composer history={[]} onSubmit={onSubmit} />
 }
 
+async function waitUntil(screen: Awaited<ReturnType<typeof renderToScreen>>, check: () => boolean) {
+	const started = performance.now()
+	while (!check() && performance.now() - started < 3_000) {
+		await new Promise((resolve) => setTimeout(resolve, 20))
+		await screen.waitForRender()
+	}
+	expect(check()).toBe(true)
+}
+
 describe('the composer on a production-shaped terminal', () => {
 	it('accepts the Alt+V byte sequence as the same image action as Ctrl+V', async () => {
 		const submit = vi.fn()
@@ -225,6 +234,117 @@ describe('the composer on a production-shaped terminal', () => {
 			await screen.waitForRender()
 
 			expect(submit).toHaveBeenCalledWith('unsent', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('searches matching history backward and forward without losing the draft', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(
+			<Composer
+				history={['fix alpha', 'ship beta', 'fix gamma']}
+				onSubmit={submit}
+			/>,
+			{ cols: 100, rows: 16 },
+		)
+		try {
+			screen.press('fix')
+			screen.press('\x12')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('fix gamma▏')
+			expect(screen.viewport().join('\n')).toContain('history “fix” · 1/2')
+
+			screen.press('\x12')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('fix alpha▏')
+
+			screen.press('\x13')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('fix gamma▏')
+
+			screen.press('\x13')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('fix▏')
+			expect(screen.viewport().join('\n')).toContain('draft · 2 matches')
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('fix', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('restores the exact draft cursor when Esc leaves history search', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(
+			<Composer history={['fix older']} onSubmit={submit} />,
+			{ cols: 100, rows: 16 },
+		)
+		try {
+			screen.press('fix')
+			screen.press('\x1b[D')
+			screen.press('\x12')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('fix older▏')
+
+			screen.press('\x1b')
+			await waitUntil(screen, () => !screen.viewport().join('\n').includes('Ctrl+R older'))
+			screen.press('X')
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('fiXx', undefined)
+			expect(screen.viewport().join('\n')).not.toContain('Ctrl+R older')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('restores the unsent draft when search begins from a browsed history entry', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(
+			<Composer history={['older prompt']} onSubmit={submit} />,
+			{ cols: 100, rows: 16 },
+		)
+		try {
+			screen.press('unsent')
+			screen.press('\x1b[A')
+			screen.press('\x12')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('history “older prompt” · 1/1')
+
+			screen.press('\x1b')
+			await waitUntil(screen, () => !screen.viewport().join('\n').includes('Ctrl+R older'))
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('unsent', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('keeps a no-match search as an editable draft', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(
+			<Composer history={['older prompt']} onSubmit={submit} />,
+			{ cols: 100, rows: 16 },
+		)
+		try {
+			screen.press('unmatched')
+			screen.press('\x12')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('draft · 0 matches')
+
+			screen.press('!')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).not.toContain('Ctrl+R older')
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('unmatched!', undefined)
 		} finally {
 			await screen.unmount()
 		}
