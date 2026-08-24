@@ -141,7 +141,7 @@ import {
 	NAMZU_WORDMARK_GRADIENT,
 	NAMZU_WORDMARK_MIN_WIDTH,
 } from './logo.js'
-import { expandFileMentions } from './mentions.js'
+import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
 	type SlashContext,
@@ -621,6 +621,9 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 	// per keypress is a cost nobody asked for. A file added mid-session is
 	// picked up by `/model` (which re-hydrates) or a restart.
 	const [userCommands, setUserCommands] = useState<readonly UserCommand[]>([])
+	/** Git-admitted file paths cached once per successful session hydration. */
+	const [mentionCandidates, setMentionCandidates] = useState<readonly string[]>([])
+	const mentionLoadOwnerRef = useRef<object | null>(null)
 	const [usage, setUsage] = useState<{
 		totalTokens: number
 		cost: CostInfo
@@ -1509,6 +1512,15 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 					reserved: hostCommandNames(),
 				}),
 			)
+			const mentionLoadOwner = {}
+			mentionLoadOwnerRef.current = mentionLoadOwner
+			void listMentionableFiles(activeCtx.cwd, appLifetime.signal).then((files) => {
+				if (
+					!appLifetime.signal.aborted &&
+					mentionLoadOwnerRef.current === mentionLoadOwner
+				)
+					setMentionCandidates(files)
+			})
 			setCurrentProvider(primaryProvider(prefs).id)
 			// A picker-owned, usable provider switch is an explicit recovery from a
 			// paused failed turn. Failed and superseded candidates return above and
@@ -1562,7 +1574,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				if (s.errorHint) pushMessage('system', s.errorHint)
 			}
 		},
-		[advanceQueueContinuation, ensureSessions, pushMessage, setReasoningEffort],
+		[appLifetime.signal, advanceQueueContinuation, ensureSessions, pushMessage, setReasoningEffort],
 	)
 
 	/**
@@ -4732,6 +4744,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 									setComposerDraft((draft) => (draft?.token === token ? null : draft))
 								}
 								userCommands={userCommands}
+								mentionCandidates={mentionCandidates}
 								history={history}
 							/>
 						</ComposerFrame>

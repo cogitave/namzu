@@ -88,7 +88,12 @@ other.
 
 `/pwd` prints the canonical working directory this session uses. `/mention`
 returns the composer to an editable `@` token instead of sending the command to
-the model; complete it with a project-relative file path and continue the prompt.
+the model. Tracked and unignored project files appear in a bounded chooser;
+arrows, page keys and Home/End navigate it, and Enter or Tab inserts the selected
+project-relative path without submitting the prompt. Exact `@path` input still
+works when no repository index is available. Mention expansion resolves the real
+file path inside the trusted project root, so a project symlink cannot inline a
+file outside that boundary.
 
 Bare `/login` opens one combined subscription choice; it never silently defaults
 to `Claude`. Every usable external device session is a `Use existing` row, and

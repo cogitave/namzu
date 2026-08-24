@@ -150,8 +150,10 @@ without losing the chosen command. The same page and boundary keys work in
 model, resume, review, skill, copy and other finite command choosers; their
 Enter action also follows the newest cursor when navigation arrives in the
 same terminal burst. `/pwd` reports the exact session working directory, while
-selecting `/mention` restores an editable `@` token for a project-relative file
-instead of sending the command text to the model. On
+selecting `/mention` opens a keyboard-navigable list of tracked and unignored
+project files. Enter or Tab inserts the selected `@path` without sending it;
+exact project-relative tokens remain editable, and symlinks outside the trusted
+root are not inlined. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
 boot and sandbox diagnostics are reserved for crashes.
 

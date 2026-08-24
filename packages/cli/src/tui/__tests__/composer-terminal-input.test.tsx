@@ -583,6 +583,39 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
+	it('scrolls project files and inserts the selected @ token without sending it', async () => {
+		const submit = vi.fn()
+		const files = Array.from({ length: 12 }, (_, index) => `src/f${String(index).padStart(2, '0')}.ts`)
+		const screen = await renderToScreen(
+			<Composer history={[]} mentionCandidates={files} onSubmit={submit} />,
+			{
+				cols: 120,
+				rows: 24,
+			},
+		)
+		try {
+			screen.press('@src/f')
+			for (let index = 0; index < 7; index += 1) screen.press('\x1b[B')
+			await screen.waitForRender()
+
+			const viewport = screen.viewport().join('\n')
+			expect(viewport).toContain('› @src/f07.ts')
+			expect(viewport).toContain('8/12 · ↑↓ navigate')
+
+			screen.press('\r')
+			await screen.waitForRender()
+			expect(submit).not.toHaveBeenCalled()
+			expect(screen.viewport().join('\n')).toContain('@src/f07.ts ▏')
+
+			screen.press('please')
+			screen.press('\r')
+			await screen.waitForRender()
+			expect(submit).toHaveBeenCalledWith('@src/f07.ts please', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('jumps through the slash registry with page and boundary keys', async () => {
 		const matches = matchSlashCommands('/', [])
 		const screen = await renderToScreen(composer(vi.fn()), {

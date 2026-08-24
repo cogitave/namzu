@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { UserCommand } from '../user-commands/store.js'
+import { activeFileMention, matchMentionableFiles } from './mentions.js'
 import { matchSlashCommands } from './slashCommands.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -29,6 +30,8 @@ export interface ComposerProps {
 	readonly history: readonly string[]
 	/** Operator-defined commands, offered in the dropdown alongside builtins. */
 	readonly userCommands?: readonly UserCommand[]
+	/** Project-relative paths admitted once by App for `@` completion. */
+	readonly mentionCandidates?: readonly string[]
 	/**
 	 * Draw nothing, but stay mounted and keep the draft.
 	 *
@@ -285,6 +288,7 @@ export function Composer({
 	onSubmit,
 	history,
 	userCommands = [],
+	mentionCandidates = [],
 	hidden = false,
 	escapeInterrupts = false,
 	onNotice,
@@ -317,18 +321,32 @@ export function Composer({
 	// Keep the complete match set. The six-row limit belongs to the rendered
 	// window, not to navigation: slicing here made every later command
 	// unreachable no matter how many times the operator pressed Down.
-	const suggestions = matchSlashCommands(value, userCommands)
-	const showSuggestions = suggestions.length > 0
-	const selIdx = Math.min(selected, Math.max(0, suggestions.length - 1))
+	const commandSuggestions = matchSlashCommands(value, userCommands)
+	const activeMention = activeFileMention(value, cursor)
+	const fileSuggestions = activeMention
+		? matchMentionableFiles(activeMention.query, mentionCandidates)
+		: []
+	const suggestionKind =
+		commandSuggestions.length > 0 ? 'command' : fileSuggestions.length > 0 ? 'file' : null
+	const suggestionCount =
+		suggestionKind === 'command' ? commandSuggestions.length : fileSuggestions.length
+	const selIdx = Math.min(selected, Math.max(0, suggestionCount - 1))
 	const suggestionStart = Math.min(
 		Math.max(0, selIdx - MAX_SUGGESTIONS + 1),
-		Math.max(0, suggestions.length - MAX_SUGGESTIONS),
+		Math.max(0, suggestionCount - MAX_SUGGESTIONS),
 	)
-	const visibleSuggestions = suggestions.slice(suggestionStart, suggestionStart + MAX_SUGGESTIONS)
+	const visibleCommandSuggestions = commandSuggestions.slice(
+		suggestionStart,
+		suggestionStart + MAX_SUGGESTIONS,
+	)
+	const visibleFileSuggestions = fileSuggestions.slice(
+		suggestionStart,
+		suggestionStart + MAX_SUGGESTIONS,
+	)
 	const displayValue = composerDisplayValue(value, cursor)
 	const commandColumnWidth = Math.min(
 		24,
-		Math.max(10, ...visibleSuggestions.map((command) => command.name.length + 4)),
+		Math.max(10, ...visibleCommandSuggestions.map((command) => command.name.length + 4)),
 	)
 
 	const setBuffer = useCallback((nextValue: string, nextCursor = nextValue.length) => {
@@ -414,12 +432,47 @@ export function Composer({
 			// component that draws nothing must not consume input on the
 			// strength of a second flag happening to agree with it.
 			if (disabled || hidden) return
-			const liveSuggestions = matchSlashCommands(valueRef.current, userCommands)
-			const hasLiveSuggestions = liveSuggestions.length > 0
+			const liveCommandSuggestions = matchSlashCommands(valueRef.current, userCommands)
+			const liveMention = activeFileMention(valueRef.current, cursorRef.current)
+			const liveFileSuggestions = liveMention
+				? matchMentionableFiles(liveMention.query, mentionCandidates)
+				: []
+			const liveSuggestionKind =
+				liveCommandSuggestions.length > 0
+					? 'command'
+					: liveFileSuggestions.length > 0
+						? 'file'
+						: null
+			const liveSuggestionCount =
+				liveSuggestionKind === 'command'
+					? liveCommandSuggestions.length
+					: liveFileSuggestions.length
+			const hasLiveSuggestions = liveSuggestionKind !== null
 			const liveSelection = Math.min(
 				selectedRef.current,
-				Math.max(0, liveSuggestions.length - 1),
+				Math.max(0, liveSuggestionCount - 1),
 			)
+			const acceptSuggestion = (): boolean => {
+				if (liveSuggestionKind === 'command') {
+					editBuffer(`/${liveCommandSuggestions[liveSelection]?.name ?? ''} `)
+					setSelectedIndex(0)
+					return true
+				}
+				if (liveSuggestionKind === 'file' && liveMention) {
+					const path = liveFileSuggestions[liveSelection]
+					if (!path) return false
+					const replacement = `@${path} `
+					editBuffer(
+						valueRef.current.slice(0, liveMention.start) +
+							replacement +
+							valueRef.current.slice(liveMention.end),
+						liveMention.start + replacement.length,
+					)
+					setSelectedIndex(0)
+					return true
+				}
+				return false
+			}
 			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
 			const submit = (mode: ComposerSubmitMode): boolean => {
 				const message = [valueRef.current, ...pastes]
@@ -470,22 +523,18 @@ export function Composer({
 				return
 			}
 			if (key.return) {
-				if (hasLiveSuggestions) {
+				if (liveSuggestionKind === 'command') {
 					// Run the highlighted command.
-					onSubmit(`/${liveSuggestions[liveSelection]?.name ?? ''}`)
+					onSubmit(`/${liveCommandSuggestions[liveSelection]?.name ?? ''}`)
 					reset()
 					return
 				}
+				if (acceptSuggestion()) return
 				submit('submit')
 				return
 			}
 			if (key.tab) {
-				if (hasLiveSuggestions) {
-					// Complete to the highlighted command, ready for arguments.
-					editBuffer(`/${liveSuggestions[liveSelection]?.name ?? ''} `)
-					setSelectedIndex(0)
-					return
-				}
+				if (acceptSuggestion()) return
 				submit('queue')
 				return
 			}
@@ -579,12 +628,12 @@ export function Composer({
 			}
 			if (hasLiveSuggestions && (key.home || key.end || key.pageUp || key.pageDown)) {
 				if (key.home) setSelectedIndex(0)
-				else if (key.end) setSelectedIndex(liveSuggestions.length - 1)
+				else if (key.end) setSelectedIndex(liveSuggestionCount - 1)
 				else if (key.pageUp)
 					setSelectedIndex((index) => Math.max(0, index - MAX_SUGGESTIONS))
 				else
 					setSelectedIndex((index) =>
-						Math.min(liveSuggestions.length - 1, index + MAX_SUGGESTIONS),
+						Math.min(liveSuggestionCount - 1, index + MAX_SUGGESTIONS),
 					)
 				return
 			}
@@ -631,7 +680,7 @@ export function Composer({
 			}
 			if (key.downArrow || (key.ctrl && input === 'n')) {
 				if (hasLiveSuggestions) {
-					setSelectedIndex((i) => Math.min(liveSuggestions.length - 1, i + 1))
+					setSelectedIndex((i) => Math.min(liveSuggestionCount - 1, i + 1))
 					return
 				}
 				const vertical = verticalCursor(
@@ -797,9 +846,9 @@ export function Composer({
 					</Text>
 				</Box>
 			) : null}
-			{showSuggestions ? (
+			{suggestionKind === 'command' ? (
 				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-					{visibleSuggestions.map((cmd, i) => {
+					{visibleCommandSuggestions.map((cmd, i) => {
 						const absoluteIndex = suggestionStart + i
 						return (
 							<Box key={cmd.name} width="100%" flexDirection="row">
@@ -820,8 +869,27 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{suggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter run · Tab
+						{selIdx + 1}/{commandSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter run · Tab
 						 complete
+					</Text>
+				</Box>
+			) : suggestionKind === 'file' ? (
+				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
+					{visibleFileSuggestions.map((path, i) => {
+						const absoluteIndex = suggestionStart + i
+						return (
+							<Text
+								key={path}
+								color={absoluteIndex === selIdx ? theme.accent.user : theme.text.secondary}
+								bold={absoluteIndex === selIdx}
+							>
+								{absoluteIndex === selIdx ? '› ' : '  '}@{path}
+							</Text>
+						)
+					})}
+					<Text color={theme.text.muted}>
+						{selIdx + 1}/{fileSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter/Tab
+						 insert
 					</Text>
 				</Box>
 			) : null}

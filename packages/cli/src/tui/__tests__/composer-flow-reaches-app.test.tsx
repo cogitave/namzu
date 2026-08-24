@@ -37,6 +37,13 @@ vi.mock('../../integrations/updates.js', () => ({
 vi.mock('../../user-commands/store.js', () => ({
 	discoverUserCommands: () => [],
 }))
+vi.mock('../mentions.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../mentions.js')>()
+	return {
+		...actual,
+		listMentionableFiles: async () => ['src/app.ts', 'src/other.ts'],
+	}
+})
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({
 		tenantId: 'tenant',
@@ -282,7 +289,7 @@ describe('the two composer destinations', () => {
 		}
 	})
 
-	it('turns the selectable /mention command back into an editable file token', async () => {
+	it('turns /mention into the session-owned selectable project-file menu', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,
 			rows: 28,
@@ -297,10 +304,17 @@ describe('the two composer destinations', () => {
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() => screen.viewport().some((line) => line.includes('@▏')),
-				'/mention did not restore an editable @ token',
+				() => screen.viewport().some((line) => line.includes('› @src/app.ts')),
+				'/mention did not show the hydrated project files',
 			)
 
+			screen.press('\x1b[B')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('@src/other.ts ▏')),
+				'the selected project file was not restored into the composer',
+			)
 			expect(sent).toHaveLength(0)
 		} finally {
 			await screen.unmount()
