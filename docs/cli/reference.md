@@ -278,10 +278,10 @@ no longer exactly matches the selection, no branch is created; the operator must
 open the picker again against the current conversation.
 
 A restored prompt can be much larger than the terminal needs to display. The
-composer shows a bounded tail with a leading ellipsis and renders terminal
-controls as visible escapes, while retaining the complete text and every
-attachment behind that view. Editing and submitting therefore use the original
-source rather than the shortened display.
+composer shows a bounded window around the live cursor with leading or trailing
+ellipses and renders terminal controls as visible escapes, while retaining the
+complete text and every attachment behind that view. Editing and submitting
+therefore use the original source rather than the shortened display.
 
 **`/compact` replaces the older model-visible history with a summary.** It is
 refused while a turn is running or an interrupted turn is still settling, and
@@ -405,11 +405,14 @@ position where the operator submitted it relative to Tab-queued work.
 
 Ctrl+V and terminal Alt+V share the clipboard-image action; this is separate
 from computer-use, which controls screenshots and pointer/keyboard automation.
-Ctrl+W removes the preceding whitespace-delimited word, including punctuation
-inside that word. The slash palette gives descriptions the terminal width left
-after the longest visible command name and scrolls its six-row window so every
-matching command remains reachable with Up/Down. A short transcript flows from
-the banner downward; any unused viewport is padded after the complete
+Left/Right and Ctrl+B/Ctrl+F move by complete displayed characters, including
+combined emoji. Home/End and Ctrl+A/Ctrl+E move to the current line boundaries.
+Backspace and Delete remove complete displayed characters; Ctrl+W removes the
+preceding whitespace-delimited word at the cursor, and Ctrl+U/Ctrl+K remove to
+the line boundaries. The slash palette gives descriptions the terminal width
+left after the longest visible command name and scrolls its six-row window so
+every matching command remains reachable with Up/Down. A short transcript flows
+from the banner downward; any unused viewport is padded after the complete
 transcript so the composer remains near the bottom without moving conversation
 rows there.
 

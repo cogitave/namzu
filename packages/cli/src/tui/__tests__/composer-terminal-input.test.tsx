@@ -68,6 +68,132 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
+	it('inserts at the visible left/right cursor instead of appending at the end', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('helo')
+			await screen.waitForRender()
+			screen.press('\x1b[D')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('hel▏o')
+
+			screen.press('l')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+			expect(submit).toHaveBeenCalledWith('hello', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('moves across and deletes a complete grapheme instead of splitting its bytes', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('a👨‍👩‍👧‍👦b')
+			await screen.waitForRender()
+			screen.press('\x1b[D')
+			await screen.waitForRender()
+			screen.press('\x7f')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('ab', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('supports Home/End and their Ctrl+A/Ctrl+E terminal bindings', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('tail')
+			await screen.waitForRender()
+			screen.press('\x01')
+			await screen.waitForRender()
+			screen.press('head ')
+			await screen.waitForRender()
+			screen.press('\x05')
+			await screen.waitForRender()
+			screen.press('!')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('head tail!', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('applies Ctrl+W at the cursor while preserving the suffix', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('alpha beta gamma')
+			await screen.waitForRender()
+			screen.press('\x01')
+			await screen.waitForRender()
+			for (let index = 0; index < 11; index += 1) screen.press('\x1b[C')
+			await screen.waitForRender()
+			screen.press('\x17')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('alpha gamma', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('deletes forward at Delete and kills toward either line boundary', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('a👍🏽bc')
+			await screen.waitForRender()
+			screen.press('\x01')
+			screen.press('\x1b[C')
+			await screen.waitForRender()
+			screen.press('\x1b[3~')
+			await screen.waitForRender()
+			screen.press('\x05')
+			screen.press('\x15')
+			await screen.waitForRender()
+			screen.press('kept')
+			screen.press('\x01')
+			screen.press('\x1b[C')
+			screen.press('\x0b')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('k', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('uses Tab as a queue submission when no completion menu owns it', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(composer(submit), {

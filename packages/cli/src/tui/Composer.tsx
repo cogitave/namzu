@@ -79,38 +79,88 @@ const MAX_SUGGESTIONS = 6
 const PASTE_THRESHOLD = 80
 // A recalled or branch-restored prompt can be much larger than anything the
 // operator typed one key at a time. Keep the exact source in state, but never
-// hand an unbounded string to Ink's wrapping engine. Eight logical tail lines
-// preserve the only edit position this composer exposes: the cursor at the end.
+// hand an unbounded string to Ink's wrapping engine. The bounded view follows
+// the real cursor rather than assuming every edit happens at the end.
 const COMPOSER_DISPLAY_CODE_UNITS = 2048
 const COMPOSER_DISPLAY_LINES = 8
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
-function composerDisplayValue(source: string): string {
-	let start = Math.max(0, source.length - COMPOSER_DISPLAY_CODE_UNITS)
+interface ComposerDisplay {
+	readonly before: string
+	readonly after: string
+	readonly leadingEllipsis: boolean
+	readonly trailingEllipsis: boolean
+}
 
-	// Do not begin the view with the low half of a split surrogate pair. Dropping
-	// that one half is display-only; the complete pair stays in `source`.
-	if (
-		start > 0 &&
-		source.charCodeAt(start) >= 0xdc00 &&
-		source.charCodeAt(start) <= 0xdfff &&
-		source.charCodeAt(start - 1) >= 0xd800 &&
-		source.charCodeAt(start - 1) <= 0xdbff
-	) {
-		start += 1
+function graphemeBoundaries(source: string): number[] {
+	const boundaries = [0]
+	for (const segment of graphemeSegmenter.segment(source)) {
+		const end = segment.index + segment.segment.length
+		if (end > (boundaries[boundaries.length - 1] ?? -1)) boundaries.push(end)
+	}
+	return boundaries
+}
+
+function previousGraphemeBoundary(source: string, cursor: number): number {
+	let previous = 0
+	for (const boundary of graphemeBoundaries(source)) {
+		if (boundary >= cursor) break
+		previous = boundary
+	}
+	return previous
+}
+
+function nextGraphemeBoundary(source: string, cursor: number): number {
+	for (const boundary of graphemeBoundaries(source)) {
+		if (boundary > cursor) return boundary
+	}
+	return source.length
+}
+
+function lineStart(source: string, cursor: number): number {
+	return cursor <= 0 ? 0 : source.lastIndexOf('\n', cursor - 1) + 1
+}
+
+function composerDisplayValue(source: string, cursor: number): ComposerDisplay {
+	let start = Math.max(0, cursor - Math.floor(COMPOSER_DISPLAY_CODE_UNITS / 2))
+	let end = Math.min(source.length, start + COMPOSER_DISPLAY_CODE_UNITS)
+	if (end === source.length) start = Math.max(0, end - COMPOSER_DISPLAY_CODE_UNITS)
+	if (cursor > end) {
+		end = cursor
+		start = Math.max(0, end - COMPOSER_DISPLAY_CODE_UNITS)
 	}
 
-	let newlineCount = 0
-	for (let index = source.length - 1; index >= start; index -= 1) {
+	let afterBreaks = 0
+	for (let index = cursor; index < end; index += 1) {
 		if (source.charCodeAt(index) !== 0x0a) continue
-		newlineCount += 1
-		if (newlineCount === COMPOSER_DISPLAY_LINES) {
+		afterBreaks += 1
+		if (afterBreaks === Math.min(3, COMPOSER_DISPLAY_LINES - 1)) {
+			end = index
+			break
+		}
+	}
+	let beforeBreaks = 0
+	const beforeBudget = COMPOSER_DISPLAY_LINES - afterBreaks
+	for (let index = cursor - 1; index >= start; index -= 1) {
+		if (source.charCodeAt(index) !== 0x0a) continue
+		beforeBreaks += 1
+		if (beforeBreaks === beforeBudget) {
 			start = index + 1
 			break
 		}
 	}
 
-	const visible = terminalDisplayText(source.slice(start))
-	return start > 0 ? `… ${visible}` : visible
+	// Only the view is rounded to complete grapheme boundaries. The exact source
+	// remains untouched even when the cap lands inside a combining sequence.
+	const boundaries = graphemeBoundaries(source)
+	start = boundaries.find((boundary) => boundary >= start) ?? source.length
+	end = [...boundaries].reverse().find((boundary) => boundary <= end) ?? 0
+	return {
+		before: terminalDisplayText(source.slice(start, cursor)),
+		after: terminalDisplayText(source.slice(cursor, end)),
+		leadingEllipsis: start > 0,
+		trailingEllipsis: end < source.length,
+	}
 }
 
 /**
@@ -121,10 +171,25 @@ function composerDisplayValue(source: string): string {
  * operators already bring to this key.
  */
 export function deletePreviousWord(source: string): string {
-	let index = source.length
-	while (index > 0 && /\s/u.test(source[index - 1] ?? '')) index -= 1
-	while (index > 0 && !/\s/u.test(source[index - 1] ?? '')) index -= 1
-	return source.slice(0, index)
+	return deletePreviousWordAt(source, source.length).value
+}
+
+function deletePreviousWordAt(
+	source: string,
+	cursor: number,
+): { readonly value: string; readonly cursor: number } {
+	let start = cursor
+	while (start > 0) {
+		const previous = previousGraphemeBoundary(source, start)
+		if (!/\s/u.test(source.slice(previous, start))) break
+		start = previous
+	}
+	while (start > 0) {
+		const previous = previousGraphemeBoundary(source, start)
+		if (/\s/u.test(source.slice(previous, start))) break
+		start = previous
+	}
+	return { value: source.slice(0, start) + source.slice(cursor), cursor: start }
 }
 
 export function Composer({
@@ -139,7 +204,10 @@ export function Composer({
 	draftToRestore = null,
 	onDraftRestored,
 }: ComposerProps) {
-	const [value, setValue] = useState<string>('')
+	const [value, setValueState] = useState<string>('')
+	const valueRef = useRef('')
+	const [cursor, setCursorState] = useState(0)
+	const cursorRef = useRef(0)
 	const [historyIndex, setHistoryIndex] = useState<number>(-1)
 	const [selected, setSelected] = useState<number>(0)
 	// Large pastes are held as attachments (shown as chips) instead of being
@@ -162,32 +230,39 @@ export function Composer({
 		Math.max(0, suggestions.length - MAX_SUGGESTIONS),
 	)
 	const visibleSuggestions = suggestions.slice(suggestionStart, suggestionStart + MAX_SUGGESTIONS)
-	const displayValue = composerDisplayValue(value)
+	const displayValue = composerDisplayValue(value, cursor)
 	const commandColumnWidth = Math.min(
 		24,
 		Math.max(10, ...visibleSuggestions.map((command) => command.name.length + 4)),
 	)
 
+	const setBuffer = useCallback((nextValue: string, nextCursor = nextValue.length) => {
+		valueRef.current = nextValue
+		cursorRef.current = nextCursor
+		setValueState(nextValue)
+		setCursorState(nextCursor)
+	}, [])
+
 	const reset = useCallback(() => {
-		setValue('')
+		setBuffer('', 0)
 		setHistoryIndex(-1)
 		setSelected(0)
 		setPastes([])
 		setAttachments([])
 		setEditPreviousArmed(false)
-	}, [])
+	}, [setBuffer])
 
 	useEffect(() => {
 		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
 		restoredTokenRef.current = draftToRestore.token
-		setValue(draftToRestore.text)
+		setBuffer(draftToRestore.text)
 		setHistoryIndex(-1)
 		setSelected(0)
 		setPastes([])
 		setAttachments(draftToRestore.attachments ? [...draftToRestore.attachments] : [])
 		setEditPreviousArmed(false)
 		onDraftRestored?.(draftToRestore.token)
-	}, [draftToRestore, onDraftRestored])
+	}, [draftToRestore, onDraftRestored, setBuffer])
 
 	useInput(
 		(input, key) => {
@@ -206,7 +281,7 @@ export function Composer({
 			if (disabled || hidden) return
 			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
 			const submit = (mode: ComposerSubmitMode): boolean => {
-				const message = [value, ...pastes]
+				const message = [valueRef.current, ...pastes]
 					.map((s) => s.trim())
 					.filter(Boolean)
 					.join('\n\n')
@@ -230,7 +305,7 @@ export function Composer({
 			if (key.tab) {
 				if (showSuggestions) {
 					// Complete to the highlighted command, ready for arguments.
-					setValue(`/${suggestions[selIdx]?.name ?? ''} `)
+					setBuffer(`/${suggestions[selIdx]?.name ?? ''} `)
 					setSelected(0)
 					return
 				}
@@ -242,7 +317,8 @@ export function Composer({
 				// and clearing the draft too would punish the operator for
 				// following the hint the status bar is showing them.
 				if (escapeInterrupts) return
-				const empty = value.length === 0 && pastes.length === 0 && attachments.length === 0
+				const empty =
+					valueRef.current.length === 0 && pastes.length === 0 && attachments.length === 0
 				if (empty && onEditPrevious) {
 					if (editPreviousArmed) {
 						setEditPreviousArmed(false)
@@ -253,18 +329,57 @@ export function Composer({
 				reset()
 				return
 			}
-			if (key.backspace || key.delete) {
+			if (key.backspace) {
 				// Backspace on an empty line removes the last durable attachment first,
 				// then pasted text.
-				if (value.length === 0 && attachments.length > 0) {
+				if (valueRef.current.length === 0 && attachments.length > 0) {
 					setAttachments((p) => p.slice(0, -1))
 					return
 				}
-				if (value.length === 0 && pastes.length > 0) {
+				if (valueRef.current.length === 0 && pastes.length > 0) {
 					setPastes((p) => p.slice(0, -1))
 					return
 				}
-				setValue((v) => v.slice(0, -1))
+				const position = cursorRef.current
+				const previous = previousGraphemeBoundary(valueRef.current, position)
+				setBuffer(
+					valueRef.current.slice(0, previous) + valueRef.current.slice(position),
+					previous,
+				)
+				return
+			}
+			if (key.delete) {
+				const position = cursorRef.current
+				const next = nextGraphemeBoundary(valueRef.current, position)
+				setBuffer(
+					valueRef.current.slice(0, position) + valueRef.current.slice(next),
+					position,
+				)
+				return
+			}
+			if (key.leftArrow || (key.ctrl && input === 'b')) {
+				const previous = previousGraphemeBoundary(valueRef.current, cursorRef.current)
+				cursorRef.current = previous
+				setCursorState(previous)
+				return
+			}
+			if (key.rightArrow || (key.ctrl && input === 'f')) {
+				const next = nextGraphemeBoundary(valueRef.current, cursorRef.current)
+				cursorRef.current = next
+				setCursorState(next)
+				return
+			}
+			if (key.home || (key.ctrl && input === 'a')) {
+				const start = lineStart(valueRef.current, cursorRef.current)
+				cursorRef.current = start
+				setCursorState(start)
+				return
+			}
+			if (key.end || (key.ctrl && input === 'e')) {
+				const newline = valueRef.current.indexOf('\n', cursorRef.current)
+				const end = newline < 0 ? valueRef.current.length : newline
+				cursorRef.current = end
+				setCursorState(end)
 				return
 			}
 			if (key.upArrow) {
@@ -275,7 +390,7 @@ export function Composer({
 				if (history.length === 0) return
 				const next = Math.min(historyIndex + 1, history.length - 1)
 				setHistoryIndex(next)
-				setValue(history[history.length - 1 - next] ?? '')
+				setBuffer(history[history.length - 1 - next] ?? '')
 				return
 			}
 			if (key.downArrow) {
@@ -289,7 +404,7 @@ export function Composer({
 				}
 				const next = historyIndex - 1
 				setHistoryIndex(next)
-				setValue(history[history.length - 1 - next] ?? '')
+				setBuffer(history[history.length - 1 - next] ?? '')
 				return
 			}
 			// Ctrl+V / Alt+V: pull an image off the clipboard and hold it as an attachment.
@@ -310,7 +425,21 @@ export function Composer({
 				return
 			}
 			if (key.ctrl && input === 'w') {
-				setValue(deletePreviousWord)
+				const result = deletePreviousWordAt(valueRef.current, cursorRef.current)
+				setBuffer(result.value, result.cursor)
+				return
+			}
+			if (key.ctrl && input === 'u') {
+				const position = cursorRef.current
+				const start = lineStart(valueRef.current, position)
+				setBuffer(valueRef.current.slice(0, start) + valueRef.current.slice(position), start)
+				return
+			}
+			if (key.ctrl && input === 'k') {
+				const position = cursorRef.current
+				const newline = valueRef.current.indexOf('\n', position)
+				const end = newline < 0 ? valueRef.current.length : newline
+				setBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(end), position)
 				return
 			}
 			if (key.ctrl || key.meta) return
@@ -322,7 +451,11 @@ export function Composer({
 				return
 			}
 			setSelected(0)
-			setValue((v) => v + input)
+			const position = cursorRef.current
+			setBuffer(
+				valueRef.current.slice(0, position) + input + valueRef.current.slice(position),
+				position + input.length,
+			)
 		},
 		{ isActive: true },
 	)
@@ -363,8 +496,11 @@ export function Composer({
 						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
 					) : (
 						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
-							{displayValue}
+							{displayValue.leadingEllipsis ? '… ' : ''}
+							{displayValue.before}
 							{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
+							{displayValue.after}
+							{displayValue.trailingEllipsis ? ' …' : ''}
 						</Text>
 					)}
 				</Box>

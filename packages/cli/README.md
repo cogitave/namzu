@@ -126,8 +126,10 @@ key legend to `/help` instead of repeating it on every frame.
 While a turn runs, Return steers that turn at the next model-safe response
 boundary and Tab queues a separate follow-up; at idle either key starts the
 draft. Ctrl+V and Alt+V attach a clipboard image, independently of the optional
-computer-use package, and Ctrl+W removes the previous whitespace-delimited
-word. Conversation rows flow downward from the banner while unused viewport
+computer-use package. Left/Right and Ctrl+B/Ctrl+F move by complete displayed
+characters, Home/End and Ctrl+A/Ctrl+E move to line boundaries, and
+Ctrl+W/Ctrl+U/Ctrl+K delete around the live cursor. Conversation rows flow
+downward from the banner while unused viewport
 space stays below the transcript, and the slash palette scrolls through every
 matching command while using the remaining terminal width for descriptions. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered

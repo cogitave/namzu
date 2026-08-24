@@ -169,6 +169,33 @@ afterEach(() => {
 })
 
 describe('the two composer destinations', () => {
+	it('submits the exact cursor-edited draft through App', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			screen.press('helo')
+			await screen.waitForRender()
+			screen.press('\x1b[D')
+			await screen.waitForRender()
+			screen.press('l')
+			await screen.waitForRender()
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 1, 'cursor-edited turn did not start')
+
+			expect(sent[0]?.at(-1)).toMatchObject({ role: 'user', content: 'hello' })
+			releaseFirstTurn()
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('drains Return into the active SDK turn and keeps Tab for the following turn', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,
