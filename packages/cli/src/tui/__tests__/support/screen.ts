@@ -111,6 +111,8 @@ export interface Screen {
 	bytesWritten(): number
 	/** Every write, in order. The raw bytes, before the emulator interpreted them. */
 	writes(): readonly string[]
+	/** Whether Ink currently owns stdin in raw mode. */
+	rawMode(): boolean
 	/** Send input, as one keypress. */
 	press(input: string): void
 	/** Swap the mounted element. Follow with `await waitForRender()`. */
@@ -137,6 +139,7 @@ const DEFAULT_MAX_FPS = 30
 class ScreenStdin extends EventEmitter {
 	isTTY = true
 	private data: string | null = null
+	private raw = false
 
 	press(input: string): void {
 		this.data = input
@@ -151,7 +154,13 @@ class ScreenStdin extends EventEmitter {
 	}
 
 	setEncoding(): void {}
-	setRawMode(): void {}
+	setRawMode(value: boolean): void {
+		this.raw = value
+	}
+
+	isRaw(): boolean {
+		return this.raw
+	}
 	resume(): void {}
 	pause(): void {}
 	ref(): void {}
@@ -301,6 +310,7 @@ export async function renderToScreen(
 		bufferType: () => term.buffer.active.type,
 		bytesWritten: () => stdout.bytes,
 		writes: () => stdout.chunks,
+		rawMode: () => stdin.isRaw(),
 		press: (input) => stdin.press(input),
 		rerender: (next) => instance.rerender(next),
 		waitForRender,

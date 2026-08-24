@@ -440,6 +440,18 @@ Up/Down history browsing. Both `namzu resume <id>` and the in-TUI `/resume`
 picker append the restored conversation's operator-authored user messages to
 input history. User-role project instructions, automatic goal rounds and
 runtime context remain model history but are never offered as authored drafts.
+
+Ctrl+G opens the complete text draft in `$VISUAL`, or `$EDITOR` when `VISUAL`
+is unset. The command is parsed and spawned directly rather than through a
+shell. Namzu releases terminal raw mode before the host editor starts, uses a
+private mode-0600 temporary Markdown buffer where the platform supports POSIX
+modes, and repaints the retained
+conversation after the process exits. A non-zero process, malformed command or
+oversized edited file is reported without replacing the original draft.
+Clipboard image and document attachments remain attached; pasted text is folded
+into the editable buffer. The editor is admitted only at an idle, stable
+conversation boundary so model output cannot repaint over it.
+
 The slash
 palette gives descriptions the terminal width
 left after the longest visible command name and scrolls its six-row window so

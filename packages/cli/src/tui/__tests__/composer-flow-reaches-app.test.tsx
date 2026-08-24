@@ -19,6 +19,7 @@ const sent: Message[][] = []
 const sentOptions: SendOptions[] = []
 const delivered: Message[][] = []
 const replacements: Message[][] = []
+const { defaultEditor } = vi.hoisted(() => ({ defaultEditor: vi.fn() }))
 
 let releaseFirstTurn: () => void = () => {}
 let firstTurnGate = Promise.resolve()
@@ -34,6 +35,10 @@ vi.mock('../../integrations/trust/store.js', () => ({
 vi.mock('../../integrations/updates.js', () => ({
 	checkUpdates: async () => [],
 }))
+vi.mock('../external-editor.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../external-editor.js')>()
+	return { ...actual, editDraftInExternalEditor: defaultEditor }
+})
 vi.mock('../../user-commands/store.js', () => ({
 	discoverUserCommands: () => [],
 }))
@@ -164,6 +169,7 @@ beforeEach(() => {
 	sentOptions.length = 0
 	delivered.length = 0
 	replacements.length = 0
+	defaultEditor.mockReset().mockResolvedValue('edited by configured host editor')
 	drainFirstTurn = true
 	firstTurnGate = new Promise<void>((resolve) => {
 		releaseFirstTurn = resolve
@@ -439,5 +445,200 @@ describe('the two composer destinations', () => {
 		} finally {
 			await screen.unmount()
 		}
+	})
+})
+
+describe('the external draft editor', () => {
+	it('uses the configured host editor through the production App default', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			screen.press('original draft')
+			await screen.waitForRender()
+			screen.press('\x07')
+			await waitUntil(
+				screen,
+				() => defaultEditor.mock.calls.length === 1,
+				'the production editor adapter was not reached',
+			)
+
+			expect(defaultEditor.mock.calls[0]?.[0]).toBe('original draft')
+			expect(defaultEditor.mock.calls[0]?.[1]).toMatchObject({ cwd: '/w' })
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('edited by configured host editor'),
+				'the configured editor result did not return',
+			)
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 1, 'the configured editor draft was not sent')
+			expect(sent[0]?.at(-1)).toMatchObject({
+				role: 'user',
+				content: 'edited by configured host editor',
+			})
+			releaseFirstTurn()
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('releases raw input, replaces the text draft, and returns control to the composer', async () => {
+		const pasted = 'p'.repeat(81)
+		let releaseEditor = () => {}
+		const editorGate = new Promise<void>((resolve) => {
+			releaseEditor = resolve
+		})
+		let rawWhileEditorStarted: boolean | undefined
+		const editor = vi.fn(async ({ seed }: { readonly seed: string }) => {
+			rawWhileEditorStarted = screen.rawMode()
+			await editorGate
+			return 'edited\nfrom host\n'
+		})
+		const screen = await renderToScreen(<App ctx={ctx} externalEditor={editor} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			expect(screen.rawMode()).toBe(true)
+			screen.press('first')
+			screen.press('\n')
+			screen.press('second')
+			screen.press(pasted)
+			screen.press('\x16')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('Image #1')
+			screen.press('\x07')
+			await waitUntil(screen, () => editor.mock.calls.length === 1, 'Ctrl+G did not open the editor')
+
+			expect(editor.mock.calls[0]?.[0]).toMatchObject({
+				seed: `first\nsecond\n\n${pasted}`,
+				cwd: '/w',
+			})
+			expect(rawWhileEditorStarted).toBe(false)
+			screen.press('must not enter the draft')
+			releaseEditor()
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('edited'),
+				'the edited draft did not return to the composer',
+			)
+			expect(screen.rawMode()).toBe(true)
+
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 1, 'the edited draft was not submitted')
+			expect(sent[0]?.at(-1)).toMatchObject({
+				role: 'user',
+				content: 'edited\nfrom host',
+				attachments: [image],
+			})
+			expect(sent[0]?.at(-1)?.content).not.toContain('must not enter')
+			releaseFirstTurn()
+		} finally {
+			releaseEditor()
+			await screen.unmount()
+		}
+	})
+
+	it('keeps the original draft and reports a failed editor', async () => {
+		const editor = vi.fn(async () => {
+			throw new Error('editor refused the file')
+		})
+		const screen = await renderToScreen(<App ctx={ctx} externalEditor={editor} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			screen.press('keep this draft')
+			await screen.waitForRender()
+			screen.press('\x07')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('editor refused the file'),
+				'the editor failure was not reported',
+			)
+			expect(screen.viewport().join('\n')).toContain('keep this draft')
+			expect(screen.rawMode()).toBe(true)
+
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 1, 'the preserved draft was not submitted')
+			expect(sent[0]?.at(-1)).toMatchObject({ role: 'user', content: 'keep this draft' })
+			releaseFirstTurn()
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('refuses to hand the terminal away while a model turn can still repaint it', async () => {
+		const editor = vi.fn(async () => 'should not run')
+		const screen = await renderToScreen(<App ctx={ctx} externalEditor={editor} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'active turn', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'the active turn did not start')
+			screen.press('draft while active')
+			await screen.waitForRender()
+			screen.press('\x07')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('wait for the active turn'),
+				'the unstable editor admission was not refused',
+			)
+
+			expect(editor).not.toHaveBeenCalled()
+			expect(screen.viewport().join('\n')).toContain('draft while active')
+			releaseFirstTurn()
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('withdraws the host editor when the terminal session closes', async () => {
+		let editorSignal: AbortSignal | undefined
+		const editor = vi.fn(
+			({ signal }: { readonly signal: AbortSignal }) =>
+				new Promise<string>((_resolve, reject) => {
+					editorSignal = signal
+					signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+				}),
+		)
+		const screen = await renderToScreen(<App ctx={ctx} externalEditor={editor} />, {
+			cols: 110,
+			rows: 28,
+		})
+		await waitUntil(
+			screen,
+			() => screen.scrollback().some((line) => line.includes('Type a message')),
+			'App never became ready',
+		)
+		screen.press('\x07')
+		await waitUntil(screen, () => editor.mock.calls.length === 1, 'Ctrl+G did not open the editor')
+
+		await screen.unmount()
+
+		expect(editorSignal?.aborted).toBe(true)
+		expect(editorSignal?.reason).toMatchObject({ message: 'the terminal session closed' })
 	})
 })

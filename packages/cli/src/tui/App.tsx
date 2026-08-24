@@ -159,6 +159,7 @@ import { moveSelection } from './selection-window.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { useSelectionIndex } from './use-selection-index.js'
+import { editDraftInExternalEditor } from './external-editor.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
 	type ReviewCommit,
@@ -170,10 +171,25 @@ import {
 export interface AppProps {
 	readonly ctx: TuiContext
 	readonly onExitSummary?: (summary: TuiExitSummary) => void
+	/** Test/embedding seam; the normal TUI uses VISUAL/EDITOR on the host. */
+	readonly externalEditor?: ExternalEditorAdapter
 }
+
+export type ExternalEditorAdapter = (request: {
+	readonly seed: string
+	readonly cwd: string
+	readonly signal: AbortSignal
+}) => Promise<string>
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
 type ConversationMutation = 'fork' | 'edit' | 'new'
+type PendingExternalEditor = {
+	readonly token: object
+	readonly seed: string
+	readonly controller: AbortController
+	readonly resolve: (text: string) => void
+	readonly reject: (error: unknown) => void
+}
 type CopyPickerState = {
 	readonly targets: readonly CopyResponseTarget[]
 	readonly provenance: 'normal-completion' | 'persisted'
@@ -503,7 +519,14 @@ function goalRoundPrompt(authority: GoalRoundAuthority): string {
  */
 const LIVE_FURNITURE_ROWS = 10
 
-export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
+const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal }) =>
+	editDraftInExternalEditor(seed, { cwd, signal })
+
+export function App({
+	ctx: initialCtx,
+	onExitSummary,
+	externalEditor = defaultExternalEditor,
+}: AppProps) {
 	// Bind approval and every operation it admits to one real directory. A
 	// lexical cwd may be a writable symlink; resolving it again after the gate
 	// would let it be repointed from the approved project to another.
@@ -883,6 +906,11 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 	const [conversationMutation, setConversationMutation] = useState<ConversationMutation | null>(
 		null,
 	)
+	/** Host editor operation; it owns terminal input until its child settles. */
+	const [externalEditorRequest, setExternalEditorRequest] =
+		useState<PendingExternalEditor | null>(null)
+	const externalEditorRequestRef = useRef<PendingExternalEditor | null>(null)
+	const externalEditorStartedRef = useRef<object | null>(null)
 	/** Closes the same-tick input window while a verified export reads disk. */
 	const exportingRef = useRef(false)
 	/** A goal mutation is ordered before any later conversation command. */
@@ -917,6 +945,81 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 		settledRef.current = 0
 		setResetKey((k) => k + 1)
 	}, [stdout.isTTY, writeStdout])
+
+	const requestExternalEditor = useCallback(
+		(seed: string): Promise<string> => {
+			if (
+				phase !== 'ready' ||
+				state !== 'idle' ||
+				abortRef.current !== null ||
+				hasUnsettledTurn() ||
+				queuedRef.current.length > 0 ||
+				compactingRef.current ||
+				conversationMutationRef.current !== null
+			) {
+				return Promise.reject(
+					new Error('wait for the active turn, queue, compaction, or conversation change to settle'),
+				)
+			}
+			if (externalEditorRequestRef.current) {
+				return Promise.reject(new Error('an external editor is already open'))
+			}
+			return new Promise<string>((resolve, reject) => {
+				const request: PendingExternalEditor = {
+					token: {},
+					seed,
+					controller: new AbortController(),
+					resolve,
+					reject,
+				}
+				externalEditorRequestRef.current = request
+				setExternalEditorRequest(request)
+			})
+		},
+		[hasUnsettledTurn, phase, state],
+	)
+
+	useEffect(() => {
+		const request = externalEditorRequest
+		if (!request || externalEditorStartedRef.current === request.token) return
+		externalEditorStartedRef.current = request.token
+		void (async () => {
+			// Let React deactivate every Ink input hook first. The editor must inherit
+			// a cooked terminal, not the raw byte stream the composer consumes.
+			await new Promise<void>((resolve) => setImmediate(resolve))
+			if (request.controller.signal.aborted) return
+			if (stdout.isTTY) writeStdout('\x1b[2J\x1b[H')
+			let edited: string | undefined
+			let failure: unknown
+			try {
+				edited = await externalEditor({
+					seed: request.seed,
+					cwd: trustedCwdRef.current,
+					signal: request.controller.signal,
+				})
+			} catch (error) {
+				failure = error
+			}
+			if (request.controller.signal.aborted) return
+			if (externalEditorRequestRef.current === request) {
+				externalEditorRequestRef.current = null
+				resetTranscript()
+				setExternalEditorRequest(null)
+			}
+			if (failure !== undefined) request.reject(failure)
+			else request.resolve(edited ?? '')
+		})()
+	}, [externalEditor, externalEditorRequest, resetTranscript, stdout.isTTY, writeStdout])
+
+	useEffect(
+		() => () => {
+			const request = externalEditorRequestRef.current
+			if (!request) return
+			externalEditorRequestRef.current = null
+			request.controller.abort(new Error('the terminal session closed'))
+		},
+		[],
+	)
 
 	const pushMessage = useCallback(
 		(
@@ -4610,14 +4713,14 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 		// Active on every phase. It was gated off during the picker, which is what
 		// left that screen without a usable exit; the picker branch above returns
 		// immediately, so the Picker still owns everything except Ctrl+C.
-		{ isActive: true },
+		{ isActive: externalEditorRequest === null },
 	)
 
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	return (
-		<Box flexDirection="column">
+		<Box flexDirection="column" display={externalEditorRequest ? 'none' : 'flex'}>
 			<Box flexDirection="column" paddingX={1}>
 				{phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
@@ -4730,7 +4833,8 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 									phase !== 'ready' ||
 									state === 'awaiting-permission' ||
 									compacting ||
-									conversationMutation !== null
+									conversationMutation !== null ||
+									externalEditorRequest !== null
 								}
 								hidden={permission !== null || choicePicker !== null || copyPicker !== null}
 								// A turn is running, so Esc is the interrupt and not
@@ -4738,6 +4842,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 								escapeInterrupts={!compacting && (state === 'thinking' || state === 'tool')}
 								onSubmit={handleSubmit}
 								onNotice={(text) => pushMessage('system', text)}
+								onExternalEdit={requestExternalEditor}
 								onEditPrevious={openPromptEditor}
 								draftToRestore={composerDraft}
 								onDraftRestored={(token) =>

@@ -137,7 +137,10 @@ restores the unsent draft. Ctrl+R searches matching prompts from newest to
 oldest, Ctrl+S walks back toward the draft, and Esc restores the exact text and
 cursor that started the search. Direct shell resume and the in-TUI resume
 picker add restored operator-authored prompts to this history while keeping
-runtime context and automatic goal turns out. Alt+B/F and modified arrows move by words,
+runtime context and automatic goal turns out. Ctrl+G opens the complete text
+draft in `$VISUAL`, falling back to `$EDITOR`; the idle TUI releases raw mode
+while the host editor runs, then restores the edited text without dropping
+image/document attachments. Alt+B/F and modified arrows move by words,
 Alt+Backspace/Alt+D delete words, and Ctrl+D deletes the next complete
 displayed character. Conversation rows flow
 downward from the banner while unused viewport

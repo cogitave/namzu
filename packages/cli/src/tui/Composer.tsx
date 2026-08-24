@@ -6,7 +6,7 @@
  * autocomplete dropdown is open), Tab completes that command or queues the
  * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
  * else browse history, Ctrl+R/Ctrl+S search history, Ctrl+W rubs out a word,
- * Backspace deletes.
+ * Ctrl+G edits the draft in VISUAL/EDITOR, Backspace deletes.
  */
 
 import type { MessageAttachment } from '@namzu/sdk'
@@ -61,6 +61,8 @@ export interface ComposerProps {
 	 * silence this exists to end.
 	 */
 	readonly onNotice?: (text: string) => void
+	/** Open the complete text draft in an operator-owned external editor. */
+	readonly onExternalEdit?: (seed: string) => Promise<string>
 	/** Empty-composer Esc ×2 asks App to select a durable prompt to edit. */
 	readonly onEditPrevious?: () => void
 	/** One-shot prompt restored after App has created a source-preserving fork. */
@@ -292,6 +294,7 @@ export function Composer({
 	hidden = false,
 	escapeInterrupts = false,
 	onNotice,
+	onExternalEdit,
 	onEditPrevious,
 	draftToRestore = null,
 	onDraftRestored,
@@ -709,6 +712,31 @@ export function Composer({
 				setBuffer(history[history.length - 1 - next] ?? '')
 				return
 			}
+			if (key.ctrl && input === 'g') {
+				if (!onExternalEdit) {
+					onNotice?.('External editor support is unavailable in this terminal.')
+					return
+				}
+				const seed = [valueRef.current, ...pastes]
+					.map((part) => part.trim())
+					.filter(Boolean)
+					.join('\n\n')
+				void onExternalEdit(seed)
+					.then((edited) => {
+						const cleaned = edited.trimEnd()
+						setPastes([])
+						setHistoryIndex(-1)
+						setHistorySearch(null)
+						setSelectedIndex(0)
+						editBuffer(cleaned, cleaned.length)
+					})
+					.catch((error: unknown) => {
+						onNotice?.(
+							`Cannot open external editor: ${error instanceof Error ? error.message : String(error)}`,
+						)
+					})
+				return
+			}
 			// Ctrl+V / Alt+V: pull an image off the clipboard and hold it as an attachment.
 			//
 			// Every outcome says something. The status bar advertises this key, so
@@ -783,7 +811,7 @@ export function Composer({
 				position + input.length,
 			)
 		},
-		{ isActive: true },
+		{ isActive: !disabled && !hidden },
 	)
 
 	// After every hook, so the component keeps its state while it is off screen.
