@@ -302,6 +302,7 @@ export function Composer({
 	const [historySearch, setHistorySearchState] = useState<HistorySearchState | null>(null)
 	const historySearchRef = useRef<HistorySearchState | null>(null)
 	const verticalColumnRef = useRef<number | null>(null)
+	const killBufferRef = useRef('')
 	const [selected, setSelected] = useState<number>(0)
 	const selectedRef = useRef(0)
 	// Large pastes are held as attachments (shown as chips) instead of being
@@ -512,6 +513,10 @@ export function Composer({
 				return
 			}
 			if (key.backspace && (key.meta || key.ctrl)) {
+				const source = valueRef.current
+				const position = cursorRef.current
+				const start = previousWordBoundary(source, position)
+				if (start < position) killBufferRef.current = source.slice(start, position)
 				const result = deletePreviousWordAt(valueRef.current, cursorRef.current)
 				editBuffer(result.value, result.cursor)
 				return
@@ -673,6 +678,10 @@ export function Composer({
 				return
 			}
 			if (key.ctrl && input === 'w') {
+				const source = valueRef.current
+				const position = cursorRef.current
+				const start = previousWordBoundary(source, position)
+				if (start < position) killBufferRef.current = source.slice(start, position)
 				const result = deletePreviousWordAt(valueRef.current, cursorRef.current)
 				editBuffer(result.value, result.cursor)
 				return
@@ -680,18 +689,34 @@ export function Composer({
 			if (key.ctrl && input === 'u') {
 				const position = cursorRef.current
 				const start = lineStart(valueRef.current, position)
+				if (start < position) killBufferRef.current = valueRef.current.slice(start, position)
 				editBuffer(valueRef.current.slice(0, start) + valueRef.current.slice(position), start)
 				return
 			}
 			if (key.ctrl && input === 'k') {
 				const position = cursorRef.current
 				const end = lineEnd(valueRef.current, position)
+				if (position < end) killBufferRef.current = valueRef.current.slice(position, end)
 				editBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(end), position)
 				return
 			}
 			if (key.meta && input === 'd') {
+				const source = valueRef.current
+				const position = cursorRef.current
+				const end = nextWordBoundary(source, position)
+				if (position < end) killBufferRef.current = source.slice(position, end)
 				const result = deleteNextWordAt(valueRef.current, cursorRef.current)
 				editBuffer(result.value, result.cursor)
+				return
+			}
+			if (key.ctrl && input === 'y') {
+				const killed = killBufferRef.current
+				if (killed.length === 0) return
+				const position = cursorRef.current
+				editBuffer(
+					valueRef.current.slice(0, position) + killed + valueRef.current.slice(position),
+					position + killed.length,
+				)
 				return
 			}
 			if (key.ctrl || key.meta) return

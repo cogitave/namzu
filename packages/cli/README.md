@@ -128,7 +128,9 @@ boundary and Tab queues a separate follow-up; at idle either key starts the
 draft. Ctrl+V and Alt+V attach a clipboard image, independently of the optional
 computer-use package. Left/Right and Ctrl+B/Ctrl+F move by complete displayed
 characters, Home/End and Ctrl+A/Ctrl+E move to line boundaries, and
-Ctrl+W/Ctrl+U/Ctrl+K delete around the live cursor. Ctrl+J, Shift+Enter and
+Ctrl+W/Ctrl+U/Ctrl+K delete around the live cursor, and Ctrl+Y restores the
+last non-empty deletion at the cursor even after submitting. Ctrl+H and
+Backspace each remove one displayed character. Ctrl+J, Shift+Enter and
 Alt+Enter add a newline; Up/Down and Ctrl+P/Ctrl+N move between authored lines
 before crossing into prompt history, where returning to the newest entry
 restores the unsent draft. Ctrl+R searches matching prompts from newest to

@@ -471,6 +471,55 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
+	it('yanks the last non-empty kill at the live cursor', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('alpha beta gamma')
+			screen.press('\x01')
+			for (let index = 0; index < 11; index += 1) screen.press('\x1b[C')
+			screen.press('\x17')
+			screen.press('\x01')
+			screen.press('\x19')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('beta alpha gamma', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('keeps the kill buffer across submission and treats Ctrl+H as one backspace', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('keep CUT')
+			screen.press('\x1bb')
+			screen.press('\x0b')
+			screen.press('\r')
+			await screen.waitForRender()
+
+			screen.press('again ')
+			screen.press('\x19')
+			screen.press('\x08')
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenNthCalledWith(1, 'keep', undefined)
+			expect(submit).toHaveBeenNthCalledWith(2, 'again CU', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('uses Tab as a queue submission when no completion menu owns it', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(composer(submit), {

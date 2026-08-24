@@ -409,7 +409,10 @@ Left/Right and Ctrl+B/Ctrl+F move by complete displayed characters, including
 combined emoji. Home/End and Ctrl+A/Ctrl+E move to the current line boundaries.
 Backspace and Delete remove complete displayed characters; Ctrl+W removes the
 preceding whitespace-delimited word at the cursor, and Ctrl+U/Ctrl+K remove to
-the line boundaries. Alt+B/Alt+F and modified Left/Right move by words;
+the line boundaries. Ctrl+Y inserts the most recent non-empty word or line
+deletion at the live cursor, including after a submitted draft reset. Ctrl+H
+is the terminal Backspace alias and removes one complete displayed character.
+Alt+B/Alt+F and modified Left/Right move by words;
 Alt+Backspace and Alt+D delete a word on the corresponding side, while Ctrl+D
 deletes the next complete displayed character. Ctrl+J adds a newline on every
 terminal; Shift+Enter and
