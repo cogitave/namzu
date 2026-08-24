@@ -55,6 +55,7 @@ describe('runCli', () => {
 		// could type, which is the defect. Deleting the line in `cli.ts` that
 		// registers it must fail HERE.
 		expect(stdout).toMatch(/^\s+drain\b/m)
+		expect(stdout).toMatch(/^\s+upgrade\b/m)
 		// `tools` was asserted here until the peer-daemon removal deleted the
 		// command. The assertion kept passing, because "tools" also occurs in
 		// the --dangerously-skip-permissions description ("Run tools without

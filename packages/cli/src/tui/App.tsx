@@ -556,11 +556,21 @@ export function App({ ctx: initialCtx }: AppProps) {
 	/** Finite slash-command choice owned synchronously until apply or cancel. */
 	const [choicePicker, setChoicePickerState] = useState<ChoicePickerState | null>(null)
 	const choicePickerRef = useRef<ChoicePickerState | null>(null)
+	/**
+	 * Exact chooser React has committed. The synchronous owner ref is needed to
+	 * block queue/goal work immediately, but it must not accept the Return key
+	 * that created it before a menu has existed in the rendered tree.
+	 */
+	const choicePickerCommittedRef = useRef<ChoicePickerState | null>(null)
 	const [selectedChoice, setSelectedChoice] = useState(0)
 	const setChoicePicker = useCallback((next: ChoicePickerState | null) => {
 		choicePickerRef.current = next
+		if (next === null) choicePickerCommittedRef.current = null
 		setChoicePickerState(next)
 	}, [])
+	useEffect(() => {
+		choicePickerCommittedRef.current = choicePicker
+	}, [choicePicker])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const composerDraftTokenRef = useRef(0)
 	const exitArmedRef = useRef<boolean>(false)
@@ -3771,7 +3781,13 @@ export function App({ ctx: initialCtx }: AppProps) {
 			// request and above the ordinary composer. Their values are a captured
 			// menu, so a provider/session change cannot silently reinterpret Enter.
 			if (choicePickerRef.current) {
-				const options = choicePickerRef.current.options
+				const picker = choicePickerRef.current
+				// Composer publishes a chooser while handling Return. App receives the
+				// same input dispatch (and key repeat can arrive before the commit), so
+				// the synchronous ref is an ownership fence but not yet an actionable
+				// menu. Only the exact object React committed may consume a choice.
+				if (choicePickerCommittedRef.current !== picker) return
+				const options = picker.options
 				if (key.escape || (key.ctrl && input === 'c')) {
 					setChoicePicker(null)
 					return

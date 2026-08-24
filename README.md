@@ -284,9 +284,13 @@ it never re-runs itself with elevated privileges.
 Bare `namzu` opens an interactive terminal agent. The same binary is
 scriptable: `namzu run` for a single headless prompt, `namzu run-stream` for
 newline-delimited events a host UI can consume, `namzu history`,
-`namzu doctor`, `namzu skills`, and `namzu eval`, plus `namzu providers-json`
+`namzu doctor`, `namzu upgrade`, `namzu skills`, and `namzu eval`, plus `namzu providers-json`
 and `namzu skills-json` for a host UI that wants the rosters as JSON. Run
 `namzu --help` for the current list.
+
+The TUI names `namzu upgrade` when npm reports a newer version. The command
+updates the npm-global prefix that owns the running package and verifies that
+exact package before claiming success; `namzu upgrade --check` is read-only.
 
 Three things it does on the way in are worth knowing, because they are the
 difference between a toy and something you point at a real repository:

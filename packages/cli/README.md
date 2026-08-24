@@ -64,9 +64,18 @@ probes for.
 ```bash
 namzu                       # interactive session in the current directory
 namzu doctor                # what this host can actually do, and what is missing
+namzu upgrade --check       # check npm without changing the installation
+namzu upgrade               # update this active npm-global installation
 namzu login claude          # create a Namzu-owned Claude subscription session
 namzu login codex           # create a Namzu-owned ChatGPT subscription session
 ```
+
+The TUI checks npm briefly after startup and prints `namzu upgrade` when a
+newer CLI is available. Upgrade derives the prefix from the package that is
+actually running, installs the exact registry version there, and reads that
+same package back before reporting success. It refuses local checkouts and
+unknown package-manager layouts instead of guessing at another binary on
+`PATH`; update those with the package manager that installed them.
 
 On startup, Namzu first reuses usable `Claude` and `Codex` sessions already owned
 by their installed command-line clients, including the paired Windows home from

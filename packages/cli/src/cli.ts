@@ -30,6 +30,7 @@ import {
 import { runCommand } from './commands/run.js'
 import { stubCommands } from './commands/stubs.js'
 import type { CommandContext } from './commands/types.js'
+import { upgradeCommand } from './commands/upgrade.js'
 import {
 	type ConfigDebugSnapshot,
 	createConfigDebugSnapshot,
@@ -239,11 +240,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		historyCommand,
 		skillsJSONCommand,
 		providersJSONCommand,
+		upgradeCommand,
 		...stubCommands,
 	]) {
 		registerAll(program, [def], {
 			getContext:
-				def === acpCommand || def === runCommand || def === runStreamCommand || def === drainCommand
+				def === acpCommand ||
+				def === runCommand ||
+				def === runStreamCommand ||
+				def === drainCommand ||
+				def === upgradeCommand
 					? getBootstrapContext
 					: getContext,
 			setExitCode,
