@@ -96,8 +96,10 @@ API keys remain optional alternatives through environment variables or the
 session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
 
-Bare `/effort`, `/permissions`, and `/feedback` open finite keyboard choosers;
-their argument forms remain available for scripts. Long model and resume lists
+Bare `/effort`, `/permissions`, `/feedback`, and `/skill` open finite keyboard
+choosers; their argument forms remain available for scripts. A fully typed
+command is the active completion ahead of longer names with the same prefix, so
+`/skill` cannot accidentally run `/skills`. Long model and resume lists
 keep a seven-row window around the active choice and show its absolute position,
 so arrow navigation never moves the selection beyond the visible terminal. The
 footer keeps `model effort · cwd` on the left and reserves the right edge for a

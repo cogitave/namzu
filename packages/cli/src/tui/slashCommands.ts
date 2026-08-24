@@ -59,6 +59,7 @@ export type SlashAction =
 	| { kind: 'remember'; text: string }
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
+	| { kind: 'skill-picker' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
 	/**
@@ -336,7 +337,13 @@ export function matchSlashCommands(
 		action: () => ({ kind: 'none' }) as const,
 	}))
 
-	return [...builtins, ...own].filter((c) => c.name.startsWith(prefix))
+	const matches = [...builtins, ...own].filter((command) => command.name.startsWith(prefix))
+	if (prefix.length === 0) return matches
+	const exact = matches.findIndex((command) => command.name === prefix)
+	if (exact <= 0) return matches
+	const exactMatch = matches[exact]
+	if (!exactMatch) return matches
+	return [exactMatch, ...matches.slice(0, exact), ...matches.slice(exact + 1)]
 }
 
 /** A registry command whose name a CLI-local one already answers to. */
@@ -668,16 +675,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skill',
-		description: 'Activate a skill for this session: /skill <name>.',
+		description: 'Activate a skill for this session; choose one or type its name.',
 		action: (_ctx, args) => {
 			const name = args.join(' ').trim()
-			return name.length === 0
-				? {
-						kind: 'message',
-						role: 'system',
-						content: 'Usage: /skill <name> (see /skills)',
-					}
-				: { kind: 'load-skill', name }
+			return name.length === 0 ? { kind: 'skill-picker' } : { kind: 'load-skill', name }
 		},
 	},
 	{

@@ -44,7 +44,7 @@ const preferences = {
 
 const roots: string[] = []
 const sessions: AgentSession[] = []
-const constructions: Array<{ token: string; accountId: string }> = []
+const constructions: Array<{ token: string; accountId: string; model: string }> = []
 
 function jwt(exp: number): string {
 	return `${Buffer.from('{}').toString('base64url')}.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.sig`
@@ -72,7 +72,8 @@ beforeEach(() => {
 	vi.spyOn(ProviderRegistry, 'create').mockImplementation(((config: Record<string, unknown>) => {
 		const token = String(config.accessToken ?? '')
 		const accountId = String(config.accountId ?? '')
-		constructions.push({ token, accountId })
+		const model = String(config.model ?? '')
+		constructions.push({ token, accountId, model })
 		return {
 			provider: {
 				id: 'codex-recording-provider',
@@ -115,7 +116,13 @@ it('offers the admitted account, adopts rotations, and refuses deletion before m
 	})
 	sessions.push(session)
 	expect(session.hasProvider).toBe(true)
-	expect(constructions).toEqual([{ token: firstToken, accountId: 'account-a' }])
+	expect(constructions).toEqual([
+		{
+			token: firstToken,
+			accountId: 'account-a',
+			model: PROVIDER_REGISTRY.codex.defaultModel,
+		},
+	])
 
 	const secondToken = jwt(Math.floor(Date.now() / 1000) + 7200)
 	writeCodex(authPath, secondToken, 'account-b', 0)
@@ -126,8 +133,12 @@ it('offers the admitted account, adopts rotations, and refuses deletion before m
 	expect(constructions.at(-1)).toEqual({
 		token: secondToken,
 		accountId: 'account-b',
+		model: PROVIDER_REGISTRY.codex.defaultModel,
 	})
 	expect(runCalls.queries.map(providerToken)).toEqual([secondToken])
+	expect(runCalls.queries[0]?.runConfig).toMatchObject({
+		model: PROVIDER_REGISTRY.codex.defaultModel,
+	})
 
 	rmSync(authPath)
 	const before = runCalls.queries.length

@@ -2,5 +2,6 @@
 '@namzu/cli': minor
 ---
 
-Keep long model and conversation choices visible while navigating the terminal,
-and let bare `/feedback` open a finite good/bad chooser for the latest answer.
+Keep long model and conversation choices visible while navigating the terminal.
+Bare `/feedback` and `/skill` now open finite choosers, and a fully typed slash
+command is selected before longer names that share its prefix.

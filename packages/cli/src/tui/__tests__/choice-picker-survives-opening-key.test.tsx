@@ -20,6 +20,7 @@ const PREFS: Preferences = {
 }
 
 const feedback = vi.hoisted(() => ({ writes: [] as Record<string, unknown>[] }))
+const skillLoads = vi.hoisted(() => [] as string[])
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
@@ -34,6 +35,31 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 				feedback.writes.push(input)
 				return { ...input, ownerVersion: 1 }
 			}
+		},
+	}
+})
+
+vi.mock('../../skills/store.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../skills/store.js')>()
+	return {
+		...actual,
+		discoverSkills: () => [
+			{
+				name: 'analysis',
+				description: 'Inspect the problem',
+				path: '/skills/analysis/SKILL.md',
+				source: 'project',
+			},
+			{
+				name: 'release-check',
+				description: 'Verify a release candidate',
+				path: '/skills/release-check/SKILL.md',
+				source: 'user',
+			},
+		],
+		loadSkillBody: (info: { name: string }) => {
+			skillLoads.push(info.name)
+			return `Instructions for ${info.name}`
 		},
 	}
 })
@@ -109,6 +135,7 @@ afterEach(async () => {
 	await mounted?.unmount()
 	mounted = null
 	feedback.writes.length = 0
+	skillLoads.length = 0
 })
 
 async function waitUntil(screen: Screen, predicate: () => boolean, attempts = 80): Promise<void> {
@@ -185,4 +212,28 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 			rating: 'good',
 		}),
 	])
+})
+
+it('opens bare /skill and activates the selected discovered skill', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+
+	screen.press('/skill')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Inspect the problem · project'))
+
+	const output = screen.viewport().join('\n')
+	expect(output).toContain('analysis')
+	expect(output).toContain('Inspect the problem · project')
+	expect(output).toContain('release-check')
+	expect(output).toContain('Verify a release candidate · user')
+
+	screen.press('2')
+	await waitUntil(screen, () => painted(screen).includes('Activated skill: release-check'))
+	expect(skillLoads).toEqual(['release-check'])
 })

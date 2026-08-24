@@ -137,6 +137,12 @@ assistant message. `/feedback good|bad [note]` remains the direct form when a
 note is useful. The chooser captures the run and message identity when it opens,
 so an answer that settles later cannot move the rating to another message.
 
+Bare `/skill` opens the discovered project/user skill roster and `/skill <name>`
+remains the direct form. Unreadable skills stay visible with their refusal
+instead of disappearing. When a fully typed command is also a prefix of another
+name, autocomplete makes the exact command active first; `/skill` therefore
+opens this chooser rather than dispatching `/skills` because of registry order.
+
 Finite overlays render at most seven choices around their absolute cursor.
 Model catalogues and the fifty-entry recent-conversation index therefore keep
 the active row visible as arrow navigation crosses a page; the position counter

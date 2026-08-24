@@ -107,6 +107,15 @@ describe('matchSlashCommands', () => {
 	it('returns [] when nothing matches the prefix', () => {
 		expect(matchSlashCommands('/zzz')).toEqual([])
 	})
+
+	it('puts a fully typed command before longer names with the same prefix', () => {
+		expect(
+			matchSlashCommands('/skill')
+				.map((command) => command.name)
+				.slice(0, 2),
+		).toEqual(['skill', 'skills'])
+		expect(matchSlashCommands('/clear').map((command) => command.name)[0]).toBe('clear')
+	})
 })
 
 describe('parseSlash', () => {
@@ -902,5 +911,18 @@ describe('/feedback', () => {
 
 		expect(result?.kind).toBe('message')
 		expect((result as { content: string }).content).toMatch(/good\|bad/)
+	})
+})
+
+describe('/skill', () => {
+	it('opens the finite skill chooser when no name is typed', () => {
+		expect(runSlash('/skill', ctx)).toEqual({ kind: 'skill-picker' })
+	})
+
+	it('keeps the direct named form', () => {
+		expect(runSlash('/skill release-check', ctx)).toEqual({
+			kind: 'load-skill',
+			name: 'release-check',
+		})
 	})
 })

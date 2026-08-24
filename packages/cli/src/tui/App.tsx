@@ -189,6 +189,13 @@ type ChoicePickerState =
 			readonly values: readonly ('good' | 'bad')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
+	| {
+			readonly kind: 'skill'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
 
 /**
  * The streaming assistant bubble, carried across events within one turn.
@@ -1005,6 +1012,30 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 		[ctx.cwd, pushMessage],
 	)
 
+	const activateSkill = useCallback(
+		(name: string): void => {
+			const info = discoverSkills({ cwd: ctx.cwd }).find((skill) => skill.name === name)
+			if (!info) {
+				pushMessage('system', `No skill named "${name}". See /skills.`)
+				return
+			}
+			try {
+				const body = loadSkillBody(info)
+				setActiveSkills((previous) => [
+					...previous.filter((skill) => skill.name !== info.name),
+					{ name: info.name, body },
+				])
+				pushMessage('system', `Activated skill: ${info.name}`)
+			} catch (error) {
+				pushMessage(
+					'system',
+					`Could not load skill "${name}": ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		},
+		[ctx.cwd, pushMessage],
+	)
+
 	const applyChoiceSelection = useCallback(
 		(index: number): void => {
 			const picker = choicePickerRef.current
@@ -1020,9 +1051,13 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				recordFeedback(picker.runId, picker.messageId, value as 'good' | 'bad')
 				return
 			}
+			if (picker.kind === 'skill') {
+				activateSkill(value as string)
+				return
+			}
 			applyReasoningEffort(value as ReasoningEffort | undefined)
 		},
-		[applyPermissionMode, applyReasoningEffort, recordFeedback, setChoicePicker],
+		[activateSkill, applyPermissionMode, applyReasoningEffort, recordFeedback, setChoicePicker],
 	)
 
 	const sendCopyRequest = useCallback(
@@ -3100,25 +3135,33 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 						pushMessage('system', `Skills (● active):\n  ${lines.join('\n  ')}`)
 						return
 					}
-					case 'load-skill': {
-						const info = discoverSkills({ cwd: ctx.cwd }).find((s) => s.name === slash.name)
-						if (!info) {
-							pushMessage('system', `No skill named "${slash.name}". See /skills.`)
-							return
-						}
-						try {
-							const body = loadSkillBody(info)
-							setActiveSkills((prev) => [
-								...prev.filter((s) => s.name !== info.name),
-								{ name: info.name, body },
-							])
-							pushMessage('system', `Activated skill: ${info.name}`)
-						} catch (err) {
+					case 'skill-picker': {
+						const skills = discoverSkills({ cwd: ctx.cwd })
+						if (skills.length === 0) {
 							pushMessage(
 								'system',
-								`Could not load skill "${slash.name}": ${err instanceof Error ? err.message : String(err)}`,
+								'No skills found. Add one at ~/.namzu/skills/<name>/SKILL.md or ./skills/<name>/SKILL.md.',
 							)
+							return
 						}
+						const activeNames = new Set(activeSkills.map((skill) => skill.name))
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'skill',
+							title: 'Activate a skill',
+							values: skills.map((skill) => skill.name),
+							options: skills.map((skill) => ({
+								label: skill.name,
+								description: skill.problem
+									? `Unavailable: ${skill.problem}`
+									: `${skill.description} · ${skill.source}`,
+								current: activeNames.has(skill.name),
+							})),
+						})
+						return
+					}
+					case 'load-skill': {
+						activateSkill(slash.name)
 						return
 					}
 					case 'resume':
