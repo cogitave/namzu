@@ -29,6 +29,7 @@ import type {
 	RequestToolPause,
 	SkillRegistryRef,
 	ToolContext,
+	ToolDispatchOptions,
 	ToolRegistryContract,
 	ToolResult,
 } from '../../types/tool/index.js'
@@ -654,11 +655,13 @@ export class ToolExecutor {
 			const ctx: ToolContext = {
 				...baseContext,
 				toolUseId: toolCall.id,
+				source: { kind: 'direct' },
 				// Overridden per call, so a nested dispatch can name the call
 				// that made it. The base context has no `toolUseId`, and a
 				// closure built there would report every nested call as
 				// parentless.
-				dispatchTool: (name, input) => this.dispatchNested(name, input, ctx, recordObservation),
+				dispatchTool: (name, input, options) =>
+					this.dispatchNested(name, input, ctx, recordObservation, toolCall.function.name, options),
 				// Per-call for the same reason: a pause has to be routed back
 				// to the call that raised it, and a batch can raise several.
 				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
@@ -748,15 +751,64 @@ export class ToolExecutor {
 		input: unknown,
 		context: ToolContext,
 		recordObservation: (observation: ToolResultObservation) => void,
+		parentToolName?: string,
+		options?: ToolDispatchOptions,
 	): Promise<ToolResult> {
 		const parent = context.toolUseId
-		const via = parent ? { tool: name, toolUseId: parent as ToolUseId } : undefined
+		const via =
+			parent && parentToolName
+				? {
+						tool: parentToolName,
+						toolUseId: parent as ToolUseId,
+						...(options?.runtimeToolCallId ? { runtimeToolCallId: options.runtimeToolCallId } : {}),
+					}
+				: undefined
 		// Its own id, minted here. Reusing the parent's would make two
 		// different calls indistinguishable in any log keyed by it, which is
 		// exactly how a nested write gets attributed to the program that ran
 		// it rather than to itself.
 		const nestedId = generateToolCallId() as unknown as ToolUseId
 		const startedAt = Date.now()
+		const signal = options?.signal
+			? AbortSignal.any([context.abortSignal, options.signal])
+			: context.abortSignal
+		const source = parent
+			? options?.runtimeToolCallId
+				? {
+						kind: 'code' as const,
+						parentToolUseId: parent,
+						runtimeToolCallId: options.runtimeToolCallId,
+					}
+				: { kind: 'nested' as const, parentToolUseId: parent }
+			: { kind: 'direct' as const }
+		const progress = new ToolProgressPublisher(this.emitEvent, {
+			type: 'tool_progress',
+			runId: this.config.runId,
+			toolUseId: nestedId,
+			toolName: name,
+		})
+		const childContext: ToolContext = {
+			...context,
+			abortSignal: signal,
+			toolUseId: nestedId,
+			source,
+			dispatchTool: (childName, childInput, childOptions) =>
+				this.dispatchNested(
+					childName,
+					childInput,
+					childContext,
+					recordObservation,
+					name,
+					childOptions,
+				),
+			// A nested execution has its own event/progress identity, but its
+			// durable pause belongs to the nearest model-issued ancestor. The
+			// checkpoint transcript contains that ancestor call and not this
+			// ephemeral child id; minting a pause route for `nestedId` makes the
+			// answer impossible to match after process restart. `...context`
+			// intentionally preserves the ancestor route here.
+			report: (message: string, fraction?: number) => progress.report(message, fraction),
+		}
 
 		await this.emitEvent({
 			type: 'tool_executing',
@@ -767,16 +819,54 @@ export class ToolExecutor {
 			...(via ? { via } : {}),
 		})
 
-		const result = await this.config.tools.execute(name, input, context)
+		let result: ToolResult
+		try {
+			// Use the same deadline layer as a model-issued call. Calling the
+			// registry directly made nested tools the only tools whose own
+			// `timeoutMs` declaration was ignored.
+			result = await this.runOnce(name, input, childContext)
+		} finally {
+			await progress.close()
+		}
+
+		const rawOutput = result.success
+			? result.output
+			: formatFailedToolOutput(result.output, result.error)
+		const budgeted = applyToolOutputBudget({
+			toolName: name,
+			toolUseId: nestedId,
+			output: rawOutput,
+			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+			spillDir: this.config.toolOutputDir,
+			onError: (message) =>
+				this.log.warn('Failed to spill oversized nested tool output', {
+					[NAMZU.RUN_ID]: this.config.runId,
+					[GENAI.TOOL_NAME]: name,
+					'exception.message': message,
+				}),
+		})
+		const visibleResult: ToolResult = result.success
+			? { ...result, output: budgeted.output }
+			: {
+					...result,
+					output: '',
+					// `run_code` sends `error`, not `output`, across the worker
+					// bridge on a failed host call. Leaving the raw error here would
+					// make the success path bounded and the failure path unbounded.
+					error: budgeted.output,
+				}
 
 		await this.emitEvent({
 			type: 'tool_completed',
 			runId: this.config.runId,
 			toolUseId: nestedId,
 			toolName: name,
-			result: result.success ? result.output : (result.error ?? 'failed'),
+			result: budgeted.output,
 			isError: !result.success,
 			durationMs: Date.now() - startedAt,
+			outputLength: budgeted.originalLength,
+			...(budgeted.truncated ? { outputTruncated: true } : {}),
+			...(budgeted.spillPath ? { outputSpillPath: budgeted.spillPath } : {}),
 			...(via ? { via } : {}),
 		})
 		recordObservation({
@@ -788,7 +878,7 @@ export class ToolExecutor {
 			...(parent ? { parentToolUseId: parent } : {}),
 		})
 
-		return result
+		return visibleResult
 	}
 
 	private buildToolContext(
@@ -826,7 +916,8 @@ export class ToolExecutor {
 			// dispatching outside a batch has no parent call to name. The
 			// per-call context below overrides it with one that does; see
 			// `dispatchNested`.
-			dispatchTool: (name, input) => this.dispatchNested(name, input, context, recordObservation),
+			dispatchTool: (name, input, options) =>
+				this.dispatchNested(name, input, context, recordObservation, undefined, options),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			// Bound to this run, once. Binding here rather than passing the
@@ -1283,10 +1374,10 @@ export class ToolExecutor {
 		}
 
 		const controller = new AbortController()
-		const runSignal = this.config.abortSignal
-		const onRunAbort = () => controller.abort(runSignal.reason)
-		if (runSignal.aborted) controller.abort(runSignal.reason)
-		else runSignal.addEventListener('abort', onRunAbort, { once: true })
+		const parentSignal = toolContext.abortSignal
+		const onParentAbort = () => controller.abort(parentSignal.reason)
+		if (parentSignal.aborted) controller.abort(parentSignal.reason)
+		else parentSignal.addEventListener('abort', onParentAbort, { once: true })
 
 		let timer: ReturnType<typeof setTimeout> | undefined
 		let timedOut = false
@@ -1314,9 +1405,21 @@ export class ToolExecutor {
 				)
 			})
 
+			const inheritedDispatch = toolContext.dispatchTool
 			const execution = this.config.tools.execute(toolName, input, {
 				...toolContext,
 				abortSignal: controller.signal,
+				...(inheritedDispatch
+					? {
+							dispatchTool: (name: string, nestedInput: unknown, options?: ToolDispatchOptions) =>
+								inheritedDispatch(name, nestedInput, {
+									...options,
+									signal: options?.signal
+										? AbortSignal.any([controller.signal, options.signal])
+										: controller.signal,
+								}),
+						}
+					: {}),
 			})
 			// The loser of the race may still reject later; neutralize it so
 			// it is never an unhandled rejection.
@@ -1357,7 +1460,7 @@ export class ToolExecutor {
 			return outcome
 		} finally {
 			if (timer !== undefined) clearTimeout(timer)
-			runSignal.removeEventListener('abort', onRunAbort)
+			parentSignal.removeEventListener('abort', onParentAbort)
 		}
 	}
 
@@ -1560,7 +1663,10 @@ export class ToolExecutor {
 				reason: failure.reason,
 				message: failure.message,
 				...(tool
-					? { tool, jsonSchema: tool.modelInputSchema ?? renderToolSchema(tool.inputSchema) }
+					? {
+							tool,
+							jsonSchema: tool.modelInputSchema ?? renderToolSchema(tool.inputSchema),
+						}
 					: {}),
 				availableTools: this.config.tools.listNames(),
 			})

@@ -99,19 +99,25 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 				timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 				maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT,
 				...(context.abortSignal ? { signal: context.abortSignal } : {}),
-				onHostCall: async (request) => {
+				onHostCall: async (request, operation) => {
 					// Through the SAME registry, with the SAME context. Not a
 					// parallel dispatch path: a second path is a second place
 					// for the permission gate to be forgotten, and the one that
 					// forgot it would be the one a model reached through a
 					// program.
 					try {
-						const toolResult = await dispatch(request.name, request.input)
+						const toolResult = await dispatch(request.name, request.input, {
+							signal: operation.signal,
+							runtimeToolCallId: operation.runtimeToolCallId,
+						})
 						return toolResult.success
 							? { ok: true, value: toolResult.output }
 							: { ok: false, error: toolResult.error ?? 'the tool failed' }
 					} catch (err) {
-						return { ok: false, error: err instanceof Error ? err.message : String(err) }
+						return {
+							ok: false,
+							error: err instanceof Error ? err.message : String(err),
+						}
 					}
 				},
 			})
@@ -142,10 +148,14 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 						// printed its progress and then hung has told the model
 						// where it got to, and discarding that leaves the model
 						// retrying from the start.
-						error: `The program ran longer than ${options.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms and was stopped.`,
+						error: `The program ran longer than ${options.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms and its worker was stopped. Admitted host calls were asked to cancel; an uncooperative one may still be running.`,
 					}
 				case 'cancelled':
-					return { success: false, output: body, error: 'The program was cancelled.' }
+					return {
+						success: false,
+						output: body,
+						error: 'The program was cancelled.',
+					}
 				default:
 					return { success: false, output: body, error: result.outcome.error }
 			}

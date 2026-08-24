@@ -105,6 +105,17 @@ export class WorkerCodeRuntime implements CodeRuntime {
 		let output = ''
 		let truncated = false
 
+		// A withdrawn caller owns admission. Do not start an isolate merely to
+		// discover the signal was already aborted after construction.
+		if (options.signal?.aborted) {
+			return {
+				outcome: { status: 'cancelled' },
+				output,
+				outputTruncated: truncated,
+				calls,
+			}
+		}
+
 		const appendOutput = (lines: readonly string[]): void => {
 			for (const line of lines) {
 				if (truncated) return
@@ -143,6 +154,10 @@ export class WorkerCodeRuntime implements CodeRuntime {
 
 		return await new Promise<CodeRunResult>((resolve) => {
 			let settled = false
+			let terminal: CodeRunResult | undefined
+			const inFlight = new Set<Promise<void>>()
+			const operation = new AbortController()
+
 			const finish = (result: CodeRunResult): void => {
 				// The Promise already ignores a second `resolve`, so removing
 				// this guard changes no result — a mutation removing it
@@ -153,18 +168,42 @@ export class WorkerCodeRuntime implements CodeRuntime {
 				// then `exit` is the ordinary sequence, not an edge case.
 				if (settled) return
 				settled = true
+				// Terminating the worker only stops the program. Host work already
+				// admitted through onHostCall lives outside it, so revoke the signal
+				// that was handed to every such call before reporting settlement.
+				if (!operation.signal.aborted) {
+					operation.abort(new Error(`Code runtime settled with status ${result.outcome.status}`))
+				}
 				clearTimeout(deadline)
 				options.signal?.removeEventListener('abort', onAbort)
 				void worker.terminate()
-				resolve(result)
+				// A late, non-cooperative host call must not mutate a result the
+				// caller already received.
+				resolve({ ...result, calls: [...calls] })
+			}
+
+			const finishTerminalWhenHostCallsSettle = (): void => {
+				if (terminal && inFlight.size === 0) finish(terminal)
 			}
 
 			const deadline = setTimeout(() => {
-				finish({ outcome: { status: 'timed-out' }, output, outputTruncated: truncated, calls })
+				operation.abort(new Error(`Code runtime exceeded ${options.timeoutMs}ms`))
+				finish({
+					outcome: { status: 'timed-out' },
+					output,
+					outputTruncated: truncated,
+					calls,
+				})
 			}, options.timeoutMs)
 
 			const onAbort = (): void => {
-				finish({ outcome: { status: 'cancelled' }, output, outputTruncated: truncated, calls })
+				operation.abort(options.signal?.reason)
+				finish({
+					outcome: { status: 'cancelled' },
+					output,
+					outputTruncated: truncated,
+					calls,
+				})
 			}
 			options.signal?.addEventListener('abort', onAbort, { once: true })
 			if (options.signal?.aborted) {
@@ -185,13 +224,23 @@ export class WorkerCodeRuntime implements CodeRuntime {
 							kind: 'call-result',
 							id,
 							ok: false,
-							error: new HostCallDeniedError({ name, allowed: options.allowedCalls }).message,
+							error: new HostCallDeniedError({
+								name,
+								allowed: options.allowedCalls,
+							}).message,
 						})
 						return
 					}
-					void options
-						.onHostCall({ name, input: message.input })
+					const runtimeToolCallId = String(id)
+					const hostCall = Promise.resolve()
+						.then(() =>
+							options.onHostCall(
+								{ name, input: message.input },
+								{ runtimeToolCallId, signal: operation.signal },
+							),
+						)
 						.then((result) => {
+							if (settled) return
 							calls.push({ name, ok: result.ok })
 							worker.postMessage({
 								kind: 'call-result',
@@ -202,6 +251,7 @@ export class WorkerCodeRuntime implements CodeRuntime {
 							})
 						})
 						.catch((err: unknown) => {
+							if (settled) return
 							calls.push({ name, ok: false })
 							worker.postMessage({
 								kind: 'call-result',
@@ -210,6 +260,11 @@ export class WorkerCodeRuntime implements CodeRuntime {
 								error: err instanceof Error ? err.message : String(err),
 							})
 						})
+						.finally(() => {
+							inFlight.delete(hostCall)
+							finishTerminalWhenHostCallsSettle()
+						})
+					inFlight.add(hostCall)
 					return
 				}
 
@@ -219,12 +274,17 @@ export class WorkerCodeRuntime implements CodeRuntime {
 				}
 
 				if (message.kind === 'done') {
-					finish({
+					// A program may start a host call without awaiting it. The worker
+					// declaring its JavaScript body complete is not evidence that the
+					// effect it started is complete, so keep the runtime open until the
+					// already-admitted host calls settle (or the deadline revokes them).
+					terminal = {
 						outcome: { status: 'completed', result: message.result },
 						output,
 						outputTruncated: truncated,
 						calls,
-					})
+					}
+					finishTerminalWhenHostCallsSettle()
 					return
 				}
 
@@ -255,7 +315,10 @@ export class WorkerCodeRuntime implements CodeRuntime {
 				// `error` message — a hard crash, or a program that called
 				// `process.exit` through something we failed to withhold.
 				finish({
-					outcome: { status: 'failed', error: `The program exited with code ${code}.` },
+					outcome: {
+						status: 'failed',
+						error: `The program exited with code ${code}.`,
+					},
 					output,
 					outputTruncated: truncated,
 					calls,

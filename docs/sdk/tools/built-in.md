@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+lastReviewed: 2026-08-24
 tags: [computer-use, sdk]
 ---
 
@@ -32,6 +32,7 @@ It does not include:
 - `LsTool` — not a default: directory listing is `bash` + `glob`, and a third way to list a directory is a third thing for the model to choose between. Still exported for hosts that explicitly want it.
 - `SearchToolsTool` — not a default: it exists for progressive disclosure, which a host opts into. Still exported for hosts that explicitly want it.
 - `WebFetchTool` and `WebSearchTool` — require host-supplied web providers and explicit network authorization.
+- `buildRunCodeTool()` — opt-in model-authored control flow over tools the run already grants.
 - `createStructuredOutputTool()` — requires a schema per use case.
 - `createComputerUseTool()` — requires a `ComputerUseHost`.
 
@@ -49,6 +50,7 @@ It does not include:
 | `SearchToolsTool` | `search_tools` | `analysis` | none | Yes | Activate deferred tools by query (off-canonical, opt-in) |
 | `WebFetchTool` | `web_fetch` | `network` | `network_access` | Yes | Fetch one HTTP(S) URL through the configured guarded provider |
 | `WebSearchTool` | `web_search` | `network` | `network_access` | Yes | Query the configured search provider |
+| `buildRunCodeTool()` | `run_code` | `custom` | inherited from child calls | No | Run a bounded program that loops over granted tools (opt-in) |
 
 ## 3. Path Resolution Rules
 
@@ -252,6 +254,34 @@ Notes:
 - use the shipped `GuardedFetchProvider` for URL and address refusal, redirect
   admission, a whole-operation deadline, and streaming response limits; see
   [Guard model-authored web fetches](../integrations/guarded-web-fetch.md)
+
+### 4.10 `run_code` (opt-in)
+
+Purpose:
+
+- replace repeated model turns with a short JavaScript loop over tools already
+  granted to the current run
+
+Notes:
+
+- not in `getBuiltinTools()`; register `buildRunCodeTool()` explicitly
+- offers no ambient filesystem, network, process, `require`, or `fetch`; every
+  effect goes back through `ToolContext.dispatchTool`
+- is always declared destructive and not concurrency-safe because its effects
+  are the union of the tools the program calls
+- enforces a program wall clock and printed-output budget in the runtime
+- gives every host call a unique nested tool id, parent lineage, its own tool
+  deadline, and an operation signal revoked by cancellation or the program
+  deadline
+- applies `maxToolOutputChars` before a child response is copied into the code
+  runtime, for both successful and failed results
+- waits for already-admitted host calls before reporting a normal completion;
+  on a deadline the worker stops waiting, revokes their signal, and an
+  uncooperative child remains subject to the executor's explicit “may still be
+  running” semantics
+
+See [Tool Context](README.md#3b-nested-and-code-runtime-calls) for source shapes
+and the custom `CodeRuntime` migration contract.
 
 ## 5. Registering Built-Ins
 

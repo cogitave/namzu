@@ -320,7 +320,12 @@ type CoreRunEvent =
 			 * draws eleven siblings where there is one call with eleven
 			 * children.
 			 */
-			via?: { readonly tool: string; readonly toolUseId: ToolUseId }
+			via?: {
+				readonly tool: string
+				readonly toolUseId: ToolUseId
+				/** The code runtime's request id, when that was the dispatch source. */
+				readonly runtimeToolCallId?: string
+			}
 	  }
 	/**
 	 * A tool saying how far along it is.
@@ -415,7 +420,11 @@ type CoreRunEvent =
 			isError: boolean
 			/** See {@link tool_executing}'s `via`. Carried on both, so a
 			 * consumer can pair them without holding the start event. */
-			via?: { readonly tool: string; readonly toolUseId: ToolUseId }
+			via?: {
+				readonly tool: string
+				readonly toolUseId: ToolUseId
+				readonly runtimeToolCallId?: string
+			}
 			/**
 			 * Wall-clock the tool took. Computed since the first version of
 			 * the executor but only ever logged; a host asking "which tool

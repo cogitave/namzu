@@ -8,6 +8,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type {
 	CheckpointId,
@@ -221,6 +222,20 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		return tools
 	}
 
+	/**
+	 * The same pause one level below `run_code`.
+	 *
+	 * The child has an executor-minted event id, but the durable question is
+	 * owned by `call_1`: the top-level assistant call that a checkpoint can
+	 * actually replay. A fresh worker will mint a different child id, so using
+	 * that id as the pause owner can never resume across a process.
+	 */
+	function codeDispatchTool(seen: { outcome?: ToolPauseOutcome }): ToolRegistry {
+		const tools = deployTool(seen)
+		tools.register(buildRunCodeTool({ timeoutMs: 5_000 }))
+		return tools
+	}
+
 	async function baseParams(store: InMemoryCheckpointStore) {
 		return {
 			checkpointStore: store,
@@ -344,6 +359,71 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		// And it was not asked a second time. Re-asking would put a question
 		// the user already answered back in front of them, and headless would
 		// resolve it with the no-consent sentinel.
+		expect(asked).not.toHaveBeenCalledWith('user_question')
+	})
+
+	it('delivers an answer through run_code using the durable ancestor call id', async () => {
+		const store = new InMemoryCheckpointStore()
+		const firstSeen: { outcome?: ToolPauseOutcome } = {}
+		const program = 'return await call("deploy", {})'
+
+		await drainQuery({
+			...(await baseParams(store)),
+			runId: SCOPE.runId,
+			provider: new MockLLMProvider({
+				turns: [
+					{
+						toolCalls: [
+							{
+								id: 'call_1',
+								name: 'run_code',
+								args: { code: program, tools: ['deploy'] },
+							},
+						],
+						finishReason: 'tool_calls',
+					},
+					{ text: 'deployed' },
+				],
+			}),
+			tools: codeDispatchTool(firstSeen),
+			messages: [{ role: 'user', content: 'deploy it through code' }],
+			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
+		})
+
+		const parked = (await store.listCheckpoints(SCOPE)).find(
+			(cp) => cp.pending?.request.type === 'user_question',
+		)
+		if (!parked?.pending || parked.pending.request.type !== 'user_question') {
+			throw new Error('the nested pause recorded no checkpoint')
+		}
+		const questionId = parked.pending.request.question.questionId
+		expect(questionId).toBe(PAUSED_ON_CALL_1)
+
+		const { resolvedAt: _neverArrived, ...outstanding } = parked.pending
+		await store.writeCheckpoint(SCOPE, {
+			...parked,
+			pending: outstanding,
+		} as IterationCheckpoint)
+
+		const resumedSeen: { outcome?: ToolPauseOutcome } = {}
+		const asked = vi.fn()
+		const outcome = await resumeRun({
+			...(await baseParams(store)),
+			scope: SCOPE,
+			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
+			tools: codeDispatchTool(resumedSeen),
+			pendingDecision: answerWith(questionId, 'staging'),
+			resumeHandler: async (request: HITLDecisionRequest) => {
+				asked(request.type)
+				return { action: 'continue' } as HITLResumeDecision
+			},
+		})
+
+		expect(outcome.resumed).toBe(true)
+		expect(resumedSeen.outcome).toEqual({
+			status: 'answered',
+			selectedOptionIds: ['staging'],
+		})
 		expect(asked).not.toHaveBeenCalledWith('user_question')
 	})
 

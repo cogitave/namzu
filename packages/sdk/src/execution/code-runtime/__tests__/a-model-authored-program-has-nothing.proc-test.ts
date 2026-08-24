@@ -22,7 +22,10 @@ const run = (source: string, over: Partial<RunCodeOptions> = {}) =>
 	runtime.run({
 		source,
 		allowedCalls: [],
-		onHostCall: async (): Promise<HostCallResult> => ({ ok: true, value: null }),
+		onHostCall: async (): Promise<HostCallResult> => ({
+			ok: true,
+			value: null,
+		}),
 		timeoutMs: 5_000,
 		maxOutputBytes: 4096,
 		...over,
@@ -34,19 +37,28 @@ describe('the program has no ambient capability', () => {
 		// `require` gets the parameter, and the parameter is undefined.
 		const result = await run('return typeof require')
 
-		expect(result.outcome).toEqual({ status: 'completed', result: 'undefined' })
+		expect(result.outcome).toEqual({
+			status: 'completed',
+			result: 'undefined',
+		})
 	})
 
 	it('cannot see the process', async () => {
 		const result = await run('return typeof process')
 
-		expect(result.outcome).toEqual({ status: 'completed', result: 'undefined' })
+		expect(result.outcome).toEqual({
+			status: 'completed',
+			result: 'undefined',
+		})
 	})
 
 	it('cannot fetch', async () => {
 		const result = await run('return typeof fetch')
 
-		expect(result.outcome).toEqual({ status: 'completed', result: 'undefined' })
+		expect(result.outcome).toEqual({
+			status: 'completed',
+			result: 'undefined',
+		})
 	})
 
 	it('is handed no environment at all', async () => {
@@ -71,7 +83,10 @@ describe('everything it can do, it does by asking', () => {
 			},
 		})
 
-		expect(result.outcome).toEqual({ status: 'completed', result: 'hello world' })
+		expect(result.outcome).toEqual({
+			status: 'completed',
+			result: 'hello world',
+		})
 		expect(seen).toEqual([{ who: 'world' }])
 	})
 
@@ -136,6 +151,27 @@ describe('everything it can do, it does by asking', () => {
 		expect(result.outcome).toEqual({ status: 'completed', result: 3 })
 	})
 
+	it('names each runtime call and gives it the program operation signal', async () => {
+		const seen: { id: string; signal: AbortSignal }[] = []
+		const result = await run(
+			'const [a, b] = await Promise.all([call("a", {}), call("b", {})]); return a + b',
+			{
+				allowedCalls: ['a', 'b'],
+				onHostCall: async (request, operation) => {
+					seen.push({
+						id: operation.runtimeToolCallId,
+						signal: operation.signal,
+					})
+					return { ok: true, value: request.name }
+				},
+			},
+		)
+
+		expect(result.outcome).toEqual({ status: 'completed', result: 'ab' })
+		expect(seen.map((entry) => entry.id)).toEqual(['1', '2'])
+		expect(seen[0]?.signal).toBe(seen[1]?.signal)
+	})
+
 	it('records every call it made, and whether it worked', async () => {
 		const result = await run('await call("ok", {}); try { await call("nope", {}) } catch {}', {
 			allowedCalls: ['ok'],
@@ -174,6 +210,102 @@ describe('it is bounded', () => {
 		expect(result.outcome).toEqual({ status: 'cancelled' })
 	})
 
+	it('revokes an admitted host call when the program deadline wins', async () => {
+		let start!: (signal: AbortSignal) => void
+		const started = new Promise<AbortSignal>((resolve) => {
+			start = resolve
+		})
+		let release!: () => void
+		const held = new Promise<HostCallResult>((resolve) => {
+			release = () => resolve({ ok: true, value: 'late' })
+		})
+
+		const running = run('return await call("slow", {})', {
+			allowedCalls: ['slow'],
+			timeoutMs: 80,
+			onHostCall: async (_request, operation) => {
+				start(operation.signal)
+				return await held
+			},
+		})
+		const signal = await started
+		const result = await running
+
+		expect(result.outcome).toEqual({ status: 'timed-out' })
+		expect(signal.aborted).toBe(true)
+		expect(signal.reason).toEqual(new Error('Code runtime exceeded 80ms'))
+		expect(result.calls).toEqual([])
+
+		// A late non-cooperative completion cannot rewrite the result snapshot.
+		release()
+		await Promise.resolve()
+		expect(result.calls).toEqual([])
+	})
+
+	it('carries the exact caller abort reason to an admitted host call', async () => {
+		const controller = new AbortController()
+		const reason = new Error('operator stopped this program')
+		let start!: (signal: AbortSignal) => void
+		const started = new Promise<AbortSignal>((resolve) => {
+			start = resolve
+		})
+
+		const running = run('return await call("slow", {})', {
+			allowedCalls: ['slow'],
+			timeoutMs: 10_000,
+			signal: controller.signal,
+			onHostCall: async (_request, operation) => {
+				start(operation.signal)
+				await new Promise<void>((resolve) => {
+					operation.signal.addEventListener('abort', () => resolve(), { once: true })
+				})
+				return { ok: false, error: 'cancelled' }
+			},
+		})
+		const signal = await started
+		controller.abort(reason)
+
+		expect(await running).toMatchObject({ outcome: { status: 'cancelled' } })
+		expect(signal.aborted).toBe(true)
+		expect(signal.reason).toBe(reason)
+	})
+
+	it('does not report completion while an un-awaited host call is still running', async () => {
+		let start!: () => void
+		const started = new Promise<void>((resolve) => {
+			start = resolve
+		})
+		let release!: () => void
+		const held = new Promise<HostCallResult>((resolve) => {
+			release = () => resolve({ ok: true, value: 'done' })
+		})
+
+		let settled = false
+		const running = run('void call("slow", {}); return "program done"', {
+			allowedCalls: ['slow'],
+			onHostCall: async () => {
+				start()
+				return await held
+			},
+		}).then((result) => {
+			settled = true
+			return result
+		})
+
+		await started
+		// Give the worker's following `done` message ample time to arrive while
+		// the host effect remains held. A single microtask only proves the host
+		// callback started; it does not prove the runtime observed program end.
+		await new Promise((resolve) => setTimeout(resolve, 50))
+		expect(settled).toBe(false)
+
+		release()
+		expect(await running).toMatchObject({
+			outcome: { status: 'completed', result: 'program done' },
+			calls: [{ name: 'slow', ok: true }],
+		})
+	})
+
 	it('reports truncated output rather than cutting it silently', async () => {
 		// A program whose output was cut silently is a model reading a
 		// partial answer as a whole one.
@@ -186,7 +318,9 @@ describe('it is bounded', () => {
 	})
 
 	it('does not claim truncation for output that fit', async () => {
-		const result = await run('print("short"); return 1', { maxOutputBytes: 200 })
+		const result = await run('print("short"); return 1', {
+			maxOutputBytes: 200,
+		})
 
 		expect(result.outputTruncated).toBe(false)
 		expect(result.output).toBe('short')
@@ -195,7 +329,10 @@ describe('it is bounded', () => {
 	it('carries what a program printed before it failed', async () => {
 		const result = await run('print("got here"); throw new Error("then broke")')
 
-		expect(result.outcome).toMatchObject({ status: 'failed', error: 'then broke' })
+		expect(result.outcome).toMatchObject({
+			status: 'failed',
+			error: 'then broke',
+		})
 		expect(result.output).toBe('got here')
 	})
 })
@@ -216,7 +353,10 @@ describe('a program that throws is a failure, not a crash', () => {
 	it('returns a value the caller can use', async () => {
 		const result = await run('return { rows: [1, 2, 3] }')
 
-		expect(result.outcome).toEqual({ status: 'completed', result: { rows: [1, 2, 3] } })
+		expect(result.outcome).toEqual({
+			status: 'completed',
+			result: { rows: [1, 2, 3] },
+		})
 	})
 })
 
@@ -226,7 +366,9 @@ describe('output is kept as it happens, not batched until the end', () => {
 		// shipped with the `done` message, so a program that hung never sent
 		// one and its progress was lost — exactly the output a timeout most
 		// needs to explain itself.
-		const result = await run('print("reached step 1"); while (true) {}', { timeoutMs: 250 })
+		const result = await run('print("reached step 1"); while (true) {}', {
+			timeoutMs: 250,
+		})
 
 		expect(result.outcome).toEqual({ status: 'timed-out' })
 		expect(result.output).toContain('reached step 1')

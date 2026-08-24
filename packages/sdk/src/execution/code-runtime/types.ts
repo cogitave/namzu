@@ -42,6 +42,17 @@ export interface HostCallResult {
 	readonly error?: string
 }
 
+/** Authority and provenance for one call from a running program. */
+export interface HostCallContext {
+	/** Unique within this program execution. */
+	readonly runtimeToolCallId: string
+	/**
+	 * Revoked when the caller cancels or the program's own wall clock expires.
+	 * A conforming host threads this into the operation it starts.
+	 */
+	readonly signal: AbortSignal
+}
+
 /**
  * What the host will answer.
  *
@@ -50,7 +61,10 @@ export interface HostCallResult {
  * exactly the point: the program's reach is the run's reach, resolved at
  * the moment of the call rather than frozen when the program started.
  */
-export type HostCallHandler = (request: HostCallRequest) => Promise<HostCallResult>
+export type HostCallHandler = (
+	request: HostCallRequest,
+	context: HostCallContext,
+) => Promise<HostCallResult>
 
 export interface RunCodeOptions {
 	/** The program. Untrusted text, from the model. */

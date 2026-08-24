@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+lastReviewed: 2026-08-24
 tags: [computer-use, sdk]
 ---
 
@@ -227,6 +227,9 @@ in schema property names, enum/const values, or regex patterns.
 | `parentSpan` | Span to parent this tool's OpenTelemetry span to |
 | `report` | Say how far along you are, for a host rendering a live view |
 | `requestPause` | Raise a durable pause and wait for a human (see §3a) |
+| `toolUseId` | Identify this exact execution, including a child dispatched by another tool |
+| `source` | Distinguish a model-direct, nested, or `run_code` invocation |
+| `dispatchTool` | Invoke another granted tool through the same registry and audit path |
 
 This is the boundary between a simple helper function and a real runtime tool.
 
@@ -277,6 +280,42 @@ it can decide what to do without one.
 Before this, the pause machinery was reachable from exactly four
 kernel-owned points: the plan gate, the tool-review gate, the iteration
 cadence, and the built-in `ask_user_question` tool.
+
+### 3b. Nested and code-runtime calls
+
+An executor-owned `ToolContext.source` is one of:
+
+- `{kind: 'direct'}` for a model-issued call;
+- `{kind: 'nested', parentToolUseId}` for one tool dispatching another; or
+- `{kind: 'code', parentToolUseId, runtimeToolCallId}` for a call made by a
+  model-authored program running inside `run_code`.
+
+The child receives its own `toolUseId`, progress publisher and deadline. Its
+durable `requestPause` route intentionally remains bound to the nearest
+model-issued ancestor: that is the call present in the checkpoint transcript
+and therefore the identity a fresh process can re-enter. Its
+`tool_executing`/`tool_completed` events carry `via` naming the actual parent
+tool and parent call id; code-runtime children additionally carry the runtime's
+per-program call id. This is lineage, not input: a tool may narrow the operation
+signal supplied to `dispatchTool`, but the executor chooses the ephemeral child
+id and derives the parent from the context it already issued.
+
+Nested text crosses back to the caller only after the same
+`maxToolOutputChars` budget used for a direct model-visible result. The raw
+result remains available to the run's project-instruction observer, while the
+program and nested terminal event receive the bounded projection and its
+original-length/truncation metadata. Setting the budget to `0` retains the
+documented compatibility mode and disables this reduction.
+
+Custom `CodeRuntime` implementations have one migration requirement: call
+`onHostCall(request, context)` with a unique `context.runtimeToolCallId` and an
+operation-owned `context.signal`. Revoke that signal when the caller cancels or
+the program deadline expires. The package root now exports `CodeRuntime`,
+`RunCodeOptions`, `HostCallContext`, `WorkerCodeRuntime` and the related result
+types so a custom backend does not need a deep import. The shipped worker also
+waits for already-admitted host calls before reporting a normal program
+completion; a JavaScript body returning is not evidence that an un-awaited
+effect has finished.
 
 `ask_user_question` is published only to a depth-zero/root
 `SupervisorAgent`. A delegated supervisor cannot receive it, including from a

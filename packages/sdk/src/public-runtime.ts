@@ -12,6 +12,12 @@
 
 export { VERSION } from './version.js'
 
+// The opt-in model-authored-code backend. `RunCodeToolOptions.runtime` has
+// always accepted this contract; exporting the implementation and its refusal
+// class makes that signature nameable from the package root.
+export { HostCallDeniedError } from './execution/code-runtime/types.js'
+export { WorkerCodeRuntime } from './execution/code-runtime/worker.js'
+
 export {
 	CompactionConfigSchema,
 	PluginRuntimeConfigSchema,
@@ -1260,7 +1266,10 @@ export type {
 	CompactionVerificationOptions,
 	UsageSink,
 } from './compaction/verifier.js'
-export type { PluginDiscoveryOptions, PluginEnablementCapabilities } from './plugin/loader.js'
+export type {
+	PluginDiscoveryOptions,
+	PluginEnablementCapabilities,
+} from './plugin/loader.js'
 export type { ProbeContextInput } from './probe/context.js'
 export type {
 	GoalCommandScope,

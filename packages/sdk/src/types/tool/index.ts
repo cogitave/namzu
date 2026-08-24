@@ -68,7 +68,10 @@ export interface SkillRegistryRef {
  * outlives, or is billed to, somebody else's run.
  */
 export interface BackgroundJobRegistryRef {
-	start(params: { command: string; workingDirectory: string }): { id: string; status: string }
+	start(params: { command: string; workingDirectory: string }): {
+		id: string
+		status: string
+	}
 	get(id: string): { id: string; status: string; exitCode?: number }
 	read(
 		id: string,
@@ -158,6 +161,39 @@ export type ToolPauseOutcome =
 
 export type RequestToolPause = (request: ToolPauseRequest) => Promise<ToolPauseOutcome>
 
+/**
+ * Where one tool execution entered the runtime from.
+ *
+ * The executor owns this value. A nested caller supplies only its private
+ * operation context to {@link ToolContext.dispatchTool}; the executor derives
+ * the parent id from the context it already issued, so a tool cannot relabel
+ * itself as somebody else's child.
+ */
+export type ToolCallSource =
+	| { readonly kind: 'direct' }
+	| { readonly kind: 'nested'; readonly parentToolUseId: string }
+	| {
+			readonly kind: 'code'
+			readonly parentToolUseId: string
+			/** The code runtime's id, unique within the parent program. */
+			readonly runtimeToolCallId: string
+	  }
+
+/**
+ * Operation authority a trusted tool may narrow when it dispatches another
+ * tool.
+ *
+ * `signal` is fused with the parent call's signal; it can revoke authority
+ * earlier but can never extend the parent's lifetime. `runtimeToolCallId`
+ * identifies one request inside a model-authored program. The executor still
+ * chooses the child's event identity and the parent lineage; durable pause
+ * ownership stays with the model-issued ancestor present in the checkpoint.
+ */
+export interface ToolDispatchOptions {
+	readonly signal?: AbortSignal
+	readonly runtimeToolCallId?: string
+}
+
 export interface ToolContext {
 	runId: RunId
 	workingDirectory: string
@@ -242,7 +278,11 @@ export interface ToolContext {
 			}>
 		}
 		readonly search?: {
-			search(request: { query: string; limit?: number; signal?: AbortSignal }): Promise<{
+			search(request: {
+				query: string
+				limit?: number
+				signal?: AbortSignal
+			}): Promise<{
 				query: string
 				hits: readonly { title: string; url: string; snippet?: string }[]
 			}>
@@ -257,7 +297,10 @@ export interface ToolContext {
 	 * the next batch — a skill loaded alongside other calls must not
 	 * retroactively refuse them.
 	 */
-	adoptSkillScope?: (scope: { skill: string; allowedTools: readonly string[] }) => void
+	adoptSkillScope?: (scope: {
+		skill: string
+		allowedTools: readonly string[]
+	}) => void
 
 	/**
 	 * Run another tool through the same dispatch this call came through.
@@ -275,7 +318,11 @@ export interface ToolContext {
 	 * dispatch, so a tool calling through here reaches exactly what a
 	 * `tool_use` block would have.
 	 */
-	dispatchTool?: (name: string, input: unknown) => Promise<ToolResult>
+	dispatchTool?: (
+		name: string,
+		input: unknown,
+		options?: ToolDispatchOptions,
+	) => Promise<ToolResult>
 
 	/**
 	 * The `tool_use_id` of the assistant block that triggered this
@@ -286,6 +333,14 @@ export interface ToolContext {
 	 * Optional because not every executor path provides it yet.
 	 */
 	toolUseId?: string
+
+	/**
+	 * How this execution entered the tool registry.
+	 *
+	 * Present on executor-owned calls. Optional because a host may invoke a
+	 * tool directly outside a run and construct its own minimal context.
+	 */
+	source?: ToolCallSource
 
 	/**
 	 * Raise a durable pause and wait for a human to resolve it.
@@ -632,4 +687,8 @@ export interface ToolRegistryContract {
 
 export * from './repair.js'
 
-export type { ToolCallView, ToolPresentation, ToolResultView } from './presentation.js'
+export type {
+	ToolCallView,
+	ToolPresentation,
+	ToolResultView,
+} from './presentation.js'

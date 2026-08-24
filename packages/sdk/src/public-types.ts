@@ -19,6 +19,16 @@ export type * from './types/common/index.js'
 export type { CoalesceOptions } from './streaming/coalesce.js'
 export type * from './types/bidi/index.js'
 export type * from './types/tool/index.js'
+export type {
+	CodeRunOutcome,
+	CodeRunResult,
+	CodeRuntime,
+	HostCallContext,
+	HostCallHandler,
+	HostCallRequest,
+	HostCallResult,
+	RunCodeOptions,
+} from './execution/code-runtime/types.js'
 // The directory convention: what a loaded `agent/` directory is, and what the
 // loader reports about the files it could not use.
 export type * from './directory/types.js'
