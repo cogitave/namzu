@@ -253,6 +253,35 @@ describe('the two composer destinations', () => {
 		}
 	})
 
+	it('runs a slash command beyond the visible window from one input burst', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			screen.press('/')
+			for (let index = 0; index < 7; index += 1) screen.press('\x1b[B')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() =>
+					screen
+						.scrollback()
+						.some((line) => line.includes('No tools registered yet')),
+				'burst-selected /tools command never reached App',
+			)
+
+			expect(sent).toHaveLength(0)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('drains Return into the active SDK turn and keeps Tab for the following turn', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,

@@ -138,7 +138,11 @@ Alt+Backspace/Alt+D delete words, and Ctrl+D deletes the next complete
 displayed character. Conversation rows flow
 downward from the banner while unused viewport
 space stays below the transcript, and the slash palette scrolls through every
-matching command while using the remaining terminal width for descriptions. On
+matching command while using the remaining terminal width for descriptions.
+Its position line makes the full result count visible; PageUp/PageDown jump by
+a window and Home/End reach the boundaries. Menu input and selection are
+synchronous, so `/`, navigation and Enter may arrive in one terminal burst
+without losing the chosen command. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
 boot and sandbox diagnostics are reserved for crashes.
 

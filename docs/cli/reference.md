@@ -425,7 +425,11 @@ cursor that existed before search, including when search began from ordinary
 Up/Down history browsing. The slash
 palette gives descriptions the terminal width
 left after the longest visible command name and scrolls its six-row window so
-every matching command remains reachable with Up/Down. A short transcript flows
+every matching command remains reachable with Up/Down. It prints the absolute
+selection and total count; PageUp/PageDown jump by six and Home/End select the
+registry boundaries. The live input buffer and selection, rather than the last
+rendered frame, own dispatch, so a slash, repeated navigation and Enter in one
+input burst run the highlighted command. A short transcript flows
 from the banner downward; any unused viewport is padded after the complete
 transcript so the composer remains near the bottom without moving conversation
 rows there.

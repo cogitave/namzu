@@ -303,6 +303,7 @@ export function Composer({
 	const historySearchRef = useRef<HistorySearchState | null>(null)
 	const verticalColumnRef = useRef<number | null>(null)
 	const [selected, setSelected] = useState<number>(0)
+	const selectedRef = useRef(0)
 	// Large pastes are held as attachments (shown as chips) instead of being
 	// dumped into the input, then folded into the message on submit.
 	const [pastes, setPastes] = useState<readonly string[]>([])
@@ -346,6 +347,12 @@ export function Composer({
 		setHistorySearchState(next)
 	}, [])
 
+	const setSelectedIndex = useCallback((next: number | ((current: number) => number)) => {
+		const resolved = typeof next === 'function' ? next(selectedRef.current) : next
+		selectedRef.current = resolved
+		setSelected(resolved)
+	}, [])
+
 	const editBuffer = useCallback(
 		(nextValue: string, nextCursor = nextValue.length) => {
 			verticalColumnRef.current = null
@@ -363,18 +370,18 @@ export function Composer({
 		setHistorySearch(null)
 		setBuffer('', 0)
 		setHistoryIndex(-1)
-		setSelected(0)
+		setSelectedIndex(0)
 		setPastes([])
 		setAttachments([])
 		setEditPreviousArmed(false)
-	}, [setBuffer, setHistoryIndex, setHistorySearch])
+	}, [setBuffer, setHistoryIndex, setHistorySearch, setSelectedIndex])
 
 	useEffect(() => {
 		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
 		restoredTokenRef.current = draftToRestore.token
 		setBuffer(draftToRestore.text)
 		setHistoryIndex(-1)
-		setSelected(0)
+		setSelectedIndex(0)
 		verticalColumnRef.current = null
 		historyDraftRef.current = null
 		setHistorySearch(null)
@@ -382,7 +389,14 @@ export function Composer({
 		setAttachments(draftToRestore.attachments ? [...draftToRestore.attachments] : [])
 		setEditPreviousArmed(false)
 		onDraftRestored?.(draftToRestore.token)
-	}, [draftToRestore, onDraftRestored, setBuffer, setHistoryIndex, setHistorySearch])
+	}, [
+		draftToRestore,
+		onDraftRestored,
+		setBuffer,
+		setHistoryIndex,
+		setHistorySearch,
+		setSelectedIndex,
+	])
 
 	useInput(
 		(input, key) => {
@@ -399,6 +413,12 @@ export function Composer({
 			// component that draws nothing must not consume input on the
 			// strength of a second flag happening to agree with it.
 			if (disabled || hidden) return
+			const liveSuggestions = matchSlashCommands(valueRef.current, userCommands)
+			const hasLiveSuggestions = liveSuggestions.length > 0
+			const liveSelection = Math.min(
+				selectedRef.current,
+				Math.max(0, liveSuggestions.length - 1),
+			)
 			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
 			const submit = (mode: ComposerSubmitMode): boolean => {
 				const message = [valueRef.current, ...pastes]
@@ -449,9 +469,9 @@ export function Composer({
 				return
 			}
 			if (key.return) {
-				if (showSuggestions) {
+				if (hasLiveSuggestions) {
 					// Run the highlighted command.
-					onSubmit(`/${suggestions[selIdx]?.name ?? ''}`)
+					onSubmit(`/${liveSuggestions[liveSelection]?.name ?? ''}`)
 					reset()
 					return
 				}
@@ -459,10 +479,10 @@ export function Composer({
 				return
 			}
 			if (key.tab) {
-				if (showSuggestions) {
+				if (hasLiveSuggestions) {
 					// Complete to the highlighted command, ready for arguments.
-					editBuffer(`/${suggestions[selIdx]?.name ?? ''} `)
-					setSelected(0)
+					editBuffer(`/${liveSuggestions[liveSelection]?.name ?? ''} `)
+					setSelectedIndex(0)
 					return
 				}
 				submit('queue')
@@ -552,6 +572,17 @@ export function Composer({
 				setCursorState(next)
 				return
 			}
+			if (hasLiveSuggestions && (key.home || key.end || key.pageUp || key.pageDown)) {
+				if (key.home) setSelectedIndex(0)
+				else if (key.end) setSelectedIndex(liveSuggestions.length - 1)
+				else if (key.pageUp)
+					setSelectedIndex((index) => Math.max(0, index - MAX_SUGGESTIONS))
+				else
+					setSelectedIndex((index) =>
+						Math.min(liveSuggestions.length - 1, index + MAX_SUGGESTIONS),
+					)
+				return
+			}
 			if (key.home || (key.ctrl && input === 'a')) {
 				verticalColumnRef.current = null
 				const start = lineStart(valueRef.current, cursorRef.current)
@@ -567,8 +598,8 @@ export function Composer({
 				return
 			}
 			if (key.upArrow || (key.ctrl && input === 'p')) {
-				if (showSuggestions) {
-					setSelected((i) => Math.max(0, i - 1))
+				if (hasLiveSuggestions) {
+					setSelectedIndex((i) => Math.max(0, i - 1))
 					return
 				}
 				const vertical = verticalCursor(
@@ -594,8 +625,8 @@ export function Composer({
 				return
 			}
 			if (key.downArrow || (key.ctrl && input === 'n')) {
-				if (showSuggestions) {
-					setSelected((i) => Math.min(suggestions.length - 1, i + 1))
+				if (hasLiveSuggestions) {
+					setSelectedIndex((i) => Math.min(liveSuggestions.length - 1, i + 1))
 					return
 				}
 				const vertical = verticalCursor(
@@ -671,7 +702,7 @@ export function Composer({
 				setPastes((p) => [...p, input])
 				return
 			}
-			setSelected(0)
+			setSelectedIndex(0)
 			const position = cursorRef.current
 			editBuffer(
 				valueRef.current.slice(0, position) + input + valueRef.current.slice(position),
@@ -763,6 +794,10 @@ export function Composer({
 							</Box>
 						)
 					})}
+					<Text color={theme.text.muted}>
+						{selIdx + 1}/{suggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter run · Tab
+						 complete
+					</Text>
 				</Box>
 			) : null}
 		</Box>

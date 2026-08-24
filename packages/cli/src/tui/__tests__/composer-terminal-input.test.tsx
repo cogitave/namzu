@@ -505,27 +505,54 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
-	it('scrolls the slash window so commands after the first six stay reachable', async () => {
+	it('scrolls and runs slash commands after the first six on a burst of Down keys', async () => {
 		const matches = matchSlashCommands('/', [])
-		expect(matches.length).toBeGreaterThan(6)
-		const seventh = matches[6]
-		if (!seventh) throw new Error('slash registry unexpectedly has fewer than seven commands')
+		expect(matches.length).toBeGreaterThan(7)
+		const eighth = matches[7]
+		if (!eighth) throw new Error('slash registry unexpectedly has fewer than eight commands')
+		const submit = vi.fn()
 
+		const screen = await renderToScreen(composer(submit), {
+			cols: 120,
+			rows: 24,
+		})
+		try {
+			screen.press('/')
+			for (let index = 0; index < 7; index += 1) screen.press('\x1b[B')
+			await screen.waitForRender()
+
+			const viewport = screen.viewport().join('\n')
+			expect(viewport).toContain(`› /${eighth.name}`)
+			expect(viewport).toContain(`8/${matches.length} · ↑↓ navigate`)
+			expect(viewport).not.toContain(`› /${matches[0]?.name}`)
+
+			screen.press('\r')
+			await screen.waitForRender()
+			expect(submit).toHaveBeenCalledWith(`/${eighth.name}`)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('jumps through the slash registry with page and boundary keys', async () => {
+		const matches = matchSlashCommands('/', [])
 		const screen = await renderToScreen(composer(vi.fn()), {
 			cols: 120,
 			rows: 24,
 		})
 		try {
 			screen.press('/')
+			screen.press('\x1b[6~')
 			await screen.waitForRender()
-			for (let index = 0; index < 6; index += 1) {
-				screen.press('\x1b[B')
-				await screen.waitForRender()
-			}
+			expect(screen.viewport().join('\n')).toContain(`› /${matches[6]?.name}`)
 
-			const viewport = screen.viewport().join('\n')
-			expect(viewport).toContain(`› /${seventh.name}`)
-			expect(viewport).not.toContain(`› /${matches[0]?.name}`)
+			screen.press('\x1b[F')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain(`› /${matches.at(-1)?.name}`)
+
+			screen.press('\x1b[H')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain(`› /${matches[0]?.name}`)
 		} finally {
 			await screen.unmount()
 		}
