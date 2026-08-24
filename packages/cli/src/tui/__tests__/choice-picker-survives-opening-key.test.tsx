@@ -6,6 +6,7 @@
  * not a deliberate choice from a menu the terminal has not painted yet.
  */
 
+import type { Message } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -21,6 +22,15 @@ const PREFS: Preferences = {
 
 const feedback = vi.hoisted(() => ({ writes: [] as Record<string, unknown>[] }))
 const skillLoads = vi.hoisted(() => [] as string[])
+const reviewPrompts = vi.hoisted(() => [] as string[])
+const reviewRepository = vi.hoisted(() => ({
+	mergeBase: 'a'.repeat(40),
+	branches: ['main', 'release'],
+	commits: [
+		{ sha: 'b'.repeat(40), title: 'fix a race' },
+		{ sha: 'c'.repeat(40), title: 'preserve a queue' },
+	],
+}))
 const credentials = vi.hoisted(() => ({
 	primary: true,
 	codex: true,
@@ -113,6 +123,23 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 vi.mock('../../user-commands/store.js', () => ({
 	discoverUserCommands: () => [],
 }))
+vi.mock('../workspace-review.js', () => ({
+	listReviewBranches: async () => ({ current: 'feature', branches: reviewRepository.branches }),
+	listReviewCommits: async () => reviewRepository.commits,
+	reviewMergeBase: async () => reviewRepository.mergeBase,
+}))
+vi.mock('../workspace-diff.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../workspace-diff.js')>()
+	return {
+		...actual,
+		workspaceDiff: async () => ({
+			stat: ' src/review.ts | 2 +-',
+			patch: '',
+			truncated: false,
+			untracked: ['src/new-review.ts'],
+		}),
+	}
+})
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	return {
@@ -144,7 +171,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('not used by the picker test')
 			},
 			close: async () => {},
-			send: async function* () {
+			send: async function* (messages: readonly Message[]) {
+				const latest = messages.at(-1)
+				reviewPrompts.push(latest?.role === 'user' ? latest.content : '')
 				yield {
 					kind: 'delta',
 					text: 'A completed answer with an exact feedback identity.',
@@ -166,6 +195,7 @@ afterEach(async () => {
 	mounted = null
 	feedback.writes.length = 0
 	skillLoads.length = 0
+	reviewPrompts.length = 0
 	credentials.primary = true
 	credentials.codex = true
 	credentials.cleared.length = 0
@@ -269,6 +299,91 @@ it('opens bare /skill and activates the selected discovered skill', async () => 
 	screen.press('2')
 	await waitUntil(screen, () => painted(screen).includes('Activated skill: release-check'))
 	expect(skillLoads).toEqual(['release-check'])
+})
+
+it('opens /review presets, resolves a branch, and sends the immutable comparison', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+
+	screen.press('/review')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Select a review preset'))
+
+	let output = screen.viewport().join('\n')
+	expect(output).toContain('Base branch')
+	expect(output).toContain('Uncommitted')
+	expect(output).toContain('Commit')
+	expect(output).toContain('Custom')
+
+	screen.press('1')
+	await waitUntil(screen, () => painted(screen).includes('Select a base branch'))
+	output = screen.viewport().join('\n')
+	expect(output).toContain('Current branch: feature')
+	expect(output).toContain('feature → release')
+
+	screen.press('2')
+	await waitUntil(screen, () => reviewPrompts.length === 1)
+	expect(reviewPrompts[0]).toContain(`git diff ${reviewRepository.mergeBase}`)
+	expect(reviewPrompts[0]).not.toContain('release')
+})
+
+it('returns the custom review choice to the composer and sends exact instructions', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+
+	screen.press('/review')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Select a review preset'))
+	screen.press('4')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('/review'))
+
+	screen.press('focus on cancellation races')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => reviewPrompts.length === 1)
+	expect(reviewPrompts).toEqual(['focus on cancellation races'])
+})
+
+it('routes uncommitted and commit presets through the same model-input FIFO', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+
+	screen.press('/review')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Select a review preset'))
+	screen.press('2')
+	await waitUntil(screen, () => reviewPrompts.length === 1)
+	expect(reviewPrompts[0]).toContain('src/review.ts')
+	expect(reviewPrompts[0]).toContain('src/new-review.ts')
+	await waitUntil(screen, () => painted(screen).includes('exact feedback identity'))
+
+	screen.press('/review')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Select a review preset'))
+	screen.press('3')
+	await waitUntil(screen, () => painted(screen).includes('Select a commit to review'))
+	expect(screen.viewport().join('\n')).toContain('preserve a queue')
+	screen.press('2')
+	await waitUntil(screen, () => reviewPrompts.length === 2)
+	expect(reviewPrompts[1]).toContain(
+		`git diff ${reviewRepository.commits[1]?.sha}^ ${reviewRepository.commits[1]?.sha}`,
+	)
 })
 
 it('asks which Namzu-owned subscription to remove and preserves the sibling', async () => {

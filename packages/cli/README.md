@@ -106,15 +106,19 @@ API keys remain optional alternatives through environment variables or the
 session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
 
-Bare `/effort`, `/permissions`, `/feedback`, and `/skill` open finite keyboard
-choosers; when both Namzu-owned subscriptions exist, bare `/logout` asks which
-one to remove. `/logout claude|codex|all` and
+Bare `/effort`, `/permissions`, `/feedback`, `/skill`, and `/review` open finite
+keyboard choosers. The review chooser can target a base branch, uncommitted
+work, or a recent commit; choosing custom instructions restores `/review ` to
+the composer. When both Namzu-owned subscriptions exist, bare `/logout` asks
+which one to remove. `/logout claude|codex|all` and
 `namzu logout claude|codex|all` remain exact non-interactive forms, and never modify device
 sessions owned by another tool. A fully typed
 command is the active completion ahead of longer names with the same prefix, so
 `/skill` cannot accidentally run `/skills`. Long model and resume lists
-keep a seven-row window around the active choice and show its absolute position,
-so arrow navigation never moves the selection beyond the visible terminal. The
+keep a seven-row window around the active choice and show its absolute position.
+Finite labels grow into available terminal width, so branch names and commit
+subjects are not forced through the same narrow column. Arrow navigation never
+moves the selection beyond the visible terminal. The
 footer keeps `model effort · cwd` on the left and reserves the right edge for a
 state-specific interaction or durable goal state. Idle conversation leaves the
 key legend to `/help` instead of repeating it on every frame.

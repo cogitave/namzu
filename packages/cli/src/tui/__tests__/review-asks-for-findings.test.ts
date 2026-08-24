@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { reviewPrompt } from '../slashCommands.js'
+import {
+	baseBranchReviewPrompt,
+	commitReviewPrompt,
+	reviewPrompt,
+	runSlash,
+} from '../slashCommands.js'
 
 /**
  * A review turn can fail in two opposite ways, and both read as success.
@@ -73,3 +78,41 @@ describe('reviewPrompt', () => {
 		expect(prompt).toMatch(/no tracked file changed/)
 	})
 })
+
+describe('/review targets', () => {
+	it('opens the preset chooser only when custom instructions are absent', () => {
+		expect(runSlash('/review', context())).toEqual({ kind: 'review' })
+		expect(runSlash('/review focus on cancellation races', context())).toEqual({
+			kind: 'review',
+			instructions: 'focus on cancellation races',
+		})
+	})
+
+	it('pins branch and commit prompts to immutable commit ids', () => {
+		const sha = 'a'.repeat(40)
+		expect(baseBranchReviewPrompt(sha)).toContain(`git diff ${sha}`)
+		expect(commitReviewPrompt(sha)).toContain(`git diff ${sha}^ ${sha}`)
+	})
+})
+
+function context(): Parameters<typeof runSlash>[1] {
+	return {
+		availableTools: () => [],
+		sandbox: null,
+		mcp: null,
+		providerSummary: null,
+		modelSummary: null,
+		reasoningEffort: { current: () => undefined, levels: undefined },
+		usage: null,
+		permissions: {
+			currentMode: () => ({ mode: 'prompt', source: 'default' }),
+			rules: [],
+			approvalLatched: () => false,
+			neverPrompted: () => [],
+		},
+		instructionFiles: [],
+		userCommands: [],
+		configDebug: null,
+		lastAssistantMessageId: () => null,
+	}
+}

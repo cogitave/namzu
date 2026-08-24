@@ -20,6 +20,14 @@ export interface ChoicePickerProps {
 /** Finite command chooser; App owns keys and applies the selected authority. */
 export function ChoicePicker({ title, notice, options, selected }: ChoicePickerProps) {
 	const { start, items: visible } = selectionWindow(options, selected)
+	// A fixed 18-column label made branch names, commit subjects and skill names
+	// unreadable even in a wide terminal. Grow only the visible page so the
+	// description keeps useful room and navigating does not create a huge box
+	// because of one off-screen outlier.
+	const labelWidth = Math.min(
+		42,
+		Math.max(18, ...visible.map((option) => terminalDisplayText(option.label).length + 2)),
+	)
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
@@ -46,7 +54,7 @@ export function ChoicePicker({ title, notice, options, selected }: ChoicePickerP
 									{index < 9 ? `${index + 1}.` : '  '}
 								</Text>
 							</Box>
-							<Box width={18} flexShrink={0}>
+							<Box width={labelWidth} flexShrink={0}>
 								<Text
 									color={index === selected ? theme.text.primary : theme.text.secondary}
 									bold={index === selected}

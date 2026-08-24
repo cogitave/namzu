@@ -107,7 +107,7 @@ export type SlashAction =
 	 * a PROMPT rather than a message, so the answer arrives the way every other
 	 * answer does and lands in the transcript that gets saved.
 	 */
-	| { kind: 'review' }
+	| { kind: 'review'; instructions?: string }
 	/**
 	 * A command the KERNEL registered, to be dispatched and rendered.
 	 *
@@ -735,8 +735,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'review',
-		description: 'Ask the agent to review what is uncommitted in this working tree.',
-		action: () => ({ kind: 'review' }),
+		description: 'Choose a review target, or provide custom instructions: /review [instructions].',
+		action: (_ctx, args) => {
+			const instructions = args.join(' ').trim()
+			return instructions ? { kind: 'review', instructions } : { kind: 'review' }
+		},
 	},
 	{
 		name: 'mcp',
@@ -1066,6 +1069,34 @@ export function reviewPrompt(stat: string, untracked: readonly string[]): string
 		'say so in one line and stop. Say plainly what you did not examine.',
 	)
 	return lines.join('\n')
+}
+
+/** Review a branch comparison already resolved by the host to an immutable commit. */
+export function baseBranchReviewPrompt(mergeBaseSha: string): string {
+	return reviewTargetPrompt([
+		'Review the changes between the current working tree and its selected base branch.',
+		`The host resolved the merge base to ${mergeBaseSha}.`,
+		`Use \`git diff ${mergeBaseSha}\` as the comparison boundary.`,
+	])
+}
+
+/** Review one immutable commit without asking the model to resolve a mutable ref. */
+export function commitReviewPrompt(sha: string): string {
+	return reviewTargetPrompt([
+		`Review the code changes introduced by commit ${sha}.`,
+		`Use \`git show --stat --oneline ${sha}\` and \`git diff ${sha}^ ${sha}\` as the boundary.`,
+	])
+}
+
+function reviewTargetPrompt(target: readonly string[]): string {
+	return [
+		...target,
+		'',
+		'Read the changed files and surrounding code, then report prioritized, actionable findings.',
+		'Every finding must name the file, line and concrete state that produces the wrong behavior.',
+		'Do not summarize the change back to me. If there are no findings, say so in one line.',
+		'Say plainly what you did not examine.',
+	].join('\n')
 }
 
 export function renderMcp(mcp: SlashContext['mcp']): string {

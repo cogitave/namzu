@@ -145,6 +145,8 @@ import { expandFileMentions } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
 	type SlashContext,
+	baseBranchReviewPrompt,
+	commitReviewPrompt,
 	hostCommandNames,
 	kernelCommandDescriptors,
 	mergeHostCommands,
@@ -156,6 +158,12 @@ import { splitCompleteBlocks } from './stream-blocks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
+import {
+	type ReviewCommit,
+	listReviewBranches,
+	listReviewCommits,
+	reviewMergeBase,
+} from './workspace-review.js'
 
 export interface AppProps {
 	readonly ctx: TuiContext
@@ -168,6 +176,7 @@ type CopyPickerState = {
 	readonly targets: readonly CopyResponseTarget[]
 	readonly provenance: 'normal-completion' | 'persisted'
 }
+type ReviewPreset = 'base-branch' | 'uncommitted' | 'commit' | 'custom'
 type ChoicePickerState =
 	| {
 			readonly kind: 'permission-mode'
@@ -204,6 +213,27 @@ type ChoicePickerState =
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly SubscriptionProviderId[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			readonly kind: 'review-preset'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly ReviewPreset[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			readonly kind: 'review-branch'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			readonly kind: 'review-commit'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly ReviewCommit[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 
@@ -686,6 +716,8 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 	}, [choicePicker])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const composerDraftTokenRef = useRef(0)
+	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
+	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
 	/** Identity of the turn allowed to notify when it settles. */
@@ -1080,6 +1112,153 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 			if (!picker) return
 			const value = picker.values[index]
 			if (index < 0 || index >= picker.values.length) return
+			if (picker.kind === 'review-preset') {
+				if (reviewChoiceInFlightRef.current) return
+				if (value === 'custom') {
+					setChoicePicker(null)
+					composerDraftTokenRef.current += 1
+					setComposerDraft({
+						token: composerDraftTokenRef.current,
+						text: '/review ',
+					})
+					return
+				}
+
+				const operation = {}
+				reviewChoiceInFlightRef.current = operation
+				void (async () => {
+					try {
+						if (value === 'base-branch') {
+							const listing = await listReviewBranches(ctx.cwd)
+							if (
+								appLifetime.signal.aborted ||
+								reviewChoiceInFlightRef.current !== operation ||
+								choicePickerRef.current !== picker
+							)
+								return
+							if (!listing || listing.branches.length === 0) {
+								setChoicePicker(null)
+								pushMessage(
+									'system',
+									'No local branch is available for comparison in this working directory.',
+								)
+								return
+							}
+							setSelectedChoice(0)
+							setChoicePicker({
+								kind: 'review-branch',
+								title: 'Select a base branch',
+								notice: `Current branch: ${listing.current}`,
+								values: listing.branches,
+								options: listing.branches.map((branch) => ({
+									label: branch,
+									description: `${listing.current} → ${branch}`,
+								})),
+							})
+							return
+						}
+						if (value === 'commit') {
+							const commits = await listReviewCommits(ctx.cwd)
+							if (
+								appLifetime.signal.aborted ||
+								reviewChoiceInFlightRef.current !== operation ||
+								choicePickerRef.current !== picker
+							)
+								return
+							if (!commits || commits.length === 0) {
+								setChoicePicker(null)
+								pushMessage('system', 'No commit is available to review in this working directory.')
+								return
+							}
+							setSelectedChoice(0)
+							setChoicePicker({
+								kind: 'review-commit',
+								title: 'Select a commit to review',
+								values: commits,
+								options: commits.map((commit) => ({
+									label: commit.title,
+									description: commit.sha.slice(0, 12),
+								})),
+							})
+							return
+						}
+
+						const diff = await workspaceDiff(ctx.cwd)
+						if (
+							appLifetime.signal.aborted ||
+							reviewChoiceInFlightRef.current !== operation ||
+							choicePickerRef.current !== picker
+						)
+							return
+						if (diff === null) {
+							setChoicePicker(null)
+							pushMessage(
+								'system',
+								'Cannot review here — this is not a git repository, or git is unavailable.',
+							)
+							return
+						}
+						if (diff.stat.length === 0 && diff.untracked.length === 0) {
+							setChoicePicker(null)
+							pushMessage('system', 'Nothing to review — the working tree is clean.')
+							return
+						}
+						advanceQueueContinuation()
+						enqueueQueued({
+							kind: 'human',
+							text: reviewPrompt(diff.stat, diff.untracked),
+						})
+						setChoicePicker(null)
+					} finally {
+						if (reviewChoiceInFlightRef.current === operation) {
+							reviewChoiceInFlightRef.current = null
+						}
+					}
+				})()
+				return
+			}
+			if (picker.kind === 'review-branch') {
+				if (reviewChoiceInFlightRef.current) return
+				const branch = value as string
+				const operation = {}
+				reviewChoiceInFlightRef.current = operation
+				void (async () => {
+					try {
+						const mergeBase = await reviewMergeBase(ctx.cwd, branch)
+						if (
+							appLifetime.signal.aborted ||
+							reviewChoiceInFlightRef.current !== operation ||
+							choicePickerRef.current !== picker
+						)
+							return
+						if (!mergeBase) {
+							setChoicePicker(null)
+							pushMessage('system', `Could not resolve a merge base for ${branch}.`)
+							return
+						}
+						advanceQueueContinuation()
+							enqueueQueued({
+								kind: 'human',
+								text: baseBranchReviewPrompt(mergeBase),
+							})
+						setChoicePicker(null)
+					} finally {
+						if (reviewChoiceInFlightRef.current === operation) {
+							reviewChoiceInFlightRef.current = null
+						}
+					}
+				})()
+				return
+			}
+			if (picker.kind === 'review-commit') {
+				advanceQueueContinuation()
+				enqueueQueued({
+					kind: 'human',
+					text: commitReviewPrompt((value as ReviewCommit).sha),
+				})
+				setChoicePicker(null)
+				return
+			}
 			setChoicePicker(null)
 			if (picker.kind === 'permission-mode') {
 				applyPermissionMode(value as PermissionMode)
@@ -1101,8 +1280,13 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 		},
 		[
 			activateSkill,
+			advanceQueueContinuation,
+			appLifetime.signal,
 			applyPermissionMode,
 			applyReasoningEffort,
+			ctx.cwd,
+			enqueueQueued,
+			pushMessage,
 			recordFeedback,
 			removeStoredCredential,
 			setChoicePicker,
@@ -3402,7 +3586,10 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 							messageId: target.messageId,
 							values,
 							options: [
-								{ label: 'good', description: 'The answer was useful and correct.' },
+								{
+									label: 'good',
+									description: 'The answer was useful and correct.',
+								},
 								{ label: 'bad', description: 'The answer needs improvement.' },
 							],
 						})
@@ -3418,29 +3605,42 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 						return
 					}
 					case 'review': {
-						void (async () => {
-							const diff = await workspaceDiff(ctx.cwd)
-							if (diff === null) {
-								pushMessage(
-									'system',
-									'Cannot review here — this is not a git repository, or git is unavailable.',
-								)
-								return
-							}
-							if (diff.stat.length === 0 && diff.untracked.length === 0) {
-								// Refused rather than sent. A review request over an
-								// unchanged tree burns a turn and comes back with a
-								// review of nothing, which reads exactly like a review
-								// of something.
-								pushMessage('system', 'Nothing to review — the working tree is clean.')
-								return
-							}
-							// The same FIFO a typed message enters. A review composed
-							// while a turn is in flight must not jump the queue, and
-							// must not be dropped either.
-							const text = reviewPrompt(diff.stat, diff.untracked)
-							enqueueQueued({ kind: 'human', text })
-						})()
+						if (slash.instructions) {
+							// Custom instructions are already operator-authored model input.
+							// They take the ordinary FIFO below rather than a second send path.
+							outgoing = slash.instructions
+							break
+						}
+						const values: readonly ReviewPreset[] = [
+							'base-branch',
+							'uncommitted',
+							'commit',
+							'custom',
+						]
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'review-preset',
+							title: 'Select a review preset',
+							values,
+							options: [
+								{
+									label: 'Base branch',
+									description: 'Review the current work as a branch comparison.',
+								},
+								{
+									label: 'Uncommitted',
+									description: 'Review staged, unstaged, and untracked changes.',
+								},
+								{
+									label: 'Commit',
+									description: 'Review one recent commit.',
+								},
+								{
+									label: 'Custom',
+									description: 'Write exact review instructions in the composer.',
+								},
+							],
+						})
 						return
 					}
 					case 'diff': {
@@ -4162,6 +4362,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				if (choicePickerCommittedRef.current !== picker) return
 				const options = picker.options
 				if (key.escape || (key.ctrl && input === 'c')) {
+					reviewChoiceInFlightRef.current = null
 					setChoicePicker(null)
 					return
 				}
