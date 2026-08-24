@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+timestamp: 2026-08-24T00:00:00Z
+lastReviewed: 2026-08-24
 resource: packages/sdk/src/runtime/query/index.ts
 tags: [sdk, runtime, providers, retry, cancellation]
 ---
@@ -152,10 +152,13 @@ its result.
 
 Stored image and document references are resolved under the same caller-owned
 run signal before prompt contributions, guardrails, project preparation, or
-provider work begin. A signal that is already aborted wins before attachment
-store admission. A later cancellation is also raced independently, so a custom
-or remote store that ignores its signal cannot hold the run open or publish a
-late result.
+provider work begin. Resolution also owns a separate one-minute phase deadline;
+unlike the provider stream idle bound, it measures the complete parallel store
+materialization phase. `attachmentResolveTimeoutMs` selects another bound and
+`0` is the explicit unbounded compatibility mode. A signal that is already
+aborted wins before attachment store admission. A later cancellation or phase
+deadline is raced independently, so a custom or remote store that ignores its
+signal cannot hold the run open or publish a late result.
 
 `AttachmentStore.get` receives an optional `AttachmentOperationOptions` value.
 Store implementations should use its signal to close their own I/O; the
@@ -170,6 +173,10 @@ cancellation, invoke model-adjacent host callbacks, or replace prior durable
 history with an incomplete snapshot. Contradictory run, session, topic,
 project, tenant, or explicit parent attribution is refused before attachment
 or provider work.
+
+See [Stored attachment resolution](./stored-attachment-resolution.md) for the
+agent front doors, exact timeout error, configuration range, and batch
+semantics.
 
 ## Compaction verification
 
