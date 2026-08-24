@@ -58,7 +58,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		cwd: '/workspace/current',
 		availableTools: () => [],
 		sandbox: null,
-		mcp: null,
+		mcp: () => null,
 		lastAssistantMessageId: () => null,
 		providerSummary: null,
 		modelSummary: null,

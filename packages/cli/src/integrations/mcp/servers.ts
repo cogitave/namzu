@@ -109,7 +109,14 @@ export interface FailedMcpServer {
 export interface McpConnection {
 	/** Adapted tools from every server that connected, ready to register. */
 	readonly tools: readonly ToolDefinition[]
+	/** One coherent live snapshot; use this when successes and failures are shown together. */
+	current(): {
+		readonly connected: readonly ConnectedMcpServer[]
+		readonly failed: readonly FailedMcpServer[]
+	}
+	/** Servers whose transports are connected right now. Read live. */
 	readonly connected: readonly ConnectedMcpServer[]
+	/** Startup failures plus transports that failed or closed later. Read live. */
 	readonly failed: readonly FailedMcpServer[]
 	/**
 	 * Shut every connected server down.
@@ -177,9 +184,12 @@ export async function connectMcpServers(
 ): Promise<McpConnection> {
 	const entries = Object.entries(config ?? {})
 	const tools: ToolDefinition[] = []
-	const connected: ConnectedMcpServer[] = []
-	const failed: FailedMcpServer[] = []
+	const startupFailed: FailedMcpServer[] = []
 	const clients: MCPClient[] = []
+	const liveServers: Array<{
+		readonly client: MCPClient
+		readonly summary: ConnectedMcpServer
+	}> = []
 
 	// Sequential, not parallel. Each server may spawn a process and each is
 	// bounded separately; a parallel fan-out would make the worst case the sum
@@ -188,7 +198,7 @@ export async function connectMcpServers(
 	for (const [name, spec] of entries) {
 		const transport = transportFor(spec, options.cwd)
 		if (typeof transport === 'string') {
-			failed.push({ name, reason: transport })
+			startupFailed.push({ name, reason: transport })
 			continue
 		}
 		const client = new MCPClient({ serverName: name, transport })
@@ -205,14 +215,15 @@ export async function connectMcpServers(
 			// future adapter with a side effect turns into a bug.
 			const adapted = listed.map((tool) => mcpToolToToolDefinition(tool, client, name))
 			tools.push(...adapted)
-			connected.push({
+			const summary = {
 				name,
 				toolCount: adapted.length,
 				tools: adapted.map((tool) => tool.name),
-			})
+			} satisfies ConnectedMcpServer
+			liveServers.push({ client, summary })
 			clients.push(client)
 		} catch (err) {
-			failed.push({ name, reason: reasonOf(err) })
+			startupFailed.push({ name, reason: reasonOf(err) })
 			// A half-connected client still owns a child process. Tearing it down
 			// here is the difference between a failed server and a leaked one.
 			//
@@ -231,10 +242,39 @@ export async function connectMcpServers(
 		}
 	}
 
+	const current = (): {
+		connected: readonly ConnectedMcpServer[]
+		failed: readonly FailedMcpServer[]
+	} => {
+		const connected: ConnectedMcpServer[] = []
+		const failed: FailedMcpServer[] = [...startupFailed]
+		for (const { client, summary } of liveServers) {
+			const state = client.getState()
+			if (state.status === 'connected') {
+				connected.push(summary)
+				continue
+			}
+			failed.push({
+				name: summary.name,
+				reason:
+					state.error ??
+					(state.status === 'disconnected'
+						? 'connection closed after startup'
+						: `connection is ${state.status}`),
+			})
+		}
+		return { connected, failed }
+	}
+
 	return {
 		tools,
-		connected,
-		failed,
+		current,
+		get connected() {
+			return current().connected
+		},
+		get failed() {
+			return current().failed
+		},
 		close: async () => {
 			await Promise.all(
 				clients.map((c) =>

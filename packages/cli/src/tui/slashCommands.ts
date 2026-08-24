@@ -204,13 +204,13 @@ export interface SlashContext {
 	 */
 	readonly sandbox: SandboxSummary | null
 	/**
-	 * Tool servers, as they stood when this session connected.
+	 * Tool servers as they stand when the command runs.
 	 *
 	 * `null` before a session exists. Reported at connect time as transcript
 	 * rows that scroll away, and nowhere else — so an operator ten minutes into
 	 * a session had no way to ask which servers answered and which did not.
 	 */
-	readonly mcp: {
+	readonly mcp: () => {
 		readonly connected: readonly {
 			readonly name: string
 			readonly tools: readonly string[]
@@ -780,11 +780,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'mcp',
-		description: 'Show which tool servers connected, what they expose, and which failed.',
+		description: 'Show current tool-server connections, tools, and failures.',
 		action: (ctx) => ({
 			kind: 'message',
 			role: 'system',
-			content: renderMcp(ctx.mcp),
+			content: renderMcp(ctx.mcp()),
 		}),
 	},
 	{
@@ -1136,7 +1136,7 @@ function reviewTargetPrompt(target: readonly string[]): string {
 	].join('\n')
 }
 
-export function renderMcp(mcp: SlashContext['mcp']): string {
+export function renderMcp(mcp: ReturnType<SlashContext['mcp']>): string {
 	if (mcp === null) return 'No session yet — no tool servers have been contacted.'
 
 	const lines: string[] = []

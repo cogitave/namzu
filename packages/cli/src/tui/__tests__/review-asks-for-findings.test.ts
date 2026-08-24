@@ -100,7 +100,7 @@ function context(): Parameters<typeof runSlash>[1] {
 		cwd: '/workspace',
 		availableTools: () => [],
 		sandbox: null,
-		mcp: null,
+		mcp: () => null,
 		providerSummary: null,
 		modelSummary: null,
 		reasoningEffort: { current: () => undefined, levels: undefined },

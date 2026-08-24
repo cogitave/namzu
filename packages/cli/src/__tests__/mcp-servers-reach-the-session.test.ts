@@ -14,7 +14,7 @@
  * the list `/tools` prints and the registry the turn is built from.
  */
 
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -34,6 +34,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 let work: string
 
 const SERVER = `
+if (process.argv[2]) require('node:fs').writeFileSync(process.argv[2], String(process.pid))
 let buf = ''
 process.stdin.on('data', (chunk) => {
   buf += chunk
@@ -143,6 +144,54 @@ describe('a tool server declared in namzu.config.json', () => {
 			// The load-bearing one. Connecting and adapting is not the feature —
 			// the model has to be able to see and call it.
 			expect(session.toolNames()).toContain('mcp_tickets_create')
+		} finally {
+			await session.close()
+		}
+	}, 20_000)
+
+	it('stops reporting a server as connected after its transport dies', async () => {
+		const server = join(work, 'tickets.js')
+		const pidFile = join(work, 'tickets.pid')
+		writeFileSync(server, SERVER)
+
+		const { createAgentSession } = await import('../tui/agent.js')
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd: work,
+			mcpServers: {
+				tickets: { command: process.execPath, args: [server, pidFile] },
+				search: { command: join(work, 'no-such-search-server') },
+			},
+		})
+		try {
+			const initial = session.mcpStatus?.()
+			expect(initial?.connected.map((entry) => entry.name)).toEqual(['tickets'])
+			const startupFailure = initial?.failed.find((entry) => entry.name === 'search')
+			expect(startupFailure?.reason.length).toBeGreaterThan(0)
+			const pid = Number(readFileSync(pidFile, 'utf8'))
+			process.kill(pid, 'SIGTERM')
+
+			const deadline = Date.now() + 5_000
+			while (
+				!session.mcpStatus?.().failed.some((entry) => entry.name === 'tickets') &&
+				Date.now() < deadline
+			) {
+				await new Promise((resolve) => setTimeout(resolve, 20))
+			}
+
+			const current = session.mcpStatus?.()
+			expect(current?.connected).toEqual([])
+			expect(current?.failed).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: 'search',
+						reason: startupFailure?.reason,
+					}),
+					expect.objectContaining({
+						name: 'tickets',
+						reason: expect.stringMatching(/closed|disconnected/i),
+					}),
+				]),
+			)
 		} finally {
 			await session.close()
 		}

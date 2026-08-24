@@ -458,16 +458,21 @@ export interface AgentSession {
 		readonly path: string
 		readonly reason: string
 	}[]
-	/** External tool servers that connected, and how many tools each brought. */
+	/** External tool servers whose transports are connected right now. */
 	readonly mcpConnected: readonly ConnectedMcpServer[]
 	/**
-	 * External tool servers that were configured and are NOT here, with why.
+	 * External tool servers that are NOT available right now, with why.
 	 *
 	 * The hazard this feature carries is an operator who declares a server,
 	 * watches the agent run without its tools and concludes the model is bad at
 	 * the task. An empty tool list is not a signal; a named failure is.
 	 */
 	readonly mcpFailed: readonly FailedMcpServer[]
+	/** One coherent present-tense view for operator surfaces such as `/mcp`. */
+	readonly mcpStatus?: () => {
+		readonly connected: readonly ConnectedMcpServer[]
+		readonly failed: readonly FailedMcpServer[]
+	}
 	/**
 	 * Delegates this session can dispatch to. Empty when the subagent runtime
 	 * did not come up, which is non-fatal and leaves the session doing its own
@@ -1595,8 +1600,13 @@ export async function createAgentSession(
 		get skippedInstructionFiles() {
 			return projectInstructions.skippedInstructionFiles
 		},
-		mcpConnected: mcp.connected,
-		mcpFailed: mcp.failed,
+		get mcpConnected() {
+			return mcp.connected
+		},
+		get mcpFailed() {
+			return mcp.failed
+		},
+		mcpStatus: () => mcp.current(),
 		configNotices: [
 			...(capabilityNotice ? [capabilityNotice] : []),
 			...(effortNotice ? [effortNotice] : []),
