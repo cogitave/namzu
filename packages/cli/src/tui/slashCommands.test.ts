@@ -834,9 +834,25 @@ describe('/login and /logout', () => {
 		})
 	})
 
-	it('offers logout with no argument to misread', () => {
+	it('opens logout selection bare and accepts exact provider targets', () => {
 		expect(runSlash('/logout', ctx)).toEqual({ kind: 'logout' })
-		expect(runSlash('/logout everything', ctx)).toEqual({ kind: 'logout' })
+		expect(runSlash('/logout claude', ctx)).toEqual({
+			kind: 'logout',
+			target: 'anthropic',
+		})
+		expect(runSlash('/logout codex', ctx)).toEqual({
+			kind: 'logout',
+			target: 'codex',
+		})
+		expect(runSlash('/logout all', ctx)).toEqual({
+			kind: 'logout',
+			target: 'all',
+		})
+		expect(runSlash('/logout everything', ctx)).toEqual({
+			kind: 'message',
+			role: 'system',
+			content: 'Usage: /logout [claude|codex|all]',
+		})
 	})
 
 	it('both appear in /help, or nobody finds them', () => {

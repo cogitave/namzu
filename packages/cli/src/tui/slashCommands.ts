@@ -159,7 +159,7 @@ export type SlashAction =
 	 * `isCompletionArgument`) so App never has to parse an argument.
 	 */
 	| { kind: 'login'; pasted?: string }
-	| { kind: 'logout' }
+	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'all' }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -708,8 +708,21 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'logout',
-		description: 'Remove the subscription credential namzu stored on this machine.',
-		action: () => ({ kind: 'logout' }),
+		description: 'Remove a Namzu-owned subscription credential: /logout [claude|codex|all].',
+		action: (_ctx, args) => {
+			const target = args.join(' ').trim().toLowerCase()
+			if (target.length === 0) return { kind: 'logout' }
+			if (target === 'claude' || target === 'anthropic') {
+				return { kind: 'logout', target: 'anthropic' }
+			}
+			if (target === 'codex' || target === 'chatgpt') return { kind: 'logout', target: 'codex' }
+			if (target === 'all') return { kind: 'logout', target: 'all' }
+			return {
+				kind: 'message',
+				role: 'system',
+				content: 'Usage: /logout [claude|codex|all]',
+			}
+		},
 	},
 	{
 		name: 'cost',

@@ -2,7 +2,13 @@ import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 
 import { describeLoginOutcome, describeLoginStart } from '../../tui/login-prompt.js'
-import { firstStdinLine, loginCommand, logoutCommand, parseLoginFlags } from '../login.js'
+import {
+	firstStdinLine,
+	loginCommand,
+	logoutCommand,
+	parseLoginFlags,
+	parseLogoutTarget,
+} from '../login.js'
 
 describe('parseLoginFlags', () => {
 	it('defaults to launching a browser and waiting five minutes', () => {
@@ -66,13 +72,31 @@ describe('the commands are reachable and describe themselves', () => {
 		expect(loginCommand.help).toContain('namzu login')
 	})
 
-	it('logout takes no arguments to misread', () => {
-		expect(logoutCommand.passThrough).not.toBe(true)
+	it('logout accepts an exact provider target and owns its help', () => {
+		expect(logoutCommand.passThrough).toBe(true)
+		expect(logoutCommand.help).toContain('namzu logout [claude|codex|all]')
 	})
 
 	it('names itself for what an operator is trying to do', () => {
 		expect(loginCommand.name).toBe('login')
 		expect(logoutCommand.name).toBe('logout')
+	})
+})
+
+describe('parseLogoutTarget', () => {
+	it('keeps the argumentless shell command backward compatible', () => {
+		expect(parseLogoutTarget([])).toBe('all')
+	})
+
+	it('accepts the two human-facing provider names and explicit all', () => {
+		expect(parseLogoutTarget(['claude'])).toBe('anthropic')
+		expect(parseLogoutTarget(['codex'])).toBe('codex')
+		expect(parseLogoutTarget(['all'])).toBe('all')
+	})
+
+	it('refuses ambiguous or unknown targets', () => {
+		expect(parseLogoutTarget(['everything'])).toBeNull()
+		expect(parseLogoutTarget(['claude', 'codex'])).toBeNull()
 	})
 })
 

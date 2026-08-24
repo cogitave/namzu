@@ -21,6 +21,11 @@ const PREFS: Preferences = {
 
 const feedback = vi.hoisted(() => ({ writes: [] as Record<string, unknown>[] }))
 const skillLoads = vi.hoisted(() => [] as string[])
+const credentials = vi.hoisted(() => ({
+	claude: true,
+	codex: true,
+	cleared: [] as string[],
+}))
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
@@ -60,6 +65,31 @@ vi.mock('../../skills/store.js', async (importOriginal) => {
 		loadSkillBody: (info: { name: string }) => {
 			skillLoads.push(info.name)
 			return `Instructions for ${info.name}`
+		},
+	}
+})
+
+vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../integrations/providers/index.js')>()
+	return {
+		...actual,
+		credentialsPath: () => '/device/.namzu/credentials.json',
+		readStoredSubscriptionCredential: () =>
+			credentials.claude ? { accessToken: 'claude-test-token' } : null,
+		readStoredCodexCredential: () =>
+			credentials.codex ? { accessToken: 'codex-test-token', accountId: 'account-test' } : null,
+		clearStoredSubscriptionCredential: () => {
+			credentials.cleared.push('anthropic')
+			credentials.claude = false
+		},
+		clearStoredCodexCredential: () => {
+			credentials.cleared.push('codex')
+			credentials.codex = false
+		},
+		clearAllStoredCredentials: () => {
+			credentials.cleared.push('all')
+			credentials.claude = false
+			credentials.codex = false
 		},
 	}
 })
@@ -136,6 +166,9 @@ afterEach(async () => {
 	mounted = null
 	feedback.writes.length = 0
 	skillLoads.length = 0
+	credentials.claude = true
+	credentials.codex = true
+	credentials.cleared.length = 0
 })
 
 async function waitUntil(screen: Screen, predicate: () => boolean, attempts = 80): Promise<void> {
@@ -236,4 +269,33 @@ it('opens bare /skill and activates the selected discovered skill', async () => 
 	screen.press('2')
 	await waitUntil(screen, () => painted(screen).includes('Activated skill: release-check'))
 	expect(skillLoads).toEqual(['release-check'])
+})
+
+it('asks which Namzu-owned subscription to remove and preserves the sibling', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+
+	screen.press('/logout')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Choose a stored subscription to remove'))
+
+	const output = screen.viewport().join('\n')
+	expect(output).toContain('Claude')
+	expect(output).toContain('Remove only Namzu’s Claude subscription.')
+	expect(output).toContain('Codex')
+	expect(output).toContain('Remove only Namzu’s Codex subscription.')
+	expect(credentials.cleared).toEqual([])
+
+	screen.press('2')
+	await waitUntil(screen, () => painted(screen).includes("Removed Namzu's stored Codex"))
+	expect(credentials).toMatchObject({
+		claude: true,
+		codex: false,
+		cleared: ['codex'],
+	})
 })

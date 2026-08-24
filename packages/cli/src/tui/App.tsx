@@ -59,6 +59,8 @@ import {
 	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
 	clearAllStoredCredentials,
+	clearStoredCodexCredential,
+	clearStoredSubscriptionCredential,
 	credentialsPath,
 	parsePastedInput,
 	primaryProvider,
@@ -130,6 +132,7 @@ import {
 	describeLoginOutcome,
 	describeLoginStart,
 	describeLogout,
+	describeProviderLogout,
 } from './login-prompt.js'
 import {
 	NAMZU_MARK,
@@ -194,6 +197,13 @@ type ChoicePickerState =
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			readonly kind: 'credential-logout'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly SubscriptionProviderId[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 
@@ -1036,6 +1046,34 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 		[ctx.cwd, pushMessage],
 	)
 
+	const removeStoredCredential = useCallback(
+		(target: SubscriptionProviderId | 'all'): void => {
+			const path = credentialsPath()
+			const hadClaude = readStoredSubscriptionCredential() !== null
+			const hadCodex = readStoredCodexCredential() !== null
+			try {
+				if (target === 'anthropic') clearStoredSubscriptionCredential()
+				else if (target === 'codex') clearStoredCodexCredential()
+				else clearAllStoredCredentials()
+			} catch (error) {
+				pushMessage(
+					'system',
+					`Could not remove ${path}: ${error instanceof Error ? error.message : String(error)}`,
+				)
+				return
+			}
+			if (target === 'all') {
+				pushMessage('system', describeLogout(path, hadClaude || hadCodex))
+				return
+			}
+			pushMessage(
+				'system',
+				describeProviderLogout(path, target, target === 'anthropic' ? hadClaude : hadCodex),
+			)
+		},
+		[pushMessage],
+	)
+
 	const applyChoiceSelection = useCallback(
 		(index: number): void => {
 			const picker = choicePickerRef.current
@@ -1055,9 +1093,20 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				activateSkill(value as string)
 				return
 			}
+			if (picker.kind === 'credential-logout') {
+				removeStoredCredential(value as SubscriptionProviderId)
+				return
+			}
 			applyReasoningEffort(value as ReasoningEffort | undefined)
 		},
-		[activateSkill, applyPermissionMode, applyReasoningEffort, recordFeedback, setChoicePicker],
+		[
+			activateSkill,
+			applyPermissionMode,
+			applyReasoningEffort,
+			recordFeedback,
+			removeStoredCredential,
+			setChoicePicker,
+		],
 	)
 
 	const sendCopyRequest = useCallback(
@@ -3077,19 +3126,37 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 						void startOrFinishLogin(slash.pasted)
 						return
 					case 'logout': {
-						const path = credentialsPath()
-						const had =
-							readStoredSubscriptionCredential() !== null || readStoredCodexCredential() !== null
-						try {
-							clearAllStoredCredentials()
-						} catch (err) {
-							pushMessage(
-								'system',
-								`Could not remove ${path}: ${err instanceof Error ? err.message : String(err)}`,
-							)
+						if (slash.target) {
+							removeStoredCredential(slash.target)
 							return
 						}
-						pushMessage('system', describeLogout(path, had))
+						const choices = [
+							...(readStoredSubscriptionCredential() ? (['anthropic'] as const) : []),
+							...(readStoredCodexCredential() ? (['codex'] as const) : []),
+						]
+						if (choices.length === 0) {
+							removeStoredCredential('all')
+							return
+						}
+						if (choices.length === 1) {
+							removeStoredCredential(choices[0] as SubscriptionProviderId)
+							return
+						}
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'credential-logout',
+							title: 'Choose a stored subscription to remove',
+							notice:
+								'Only credentials created by Namzu are listed. Device sessions owned by other tools are left alone.',
+							values: choices,
+							options: choices.map((choice) => ({
+								label: choice === 'anthropic' ? 'Claude' : 'Codex',
+								description:
+									choice === 'anthropic'
+										? 'Remove only Namzu’s Claude subscription.'
+										: 'Remove only Namzu’s Codex subscription.',
+							})),
+						})
 						return
 					}
 					case 'remember':
@@ -3631,6 +3698,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 			nextId,
 			pushMessage,
 			rawOutput,
+			removeStoredCredential,
 			resetTranscript,
 			setChoicePicker,
 			setCopyPicker,

@@ -41,6 +41,8 @@ import {
 	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
 	clearAllStoredCredentials,
+	clearStoredCodexCredential,
+	clearStoredSubscriptionCredential,
 	credentialsPath,
 	readStoredCodexCredential,
 	readStoredSubscriptionCredential,
@@ -50,6 +52,7 @@ import {
 	describeLoginOutcome,
 	describeLoginStart,
 	describeLogout,
+	describeProviderLogout,
 } from '../tui/login-prompt.js'
 import { openInBrowser } from '../tui/open-browser.js'
 import type { CommandDef } from './types.js'
@@ -73,6 +76,26 @@ const LOGIN_HELP = [
 ].join('\n')
 
 const DEFAULT_TIMEOUT_SECONDS = 300
+
+const LOGOUT_HELP = [
+	'Usage: namzu logout [claude|codex|all]',
+	'',
+	'Remove a subscription credential created by Namzu on this machine.',
+	'With no target, both Namzu-owned credentials are removed for compatibility.',
+	'Credentials borrowed from another tool or supplied through the environment are untouched.',
+].join('\n')
+
+export type LogoutTarget = SubscriptionProviderId | 'all'
+
+export function parseLogoutTarget(argv: readonly string[]): LogoutTarget | null {
+	if (argv.length === 0) return 'all'
+	if (argv.length !== 1) return null
+	const value = argv[0]?.toLowerCase()
+	if (value === 'claude' || value === 'anthropic') return 'anthropic'
+	if (value === 'codex' || value === 'chatgpt') return 'codex'
+	if (value === 'all') return 'all'
+	return null
+}
 
 interface LoginFlags {
 	readonly provider?: SubscriptionProviderId
@@ -279,19 +302,34 @@ export const loginCommand: CommandDef = {
 
 export const logoutCommand: CommandDef = {
 	name: 'logout',
-	description: 'Remove the subscription credential namzu stored on this machine.',
-	handler: async ({ ctx }) => {
+	description: 'Remove a subscription credential namzu stored on this machine.',
+	passThrough: true,
+	help: LOGOUT_HELP,
+	handler: async ({ ctx, rawArgs }) => {
+		const target = parseLogoutTarget(rawArgs)
+		if (!target) {
+			ctx.formatter.print({ text: LOGOUT_HELP })
+			return EXIT_USAGE
+		}
 		const path = credentialsPath()
-		const had = readStoredSubscriptionCredential() !== null || readStoredCodexCredential() !== null
+		const hadClaude = readStoredSubscriptionCredential() !== null
+		const hadCodex = readStoredCodexCredential() !== null
 		try {
-			clearAllStoredCredentials()
+			if (target === 'anthropic') clearStoredSubscriptionCredential()
+			else if (target === 'codex') clearStoredCodexCredential()
+			else clearAllStoredCredentials()
 		} catch (err) {
 			ctx.formatter.print({
 				text: `Could not remove ${path}: ${err instanceof Error ? err.message : String(err)}`,
 			})
 			return EXIT_FAIL
 		}
-		ctx.formatter.print({ text: describeLogout(path, had) })
+		ctx.formatter.print({
+			text:
+				target === 'all'
+					? describeLogout(path, hadClaude || hadCodex)
+					: describeProviderLogout(path, target, target === 'anthropic' ? hadClaude : hadCodex),
+		})
 		return EXIT_OK
 	},
 }

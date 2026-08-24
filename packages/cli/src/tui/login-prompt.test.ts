@@ -5,6 +5,7 @@ import {
 	describeLoginOutcome,
 	describeLoginStart,
 	describeLogout,
+	describeProviderLogout,
 	isCompletionArgument,
 } from './login-prompt.js'
 
@@ -71,6 +72,13 @@ describe('describeLogout', () => {
 
 	it('says whose credential it is when there is nothing of ours to remove', () => {
 		expect(describeLogout('/p', false)).toContain('environment')
+	})
+
+	it('names a targeted provider and promises to keep its sibling', () => {
+		const text = describeProviderLogout('/p/credentials.json', 'codex', true)
+		expect(text).toContain('Codex')
+		expect(text).toContain('Other stored subscriptions were kept')
+		expect(text).toContain('other tools')
 	})
 })
 

@@ -95,10 +95,12 @@ reusable. The shell equivalents are `namzu login claude` and `namzu login codex`
 picker or shell, while `Codex` uses a device code that can be approved in any
 reachable browser. Both new-sign-in routes write only to Namzu's credential
 store. The `Claude` route uses the direct subscription
-authorization flow, not the platform/API-usage billing login. `/logout` and
-`namzu logout` remove those Namzu-owned
-records together; they never delete or revoke credentials owned by another
-installed tool. The `l` sign-in action remains reachable from a general provider
+authorization flow, not the platform/API-usage billing login. When both
+Namzu-owned records exist, bare `/logout` opens a Claude/Codex chooser and
+removes only the selected record. `/logout claude|codex|all` is the explicit
+chat form. The shell accepts `namzu logout claude|codex|all`; its argumentless
+form retains the older remove-all behavior for scripts. None of these forms
+deletes or revokes credentials owned by another installed tool. The `l` sign-in action remains reachable from a general provider
 picker even when an environment API key or local server was detected; discovery
 does not turn those optional sources into a forced authentication choice.
 
@@ -521,7 +523,7 @@ refuses rather than choosing one lookalike source turn.
 | `namzu providers-json` | Providers and their per-provider models, as JSON |
 | `namzu doctor` | Health checks against this machine |
 | `namzu upgrade [--check]` | Check for or install the registry's latest CLI version in the npm-global prefix that owns the running package |
-| `namzu login <claude\|codex>` / `namzu logout` | Store a Namzu-owned provider subscription credential, or remove all Namzu-owned subscription credentials |
+| `namzu login <claude\|codex>` / `namzu logout [claude\|codex\|all]` | Store a Namzu-owned provider subscription credential, or remove one/all Namzu-owned subscription credentials |
 | `namzu drain` | Continue runs another process left behind — one pass, then exit |
 | `namzu eval` | Run eval suites and set an exit code |
 | `namzu acp` | Speak the agent-client protocol over this process's stdio |

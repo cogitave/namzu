@@ -101,8 +101,20 @@ export function describeLoginOutcome(
 /** What the operator reads after asking namzu to forget the credential. */
 export function describeLogout(path: string, removed: boolean): string {
 	return removed
-		? `Removed the stored credential at ${path}. This session keeps working until it ends; the next one will ask you to sign in again.\n\nSigning out here does not revoke anything at the provider — do that in your account settings if you need to.`
+		? `Removed the stored credential at ${path}. An active turn is not interrupted; a later turn may ask you to sign in again.\n\nSigning out here does not revoke anything at the provider — do that in your account settings if you need to.`
 		: "There was no stored credential to remove. If namzu is using one, it came from your environment or from another tool on this machine, and neither is namzu's to delete."
+}
+
+/** A provider-specific logout result for a store that may hold two siblings. */
+export function describeProviderLogout(
+	path: string,
+	provider: 'anthropic' | 'codex',
+	removed: boolean,
+): string {
+	const label = provider === 'anthropic' ? 'Claude' : 'Codex'
+	return removed
+		? `Removed Namzu's stored ${label} subscription credential at ${path}. Other stored subscriptions were kept. An active turn is not interrupted; a later turn using ${label} may ask you to sign in again.\n\nSigning out here does not revoke anything at the provider, and credentials owned by other tools on this machine were not changed.`
+		: `There was no Namzu-owned ${label} subscription credential to remove. Credentials from the environment or another tool on this machine were not changed.`
 }
 
 /**

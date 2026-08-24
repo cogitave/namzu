@@ -69,6 +69,7 @@ namzu upgrade --check       # check npm without changing the installation
 namzu upgrade               # update this active npm-global installation
 namzu login claude          # create a Namzu-owned Claude subscription session
 namzu login codex           # create a Namzu-owned ChatGPT subscription session
+namzu logout codex          # remove only Namzu's stored Codex subscription
 ```
 
 The TUI checks npm briefly after startup and prints `namzu upgrade` when a
@@ -106,7 +107,10 @@ session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
 
 Bare `/effort`, `/permissions`, `/feedback`, and `/skill` open finite keyboard
-choosers; their argument forms remain available for scripts. A fully typed
+choosers; when both Namzu-owned subscriptions exist, bare `/logout` asks which
+one to remove. `/logout claude|codex|all` and `namzu logout
+claude|codex|all` remain exact non-interactive forms, and never modify device
+sessions owned by another tool. A fully typed
 command is the active completion ahead of longer names with the same prefix, so
 `/skill` cannot accidentally run `/skills`. Long model and resume lists
 keep a seven-row window around the active choice and show its absolute position,
