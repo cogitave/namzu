@@ -11,11 +11,14 @@ export type ProviderErrorKind =
  * Serializable provider-failure metadata carried by failed runs and events.
  *
  * No response body, URL, or `cause` belongs here. `detail` is the one thing
- * the provider itself said, and it arrives scrubbed — see below.
+ * the provider itself said, and it arrives scrubbed. `providerCode` preserves
+ * a bounded machine identifier independently of wording — see below.
  */
 export interface ProviderErrorInfo {
 	readonly kind: ProviderErrorKind
 	readonly providerId: string
+	/** Provider-defined machine code, preserved only when it is a bounded safe token. */
+	readonly providerCode?: string
 	readonly status?: number
 	readonly retryAfterMs?: number
 	/**

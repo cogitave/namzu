@@ -142,7 +142,14 @@ async function publishCompleteRun(
 			orphanedToolResultsRemoved: 2,
 			syntheticToolResultsInserted: 3,
 		}),
-		recordedEvent('run_completed', runId, 7, {
+		recordedEvent('message_history_repaired', runId, 7, {
+			source: 'provider-rejected-image',
+			duplicateToolResultsRemoved: 0,
+			orphanedToolResultsRemoved: 0,
+			syntheticToolResultsInserted: 0,
+			providerRejectedImagesSuppressed: 2,
+		}),
+		recordedEvent('run_completed', runId, 8, {
 			result: 'I will **check**.Done.',
 		}),
 	]
@@ -155,7 +162,7 @@ async function publishCompleteRun(
 		join(runDir, 'messages.json'),
 		`${JSON.stringify({
 			format: 'namzu.run-message-snapshot.v1',
-			throughEventSeq: options.snapshotSeq ?? 7,
+			throughEventSeq: options.snapshotSeq ?? 8,
 			messages,
 		})}\n`,
 		'utf-8',
@@ -302,6 +309,8 @@ describe('verified conversation Markdown', () => {
 		expect(projected.markdown).toContain('binary data omitted')
 		expect(projected.markdown).toContain('Tool history repaired (fresh-history)')
 		expect(projected.markdown).toContain('3 interrupted call(s) closed with unknown outcome')
+		expect(projected.markdown).toContain('Provider-rejected image delivery repaired')
+		expect(projected.markdown).toContain('2 occurrence(s) retained in history')
 	})
 
 	it('does not let a run belonging to a sibling session block this conversation', async () => {

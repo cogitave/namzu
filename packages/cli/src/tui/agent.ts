@@ -2635,6 +2635,14 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				text: event.message,
 			}
 		case 'message_history_repaired': {
+			if (event.source === 'provider-rejected-image') {
+				const count = event.providerRejectedImagesSuppressed ?? 0
+				return {
+					kind: 'history-repair',
+					source: event.source,
+					text: `The provider rejected ${count} image occurrence${count === 1 ? '' : 's'}. The original attachment bytes were kept, but that image will be omitted from later model requests; attach a corrected copy to try again.`,
+				}
+			}
 			const changes = [
 				event.duplicateToolResultsRemoved > 0
 					? `${event.duplicateToolResultsRemoved} duplicate result${event.duplicateToolResultsRemoved === 1 ? '' : 's'} removed`

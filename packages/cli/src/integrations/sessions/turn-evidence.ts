@@ -22,6 +22,7 @@ import {
 	asProjectId,
 	asRunId,
 	asSessionId,
+	isModelContentOmission,
 	isProjectInstructionMessageSource,
 	isRuntimeContextMessageSource,
 } from '@namzu/sdk'
@@ -693,6 +694,9 @@ function validateAttachment(value: unknown, path: string, line: number): void {
 	}
 	if (value.type !== undefined && value.type !== 'image') {
 		throw invalidRecord(path, line, 'attachment.type')
+	}
+	if (value.modelOmission !== undefined && !isModelContentOmission(value.modelOmission)) {
+		throw invalidRecord(path, line, 'attachment.modelOmission')
 	}
 }
 

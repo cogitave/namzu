@@ -183,6 +183,7 @@ export class ResultAssembler {
 			? {
 					kind: err.kind,
 					providerId: err.providerId,
+					...(err.providerCode !== undefined ? { providerCode: err.providerCode } : {}),
 					...(err.status !== undefined ? { status: err.status } : {}),
 					...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
 					// The provider's own sentence, already truncated and scrubbed

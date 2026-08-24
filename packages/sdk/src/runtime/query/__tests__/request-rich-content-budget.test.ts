@@ -68,6 +68,34 @@ async function run(opts: {
 }
 
 describe('the request-only rich-content projection', () => {
+	it('always withholds an image that the provider already rejected, even when budgeting is disabled', () => {
+		const rejected = {
+			role: 'user',
+			content: 'look again',
+			attachments: [
+				{
+					data: 'AAAA',
+					mediaType: 'image/png',
+					modelOmission: { reason: 'provider-rejected' },
+				},
+			],
+		} as unknown as Message
+		const messages = [rejected]
+		const original = structuredClone(messages)
+
+		const projected = projectRequestRichContent(messages, 0)
+
+		expect(projected).not.toBe(messages)
+		expect(projected).toEqual([
+			expect.objectContaining({
+				role: 'user',
+				content: expect.stringContaining('provider rejected this image'),
+			}),
+		])
+		expect((projected[0] as UserMessage).attachments).toBeUndefined()
+		expect(messages).toEqual(original)
+	})
+
 	it('is allocation-free at the exact boundary and when explicitly disabled', () => {
 		const messages: Message[] = [
 			{

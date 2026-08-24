@@ -603,10 +603,12 @@ type CoreRunEvent =
 	| {
 			type: 'message_history_repaired'
 			runId: RunId
-			source: 'fresh-history' | 'abandoned-checkpoint'
+			source: 'fresh-history' | 'abandoned-checkpoint' | 'provider-rejected-image'
 			duplicateToolResultsRemoved: number
 			orphanedToolResultsRemoved: number
 			syntheticToolResultsInserted: number
+			/** Exact number of durable image occurrences withheld from later requests. */
+			providerRejectedImagesSuppressed?: number
 	  }
 	| {
 			type: 'token_usage_updated'

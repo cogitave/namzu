@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { providerHttpError, redactSecrets, vendorDetail } from '../errors.js'
+import { providerHttpError, providerVendorError, redactSecrets, vendorDetail } from '../errors.js'
 
 /**
  * The provider's own account of what was wrong, kept — and scrubbed.
@@ -18,6 +18,37 @@ import { providerHttpError, redactSecrets, vendorDetail } from '../errors.js'
  */
 
 describe('the sentence that names the broken field survives', () => {
+	it('preserves a bounded provider code independently of changing prose', () => {
+		const flat = providerHttpError({
+			providerId: 'image-provider',
+			status: 400,
+			body: JSON.stringify({
+				code: 'invalid_image',
+				error: 'some future wording without the legacy phrase',
+			}),
+		})
+		const sdkError = Object.assign(new Error('another future wording'), {
+			status: 400,
+			code: 'invalid_image',
+		})
+
+		expect(flat.providerCode).toBe('invalid_image')
+		expect(
+			providerVendorError({ providerId: 'image-provider', error: sdkError }).providerCode,
+		).toBe('invalid_image')
+	})
+
+	it('does not turn an arbitrary response field into provider-code metadata', () => {
+		for (const code of ['secret value with spaces', 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv']) {
+			const err = providerHttpError({
+				providerId: 'image-provider',
+				status: 400,
+				body: JSON.stringify({ code, error: 'invalid request' }),
+			})
+			expect(err.providerCode).toBeUndefined()
+		}
+	})
+
 	it('lifts the structured message out of a vendor body', () => {
 		const body = JSON.stringify({
 			type: 'error',

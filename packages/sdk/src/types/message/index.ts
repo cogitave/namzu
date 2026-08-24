@@ -4,6 +4,21 @@ export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
 export type CacheHint = 'cache' | 'ephemeral' | 'none'
 
+/** Why durable rich content must not be sent to a model again. */
+export interface ModelContentOmission {
+	readonly reason: 'provider-rejected'
+}
+
+/** Runtime validation for persisted model-delivery metadata. */
+export function isModelContentOmission(value: unknown): value is ModelContentOmission {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		!Array.isArray(value) &&
+		(value as { readonly reason?: unknown }).reason === 'provider-rejected'
+	)
+}
+
 /**
  * An image attached to a user message (vision input). Drivers that declare
  * vision support emit it alongside the text. A shipped driver that cannot
@@ -22,6 +37,8 @@ export interface ImageAttachment {
 	readonly data: string
 	/** IANA media type, e.g. `image/png`, `image/jpeg`, `image/webp`. */
 	readonly mediaType: string
+	/** Durable delivery state; the original image bytes remain in history. */
+	readonly modelOmission?: ModelContentOmission
 }
 
 /**
@@ -396,6 +413,7 @@ export type ToolResultBlock =
 			readonly type: 'image'
 			readonly data: string
 			readonly mediaType: string
+			readonly modelOmission?: ModelContentOmission
 	  }
 	| DocumentAttachment
 

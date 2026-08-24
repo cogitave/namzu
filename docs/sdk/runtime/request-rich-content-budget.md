@@ -1,13 +1,13 @@
 ---
 uid: namzu.sdk.runtime.request-rich-content-budget
 title: Provider request rich-content budgets
-description: Reference for the accumulated inline image and document budget applied to provider requests, its oldest-first projection, preserved run history, front-door configuration, and explicit unbounded compatibility mode.
+description: Reference for provider-bound image and document projection, including the accumulated payload budget, durable recovery after one rejected image, preserved history, and explicit unbounded compatibility mode.
 type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+timestamp: 2026-08-24T00:00:00Z
+lastReviewed: 2026-08-24
 resource: packages/sdk/src/runtime/query/request-rich-content.ts
 tags: [sdk, runtime, providers, images, documents, tools]
 ---
@@ -101,6 +101,50 @@ projected messages the provider receives.
 Stored attachment references are resolved before this step. An unresolved
 reference is still refused; the budget cannot turn missing storage authority
 into an omission marker.
+
+## Recovery after a provider rejects one image
+
+A syntactically valid request can still contain image bytes that the provider
+cannot decode. Resending the unchanged history would make that one image fail
+every later turn and every resumed conversation.
+
+The runtime performs one bounded recovery only when all of these are true:
+
+- the classified error is an invalid request identified either by HTTP 400 plus
+  the exact provider code `invalid_image`, or by a legacy image-decoding phrase;
+- the stream produced no model output;
+- the exact provider-bound request contains one distinct image. The same bytes
+  repeated in user and tool-result positions are one candidate; two different
+  images are ambiguous and are not retried;
+- caller cancellation has not withdrawn the run.
+
+The retry keeps the model, parameters, prompt, tools, and provider route fixed
+and replaces only that image with a visible explanation. A successful retry
+backed by the exact code adds
+`modelOmission: { reason: 'provider-rejected' }` to every matching durable image
+occurrence. The base64 bytes and media type remain exact in
+`Run.messages`, run storage, checkpoints, and host conversation history. Every
+later request projects the marked image to text even when
+`maxRequestRichContentBytes` is `0`.
+
+No durable marker is written when the retry fails before producing an accepted
+chunk, reports an in-stream error, or is cancelled. A first attempt that already
+produced output is never restarted, because doing so would duplicate text or
+tool input. A request with multiple distinct images fails unchanged rather than
+guessing which attachment the provider rejected.
+
+Legacy wording is weaker evidence because providers can change or proxy it. A
+matching phrase may recover the current request, but it does not write durable
+suppression metadata or emit a history-repair event. `ProviderErrorInfo` carries
+the bounded provider-defined machine identifier in `providerCode`, separately
+from the scrubbed human-readable `detail`, so exact recovery does not parse an
+error sentence.
+
+Recovery emits `message_history_repaired` with
+`source: 'provider-rejected-image'` and
+`providerRejectedImagesSuppressed` before the successful response delta. Hosts
+should explain that the bytes were retained but future model delivery is
+suppressed, and invite the user to attach a corrected copy.
 
 `maxToolContentBytes` is a separate, opt-in cap on one tool result at the
 moment it is produced. `maxRequestRichContentBytes` is the default-on,

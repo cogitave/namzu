@@ -465,9 +465,15 @@ function renderRecordedActivity(
 				activity(`Capability warning (${event.capability}): ${event.message}`)
 				break
 			case 'message_history_repaired':
-				activity(
-					`Tool history repaired (${event.source}): ${event.duplicateToolResultsRemoved} duplicate result(s) removed, ${event.orphanedToolResultsRemoved} orphaned result(s) removed, ${event.syntheticToolResultsInserted} interrupted call(s) closed with unknown outcome.`,
-				)
+				if (event.source === 'provider-rejected-image') {
+					activity(
+						`Provider-rejected image delivery repaired: ${event.providerRejectedImagesSuppressed ?? 0} occurrence(s) retained in history and omitted from later model requests.`,
+					)
+				} else {
+					activity(
+						`Tool history repaired (${event.source}): ${event.duplicateToolResultsRemoved} duplicate result(s) removed, ${event.orphanedToolResultsRemoved} orphaned result(s) removed, ${event.syntheticToolResultsInserted} interrupted call(s) closed with unknown outcome.`,
+					)
+				}
 				break
 			case 'compaction_completed':
 				activity(

@@ -47,6 +47,8 @@ import type { ToolCallOutcome } from '../executor.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import {
 	DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+	type RequestImageIdentity,
+	markProviderRejectedImage,
 	projectRequestRichContent,
 } from '../request-rich-content.js'
 import { formatSteeringNote } from '../steering.js'
@@ -57,6 +59,7 @@ import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
 import { refreshWorkingMemory } from './phases/working-memory.js'
+import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
 import { streamProviderTurn } from './stream-turn.js'
 
 export type { IterationContext } from './phases/index.js'
@@ -590,6 +593,9 @@ export class IterationOrchestrator {
 						this.ctx.log,
 						iterSpan,
 						stepMessageId,
+						{
+							onAccepted: (identity) => this.acceptProviderRejectedImage(identity),
+						},
 					)
 					stepResponse = response
 
@@ -1935,6 +1941,23 @@ export class IterationOrchestrator {
 			.some((t) => t.state !== 'completed' && t.state !== 'failed' && t.state !== 'canceled')
 	}
 
+	private async acceptProviderRejectedImage(identity: RequestImageIdentity): Promise<void> {
+		const repaired = markProviderRejectedImage(this.ctx.runMgr.messages, identity)
+		if (repaired.count === 0) {
+			throw new Error('Provider-rejected image recovery could not find its durable source image')
+		}
+		this.ctx.runMgr.replaceMessages(repaired.messages)
+		await this.ctx.emitEvent?.({
+			type: 'message_history_repaired',
+			runId: this.ctx.runMgr.id,
+			source: 'provider-rejected-image',
+			duplicateToolResultsRemoved: 0,
+			orphanedToolResultsRemoved: 0,
+			syntheticToolResultsInserted: 0,
+			providerRejectedImagesSuppressed: repaired.count,
+		})
+	}
+
 	private async requestFinalResponse(model: string, reason: StopReason): Promise<void> {
 		const lastAssistant = [...this.ctx.runMgr.messages]
 			.reverse()
@@ -1978,26 +2001,29 @@ export class IterationOrchestrator {
 				model: requestedMember.model ?? model,
 				chainIndex: requestedMember.index,
 			}
+			const finalParams = {
+				model,
+				providerRoute: requestedRoute,
+				messages: finalMessages,
+				tools: finalTools.length > 0 ? finalTools : undefined,
+				...(finalEnforced ? { enforceToolInputSchema: finalEnforced } : {}),
+				toolChoice: finalTools.length > 0 ? 'none' : undefined,
+				temperature: this.ctx.runConfig.temperature,
+				maxTokens: this.ctx.runConfig.maxResponseTokens,
+				cacheControl: { type: 'auto' },
+				...(this.ctx.runConfig.thinking ? { thinking: this.ctx.runConfig.thinking } : {}),
+				// This turn is a hand-maintained duplicate of the one above, which
+				// is exactly the shape a field goes missing from — so it is tested
+				// separately rather than assumed to have been kept in step.
+				...(this.ctx.runConfig.effort ? { effort: this.ctx.runConfig.effort } : {}),
+				// Cancellable too: a Stop during the closing summary must not
+				// stream to completion.
+				signal: this.ctx.abortController.signal,
+			} satisfies import('../../../types/provider/index.js').ChatCompletionParams
 			const response = await collectChatCompletion(
-				this.ctx.provider.chatStream({
-					model,
-					providerRoute: requestedRoute,
-					messages: finalMessages,
-					tools: finalTools.length > 0 ? finalTools : undefined,
-					...(finalEnforced ? { enforceToolInputSchema: finalEnforced } : {}),
-					toolChoice: finalTools.length > 0 ? 'none' : undefined,
-					temperature: this.ctx.runConfig.temperature,
-					maxTokens: this.ctx.runConfig.maxResponseTokens,
-					cacheControl: { type: 'auto' },
-					...(this.ctx.runConfig.thinking ? { thinking: this.ctx.runConfig.thinking } : {}),
-					// This turn is a hand-maintained duplicate of the one above, which
-					// is exactly the shape a field goes missing from — so it is tested
-					// separately rather than assumed to have been kept in step.
-					...(this.ctx.runConfig.effort ? { effort: this.ctx.runConfig.effort } : {}),
-					// Cancellable too: a Stop during the closing summary must not
-					// stream to completion.
-					signal: this.ctx.abortController.signal,
-				}),
+				streamWithProviderRejectedImageRecovery(this.ctx.provider, finalParams, (identity) =>
+					this.acceptProviderRejectedImage(identity),
+				),
 			)
 
 			const servingMember = this.ctx.servingMember?.() ?? requestedMember

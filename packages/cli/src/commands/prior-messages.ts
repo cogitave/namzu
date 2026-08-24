@@ -1,6 +1,7 @@
 import {
 	type Message,
 	isCompactionMessage,
+	isModelContentOmission,
 	isProjectInstructionMessageSource,
 	isRuntimeContextMessageSource,
 	isWorkingMemoryMessage,
@@ -64,7 +65,17 @@ function validateAttachment(value: unknown, path: string): string | null {
 	if (type !== undefined && type !== 'image') {
 		return `${path}.type must be "image", "document", "stored", or absent`
 	}
-	return stringField(value, 'data', path) ?? stringField(value, 'mediaType', path)
+	return (
+		stringField(value, 'data', path) ??
+		stringField(value, 'mediaType', path) ??
+		optional(
+			value,
+			'modelOmission',
+			path,
+			isModelContentOmission,
+			'a provider-rejected model-delivery marker',
+		)
+	)
 }
 
 function validateAttachments(value: unknown, path: string): string | null {
@@ -183,7 +194,17 @@ function validateToolResultBlock(value: unknown, path: string): string | null {
 	if (!isObject(value)) return `${path} must be a tool-result block object`
 	if (value.type === 'text') return stringField(value, 'text', path)
 	if (value.type === 'image') {
-		return stringField(value, 'data', path) ?? stringField(value, 'mediaType', path)
+		return (
+			stringField(value, 'data', path) ??
+			stringField(value, 'mediaType', path) ??
+			optional(
+				value,
+				'modelOmission',
+				path,
+				isModelContentOmission,
+				'a provider-rejected model-delivery marker',
+			)
+		)
 	}
 	if (value.type === 'document') return validateAttachment(value, path)
 	return `${path}.type must be "text", "image", or "document"`

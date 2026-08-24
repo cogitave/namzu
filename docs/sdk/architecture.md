@@ -6,8 +6,8 @@ type: Explanation
 diataxis: explanation
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+timestamp: 2026-08-24T00:00:00Z
+lastReviewed: 2026-08-24
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -222,6 +222,22 @@ Memory in the kernel is two systems cooperating.
 Provider-bound tool history is normalized chronologically before the first model call. A tool result belongs only to the immediately preceding assistant batch: a result before its call, after a later user or assistant message, or duplicated earlier in the same batch cannot answer by conversation-wide id lookup. The kernel removes those results, keeps the last immediate duplicate, and closes each abandoned call with an error result that says its durable outcome is unknown. Duplicate call ids fail before provider work because rewriting the signed or native assistant turn would be unsafe. The pure `repairToolMessageHistory` projection is public for hosts that need the same rule.
 
 A durable pending decision or crash-resume plan is different from abandoned history. Checkpoint restore resolves that authority first, excludes the exact owned assistant turn from generic repair, and lets the resume path append the real, denied, or recovered results exactly once. This preserves native reasoning and replay state and prevents an approved destructive call from competing with a synthetic result. Every actual rewrite emits `message_history_repaired` after `run_started` and before the provider request, with only source and counts — never conversation or tool content.
+
+Provider-bound rich content is a projection over that durable history. User
+attachments and rich tool-result blocks share one accumulated request budget;
+older payloads become visible markers without changing `Run.messages`. If a
+provider specifically rejects the only distinct image before producing output,
+the runtime retries once with that image projected to text. Only an accepted
+retry backed by HTTP 400 plus the exact `invalid_image` provider code marks
+matching durable occurrences with
+`modelOmission: { reason: 'provider-rejected' }`, retaining the original bytes
+while preventing them from poisoning later requests and resumed runs.
+`isModelContentOmission` is the public guard for hosts that validate or render
+that provenance. Provider errors retain such bounded machine identifiers in
+`providerCode`, separately from their scrubbed prose. The repair event reports
+the suppression before the first successful response delta. The complete
+boundary and configuration contract is in
+[Provider request rich-content budgets](runtime/request-rich-content-budget.md).
 
 A pass also runs **when a host asks for one**, not only when a threshold fires: `compactNow` summarises a whole conversation and `compactRegion` collapses a span the caller chose, both returning a replacement history rather than editing the input. A host-owned conversation may contain only user and assistant messages; `compactNow` accepts that shape and makes its new retained summary the leading system floor, while an automatic in-run pass still requires the floor assembled by the query. Count-based and token-based recent windows use their own admission rules, so an inactive message-count default cannot prevent a valid token-boundary pass. These host-triggered paths first extract structured state from the span they replace; a header with an empty body is not a summary. Their summary message is retained because no run-scoped manager exists outside the query to prove it has reconstructed equivalent state. Any selected message marked `retain` also survives field-for-field after the summary and before the recent tail. Retention expands to a provider-valid turn: a retained assistant keeps the user message that opened its turn, and a retained call or result keeps that user boundary plus the complete call/result exchange. If those survivors leave no net message to shed, the function returns `null` before verifier or provider work. A later pass may add a newer replaceable summary, but it cannot erase that retained record. When LLM verification is enabled, the host-callable paths apply the SDK's finite provider-stream idle bound and accept `signal` plus `streamIdleTimeoutMs`; malformed liveness config and pre-cancelled work are refused before even a no-op is reported. Every non-null result carries the verifier's exact `TokenUsage`; the all-zero record means no verifier call ran. There is no host-side `RunManager` to receive this side-channel spend, so returning it is what lets the owner account for the provider work instead of silently losing it. In-loop verification instead reuses the query's already-composed `fallback(retry(idle(provider)))` chain and forwards only the run signal, so Stop reaches transport without an outer idle timer miscounting retry backoff.
 

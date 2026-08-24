@@ -1004,6 +1004,7 @@ export {
 	createUserMessage,
 	isProjectInstructionMessageSource,
 	isRuntimeContextMessageSource,
+	isModelContentOmission,
 	MAX_PROJECT_INSTRUCTION_SOURCE_FILES,
 	RUNTIME_CONTEXT_MESSAGE_KINDS,
 } from './types/message/index.js'

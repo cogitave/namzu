@@ -57,6 +57,7 @@ const PROVIDER_ERROR_KINDS: readonly ProviderErrorKind[] = [
 export class ProviderRequestError extends Error {
 	public readonly kind: ProviderErrorKind
 	public readonly providerId: string
+	public readonly providerCode?: string
 	public readonly status?: number
 	public readonly retryAfterMs?: number
 	/**
@@ -81,6 +82,8 @@ export class ProviderRequestError extends Error {
 		this.name = 'ProviderRequestError'
 		this.kind = init.kind
 		this.providerId = init.providerId
+		const exactProviderCode = safeProviderCode(init.providerCode)
+		if (exactProviderCode !== undefined) this.providerCode = exactProviderCode
 		if (init.status !== undefined) this.status = init.status
 		if (init.retryAfterMs !== undefined) this.retryAfterMs = init.retryAfterMs
 		if (init.detail !== undefined) this.detail = init.detail
@@ -89,6 +92,32 @@ export class ProviderRequestError extends Error {
 
 /** Longest detail worth carrying. A provider's complaint is a sentence. */
 const DETAIL_MAX = 400
+
+/** Provider codes are identifiers, not another channel for an arbitrary response body. */
+const PROVIDER_CODE = /^[A-Za-z][A-Za-z0-9._-]{0,79}$/
+
+function safeProviderCode(value: unknown): string | undefined {
+	if (typeof value !== 'string' || !PROVIDER_CODE.test(value)) return undefined
+	return redactSecrets(value) === value ? value : undefined
+}
+
+function providerCode(value: unknown): string | undefined {
+	let decoded = value
+	if (typeof decoded === 'string') {
+		try {
+			decoded = JSON.parse(decoded)
+		} catch {
+			return undefined
+		}
+	}
+	if (typeof decoded !== 'object' || decoded === null) return undefined
+	const record = decoded as Record<string, unknown>
+	const nested =
+		typeof record.error === 'object' && record.error !== null
+			? (record.error as Record<string, unknown>).code
+			: undefined
+	return safeProviderCode(record.code ?? nested)
+}
 
 /**
  * Credential shapes to scrub before a provider's words are kept.
@@ -161,11 +190,15 @@ function pickMessage(value: unknown): string | undefined {
 
 /** Is this a classified provider failure, whichever SDK copy threw it? */
 export function isProviderRequestError(err: unknown): err is ProviderRequestError {
+	const exactProviderCode = (err as { providerCode?: unknown } | null)?.providerCode
 	return (
 		err instanceof Error &&
 		err.name === 'ProviderRequestError' &&
 		typeof (err as { providerId?: unknown }).providerId === 'string' &&
-		PROVIDER_ERROR_KINDS.includes((err as { kind?: ProviderErrorKind }).kind as ProviderErrorKind)
+		PROVIDER_ERROR_KINDS.includes(
+			(err as { kind?: ProviderErrorKind }).kind as ProviderErrorKind,
+		) &&
+		(exactProviderCode === undefined || safeProviderCode(exactProviderCode) === exactProviderCode)
 	)
 }
 
@@ -393,6 +426,7 @@ export function providerVendorError(input: {
 }): ProviderRequestError {
 	const { error } = input
 	const status = vendorErrorStatus(error)
+	const exactProviderCode = providerCode(error)
 	const name = error instanceof Error ? error.name : ''
 	const message = error instanceof Error ? error.message : ''
 
@@ -411,6 +445,8 @@ export function providerVendorError(input: {
 		kind = 'server'
 	} else if (status !== undefined) {
 		kind = classifyProviderHttpStatus(status, message)
+	} else if (exactProviderCode === 'invalid_image') {
+		kind = 'bad_request'
 	} else if (bodySaysContextOverflow(message)) {
 		kind = 'context_overflow'
 	} else {
@@ -428,6 +464,7 @@ export function providerVendorError(input: {
 	return new ProviderRequestError({
 		kind,
 		providerId: input.providerId,
+		...(exactProviderCode !== undefined ? { providerCode: exactProviderCode } : {}),
 		...(status !== undefined ? { status } : {}),
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 		...(detail !== undefined ? { detail } : {}),
@@ -450,9 +487,11 @@ export function providerHttpError(input: {
 	const kind = classifyProviderHttpStatus(input.status, input.body)
 	const retryAfterMs = parseRetryAfterMs(input.retryAfter, input.now ?? Date.now())
 	const detail = vendorDetail(input.body)
+	const exactProviderCode = providerCode(input.body)
 	return new ProviderRequestError({
 		kind,
 		providerId: input.providerId,
+		...(exactProviderCode !== undefined ? { providerCode: exactProviderCode } : {}),
 		status: input.status,
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
 		...(detail !== undefined ? { detail } : {}),

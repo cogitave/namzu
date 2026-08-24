@@ -22,6 +22,8 @@ import type { MessageStopReason } from '../../../types/run/stop-reason.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { EmitEvent } from '../events.js'
+import type { RequestImageIdentity } from '../request-rich-content.js'
+import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
 
 /**
  * Map a provider's coarse `finishReason` plus the orchestrator's
@@ -147,6 +149,9 @@ export async function* streamProviderTurn(
 	 * Optional, so a caller with no use for the id is unchanged.
 	 */
 	announceAs?: import('../../../types/ids/index.js').MessageId,
+	imageRecovery?: {
+		readonly onAccepted: (identity: RequestImageIdentity) => Promise<void>
+	},
 ): AsyncGenerator<RunEvent, StreamingTurnResult> {
 	// The `chat {model}` span the GenAI conventions require. There was none:
 	// `chatSpanName` existed with zero call sites, so a trace carried no LLM
@@ -224,10 +229,15 @@ export async function* streamProviderTurn(
 	let streamError: string | undefined
 	let streamCause: unknown
 
-	const stream = provider.chatStream({
+	const streamParams = {
 		...params,
 		stream: true,
-	}) as AsyncIterable<StreamChunk>
+	} satisfies import('../../../types/provider/index.js').ChatCompletionParams
+	const stream = (
+		imageRecovery
+			? streamWithProviderRejectedImageRecovery(provider, streamParams, imageRecovery.onAccepted)
+			: provider.chatStream(streamParams)
+	) as AsyncIterable<StreamChunk>
 
 	// Drive the stream manually so each `.next()` can be RACED against the run
 	// abort: a Stop tears the in-flight model request down (the provider got

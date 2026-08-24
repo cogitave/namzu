@@ -270,6 +270,31 @@ describe('stateless Message[] parsing', () => {
 			error: expect.stringContaining('stateless run-stream has no attachment store'),
 		})
 	})
+
+	it('accepts the exact durable image omission marker and refuses invented reasons', () => {
+		const valid = {
+			role: 'user',
+			content: 'inspect',
+			attachments: [
+				{
+					data: 'aW1hZ2U=',
+					mediaType: 'image/png',
+					modelOmission: { reason: 'provider-rejected' },
+				},
+			],
+		}
+		expect(parsePriorMessages(JSON.stringify([valid]))).toEqual({
+			ok: true,
+			messages: [valid],
+		})
+
+		const invalid = structuredClone(valid)
+		invalid.attachments[0].modelOmission.reason = 'host-guessed'
+		expect(parsePriorMessages(JSON.stringify([invalid]))).toMatchObject({
+			ok: false,
+			error: expect.stringContaining('provider-rejected model-delivery marker'),
+		})
+	})
 })
 
 describe('stateless tool history chronology', () => {

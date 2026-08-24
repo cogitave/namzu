@@ -66,6 +66,27 @@ describe('toAgentEvent carries the stop reason across', () => {
 		expect(mapped?.kind).not.toBe('error')
 	})
 
+	it('explains provider-rejected image delivery without claiming the bytes were deleted', () => {
+		const mapped = toAgentEvent(
+			{
+				type: 'message_history_repaired',
+				runId,
+				source: 'provider-rejected-image',
+				duplicateToolResultsRemoved: 0,
+				orphanedToolResultsRemoved: 0,
+				syntheticToolResultsInserted: 0,
+				providerRejectedImagesSuppressed: 2,
+			},
+			presenter,
+		)
+
+		expect(mapped).toEqual({
+			kind: 'history-repair',
+			source: 'provider-rejected-image',
+			text: 'The provider rejected 2 image occurrences. The original attachment bytes were kept, but that image will be omitted from later model requests; attach a corrected copy to try again.',
+		})
+	})
+
 	it('passes a non-normal stop through to the done event', () => {
 		const mapped = toAgentEvent(
 			{

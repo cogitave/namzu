@@ -73,13 +73,33 @@ describe('provider error taxonomy', () => {
 		const classified = new ProviderRequestError({
 			kind: 'server',
 			providerId: 'test-provider',
+			providerCode: 'server_busy',
 		})
 		expect(isProviderRequestError(classified)).toBe(true)
+		expect(classified.providerCode).toBe('server_busy')
 
 		const impostor = Object.assign(new Error('not classified'), {
 			name: 'ProviderRequestError',
 			kind: 'anything',
 		})
 		expect(isProviderRequestError(impostor)).toBe(false)
+	})
+
+	it('does not accept an arbitrary provider code through a direct or structural error', () => {
+		const secret = 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv'
+		const direct = new ProviderRequestError({
+			kind: 'bad_request',
+			providerId: 'test-provider',
+			providerCode: secret,
+		})
+		const structural = Object.assign(new Error('not safe'), {
+			name: 'ProviderRequestError',
+			kind: 'bad_request',
+			providerId: 'test-provider',
+			providerCode: secret,
+		})
+
+		expect(direct.providerCode).toBeUndefined()
+		expect(isProviderRequestError(structural)).toBe(false)
 	})
 })
