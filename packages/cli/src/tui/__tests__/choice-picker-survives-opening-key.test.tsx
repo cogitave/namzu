@@ -277,7 +277,7 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 	])
 })
 
-it('opens bare /skill and activates the selected discovered skill', async () => {
+it('opens bare /skills and activates the selected discovered skill', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, {
 		cols: 120,
 		rows: 28,
@@ -285,7 +285,7 @@ it('opens bare /skill and activates the selected discovered skill', async () => 
 	mounted = screen
 	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
 
-	screen.press('/skill')
+	screen.press('/skills')
 	await screen.waitForRender()
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('Inspect the problem · project'))

@@ -156,11 +156,11 @@ request enters model context; the mutable ref itself is never interpolated into
 an executable instruction. `/review <instructions>` remains the direct custom
 form, and choosing **Custom** restores `/review ` to the composer for editing.
 
-Bare `/skill` opens the discovered project/user skill roster and `/skill <name>`
-remains the direct form. Unreadable skills stay visible with their refusal
-instead of disappearing. When a fully typed command is also a prefix of another
-name, autocomplete makes the exact command active first; `/skill` therefore
-opens this chooser rather than dispatching `/skills` because of registry order.
+Bare `/skills` opens the discovered project/user skill roster and
+`/skills <name>` remains the direct form. `/skills list` prints the complete
+roster with active markers, while `/skill` remains a compatible alias for the
+chooser and named activation. Unreadable skills stay visible with their refusal
+instead of disappearing.
 
 Finite overlays render at most seven choices around their absolute cursor and
 grow the visible label column when the terminal has room.

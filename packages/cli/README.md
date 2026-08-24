@@ -106,7 +106,7 @@ API keys remain optional alternatives through environment variables or the
 session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
 
-Bare `/effort`, `/permissions`, `/feedback`, `/skill`, and `/review` open finite
+Bare `/effort`, `/permissions`, `/feedback`, `/skills`, and `/review` open finite
 keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
 `/title` remains an alias and `/title clear` removes the chosen name. The review
 chooser can target a base branch, uncommitted work, or a recent commit; choosing
@@ -115,8 +115,9 @@ subscriptions exist, bare `/logout` asks
 which one to remove. `/logout claude|codex|all` and
 `namzu logout claude|codex|all` remain exact non-interactive forms, and never modify device
 sessions owned by another tool. A fully typed
-command is the active completion ahead of longer names with the same prefix, so
-`/skill` cannot accidentally run `/skills`. Long model and resume lists
+command is the active completion ahead of longer names with the same prefix.
+`/skill` remains an alias, `/skills <name>` activates directly, and
+`/skills list` prints the roster. Long model and resume lists
 keep a seven-row window around the active choice and show its absolute position.
 Finite labels grow into available terminal width, so branch names and commit
 subjects are not forced through the same narrow column. Arrow navigation never

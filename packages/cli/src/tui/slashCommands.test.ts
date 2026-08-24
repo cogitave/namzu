@@ -962,3 +962,17 @@ describe('/skill', () => {
 		})
 	})
 })
+
+describe('/skills', () => {
+	it('opens the activation chooser by default', () => {
+		expect(runSlash('/skills', ctx)).toEqual({ kind: 'skill-picker' })
+	})
+
+	it('keeps explicit list and direct activation forms', () => {
+		expect(runSlash('/skills list', ctx)).toEqual({ kind: 'list-skills' })
+		expect(runSlash('/skills release-check', ctx)).toEqual({
+			kind: 'load-skill',
+			name: 'release-check',
+		})
+	})
+})

@@ -647,8 +647,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skills',
-		description: 'List available skills (~/.namzu/skills + ./skills).',
-		action: () => ({ kind: 'list-skills' }),
+		description: 'Choose an available skill; use /skills list for the full roster.',
+		action: (_ctx, args) => {
+			const choice = args.join(' ').trim()
+			if (choice.length === 0) return { kind: 'skill-picker' }
+			if (choice.toLowerCase() === 'list') return { kind: 'list-skills' }
+			return { kind: 'load-skill', name: choice }
+		},
 	},
 	{
 		name: 'resume',
@@ -690,7 +695,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skill',
-		description: 'Activate a skill for this session; choose one or type its name.',
+		description: 'Alias for /skills; choose a skill or type its name.',
 		action: (_ctx, args) => {
 			const name = args.join(' ').trim()
 			return name.length === 0 ? { kind: 'skill-picker' } : { kind: 'load-skill', name }
