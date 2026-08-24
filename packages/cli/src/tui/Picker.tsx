@@ -16,6 +16,7 @@ import {
 	PROVIDER_REGISTRY,
 	type ProviderId,
 	type ProviderRegistryEntry,
+	signedInSubscriptionProviders,
 	type SubscriptionProviderId,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
@@ -132,6 +133,37 @@ function subscriptionProviders(): ProviderRegistryEntry[] {
 	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter(
 		(entry) => entry.subscriptionLogin !== undefined,
 	)
+}
+
+type SubscriptionChoice =
+	| { readonly kind: 'existing'; readonly detected: DetectedProvider }
+	| { readonly kind: 'sign-in'; readonly entry: ProviderRegistryEntry }
+
+/**
+ * The subscription screen offers two different operations and names both.
+ *
+ * A detected subscription session is already usable and must not be presented
+ * as a new OAuth flow. Conversely, a provider with no usable device session is
+ * still a valid new sign-in target. Keeping both rows means `/login` can switch
+ * to an owner CLI session without overwriting it, while still allowing a fresh
+ * Namzu-owned credential when the operator explicitly asks for one.
+ */
+function subscriptionChoices(detected: readonly DetectedProvider[]): readonly SubscriptionChoice[] {
+	return [
+		...signedInSubscriptionProviders(detected).map(
+			(provider): SubscriptionChoice => ({ kind: 'existing', detected: provider }),
+		),
+		...subscriptionProviders().map(
+			(entry): SubscriptionChoice => ({ kind: 'sign-in', entry }),
+		),
+	]
+}
+
+function signInChoiceIndex(
+	choices: readonly SubscriptionChoice[],
+	provider: ProviderId,
+): number {
+	return choices.findIndex((choice) => choice.kind === 'sign-in' && choice.entry.id === provider)
 }
 
 /**
@@ -411,11 +443,12 @@ export function Picker({
 		if (canLogin && (input === 'l' || input === 'L')) {
 			invalidateOperation()
 			setLoginPhase(true)
+			const choices = subscriptionChoices(detected)
 			setCursor(
 				loginTarget?.subscriptionLogin
 					? Math.max(
 							0,
-							subscriptionProviders().findIndex((entry) => entry.id === loginTarget.id),
+							signInChoiceIndex(choices, loginTarget.id),
 						)
 					: 0,
 			)
@@ -457,7 +490,7 @@ export function Picker({
 		}
 
 		if (loginPhase) {
-			const choices = subscriptionProviders()
+			const choices = subscriptionChoices(detected)
 			if (key.upArrow) {
 				setCursor((current) => Math.max(0, current - 1))
 				return
@@ -468,18 +501,24 @@ export function Picker({
 			}
 			if (key.return) {
 				const chosen = choices[cursor]
-				if (!chosen || !chosen.subscriptionLogin) return
+				if (!chosen) return
+				if (chosen.kind === 'existing') {
+					const operation = beginOperation()
+					onSubmit({ provider: chosen.detected.entry.id }, operation.controller.signal)
+					return
+				}
+				if (!chosen.entry.subscriptionLogin) return
 				if (!onLogin) {
 					setErrorHint('Subscription sign-in is not available on this screen.')
 					return
 				}
 				const operation = beginOperation()
-				setLoginEntry({ entry: chosen, value: '', status: 'starting' })
-				void onLogin(chosen.id as SubscriptionProviderId, operation.controller.signal)
+				setLoginEntry({ entry: chosen.entry, value: '', status: 'starting' })
+				void onLogin(chosen.entry.id as SubscriptionProviderId, operation.controller.signal)
 					.then((disposition) => {
 						if (!ownsOperation(operation)) return
 						if (disposition === 'awaiting-input') {
-							setLoginEntry({ entry: chosen, value: '', status: 'typing' })
+							setLoginEntry({ entry: chosen.entry, value: '', status: 'typing' })
 							return
 						}
 						finishOperation(operation)
@@ -704,26 +743,38 @@ export function Picker({
 	}
 
 	if (loginPhase) {
-		const choices = subscriptionProviders()
+		const choices = subscriptionChoices(detected)
+		const existingCount = choices.filter((choice) => choice.kind === 'existing').length
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 				{noticeBox}
 				<Text color={theme.accent.system} bold>
-					Choose a subscription
+					Choose a subscription session
 				</Text>
 				<Text color={theme.text.muted}>
-					Use an existing device session when one is available; this creates a Namzu-owned sign-in.
+					{existingCount > 0
+						? 'Reuse a signed-in device session, or start a separate Namzu-owned sign-in.'
+						: 'No usable Claude or Codex device session was found. Start a new subscription sign-in.'}
 				</Text>
 				<Box flexDirection="column" paddingTop={1}>
-					{choices.map((entry, index) => (
-						<Text key={entry.id} color={index === cursor ? theme.text.primary : theme.text.muted}>
-							{index === cursor ? '❯' : ' '} {index + 1}. {entry.label}
-							{entry.subscriptionLogin === 'device' ? ' · device code' : ' · browser sign-in'}
+					{choices.map((choice, index) => (
+						<Text
+							key={`${choice.kind}-${choice.kind === 'existing' ? choice.detected.entry.id : choice.entry.id}`}
+							color={index === cursor ? theme.text.primary : theme.text.muted}
+						>
+							{index === cursor ? '❯' : ' '} {index + 1}.{' '}
+							{choice.kind === 'existing'
+								? `Use existing ${choice.detected.entry.label} · ${describeSource(choice.detected)}`
+								: `Sign in to ${choice.entry.label} · ${
+										choice.entry.subscriptionLogin === 'device' ? 'device code' : 'browser'
+									}`}
 						</Text>
 					))}
 				</Box>
 				<Box paddingTop={1} flexDirection="column">
-					<Text color={theme.text.muted}>↑↓ or 1-2 navigate · enter sign in · esc back</Text>
+					<Text color={theme.text.muted}>
+						↑↓ or 1-{choices.length} navigate · enter use · esc back
+					</Text>
 					{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 				</Box>
 			</Box>

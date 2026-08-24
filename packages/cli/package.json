@@ -55,8 +55,8 @@
 		"@namzu/openrouter": "workspace:*",
 		"@namzu/sdk": "workspace:^",
 		"commander": "^14.0.3",
-		"ink": "^7.0.3",
-		"react": "^19.2.6",
+		"ink": "7.0.3",
+		"react": "19.2.6",
 		"yaml": "^2.9.0"
 	},
 	"devDependencies": {

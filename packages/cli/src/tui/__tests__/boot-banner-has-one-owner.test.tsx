@@ -104,7 +104,7 @@ function painted(screen: Screen): string {
 	return screen.scrollback().join('\n')
 }
 
-it('publishes one banner after readiness and keeps idle help out of the footer', async () => {
+it('keeps one banner through readiness and the full subscription login frame', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, {
 		cols: 100,
 		rows: 24,
@@ -123,4 +123,19 @@ it('publishes one banner after readiness and keeps idle help out of the footer',
 	expect(output).not.toContain('Esc×2 edit previous')
 	expect(output).not.toContain('Ctrl+C ×2 to exit')
 	expect(output).toContain('/help')
+
+	// The real authorization address is long enough to push this 24-row terminal
+	// into Ink's full-frame path. A range-resolved renderer once treated that
+	// layout as effectively unbounded and allocated until OOM; replaying Static
+	// output there also exposed duplicate banners on real terminals.
+	screen.press('/login')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Choose a subscription session'))
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('Complete Anthropic (Claude) sign-in'))
+
+	const loginOutput = painted(screen)
+	expect(loginOutput).toContain('/oauth/authorize')
+	expect(loginOutput.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)
 })

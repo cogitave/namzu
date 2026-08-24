@@ -43,17 +43,18 @@ const awaitPastedCode = async (
 
 function open(overrides: Partial<Parameters<typeof Picker>[0]> = {}) {
 	const onCredential = vi.fn()
+	const onSubmit = vi.fn()
 	const harness = render(
 		<Picker
 			detected={[]}
-			onSubmit={vi.fn()}
+			onSubmit={onSubmit}
 			onCancel={vi.fn()}
 			onCredential={onCredential}
 			verify={async () => ({ kind: 'verified' })}
 			{...overrides}
 		/>,
 	)
-	return { ...harness, onCredential }
+	return { ...harness, onCredential, onSubmit }
 }
 
 const SIGNED_IN_CLAUDE: DetectedProvider = {
@@ -104,6 +105,29 @@ describe('the no-credential screen', () => {
 		await flush()
 		expect(onLogin).toHaveBeenCalledTimes(1)
 		expect(onLogin.mock.calls[0]?.[0]).toBe('anthropic')
+		unmount()
+	})
+
+	it('separates a reusable device session from starting a new sign-in', async () => {
+		const onLogin = vi.fn(awaitPastedCode)
+		const { lastFrame, stdin, onSubmit, unmount } = open({
+			detected: [SIGNED_IN_CLAUDE],
+			initialView: 'subscriptions',
+			onLogin,
+		})
+
+		expect(lastFrame()).toContain('Use existing Anthropic (Claude) · Claude session · this device')
+		expect(lastFrame()).toContain('Sign in to Anthropic (Claude) · browser')
+		expect(lastFrame()).toContain('Sign in to OpenAI (Codex subscription) · device code')
+
+		stdin.write('\r')
+		await flush()
+
+		expect(onSubmit).toHaveBeenCalledWith(
+			{ provider: 'anthropic' },
+			expect.any(AbortSignal),
+		)
+		expect(onLogin).not.toHaveBeenCalled()
 		unmount()
 	})
 

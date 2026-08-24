@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-23T00:00:00Z
-lastReviewed: 2026-08-23
+timestamp: 2026-08-24T00:00:00Z
+lastReviewed: 2026-08-24
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -86,11 +86,14 @@ Commands the kernel's own registry contributes are merged in beside them; a name
 claimed by both raises an error rather than letting one silently shadow the
 other.
 
-Bare `/login` opens a subscription choice with `Claude` and `Codex`; it never
-silently defaults to `Claude`. The shell equivalents are `namzu login claude`
-and `namzu login codex`. `Claude` uses a registered browser flow whose returned
-code is pasted into the picker or shell, while `Codex` uses a device code that
-can be approved in any reachable browser. Both write only to Namzu's credential
+Bare `/login` opens one combined subscription choice; it never silently defaults
+to `Claude`. Every usable external device session is a `Use existing` row, and
+starting a separate Namzu-owned credential is a distinct `Sign in to` row. A
+signed-out, expired or otherwise unusable owner session is not advertised as
+reusable. The shell equivalents are `namzu login claude` and `namzu login codex`.
+`Claude` uses a registered browser flow whose returned code is pasted into the
+picker or shell, while `Codex` uses a device code that can be approved in any
+reachable browser. Both new-sign-in routes write only to Namzu's credential
 store. The `Claude` route uses the direct subscription
 authorization flow, not the platform/API-usage billing login. `/logout` and
 `namzu logout` remove those Namzu-owned

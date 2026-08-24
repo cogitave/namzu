@@ -951,6 +951,35 @@ describe('the picker hint', () => {
 })
 
 describe('subscription selection from the ready TUI', () => {
+	it('reuses a detected device session without starting another login', async () => {
+		detectedProviders = [CODEX_DEVICE]
+		const create = vi.fn(async (prefs: Preferences) =>
+			sessionFixture(`${prefs.providers[0]?.id ?? 'none'}-provider`),
+		)
+		createSession = create
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, '/login')
+		await frameShows(harness.lastFrame, 'Choose a subscription session')
+		expect(harness.lastFrame()).toContain(
+			'Use existing OpenAI (Codex subscription) · Codex session · this device',
+		)
+		expect(harness.lastFrame()).toContain('Sign in to Anthropic (Claude) · browser')
+
+		harness.stdin.write('\r')
+		await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+		await frameShows(harness.lastFrame, 'Type a message')
+
+		expect(writePrefs).toHaveBeenCalledWith({
+			version: 3,
+			providers: [{ id: 'codex' }],
+			subagents: { active: [] },
+		})
+	})
+
 	it('finishes Claude browser sign-in in the picker that started it', async () => {
 		const completeWithPastedCode = vi.fn(async () => ({
 			ok: true as const,

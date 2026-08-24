@@ -6,7 +6,7 @@ description: >-
   you get. Interactive sessions, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
-timestamp: 2026-08-23T00:00:00Z
+timestamp: 2026-08-24T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -79,6 +79,9 @@ out. A Namzu-owned sign-in is needed only when no usable device session exists
 or when you explicitly want a separate login; its `Claude` route uses direct
 subscription authorization rather than API-usage billing, and its returned
 authorization code can be pasted back into the same picker that started it.
+Bare `/login` lists those operations separately: reusable device sessions are
+labelled `Use existing`, while new credentials are labelled `Sign in to`. An
+expired or signed-out owner session is not offered as reusable.
 API keys remain optional alternatives through environment variables or the
 session-only credential picker, and detecting one does not hide the subscription
 sign-in action.

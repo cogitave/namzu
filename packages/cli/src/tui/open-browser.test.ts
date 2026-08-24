@@ -1,7 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const spawn = vi.hoisted(() => vi.fn())
+const accessSync = vi.hoisted(() => vi.fn())
 vi.mock('node:child_process', () => ({ spawn }))
+vi.mock('node:fs', async (importOriginal) => ({
+	...(await importOriginal<typeof import('node:fs')>()),
+	accessSync,
+}))
 
 import { openInBrowser } from './open-browser.js'
 
@@ -10,6 +15,12 @@ function child() {
 }
 
 describe('openInBrowser', () => {
+	beforeEach(() => {
+		spawn.mockReset()
+		accessSync.mockReset()
+		accessSync.mockReturnValue(undefined)
+	})
+
 	it('refuses anything that is not a web address', () => {
 		spawn.mockReturnValue(child())
 		for (const bad of [
@@ -35,6 +46,16 @@ describe('openInBrowser', () => {
 		expect(command).not.toMatch(/(^|[\\/])sh$|bash|powershell/i)
 		// The address is one argument, unsplit and unquoted.
 		expect(args).toContain('https://example.invalid/?a=1&b=2^c|d')
+		expect(command).toMatch(/^\//)
+	})
+
+	it('reports no browser when the host has no launcher', () => {
+		accessSync.mockImplementation(() => {
+			throw new Error('ENOENT')
+		})
+
+		expect(openInBrowser('https://example.invalid/')).toBe(false)
+		expect(spawn).not.toHaveBeenCalled()
 	})
 
 	it('reports failure rather than throwing when no launcher can start', () => {

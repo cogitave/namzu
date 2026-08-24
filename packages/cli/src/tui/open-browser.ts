@@ -22,8 +22,26 @@
  */
 
 import { spawn } from 'node:child_process'
+import { constants, accessSync } from 'node:fs'
 import { platform } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, isAbsolute, join } from 'node:path'
+
+/** Resolve a launcher before claiming that one started. */
+function executableOnPath(name: string): string | null {
+	for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+		// An empty or relative PATH member delegates executable authority to the
+		// project cwd. Opening an OAuth URL must never run a project-owned helper.
+		if (!directory || !isAbsolute(directory)) continue
+		const candidate = join(directory, name)
+		try {
+			accessSync(candidate, constants.X_OK)
+			return candidate
+		} catch {
+			// Keep looking. PATH order remains the operator's host policy.
+		}
+	}
+	return null
+}
 
 export function openInBrowser(url: string): boolean {
 	// Refuse anything that is not a web address. This is handed to the
@@ -31,18 +49,16 @@ export function openInBrowser(url: string): boolean {
 	// would be this function opening something nobody named.
 	if (!/^https?:\/\//i.test(url)) return false
 
-	const [command, args] =
-		platform() === 'darwin'
-			? ['open', [url]]
-			: platform() === 'win32'
-				? [
-						join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'rundll32.exe'),
-						['url.dll,FileProtocolHandler', url],
-					]
-				: ['xdg-open', [url]]
+	const currentPlatform = platform()
+	const command =
+		currentPlatform === 'win32'
+			? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'rundll32.exe')
+			: executableOnPath(currentPlatform === 'darwin' ? 'open' : 'xdg-open')
+	if (!command) return false
+	const args = currentPlatform === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url]
 
 	try {
-		const child = spawn(command as string, args as string[], {
+		const child = spawn(command, args, {
 			stdio: 'ignore',
 			detached: true,
 		})
