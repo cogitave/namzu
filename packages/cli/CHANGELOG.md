@@ -1,5 +1,76 @@
 # @namzu/cli
 
+## 14.3.0
+
+### Minor Changes
+
+- 10ba4b6: Make the interactive composer distinguish active-turn steering from queued
+  follow-ups: Return steers at the SDK's next safe boundary while Tab queues the
+  next turn, preserving attachments and durable ordering. Add Alt+V clipboard
+  images and Ctrl+W word deletion, widen slash-command descriptions, keep recent
+  transcript rows next to the composer, and replace the clean-exit diagnostic dump
+  with a concise conversation `/resume` handoff.
+- eb0401e: Add `namzu upgrade` and the read-only `namzu upgrade --check`. The updater
+  derives the npm prefix from the package that is actually running, pins the
+  registry's exact version, and reads that same package root back before reporting
+  success; installations whose owner cannot be established are refused rather
+  than updating another binary on `PATH`.
+
+  The TUI's update notice now points to the real command. Finite `/permissions`
+  and `/effort` choosers also ignore the Return key that opened them until the
+  menu has committed, preventing a key repeat from applying the first choice
+  before the operator can see it.
+
+### Patch Changes
+
+- aedd9f8: Bound live tool progress under host backpressure. `ToolContext.report()` now
+  keeps at most one in-flight and one latest pending update per call, caps each
+  published message at 8 KiB of UTF-8, and settles accepted progress before the
+  terminal event without changing the durable tool result. The interactive CLI
+  shows that latest progress and optional percentage on the matching live tool
+  row with terminal-safe rendering.
+- b3a3665: Bound recalled prompt rendering so large history entries cannot exhaust terminal layout work while their complete source remains editable and is resubmitted unchanged.
+- 90deea2: Recover a server-confirmed invalid-image request once when the provider-bound
+  history contains exactly one distinct image. HTTP 400 responses carrying the
+  exact `invalid_image` provider code preserve the original bytes with durable
+  `modelOmission` metadata after a successful image-free retry, suppress that
+  image on later requests, and emit a measured history-repair event. A legacy
+  phrase can recover the current request but cannot claim durable server proof;
+  failed, ambiguous, partial-output, and cancelled attempts leave history unchanged.
+
+  SDK consumers that exhaustively switch over
+  `message_history_repaired.source` must handle the new
+  `provider-rejected-image` member. Persistence implementations must retain the
+  optional `modelOmission` field on image attachments and image tool-result
+  blocks. `ProviderErrorInfo.providerCode` is now the bounded machine identifier
+  from a provider error response; do not parse `detail` for provider-defined
+  codes. Hosts should render the repair as retained bytes with model delivery
+  suppressed, not as deletion.
+
+- 1643672: Add `runtime-context` to `UserMessageSource` and tag SDK-authored user-role
+  messages with the reason they were inserted. Consumers that exhaustively switch
+  over `UserMessageSource` must handle the new member; persistence layers must
+  preserve it instead of reclassifying the message as operator input.
+
+  The CLI now renders, edits, resumes, validates and exports these durable messages
+  as runtime context rather than as text typed by the operator.
+
+- e69e881: Keep packaged TUI installs on the renderer versions exercised by Namzu's PTY
+  suite, preventing subscription login from allocating an unbounded terminal
+  frame after dependency resolution. `/login` now separates reusable Claude and
+  Codex device sessions from new Namzu-owned sign-ins, and reports when the host
+  has no browser launcher instead of claiming one opened.
+- Updated dependencies [343730a]
+- Updated dependencies [aedd9f8]
+- Updated dependencies [90deea2]
+- Updated dependencies [1643672]
+- Updated dependencies [645b9db]
+  - @namzu/sdk@32.0.0
+  - @namzu/anthropic@4.0.1
+  - @namzu/ollama@2.2.1
+  - @namzu/openai@1.5.0
+  - @namzu/openrouter@2.3.1
+
 ## 14.2.1
 
 ### Patch Changes
