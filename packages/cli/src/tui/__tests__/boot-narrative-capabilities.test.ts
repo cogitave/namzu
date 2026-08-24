@@ -50,11 +50,11 @@ function capturingSink(): LogRecord[] {
 	return records
 }
 
-async function session() {
+async function session(options: { readonly sandbox?: { readonly enabled?: boolean } } = {}) {
 	const s = await createAgentSession(
 		{ version: 3, providers: [{ id: 'anthropic' }] } as never,
 		detectedAnthropic,
-		{ cwd: cwd() },
+		{ cwd: cwd(), ...options },
 	)
 	open.push(s)
 	return s
@@ -105,5 +105,40 @@ describe('four absent optional capabilities', () => {
 			capabilityRows.some((r) => r.severityText === 'warn' || r.severityText === 'error'),
 		).toBe(false)
 		expect(records.filter((r) => r.eventName === 'namzu.boot.ready')).toHaveLength(1)
+	})
+})
+
+describe('the aggregate runtime capability row', () => {
+	const allAbsent = (): CapabilityProbe[] =>
+		NAMZU_OPTIONAL_CAPABILITIES.map((specifier) => ({
+			state: 'absent' as const,
+			specifier,
+		}))
+
+	it('reports the attached local sandbox even when the optional package is absent', async () => {
+		vi.mocked(probeCapabilities).mockResolvedValueOnce(allAbsent())
+		const records = capturingSink()
+
+		const opened = await session()
+
+		const summary = records.find(
+			(record) =>
+				record.eventName === 'namzu.capability.detected' && record.severityText === 'info',
+		)
+		expect(opened.sandbox.unconfined).toBeTypeOf('boolean')
+		expect(summary?.body).toBe('sandbox yes · files no · computer-use no · telemetry no')
+	})
+
+	it('reports sandbox no when configuration actually disabled the runtime provider', async () => {
+		vi.mocked(probeCapabilities).mockResolvedValueOnce(allAbsent())
+		const records = capturingSink()
+
+		await session({ sandbox: { enabled: false } })
+
+		const summary = records.find(
+			(record) =>
+				record.eventName === 'namzu.capability.detected' && record.severityText === 'info',
+		)
+		expect(summary?.body).toBe('sandbox no · files no · computer-use no · telemetry no')
 	})
 })

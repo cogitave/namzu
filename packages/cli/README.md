@@ -157,6 +157,11 @@ root are not inlined. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
 boot and sandbox diagnostics are reserved for crashes.
 
+The buffered capability summary reports the capabilities attached to the live
+session. In particular, `sandbox yes` describes the local runtime provider that
+will execute tools; it is independent of the optional-package installation row
+reported by `namzu doctor`.
+
 Ctrl+L clears only the rendered terminal transcript while idle. It preserves
 model context, durable conversation history and copy/export targets, matching
 `/clear-screen`; an active turn keeps its visible output and reports that the

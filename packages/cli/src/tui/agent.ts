@@ -1381,10 +1381,11 @@ export async function createAgentSession(
 		})
 	}
 	// Detected once per session, not per capability check an operator might
-	// separately run via `namzu doctor` — same probe, same three-state
-	// answer, so the boot narrative and the doctor report can never disagree
-	// about whether @namzu/sandbox loaded.
+	// separately run via `namzu doctor`. Package probes still supply optional
+	// package details; the aggregate overrides capabilities whose runtime
+	// admission has a more authoritative answer.
 	logCapabilities(capabilities, {
+		sandboxReady: sandbox.provider !== undefined,
 		computerUseReady: computerUseHost !== undefined,
 		...(computerUseError ? { computerUseError } : {}),
 	})
@@ -3080,17 +3081,28 @@ function exceptionAttributes(err: unknown): LogAttributes {
  * `NamzuCliConfig` marks a capability required yet, so `broken` here is
  * always the "not required by config" case §6.5 describes — an optional
  * capability's failure degrades what this line SAYS, never whether
- * `namzu.boot.ready` fires.
+ * `namzu.boot.ready` fires. The aggregate's sandbox/computer-use answers are
+ * runtime reachability, not package presence: both have a separate admission
+ * step, and printing the package probe after that step produced contradictory
+ * adjacent rows.
  */
 function logCapabilities(
 	probes: readonly CapabilityProbe[],
-	runtime: { readonly computerUseReady: boolean; readonly computerUseError?: Error },
+	runtime: {
+		readonly sandboxReady: boolean
+		readonly computerUseReady: boolean
+		readonly computerUseError?: Error
+	},
 ): void {
 	const log = cliLogger()
 	const summary = probes
 		.map((p) => {
 			const present =
-				p.specifier === '@namzu/computer-use' ? runtime.computerUseReady : p.state === 'present'
+				p.specifier === '@namzu/sandbox'
+					? runtime.sandboxReady
+					: p.specifier === '@namzu/computer-use'
+						? runtime.computerUseReady
+						: p.state === 'present'
 			return `${p.specifier.split('/').pop()} ${present ? 'yes' : 'no'}`
 		})
 		.join(' · ')

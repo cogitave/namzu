@@ -469,6 +469,12 @@ corrupt an Ink frame. A crash prints the bounded buffer with its fatal error; a
 clean Ctrl+C exit discards it and prints only the copy-pasteable
 `namzu resume <id>` handoff.
 
+The aggregate capability row describes the live session, not package
+installation. Its sandbox answer comes from the attached runtime provider, so
+it cannot say `sandbox no` immediately after the sandbox admission row says
+that isolation is active. The separate `sandbox.installed` doctor check retains
+its narrower optional-package meaning.
+
 Provider capability mismatches are transcript events, not log-only diagnostics.
 Unsupported tools, images, and documents are named before the provider degrades
 or refuses the turn, including the provider that made the declaration. This is
