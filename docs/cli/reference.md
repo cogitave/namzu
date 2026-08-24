@@ -474,12 +474,20 @@ refuses rather than choosing one lookalike source turn.
 | `namzu skills-json` | The skills discovered for a working directory, as JSON |
 | `namzu providers-json` | Providers and their per-provider models, as JSON |
 | `namzu doctor` | Health checks against this machine |
+| `namzu upgrade [--check]` | Check for or install the registry's latest CLI version in the npm-global prefix that owns the running package |
 | `namzu login <claude\|codex>` / `namzu logout` | Store a Namzu-owned provider subscription credential, or remove all Namzu-owned subscription credentials |
 | `namzu drain` | Continue runs another process left behind — one pass, then exit |
 | `namzu eval` | Run eval suites and set an exit code |
 | `namzu acp` | Speak the agent-client protocol over this process's stdio |
 | `namzu serve` | Answers that there is no daemon: a run is an ordinary process |
 | `namzu skills` | **Not implemented.** Prints a marker naming the milestone that will implement it, rather than answering "unknown command" |
+
+`namzu upgrade --check` is read-only. Bare `namzu upgrade` recognizes the Unix
+and Windows npm-global layouts from the package root that is actually running,
+pins the registry's exact version in that prefix, then reads the same package
+back before reporting success. A checkout or unrecognized package-manager
+layout is refused instead of guessing from `PATH`. The interactive update
+notice points to this command when npm reports a newer release.
 
 Options that belong to the program rather than to a command go **before** the
 subcommand: `-f, --format text|json|yaml`, `-q, --quiet`, `-v, --verbose`,
