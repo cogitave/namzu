@@ -22,8 +22,8 @@ import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
 import {
 	createAssistantMessage,
+	createRuntimeContextMessage,
 	createSystemMessage,
-	createUserMessage,
 } from '../../../types/message/index.js'
 import type { ToolChoice } from '../../../types/provider/chat.js'
 import { classifyProviderError } from '../../../types/provider/errors.js'
@@ -394,8 +394,9 @@ export class IterationOrchestrator {
 					const baseMessages = forceFinalize
 						? [
 								...runMgr.messages,
-								createUserMessage(
+								createRuntimeContextMessage(
 									'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.',
+									'limit-finalization',
 								),
 							]
 						: runMgr.messages
@@ -880,7 +881,9 @@ export class IterationOrchestrator {
 								[NAMZU.ITERATION]: iterationNum,
 								[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
 							})
-							runMgr.pushMessage(createUserMessage(AUTO_CONTINUATION_USER_MESSAGE))
+							runMgr.pushMessage(
+								createRuntimeContextMessage(AUTO_CONTINUATION_USER_MESSAGE, 'auto-continuation'),
+							)
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
 								runId: runMgr.id,
@@ -912,7 +915,9 @@ export class IterationOrchestrator {
 								'namzu.retry.attempt': attempt,
 								'namzu.runtime.limit': limit,
 							})
-							runMgr.pushMessage(createUserMessage(STRUCTURED_OUTPUT_REPROMPT))
+							runMgr.pushMessage(
+								createRuntimeContextMessage(STRUCTURED_OUTPUT_REPROMPT, 'structured-output'),
+							)
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
 								runId: runMgr.id,
@@ -955,7 +960,7 @@ export class IterationOrchestrator {
 									'namzu.retry.attempt': attempt,
 									'namzu.runtime.limit': limit,
 								})
-								runMgr.pushMessage(createUserMessage(review.feedback))
+								runMgr.pushMessage(createRuntimeContextMessage(review.feedback, 'answer-review'))
 								await this.ctx.emitEvent({
 									type: 'iteration_completed',
 									runId: runMgr.id,
@@ -1188,7 +1193,9 @@ export class IterationOrchestrator {
 							[NAMZU.ITERATION]: iterationNum,
 							'namzu.runtime.tasks': unheard.map((h) => h.taskId),
 						})
-						runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
+						runMgr.pushMessage(
+							createRuntimeContextMessage(formatCompletionNotification(unheard), 'task-completion'),
+						)
 					}
 
 					// The same seam, for the two channels that could accept text
@@ -1388,7 +1395,9 @@ export class IterationOrchestrator {
 		const arrived = this.ctx.completionInbox.drain()
 		if (arrived.length === 0) return false
 
-		this.ctx.runMgr.pushMessage(createUserMessage(formatCompletionNotification(arrived)))
+		this.ctx.runMgr.pushMessage(
+			createRuntimeContextMessage(formatCompletionNotification(arrived), 'task-completion'),
+		)
 		await this.ctx.emitEvent({
 			type: 'iteration_completed',
 			runId: this.ctx.runMgr.id,
@@ -1467,7 +1476,9 @@ export class IterationOrchestrator {
 			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
 			'namzu.runtime.tasks': unheard.map((h) => h.taskId),
 		})
-		this.ctx.runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
+		this.ctx.runMgr.pushMessage(
+			createRuntimeContextMessage(formatCompletionNotification(unheard), 'task-completion'),
+		)
 	}
 
 	/**
@@ -1633,7 +1644,9 @@ export class IterationOrchestrator {
 		// guidance from a turn that had no result to attach it to.
 		const stranded = this.ctx.steering?.drain()
 		if (stranded) {
-			this.ctx.runMgr.pushMessage(createUserMessage(formatSteeringNote(stranded)))
+			this.ctx.runMgr.pushMessage(
+				createRuntimeContextMessage(formatSteeringNote(stranded), 'steering'),
+			)
 		}
 
 		return queued.length + (stranded ? 1 : 0)
@@ -1941,8 +1954,9 @@ export class IterationOrchestrator {
 		try {
 			const finalHistory = [
 				...this.ctx.runMgr.messages,
-				createUserMessage(
+				createRuntimeContextMessage(
 					`[SYSTEM] Run is ending due to ${reason}. You MUST provide a final response now summarizing all your findings and work so far. Do not use any tools.`,
+					'limit-finalization',
 				),
 			]
 			const finalMessages = projectRequestRichContent(

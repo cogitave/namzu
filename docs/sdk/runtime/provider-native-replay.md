@@ -72,7 +72,13 @@ the route shape but leave envelope interpretation to the adapter that owns it.
 ## User-context provenance is separate
 
 `UserMessage.source` does not carry provider-native replay authority. It names
-host-owned context such as a goal round or a live project-instruction snapshot.
+host-owned context such as a goal round, a live project-instruction snapshot, or
+runtime-authored context that a provider protocol requires in the `user` role.
+Runtime context is tagged as `type: 'runtime-context'` with one admitted `kind`:
+`advisory`, `answer-review`, `auto-continuation`, `limit-finalization`,
+`steering`, `structured-output`, or `task-completion`. The role answers how the
+provider receives the message; the source answers who authored it.
+
 Project-instruction sources contain only bounded canonical project-relative
 `AGENTS.md` paths; the message text is the model-visible snapshot, while a
 reconstructed host uses those paths to re-read current disk authority.
@@ -80,5 +86,7 @@ reconstructed host uses those paths to re-read current disk authority.
 A `Message[]` persistence or replay layer must preserve both source families
 without conflating them: assistant route/replay envelopes remain adapter-owned,
 and user-context provenance remains host-owned. Unknown or malformed source
-shapes are refused at the stateless-history boundary rather than stripped and
-silently reclassified as ordinary human input.
+shapes and unknown runtime-context kinds are refused at the stateless-history
+boundary rather than stripped and silently reclassified as ordinary human
+input. Consumers with an exhaustive switch over `UserMessageSource` must handle
+the `runtime-context` member explicitly.

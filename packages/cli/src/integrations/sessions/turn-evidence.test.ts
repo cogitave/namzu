@@ -6,6 +6,7 @@ import {
 	asRunId,
 	createAssistantMessage,
 	createProjectInstructionMessage,
+	createRuntimeContextMessage,
 	createUserMessage,
 	generateRunId,
 } from '@namzu/sdk'
@@ -123,6 +124,25 @@ describe('CLI turn evidence', () => {
 			turns: [{ started: { user: policy } }],
 		})
 		expect(started?.user).toEqual(policy)
+	})
+
+	it('round-trips structurally tagged runtime-context provenance', async () => {
+		const sessions = await openSessions(await cwd())
+		const sessionId = await startConversation(sessions)
+		const runId = generateRunId()
+		const runtime = createRuntimeContextMessage('review feedback', 'answer-review')
+		const started = await sessions.turnEvidence?.recordTurnStarted({
+			sessionId,
+			runId,
+			displayText: 'Answer review feedback',
+			user: runtime,
+		})
+
+		expect(await sessions.turnEvidence?.read(sessionId)).toMatchObject({
+			kind: 'available',
+			turns: [{ started: { user: runtime } }],
+		})
+		expect(started?.user).toEqual(runtime)
 	})
 
 	it('keeps a legacy fork unresolved instead of claiming its copied prefix is proven', async () => {

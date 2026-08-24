@@ -157,6 +157,27 @@ describe('stateless Message[] parsing', () => {
 		})
 	})
 
+	it('accepts admitted runtime context provenance and rejects invented kinds', () => {
+		const valid = {
+			role: 'user',
+			content: 'retry with the required output tool',
+			source: { type: 'runtime-context', kind: 'structured-output' },
+		}
+
+		expect(parsePriorMessages(JSON.stringify([valid]))).toEqual({
+			ok: true,
+			messages: [valid],
+		})
+		expect(
+			parsePriorMessages(
+				JSON.stringify([{ ...valid, source: { ...valid.source, kind: 'operator' } }]),
+			),
+		).toEqual({
+			ok: false,
+			error: 'messages[0].source must contain an admitted runtime context kind',
+		})
+	})
+
 	it('refuses malformed JSON without echoing its possibly secret content', () => {
 		const result = parsePriorMessages('[{"secret":"DO_NOT_ECHO"}')
 

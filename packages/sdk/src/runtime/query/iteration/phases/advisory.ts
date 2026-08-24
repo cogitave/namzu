@@ -2,7 +2,7 @@ import { serializeState } from '../../../../compaction/serializer.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/advisory/index.js'
 import { toolResultToText } from '../../../../types/message/content.js'
-import { createUserMessage } from '../../../../types/message/index.js'
+import { createRuntimeContextMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import { toErrorMessage } from '../../../../utils/error.js'
 import type { IterationContext } from './context.js'
@@ -169,7 +169,7 @@ export async function runAdvisoryPhase(
 
 		sections.push('</advisory-result>')
 
-		ctx.runMgr.pushMessage(createUserMessage(sections.join('\n')))
+		ctx.runMgr.pushMessage(createRuntimeContextMessage(sections.join('\n'), 'advisory'))
 
 		ctx.log.info('Advisory phase completed', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,

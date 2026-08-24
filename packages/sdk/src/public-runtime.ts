@@ -995,6 +995,7 @@ export { assertMemoryStatus } from './types/memory/index.js'
 export {
 	createAssistantMessage,
 	createProjectInstructionMessage,
+	createRuntimeContextMessage,
 	createSystemMessage,
 	createToolMessage,
 	hasNonTextBlocks,
@@ -1002,7 +1003,9 @@ export {
 	toolResultToText,
 	createUserMessage,
 	isProjectInstructionMessageSource,
+	isRuntimeContextMessageSource,
 	MAX_PROJECT_INSTRUCTION_SOURCE_FILES,
+	RUNTIME_CONTEXT_MESSAGE_KINDS,
 } from './types/message/index.js'
 export { isTerminalPlanStatus } from './types/plan/index.js'
 export {

@@ -95,7 +95,7 @@ describe('judging the answer a run is about to settle with', () => {
 			return original(params as never)
 		}) as typeof provider.chatStream
 
-		await drainQuery({
+		const run = await drainQuery({
 			provider,
 			tools: new ToolRegistry(),
 			agentId: 'a',
@@ -114,6 +114,10 @@ describe('judging the answer a run is about to settle with', () => {
 		// Prose, and in the slot the model reads — a code would have to be
 		// explained to it anyway.
 		expect(seen).toBe('FIX: tests red')
+		expect(run.messages.find((message) => message.content === 'FIX: tests red')).toMatchObject({
+			role: 'user',
+			source: { type: 'runtime-context', kind: 'answer-review' },
+		})
 	})
 
 	it('stops with a reason that names the reviewer, not a budget', async () => {

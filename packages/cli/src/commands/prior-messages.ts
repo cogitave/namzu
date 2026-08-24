@@ -2,6 +2,7 @@ import {
 	type Message,
 	isCompactionMessage,
 	isProjectInstructionMessageSource,
+	isRuntimeContextMessageSource,
 	isWorkingMemoryMessage,
 } from '@namzu/sdk'
 
@@ -82,8 +83,13 @@ function validateUserSource(value: unknown, path: string): string | null {
 			? null
 			: `${path} must contain unique canonical project-relative AGENTS.md paths`
 	}
+	if (value.type === 'runtime-context') {
+		return isRuntimeContextMessageSource(value)
+			? null
+			: `${path} must contain an admitted runtime context kind`
+	}
 	if (value.type !== 'goal-round') {
-		return `${path}.type must be "goal-round" or "project-instructions"`
+		return `${path}.type must be "goal-round", "project-instructions", or "runtime-context"`
 	}
 	return (
 		stringField(value, 'goalId', path) ??

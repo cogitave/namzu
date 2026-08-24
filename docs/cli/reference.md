@@ -337,10 +337,15 @@ instructions are different: the current file set is a structurally tagged,
 retained context snapshot. It is replaced rather than appended when scope
 changes, survives compaction, and is persisted so `/resume` can rediscover the
 same scopes. The files are re-read from disk on reconstruction; persisted
-policy prose is not treated as fresh authority. A plain
-user/assistant turn appends normally; a structural tool sequence or in-run
-compaction is published as one atomic replacement so a crash cannot expose half
-a provider turn.
+policy prose is not treated as fresh authority. Kernel-authored continuations,
+review feedback, advisor output, steering, structured-output retries and task
+completion notices can also occupy the provider's `user` role. They retain
+runtime provenance in durable history, render as context rather than operator
+input, remain outside the previous-prompt editor, and receive a separate
+`Runtime context` heading in verified Markdown exports. A plain user/assistant
+turn appends normally; a structural tool sequence or in-run compaction is
+published as one atomic replacement so a crash cannot expose half a provider
+turn.
 
 The composer remains available while a turn runs. A submitted follow-up waits in
 FIFO order and carries the complete prompt, including pasted images, into the

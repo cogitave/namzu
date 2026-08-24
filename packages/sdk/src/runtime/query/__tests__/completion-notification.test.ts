@@ -157,9 +157,11 @@ afterEach(async () => {
 	workdirs.length = 0
 })
 
-async function runWith(
-	inbox: CompletionInbox | undefined,
-): Promise<{ userMessages: string[]; provider: ToolThenAnswerProvider }> {
+async function runWith(inbox: CompletionInbox | undefined): Promise<{
+	userMessages: string[]
+	provider: ToolThenAnswerProvider
+	run: Awaited<ReturnType<typeof drainQuery>>
+}> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-completion-'))
 	workdirs.push(workingDirectory)
 
@@ -193,6 +195,7 @@ async function runWith(
 			.filter((m) => m.role === 'user')
 			.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))),
 		provider,
+		run,
 	}
 }
 
@@ -219,12 +222,16 @@ describe('an unclaimed completion reaches the transcript', () => {
 	it('injects the notification as a user message the next turn can read', async () => {
 		const inbox = inboxHolding('tsk_late', 'the worker finished after the wait was abandoned')
 
-		const { userMessages } = await runWith(inbox)
+		const { run, userMessages } = await runWith(inbox)
 		const notification = userMessages.find((m) => m.includes('task-notification'))
 
 		expect(notification).toBeDefined()
 		expect(notification).toContain('tsk_late')
 		expect(notification).toContain('the worker finished after the wait was abandoned')
+		expect(run.messages.find((message) => message.content === notification)).toMatchObject({
+			role: 'user',
+			source: { type: 'runtime-context', kind: 'task-completion' },
+		})
 	})
 
 	it('shows it to the model on the very next turn, not eventually', async () => {

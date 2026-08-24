@@ -296,8 +296,13 @@ describe('runAdvisoryPhase — happy path', () => {
 
 		await runAdvisoryPhase(ctx, 1, response)
 
-		const pushed = pushMessage.mock.calls[0]?.[0] as { role: string; content: string }
+		const pushed = pushMessage.mock.calls[0]?.[0] as {
+			role: string
+			content: string
+			source?: unknown
+		}
 		expect(pushed.role).toBe('user')
+		expect(pushed.source).toEqual({ type: 'runtime-context', kind: 'advisory' })
 		expect(pushed.content).toContain('<advisory-result advisor="Advisor" trigger="trig">')
 		expect(pushed.content).toContain('specific advice text')
 		expect(pushed.content).toContain('</advisory-result>')

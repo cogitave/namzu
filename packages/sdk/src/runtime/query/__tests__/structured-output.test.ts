@@ -231,8 +231,13 @@ describe('structured final output', () => {
 
 		await drain(h.orchestrator)
 
-		// The re-prompt reached the model...
-		expect(h.messages.some((m) => String(m.content).includes('structured_output'))).toBe(true)
+		// The re-prompt reached the model and stayed distinguishable from operator input.
+		const reprompt = h.messages.find((m) => String(m.content).includes('structured_output'))
+		expect(reprompt).toMatchObject({
+			role: 'user',
+			source: { type: 'runtime-context', kind: 'structured-output' },
+		})
+		expect(provider.requests[1]?.messages).toContainEqual(reprompt)
 		// ...and the second turn satisfied it.
 		expect(h.structured()).toEqual({ verdict: 'pass', notes: 'ok' })
 		expect(h.stopReason()).toBe('end_turn')

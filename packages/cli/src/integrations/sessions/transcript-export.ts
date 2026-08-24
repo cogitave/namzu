@@ -17,6 +17,7 @@ import {
 	readRunMessagesIn,
 } from '@namzu/sdk'
 import { visibleProjectInstructionPath } from '../../context/project-path.js'
+import { runtimeContextLabel } from '../../context/runtime-message.js'
 import type { CliSessions } from './store.js'
 import type {
 	ConversationTurnEvidence,
@@ -397,6 +398,13 @@ function renderProducedMessages(messages: readonly Message[]): string[] {
 						`## Goal round ${message.source.round} / ${message.source.maxGoalRounds}`,
 						'',
 						`Objective: ${message.source.objective}`,
+						'',
+						message.content,
+						'',
+					)
+				} else if (message.source?.type === 'runtime-context') {
+					lines.push(
+						`## Runtime context — ${runtimeContextLabel(message.source.kind)}`,
 						'',
 						message.content,
 						'',

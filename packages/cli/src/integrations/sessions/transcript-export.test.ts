@@ -12,6 +12,7 @@ import {
 	asRunId,
 	createAssistantMessage,
 	createProjectInstructionMessage,
+	createRuntimeContextMessage,
 	createToolMessage,
 	createUserMessage,
 	generateRunId,
@@ -259,6 +260,25 @@ describe('verified conversation Markdown', () => {
 		expect(projected.markdown).toContain('- packages/\\u202e/AGENTS.md')
 		expect(projected.markdown).not.toContain('packages/\u202e/AGENTS.md')
 		expect(projected.markdown).toContain('exact standing policy')
+		expect(projected.markdown.match(/^## User$/gm)).toHaveLength(1)
+	})
+
+	it('labels runtime-authored provider context separately from operator input', async () => {
+		const sessions = await openSessions(await cwd())
+		const sessionId = await startConversation(sessions)
+		const turn = await bindTurn(sessions, sessionId)
+		const runtime = createRuntimeContextMessage(
+			'retry with the required structured output tool',
+			'structured-output',
+		)
+		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user, {
+			producedContext: [runtime],
+		})
+
+		const projected = await conversationMarkdown(sessions, sessionId)
+
+		expect(projected.markdown).toContain('## Runtime context — Structured-output retry')
+		expect(projected.markdown).toContain('retry with the required structured output tool')
 		expect(projected.markdown.match(/^## User$/gm)).toHaveLength(1)
 	})
 

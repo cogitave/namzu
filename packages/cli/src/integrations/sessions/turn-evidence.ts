@@ -23,6 +23,7 @@ import {
 	asRunId,
 	asSessionId,
 	isProjectInstructionMessageSource,
+	isRuntimeContextMessageSource,
 } from '@namzu/sdk'
 
 const FORMAT = 'namzu.cli-turn-evidence.v1' as const
@@ -635,6 +636,10 @@ function parseUserMessage(value: unknown, path: string, line: number): UserMessa
 	if (value.source !== undefined) {
 		if (isObject(value.source) && value.source.type === 'project-instructions') {
 			if (!isProjectInstructionMessageSource(value.source)) {
+				throw invalidRecord(path, line, 'user.source')
+			}
+		} else if (isObject(value.source) && value.source.type === 'runtime-context') {
+			if (!isRuntimeContextMessageSource(value.source)) {
 				throw invalidRecord(path, line, 'user.source')
 			}
 		} else if (

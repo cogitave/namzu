@@ -2,6 +2,7 @@ import {
 	asGoalId,
 	createAssistantMessage,
 	createProjectInstructionMessage,
+	createRuntimeContextMessage,
 	createUserMessage,
 } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
@@ -70,6 +71,19 @@ describe('editable prompt projection', () => {
 		const prompts = editablePrompts(
 			[policy, createAssistantMessage('context acknowledged'), human],
 			[row('human', 'human request')],
+		)
+
+		expect(prompts).toHaveLength(1)
+		expect(prompts[0]).toMatchObject({ userOrdinal: 1, message: human })
+	})
+
+	it('does not offer runtime-authored provider context as editable human input', () => {
+		const runtime = createRuntimeContextMessage('retry with valid JSON', 'structured-output')
+		const human = createUserMessage('human correction')
+
+		const prompts = editablePrompts(
+			[runtime, createAssistantMessage('retrying'), human],
+			[row('human', 'human correction')],
 		)
 
 		expect(prompts).toHaveLength(1)

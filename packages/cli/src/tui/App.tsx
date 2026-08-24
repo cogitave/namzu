@@ -40,6 +40,7 @@ import {
 	resolveTrustedProjectContext,
 } from '../config/trusted-project-context.js'
 import { visibleProjectInstructionPath } from '../context/project-path.js'
+import { runtimeContextLabel } from '../context/runtime-message.js'
 
 import { writeClipboardText } from '../integrations/clipboard/text.js'
 import {
@@ -244,6 +245,17 @@ export function projectConversation(
 						content: `Goal round ${message.source.round} / ${message.source.maxGoalRounds}`,
 						glyph: '◎',
 						detail: [`Objective: ${message.source.objective}`],
+					},
+				]
+			}
+			if (message.source?.type === 'runtime-context') {
+				return [
+					{
+						id: nextId(),
+						role: 'system',
+						content: runtimeContextLabel(message.source.kind),
+						glyph: '↳',
+						detail: [message.content],
 					},
 				]
 			}

@@ -212,7 +212,38 @@ export interface ProjectInstructionMessageSource {
 	readonly files: readonly string[]
 }
 
-export type UserMessageSource = GoalRoundMessageSource | ProjectInstructionMessageSource
+/**
+ * Why the runtime, rather than the operator, inserted one user-role message.
+ *
+ * Providers require several pieces of host context to occupy the `user` role:
+ * a continuation after an output ceiling, reviewer feedback, task completion
+ * notices, and similar prompts. Role alone therefore cannot answer who wrote a
+ * durable message. Keeping that provenance on the message prevents a resumed
+ * transcript, export, or previous-prompt editor from presenting kernel context
+ * as something the operator typed.
+ */
+export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
+	'advisory',
+	'answer-review',
+	'auto-continuation',
+	'limit-finalization',
+	'steering',
+	'structured-output',
+	'task-completion',
+] as const
+
+export type RuntimeContextMessageKind = (typeof RUNTIME_CONTEXT_MESSAGE_KINDS)[number]
+
+/** Host-generated context carried in the provider's required user role. */
+export interface RuntimeContextMessageSource {
+	readonly type: 'runtime-context'
+	readonly kind: RuntimeContextMessageKind
+}
+
+export type UserMessageSource =
+	| GoalRoundMessageSource
+	| ProjectInstructionMessageSource
+	| RuntimeContextMessageSource
 
 /** A bounded source list keeps untrusted persisted metadata cheap to validate. */
 export const MAX_PROJECT_INSTRUCTION_SOURCE_FILES = 256
@@ -252,6 +283,22 @@ export function isProjectInstructionMessageSource(
 		seen.add(file)
 	}
 	return true
+}
+
+/** Runtime validation for durable host-generated user-message provenance. */
+export function isRuntimeContextMessageSource(
+	value: unknown,
+): value is RuntimeContextMessageSource {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+	const candidate = value as {
+		readonly type?: unknown
+		readonly kind?: unknown
+	}
+	return (
+		candidate.type === 'runtime-context' &&
+		typeof candidate.kind === 'string' &&
+		(RUNTIME_CONTEXT_MESSAGE_KINDS as readonly string[]).includes(candidate.kind)
+	)
 }
 
 /**
@@ -399,6 +446,17 @@ export function createUserMessage(
 		...(attachments && attachments.length > 0 ? { attachments } : {}),
 		...(source ? { source } : {}),
 	}
+}
+
+/** Build provider-visible context that no operator authored. */
+export function createRuntimeContextMessage(
+	content: string,
+	kind: RuntimeContextMessageKind,
+): UserMessage {
+	return createUserMessage(content, undefined, {
+		type: 'runtime-context',
+		kind,
+	})
 }
 
 /** Build the retained user-context message that carries live project policy. */
