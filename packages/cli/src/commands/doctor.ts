@@ -5,6 +5,7 @@ import { builtInDoctorChecks } from '../doctor/checks/index.js'
 import { sessionExportCheck } from '../doctor/checks/session-export.js'
 import { type RunDoctorOptions, createDoctorRegistry, runDoctor } from '../doctor/registry.js'
 import { EXIT_USAGE } from '../exit-codes.js'
+import { CLI_VERSION } from '../version.js'
 import type { CommandDef } from './types.js'
 
 const VALID_CATEGORIES: readonly DoctorCategory[] = [
@@ -266,6 +267,7 @@ export async function runDoctorCommand(
 
 	const opts: RunDoctorOptions = {
 		registry,
+		version: CLI_VERSION,
 		categories: parsed.categories,
 		perCheckTimeoutMs: parsed.perCheckTimeoutMs,
 		wallClockTimeoutMs: parsed.wallClockTimeoutMs,

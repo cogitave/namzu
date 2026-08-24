@@ -7,9 +7,7 @@
  * this and exits with the returned code.
  */
 
-import { readFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
 import { Command, CommanderError, Option } from 'commander'
 
@@ -61,28 +59,10 @@ import {
 import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
 import { compilePermissions } from './permissions/rules.js'
+import { CLI_VERSION } from './version.js'
 
 /** sysexits EX_USAGE — command-line argument error. */
 const EX_USAGE = 64
-
-// Read the version straight from the package manifest so the `--version`
-// output cannot drift from what Changesets publishes. Works both for the
-// compiled `dist/cli.js` and for `tsx src/cli.ts` (both sit one dir below
-// the package root).
-const CLI_VERSION: string = readPackageVersion()
-
-function readPackageVersion(): string {
-	try {
-		const here = dirname(fileURLToPath(import.meta.url))
-		const pkgPath = join(here, '..', 'package.json')
-		const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
-			version?: unknown
-		}
-		return typeof pkg.version === 'string' ? pkg.version : '0.0.0'
-	} catch {
-		return '0.0.0'
-	}
-}
 
 export interface RunCliOptions {
 	/** Argv with the leading `node` + script path, matching `process.argv` shape. */

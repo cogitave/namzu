@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NOOP_SINK } from '@namzu/sdk'
 
 import { installCliLogging } from '../logging.js'
+import { CLI_VERSION } from '../version.js'
 import { runDoctorCommand } from './doctor.js'
 
 describe('runDoctorCommand', () => {
@@ -103,7 +104,7 @@ describe('runDoctorCommand', () => {
 		const code = await runDoctorCommand(['--json'])
 		expect([0, 1]).toContain(code)
 		const json = JSON.parse(captured)
-		expect(json).toHaveProperty('version')
+		expect(json).toHaveProperty('version', CLI_VERSION)
 		expect(json).toHaveProperty('timestamp')
 		expect(Array.isArray(json.checks)).toBe(true)
 		expect(json).toHaveProperty('summary.total')

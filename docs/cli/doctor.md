@@ -6,8 +6,8 @@ type: reference
 diataxis: reference
 owner: bahadirarda
 status: current
-timestamp: 2026-08-09
-lastReviewed: 2026-08-09
+timestamp: 2026-08-25
+lastReviewed: 2026-08-25
 last_updated: 2026-08-11
 related_packages: ["@namzu/cli", "@namzu/sdk"]
 ---
@@ -25,6 +25,10 @@ namzu doctor                          # human-readable report
 namzu doctor --json                   # machine-readable DoctorReport
 namzu doctor --category providers     # only these categories
 ```
+
+The top-level `version` in `--json` output is the exact installed CLI package
+version, shared with `namzu --version`. A report can therefore be attached to a
+bug without guessing which binary actually ran it.
 
 ## The five status words
 

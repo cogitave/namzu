@@ -1083,6 +1083,10 @@ namzu doctor --wall-clock-timeout 20000   # default 10000
 namzu doctor --verbose                    # repeat the failures, with their messages
 ```
 
+The JSON report's top-level `version` is the exact CLI package version that
+ran the checks—the same manifest value printed by `namzu --version`. It is
+never a placeholder inferred from the SDK or the current checkout.
+
 The built-in checks, in the order they are reported:
 
 | Check | Category | What it establishes |
