@@ -55,6 +55,7 @@ function permissionsReadout(ctx: SlashContext) {
  */
 function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
+		cwd: '/workspace/current',
 		availableTools: () => [],
 		sandbox: null,
 		mcp: null,
@@ -115,6 +116,25 @@ describe('matchSlashCommands', () => {
 				.slice(0, 2),
 		).toEqual(['skill', 'skills'])
 		expect(matchSlashCommands('/clear').map((command) => command.name)[0]).toBe('clear')
+	})
+})
+
+describe('local navigation commands', () => {
+	it('offers both commands through prefix-filtered palette discovery', () => {
+		expect(matchSlashCommands('/men').map((command) => command.name)).toEqual(['mention'])
+		expect(matchSlashCommands('/pw').map((command) => command.name)).toEqual(['pwd'])
+	})
+
+	it('reports the exact session cwd without creating a prompt', () => {
+		expect(runSlash('/pwd', ctx)).toEqual({
+			kind: 'message',
+			role: 'system',
+			content: '/workspace/current',
+		})
+	})
+
+	it('turns /mention into an editable file token rather than model input', () => {
+		expect(runSlash('/mention', ctx)).toEqual({ kind: 'composer-draft', text: '@' })
 	})
 })
 

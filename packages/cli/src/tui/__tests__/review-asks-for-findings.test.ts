@@ -97,6 +97,7 @@ describe('/review targets', () => {
 
 function context(): Parameters<typeof runSlash>[1] {
 	return {
+		cwd: '/workspace',
 		availableTools: () => [],
 		sandbox: null,
 		mcp: null,

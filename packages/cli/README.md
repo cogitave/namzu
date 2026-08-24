@@ -149,7 +149,9 @@ synchronous, so `/`, navigation and Enter may arrive in one terminal burst
 without losing the chosen command. The same page and boundary keys work in
 model, resume, review, skill, copy and other finite command choosers; their
 Enter action also follows the newest cursor when navigation arrives in the
-same terminal burst. On
+same terminal burst. `/pwd` reports the exact session working directory, while
+selecting `/mention` restores an editable `@` token for a project-relative file
+instead of sending the command text to the model. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
 boot and sandbox diagnostics are reserved for crashes.
 

@@ -282,6 +282,31 @@ describe('the two composer destinations', () => {
 		}
 	})
 
+	it('turns the selectable /mention command back into an editable file token', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			screen.press('/mention')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('@▏')),
+				'/mention did not restore an editable @ token',
+			)
+
+			expect(sent).toHaveLength(0)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('drains Return into the active SDK turn and keeps Tab for the following turn', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,

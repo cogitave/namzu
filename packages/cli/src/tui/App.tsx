@@ -1961,6 +1961,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 	const hostCommands = mergeHostCommands(kernelCommandDescriptors())
 
 	const slashCtx: SlashContext = {
+		cwd: ctx.cwd,
 		builtins: hostCommands,
 		lastAssistantMessageId: () => lastAssistantMessage.current?.messageId ?? null,
 		// Called when `/tools` renders, not read here — the same shape, and the
@@ -3228,6 +3229,13 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 					case 'clear-screen':
 						setMessages([])
 						resetTranscript()
+						return
+					case 'composer-draft':
+						composerDraftTokenRef.current += 1
+						setComposerDraft({
+							token: composerDraftTokenRef.current,
+							text: slash.text,
+						})
 						return
 					case 'new-conversation':
 						void startFreshConversation(slash.clearScreen)

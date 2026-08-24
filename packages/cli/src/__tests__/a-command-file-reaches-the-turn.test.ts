@@ -59,6 +59,7 @@ function writeCommand(name: string, body: string): void {
 
 function context(userCommands: SlashContext['userCommands']): SlashContext {
 	return {
+		cwd,
 		availableTools: () => [],
 		sandbox: null,
 		mcp: null,

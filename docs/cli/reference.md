@@ -76,15 +76,19 @@ Inside the session, grouped by the question each one answers:
 
 | | |
 |---|---|
-| **What is going on** | `/status`, `/debug-config`, `/cost`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
+| **What is going on** | `/status`, `/pwd`, `/debug-config`, `/cost`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
 | **This conversation** | `/resume`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
-| **Everything else** | `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
+| **Everything else** | `/mention`, `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
 
 Commands the kernel's own registry contributes are merged in beside them; a name
 claimed by both raises an error rather than letting one silently shadow the
 other.
+
+`/pwd` prints the canonical working directory this session uses. `/mention`
+returns the composer to an editable `@` token instead of sending the command to
+the model; complete it with a project-relative file path and continue the prompt.
 
 Bare `/login` opens one combined subscription choice; it never silently defaults
 to `Claude`. Every usable external device session is a `Use existing` row, and

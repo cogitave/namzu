@@ -43,6 +43,8 @@ export type SlashAction =
 	| { kind: 'exit' }
 	/** Empty only the rendered terminal transcript; model context is unchanged. */
 	| { kind: 'clear-screen' }
+	/** Replace the command invocation with an operator-editable composer draft. */
+	| { kind: 'composer-draft'; text: string }
 	/** Start a fresh conversation, optionally clearing the rendered transcript too. */
 	| { kind: 'new-conversation'; clearScreen: boolean }
 	| { kind: 'repick' }
@@ -163,6 +165,8 @@ export type SlashAction =
 	| { kind: 'none' }
 
 export interface SlashContext {
+	/** Canonical working directory owned by this TUI session. */
+	readonly cwd: string
 	/**
 	 * Every tool the agent can call, read when the command runs.
 	 *
@@ -646,6 +650,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: () => ({ kind: 'resume' }),
 	},
 	{
+		name: 'mention',
+		description: 'Insert @ so a project file can be mentioned in the next prompt.',
+		action: () => ({ kind: 'composer-draft', text: '@' }),
+	},
+	{
 		name: 'expand',
 		description: 'Print a collapsed tool output in full: /expand [n].',
 		action: (_ctx, args) => {
@@ -692,6 +701,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					? 'No provider configured. Run /model to pick one, or set an LLM env var (ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY) and restart namzu.'
 					: `Provider: ${ctx.providerSummary}${ctx.modelSummary ? `\nModel: ${ctx.modelSummary}` : ''}`,
 		}),
+	},
+	{
+		name: 'pwd',
+		description: 'Show the active working directory.',
+		action: (ctx) => ({ kind: 'message', role: 'system', content: ctx.cwd }),
 	},
 	{
 		name: 'model',
