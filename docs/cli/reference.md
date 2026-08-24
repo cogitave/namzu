@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-24
+timestamp: 2026-08-25T00:00:00Z
+lastReviewed: 2026-08-25
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -553,8 +553,16 @@ permission overlay or the live activity row. A proposed command or write
 preview therefore cannot ring, overwrite or reorder the consent screen before
 the operator decides; the underlying request being approved is not rewritten.
 
-**`/export [path]` writes a verified Markdown conversation, not a rendering of
-the terminal.** Each new turn reserves its SDK run id and durably binds that id
+**`/export [path]` exports a verified Markdown conversation, not a rendering of
+the terminal.** Bare `/export` opens a finite destination chooser. Copy to
+clipboard sends the complete projection through one bounded OSC 52 request;
+because terminals do not acknowledge that protocol, the confirmation says the
+request was sent rather than claiming the clipboard changed. Save to file opens
+a host-owned filename editor prefilled with
+`namzu-conversation-<session-id>.md`. Supplying a path directly keeps the
+non-interactive shortcut.
+
+Each new turn reserves its SDK run id and durably binds that id
 to the exact user message before model execution begins. Export then reads the
 run's strictly parsed event log and the survivor snapshot whose event boundary
 matches that log. Raw assistant Markdown, model-visible tool calls and results,
@@ -563,8 +571,9 @@ provider fallback and context-relief activity therefore remain available after
 rather than copied into the Markdown. After `/clear` or `/new`, `/export` targets
 the fresh active conversation; resume the previous one to export its record.
 
-Bare `/export` writes `namzu-conversation-<session-id>.md` in the working
-directory; an argument selects another path. The writer publishes through a
+Both destinations use the same stable durable projection: neither a clipboard
+request nor a file write starts while a turn, queued prompt, compaction, or
+earlier export is still settling. The file writer publishes through a
 same-directory temporary file and never replaces an existing target. A legacy
 conversation with no turn/run bindings, a fork whose copied prefix is not yet
 tied to stable source turns, an unbound run, a torn event record, or a survivor

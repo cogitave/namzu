@@ -93,8 +93,10 @@ export type SlashAction =
 	| { kind: 'copy' }
 	/** Toggle or explicitly select copy-friendly plain transcript rendering. */
 	| { kind: 'raw'; enabled: boolean | 'toggle' }
+	/** Choose whether the verified Markdown projection goes to the clipboard or a file. */
+	| { kind: 'export-picker' }
 	/** Write a verified, no-clobber Markdown projection of this conversation. */
-	| { kind: 'export'; path?: string }
+	| { kind: 'export'; path: string }
 	/**
 	 * Show what is uncommitted in the working tree.
 	 *
@@ -800,10 +802,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'export',
-		description: 'Write this verified conversation to Markdown: /export [path].',
+		description: 'Export this verified conversation to the clipboard or a Markdown file.',
 		action: (_ctx, args) => {
 			const path = args.join(' ').trim()
-			return { kind: 'export', ...(path.length > 0 ? { path } : {}) }
+			return path.length > 0 ? { kind: 'export', path } : { kind: 'export-picker' }
 		},
 	},
 	{

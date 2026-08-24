@@ -18,6 +18,7 @@ export interface TextPromptProps {
 	readonly title: string
 	readonly placeholder: string
 	readonly initialValue?: string
+	readonly emptyNotice?: string
 	/** Stay mounted while a higher-priority permission prompt owns the screen. */
 	readonly hidden?: boolean
 	readonly onSubmit: (value: string) => void
@@ -64,6 +65,7 @@ export function TextPrompt({
 	title,
 	placeholder,
 	initialValue = '',
+	emptyNotice = 'A value is required. Press Esc to cancel.',
 	hidden = false,
 	onSubmit,
 	onCancel,
@@ -96,7 +98,7 @@ export function TextPrompt({
 			if (key.return) {
 				const submitted = valueRef.current.trim()
 				if (submitted.length === 0) {
-					setNotice('A conversation name cannot be empty. Press Esc to cancel.')
+					setNotice(emptyNotice)
 					return
 				}
 				onSubmit(submitted)

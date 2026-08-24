@@ -237,8 +237,8 @@ describe('runSlash', () => {
 		}
 	})
 
-	it('/export carries an optional path for App to resolve and write', () => {
-		expect(runSlash('/export', ctx)).toEqual({ kind: 'export' })
+	it('/export opens its finite destination chooser or carries an explicit path', () => {
+		expect(runSlash('/export', ctx)).toEqual({ kind: 'export-picker' })
 		expect(runSlash('/export artifacts/session transcript.md', ctx)).toEqual({
 			kind: 'export',
 			path: 'artifacts/session transcript.md',

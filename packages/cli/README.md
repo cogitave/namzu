@@ -6,7 +6,7 @@ description: >-
   you get. Interactive sessions, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
-timestamp: 2026-08-24T00:00:00Z
+timestamp: 2026-08-25T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -171,6 +171,13 @@ Ctrl+L clears only the rendered terminal transcript while idle. It preserves
 model context, durable conversation history and copy/export targets, matching
 `/clear-screen`; an active turn keeps its visible output and reports that the
 shortcut is temporarily unavailable.
+
+Bare `/export` opens a destination chooser for the complete verified Markdown
+conversation. Copy to clipboard sends one bounded terminal request and reports
+that the request may be ignored by terminal policy; Save to file opens a
+prefilled filename editor and never overwrites an existing file. `/export <path>`
+remains the direct file shortcut. Both routes read the durable turn/run
+evidence rather than reconstructing source from the painted transcript.
 
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after

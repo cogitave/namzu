@@ -199,13 +199,24 @@ type CopyPickerState = {
 type ReviewPreset = 'base-branch' | 'uncommitted' | 'commit' | 'custom'
 type TextPromptState = {
 	readonly token: number
-	readonly kind: 'conversation-title'
+	readonly kind: 'conversation-title' | 'export-file'
 	readonly title: string
 	readonly placeholder: string
+	readonly emptyNotice: string
 	readonly initialValue: string
 	readonly sessionId: SessionId
 }
+type ConversationExportDestination =
+	| { readonly kind: 'clipboard' }
+	| { readonly kind: 'file'; readonly path: string }
 type ChoicePickerState =
+	| {
+			readonly kind: 'export-destination'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly ('clipboard' | 'file')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
 	| {
 			readonly kind: 'permission-mode'
 			readonly title: string
@@ -1257,6 +1268,120 @@ export function App({
 		[pushMessage],
 	)
 
+	/**
+	 * Resolve the one durable conversation boundary shared by both export
+	 * destinations. The chooser itself owns input, but it does not weaken this
+	 * admission check: a direct `/export path` and a later chooser selection
+	 * must prove the same session and turn stability before reading evidence.
+	 */
+	const stableExportSource = useCallback((): {
+		readonly sessions: CliSessions
+		readonly sessionId: SessionId
+	} | null => {
+		const sessions = sessionsRef.current
+		const sessionId = scopeRef.current?.sessionId
+		if (!sessions || !sessionId) {
+			pushMessage(
+				'system',
+				'Cannot export this conversation because durable session persistence is unavailable.',
+			)
+			return null
+		}
+		if (
+			abortRef.current ||
+			state !== 'idle' ||
+			hasUnsettledTurn() ||
+			compactingRef.current ||
+			queuedRef.current.length > 0 ||
+			exportingRef.current
+		) {
+			pushMessage(
+				'system',
+				'A turn, compaction, queued prompt, or export is still running or settling. Export waits for a stable durable boundary; try again when the composer is idle.',
+			)
+			return null
+		}
+		return { sessions, sessionId }
+	}, [hasUnsettledTurn, pushMessage, state])
+
+	const runConversationExport = useCallback(
+		(destination: ConversationExportDestination): void => {
+			const source = stableExportSource()
+			if (!source) return
+
+			exportingRef.current = true
+			setState('thinking')
+			const generation = conversationGenRef.current
+			void (async () => {
+				try {
+					await persistenceTailRef.current
+					if (
+						conversationGenRef.current !== generation ||
+						scopeRef.current?.sessionId !== source.sessionId
+					) {
+						throw new Error(
+							'The active conversation changed before the export reached its durable boundary.',
+						)
+					}
+
+					const projected = await conversationMarkdown(source.sessions, source.sessionId)
+					if (destination.kind === 'file') {
+						const written = await writeConversationExport(
+							projected.markdown,
+							destination.path,
+							ctx.cwd,
+						)
+						pushMessage(
+							'system',
+							`Exported ${projected.turns} turn${projected.turns === 1 ? '' : 's'} to ${written.path} (${written.bytes.toLocaleString()} bytes). Existing files are never overwritten.`,
+						)
+						return
+					}
+
+					const result = writeClipboardText(projected.markdown, {
+						isTTY: stdout.isTTY,
+						write: writeStdout,
+					})
+					switch (result.kind) {
+						case 'request-sent':
+							pushMessage(
+								'system',
+								`Export copy request sent for ${projected.turns} verified turn${projected.turns === 1 ? '' : 's'} (${result.bytes.toLocaleString()} bytes). Terminal, multiplexer or remote-session policy may ignore OSC 52; if the clipboard did not change, enable terminal clipboard access.`,
+							)
+							break
+						case 'unavailable':
+							pushMessage(
+								'system',
+								`Cannot send the verified export to the clipboard here — ${result.detail}. Choose Save to file instead.`,
+							)
+							break
+						case 'too-large':
+							pushMessage(
+								'system',
+								`Cannot send the verified export to the terminal clipboard — it is ${result.bytes.toLocaleString()} bytes and the OSC 52 safety limit is ${result.limit.toLocaleString()}. Nothing was truncated; choose Save to file instead.`,
+							)
+							break
+						case 'write-failed':
+							pushMessage(
+								'system',
+								`Could not send the verified export copy request: ${result.detail}`,
+							)
+							break
+					}
+				} catch (err) {
+					pushMessage(
+						'system',
+						`Conversation export failed: ${err instanceof Error ? err.message : String(err)}`,
+					)
+				} finally {
+					exportingRef.current = false
+					if (conversationGenRef.current === generation) setState('idle')
+				}
+			})()
+		},
+		[ctx.cwd, pushMessage, stableExportSource, stdout.isTTY, writeStdout],
+	)
+
 	const applyChoiceSelection = useCallback(
 		(index: number): void => {
 			const picker = choicePickerRef.current
@@ -1411,6 +1536,31 @@ export function App({
 				return
 			}
 			setChoicePicker(null)
+			if (picker.kind === 'export-destination') {
+				if (value === 'clipboard') {
+					runConversationExport({ kind: 'clipboard' })
+					return
+				}
+				const sessionId = scopeRef.current?.sessionId
+				if (!sessionId) {
+					pushMessage(
+						'system',
+						'Cannot export this conversation because durable session persistence is unavailable.',
+					)
+					return
+				}
+				textPromptTokenRef.current += 1
+				setTextPrompt({
+					token: textPromptTokenRef.current,
+					kind: 'export-file',
+					title: 'Save conversation',
+					placeholder: 'Type a Markdown filename and press Enter',
+					emptyNotice: 'A filename is required. Press Esc to cancel.',
+					initialValue: `namzu-conversation-${sessionId}.md`,
+					sessionId,
+				})
+				return
+			}
 			if (picker.kind === 'permission-mode') {
 				applyPermissionMode(value as PermissionMode)
 				return
@@ -1440,7 +1590,9 @@ export function App({
 			pushMessage,
 			recordFeedback,
 			removeStoredCredential,
+			runConversationExport,
 			setChoicePicker,
+			setTextPrompt,
 		],
 	)
 
@@ -2441,6 +2593,7 @@ export function App({
 						kind: 'conversation-title',
 						title: current === undefined ? 'Name conversation' : 'Rename conversation',
 						placeholder: 'Type a name and press Enter',
+						emptyNotice: 'A conversation name cannot be empty. Press Esc to cancel.',
 						initialValue: current ?? '',
 						sessionId: scope.sessionId,
 					})
@@ -2469,16 +2622,26 @@ export function App({
 			if (!prompt) return
 			setTextPrompt(null)
 
-			const sessions = sessionsRef.current
 			const scope = scopeRef.current
-			if (!sessions || !scope || scope.sessionId !== prompt.sessionId) {
+			if (!scope || scope.sessionId !== prompt.sessionId) {
 				pushMessage(
 					'system',
-					'The conversation changed while its name editor was open. Nothing was renamed; open /rename again.',
+					prompt.kind === 'conversation-title'
+						? 'The conversation changed while its name editor was open. Nothing was renamed; open /rename again.'
+						: 'The conversation changed while its export filename editor was open. Nothing was exported; open /export again.',
 				)
 				return
 			}
+			if (prompt.kind === 'export-file') {
+				runConversationExport({ kind: 'file', path: value })
+				return
+			}
 
+			const sessions = sessionsRef.current
+			if (!sessions) {
+				pushMessage('system', 'Conversation history is unavailable in this folder.')
+				return
+			}
 			try {
 				setTitle(sessions, prompt.sessionId, value)
 				pushMessage('system', `Named "${value.trim()}".`)
@@ -2489,7 +2652,7 @@ export function App({
 				)
 			}
 		},
-		[pushMessage, setTextPrompt],
+		[pushMessage, runConversationExport, setTextPrompt],
 	)
 	const cancelTextPrompt = useCallback(() => {
 		const prompt = textPromptRef.current
@@ -3998,60 +4161,29 @@ export function App({
 						)
 						return
 					}
+					case 'export-picker': {
+						if (!stableExportSource()) return
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'export-destination',
+							title: 'Export conversation',
+							notice: 'Save the complete verified conversation as Markdown.',
+							values: ['clipboard', 'file'],
+							options: [
+								{
+									label: 'Copy to clipboard',
+									description: 'Send the verified Markdown transcript to the terminal clipboard',
+								},
+								{
+									label: 'Save to file',
+									description: 'Choose a Markdown filename; existing files are never overwritten',
+								},
+							],
+						})
+						return
+					}
 					case 'export': {
-						const sessions = sessionsRef.current
-						const destination = scopeRef.current?.sessionId
-						if (!sessions || !destination) {
-							pushMessage(
-								'system',
-								'Cannot export this conversation because durable session persistence is unavailable.',
-							)
-							return
-						}
-						if (
-							abortRef.current ||
-							state !== 'idle' ||
-							hasUnsettledTurn() ||
-							compactingRef.current ||
-							queuedRef.current.length > 0
-						) {
-							pushMessage(
-								'system',
-								'A turn, compaction, or queued prompt is still running or settling. Export waits for a stable durable boundary; try again when the composer is idle.',
-							)
-							return
-						}
-						exportingRef.current = true
-						setState('thinking')
-						const generation = conversationGenRef.current
-						const path = slash.path ?? `namzu-conversation-${destination}.md`
-						void (async () => {
-							try {
-								await persistenceTailRef.current
-								if (
-									conversationGenRef.current !== generation ||
-									scopeRef.current?.sessionId !== destination
-								) {
-									throw new Error(
-										'The active conversation changed before the export reached its durable boundary.',
-									)
-								}
-								const projected = await conversationMarkdown(sessions, destination)
-								const written = await writeConversationExport(projected.markdown, path, ctx.cwd)
-								pushMessage(
-									'system',
-									`Exported ${projected.turns} turn${projected.turns === 1 ? '' : 's'} to ${written.path} (${written.bytes.toLocaleString()} bytes). Existing files are never overwritten.`,
-								)
-							} catch (err) {
-								pushMessage(
-									'system',
-									`Conversation export failed: ${err instanceof Error ? err.message : String(err)}`,
-								)
-							} finally {
-								exportingRef.current = false
-								if (conversationGenRef.current === generation) setState('idle')
-							}
-						})()
+						runConversationExport({ kind: 'file', path: slash.path })
 						return
 					}
 					default: {
@@ -4112,10 +4244,12 @@ export function App({
 			rawOutput,
 			removeStoredCredential,
 			resetTranscript,
+			runConversationExport,
 			setChoicePicker,
 			setCopyPicker,
 			setReasoningEffort,
 			slashCtx,
+			stableExportSource,
 			startFreshConversation,
 			state,
 		],
@@ -4856,6 +4990,7 @@ export function App({
 								title={textPrompt.title}
 								placeholder={textPrompt.placeholder}
 								initialValue={textPrompt.initialValue}
+								emptyNotice={textPrompt.emptyNotice}
 								hidden={permission !== null}
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
