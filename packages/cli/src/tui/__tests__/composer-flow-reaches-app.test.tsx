@@ -196,6 +196,31 @@ describe('the two composer destinations', () => {
 		}
 	})
 
+	it('submits an authored multiline draft rather than turning its newline into a paste', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			screen.press('first')
+			screen.press('\n')
+			screen.press('second')
+			await screen.waitForRender()
+			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 1, 'multiline turn did not start')
+
+			expect(sent[0]?.at(-1)).toMatchObject({ role: 'user', content: 'first\nsecond' })
+			releaseFirstTurn()
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('drains Return into the active SDK turn and keeps Tab for the following turn', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,

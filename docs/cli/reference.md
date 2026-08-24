@@ -409,7 +409,13 @@ Left/Right and Ctrl+B/Ctrl+F move by complete displayed characters, including
 combined emoji. Home/End and Ctrl+A/Ctrl+E move to the current line boundaries.
 Backspace and Delete remove complete displayed characters; Ctrl+W removes the
 preceding whitespace-delimited word at the cursor, and Ctrl+U/Ctrl+K remove to
-the line boundaries. The slash palette gives descriptions the terminal width
+the line boundaries. Ctrl+J adds a newline on every terminal; Shift+Enter and
+Alt+Enter do the same when the terminal reports their modifiers. Up/Down and
+Ctrl+P/Ctrl+N retain the preferred displayed-character column while moving
+through authored lines. Only after reaching the first or last line do they
+cross into submitted prompt history, and returning to its newest edge restores
+the exact unsent text and cursor instead of clearing the draft. The slash
+palette gives descriptions the terminal width
 left after the longest visible command name and scrolls its six-row window so
 every matching command remains reachable with Up/Down. A short transcript flows
 from the banner downward; any unused viewport is padded after the complete

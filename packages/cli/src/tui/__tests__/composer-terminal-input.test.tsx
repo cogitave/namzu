@@ -139,6 +139,97 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
+	it('inserts newlines with Ctrl+J and enhanced Shift+Enter', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('one')
+			screen.press('\n')
+			screen.press('two')
+			screen.press('\x1b[13;2u')
+			screen.press('three')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('one\ntwo\nthree', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('moves vertically by grapheme column and keeps the preferred long column', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('abcdef')
+			screen.press('\n')
+			screen.press('xy')
+			screen.press('\n')
+			screen.press('123456')
+			await screen.waitForRender()
+			screen.press('\x1b[A')
+			screen.press('\x10')
+			await screen.waitForRender()
+			screen.press('!')
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('abcdef!\nxy\n123456', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('does not erase an ordinary draft when Down has no line or history to visit', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('keep this')
+			await screen.waitForRender()
+			screen.press('\x1b[B')
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('keep this', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('restores the unsent draft after walking back out of history', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(<Composer history={['older']} onSubmit={submit} />, {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('unsent')
+			await screen.waitForRender()
+			screen.press('\x1b[A')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('older▏')
+			screen.press('\x1b[B')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('unsent▏')
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('unsent', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('applies Ctrl+W at the cursor while preserving the suffix', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(composer(submit), {

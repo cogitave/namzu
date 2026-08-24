@@ -121,6 +121,57 @@ function lineStart(source: string, cursor: number): number {
 	return cursor <= 0 ? 0 : source.lastIndexOf('\n', cursor - 1) + 1
 }
 
+function lineEnd(source: string, cursor: number): number {
+	const newline = source.indexOf('\n', cursor)
+	return newline < 0 ? source.length : newline
+}
+
+function graphemeColumn(source: string, start: number, cursor: number): number {
+	let column = 0
+	for (const _segment of graphemeSegmenter.segment(source.slice(start, cursor))) column += 1
+	return column
+}
+
+function cursorAtGraphemeColumn(
+	source: string,
+	start: number,
+	end: number,
+	column: number,
+): number {
+	let current = 0
+	for (const segment of graphemeSegmenter.segment(source.slice(start, end))) {
+		if (current === column) return start + segment.index
+		current += 1
+	}
+	return end
+}
+
+function verticalCursor(
+	source: string,
+	cursor: number,
+	direction: -1 | 1,
+	preferredColumn?: number,
+): { readonly cursor: number; readonly column: number } | null {
+	const currentStart = lineStart(source, cursor)
+	const currentEnd = lineEnd(source, cursor)
+	const column = preferredColumn ?? graphemeColumn(source, currentStart, cursor)
+	if (direction === -1) {
+		if (currentStart === 0) return null
+		const previousEnd = currentStart - 1
+		const previousStart = lineStart(source, previousEnd)
+		return {
+			cursor: cursorAtGraphemeColumn(source, previousStart, previousEnd, column),
+			column,
+		}
+	}
+	if (currentEnd === source.length) return null
+	const nextStart = currentEnd + 1
+	return {
+		cursor: cursorAtGraphemeColumn(source, nextStart, lineEnd(source, nextStart), column),
+		column,
+	}
+}
+
 function composerDisplayValue(source: string, cursor: number): ComposerDisplay {
 	let start = Math.max(0, cursor - Math.floor(COMPOSER_DISPLAY_CODE_UNITS / 2))
 	let end = Math.min(source.length, start + COMPOSER_DISPLAY_CODE_UNITS)
@@ -208,7 +259,10 @@ export function Composer({
 	const valueRef = useRef('')
 	const [cursor, setCursorState] = useState(0)
 	const cursorRef = useRef(0)
-	const [historyIndex, setHistoryIndex] = useState<number>(-1)
+	const [, setHistoryIndexState] = useState<number>(-1)
+	const historyIndexRef = useRef(-1)
+	const historyDraftRef = useRef<{ readonly value: string; readonly cursor: number } | null>(null)
+	const verticalColumnRef = useRef<number | null>(null)
 	const [selected, setSelected] = useState<number>(0)
 	// Large pastes are held as attachments (shown as chips) instead of being
 	// dumped into the input, then folded into the message on submit.
@@ -243,14 +297,31 @@ export function Composer({
 		setCursorState(nextCursor)
 	}, [])
 
+	const setHistoryIndex = useCallback((next: number) => {
+		historyIndexRef.current = next
+		setHistoryIndexState(next)
+	}, [])
+
+	const editBuffer = useCallback(
+		(nextValue: string, nextCursor = nextValue.length) => {
+			verticalColumnRef.current = null
+			historyDraftRef.current = null
+			setHistoryIndex(-1)
+			setBuffer(nextValue, nextCursor)
+		},
+		[setBuffer, setHistoryIndex],
+	)
+
 	const reset = useCallback(() => {
+		verticalColumnRef.current = null
+		historyDraftRef.current = null
 		setBuffer('', 0)
 		setHistoryIndex(-1)
 		setSelected(0)
 		setPastes([])
 		setAttachments([])
 		setEditPreviousArmed(false)
-	}, [setBuffer])
+	}, [setBuffer, setHistoryIndex])
 
 	useEffect(() => {
 		if (!draftToRestore || restoredTokenRef.current === draftToRestore.token) return
@@ -258,11 +329,13 @@ export function Composer({
 		setBuffer(draftToRestore.text)
 		setHistoryIndex(-1)
 		setSelected(0)
+		verticalColumnRef.current = null
+		historyDraftRef.current = null
 		setPastes([])
 		setAttachments(draftToRestore.attachments ? [...draftToRestore.attachments] : [])
 		setEditPreviousArmed(false)
 		onDraftRestored?.(draftToRestore.token)
-	}, [draftToRestore, onDraftRestored, setBuffer])
+	}, [draftToRestore, onDraftRestored, setBuffer, setHistoryIndex])
 
 	useInput(
 		(input, key) => {
@@ -292,6 +365,14 @@ export function Composer({
 				reset()
 				return true
 			}
+			if ((key.return && (key.shift || key.meta)) || input === '\n') {
+				const position = cursorRef.current
+				editBuffer(
+					valueRef.current.slice(0, position) + '\n' + valueRef.current.slice(position),
+					position + 1,
+				)
+				return
+			}
 			if (key.return) {
 				if (showSuggestions) {
 					// Run the highlighted command.
@@ -305,7 +386,7 @@ export function Composer({
 			if (key.tab) {
 				if (showSuggestions) {
 					// Complete to the highlighted command, ready for arguments.
-					setBuffer(`/${suggestions[selIdx]?.name ?? ''} `)
+					editBuffer(`/${suggestions[selIdx]?.name ?? ''} `)
 					setSelected(0)
 					return
 				}
@@ -342,7 +423,7 @@ export function Composer({
 				}
 				const position = cursorRef.current
 				const previous = previousGraphemeBoundary(valueRef.current, position)
-				setBuffer(
+				editBuffer(
 					valueRef.current.slice(0, previous) + valueRef.current.slice(position),
 					previous,
 				)
@@ -351,58 +432,94 @@ export function Composer({
 			if (key.delete) {
 				const position = cursorRef.current
 				const next = nextGraphemeBoundary(valueRef.current, position)
-				setBuffer(
+				editBuffer(
 					valueRef.current.slice(0, position) + valueRef.current.slice(next),
 					position,
 				)
 				return
 			}
 			if (key.leftArrow || (key.ctrl && input === 'b')) {
+				verticalColumnRef.current = null
 				const previous = previousGraphemeBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = previous
 				setCursorState(previous)
 				return
 			}
 			if (key.rightArrow || (key.ctrl && input === 'f')) {
+				verticalColumnRef.current = null
 				const next = nextGraphemeBoundary(valueRef.current, cursorRef.current)
 				cursorRef.current = next
 				setCursorState(next)
 				return
 			}
 			if (key.home || (key.ctrl && input === 'a')) {
+				verticalColumnRef.current = null
 				const start = lineStart(valueRef.current, cursorRef.current)
 				cursorRef.current = start
 				setCursorState(start)
 				return
 			}
 			if (key.end || (key.ctrl && input === 'e')) {
-				const newline = valueRef.current.indexOf('\n', cursorRef.current)
-				const end = newline < 0 ? valueRef.current.length : newline
+				verticalColumnRef.current = null
+				const end = lineEnd(valueRef.current, cursorRef.current)
 				cursorRef.current = end
 				setCursorState(end)
 				return
 			}
-			if (key.upArrow) {
+			if (key.upArrow || (key.ctrl && input === 'p')) {
 				if (showSuggestions) {
 					setSelected((i) => Math.max(0, i - 1))
 					return
 				}
+				const vertical = verticalCursor(
+					valueRef.current,
+					cursorRef.current,
+					-1,
+					verticalColumnRef.current ?? undefined,
+				)
+				if (vertical) {
+					verticalColumnRef.current = vertical.column
+					cursorRef.current = vertical.cursor
+					setCursorState(vertical.cursor)
+					return
+				}
+				verticalColumnRef.current = null
 				if (history.length === 0) return
-				const next = Math.min(historyIndex + 1, history.length - 1)
+				if (historyIndexRef.current < 0) {
+					historyDraftRef.current = { value: valueRef.current, cursor: cursorRef.current }
+				}
+				const next = Math.min(historyIndexRef.current + 1, history.length - 1)
 				setHistoryIndex(next)
 				setBuffer(history[history.length - 1 - next] ?? '')
 				return
 			}
-			if (key.downArrow) {
+			if (key.downArrow || (key.ctrl && input === 'n')) {
 				if (showSuggestions) {
 					setSelected((i) => Math.min(suggestions.length - 1, i + 1))
 					return
 				}
-				if (historyIndex <= 0) {
-					reset()
+				const vertical = verticalCursor(
+					valueRef.current,
+					cursorRef.current,
+					1,
+					verticalColumnRef.current ?? undefined,
+				)
+				if (vertical) {
+					verticalColumnRef.current = vertical.column
+					cursorRef.current = vertical.cursor
+					setCursorState(vertical.cursor)
 					return
 				}
-				const next = historyIndex - 1
+				verticalColumnRef.current = null
+				if (historyIndexRef.current < 0) return
+				if (historyIndexRef.current === 0) {
+					const draft = historyDraftRef.current
+					historyDraftRef.current = null
+					setHistoryIndex(-1)
+					setBuffer(draft?.value ?? '', draft?.cursor ?? 0)
+					return
+				}
+				const next = historyIndexRef.current - 1
 				setHistoryIndex(next)
 				setBuffer(history[history.length - 1 - next] ?? '')
 				return
@@ -426,20 +543,19 @@ export function Composer({
 			}
 			if (key.ctrl && input === 'w') {
 				const result = deletePreviousWordAt(valueRef.current, cursorRef.current)
-				setBuffer(result.value, result.cursor)
+				editBuffer(result.value, result.cursor)
 				return
 			}
 			if (key.ctrl && input === 'u') {
 				const position = cursorRef.current
 				const start = lineStart(valueRef.current, position)
-				setBuffer(valueRef.current.slice(0, start) + valueRef.current.slice(position), start)
+				editBuffer(valueRef.current.slice(0, start) + valueRef.current.slice(position), start)
 				return
 			}
 			if (key.ctrl && input === 'k') {
 				const position = cursorRef.current
-				const newline = valueRef.current.indexOf('\n', position)
-				const end = newline < 0 ? valueRef.current.length : newline
-				setBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(end), position)
+				const end = lineEnd(valueRef.current, position)
+				editBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(end), position)
 				return
 			}
 			if (key.ctrl || key.meta) return
@@ -452,7 +568,7 @@ export function Composer({
 			}
 			setSelected(0)
 			const position = cursorRef.current
-			setBuffer(
+			editBuffer(
 				valueRef.current.slice(0, position) + input + valueRef.current.slice(position),
 				position + input.length,
 			)
