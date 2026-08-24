@@ -5,6 +5,7 @@ import type { Message, MessageAttachment } from '../../../types/message/index.js
 import {
 	AttachmentMediaTypeMismatchError,
 	AttachmentNotFoundError,
+	AttachmentResolutionTimeoutError,
 	type AttachmentStore,
 	NoAttachmentStoreError,
 	type StoredBytes,
@@ -63,6 +64,25 @@ describe('a stored attachment becomes an inline one', () => {
 		})
 	})
 
+	it('disarms the phase deadline after successful publication', async () => {
+		let storeSignal: AbortSignal | undefined
+		const resolved = await resolveAttachment(
+			stored(),
+			{
+				put: async () => 'unused',
+				get: async (_ref, options) => {
+					storeSignal = options?.signal
+					return { data: 'AAAA', mediaType: 'image/png' }
+				},
+			},
+			{ timeoutMs: 5 },
+		)
+
+		expect(resolved).toMatchObject({ type: 'image', data: 'AAAA' })
+		await new Promise((resolve) => setTimeout(resolve, 20))
+		expect(storeSignal?.aborted).toBe(false)
+	})
+
 	it('resolves a document, keeping name and citations', async () => {
 		// Both are message-level decisions the store knows nothing about, so
 		// dropping them would silently turn a citable named contract into an
@@ -98,6 +118,85 @@ describe('a stored attachment becomes an inline one', () => {
 })
 
 describe('every failure refuses', () => {
+	it('bounds a non-cooperative store without aborting the caller', async () => {
+		const caller = new AbortController()
+		let storeSignal: AbortSignal | undefined
+		const safety = setTimeout(
+			() => caller.abort(new Error('test safety bound: attachment deadline did not fire')),
+			250,
+		)
+		const pending = resolveAttachment(
+			stored(),
+			{
+				put: async () => 'unused',
+				get: (_ref, options) => {
+					storeSignal = options?.signal
+					return new Promise<never>(() => undefined)
+				},
+			},
+			{ signal: caller.signal, timeoutMs: 5 },
+		)
+
+		try {
+			await expect(pending).rejects.toMatchObject({
+				name: 'AttachmentResolutionTimeoutError',
+				details: { timeoutMs: 5 },
+			})
+		} finally {
+			clearTimeout(safety)
+		}
+		expect(storeSignal).not.toBe(caller.signal)
+		expect(storeSignal?.aborted).toBe(true)
+		expect(storeSignal?.reason).toBeInstanceOf(AttachmentResolutionTimeoutError)
+		expect(caller.signal.aborted).toBe(false)
+	})
+
+	it('keeps zero as an explicit unbounded wait while caller cancellation still wins', async () => {
+		const caller = new AbortController()
+		const reason = new Error('stop the compatibility wait')
+		let storeSignal: AbortSignal | undefined
+		const pending = resolveAttachment(
+			stored(),
+			{
+				put: async () => 'unused',
+				get: (_ref, options) => {
+					storeSignal = options?.signal
+					return new Promise<never>(() => undefined)
+				},
+			},
+			{ signal: caller.signal, timeoutMs: 0 },
+		)
+		const stillPending = Symbol('still pending')
+		const beforeAbort = await Promise.race([
+			pending,
+			new Promise<typeof stillPending>((resolve) => setTimeout(() => resolve(stillPending), 20)),
+		])
+
+		expect(beforeAbort).toBe(stillPending)
+		expect(storeSignal).toBe(caller.signal)
+		caller.abort(reason)
+		await expect(pending).rejects.toBe(reason)
+	})
+
+	it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648])(
+		'refuses invalid attachmentResolveTimeoutMs=%s before store work',
+		async (timeoutMs) => {
+			let calls = 0
+			const candidate: AttachmentStore = {
+				put: async () => 'unused',
+				get: async () => {
+					calls += 1
+					return undefined
+				},
+			}
+
+			await expect(resolveAttachment(stored(), candidate, { timeoutMs })).rejects.toThrow(
+				/attachmentResolveTimeoutMs must be an integer/,
+			)
+			expect(calls).toBe(0)
+		},
+	)
+
 	it('lets pre-cancellation outrank a missing store', async () => {
 		const caller = new AbortController()
 		const reason = new Error('attachment resolution cancelled')
@@ -206,6 +305,39 @@ describe('resolving a whole conversation', () => {
 				mediaType: 'image/png',
 			},
 		)
+	})
+
+	it('uses one deadline signal for the complete parallel batch', async () => {
+		const signals: AbortSignal[] = []
+		const caller = new AbortController()
+		const safety = setTimeout(
+			() => caller.abort(new Error('test safety bound: batch deadline did not fire')),
+			250,
+		)
+		const messages: Message[] = [
+			withAttachments([stored({ ref: 'ref_a' })]),
+			withAttachments([stored({ ref: 'ref_b' })]),
+		]
+		const pending = resolveAttachments(
+			messages,
+			{
+				put: async () => 'unused',
+				get: (_ref, options) => {
+					if (options?.signal) signals.push(options.signal)
+					return new Promise<never>(() => undefined)
+				},
+			},
+			{ signal: caller.signal, timeoutMs: 5 },
+		)
+
+		try {
+			await expect(pending).rejects.toBeInstanceOf(AttachmentResolutionTimeoutError)
+		} finally {
+			clearTimeout(safety)
+		}
+		expect(signals).toHaveLength(2)
+		expect(signals[0]).toBe(signals[1])
+		expect(caller.signal.aborted).toBe(false)
 	})
 
 	it('resolves a message that mixes stored and inline', async () => {

@@ -12,6 +12,7 @@ import { DEFAULT_PROVIDER_RETRY } from '../provider/retry.js'
 import { DEFAULT_TOOL_CONCURRENCY, DEFAULT_TOOL_TIMEOUT_MS } from '../runtime/query/executor.js'
 import { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from '../runtime/query/request-rich-content.js'
 import { DEFAULT_MAX_TOOL_OUTPUT_CHARS } from '../runtime/query/tool-output-budget.js'
+import { DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS } from '../store/attachment/index.js'
 
 /**
  * A conformance test over the SHIPPED DEFAULTS.
@@ -49,6 +50,13 @@ describe('a run cannot hang', () => {
 		// whole-request timeout and the between-iteration run timeout do not see it.
 		expect(DEFAULT_STREAM_IDLE_TIMEOUT_MS).toBeGreaterThan(0)
 		expect(DEFAULT_STREAM_IDLE_TIMEOUT_MS).toBeLessThanOrEqual(5 * 60_000)
+	})
+
+	it('stored attachment materialization has a finite phase bound', () => {
+		// A remote/custom store may ignore AbortSignal entirely; the operation
+		// therefore races the host promise rather than trusting cooperation.
+		expect(DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS).toBeGreaterThan(0)
+		expect(DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS).toBeLessThanOrEqual(60_000)
 	})
 
 	it('tool fan-out is bounded', () => {

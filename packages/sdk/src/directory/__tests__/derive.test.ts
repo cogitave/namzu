@@ -32,7 +32,7 @@ describe('turning a manifest into run options', () => {
 		const root = project({
 			'instructions.md': 'You are terse.',
 			'agent.js':
-				'export default { model: "m", maxIterations: 3, streamIdleTimeoutMs: 4321, maxRequestRichContentBytes: 7654 }',
+				'export default { model: "m", maxIterations: 3, streamIdleTimeoutMs: 4321, maxRequestRichContentBytes: 7654, attachmentResolveTimeoutMs: 2468 }',
 			'tools/a.js': TOOL('a'),
 		})
 		const { manifest } = await loadDirectory(root)
@@ -44,6 +44,7 @@ describe('turning a manifest into run options', () => {
 		expect(options.maxIterations).toBe(3)
 		expect(options.streamIdleTimeoutMs).toBe(4321)
 		expect(options.maxRequestRichContentBytes).toBe(7654)
+		expect(options.attachmentResolveTimeoutMs).toBe(2468)
 		expect(options.tools?.has('a')).toBe(true)
 	})
 

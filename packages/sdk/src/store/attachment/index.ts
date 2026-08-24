@@ -60,6 +60,23 @@ export interface AttachmentOperationOptions {
 	readonly signal?: AbortSignal
 }
 
+/** Policy owned by the operation that materializes one or more references. */
+export interface AttachmentResolutionOptions extends AttachmentOperationOptions {
+	/**
+	 * Maximum wall-clock time for the complete materialization phase.
+	 *
+	 * Defaults to one minute. `0` retains the prior unbounded wait. The SDK
+	 * still races the wait itself, so a custom store cannot defeat this bound
+	 * by ignoring the signal it receives.
+	 */
+	readonly timeoutMs?: number
+}
+
+/** One minute is long enough for remote stores without letting a run wedge forever. */
+export const DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS = 60_000
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
 export interface AttachmentStore {
 	/**
 	 * Take bytes, return a ref.
@@ -109,6 +126,17 @@ export class AttachmentMediaTypeMismatchError extends Error {
 	}
 }
 
+/** A store did not settle the materialization phase within its declared bound. */
+export class AttachmentResolutionTimeoutError extends Error {
+	readonly details: { timeoutMs: number }
+
+	constructor(details: { timeoutMs: number }) {
+		super(`Stored attachment resolution timed out after ${details.timeoutMs}ms.`)
+		this.name = 'AttachmentResolutionTimeoutError'
+		this.details = details
+	}
+}
+
 export const isStoredAttachment = (
 	attachment: MessageAttachment,
 ): attachment is MessageAttachment & StoredAttachment =>
@@ -126,11 +154,23 @@ export const isStoredAttachment = (
 export async function resolveAttachment(
 	attachment: MessageAttachment,
 	store: AttachmentStore | undefined,
-	options: AttachmentOperationOptions = {},
+	options: AttachmentResolutionOptions = {},
 ): Promise<MessageAttachment> {
-	const { signal } = options
-	signal?.throwIfAborted()
+	options.signal?.throwIfAborted()
+	const timeoutMs = resolveAttachmentTimeoutMs(options.timeoutMs)
 	if (!isStoredAttachment(attachment)) return attachment
+
+	return await withAttachmentDeadline(options.signal, timeoutMs, async (signal) =>
+		resolveAttachmentWithSignal(attachment, store, signal),
+	)
+}
+
+async function resolveAttachmentWithSignal(
+	attachment: MessageAttachment & StoredAttachment,
+	store: AttachmentStore | undefined,
+	signal: AbortSignal | undefined,
+): Promise<MessageAttachment> {
+	signal?.throwIfAborted()
 	if (!store) throw new NoAttachmentStoreError({ ref: attachment.ref })
 
 	const bytes = await awaitStoreRead(signal, () =>
@@ -177,9 +217,10 @@ export async function resolveAttachment(
 export async function resolveAttachments(
 	messages: readonly Message[],
 	store: AttachmentStore | undefined,
-	options: AttachmentOperationOptions = {},
+	options: AttachmentResolutionOptions = {},
 ): Promise<readonly Message[]> {
 	options.signal?.throwIfAborted()
+	const timeoutMs = resolveAttachmentTimeoutMs(options.timeoutMs)
 	// `Message` rather than a structural constraint: only some members of
 	// the union carry `attachments`, and a structural bound over a union
 	// like that is not assignable in either direction. Naming the real type
@@ -189,18 +230,62 @@ export async function resolveAttachments(
 
 	if (!messages.some((m) => has(m)?.some(isStoredAttachment))) return messages
 
-	return await Promise.all(
-		messages.map(async (message) => {
-			const attachments = has(message)
-			if (!attachments?.some(isStoredAttachment)) return message
-			return {
-				...message,
-				attachments: await Promise.all(
-					attachments.map((attachment) => resolveAttachment(attachment, store, options)),
-				),
-			}
-		}),
+	return await withAttachmentDeadline(options.signal, timeoutMs, async (signal) =>
+		Promise.all(
+			messages.map(async (message) => {
+				const attachments = has(message)
+				if (!attachments?.some(isStoredAttachment)) return message
+				return {
+					...message,
+					attachments: await Promise.all(
+						attachments.map((attachment) =>
+							isStoredAttachment(attachment)
+								? resolveAttachmentWithSignal(attachment, store, signal)
+								: attachment,
+						),
+					),
+				}
+			}),
+		),
 	)
+}
+
+function resolveAttachmentTimeoutMs(value: number | undefined): number {
+	const resolved = value ?? DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS
+	if (!Number.isInteger(resolved) || resolved < 0 || resolved > MAX_TIMER_DELAY_MS) {
+		throw new RangeError(
+			`attachmentResolveTimeoutMs must be an integer from 0 to ${MAX_TIMER_DELAY_MS}; received ${String(resolved)}`,
+		)
+	}
+	return resolved
+}
+
+/**
+ * Own one timer for the whole parallel materialization phase.
+ *
+ * The caller's signal is an input, never the controller we abort. Whichever
+ * cause wins is latched by `AbortSignal.any`, and every store wait races that
+ * fused signal independently through `awaitStoreRead` below.
+ */
+async function withAttachmentDeadline<T>(
+	upstream: AbortSignal | undefined,
+	timeoutMs: number,
+	start: (signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
+	upstream?.throwIfAborted()
+	if (timeoutMs === 0) return await start(upstream)
+
+	const timeout = new AbortController()
+	const signal = upstream ? AbortSignal.any([upstream, timeout.signal]) : timeout.signal
+	const timer = setTimeout(
+		() => timeout.abort(new AttachmentResolutionTimeoutError({ timeoutMs })),
+		timeoutMs,
+	)
+	try {
+		return await start(signal)
+	} finally {
+		clearTimeout(timer)
+	}
 }
 
 /**

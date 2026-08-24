@@ -23,6 +23,8 @@ export interface BaseAgentConfig {
 	streamIdleTimeoutMs?: number
 	/** See {@link import('../run/config.js').AgentRunConfig.maxRequestRichContentBytes}. */
 	maxRequestRichContentBytes?: number
+	/** Maximum stored-attachment materialization time; defaults to one minute. `0` disables. */
+	attachmentResolveTimeoutMs?: number
 	maxIterations?: number
 	temperature?: number
 	maxResponseTokens?: number
@@ -239,6 +241,8 @@ export interface AgentInput {
 	messages: Message[]
 	workingDirectory: string
 	signal?: AbortSignal
+	/** Store that owns any `stored` attachment refs carried by `messages`. */
+	attachmentStore?: import('../../store/attachment/index.js').AttachmentStore
 
 	taskStore?: TaskStore
 

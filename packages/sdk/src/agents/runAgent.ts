@@ -107,6 +107,10 @@ export interface RunAgentOptions extends AgentIdentity {
 	streamIdleTimeoutMs?: number
 	/** Accumulated inline image/document bytes per provider request. `0` disables. */
 	maxRequestRichContentBytes?: number
+	/** Maximum stored-attachment materialization time; defaults to one minute. `0` disables. */
+	attachmentResolveTimeoutMs?: number
+	/** Store that owns any `stored` attachment refs carried by `prompt`. */
+	attachmentStore?: import('../store/attachment/index.js').AttachmentStore
 	temperature?: number
 
 	/**
@@ -250,6 +254,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 		{
 			provider: options.provider,
 			tools: options.tools ?? new ToolRegistry(),
+			...(options.attachmentStore ? { attachmentStore: options.attachmentStore } : {}),
+			...(options.attachmentResolveTimeoutMs !== undefined
+				? { attachmentResolveTimeoutMs: options.attachmentResolveTimeoutMs }
+				: {}),
 			...(options.sandboxProvider ? { sandboxProvider: options.sandboxProvider } : {}),
 			...(options.sandboxTeardownTimeoutMs !== undefined
 				? { sandboxTeardownTimeoutMs: options.sandboxTeardownTimeoutMs }

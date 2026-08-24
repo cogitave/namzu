@@ -212,9 +212,10 @@ describe('stored attachment resolution belongs to the run', () => {
 		}
 		if (outcome === safety) return
 
-		expect(storeOptions?.signal).toBe(caller.signal)
+		expect(storeOptions?.signal).not.toBe(caller.signal)
 		expect(storeOptions?.signal?.aborted).toBe(true)
 		expect(storeOptions?.signal?.reason).toBe(reason)
+		expect(caller.signal.reason).toBe(reason)
 		expect(provider.requests).toHaveLength(0)
 		expect(outcome.status).toBe('cancelled')
 		expect(outcome.stopReason).toBe('cancelled')

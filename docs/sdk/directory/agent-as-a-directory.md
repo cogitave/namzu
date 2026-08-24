@@ -51,7 +51,8 @@ agent/
 ├── instructions.md     the system prompt, used verbatim
 ├── agent.ts            export default { model, temperature, maxIterations,
 │                         tokenBudget, timeoutMs, streamIdleTimeoutMs,
-│                         maxRequestRichContentBytes, name, metadata }
+│                         maxRequestRichContentBytes,
+│                         attachmentResolveTimeoutMs, name, metadata }
 │                         — all optional
 ├── tools/              one file per tool, each default-exporting defineTool(...)
 ├── skills/             one folder per skill
@@ -79,6 +80,12 @@ documents sent on one model request. It defaults to 24 MiB; `0` is the explicit
 unbounded compatibility mode. See [Provider request rich-content
 budgets](../runtime/request-rich-content-budget.md) for projection and history
 preservation semantics.
+
+`attachmentResolveTimeoutMs` controls the complete phase that materializes
+stored image and document refs before a run starts. It defaults to one minute;
+`0` retains the earlier unbounded wait. See [Stored attachment
+resolution](../runtime/stored-attachment-resolution.md) for store reachability,
+cancellation precedence and refusal semantics.
 
 ### What is deliberately not here
 

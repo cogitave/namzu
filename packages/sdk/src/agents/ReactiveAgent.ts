@@ -71,6 +71,10 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				basePrompt: config.basePrompt,
 				provider: config.provider,
 				tools: config.tools,
+				...(input.attachmentStore ? { attachmentStore: input.attachmentStore } : {}),
+				...(config.attachmentResolveTimeoutMs !== undefined
+					? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }
+					: {}),
 				...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
 				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
 				...(config.sandboxTeardownTimeoutMs !== undefined

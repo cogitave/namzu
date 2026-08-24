@@ -311,6 +311,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					skills: config.skills,
 					provider: config.provider,
 					tools,
+					...(input.attachmentStore ? { attachmentStore: input.attachmentStore } : {}),
+					...(config.attachmentResolveTimeoutMs !== undefined
+						? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }
+						: {}),
 					runConfig: {
 						model: config.model,
 						tokenBudget: config.tokenBudget,

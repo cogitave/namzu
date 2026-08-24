@@ -1202,8 +1202,10 @@ export {
 // Inline base64 lands in the transcript, in every checkpoint, and on the
 // wire once per turn; a reference does not.
 export {
+	DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS,
 	AttachmentMediaTypeMismatchError,
 	AttachmentNotFoundError,
+	AttachmentResolutionTimeoutError,
 	NoAttachmentStoreError,
 	isStoredAttachment,
 	resolveAttachment,

@@ -336,6 +336,7 @@ export type {
 
 export type {
 	AttachmentOperationOptions,
+	AttachmentResolutionOptions,
 	AttachmentStore,
 	StoredAttachment,
 	StoredBytes,

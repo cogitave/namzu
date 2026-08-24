@@ -302,6 +302,11 @@ export interface QueryParams {
 	 * store REFUSES rather than dropping the attachment.
 	 */
 	attachmentStore?: import('../../store/attachment/index.js').AttachmentStore
+	/**
+	 * Maximum wall-clock time for resolving the run's stored attachments.
+	 * Defaults to one minute; `0` retains the prior unbounded wait.
+	 */
+	attachmentResolveTimeoutMs?: number
 
 	/**
 	 * How this run reaches the web.
@@ -1192,6 +1197,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		resolvedInitialMessages = [
 			...(await resolveAttachments(seeded, params.attachmentStore, {
 				signal: params.signal,
+				timeoutMs: params.attachmentResolveTimeoutMs,
 			})),
 		]
 		params.signal?.throwIfAborted()

@@ -48,6 +48,7 @@ export interface AgentFactoryOptions {
 	timeoutMs?: number
 	streamIdleTimeoutMs?: number
 	maxRequestRichContentBytes?: number
+	attachmentResolveTimeoutMs?: number
 	temperature?: number
 	maxResponseTokens?: number
 	env?: Record<string, string>

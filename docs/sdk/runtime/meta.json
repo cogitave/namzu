@@ -4,6 +4,7 @@
     "checkpoint-store-conformance",
     "provider-native-replay",
     "provider-stream-idle-bound",
-    "request-rich-content-budget"
+    "request-rich-content-budget",
+    "stored-attachment-resolution"
   ]
 }

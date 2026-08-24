@@ -565,6 +565,29 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		expect(seen[0]?.maxRequestRichContentBytes).toBe(4321)
 	})
 
+	it('carries a child-specific attachment resolution bound through the bare config path', async () => {
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-attachment-bound', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const options = buildOptions(
+			'child-attachment-bound',
+			harness.parentSession.id,
+			harness.projectId,
+		)
+		options.configOverrides = { attachmentResolveTimeoutMs: 2468 }
+
+		const task = await harness.manager.sendMessage(
+			options,
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		expect(seen[0]?.attachmentResolveTimeoutMs).toBe(2468)
+	})
+
 	it('does not derive the child deadline from the TOKEN budget', async () => {
 		// The fallback used to be `context.budgetTracker.remaining` — a token
 		// count read as milliseconds. It hid for so long because a six-figure

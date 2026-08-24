@@ -72,6 +72,11 @@ export function deriveRunOptions(
 					maxRequestRichContentBytes: manifest.config.maxRequestRichContentBytes,
 				}
 			: {}),
+		...(manifest.config.attachmentResolveTimeoutMs !== undefined
+			? {
+					attachmentResolveTimeoutMs: manifest.config.attachmentResolveTimeoutMs,
+				}
+			: {}),
 		...(input.identity ?? {}),
 		...(input.overrides ?? {}),
 	}
