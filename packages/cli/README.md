@@ -107,9 +107,11 @@ session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
 
 Bare `/effort`, `/permissions`, `/feedback`, `/skill`, and `/review` open finite
-keyboard choosers. The review chooser can target a base branch, uncommitted
-work, or a recent commit; choosing custom instructions restores `/review ` to
-the composer. When both Namzu-owned subscriptions exist, bare `/logout` asks
+keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
+`/title` remains an alias and `/title clear` removes the chosen name. The review
+chooser can target a base branch, uncommitted work, or a recent commit; choosing
+custom instructions restores `/review ` to the composer. When both Namzu-owned
+subscriptions exist, bare `/logout` asks
 which one to remove. `/logout claude|codex|all` and
 `namzu logout claude|codex|all` remain exact non-interactive forms, and never modify device
 sessions owned by another tool. A fully typed

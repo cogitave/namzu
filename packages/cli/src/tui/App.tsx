@@ -25,6 +25,7 @@ import {
 	type RunId,
 	type SessionGoal,
 	SessionGoalActivation,
+	type SessionId,
 	StaleGoalError,
 	asSessionId,
 	createAssistantMessage,
@@ -108,6 +109,7 @@ import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { type ContextFill, StatusBar } from './StatusBar.js'
+import { TextPrompt } from './TextPrompt.js'
 import { Transcript, willCollapse } from './Transcript.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
@@ -195,6 +197,14 @@ type CopyPickerState = {
 	readonly provenance: 'normal-completion' | 'persisted'
 }
 type ReviewPreset = 'base-branch' | 'uncommitted' | 'commit' | 'custom'
+type TextPromptState = {
+	readonly token: number
+	readonly kind: 'conversation-title'
+	readonly title: string
+	readonly placeholder: string
+	readonly initialValue: string
+	readonly sessionId: SessionId
+}
 type ChoicePickerState =
 	| {
 			readonly kind: 'permission-mode'
@@ -767,6 +777,14 @@ export function App({
 	useEffect(() => {
 		choicePickerCommittedRef.current = choicePicker
 	}, [choicePicker])
+	/** Host-owned text decision; its value never enters model prompt history. */
+	const [textPrompt, setTextPromptState] = useState<TextPromptState | null>(null)
+	const textPromptRef = useRef<TextPromptState | null>(null)
+	const textPromptTokenRef = useRef(0)
+	const setTextPrompt = useCallback((next: TextPromptState | null) => {
+		textPromptRef.current = next
+		setTextPromptState(next)
+	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const composerDraftTokenRef = useRef(0)
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
@@ -2399,11 +2417,12 @@ export function App({
 	)
 
 	/**
-	 * `/title`: read or set the name this conversation appears under.
+	 * `/rename` (and the older `/title` alias): edit or set the name this
+	 * conversation appears under.
 	 *
-	 * A bare `/title` asks rather than clears. Erasing a name by pressing
-	 * enter on a half-typed command is the kind of loss nobody notices until
-	 * `/resume` is a list of opening messages again.
+	 * A bare command opens a prefilled host prompt rather than printing usage or
+	 * clearing. The result never goes through the model composer, queue, or prompt
+	 * history; it is a session-store operation with the session id captured here.
 	 */
 	const doTitle = useCallback(
 		async (title: string, clear: boolean) => {
@@ -2416,12 +2435,15 @@ export function App({
 			try {
 				if (!clear && title === '') {
 					const current = titleOf(sessions, scope.sessionId)
-					pushMessage(
-						'system',
-						current !== undefined
-							? `This conversation is named "${current}". /title <name> renames it; /title clear removes the name.`
-							: 'This conversation has no name, so /resume lists it by its opening message — which stops describing it as the conversation moves on. /title <name> fixes that.',
-					)
+					textPromptTokenRef.current += 1
+					setTextPrompt({
+						token: textPromptTokenRef.current,
+						kind: 'conversation-title',
+						title: current === undefined ? 'Name conversation' : 'Rename conversation',
+						placeholder: 'Type a name and press Enter',
+						initialValue: current ?? '',
+						sessionId: scope.sessionId,
+					})
 					return
 				}
 				setTitle(sessions, scope.sessionId, clear ? '' : title)
@@ -2438,8 +2460,46 @@ export function App({
 				)
 			}
 		},
-		[ensureSessions, pushMessage],
+		[ensureSessions, pushMessage, setTextPrompt],
 	)
+
+	const submitTextPrompt = useCallback(
+		(value: string) => {
+			const prompt = textPromptRef.current
+			if (!prompt) return
+			setTextPrompt(null)
+
+			const sessions = sessionsRef.current
+			const scope = scopeRef.current
+			if (!sessions || !scope || scope.sessionId !== prompt.sessionId) {
+				pushMessage(
+					'system',
+					'The conversation changed while its name editor was open. Nothing was renamed; open /rename again.',
+				)
+				return
+			}
+
+			try {
+				setTitle(sessions, prompt.sessionId, value)
+				pushMessage('system', `Named "${value.trim()}".`)
+			} catch (error) {
+				pushMessage(
+					'system',
+					`Could not save the name: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		},
+		[pushMessage, setTextPrompt],
+	)
+	const cancelTextPrompt = useCallback(() => {
+		const prompt = textPromptRef.current
+		// TextPrompt and App both receive the same Ink input event. Keep the
+		// synchronous owner until every listener has seen this Esc/Ctrl+C, or App
+		// can read the same key as an interrupt/exit after the child clears the ref.
+		queueMicrotask(() => {
+			if (textPromptRef.current === prompt) setTextPrompt(null)
+		})
+	}, [setTextPrompt])
 
 	/**
 	 * `/fork`: continue in a copy, leaving this conversation where it is.
@@ -4116,6 +4176,7 @@ export function App({
 			conversationMutationRef.current ||
 			exportingRef.current ||
 			compactingRef.current ||
+			textPromptRef.current ||
 			choicePickerRef.current ||
 			copyPickerRef.current ||
 			goalCommandInFlightRef.current
@@ -4143,6 +4204,7 @@ export function App({
 					conversationMutationRef.current ||
 					exportingRef.current ||
 					compactingRef.current ||
+					textPromptRef.current ||
 					choicePickerRef.current ||
 					copyPickerRef.current ||
 					goalCommandInFlightRef.current ||
@@ -4216,6 +4278,7 @@ export function App({
 		conversationMutation,
 		session,
 		state,
+		textPrompt,
 		choicePicker,
 		copyPicker,
 		wakeGoalDriver,
@@ -4234,6 +4297,7 @@ export function App({
 			conversationMutationRef.current ||
 			exportingRef.current ||
 			compactingRef.current ||
+			textPromptRef.current ||
 			choicePickerRef.current ||
 			copyPickerRef.current ||
 			goalCommandInFlightRef.current
@@ -4250,6 +4314,7 @@ export function App({
 		phase,
 		queued,
 		queuePause,
+		textPrompt,
 		choicePicker,
 		copyPicker,
 		dequeueQueued,
@@ -4534,6 +4599,10 @@ export function App({
 				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
 				return
 			}
+			// A host-owned text prompt has its own input hook. This synchronous ref
+			// claims the interval before React paints it too, so App cannot read a
+			// key repeat as an interrupt, exit ladder, or finite-menu choice.
+			if (textPromptRef.current) return
 			// Finite slash-command choices own the keyboard below a live permission
 			// request and above the ordinary composer. Their values are a captured
 			// menu, so a provider/session change cannot silently reinterpret Enter.
@@ -4780,16 +4849,25 @@ export function App({
 						    trigger. The composer now stays mounted and draws
 						    nothing while the prompt is up, so its state survives a
 						    decision it had nothing to do with. */}
-						{permission ? (
-							<PermissionOverlay toolCalls={permission.toolCalls} />
-						) : choicePicker ? (
+						{permission ? <PermissionOverlay toolCalls={permission.toolCalls} /> : null}
+						{textPrompt ? (
+							<TextPrompt
+								key={textPrompt.token}
+								title={textPrompt.title}
+								placeholder={textPrompt.placeholder}
+								initialValue={textPrompt.initialValue}
+								hidden={permission !== null}
+								onSubmit={submitTextPrompt}
+								onCancel={cancelTextPrompt}
+							/>
+						) : permission === null && choicePicker ? (
 							<ChoicePicker
 								title={choicePicker.title}
 								notice={choicePicker.notice}
 								options={choicePicker.options}
 								selected={selectedChoice}
 							/>
-						) : copyPicker ? (
+						) : permission === null && copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
 						<ComposerFrame
@@ -4797,6 +4875,7 @@ export function App({
 								state === 'idle' &&
 								phase === 'ready' &&
 								conversationMutation === null &&
+								textPrompt === null &&
 								choicePicker === null &&
 								copyPicker === null
 							}
@@ -4804,6 +4883,7 @@ export function App({
 						>
 							{pendingSteers.length > 0 &&
 							permission === null &&
+							textPrompt === null &&
 							choicePicker === null &&
 							copyPicker === null ? (
 								<Box paddingX={1}>
@@ -4816,6 +4896,7 @@ export function App({
 							) : null}
 							{queued.length > 0 &&
 							permission === null &&
+							textPrompt === null &&
 							choicePicker === null &&
 							copyPicker === null ? (
 								<Box paddingX={1}>
@@ -4836,7 +4917,12 @@ export function App({
 									conversationMutation !== null ||
 									externalEditorRequest !== null
 								}
-								hidden={permission !== null || choicePicker !== null || copyPicker !== null}
+								hidden={
+									permission !== null ||
+									textPrompt !== null ||
+									choicePicker !== null ||
+									copyPicker !== null
+								}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
 								escapeInterrupts={!compacting && (state === 'thinking' || state === 'tool')}
@@ -4867,6 +4953,7 @@ export function App({
 							conversationMutation === null &&
 							!compacting &&
 							permission === null &&
+							textPrompt === null &&
 							choicePicker === null &&
 							copyPicker === null
 								? goalStatusLabel(goalStatus)
@@ -4884,13 +4971,15 @@ export function App({
 											? 'compacting conversation — input is paused'
 											: permission
 												? hintForPhase(phase, state, session?.hasProvider === true)
-												: choicePicker
-													? 'choice open — ↑↓ / 1–9 select · enter apply · esc cancel'
-													: copyPicker
-														? 'copy target open — ↑↓ / 1–9 select · esc cancel'
-														: goalStatus && phase === 'ready' && state === 'idle'
-															? undefined
-															: hintForPhase(phase, state, session?.hasProvider === true)
+												: textPrompt
+													? 'name editor open — enter save · esc cancel'
+													: choicePicker
+														? 'choice open — ↑↓ / 1–9 select · enter apply · esc cancel'
+														: copyPicker
+															? 'copy target open — ↑↓ / 1–9 select · esc cancel'
+															: goalStatus && phase === 'ready' && state === 'idle'
+																? undefined
+																: hintForPhase(phase, state, session?.hasProvider === true)
 						}
 						usage={usage}
 						context={context}

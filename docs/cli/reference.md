@@ -78,7 +78,7 @@ Inside the session, grouped by the question each one answers:
 |---|---|
 | **What is going on** | `/status`, `/pwd`, `/debug-config`, `/cost`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
-| **This conversation** | `/resume`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
+| **This conversation** | `/resume`, `/rename`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
 | **Everything else** | `/mention`, `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
 
@@ -232,10 +232,11 @@ logout and token publication fail closed.
 **Naming a conversation is what makes `/resume` navigable.** Without a name, a
 conversation is listed by the first thing you typed in it — a reasonable default
 and a poor identity, because it stops describing the work as soon as the work
-moves on from that opening question. `/title <name>` fixes one in place, bare
-`/title` reports the current one, and `/title clear` goes back to the derived
-one. A named row is shown in quotes so the two kinds are distinguishable in the
-list.
+moves on from that opening question. Bare `/rename` opens a prefilled name
+editor; `/rename <name>` updates it directly. `/title` remains an alias, and
+`/title clear` goes back to the derived name. The editor is a host decision, so
+its text does not enter model prompt history or the follow-up queue. A named row
+is shown in quotes so the two kinds are distinguishable in the list.
 
 Clean Ctrl+C exit prints `namzu resume <id>`, a shell command that reopens that
 exact interactive conversation in the current workspace. It loads the durable

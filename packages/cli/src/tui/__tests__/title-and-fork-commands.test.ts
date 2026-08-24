@@ -6,10 +6,10 @@ import { CLI_LOCAL_COMMANDS, parseSlash, runSlash } from '../slashCommands.js'
 /**
  * Both of these commands can destroy something by being read too eagerly.
  *
- * A bare `/title` typed while deciding what to call something must ASK, not
- * clear — a name erased by an early enter is a loss nobody notices until
- * `/resume` is a list of opening messages again. And `/fork` must be the
- * command it says it is: a copy, leaving the original alone.
+ * A bare `/rename` or `/title` typed while deciding what to call something must
+ * open the editor, not clear — a name erased by an early enter is a loss nobody
+ * notices until `/resume` is a list of opening messages again. And `/fork` must
+ * be the command it says it is: a copy, leaving the original alone.
  */
 
 function context(over: Partial<SlashContext> = {}): SlashContext {
@@ -40,22 +40,28 @@ function run(input: string) {
 	return runSlash(input, context())
 }
 
-describe('/title', () => {
-	it('asks rather than clears when given nothing', () => {
+describe('/rename and /title', () => {
+	it('open the name editor rather than clearing when given nothing', () => {
 		// The load-bearing one. Reading a bare `/title` as "remove the name"
 		// makes an accidental enter destructive, and the destroyed thing is
 		// invisible until the next `/resume`.
-		const action = run('/title')
-
-		expect(action).toMatchObject({ kind: 'title', title: '', clear: false })
+		for (const command of ['/rename', '/title']) {
+			expect(run(command)).toMatchObject({
+				kind: 'title',
+				title: '',
+				clear: false,
+			})
+		}
 	})
 
-	it('sets the name it was given, spaces and all', () => {
-		expect(run('/title the auth refactor')).toMatchObject({
-			kind: 'title',
-			title: 'the auth refactor',
-			clear: false,
-		})
+	it('set the name they were given, spaces and all', () => {
+		for (const command of ['/rename', '/title']) {
+			expect(run(`${command} the auth refactor`)).toMatchObject({
+				kind: 'title',
+				title: 'the auth refactor',
+				clear: false,
+			})
+		}
 	})
 
 	it('clears only on the literal word', () => {
@@ -71,6 +77,11 @@ describe('/title', () => {
 			title: 'clear the cache bug',
 			clear: false,
 		})
+	})
+
+	it('advertises the interactive command under the established name', () => {
+		const rename = CLI_LOCAL_COMMANDS.find((command) => command.name === 'rename')
+		expect(rename?.description).toMatch(/opens an editor/i)
 	})
 })
 

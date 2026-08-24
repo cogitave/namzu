@@ -65,12 +65,12 @@ export type SlashAction =
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
 	/**
-	 * Name this conversation, show its name, or take the name away.
+	 * Name this conversation, open its name editor, or take the name away.
 	 *
 	 * Its own kind rather than a message, because the write touches the
-	 * session store and this union is pure. An empty `title` means "show me";
-	 * an explicit clear is the literal word, so a person cannot erase a name
-	 * by pressing enter on a half-typed command.
+	 * session store and this union is pure. An empty `title` means "open the
+	 * editor"; an explicit clear is the literal word, so a person cannot erase
+	 * a name by pressing enter on a half-typed command.
 	 */
 	| { kind: 'title'; title: string; clear: boolean }
 	/**
@@ -307,6 +307,12 @@ export interface SlashCommand {
 export interface ParsedSlash {
 	readonly name: string
 	readonly args: readonly string[]
+}
+
+function renameConversationAction(_ctx: SlashContext, args: readonly string[]): SlashAction {
+	const text = args.join(' ').trim()
+	if (text.toLowerCase() === 'clear') return { kind: 'title', title: '', clear: true }
+	return { kind: 'title', title: text, clear: false }
 }
 
 /**
@@ -618,16 +624,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		},
 	},
 	{
+		name: 'rename',
+		description: 'Rename this conversation; opens an editor when no name is supplied.',
+		action: renameConversationAction,
+	},
+	{
 		name: 'title',
-		description: 'Name this conversation so /resume is navigable: /title <name>, or /title clear.',
-		action: (_ctx, args) => {
-			const text = args.join(' ').trim()
-			// `clear` is a word, not an empty argument. Bare `/title` is the
-			// question — the reading a person expects, and the one that cannot
-			// destroy anything by being typed early.
-			if (text.toLowerCase() === 'clear') return { kind: 'title', title: '', clear: true }
-			return { kind: 'title', title: text, clear: false }
-		},
+		description: 'Alias for /rename; /title clear removes the saved name.',
+		action: renameConversationAction,
 	},
 	{
 		name: 'fork',
