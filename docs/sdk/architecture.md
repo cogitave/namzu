@@ -324,6 +324,18 @@ Tools in Namzu are first-class typed values, not JSON schemas you have to keep i
 
 `tools/builtins/` ships file I/O, shell, and glob-search tools. `tools/advisory/`, `tools/memory/`, `tools/task/`, and `tools/coordinator/` ship kernel-facing tools that let agents consult advisors, query memory, coordinate siblings, and manage their task registry from inside the agent loop.
 
+Tool execution also preserves where a call came from. A provider-authored call
+is `direct`; a tool dispatching another tool records the parent tool-use id;
+and model-authored code adds a runtime-call id without pretending the child was
+another provider turn. Each nested call owns its event id, progress stream,
+output budget and deadline while inheriting cancellation and the nearest
+durable pause route from its model-issued ancestor. That keeps audit lineage
+exact and lets a paused child resume from the top-level checkpoint even when a
+fresh runtime assigns the child a different ephemeral id. `WorkerCodeRuntime`
+is the root-exported opt-in backend for this model-authored-code path; its host
+calls cross the same registry, verification and lifecycle boundary as every
+other nested dispatch.
+
 **Progressive disclosure** is unique to Namzu. Tools exist in three states — `deferred`, `activated`, `suspended`. The LLM does not see the full tool catalog; it sees the current active set plus a searchable summary of deferred tools. When it needs something specific, it activates it; when it is done, it suspends it. This keeps the context window focused, reduces hallucinated tool calls, and lets a single agent work across dozens of tools without drowning in a prompt.
 
 **Tool tiering** teaches the LLM a cost hierarchy. You define tiers ("tier-1: local", "tier-2: fast remote", "tier-3: expensive API"), each with its own guidance template, and the kernel instructs the LLM to prefer lower tiers first. Unlike hardcoded approaches, every label, priority, and template is yours.
