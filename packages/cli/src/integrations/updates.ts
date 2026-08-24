@@ -22,6 +22,29 @@ interface ParsedVersion {
 	readonly prerelease: readonly string[] | null
 }
 
+/**
+ * Settle an opaque async operation when this caller's authority expires.
+ *
+ * Passing a signal to `fetch` is a cancellation request, not a settlement
+ * guarantee: an injected transport or response body may ignore it forever.
+ * The update check is advertised as best-effort and bounded, so its own
+ * promise has to race the boundary as well.
+ */
+async function withSignal<T>(operation: PromiseLike<T>, signal: AbortSignal): Promise<T> {
+	signal.throwIfAborted()
+	let rejectAbort: ((reason: unknown) => void) | undefined
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject
+	})
+	const onAbort = () => rejectAbort?.(signal.reason)
+	signal.addEventListener('abort', onAbort, { once: true })
+	try {
+		return await Promise.race([operation, aborted])
+	} finally {
+		signal.removeEventListener('abort', onAbort)
+	}
+}
+
 function parseVersion(value: string): ParsedVersion | null {
 	const match = SEMVER_PATTERN.exec(value)
 	if (!match) return null
@@ -67,14 +90,22 @@ export interface LatestNamzuVersionOptions {
 /** Exact latest published CLI version, or an error when it cannot be established. */
 export async function latestNamzuVersion(options: LatestNamzuVersionOptions = {}): Promise<string> {
 	const controller = new AbortController()
-	const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? NPM_TIMEOUT_MS)
+	const timeoutMs = options.timeoutMs ?? NPM_TIMEOUT_MS
+	const timeout = Object.assign(
+		new Error(`npm registry update check timed out after ${timeoutMs}ms`),
+		{ name: 'TimeoutError' },
+	)
+	const timer = setTimeout(() => controller.abort(timeout), timeoutMs)
 	try {
-		const res = await (options.fetch ?? fetch)('https://registry.npmjs.org/@namzu/cli/latest', {
-			signal: controller.signal,
-			headers: { accept: 'application/json' },
-		})
+		const res = await withSignal(
+			(options.fetch ?? fetch)('https://registry.npmjs.org/@namzu/cli/latest', {
+				signal: controller.signal,
+				headers: { accept: 'application/json' },
+			}),
+			controller.signal,
+		)
 		if (!res.ok) throw new Error(`npm registry returned HTTP ${res.status}`)
-		const data = (await res.json()) as { version?: unknown }
+		const data = (await withSignal(res.json(), controller.signal)) as { version?: unknown }
 		if (typeof data.version !== 'string' || parseVersion(data.version) === null) {
 			throw new Error('npm registry returned an invalid @namzu/cli version')
 		}

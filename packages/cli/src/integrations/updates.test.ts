@@ -4,6 +4,23 @@ import { checkNamzuUpdate, compareVersions, latestNamzuVersion } from './updates
 
 afterEach(() => vi.unstubAllGlobals())
 
+async function settlesWithin<T>(promise: Promise<T>, milliseconds = 250): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined
+	try {
+		return await Promise.race([
+			promise,
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(
+					() => reject(new Error(`operation did not settle within ${milliseconds}ms`)),
+					milliseconds,
+				)
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
+}
+
 describe('semantic update ordering', () => {
 	it('orders prereleases below their release and compares prerelease identifiers', () => {
 		expect(compareVersions('14.3.0', '14.3.0-test.2')).toBeGreaterThan(0)
@@ -43,6 +60,34 @@ describe('latestNamzuVersion', () => {
 		await expect(latestNamzuVersion({ fetch: fetch as typeof globalThis.fetch })).rejects.toThrow(
 			'invalid @namzu/cli version',
 		)
+	})
+
+	it('settles at the deadline when the registry transport ignores abort forever', async () => {
+		let transportSignal: AbortSignal | undefined
+		const fetch = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return new Promise<Response>(() => {})
+		})
+
+		await expect(
+			settlesWithin(latestNamzuVersion({ fetch: fetch as typeof globalThis.fetch, timeoutMs: 5 })),
+		).rejects.toThrow('timed out')
+		expect(transportSignal?.aborted).toBe(true)
+	})
+
+	it('settles at the deadline when the registry body ignores abort forever', async () => {
+		let transportSignal: AbortSignal | undefined
+		const json = vi.fn(() => new Promise<unknown>(() => {}))
+		const fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+			transportSignal = init?.signal ?? undefined
+			return { ok: true, status: 200, json } as unknown as Response
+		})
+
+		await expect(
+			settlesWithin(latestNamzuVersion({ fetch: fetch as typeof globalThis.fetch, timeoutMs: 5 })),
+		).rejects.toThrow('timed out')
+		expect(json).toHaveBeenCalledOnce()
+		expect(transportSignal?.aborted).toBe(true)
 	})
 
 	it('gives the TUI a command that now exists when an update is available', async () => {
