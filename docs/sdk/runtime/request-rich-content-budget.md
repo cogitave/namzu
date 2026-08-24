@@ -102,6 +102,29 @@ Stored attachment references are resolved before this step. An unresolved
 reference is still refused; the budget cannot turn missing storage authority
 into an omission marker.
 
+## Remote MCP image admission
+
+A remote MCP result is untrusted input even when its base64 is canonical and
+its block says `image/png`. The MCP adapter applies a bounded container
+preflight to the complete image batch before any member becomes provider
+input. PNG, JPEG, GIF, and WebP blocks must use canonical base64, match their
+declared media type, carry safe intrinsic dimensions, and form a complete
+container with no trailing bytes. If one member fails, every image in that
+result is withheld so the model never sees a misleading partial batch.
+
+Withheld image blocks remain byte-for-byte in `ToolResult.data`,
+`Run.messages`, checkpoints, and durable run storage. Their model-delivery
+metadata is `modelOmission: { reason: 'invalid-image' }`; the request-only
+projection substitutes a fixed diagnostic even when
+`maxRequestRichContentBytes` is `0`. Remote text in both the compatibility
+`output` and rich `content` path is wrapped with the MCP server and tool
+provenance before it reaches the model.
+
+This preflight establishes encoding, container, media-type, and dimension
+integrity; it is not a full pixel decoder. A structurally complete compressed
+raster can still be refused by the selected provider. That case remains owned
+by the bounded provider-rejection recovery below.
+
 ## Recovery after a provider rejects one image
 
 A syntactically valid request can still contain image bytes that the provider

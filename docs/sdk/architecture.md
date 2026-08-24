@@ -232,6 +232,9 @@ retry backed by HTTP 400 plus the exact `invalid_image` provider code marks
 matching durable occurrences with
 `modelOmission: { reason: 'provider-rejected' }`, retaining the original bytes
 while preventing them from poisoning later requests and resumed runs.
+Remote MCP image batches use the same durable omission mechanism with
+`reason: 'invalid-image'` when their canonical encoding, container structure,
+declared media type, or intrinsic dimensions fail the model-boundary preflight.
 `isModelContentOmission` is the public guard for hosts that validate or render
 that provenance. Provider errors retain such bounded machine identifiers in
 `providerCode`, separately from their scrubbed prose. The repair event reports

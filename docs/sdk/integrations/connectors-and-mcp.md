@@ -7,7 +7,7 @@ diataxis: how-to
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-21
+lastReviewed: 2026-08-24
 tags: [sdk]
 ---
 
@@ -547,6 +547,17 @@ compatibility text block. That payload is serialized into the tool result's
 for host code. Without this the model received an empty result for a call
 that had succeeded — `isError` false, content array legitimately empty, and
 no diagnostic anywhere.
+
+Rich MCP results retain their block order for the model as well as the host.
+Text in both `output` and rich `content` is wrapped with the remote server and
+tool provenance, so an image-bearing result cannot bypass the untrusted-result
+boundary by taking the rich-content path. Image batches receive a bounded
+PNG/JPEG/GIF/WebP container preflight before provider delivery. One invalid or
+MIME-mismatched member withholds the complete image batch, records
+`modelOmission: { reason: 'invalid-image' }`, and leaves the exact remote bytes
+available in `result.data` and durable history. The provider-request behavior,
+including the deliberate limit of this structural preflight, is specified in
+[Provider request rich-content budgets](../runtime/request-rich-content-budget.md#remote-mcp-image-admission).
 
 ### Paged catalogues
 

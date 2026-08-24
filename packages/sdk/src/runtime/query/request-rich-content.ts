@@ -34,7 +34,7 @@ interface RichOccurrence {
 	readonly source: 'user' | 'tool'
 	readonly kind: RichKind
 	readonly bytes: number
-	readonly reason: 'budget' | 'provider-rejected'
+	readonly reason: 'budget' | 'provider-rejected' | 'invalid-image'
 }
 
 export interface RequestImageIdentity {
@@ -53,6 +53,12 @@ const rejectedUserImageMarker = (): string =>
 
 const rejectedToolImageMarker = (): string =>
 	'[image omitted from this model request because the provider rejected this image; call the producing tool again after correcting its image source if it is still needed.]'
+
+const invalidUserImageMarker = (): string =>
+	'[image omitted from this model request because its encoded bytes are not a complete supported raster matching the declared media type; attach a corrected image in a new message if it is still needed.]'
+
+const invalidToolImageMarker = (): string =>
+	'[image omitted from this model request because the producing tool returned encoded bytes that are not a complete supported raster matching the declared media type; call the tool again after correcting its image source if it is still needed.]'
 
 function assertInlineAttachment(
 	attachment: MessageAttachment,
@@ -78,10 +84,12 @@ function collectRichOccurrences(messages: readonly Message[]): RichOccurrence[] 
 					kind: attachment.type === 'document' ? 'document' : 'image',
 					bytes: attachment.data.length,
 					reason:
-						attachment.type !== 'document' &&
-						attachment.modelOmission?.reason === 'provider-rejected'
-							? 'provider-rejected'
-							: 'budget',
+						attachment.type !== 'document' && attachment.modelOmission?.reason === 'invalid-image'
+							? 'invalid-image'
+							: attachment.type !== 'document' &&
+									attachment.modelOmission?.reason === 'provider-rejected'
+								? 'provider-rejected'
+								: 'budget',
 				})
 			}
 			continue
@@ -97,9 +105,11 @@ function collectRichOccurrences(messages: readonly Message[]): RichOccurrence[] 
 				kind: block.type,
 				bytes: block.data.length,
 				reason:
-					block.type === 'image' && block.modelOmission?.reason === 'provider-rejected'
-						? 'provider-rejected'
-						: 'budget',
+					block.type === 'image' && block.modelOmission?.reason === 'invalid-image'
+						? 'invalid-image'
+						: block.type === 'image' && block.modelOmission?.reason === 'provider-rejected'
+							? 'provider-rejected'
+							: 'budget',
 			})
 		}
 	}
@@ -117,7 +127,9 @@ function appendMarkers(content: string, occurrences: readonly RichOccurrence[]):
 	const markers = occurrences.map((occurrence) =>
 		occurrence.reason === 'provider-rejected'
 			? rejectedUserImageMarker()
-			: userMarker(occurrence.kind),
+			: occurrence.reason === 'invalid-image'
+				? invalidUserImageMarker()
+				: userMarker(occurrence.kind),
 	)
 	return appendTextMarkers(content, markers)
 }
@@ -146,7 +158,9 @@ export function projectRequestRichContent(messages: Message[], maxBytes: number)
 	}
 
 	for (const occurrence of occurrences) {
-		if (occurrence.reason === 'provider-rejected') omit(occurrence)
+		if (occurrence.reason === 'provider-rejected' || occurrence.reason === 'invalid-image') {
+			omit(occurrence)
+		}
 	}
 
 	let total = occurrences.reduce(
@@ -189,7 +203,9 @@ export function projectRequestRichContent(messages: Message[], maxBytes: number)
 							text:
 								occurrence.reason === 'provider-rejected'
 									? rejectedToolImageMarker()
-									: toolMarker(occurrence.kind),
+									: occurrence.reason === 'invalid-image'
+										? invalidToolImageMarker()
+										: toolMarker(occurrence.kind),
 						}
 					: block
 			})
@@ -220,7 +236,10 @@ export function findSingleRequestImage(messages: readonly Message[]): RequestIma
 				}
 				if (attachment.type === 'document') continue
 				if (candidate === null) {
-					candidate = { data: attachment.data, mediaType: attachment.mediaType }
+					candidate = {
+						data: attachment.data,
+						mediaType: attachment.mediaType,
+					}
 				} else if (!sameImage(attachment, candidate)) {
 					return null
 				}
@@ -302,7 +321,10 @@ export function markProviderRejectedImage(
 				}
 				changed = true
 				count += 1
-				return { ...attachment, modelOmission: { reason: 'provider-rejected' as const } }
+				return {
+					...attachment,
+					modelOmission: { reason: 'provider-rejected' as const },
+				}
 			})
 			return changed ? { ...message, attachments } : message
 		}
@@ -318,7 +340,10 @@ export function markProviderRejectedImage(
 			}
 			changed = true
 			count += 1
-			return { ...block, modelOmission: { reason: 'provider-rejected' as const } }
+			return {
+				...block,
+				modelOmission: { reason: 'provider-rejected' as const },
+			}
 		})
 		return changed ? { ...message, content } : message
 	})

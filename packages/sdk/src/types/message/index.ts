@@ -6,7 +6,7 @@ export type CacheHint = 'cache' | 'ephemeral' | 'none'
 
 /** Why durable rich content must not be sent to a model again. */
 export interface ModelContentOmission {
-	readonly reason: 'provider-rejected'
+	readonly reason: 'provider-rejected' | 'invalid-image'
 }
 
 /** Runtime validation for persisted model-delivery metadata. */
@@ -15,7 +15,8 @@ export function isModelContentOmission(value: unknown): value is ModelContentOmi
 		typeof value === 'object' &&
 		value !== null &&
 		!Array.isArray(value) &&
-		(value as { readonly reason?: unknown }).reason === 'provider-rejected'
+		((value as { readonly reason?: unknown }).reason === 'provider-rejected' ||
+			(value as { readonly reason?: unknown }).reason === 'invalid-image')
 	)
 }
 

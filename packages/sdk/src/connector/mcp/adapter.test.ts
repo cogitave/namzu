@@ -22,8 +22,11 @@
  *     converts inputSchema + copies annotations.
  *   - `mcpToolResultToToolResult`:
  *     - success = !isError.
- *     - output = text content joined with '\n' (non-text blocks
- *       kept in `data` only).
+ *     - output = text content joined with '\n'.
+ *     - model-facing rich content preserves admitted images and wraps remote
+ *       text in an explicit untrusted-provenance envelope.
+ *     - malformed/misdeclared image batches remain exact in `data` and
+ *       durable content, but carry a provider-omission marker.
  *     - error = same joined text when isError, else undefined.
  *   - `toolResultToMCPToolResult`:
  *     - success + output → single text block.
@@ -46,6 +49,9 @@ import {
 	zodToMCPJsonSchema,
 } from './adapter.js'
 import type { MCPClient } from './client.js'
+
+const PNG =
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 
 function mockClient(result: MCPToolResult): MCPClient {
 	return {
@@ -197,7 +203,10 @@ describe('toolDefinitionToMCPTool', () => {
 		expect(out.name).toBe('t')
 		expect(out.description).toBe('d')
 		expect(out.inputSchema.type).toBe('object')
-		expect(out.annotations).toEqual({ readOnlyHint: true, destructiveHint: false })
+		expect(out.annotations).toEqual({
+			readOnlyHint: true,
+			destructiveHint: false,
+		})
 	})
 
 	it('prefers the model schema over a pass-through runtime decoder and carries output schema', () => {
@@ -245,12 +254,89 @@ describe('mcpToolResultToToolResult', () => {
 		const result = mcpToolResultToToolResult({
 			content: [
 				{ type: 'text', text: 'text' },
-				{ type: 'image', data: 'b64', mimeType: 'image/png' },
+				{ type: 'image', data: PNG, mimeType: 'image/png' },
 			],
 			isError: false,
 		})
 		expect(result.output).toBe('text')
 		expect(Array.isArray(result.data)).toBe(true)
+	})
+
+	it.each([
+		['canonical non-image bytes', Buffer.from('not a png').toString('base64')],
+		['a truncated PNG', Buffer.from(PNG, 'base64').subarray(0, -8).toString('base64')],
+	])('withholds %s before transport while retaining the exact host data', (_label, data) => {
+		const raw = [{ type: 'image' as const, data, mimeType: 'image/png' }]
+		const result = mcpToolResultToToolResult({
+			content: raw,
+			isError: false,
+		})
+
+		expect(result.output).toContain('image batch withheld')
+		expect(result.content).toEqual([
+			{
+				type: 'image',
+				data,
+				mediaType: 'image/png',
+				modelOmission: {
+					reason: 'invalid-image',
+				},
+			},
+		])
+		expect(result.data).toBe(raw)
+	})
+
+	it('retains even an empty remote image block while withholding it from the model', () => {
+		const raw = [{ type: 'image' as const, data: '', mimeType: '' }]
+		const result = mcpToolResultToToolResult({ content: raw, isError: false })
+
+		expect(result.content).toEqual([
+			{
+				type: 'image',
+				data: '',
+				mediaType: '',
+				modelOmission: { reason: 'invalid-image' },
+			},
+		])
+		expect(result.data).toBe(raw)
+	})
+
+	it('refuses a valid raster whose declared media type names another format', () => {
+		const result = mcpToolResultToToolResult({
+			content: [{ type: 'image', data: PNG, mimeType: 'image/jpeg' }],
+			isError: false,
+		})
+
+		expect(result.output).toContain('image batch withheld')
+		expect(result.content).toEqual([
+			expect.objectContaining({
+				mediaType: 'image/jpeg',
+				modelOmission: { reason: 'invalid-image' },
+			}),
+		])
+	})
+
+	it('withholds a complete image batch when any member is malformed', () => {
+		const result = mcpToolResultToToolResult({
+			content: [
+				{ type: 'image', data: PNG, mimeType: 'image/png' },
+				{
+					type: 'image',
+					data: Buffer.from('junk').toString('base64'),
+					mimeType: 'image/png',
+				},
+			],
+			isError: false,
+		})
+
+		expect(result.content).toEqual([
+			expect.objectContaining({
+				modelOmission: { reason: 'invalid-image' },
+			}),
+			expect.objectContaining({
+				modelOmission: { reason: 'invalid-image' },
+			}),
+		])
 	})
 
 	it('sets error field when isError is true', () => {

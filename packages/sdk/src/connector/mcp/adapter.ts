@@ -1,14 +1,15 @@
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import { wrapUntrusted } from '../../tools/untrusted-envelope.js'
+import { type UntrustedEnvelope, wrapUntrusted } from '../../tools/untrusted-envelope.js'
 import type {
 	MCPJsonSchema,
 	MCPToolDefinition,
 	MCPToolResult,
 } from '../../types/connector/index.js'
-import type { ToolResultBlock } from '../../types/message/index.js'
+import type { ToolResultBlock, ToolResultContent } from '../../types/message/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import type { MCPClient } from './client.js'
+import { admitMcpImageBatch } from './image-admission.js'
 import { inlineSchemaRefs } from './schema-refs.js'
 
 /**
@@ -376,7 +377,9 @@ function positionalTypeName(member: unknown): string {
  * property collision the later member wins, matching the reading order.
  */
 function mergeAllOf(members: readonly unknown[], parent: Record<string, unknown>): JsonRecord {
-	const properties: JsonRecord = { ...((parent.properties as JsonRecord | undefined) ?? {}) }
+	const properties: JsonRecord = {
+		...((parent.properties as JsonRecord | undefined) ?? {}),
+	}
 	const required = new Set((parent.required as string[] | undefined) ?? [])
 	let additionalProperties = parent.additionalProperties
 
@@ -439,7 +442,9 @@ export function mcpToolToToolDefinition(
 		// Carried as the server wrote it. It is shown to the model, never
 		// validated here, so rebuilding it would only lose fidelity.
 		...(tool.outputSchema
-			? { outputSchema: inlineSchemaRefs(tool.outputSchema as unknown as Record<string, unknown>) }
+			? {
+					outputSchema: inlineSchemaRefs(tool.outputSchema as unknown as Record<string, unknown>),
+				}
 			: {}),
 		category: 'network',
 		permissions: ['network_access'],
@@ -510,18 +515,31 @@ export function frameServerResult(
 	serverName: string,
 	toolName: string,
 ): ToolResult {
-	if (result.output.length === 0) return result
+	const envelope: UntrustedEnvelope = {
+		kind: 'connector-tool-result',
+		attributes: { server: serverName, tool: toolName },
+		provenance: 'This is output the named server returned, not this agent.',
+	}
+	const frameText = (text: string): string =>
+		text.length === 0 ? text : wrapUntrusted(envelope, text)
+	const frameContent = (content: ToolResultContent): ToolResultContent =>
+		typeof content === 'string'
+			? frameText(content)
+			: content.map((block) =>
+					block.type === 'text' ? { ...block, text: frameText(block.text) } : block,
+				)
+
+	const output = frameText(result.output)
+	const error = result.error === undefined ? undefined : frameText(result.error)
+	const content = result.content === undefined ? undefined : frameContent(result.content)
+	if (output === result.output && error === result.error && content === result.content)
+		return result
 
 	return {
 		...result,
-		output: wrapUntrusted(
-			{
-				kind: 'connector-tool-result',
-				attributes: { server: serverName, tool: toolName },
-				provenance: 'This is output the named server returned, not this agent.',
-			},
-			result.output,
-		),
+		output,
+		...(error !== undefined ? { error } : {}),
+		...(content !== undefined ? { content } : {}),
 	}
 }
 
@@ -530,6 +548,11 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 		.filter((block): block is { type: 'text'; text: string } => block.type === 'text')
 		.map((block) => block.text)
 		.join('\n')
+	const imageBlocks = result.content.filter(
+		(block): block is Extract<(typeof result.content)[number], { type: 'image' }> =>
+			block.type === 'image',
+	)
+	const imagesAdmitted = admitMcpImageBatch(imageBlocks)
 
 	// Non-text blocks used to be filtered out and never seen again: a
 	// bridged MCP server returning a chart, a screenshot or a PDF had that
@@ -540,8 +563,19 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 	for (const block of result.content) {
 		if (block.type === 'text') {
 			blocks.push({ type: 'text', text: block.text })
-		} else if (block.type === 'image' && block.data && block.mimeType) {
-			blocks.push({ type: 'image', data: block.data, mediaType: block.mimeType })
+		} else if (block.type === 'image') {
+			blocks.push({
+				type: 'image',
+				data: block.data,
+				mediaType: block.mimeType,
+				...(!imagesAdmitted
+					? {
+							modelOmission: {
+								reason: 'invalid-image' as const,
+							},
+						}
+					: {}),
+			})
 		} else if (block.type === 'resource' && block.resource?.text) {
 			// A resource with inline text is readable content; one that is
 			// only a URI is a pointer the model cannot dereference, so it is
@@ -556,10 +590,15 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 	// the model reading the answer and reading nothing at all — the call
 	// succeeded, so no error path would have caught it either. Text wins
 	// when both are present: the server wrote it for the model.
-	const output =
+	const visibleText =
 		textContent.length > 0 || result.structuredContent === undefined
 			? textContent
 			: stringifyStructured(result.structuredContent)
+	const invalidImageNotice =
+		imageBlocks.length > 0 && !imagesAdmitted
+			? '[MCP image batch withheld from model input: one or more blocks are not complete supported raster containers matching their declared media types.]'
+			: ''
+	const output = [visibleText, invalidImageNotice].filter((part) => part.length > 0).join('\n')
 
 	return {
 		success: !result.isError,
@@ -570,7 +609,10 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 		data:
 			result.structuredContent === undefined
 				? result.content
-				: { content: result.content, structuredContent: result.structuredContent },
+				: {
+						content: result.content,
+						structuredContent: result.structuredContent,
+					},
 		error: result.isError ? output : undefined,
 	}
 }

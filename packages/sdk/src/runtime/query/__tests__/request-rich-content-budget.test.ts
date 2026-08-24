@@ -68,6 +68,35 @@ async function run(opts: {
 }
 
 describe('the request-only rich-content projection', () => {
+	it('uses an admission-specific marker while retaining invalid bytes in durable history', () => {
+		const invalid = {
+			role: 'tool',
+			toolCallId: 'call_invalid_image',
+			content: [
+				{
+					type: 'image',
+					data: 'bm90LWEtcG5n',
+					mediaType: 'image/png',
+					modelOmission: {
+						reason: 'invalid-image',
+					},
+				},
+			],
+		} as unknown as Message
+		const messages = [invalid]
+		const original = structuredClone(messages)
+
+		const projected = projectRequestRichContent(messages, 0)
+
+		expect((projected[0] as ToolMessage).content).toEqual([
+			expect.objectContaining({
+				type: 'text',
+				text: expect.stringContaining('not a complete supported raster'),
+			}),
+		])
+		expect(messages).toEqual(original)
+	})
+
 	it('always withholds an image that the provider already rejected, even when budgeting is disabled', () => {
 		const rejected = {
 			role: 'user',
@@ -114,7 +143,14 @@ describe('the request-only rich-content projection', () => {
 			{
 				role: 'user',
 				content: 'look',
-				attachments: [{ type: 'stored', ref: 'blob-1', kind: 'image', mediaType: 'image/png' }],
+				attachments: [
+					{
+						type: 'stored',
+						ref: 'blob-1',
+						kind: 'image',
+						mediaType: 'image/png',
+					},
+				],
 			},
 		]
 
@@ -174,7 +210,10 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		expect(sentTools?.map((message) => message.toolCallId)).toEqual(['call_first', 'call_second'])
 		expect(sentTools?.[0]?.content).toEqual([
 			{ type: 'text', text: 'captured' },
-			expect.objectContaining({ type: 'text', text: expect.stringContaining('image omitted') }),
+			expect.objectContaining({
+				type: 'text',
+				text: expect.stringContaining('image omitted'),
+			}),
 		])
 		expect(sentTools?.[1]?.content).toEqual([
 			{ type: 'text', text: 'captured' },
@@ -249,7 +288,9 @@ describe('one accumulated budget covers user and tool rich content', () => {
 
 	it('uses the same projection on the separate limit-closing request', async () => {
 		const image = { data: 'AAAA', mediaType: 'image/png' }
-		const provider = new MockLLMProvider({ turns: [{ text: 'closing answer' }] })
+		const provider = new MockLLMProvider({
+			turns: [{ text: 'closing answer' }],
+		})
 
 		const settled = await run({
 			provider,
@@ -300,7 +341,14 @@ describe('the budget is resolved before a run can spend anything', () => {
 					{
 						role: 'user',
 						content: 'look',
-						attachments: [{ type: 'stored', ref: 'blob-1', kind: 'image', mediaType: 'image/png' }],
+						attachments: [
+							{
+								type: 'stored',
+								ref: 'blob-1',
+								kind: 'image',
+								mediaType: 'image/png',
+							},
+						],
 					},
 				],
 				runConfig: { maxRequestRichContentBytes: 1 },
@@ -312,7 +360,9 @@ describe('the budget is resolved before a run can spend anything', () => {
 	it.each([-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
 		'refuses invalid maxRequestRichContentBytes=%s before a provider call',
 		async (maxRequestRichContentBytes) => {
-			const provider = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
+			const provider = new MockLLMProvider({
+				turns: [{ text: 'must not run' }],
+			})
 
 			await expect(
 				run({
@@ -327,7 +377,10 @@ describe('the budget is resolved before a run can spend anything', () => {
 
 	it('persists the effective default in the run evidence', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const settled = await run({ provider, messages: [{ role: 'user', content: 'go' }] })
+		const settled = await run({
+			provider,
+			messages: [{ role: 'user', content: 'go' }],
+		})
 
 		expect(settled.metadata.config.maxRequestRichContentBytes).toBe(
 			DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
