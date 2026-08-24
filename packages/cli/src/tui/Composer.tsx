@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { UserCommand } from '../user-commands/store.js'
 import { matchSlashCommands } from './slashCommands.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 export interface ComposerProps {
@@ -69,6 +70,41 @@ export interface ComposerDraft {
 const MAX_SUGGESTIONS = 6
 // A single keypress longer than this (with no newline) is treated as a paste.
 const PASTE_THRESHOLD = 80
+// A recalled or branch-restored prompt can be much larger than anything the
+// operator typed one key at a time. Keep the exact source in state, but never
+// hand an unbounded string to Ink's wrapping engine. Eight logical tail lines
+// preserve the only edit position this composer exposes: the cursor at the end.
+const COMPOSER_DISPLAY_CODE_UNITS = 2048
+const COMPOSER_DISPLAY_LINES = 8
+
+function composerDisplayValue(source: string): string {
+	let start = Math.max(0, source.length - COMPOSER_DISPLAY_CODE_UNITS)
+
+	// Do not begin the view with the low half of a split surrogate pair. Dropping
+	// that one half is display-only; the complete pair stays in `source`.
+	if (
+		start > 0 &&
+		source.charCodeAt(start) >= 0xdc00 &&
+		source.charCodeAt(start) <= 0xdfff &&
+		source.charCodeAt(start - 1) >= 0xd800 &&
+		source.charCodeAt(start - 1) <= 0xdbff
+	) {
+		start += 1
+	}
+
+	let newlineCount = 0
+	for (let index = source.length - 1; index >= start; index -= 1) {
+		if (source.charCodeAt(index) !== 0x0a) continue
+		newlineCount += 1
+		if (newlineCount === COMPOSER_DISPLAY_LINES) {
+			start = index + 1
+			break
+		}
+	}
+
+	const visible = terminalDisplayText(source.slice(start))
+	return start > 0 ? `… ${visible}` : visible
+}
 
 export function Composer({
 	disabled = false,
@@ -97,6 +133,7 @@ export function Composer({
 	const suggestions = matchSlashCommands(value, userCommands).slice(0, MAX_SUGGESTIONS)
 	const showSuggestions = suggestions.length > 0
 	const selIdx = Math.min(selected, Math.max(0, suggestions.length - 1))
+	const displayValue = composerDisplayValue(value)
 
 	const reset = useCallback(() => {
 		setValue('')
@@ -278,7 +315,7 @@ export function Composer({
 						<Text color={theme.text.muted}>Press Esc again to edit a previous prompt</Text>
 					) : (
 						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
-							{value}
+							{displayValue}
 							{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
 						</Text>
 					)}

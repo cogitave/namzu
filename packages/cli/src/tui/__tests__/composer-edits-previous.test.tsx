@@ -109,3 +109,51 @@ describe('restoring a selected prompt', () => {
 		expect(harness.onSubmit).toHaveBeenCalledWith('original prompt revised', attachments)
 	})
 })
+
+describe('bounded recalled source display', () => {
+	it('bounds and escapes the Ink view while resubmitting the exact edited source', async () => {
+		const hiddenHead = 'HEAD-MUST-STAY-IN-SOURCE-BUT-NOT-IN-THE-FRAME'
+		const unsafeTail = `tail-before\u0007direction\u202eTAIL-MUST-BE-VISIBLE`
+		const source = `${hiddenHead}${'x'.repeat(100_000)}\n${unsafeTail}`
+		const harness = open({ history: [source] })
+
+		// Recall the complete prior prompt. The display is a bounded tail; the
+		// source retained behind it is what Enter must submit.
+		harness.stdin.write('\u001b[A')
+		await tick()
+
+		const frame = harness.lastFrame() ?? ''
+		expect(frame.length).toBeLessThan(5_000)
+		expect(frame).toContain('… ')
+		expect(frame).not.toContain(hiddenHead)
+		expect(frame).toContain('TAIL-MUST-BE-VISIBLE')
+		expect(frame).toContain('\\u{0007}')
+		expect(frame).toContain('\\u{202e}')
+		expect(frame).not.toContain('\u0007')
+		expect(frame).not.toContain('\u202e')
+
+		harness.stdin.write('!')
+		await tick()
+		harness.stdin.write('\r')
+		await tick()
+
+		expect(harness.onSubmit).toHaveBeenCalledWith(`${source}!`, undefined)
+	})
+
+	it('bounds short multiline history by logical lines independently of bytes', async () => {
+		const source = Array.from(
+			{ length: 24 },
+			(_value, index) => `history-line-${index.toString().padStart(2, '0')}`,
+		).join('\n')
+		const harness = open({ history: [source] })
+
+		harness.stdin.write('\u001b[A')
+		await tick()
+
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('… history-line-16')
+		expect(frame).toContain('history-line-23')
+		expect(frame).not.toContain('history-line-15')
+		expect(frame).not.toContain('history-line-00')
+	})
+})

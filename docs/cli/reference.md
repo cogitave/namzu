@@ -236,6 +236,12 @@ The original remains byte-for-byte unchanged and resumable. If durable history
 no longer exactly matches the selection, no branch is created; the operator must
 open the picker again against the current conversation.
 
+A restored prompt can be much larger than the terminal needs to display. The
+composer shows a bounded tail with a leading ellipsis and renders terminal
+controls as visible escapes, while retaining the complete text and every
+attachment behind that view. Editing and submitting therefore use the original
+source rather than the shortened display.
+
 **`/compact` replaces the older model-visible history with a summary.** It is
 refused while a turn is running or an interrupted turn is still settling, and
 input stays paused until the summary and its durable replacement have both
