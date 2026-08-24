@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-22
+timestamp: 2026-08-24T00:00:00Z
+lastReviewed: 2026-08-24
 resource: packages/sdk/src/types/message/index.ts
 tags: [sdk, runtime, providers, reasoning, replay, fallback]
 ---
@@ -90,3 +90,18 @@ shapes and unknown runtime-context kinds are refused at the stateless-history
 boundary rather than stripped and silently reclassified as ordinary human
 input. Consumers with an exhaustive switch over `UserMessageSource` must handle
 the `runtime-context` member explicitly.
+
+## Rich-content delivery provenance is separate
+
+Image bytes can remain valid durable conversation evidence even when a model
+provider refuses to decode them. `ImageAttachment.modelOmission` and the same
+field on image tool-result blocks record that delivery state independently of
+message authorship and provider-native replay ownership. The only admitted
+value is `{ reason: 'provider-rejected' }`.
+
+A persistence layer keeps the original `data`, `mediaType`, and omission marker
+together. Provider-bound projection replaces a marked image with explanatory
+text; it does not delete the bytes or reinterpret the message source. Hosts
+validating stored `Message[]` can use `isModelContentOmission` and must refuse
+unknown reasons rather than stripping them and accidentally resending an image
+the provider already rejected.
