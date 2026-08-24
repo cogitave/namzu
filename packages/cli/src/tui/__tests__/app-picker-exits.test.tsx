@@ -31,6 +31,7 @@ import {
 } from '../../integrations/providers/index.js'
 
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
+import type { TuiExitSummary } from '../exit-summary.js'
 import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = {
@@ -929,6 +930,23 @@ describe('Ctrl+C in the picker', () => {
 
 		expect(exited, 'an arrow key exited the program').toBe(false)
 		expect(lastFrame(), 'the picker stopped drawing').toContain('Choose a provider')
+	})
+})
+
+describe('Ctrl+C from a ready conversation', () => {
+	it('hands the durable conversation id to the shell summary before exiting', async () => {
+		const summaries: TuiExitSummary[] = []
+		const harness = render(<App ctx={ctx} onExitSummary={(summary) => summaries.push(summary)} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		harness.stdin.write('\x03')
+		await frameShows(harness.lastFrame, 'Press Ctrl+C again to exit')
+		harness.stdin.write('\x03')
+		await exitedWithin()
+
+		expect(summaries).toEqual([{ conversationId: 'conv' }])
 	})
 })
 

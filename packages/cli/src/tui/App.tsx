@@ -96,7 +96,7 @@ import type { PermissionMode } from '../permissions/mode.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
-import { Composer, type ComposerDraft } from './Composer.js'
+import { Composer, type ComposerDraft, type ComposerSubmitMode } from './Composer.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
@@ -121,7 +121,8 @@ import { approvalIsDeliberate } from './consent-timing.js'
 import { planTurnPublication } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
-import { liveWindow, transcriptLines } from './live-window.js'
+import type { TuiExitSummary } from './exit-summary.js'
+import { MAX_LIVE_ROWS, liveWindow, transcriptLines } from './live-window.js'
 import {
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
@@ -153,6 +154,7 @@ import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 
 export interface AppProps {
 	readonly ctx: TuiContext
+	readonly onExitSummary?: (summary: TuiExitSummary) => void
 }
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
@@ -321,6 +323,83 @@ type QueuedPrompt =
 			readonly generation: number
 	  }
 
+type HumanQueuedPrompt = Extract<QueuedPrompt, { readonly kind: 'human' }>
+
+interface LiveInput {
+	readonly prompt: HumanQueuedPrompt
+	readonly message: Message
+	readonly attachedFiles: number
+	/** Queue length at acceptance, used to preserve cross-channel submission order. */
+	readonly queueBoundary: number
+}
+
+interface ActiveTurnInbox {
+	accept(input: LiveInput): boolean
+	drain(): Message[]
+	close(): readonly LiveInput[]
+}
+
+interface SpacerLayoutCache {
+	readonly rows: number | undefined
+	readonly columns: number | undefined
+	readonly raw: boolean
+	readonly messageCount: number
+	readonly tail: readonly Pick<TranscriptMessage, 'id' | 'content' | 'meta' | 'detail'>[]
+	readonly spacerRows: number
+}
+
+function sameSpacerLayout(
+	previous: SpacerLayoutCache | null,
+	current: Omit<SpacerLayoutCache, 'spacerRows'>,
+): previous is SpacerLayoutCache {
+	if (
+		previous === null ||
+		previous.rows !== current.rows ||
+		previous.columns !== current.columns ||
+		previous.raw !== current.raw ||
+		previous.messageCount !== current.messageCount ||
+		previous.tail.length !== current.tail.length
+	)
+		return false
+	return current.tail.every((message, index) => {
+		const prior = previous.tail[index]
+		return (
+			prior?.id === message.id &&
+			prior.content === message.content &&
+			prior.meta === message.meta &&
+			prior.detail === message.detail
+		)
+	})
+}
+
+/** Put an undelivered steer back where it occurred among Tab-queued prompts. */
+function mergeUndeliveredLiveInput(
+	queued: readonly QueuedPrompt[],
+	undelivered: readonly LiveInput[],
+): readonly QueuedPrompt[] {
+	const merged = [...queued]
+	let inserted = 0
+	for (const input of undelivered) {
+		const index = Math.min(input.queueBoundary + inserted, merged.length)
+		merged.splice(index, 0, input.prompt)
+		inserted += 1
+	}
+	return merged
+}
+
+function humanPromptMeta(
+	attachedFiles: number,
+	attachments: readonly MessageAttachment[] | undefined,
+	live = false,
+): string | undefined {
+	const parts: string[] = []
+	if (attachedFiles > 0) parts.push(`${attachedFiles} file${attachedFiles > 1 ? 's' : ''} attached`)
+	if (attachments && attachments.length > 0) {
+		parts.push(`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`)
+	}
+	if (live) parts.push('steered current turn')
+	return parts.length > 0 ? parts.join(' · ') : undefined
+}
 type QueuePauseOutcome = 'failed' | 'stopped'
 
 interface QueuePause {
@@ -355,7 +434,7 @@ function goalRoundPrompt(authority: GoalRoundAuthority): string {
  */
 const LIVE_FURNITURE_ROWS = 10
 
-export function App({ ctx: initialCtx }: AppProps) {
+export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 	// Bind approval and every operation it admits to one real directory. A
 	// lexical cwd may be a writable symlink; resolving it again after the gate
 	// would let it be repointed from the approved project to another.
@@ -493,8 +572,12 @@ export function App({ ctx: initialCtx }: AppProps) {
 	 * hold the window shut for the length of the next conversation.
 	 */
 	const settledRef = useRef<number>(0)
+	/** Keeps an in-place detail toggle from moving the rows above that detail. */
+	const spacerLayoutRef = useRef<SpacerLayoutCache | null>(null)
 	// Complete prompts waiting for the one queue pump that may start a turn.
 	const [queued, setQueued] = useState<readonly QueuedPrompt[]>([])
+	/** Return-submitted prompts accepted by the active turn but not yet drained by the SDK. */
+	const [pendingSteers, setPendingSteers] = useState<readonly LiveInput[]>([])
 	// Kept synchronous with the rendered queue so a turn's `finally` can decide
 	// whether it is truly the last turn. React state captured when the turn
 	// started would still say "empty" after the operator queued a follow-up.
@@ -577,6 +660,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 	const abortRef = useRef<AbortController | null>(null)
 	/** Identity of the turn allowed to notify when it settles. */
 	const activeTurnTokenRef = useRef<object | null>(null)
+	/** Exact live-input owner; absent before provider admission and after settlement. */
+	const activeTurnInboxRef = useRef<ActiveTurnInbox | null>(null)
 	/** A broken terminal notification is reported once, not after every turn. */
 	const notificationFailureShownRef = useRef(false)
 	/**
@@ -638,6 +723,12 @@ export function App({ ctx: initialCtx }: AppProps) {
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
+	const exitWithSummary = useCallback(() => {
+		onExitSummary?.({
+			...(scopeRef.current?.sessionId ? { conversationId: scopeRef.current.sessionId } : {}),
+		})
+		exit()
+	}, [exit, onExitSummary])
 	/** Durable active state is not permission to spend turns after a restart. */
 	const [goalActivation] = useState(() => new SessionGoalActivation())
 	const goalDriveInFlightRef = useRef(false)
@@ -1444,8 +1535,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 	// is idempotent, so a repeated render reaches the same answer.
 	const window = liveWindow({
 		messages: finalized,
-		rows: process.stdout.rows,
-		columns: process.stdout.columns,
+		rows: stdout.rows,
+		columns: stdout.columns,
 		furnitureRows: LIVE_FURNITURE_ROWS,
 		settled: settledRef.current,
 		raw: rawOutput,
@@ -1456,15 +1547,30 @@ export function App({ ctx: initialCtx }: AppProps) {
 	// the answer is knowable. `liveRows` is the furniture beneath the transcript
 	// PLUS the live window above it — the window is part of the live region, and
 	// leaving it out would have the spacer padding room that is already taken.
-	const spacerRows =
+	const spacerCandidate =
 		phase === 'ready'
 			? bottomSpacerRows({
-					rows: process.stdout.rows,
-					columns: process.stdout.columns,
+					rows: stdout.rows,
+					columns: stdout.columns,
 					transcript: transcriptLines(finalized.slice(0, window.settled), rawOutput),
 					liveRows: LIVE_FURNITURE_ROWS + window.rows,
 				})
 			: 0
+	const spacerLayout = {
+		rows: stdout.rows,
+		columns: stdout.columns,
+		raw: rawOutput,
+		messageCount: finalized.length,
+		tail: finalized
+			.slice(-MAX_LIVE_ROWS)
+			.map(({ id, content, meta, detail }) => ({ id, content, meta, detail })),
+	} satisfies Omit<SpacerLayoutCache, 'spacerRows'>
+	const spacerRows =
+		phase === 'ready' && sameSpacerLayout(spacerLayoutRef.current, spacerLayout)
+			? spacerLayoutRef.current.spacerRows
+			: spacerCandidate
+	spacerLayoutRef.current =
+		phase === 'ready' ? { ...spacerLayout, spacerRows } : null
 
 	// One merged vocabulary for the session: this host's own commands plus
 	// whatever the kernel's registry reports. Built here so `/help`, the
@@ -1581,6 +1687,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 		if (activeSessionId) goalActivation.disarm(activeSessionId)
 		wakeGoalDriver()
 		activeTurnTokenRef.current = null
+		activeTurnInboxRef.current = null
+		setPendingSteers([])
 		// Dropped now so a second interrupt does not re-abort, and the queue with
 		// it: interrupting means stop, not "run the next one".
 		abortRef.current = null
@@ -2294,11 +2402,6 @@ export function App({ ctx: initialCtx }: AppProps) {
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
 			const runId = generateRunId()
 
-			const metaParts: string[] = []
-			if (attached.length > 0)
-				metaParts.push(`${attached.length} file${attached.length > 1 ? 's' : ''} attached`)
-			if (attachments && attachments.length > 0)
-				metaParts.push(`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`)
 			if (goalRound) {
 				pushMessage(
 					'system',
@@ -2315,7 +2418,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 					undefined,
 					undefined,
 					undefined,
-					metaParts.length > 0 ? metaParts.join(' · ') : undefined,
+					humanPromptMeta(attached.length, attachments),
 				)
 			}
 			// The model interleaves text → tool → text across iterations; `applyEvent`
@@ -2366,6 +2469,63 @@ export function App({ ctx: initialCtx }: AppProps) {
 			const turnGeneration = conversationGenRef.current
 			unsettledTurnGenerationsRef.current.set(turnToken, turnGeneration)
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
+			let inboxOpen = true
+			const inboxEntries: LiveInput[] = []
+			const inbox: ActiveTurnInbox = {
+				accept(input): boolean {
+					if (
+						!inboxOpen ||
+						ac.signal.aborted ||
+						!stillHere() ||
+						activeTurnTokenRef.current !== turnToken ||
+						activeTurnInboxRef.current !== inbox
+					)
+						return false
+					inboxEntries.push(input)
+					setPendingSteers([...inboxEntries])
+					return true
+				},
+				drain(): Message[] {
+					if (
+						!inboxOpen ||
+						ac.signal.aborted ||
+						activeTurnTokenRef.current !== turnToken ||
+						activeTurnInboxRef.current !== inbox ||
+						inboxEntries.length === 0
+					)
+						return []
+					const delivered = inboxEntries.splice(0, inboxEntries.length)
+					// This callback runs at the kernel's provider-valid boundary: every
+					// delta from the prior answer has already crossed the event stream.
+					// Commit the user rows here, not at keypress time, so the transcript
+					// cannot place a steer inside an assistant message that is still live.
+					if (stillHere()) {
+						flushStream(st)
+						if (st.assistantId) {
+							finalizeMessage(st.assistantId)
+							st.assistantId = null
+						}
+						for (const input of delivered) {
+							pushMessage(
+								'user',
+								input.prompt.text,
+								false,
+								undefined,
+								undefined,
+								undefined,
+								humanPromptMeta(input.attachedFiles, input.prompt.attachments, true),
+							)
+						}
+						setPendingSteers([])
+					}
+					return delivered.map((input) => input.message)
+				},
+				close(): readonly LiveInput[] {
+					inboxOpen = false
+					return inboxEntries.splice(0, inboxEntries.length)
+				},
+			}
+			activeTurnInboxRef.current = inbox
 			const turnPermissionMode = permissionModeRef.current
 			const turnReasoningEffort = reasoningEffortRef.current
 			// Always carry the guarded callback. `auto` and `strict` decide before
@@ -2437,6 +2597,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
+						inboundMessages: () => inbox.drain(),
 						extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 						onConversationMessages: (messages) => {
 							// State-only: opaque reasoning/signatures must reach the next
@@ -2483,6 +2644,12 @@ export function App({ ctx: initialCtx }: AppProps) {
 					pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 				}
 			} finally {
+				const undeliveredLiveInput = inbox.close()
+				const ownsInbox = activeTurnInboxRef.current === inbox
+				if (ownsInbox) {
+					activeTurnInboxRef.current = null
+					setPendingSteers([])
+				}
 				// Prefer the kernel's settled conversation projection: it retains opaque
 				// reasoning, citations and complete tool turns that the visible delta
 				// stream cannot reconstruct. A fake/legacy session that does not publish
@@ -2507,6 +2674,9 @@ export function App({ ctx: initialCtx }: AppProps) {
 				// clear the state of whatever has started since.
 				if (stillHere()) {
 					const ownsTurn = activeTurnTokenRef.current === turnToken
+					if (ownsInbox && undeliveredLiveInput.length > 0) {
+						replaceQueued(mergeUndeliveredLiveInput(queuedRef.current, undeliveredLiveInput))
+					}
 					const shouldPauseQueued =
 						ownsTurn &&
 						abnormalTerminal?.token === turnToken &&
@@ -2620,6 +2790,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			goalActivation,
 			onPermission,
 			pushMessage,
+			replaceQueued,
 			sendTerminalNotification,
 			session,
 			setQueuePause,
@@ -2628,7 +2799,11 @@ export function App({ ctx: initialCtx }: AppProps) {
 	)
 
 	const handleSubmit = useCallback(
-		(value: string, attachments?: readonly MessageAttachment[]) => {
+		(
+			value: string,
+			attachments?: readonly MessageAttachment[],
+			mode: ComposerSubmitMode = 'submit',
+		) => {
 			if (goalCommandInFlightRef.current) {
 				pushMessage(
 					'system',
@@ -2676,7 +2851,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 						void startFreshConversation(slash.clearScreen)
 						return
 					case 'exit':
-						exit()
+						exitWithSummary()
 						return
 					case 'repick':
 						// Opened as a choice, not as a repair. A launch-time refusal
@@ -3307,11 +3482,27 @@ export function App({ ctx: initialCtx }: AppProps) {
 			// Keep the attachment array beside its text. Reconstructing a prompt from
 			// the transcript later cannot recover bytes whose composer chip is gone.
 			advanceQueueContinuation()
-			enqueueQueued({
+			const prompt: HumanQueuedPrompt = {
 				kind: 'human',
 				text: outgoing,
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
-			})
+			}
+			if (mode === 'submit') {
+				const inbox = activeTurnInboxRef.current
+				if (inbox) {
+					const expanded = expandFileMentions(outgoing, ctx.cwd)
+					if (
+						inbox.accept({
+							prompt,
+							message: createUserMessage(expanded.sendText, prompt.attachments),
+							attachedFiles: expanded.attached.length,
+							queueBoundary: queuedRef.current.length,
+						})
+					)
+						return
+				}
+			}
+			enqueueQueued(prompt)
 		},
 		[
 			activeSkills,
@@ -3321,7 +3512,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			ctx.cwd,
 			doResume,
 			enqueueQueued,
-			exit,
+			exitWithSummary,
 			hasUnsettledTurn,
 			nextId,
 			pushMessage,
@@ -3668,8 +3859,8 @@ export function App({ ctx: initialCtx }: AppProps) {
 			setPhase('ready')
 			return
 		}
-		exit()
-	}, [session, exit])
+		exitWithSummary()
+	}, [session, exitWithSummary])
 
 	useInput(
 		(input, key) => {
@@ -3686,7 +3877,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 			// key is dead" but the worse "the first press does something invisible
 			// and the second exits", with nothing on screen naming either.
 			if (phase === 'picker') {
-				if (key.ctrl && input === 'c') exit()
+				if (key.ctrl && input === 'c') exitWithSummary()
 				return
 			}
 			// Previous-prompt picker owns the keyboard. Esc keeps stepping toward
@@ -3736,7 +3927,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 				// and making the escape hatch hesitate on the program's first screen
 				// would read as a hang.
 				if (ch === 'n' || key.escape || (key.ctrl && input === 'c')) {
-					exit()
+					exitWithSummary()
 					return
 				}
 				// Enter is deliberately NOT trust, for the reason it is not approval
@@ -3897,7 +4088,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 					return
 				}
 				if (exitArmedRef.current) {
-					exit()
+					exitWithSummary()
 					return
 				}
 				exitArmedRef.current = true
@@ -3948,6 +4139,7 @@ export function App({ ctx: initialCtx }: AppProps) {
 								pending={messages.find((m) => m.pending) ?? null}
 								state={state}
 								settled={window.settled}
+								spacerRows={spacerRows}
 								resetKey={resetKey}
 								raw={rawOutput}
 								header={
@@ -3962,13 +4154,6 @@ export function App({ ctx: initialCtx }: AppProps) {
 								}
 							/>
 						</TranscriptFrame>
-						{/* Pushes the composer to the bottom of the viewport while the
-						    transcript is short enough for that to be knowable. Returns
-						    0 once the terminal is scrolling, where the composer is
-						    already at the bottom and padding would push it out of
-						    view. See `bottom-spacer.ts` for why the estimate is safe
-						    only in this direction. */}
-						{spacerRows > 0 ? <Box height={spacerRows} /> : null}
 						<LiveActivity
 							activeTools={activeTools}
 							thinking={state === 'thinking' && !messages.some((m) => m.pending)}
@@ -4002,6 +4187,18 @@ export function App({ ctx: initialCtx }: AppProps) {
 							}
 							hidden={permission !== null || choicePicker !== null || copyPicker !== null}
 						>
+							{pendingSteers.length > 0 &&
+							permission === null &&
+							choicePicker === null &&
+							copyPicker === null ? (
+								<Box paddingX={1}>
+									<Text color={theme.accent.user}>
+										↳ {pendingSteers.length} message
+										{pendingSteers.length > 1 ? 's' : ''} steering the active turn — waiting for its
+										next response boundary
+									</Text>
+								</Box>
+							) : null}
 							{queued.length > 0 &&
 							permission === null &&
 							choicePicker === null &&
@@ -4226,7 +4423,7 @@ function hintForPhase(
 	// Enter is absent because Enter decides nothing here, deliberately — see the
 	// permission gate in the key handler above.
 	if (state === 'awaiting-permission') return 'y approve · n / esc reject · a approve all'
-	if (state !== 'idle') return 'agent is working — esc to interrupt'
+	if (state !== 'idle') return 'enter steer · tab queue · esc interrupt'
 	// The composer already points to /help. Keeping the complete key legend in
 	// every idle frame made ordinary conversation read like a permanent setup
 	// screen; only state-specific actions belong in the footer.

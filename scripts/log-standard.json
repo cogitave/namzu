@@ -92,8 +92,8 @@
 		{
 			"file": "packages/cli/src/tui/index.tsx",
 			"symbol": "process.stdout.write",
-			"count": 1,
-			"reason": "the same raw terminal control at TUI startup; configureLogger({ level: 'silent' }) immediately above is what actually keeps a log line off this stream."
+			"count": 2,
+			"reason": "the TUI's two user-facing terminal writes: the clear/home control before Ink takes ownership, and the terminal-escaped conversation/resume handoff after Ink and the buffered log sink have both settled. Neither is a diagnostic record."
 		},
 		{
 			"file": "packages/cli/src/tui/log-pane.tsx",

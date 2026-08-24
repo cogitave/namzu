@@ -7,9 +7,9 @@
  * fix for that forced the SDK logger's level to `silent` via
  * `configureLogger`, which threw every diagnostic away rather than
  * choosing where it belonged. The correct choice is a sink that does not
- * write: a bounded ring buffer, drained to stderr only once Ink has
- * released the terminal — on a clean exit, or on a crash Ink itself did
- * not catch.
+ * write: a bounded ring buffer retained for a crash and discarded on a clean
+ * exit. Replaying routine boot/tool diagnostics after Ctrl+C is not a useful
+ * exit summary; it is a hidden log pane suddenly becoming terminal output.
  *
  * The ring buffer is implemented HERE rather than imported from
  * `@namzu/sdk`: LOG-04's confirmed export list (LogRecord, LogSink,
@@ -58,10 +58,9 @@ function createRingBufferSink(capacity: number): LogSink & { drain(): readonly L
 
 /**
  * Installs the ring buffer as the process sink for the life of the TUI and
- * registers the two flush paths Ink cannot own itself: a clean exit,
- * driven by the function this returns (`launchTui`'s `finally`), and a
- * crash — an uncaught exception or an unhandled rejection reaching the top
- * of the process, neither of which `waitUntilExit()` ever resolves for.
+ * registers the fatal flush path Ink cannot own itself: an uncaught exception
+ * or unhandled rejection reaching the top of the process. The returned clean
+ * close path detaches those listeners and discards routine diagnostics.
  * Both listeners are `.once`, removed the moment either fires: a sink that
  * itself throws while flushing must not re-enter the same handler, and a
  * process that launches the TUI more than once in its lifetime (this
@@ -71,24 +70,40 @@ function createRingBufferSink(capacity: number): LogSink & { drain(): readonly L
  * through `contextLogging` to the same resolution an invocation with no
  * flags and no env override would have gotten.
  */
-export function installTuiLogSink(logging?: ResolvedLogging): () => void {
+export interface TuiLogSinkLifecycle {
+	/** Normal TUI settlement: remove crash hooks and discard routine diagnostics. */
+	close(): void
+	/** Fatal settlement: print the bounded diagnostics after Ink releases the terminal. */
+	flush(): void
+}
+
+export function installTuiLogSink(logging?: ResolvedLogging): TuiLogSinkLifecycle {
 	const resolved = contextLogging({ logging })
 	const ring = createRingBufferSink(RING_CAPACITY)
 	installCliLogging(ring, resolved.level)
 
-	let flushed = false
-	const flush = (): void => {
-		// Idempotent: a crash's default handling ends the process, which also
-		// emits 'exit' — both fire for the same crash, and a second pass must
-		// not print an empty batch's worth of nothing a second time.
-		if (flushed) return
-		flushed = true
+	let settled = false
+	const detach = (): void => {
 		process.removeListener('uncaughtException', onFatal)
 		process.removeListener('unhandledRejection', onFatal)
-		process.removeListener('exit', flush)
+	}
+	const flush = (): void => {
+		// Idempotent: a sink error or repeated fatal signal must not re-enter the
+		// same handler or print an empty batch a second time.
+		if (settled) return
+		settled = true
+		detach()
 		const out: LogSink =
 			resolved.format === 'json' ? jsonLinesSink(process.stderr) : prettySink(process.stderr)
 		for (const record of ring.drain()) out.emit(record)
+	}
+	const close = (): void => {
+		if (settled) return
+		settled = true
+		detach()
+		// Explicitly release retained records. Clean exit has a separate, concise
+		// conversation handoff; boot diagnostics remain diagnostics.
+		ring.drain()
 	}
 
 	// Registering a listener for either event turns OFF Node's own default
@@ -107,7 +122,6 @@ export function installTuiLogSink(logging?: ResolvedLogging): () => void {
 	}
 	process.once('uncaughtException', onFatal)
 	process.once('unhandledRejection', onFatal)
-	process.once('exit', flush)
 
-	return flush
+	return { close, flush }
 }

@@ -21,27 +21,36 @@ afterEach(() => {
 
 describe('installTuiLogSink', () => {
 	it('buffers instead of writing: nothing reaches stderr until flushed', () => {
-		const flush = installTuiLogSink({ level: 'debug', format: 'json' })
+		const logs = installTuiLogSink({ level: 'debug', format: 'json' })
 		cliLogger().debug('buffered, not written')
 		expect(stderr).toBe('')
-		flush()
+		logs.flush()
 		expect(stderr).toContain('buffered, not written')
 	})
 
 	it('flush is idempotent: a second call does not re-emit the drained records', () => {
-		const flush = installTuiLogSink({ level: 'debug', format: 'json' })
+		const logs = installTuiLogSink({ level: 'debug', format: 'json' })
 		cliLogger().info('one record')
-		flush()
+		logs.flush()
 		const afterFirst = stderr
-		flush()
+		logs.flush()
 		expect(stderr).toBe(afterFirst)
 	})
 
+	it('drops routine diagnostics on a clean close', () => {
+		const logs = installTuiLogSink({ level: 'debug', format: 'json' })
+		cliLogger().info('ordinary boot narrative')
+		logs.close()
+		expect(stderr).toBe('')
+		logs.flush()
+		expect(stderr).toBe('')
+	})
+
 	it('respects the resolved level: a warn floor drops a debug record before it ever reaches the buffer', () => {
-		const flush = installTuiLogSink({ level: 'warn', format: 'json' })
+		const logs = installTuiLogSink({ level: 'warn', format: 'json' })
 		cliLogger().debug('dropped')
 		cliLogger().warn('kept')
-		flush()
+		logs.flush()
 		expect(stderr).not.toContain('dropped')
 		expect(stderr).toContain('kept')
 	})
@@ -61,9 +70,9 @@ describe('installTuiLogSink', () => {
 		const previous = process.env.NAMZU_LOG_LEVEL
 		process.env.NAMZU_LOG_LEVEL = 'debug'
 		try {
-			const flush = installTuiLogSink(undefined)
+			const logs = installTuiLogSink(undefined)
 			cliLogger().debug('reached via env fallback')
-			flush()
+			logs.flush()
 			expect(stderr).toContain('reached via env fallback')
 		} finally {
 			if (previous === undefined) delete process.env.NAMZU_LOG_LEVEL

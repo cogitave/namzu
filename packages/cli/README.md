@@ -101,6 +101,16 @@ left and reserves the right edge for a state-specific interaction or durable
 goal state. Idle conversation leaves the key legend to `/help` instead of
 repeating it on every frame.
 
+While a turn runs, Return steers that turn at the next model-safe response
+boundary and Tab queues a separate follow-up; at idle either key starts the
+draft. Ctrl+V and Alt+V attach a clipboard image, independently of the optional
+computer-use package, and Ctrl+W removes the previous whitespace-delimited
+word. Recent transcript rows stay next to the composer instead of jumping under
+the banner when submitted, and the slash palette uses the remaining terminal
+width for its descriptions. On clean exit the CLI prints only the durable
+conversation id and `/resume` handoff; buffered boot and sandbox diagnostics are
+reserved for crashes.
+
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after
 successful reads, writes and edits, and labels every file with its directory

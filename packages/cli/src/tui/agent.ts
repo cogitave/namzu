@@ -293,6 +293,14 @@ export type PermissionFn = (req: PermissionRequest) => Promise<PermissionDecisio
 
 export interface SendOptions {
 	readonly signal?: AbortSignal
+	/**
+	 * Live user messages accepted while this turn is running.
+	 *
+	 * The SDK drains this callback only at provider-valid iteration boundaries;
+	 * keeping it as a callback rather than an eager array preserves ownership of
+	 * input that has not crossed that boundary yet.
+	 */
+	readonly inboundMessages?: () => Message[]
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
 	/**
@@ -2336,6 +2344,7 @@ async function* runTurn({
 			...(systemPrompt ? { systemPrompt } : {}),
 			projectInstructionContext,
 			messages: [...messages],
+			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 			workingDirectory,
 			// The exemption reads `tools` at decision time, so it sees the task
 			// tools `query()` registers deferred below and any tool server that

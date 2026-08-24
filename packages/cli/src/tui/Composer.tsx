@@ -2,10 +2,10 @@
  * Single-line composer with input history and slash-command autocomplete.
  * Ink `useInput` covers all keys we need; no extra `ink-text-input` dep.
  *
- * Keys: Enter submits (or runs the highlighted command while the
- * autocomplete dropdown is open), Tab completes the highlighted command,
- * Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
- * else browse history, Backspace deletes.
+ * Keys: Enter submits/steers (or runs the highlighted command while the
+ * autocomplete dropdown is open), Tab completes that command or queues the
+ * draft, Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
+ * else browse history, Ctrl+W rubs out a word, Backspace deletes.
  */
 
 import type { MessageAttachment } from '@namzu/sdk'
@@ -20,7 +20,11 @@ import { theme } from './theme.js'
 
 export interface ComposerProps {
 	readonly disabled?: boolean
-	readonly onSubmit: (value: string, attachments?: readonly MessageAttachment[]) => void
+	readonly onSubmit: (
+		value: string,
+		attachments?: readonly MessageAttachment[],
+		mode?: ComposerSubmitMode,
+	) => void
 	readonly history: readonly string[]
 	/** Operator-defined commands, offered in the dropdown alongside builtins. */
 	readonly userCommands?: readonly UserCommand[]
@@ -60,6 +64,9 @@ export interface ComposerProps {
 	/** Lets App clear the one-shot value without racing the local state update. */
 	readonly onDraftRestored?: (token: number) => void
 }
+
+/** Return addresses the active turn; Tab deliberately addresses the follow-up queue. */
+export type ComposerSubmitMode = 'submit' | 'queue'
 
 export interface ComposerDraft {
 	readonly token: number
@@ -106,6 +113,20 @@ function composerDisplayValue(source: string): string {
 	return start > 0 ? `… ${visible}` : visible
 }
 
+/**
+ * Terminal Ctrl+W / Unix word-rubout semantics.
+ *
+ * Punctuation is part of the word: `hello-world` disappears as one unit. The
+ * boundary is whitespace, matching the reference composer and the shell habit
+ * operators already bring to this key.
+ */
+export function deletePreviousWord(source: string): string {
+	let index = source.length
+	while (index > 0 && /\s/u.test(source[index - 1] ?? '')) index -= 1
+	while (index > 0 && !/\s/u.test(source[index - 1] ?? '')) index -= 1
+	return source.slice(0, index)
+}
+
 export function Composer({
 	disabled = false,
 	onSubmit,
@@ -134,6 +155,10 @@ export function Composer({
 	const showSuggestions = suggestions.length > 0
 	const selIdx = Math.min(selected, Math.max(0, suggestions.length - 1))
 	const displayValue = composerDisplayValue(value)
+	const commandColumnWidth = Math.min(
+		24,
+		Math.max(10, ...suggestions.map((command) => command.name.length + 4)),
+	)
 
 	const reset = useCallback(() => {
 		setValue('')
@@ -172,6 +197,18 @@ export function Composer({
 			// strength of a second flag happening to agree with it.
 			if (disabled || hidden) return
 			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
+			const submit = (mode: ComposerSubmitMode): boolean => {
+				const message = [value, ...pastes]
+					.map((s) => s.trim())
+					.filter(Boolean)
+					.join('\n\n')
+				if (message.length === 0 && attachments.length === 0) return false
+				const submittedAttachments = attachments.length > 0 ? attachments : undefined
+				if (mode === 'queue') onSubmit(message, submittedAttachments, mode)
+				else onSubmit(message, submittedAttachments)
+				reset()
+				return true
+			}
 			if (key.return) {
 				if (showSuggestions) {
 					// Run the highlighted command.
@@ -179,10 +216,7 @@ export function Composer({
 					reset()
 					return
 				}
-				const message = [value, ...pastes].map((s) => s.trim()).filter(Boolean).join('\n\n')
-				if (message.length === 0 && attachments.length === 0) return
-				onSubmit(message, attachments.length > 0 ? attachments : undefined)
-				reset()
+				submit('submit')
 				return
 			}
 			if (key.tab) {
@@ -190,7 +224,9 @@ export function Composer({
 					// Complete to the highlighted command, ready for arguments.
 					setValue(`/${suggestions[selIdx]?.name ?? ''} `)
 					setSelected(0)
+					return
 				}
+				submit('queue')
 				return
 			}
 			if (key.escape) {
@@ -248,13 +284,13 @@ export function Composer({
 				setValue(history[history.length - 1 - next] ?? '')
 				return
 			}
-			// Ctrl+V: pull an image off the clipboard and hold it as an attachment.
+			// Ctrl+V / Alt+V: pull an image off the clipboard and hold it as an attachment.
 			//
 			// Every outcome says something. The status bar advertises this key, so
 			// a press that produces no chip and no words is indistinguishable from
 			// a key that was never wired up — and the operator's next move differs
 			// per reason: copy an image, install a tool, or stop pressing it.
-			if (key.ctrl && input === 'v') {
+			if ((key.ctrl || key.meta) && input === 'v') {
 				const read = readClipboardImage()
 				if (read.kind === 'image') {
 					setAttachments((p) => [...p, read.image])
@@ -263,6 +299,10 @@ export function Composer({
 				} else {
 					onNotice?.(`Cannot read images from the clipboard here — ${read.detail}.`)
 				}
+				return
+			}
+			if (key.ctrl && input === 'w') {
+				setValue(deletePreviousWord)
 				return
 			}
 			if (key.ctrl || key.meta) return
@@ -322,10 +362,10 @@ export function Composer({
 				</Box>
 			</Box>
 			{showSuggestions ? (
-				<Box flexDirection="column" paddingX={1} paddingTop={1}>
+				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
 					{suggestions.map((cmd, i) => (
-						<Box key={cmd.name}>
-							<Box width={12} flexShrink={0}>
+						<Box key={cmd.name} width="100%" flexDirection="row">
+							<Box width={commandColumnWidth} flexShrink={0}>
 								<Text
 									color={i === selIdx ? theme.accent.user : theme.text.secondary}
 									bold={i === selIdx}
@@ -333,7 +373,11 @@ export function Composer({
 									{i === selIdx ? '› ' : '  '}/{cmd.name}
 								</Text>
 							</Box>
-							<Text color={theme.text.muted}>{cmd.description}</Text>
+							<Box flexGrow={1} minWidth={0}>
+								<Text color={theme.text.muted} wrap="wrap">
+									{cmd.description}
+								</Text>
+							</Box>
 						</Box>
 					))}
 				</Box>

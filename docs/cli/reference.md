@@ -359,17 +359,36 @@ turn appends normally; a structural tool sequence or in-run compaction is
 published as one atomic replacement so a crash cannot expose half a provider
 turn.
 
-The composer remains available while a turn runs. A submitted follow-up waits in
-FIFO order and carries the complete prompt, including pasted images, into the
-provider request and durable conversation; queueing never reduces it to display
-text. Interrupting the active turn or switching conversations drops those whole
-queued prompts together, so an attachment cannot be stranded and sent somewhere
-its text was not intended for. When a human turn fails or stops abnormally, work
+The composer remains available while a turn runs. Return directs the complete
+draft to that active turn; the SDK admits it only at the next provider-valid
+response boundary, and the transcript keeps it as a pending steer until that
+boundary is crossed. Tab addresses the next-turn FIFO instead. At idle either
+key submits normally. Both paths retain pasted images and documents in provider
+history and durable conversation rather than reducing them to display text. If
+a session settles without draining a steer, it returns to the FIFO at the exact
+position where the operator submitted it relative to Tab-queued work.
+
+Ctrl+V and terminal Alt+V share the clipboard-image action; this is separate
+from computer-use, which controls screenshots and pointer/keyboard automation.
+Ctrl+W removes the preceding whitespace-delimited word, including punctuation
+inside that word. The slash palette gives descriptions the terminal width left
+after the longest visible command name. A short transcript pads between the
+settled scrollback prefix and the live tail, keeping a newly submitted prompt
+beside the composer instead of moving it under the banner.
+
+Interrupting the active turn or switching conversations drops whole queued
+prompts together, so an attachment cannot be stranded and sent somewhere its
+text was not intended for. When a human turn fails or stops abnormally, work
 already queued behind it pauses instead of running against a missing premise. A
 new model-bound message, or a successfully published provider/model selection,
 explicitly resumes the same FIFO; an automatic goal-round failure does not pause
 independent human input. The terminal-settled notification fires at the pause
 boundary because no queued work is immediately continuing.
+
+The TUI buffers routine boot, provider and sandbox diagnostics so they cannot
+corrupt an Ink frame. A crash prints the bounded buffer with its fatal error; a
+clean Ctrl+C exit discards it and prints only the durable conversation id plus
+the instruction to restart Namzu and use `/resume`.
 
 Provider capability mismatches are transcript events, not log-only diagnostics.
 Unsupported tools, images, and documents are named before the provider degrades

@@ -358,6 +358,14 @@ async function submit(harness: { stdin: { write: (s: string) => void } }, text: 
 	await tick(60)
 }
 
+/** Type and deliberately address the next-turn queue. */
+async function queue(harness: { stdin: { write: (s: string) => void } }, text: string) {
+	harness.stdin.write(text)
+	await tick(20)
+	harness.stdin.write('\t')
+	await tick(60)
+}
+
 /** Wait until `n` turns have persisted themselves. */
 async function appendsReach(n: number, timeoutMs = 3_000): Promise<void> {
 	const started = performance.now()
@@ -534,7 +542,7 @@ describe('/resume while a turn is running', () => {
 		mounted.push(harness)
 		await tick(60)
 		await submit(harness, 'go')
-		await submit(harness, 'FOLLOWUP')
+		await queue(harness, 'FOLLOWUP')
 		await untilFrame(harness, 'queued', 'the follow-up was not queued')
 
 		harness.stdin.write('/resume')
@@ -557,7 +565,7 @@ describe('/resume while a turn is running', () => {
 		mounted.push(harness)
 		await tick(60)
 		await submit(harness, 'go')
-		await submit(harness, 'IDLE_EDGE_FOLLOWUP')
+		await queue(harness, 'IDLE_EDGE_FOLLOWUP')
 		await untilFrame(harness, 'queued', 'the follow-up was not queued')
 
 		harness.stdin.write('/resume')
