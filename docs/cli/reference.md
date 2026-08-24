@@ -168,6 +168,10 @@ Model catalogues and the fifty-entry recent-conversation index therefore keep
 the active row visible as arrow navigation crosses a page; the position counter
 continues to describe the complete list rather than the visible slice.
 
+Slash-command and file-completion menus reserve a six-row window on short
+terminals, grow to twelve rows when the terminal has spare height, and keep the
+full roster reachable by arrows and page keys in either layout.
+
 The one-line footer keeps the active model, reasoning effort and working
 directory on the left. A durable goal state or a state-specific interaction hint
 owns the right edge, so a deep path cannot hide `Goal stalled (/goal resume)` or

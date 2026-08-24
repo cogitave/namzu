@@ -10,7 +10,7 @@
  */
 
 import type { MessageAttachment } from '@namzu/sdk'
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput, useStdout } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
@@ -80,7 +80,9 @@ export interface ComposerDraft {
 	readonly attachments?: readonly MessageAttachment[]
 }
 
-const MAX_SUGGESTIONS = 6
+const MIN_SUGGESTIONS = 6
+const MAX_SUGGESTIONS = 12
+const SUGGESTION_FURNITURE_ROWS = 12
 // A single keypress longer than this (with no newline) is treated as a paste.
 const PASTE_THRESHOLD = 80
 // A recalled or branch-restored prompt can be much larger than anything the
@@ -104,6 +106,23 @@ interface HistorySearchState {
 	readonly matches: readonly string[]
 	/** -1 is the original draft; zero is the newest matching history entry. */
 	readonly position: number
+}
+
+/**
+ * Visible rows in a completion menu for this terminal height.
+ *
+ * Each option is budgeted as two rows because a description may wrap. The
+ * composer, borders, footer and status area retain twelve rows before the
+ * menu grows. A short/unknown terminal keeps the established six-row window;
+ * a tall terminal uses the space it actually has, capped so the menu never
+ * takes over the whole conversation view.
+ */
+export function suggestionWindowSize(rows: number | undefined): number {
+	if (rows === undefined || !Number.isFinite(rows)) return MIN_SUGGESTIONS
+	return Math.min(
+		MAX_SUGGESTIONS,
+		Math.max(MIN_SUGGESTIONS, Math.floor((rows - SUGGESTION_FURNITURE_ROWS) / 2)),
+	)
 }
 
 function graphemeBoundaries(source: string): number[] {
@@ -299,6 +318,7 @@ export function Composer({
 	draftToRestore = null,
 	onDraftRestored,
 }: ComposerProps) {
+	const { stdout } = useStdout()
 	const [value, setValueState] = useState<string>('')
 	const valueRef = useRef('')
 	const [cursor, setCursorState] = useState(0)
@@ -333,18 +353,19 @@ export function Composer({
 		commandSuggestions.length > 0 ? 'command' : fileSuggestions.length > 0 ? 'file' : null
 	const suggestionCount =
 		suggestionKind === 'command' ? commandSuggestions.length : fileSuggestions.length
+	const suggestionWindow = suggestionWindowSize(stdout.rows)
 	const selIdx = Math.min(selected, Math.max(0, suggestionCount - 1))
 	const suggestionStart = Math.min(
-		Math.max(0, selIdx - MAX_SUGGESTIONS + 1),
-		Math.max(0, suggestionCount - MAX_SUGGESTIONS),
+		Math.max(0, selIdx - suggestionWindow + 1),
+		Math.max(0, suggestionCount - suggestionWindow),
 	)
 	const visibleCommandSuggestions = commandSuggestions.slice(
 		suggestionStart,
-		suggestionStart + MAX_SUGGESTIONS,
+		suggestionStart + suggestionWindow,
 	)
 	const visibleFileSuggestions = fileSuggestions.slice(
 		suggestionStart,
-		suggestionStart + MAX_SUGGESTIONS,
+		suggestionStart + suggestionWindow,
 	)
 	const displayValue = composerDisplayValue(value, cursor)
 	const commandColumnWidth = Math.min(
@@ -633,10 +654,10 @@ export function Composer({
 				if (key.home) setSelectedIndex(0)
 				else if (key.end) setSelectedIndex(liveSuggestionCount - 1)
 				else if (key.pageUp)
-					setSelectedIndex((index) => Math.max(0, index - MAX_SUGGESTIONS))
+					setSelectedIndex((index) => Math.max(0, index - suggestionWindow))
 				else
 					setSelectedIndex((index) =>
-						Math.min(liveSuggestionCount - 1, index + MAX_SUGGESTIONS),
+						Math.min(liveSuggestionCount - 1, index + suggestionWindow),
 					)
 				return
 			}

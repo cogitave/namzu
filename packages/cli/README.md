@@ -120,8 +120,9 @@ command is the active completion ahead of longer names with the same prefix.
 `/skills list` prints the roster. Long model and resume lists
 keep a seven-row window around the active choice and show its absolute position.
 Finite labels grow into available terminal width, so branch names and commit
-subjects are not forced through the same narrow column. Arrow navigation never
-moves the selection beyond the visible terminal. The
+subjects are not forced through the same narrow column. Completion menus keep a
+six-row window on short terminals and grow to twelve rows when height is
+available; arrow navigation still reaches the full roster. The
 footer keeps `model effort · cwd` on the left and reserves the right edge for a
 state-specific interaction or durable goal state. Idle conversation leaves the
 key legend to `/help` instead of repeating it on every frame.

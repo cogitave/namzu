@@ -4,7 +4,7 @@ import type { MessageAttachment } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ComposerSubmitMode } from '../Composer.js'
-import { Composer } from '../Composer.js'
+import { Composer, suggestionWindowSize } from '../Composer.js'
 import { matchSlashCommands } from '../slashCommands.js'
 import { renderToScreen } from './support/screen.js'
 
@@ -37,6 +37,69 @@ async function waitUntil(screen: Awaited<ReturnType<typeof renderToScreen>>, che
 }
 
 describe('the composer on a production-shaped terminal', () => {
+	it('uses spare terminal height for more slash commands without growing unbounded', async () => {
+		expect(suggestionWindowSize(undefined)).toBe(6)
+		expect(suggestionWindowSize(24)).toBe(6)
+		expect(suggestionWindowSize(40)).toBe(12)
+		expect(suggestionWindowSize(200)).toBe(12)
+
+		const matches = matchSlashCommands('/', [])
+		expect(matches.length).toBeGreaterThan(12)
+		const screen = await renderToScreen(composer(vi.fn()), {
+			cols: 120,
+			rows: 40,
+		})
+		try {
+			screen.press('/')
+			await screen.waitForRender()
+			const viewport = screen.viewport().join('\n')
+			for (const command of matches.slice(0, 12)) {
+				expect(viewport).toContain(`/${command.name}`)
+			}
+			expect(viewport).not.toContain(`/${matches[12]?.name}`)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('keeps the conservative six-row slash window on a short terminal', async () => {
+		const matches = matchSlashCommands('/', [])
+		const screen = await renderToScreen(composer(vi.fn()), {
+			cols: 120,
+			rows: 24,
+		})
+		try {
+			screen.press('/')
+			await screen.waitForRender()
+			const viewport = screen.viewport().join('\n')
+			for (const command of matches.slice(0, 6)) {
+				expect(viewport).toContain(`/${command.name}`)
+			}
+			expect(viewport).not.toContain(`/${matches[6]?.name}`)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('uses the same tall-terminal window for project file completion', async () => {
+		const files = Array.from({ length: 16 }, (_, index) =>
+			`src/file-${String(index).padStart(2, '0')}.ts`,
+		)
+		const screen = await renderToScreen(
+			<Composer history={[]} mentionCandidates={files} onSubmit={vi.fn()} />,
+			{ cols: 120, rows: 40 },
+		)
+		try {
+			screen.press('@src/file-')
+			await screen.waitForRender()
+			const viewport = screen.viewport().join('\n')
+			for (const file of files.slice(0, 12)) expect(viewport).toContain(`@${file}`)
+			expect(viewport).not.toContain(`@${files[12]}`)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('accepts the Alt+V byte sequence as the same image action as Ctrl+V', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(composer(submit), {
