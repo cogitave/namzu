@@ -197,6 +197,10 @@ describe('runSlash', () => {
 		})
 	})
 
+	it('/archive opens a confirmation rather than mutating from the parser', () => {
+		expect(runSlash('/archive', ctx)).toEqual({ kind: 'archive-picker' })
+	})
+
 	it('/clear-screen preserves the conversation behind the view', () => {
 		expect(runSlash('/clear-screen', ctx)).toEqual({ kind: 'clear-screen' })
 	})

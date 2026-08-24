@@ -28,6 +28,7 @@ import { ProjectManager, type TenantId, UNKNOWN_TENANT_ID, createUserMessage } f
 
 import {
 	appendMessages,
+	archiveConversation,
 	forkConversation,
 	listRecent,
 	loadConversation,
@@ -162,5 +163,23 @@ describe('a workspace its owner has closed', () => {
 		).rejects.toThrow(/archived and read-only/i)
 		await expect(forkConversation(sessions, id)).rejects.toThrow(/archived and read-only/i)
 		expect(await loadConversation(sessions, id)).toEqual([original])
+	})
+
+	it('archives one in-scope conversation with a versioned tombstone write', async () => {
+		const sessions = await openSessions(cwd)
+		const id = await startConversation(sessions)
+		const original = createUserMessage('preserved after archive')
+		await appendMessages(sessions, id, [original])
+		const before = await sessions.store.getSession(id, sessions.tenantId)
+		if (!before) throw new Error('fixture conversation vanished')
+
+		await archiveConversation(sessions, id)
+
+		const after = await sessions.store.getSession(id, sessions.tenantId)
+		expect(after).toMatchObject({ status: 'archived', ownerVersion: before.ownerVersion + 1 })
+		expect(await loadConversation(sessions, id)).toEqual([original])
+		expect(await listRecent(sessions)).toEqual([])
+		await expect(loadResumableConversation(sessions, id)).rejects.toThrow(/archived and read-only/i)
+		await expect(archiveConversation(sessions, id)).rejects.toThrow(/already archived/i)
 	})
 })

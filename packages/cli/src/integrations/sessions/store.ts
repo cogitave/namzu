@@ -242,6 +242,26 @@ export async function requireWritableConversation(
 	}
 }
 
+/**
+ * Turn the active conversation into a read-only tombstone.
+ *
+ * The caller owns the live-turn barrier; this function owns store scope and a
+ * versioned publication. History remains readable, while `/resume`, later
+ * appends and forks reject through {@link requireWritableConversation}.
+ */
+export async function archiveConversation(s: CliSessions, sessionId: SessionId): Promise<void> {
+	const session = await requireConversationInScope(s, sessionId, 'archive conversation')
+	await requireOpenProject(s.store, s.projectId, s.tenantId, 'archive conversation')
+	if (session.status === 'archived') {
+		throw new Error(`Conversation ${sessionId} is already archived.`)
+	}
+	await s.store.updateSession(
+		{ ...session, status: 'archived', ownerVersion: session.ownerVersion + 1 },
+		s.tenantId,
+		session.ownerVersion,
+	)
+}
+
 /** Append messages (in order) to a conversation. */
 export async function appendMessages(
 	s: CliSessions,

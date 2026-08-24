@@ -45,6 +45,7 @@ let withSession = true
 let emptyDetection = false
 let exited = false
 let probeCalls = 0
+const archivedConversationIds: string[] = []
 let detectedProviders: readonly DetectedProvider[]
 let writePrefs = vi.fn()
 type ProviderIntegrations = typeof import('../../integrations/providers/index.js')
@@ -145,6 +146,9 @@ vi.mock('../../integrations/updates.js', () => ({
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
+	archiveConversation: async (_sessions: unknown, sessionId: string) => {
+		archivedConversationIds.push(sessionId)
+	},
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	listRecent: async () => [],
@@ -262,6 +266,7 @@ beforeEach(() => {
 	withSession = true
 	emptyDetection = false
 	probeCalls = 0
+	archivedConversationIds.length = 0
 	detectedProviders = DETECTED
 	writePrefs = vi.fn()
 	createSession = async (prefs) => sessionFixture(`${prefs.providers[0]?.id ?? 'none'}-provider`)
@@ -953,6 +958,38 @@ describe('Ctrl+C from a ready conversation', () => {
 		await exitedWithin()
 
 		expect(summaries).toEqual([{ conversationId: 'conv' }])
+	})
+
+	it('archives only after an explicit destructive confirmation and exits without a resume hint', async () => {
+		const summaries: TuiExitSummary[] = []
+		const harness = render(<App ctx={ctx} onExitSummary={(summary) => summaries.push(summary)} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, '/archive')
+		await frameShows(harness.lastFrame, 'Archive this conversation?')
+		expect(harness.lastFrame()).toContain('No, keep conversation')
+		expect(harness.lastFrame()).toContain('Yes, archive and exit')
+		expect(archivedConversationIds, 'the command-opening Return archived immediately').toEqual([])
+		expect(exited).toBe(false)
+
+		// The safe row is first. Enter cancels without touching durable state.
+		harness.stdin.write('\r')
+		await tick(100)
+		expect(archivedConversationIds).toEqual([])
+		expect(exited).toBe(false)
+
+		await submit(harness, '/archive')
+		await frameShows(harness.lastFrame, 'Archive this conversation?')
+		harness.stdin.write('\x1b[B')
+		await tick(60)
+		harness.stdin.write('\r')
+		await exitedWithin()
+
+		expect(archivedConversationIds).toEqual(['conv'])
+		expect(summaries, 'an archived conversation was advertised as resumable').toEqual([{}])
+		expect(exited).toBe(true)
 	})
 })
 

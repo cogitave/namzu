@@ -74,6 +74,7 @@ import {
 	type CliSessions,
 	type RecentConversation,
 	appendMessages,
+	archiveConversation,
 	forkConversation,
 	forkConversationBeforeUser,
 	listRecent,
@@ -184,7 +185,7 @@ export type ExternalEditorAdapter = (request: {
 }) => Promise<string>
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
-type ConversationMutation = 'fork' | 'edit' | 'new'
+type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive'
 type PendingExternalEditor = {
 	readonly token: object
 	readonly seed: string
@@ -210,6 +211,13 @@ type ConversationExportDestination =
 	| { readonly kind: 'clipboard' }
 	| { readonly kind: 'file'; readonly path: string }
 type ChoicePickerState =
+	| {
+			readonly kind: 'archive-conversation'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly ('cancel' | 'archive')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
 	| {
 			readonly kind: 'export-destination'
 			readonly title: string
@@ -1268,6 +1276,67 @@ export function App({
 		[pushMessage],
 	)
 
+	/** Publish one recoverable, read-only tombstone before leaving the TUI. */
+	const archiveCurrentConversation = useCallback((): void => {
+		if (conversationMutationRef.current) return
+		const sessions = sessionsRef.current
+		const sessionId = scopeRef.current?.sessionId
+		if (!sessions || !sessionId) {
+			pushMessage(
+				'system',
+				'Cannot archive this conversation because durable session persistence is unavailable.',
+			)
+			return
+		}
+		if (
+			state !== 'idle' ||
+			abortRef.current !== null ||
+			hasUnsettledTurn() ||
+			queuedRef.current.length > 0 ||
+			compactingRef.current ||
+			exportingRef.current
+		) {
+			pushMessage(
+				'system',
+				'A turn, queued prompt, compaction, or export is still running or settling. Archive waits for a stable durable boundary.',
+			)
+			return
+		}
+
+		const generation = conversationGenRef.current
+		conversationMutationRef.current = 'archive'
+		setConversationMutation('archive')
+		void (async () => {
+			let archived = false
+			try {
+				await persistenceTailRef.current
+				if (
+					conversationGenRef.current !== generation ||
+					scopeRef.current?.sessionId !== sessionId ||
+					hasUnsettledTurn(generation) ||
+					queuedRef.current.length > 0
+				) {
+					throw new Error('the active conversation changed before archive publication')
+				}
+				await archiveConversation(sessions, sessionId)
+				archived = true
+				goalActivation.clear()
+				onExitSummary?.({})
+				exit()
+			} catch (error) {
+				pushMessage(
+					'system',
+					`Could not archive this conversation: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			} finally {
+				if (!archived && conversationMutationRef.current === 'archive') {
+					conversationMutationRef.current = null
+					setConversationMutation(null)
+				}
+			}
+		})()
+	}, [exit, goalActivation, hasUnsettledTurn, onExitSummary, pushMessage, state])
+
 	/**
 	 * Resolve the one durable conversation boundary shared by both export
 	 * destinations. The chooser itself owns input, but it does not weaken this
@@ -1536,6 +1605,10 @@ export function App({
 				return
 			}
 			setChoicePicker(null)
+			if (picker.kind === 'archive-conversation') {
+				if (value === 'archive') archiveCurrentConversation()
+				return
+			}
 			if (picker.kind === 'export-destination') {
 				if (value === 'clipboard') {
 					runConversationExport({ kind: 'clipboard' })
@@ -1585,6 +1658,7 @@ export function App({
 			appLifetime.signal,
 			applyPermissionMode,
 			applyReasoningEffort,
+			archiveCurrentConversation,
 			ctx.cwd,
 			enqueueQueued,
 			pushMessage,
@@ -3545,7 +3619,9 @@ export function App({
 						? 'forked'
 						: conversationMutationRef.current === 'edit'
 							? 'branched for prompt editing'
-							: 'moved to a fresh conversation'
+							: conversationMutationRef.current === 'archive'
+								? 'archived'
+								: 'moved to a fresh conversation'
 				pushMessage(
 					'system',
 					`Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`,
@@ -3578,6 +3654,48 @@ export function App({
 					case 'new-conversation':
 						void startFreshConversation(slash.clearScreen)
 						return
+					case 'archive-picker': {
+						if (!sessionsRef.current || !scopeRef.current?.sessionId) {
+							pushMessage(
+								'system',
+								'Cannot archive this conversation because durable session persistence is unavailable.',
+							)
+							return
+						}
+						if (
+							state !== 'idle' ||
+							abortRef.current !== null ||
+							hasUnsettledTurn() ||
+							queuedRef.current.length > 0 ||
+							compactingRef.current ||
+							exportingRef.current
+						) {
+							pushMessage(
+								'system',
+								'A turn, queued prompt, compaction, or export is still running or settling. Archive waits for a stable durable boundary.',
+							)
+							return
+						}
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'archive-conversation',
+							title: 'Archive this conversation?',
+							notice:
+								'History remains on disk for inspection, but the conversation becomes read-only and disappears from /resume.',
+							values: ['cancel', 'archive'],
+							options: [
+								{
+									label: 'No, keep conversation',
+									description: 'Return without changing durable history',
+								},
+								{
+									label: 'Yes, archive and exit',
+									description: 'Make this conversation read-only and leave Namzu',
+								},
+							],
+						})
+						return
+					}
 					case 'exit':
 						exitWithSummary()
 						return
@@ -5095,12 +5213,14 @@ export function App({
 								: null
 						}
 						state={state}
-						hint={
-							conversationMutation === 'fork'
-								? 'forking conversation — input is paused'
-								: conversationMutation === 'edit'
-									? 'branching before prompt — input is paused'
-									: conversationMutation === 'new'
+							hint={
+								conversationMutation === 'fork'
+									? 'forking conversation — input is paused'
+									: conversationMutation === 'edit'
+										? 'branching before prompt — input is paused'
+										: conversationMutation === 'archive'
+											? 'archiving conversation — input is paused'
+										: conversationMutation === 'new'
 										? 'starting a fresh conversation — input is paused'
 										: compacting
 											? 'compacting conversation — input is paused'

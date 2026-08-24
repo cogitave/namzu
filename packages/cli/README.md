@@ -116,6 +116,9 @@ which one to remove. `/logout claude|codex|all` and
 `namzu logout claude|codex|all` remain exact non-interactive forms, and never modify device
 sessions owned by another tool. A fully typed
 command is the active completion ahead of longer names with the same prefix.
+`/archive` opens a safe-first confirmation, then makes the current durable
+conversation read-only and exits without advertising it as resumable. Its
+history remains on disk for inspection.
 `/skill` remains an alias, `/skills <name>` activates directly, and
 `/skills list` prints the roster. Long model and resume lists
 keep a seven-row window around the active choice and show its absolute position.

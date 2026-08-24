@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
+import { matchSlashCommands } from '../slashCommands.js'
 import type { TuiContext } from '../types.js'
 import { renderToScreen } from './support/screen.js'
 
@@ -278,7 +279,9 @@ describe('the two composer destinations', () => {
 				'App never became ready',
 			)
 			screen.press('/')
-			for (let index = 0; index < 7; index += 1) screen.press('\x1b[B')
+			const toolsIndex = matchSlashCommands('/', []).findIndex((command) => command.name === 'tools')
+			expect(toolsIndex).toBeGreaterThan(5)
+			for (let index = 0; index < toolsIndex; index += 1) screen.press('\x1b[B')
 			screen.press('\r')
 			await waitUntil(
 				screen,

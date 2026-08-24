@@ -78,7 +78,7 @@ Inside the session, grouped by the question each one answers:
 |---|---|
 | **What is going on** | `/status`, `/pwd`, `/debug-config`, `/cost`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
-| **This conversation** | `/resume`, `/rename`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
+| **This conversation** | `/resume`, `/rename`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/archive`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
 | **Everything else** | `/mention`, `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
 
@@ -372,6 +372,13 @@ discarded rather than carried across the boundary. The new durable conversation
 is created before any of that happens, so a failed store write leaves the current
 context and running turn intact.
 
+**`/archive` makes the current durable conversation read-only and exits.** It
+opens with the non-destructive row selected and requires an explicit choice of
+“archive and exit”. The retained history stays readable on disk, but is removed
+from `/resume`; the clean-exit summary therefore does not print a resume command
+for the tombstone. Archive waits for the current turn, queued work, compaction,
+export and persistence tail to settle before publishing the versioned status.
+
 `/clear-screen` is the narrower display operation: it remounts an empty transcript
 without changing model context, durable history, or the active conversation. It
 exists for operators who want a clean terminal while continuing the same chat.
@@ -457,11 +464,10 @@ Clipboard image and document attachments remain attached; pasted text is folded
 into the editable buffer. The editor is admitted only at an idle, stable
 conversation boundary so model output cannot repaint over it.
 
-The slash
-palette gives descriptions the terminal width
-left after the longest visible command name and scrolls its six-row window so
-every matching command remains reachable with Up/Down. It prints the absolute
-selection and total count; PageUp/PageDown jump by six and Home/End select the
+The slash palette gives descriptions the terminal width left after the longest
+visible command name and scrolls a six-to-twelve-row window so every matching
+command remains reachable with Up/Down. It prints the absolute selection and
+total count; PageUp/PageDown jump by the visible window and Home/End select the
 registry boundaries. The live input buffer and selection, rather than the last
 rendered frame, own dispatch, so a slash, repeated navigation and Enter in one
 input burst run the highlighted command. Model, resume, review, skill, copy and

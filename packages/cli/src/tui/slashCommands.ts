@@ -47,6 +47,8 @@ export type SlashAction =
 	| { kind: 'composer-draft'; text: string }
 	/** Start a fresh conversation, optionally clearing the rendered transcript too. */
 	| { kind: 'new-conversation'; clearScreen: boolean }
+	/** Confirm before making the current durable conversation read-only and exiting. */
+	| { kind: 'archive-picker' }
 	| { kind: 'repick' }
 	/** Select how the next TUI turn resolves otherwise-undecided tool calls. */
 	| { kind: 'permission-mode'; mode: PermissionMode }
@@ -577,6 +579,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'new',
 		description: 'Start a fresh conversation without clearing the terminal.',
 		action: () => ({ kind: 'new-conversation', clearScreen: false }),
+	},
+	{
+		name: 'archive',
+		description: 'Archive this conversation and exit after confirmation.',
+		action: () => ({ kind: 'archive-picker' }),
 	},
 	{
 		name: 'clear-screen',
