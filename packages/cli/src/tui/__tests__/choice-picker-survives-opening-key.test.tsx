@@ -22,7 +22,7 @@ const PREFS: Preferences = {
 const feedback = vi.hoisted(() => ({ writes: [] as Record<string, unknown>[] }))
 const skillLoads = vi.hoisted(() => [] as string[])
 const credentials = vi.hoisted(() => ({
-	claude: true,
+	primary: true,
 	codex: true,
 	cleared: [] as string[],
 }))
@@ -75,12 +75,12 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 		...actual,
 		credentialsPath: () => '/device/.namzu/credentials.json',
 		readStoredSubscriptionCredential: () =>
-			credentials.claude ? { accessToken: 'claude-test-token' } : null,
+			credentials.primary ? { accessToken: 'claude-test-token' } : null,
 		readStoredCodexCredential: () =>
 			credentials.codex ? { accessToken: 'codex-test-token', accountId: 'account-test' } : null,
 		clearStoredSubscriptionCredential: () => {
 			credentials.cleared.push('anthropic')
-			credentials.claude = false
+			credentials.primary = false
 		},
 		clearStoredCodexCredential: () => {
 			credentials.cleared.push('codex')
@@ -88,7 +88,7 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 		},
 		clearAllStoredCredentials: () => {
 			credentials.cleared.push('all')
-			credentials.claude = false
+			credentials.primary = false
 			credentials.codex = false
 		},
 	}
@@ -166,7 +166,7 @@ afterEach(async () => {
 	mounted = null
 	feedback.writes.length = 0
 	skillLoads.length = 0
-	credentials.claude = true
+	credentials.primary = true
 	credentials.codex = true
 	credentials.cleared.length = 0
 })
@@ -294,7 +294,7 @@ it('asks which Namzu-owned subscription to remove and preserves the sibling', as
 	screen.press('2')
 	await waitUntil(screen, () => painted(screen).includes("Removed Namzu's stored Codex"))
 	expect(credentials).toMatchObject({
-		claude: true,
+		primary: true,
 		codex: false,
 		cleared: ['codex'],
 	})

@@ -4,7 +4,7 @@ import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import type { CommandContext } from '../types.js'
 
 const credentials = vi.hoisted(() => ({
-	claude: true,
+	primary: true,
 	codex: true,
 	clears: [] as string[],
 }))
@@ -15,12 +15,12 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 		...actual,
 		credentialsPath: () => '/device/.namzu/credentials.json',
 		readStoredSubscriptionCredential: () =>
-			credentials.claude ? { accessToken: 'claude-secret' } : null,
+			credentials.primary ? { accessToken: 'claude-secret' } : null,
 		readStoredCodexCredential: () =>
 			credentials.codex ? { accessToken: 'codex-secret', accountId: 'account-1' } : null,
 		clearStoredSubscriptionCredential: () => {
 			credentials.clears.push('anthropic')
-			credentials.claude = false
+			credentials.primary = false
 		},
 		clearStoredCodexCredential: () => {
 			credentials.clears.push('codex')
@@ -28,7 +28,7 @@ vi.mock('../../integrations/providers/index.js', async (importOriginal) => {
 		},
 		clearAllStoredCredentials: () => {
 			credentials.clears.push('all')
-			credentials.claude = false
+			credentials.primary = false
 			credentials.codex = false
 		},
 	}
@@ -51,7 +51,7 @@ function context() {
 }
 
 beforeEach(() => {
-	credentials.claude = true
+	credentials.primary = true
 	credentials.codex = true
 	credentials.clears.length = 0
 })
@@ -63,7 +63,7 @@ describe('namzu logout provider routing', () => {
 		const code = await logoutCommand.handler({ ctx, rawArgs: ['codex'] })
 
 		expect(code).toBe(EXIT_OK)
-		expect(credentials).toMatchObject({ claude: true, codex: false, clears: ['codex'] })
+		expect(credentials).toMatchObject({ primary: true, codex: false, clears: ['codex'] })
 		expect(lines.join('\n')).toContain("Removed Namzu's stored Codex")
 		expect(lines.join('\n')).not.toContain('codex-secret')
 	})
@@ -74,7 +74,7 @@ describe('namzu logout provider routing', () => {
 		const code = await logoutCommand.handler({ ctx, rawArgs: [] })
 
 		expect(code).toBe(EXIT_OK)
-		expect(credentials).toMatchObject({ claude: false, codex: false, clears: ['all'] })
+		expect(credentials).toMatchObject({ primary: false, codex: false, clears: ['all'] })
 	})
 
 	it('refuses an unknown target before mutating either credential', async () => {
@@ -83,7 +83,7 @@ describe('namzu logout provider routing', () => {
 		const code = await logoutCommand.handler({ ctx, rawArgs: ['everything'] })
 
 		expect(code).toBe(EXIT_USAGE)
-		expect(credentials).toMatchObject({ claude: true, codex: true, clears: [] })
+		expect(credentials).toMatchObject({ primary: true, codex: true, clears: [] })
 		expect(lines.join('\n')).toContain('namzu logout [claude|codex|all]')
 	})
 })

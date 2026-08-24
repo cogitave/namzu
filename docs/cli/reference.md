@@ -96,7 +96,7 @@ picker or shell, while `Codex` uses a device code that can be approved in any
 reachable browser. Both new-sign-in routes write only to Namzu's credential
 store. The `Claude` route uses the direct subscription
 authorization flow, not the platform/API-usage billing login. When both
-Namzu-owned records exist, bare `/logout` opens a Claude/Codex chooser and
+Namzu-owned records exist, bare `/logout` opens a provider chooser and
 removes only the selected record. `/logout claude|codex|all` is the explicit
 chat form. The shell accepts `namzu logout claude|codex|all`; its argumentless
 form retains the older remove-all behavior for scripts. None of these forms

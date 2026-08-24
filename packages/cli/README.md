@@ -108,8 +108,8 @@ sign-in action.
 
 Bare `/effort`, `/permissions`, `/feedback`, and `/skill` open finite keyboard
 choosers; when both Namzu-owned subscriptions exist, bare `/logout` asks which
-one to remove. `/logout claude|codex|all` and `namzu logout
-claude|codex|all` remain exact non-interactive forms, and never modify device
+one to remove. `/logout claude|codex|all` and
+`namzu logout claude|codex|all` remain exact non-interactive forms, and never modify device
 sessions owned by another tool. A fully typed
 command is the active completion ahead of longer names with the same prefix, so
 `/skill` cannot accidentally run `/skills`. Long model and resume lists

@@ -96,12 +96,14 @@ the `runtime-context` member explicitly.
 Image bytes can remain valid durable conversation evidence even when a model
 provider refuses to decode them. `ImageAttachment.modelOmission` and the same
 field on image tool-result blocks record that delivery state independently of
-message authorship and provider-native replay ownership. The only admitted
-value is `{ reason: 'provider-rejected' }`.
+message authorship and provider-native replay ownership. The admitted values
+are `{ reason: 'provider-rejected' }` after a model route refuses exact bytes,
+and `{ reason: 'invalid-image' }` when model-boundary MCP admission rejects the
+remote encoding, container, media type, or dimensions before a provider call.
 
 A persistence layer keeps the original `data`, `mediaType`, and omission marker
 together. Provider-bound projection replaces a marked image with explanatory
 text; it does not delete the bytes or reinterpret the message source. Hosts
 validating stored `Message[]` can use `isModelContentOmission` and must refuse
 unknown reasons rather than stripping them and accidentally resending an image
-the provider already rejected.
+that its delivery boundary already refused.
