@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ComposerSubmitMode } from '../Composer.js'
 import { Composer } from '../Composer.js'
+import { matchSlashCommands } from '../slashCommands.js'
 import { renderToScreen } from './support/screen.js'
 
 const clipboardImage = {
@@ -96,6 +97,32 @@ describe('the composer on a production-shaped terminal', () => {
 
 			const row = screen.viewport().find((line) => line.includes('/permissions'))
 			expect(row).toContain('Choose how undecided tool calls are handled: /permissions [mode].')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('scrolls the slash window so commands after the first six stay reachable', async () => {
+		const matches = matchSlashCommands('/', [])
+		expect(matches.length).toBeGreaterThan(6)
+		const seventh = matches[6]
+		if (!seventh) throw new Error('slash registry unexpectedly has fewer than seven commands')
+
+		const screen = await renderToScreen(composer(vi.fn()), {
+			cols: 120,
+			rows: 24,
+		})
+		try {
+			screen.press('/')
+			await screen.waitForRender()
+			for (let index = 0; index < 6; index += 1) {
+				screen.press('\x1b[B')
+				await screen.waitForRender()
+			}
+
+			const viewport = screen.viewport().join('\n')
+			expect(viewport).toContain(`› /${seventh.name}`)
+			expect(viewport).not.toContain(`› /${matches[0]?.name}`)
 		} finally {
 			await screen.unmount()
 		}

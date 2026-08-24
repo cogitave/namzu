@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { formatTuiExitSummary } from './exit-summary.js'
 
 describe('the shell handoff after the TUI exits', () => {
-	it('names the durable conversation and the real in-TUI resume path', () => {
+	it('prints a copy-pasteable shell command for the durable conversation', () => {
 		expect(formatTuiExitSummary({ conversationId: 'ses_123' })).toBe(
-			'Conversation ses_123 · restart namzu, then run /resume\n',
+			'To resume this conversation, run: namzu resume ses_123\n',
 		)
 	})
 

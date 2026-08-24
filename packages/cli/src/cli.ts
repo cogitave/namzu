@@ -256,11 +256,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		})
 	}
 
-	// Default behavior when `namzu` is invoked with no subcommand: launch
-	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a
-	// one-line marker instead so the binary stays scriptable and our test
-	// suite does not try to render Ink against a non-tty stream.
-	program.action(async () => {
+	const launchInteractiveTui = async (initialConversationId?: string): Promise<void> => {
 		if (process.stdout.isTTY) {
 			const launchOpts = program.opts<{
 				dangerouslySkipPermissions?: boolean
@@ -287,6 +283,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					skipPermissions,
 					rules: permissions.rules,
 					logging: resolvedCtx.logging,
+					...(initialConversationId ? { initialConversationId } : {}),
 					...(resolvedCtx.config.mcpServers ? { mcpServers: resolvedCtx.config.mcpServers } : {}),
 					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
@@ -306,6 +303,25 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		process.stdout.write(
 			'namzu — interactive TUI requires a terminal. For utility subcommands run `namzu --help`.\n',
 		)
+	}
+
+	// A copy/pasteable shell address for the durable conversation printed by
+	// clean TUI exit. The in-TUI `/resume` picker remains available when an id is
+	// not already known.
+	program
+		.command('resume')
+		.description('Resume an interactive conversation by its durable id')
+		.argument('<conversation-id>', 'Conversation id printed when the TUI exited')
+		.action(async (conversationId: string) => {
+			await launchInteractiveTui(conversationId)
+		})
+
+	// Default behavior when `namzu` is invoked with no subcommand: launch
+	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a
+	// one-line marker instead so the binary stays scriptable and our test
+	// suite does not try to render Ink against a non-tty stream.
+	program.action(async () => {
+		await launchInteractiveTui()
 	})
 
 	try {

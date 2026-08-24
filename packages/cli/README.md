@@ -63,6 +63,7 @@ probes for.
 
 ```bash
 namzu                       # interactive session in the current directory
+namzu resume ses_...        # reopen the exact interactive conversation printed on exit
 namzu doctor                # what this host can actually do, and what is missing
 namzu upgrade --check       # check npm without changing the installation
 namzu upgrade               # update this active npm-global installation
@@ -105,11 +106,11 @@ While a turn runs, Return steers that turn at the next model-safe response
 boundary and Tab queues a separate follow-up; at idle either key starts the
 draft. Ctrl+V and Alt+V attach a clipboard image, independently of the optional
 computer-use package, and Ctrl+W removes the previous whitespace-delimited
-word. Recent transcript rows stay next to the composer instead of jumping under
-the banner when submitted, and the slash palette uses the remaining terminal
-width for its descriptions. On clean exit the CLI prints only the durable
-conversation id and `/resume` handoff; buffered boot and sandbox diagnostics are
-reserved for crashes.
+word. Conversation rows flow downward from the banner while unused viewport
+space stays below the transcript, and the slash palette scrolls through every
+matching command while using the remaining terminal width for descriptions. On
+clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
+boot and sandbox diagnostics are reserved for crashes.
 
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after

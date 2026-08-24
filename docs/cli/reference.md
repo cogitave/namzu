@@ -201,6 +201,14 @@ moves on from that opening question. `/title <name>` fixes one in place, bare
 one. A named row is shown in quotes so the two kinds are distinguishable in the
 list.
 
+Clean Ctrl+C exit prints `namzu resume <id>`, a shell command that reopens that
+exact interactive conversation in the current workspace. It loads the durable
+history before provider discovery and does not mint a substitute conversation
+when the id is malformed, missing, archived, or belongs to another workspace.
+The `ses_` prefix is part of the kernel's typed resource id: it distinguishes a
+Session from run, message, project, and other durable ids; the random suffix is
+already the collision-resistant portion.
+
 Resume authority comes from the current workspace, not from the globally
 locatable session id or the fixed CLI topic id. The picker and `--continue`
 therefore list only non-archived sessions under the Project selected by this
@@ -372,9 +380,11 @@ Ctrl+V and terminal Alt+V share the clipboard-image action; this is separate
 from computer-use, which controls screenshots and pointer/keyboard automation.
 Ctrl+W removes the preceding whitespace-delimited word, including punctuation
 inside that word. The slash palette gives descriptions the terminal width left
-after the longest visible command name. A short transcript pads between the
-settled scrollback prefix and the live tail, keeping a newly submitted prompt
-beside the composer instead of moving it under the banner.
+after the longest visible command name and scrolls its six-row window so every
+matching command remains reachable with Up/Down. A short transcript flows from
+the banner downward; any unused viewport is padded after the complete
+transcript so the composer remains near the bottom without moving conversation
+rows there.
 
 Interrupting the active turn or switching conversations drops whole queued
 prompts together, so an attachment cannot be stranded and sent somewhere its
@@ -387,8 +397,8 @@ boundary because no queued work is immediately continuing.
 
 The TUI buffers routine boot, provider and sandbox diagnostics so they cannot
 corrupt an Ink frame. A crash prints the bounded buffer with its fatal error; a
-clean Ctrl+C exit discards it and prints only the durable conversation id plus
-the instruction to restart Namzu and use `/resume`.
+clean Ctrl+C exit discards it and prints only the copy-pasteable
+`namzu resume <id>` handoff.
 
 Provider capability mismatches are transcript events, not log-only diagnostics.
 Unsupported tools, images, and documents are named before the provider degrades
@@ -487,6 +497,7 @@ refuses rather than choosing one lookalike source turn.
 | Command | What it does |
 |---|---|
 | `namzu` | The interactive terminal agent |
+| `namzu resume <conversation-id>` | Reopen that exact durable conversation in the interactive terminal agent |
 | `namzu run <prompt…>` | One prompt, headless. The reply goes to stdout, status lines to stderr |
 | `namzu run-stream <prompt…>` | The same run, one JSON event per line, for a host UI that renders progress |
 | `namzu history --session <id>` | That session's persisted messages, as JSON |

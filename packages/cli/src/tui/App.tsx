@@ -26,6 +26,7 @@ import {
 	type SessionGoal,
 	SessionGoalActivation,
 	StaleGoalError,
+	asSessionId,
 	createAssistantMessage,
 	createUserMessage,
 	generateRunId,
@@ -74,6 +75,7 @@ import {
 	forkConversationBeforeUser,
 	listRecent,
 	loadConversation,
+	loadResumableConversation,
 	openSessions,
 	replaceConversation,
 	requireWritableConversation,
@@ -489,6 +491,8 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 	 * has to pretend it is one.
 	 */
 	const modelHistoryRef = useRef<readonly Message[]>([])
+	/** Consumed only after the exact durable conversation has loaded successfully. */
+	const initialConversationIdRef = useRef(initialCtx.initialConversationId)
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
@@ -1074,13 +1078,28 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 		)
 	}, [])
 
-	// Open the SDK session store + start a fresh conversation once. Best-effort:
-	// on failure persistence is simply unavailable and the chat still works.
+	// Open the SDK session store and select the durable conversation once.
+	// Ordinary startup remains best-effort; an explicit `namzu resume <id>` is
+	// exact and therefore refuses instead of silently widening to a fresh chat.
 	const ensureSessions = useCallback(async (): Promise<RunScope | undefined> => {
 		if (scopeRef.current) return scopeRef.current
+		const requestedConversationId = initialConversationIdRef.current
 		try {
 			const sessions = await openSessions(ctxRef.current.cwd)
-			const sessionId = await startConversation(sessions)
+			let sessionId
+			if (requestedConversationId) {
+				const restored = await loadResumableConversation(sessions, requestedConversationId)
+				sessionId = asSessionId(requestedConversationId)
+				modelHistoryRef.current = restored
+				setMessages(projectConversation(restored, nextId))
+				const persistedOutput = latestAssistantOutput(restored)
+				lastCompletedOutputRef.current = persistedOutput
+					? { text: persistedOutput, provenance: 'persisted' }
+					: null
+				initialConversationIdRef.current = undefined
+			} else {
+				sessionId = await startConversation(sessions)
+			}
 			sessionsRef.current = sessions
 			scopeRef.current = {
 				sessionId,
@@ -1089,10 +1108,11 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				tenantId: sessions.tenantId,
 			}
 			return scopeRef.current
-		} catch {
+		} catch (error) {
+			if (requestedConversationId) throw error
 			return undefined
 		}
-	}, [])
+	}, [nextId])
 
 	const hydrateSession = useCallback(
 		async (prefs: Preferences, detectedNow: readonly DetectedProvider[], signal?: AbortSignal) => {
@@ -1382,6 +1402,21 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 		async (signal?: AbortSignal) => {
 			try {
 				if (signal?.aborted) return
+				// An exact shell resume owns conversation admission before provider
+				// discovery or construction. A malformed/missing id must not consume
+				// model work and then quietly continue in a fresh conversation.
+				if (initialConversationIdRef.current) {
+					try {
+						await ensureSessions()
+					} catch (error) {
+						setPhase('unhealthy')
+						pushMessage(
+							'system',
+							`Could not resume ${initialConversationIdRef.current}: ${error instanceof Error ? error.message : String(error)}`,
+						)
+						return
+					}
+				}
 				const probe = await probeAgentSession()
 				if (signal?.aborted) return
 				setDetected(probe.detected)
@@ -1471,7 +1506,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				)
 			}
 		},
-		[appLifetime.signal, hydrateSession, pushMessage],
+		[appLifetime.signal, ensureSessions, hydrateSession, pushMessage],
 	)
 
 	// `startOrFinishLogin` is declared above `runProbe` and calls it, so it
@@ -4139,7 +4174,6 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 								pending={messages.find((m) => m.pending) ?? null}
 								state={state}
 								settled={window.settled}
-								spacerRows={spacerRows}
 								resetKey={resetKey}
 								raw={rawOutput}
 								header={
@@ -4154,6 +4188,10 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 								}
 							/>
 						</TranscriptFrame>
+						{/* Conversation rows flow from the banner downward. The remaining
+						    viewport belongs below the transcript, so the composer can stay near
+						    the terminal bottom without pushing a short conversation down with it. */}
+						{spacerRows > 0 ? <Box height={spacerRows} /> : null}
 						<LiveActivity
 							activeTools={activeTools}
 							thinking={state === 'thinking' && !messages.some((m) => m.pending)}

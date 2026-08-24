@@ -37,7 +37,7 @@ describe('launchTui clean settlement', () => {
 		expect(close).toHaveBeenCalledOnce()
 		expect(flush).not.toHaveBeenCalled()
 		expect(write).toHaveBeenLastCalledWith(
-			'Conversation ses_clean · restart namzu, then run /resume\n',
+			'To resume this conversation, run: namzu resume ses_clean\n',
 		)
 	})
 })

@@ -54,6 +54,8 @@ export interface TranscriptMessage {
 export interface TuiContext {
 	readonly cwd: string
 	readonly version: string
+	/** Exact durable conversation requested by `namzu resume <id>`. */
+	readonly initialConversationId?: string
 	/**
 	 * Values-free launch-time config provenance for `/debug-config`.
 	 *

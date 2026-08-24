@@ -7,5 +7,6 @@ export interface TuiExitSummary {
 /** A useful shell handoff, never the TUI's buffered internal diagnostics. */
 export function formatTuiExitSummary(summary: TuiExitSummary | null): string {
 	if (!summary?.conversationId) return ''
-	return `Conversation ${terminalDisplayText(summary.conversationId)} · restart namzu, then run /resume\n`
+	const id = terminalDisplayText(summary.conversationId)
+	return `To resume this conversation, run: namzu resume ${id}\n`
 }

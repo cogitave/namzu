@@ -151,13 +151,21 @@ export function Composer({
 	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
 	const restoredTokenRef = useRef<number | null>(null)
 
-	const suggestions = matchSlashCommands(value, userCommands).slice(0, MAX_SUGGESTIONS)
+	// Keep the complete match set. The six-row limit belongs to the rendered
+	// window, not to navigation: slicing here made every later command
+	// unreachable no matter how many times the operator pressed Down.
+	const suggestions = matchSlashCommands(value, userCommands)
 	const showSuggestions = suggestions.length > 0
 	const selIdx = Math.min(selected, Math.max(0, suggestions.length - 1))
+	const suggestionStart = Math.min(
+		Math.max(0, selIdx - MAX_SUGGESTIONS + 1),
+		Math.max(0, suggestions.length - MAX_SUGGESTIONS),
+	)
+	const visibleSuggestions = suggestions.slice(suggestionStart, suggestionStart + MAX_SUGGESTIONS)
 	const displayValue = composerDisplayValue(value)
 	const commandColumnWidth = Math.min(
 		24,
-		Math.max(10, ...suggestions.map((command) => command.name.length + 4)),
+		Math.max(10, ...visibleSuggestions.map((command) => command.name.length + 4)),
 	)
 
 	const reset = useCallback(() => {
@@ -363,23 +371,26 @@ export function Composer({
 			</Box>
 			{showSuggestions ? (
 				<Box flexDirection="column" paddingX={1} paddingTop={1} width="100%">
-					{suggestions.map((cmd, i) => (
-						<Box key={cmd.name} width="100%" flexDirection="row">
-							<Box width={commandColumnWidth} flexShrink={0}>
-								<Text
-									color={i === selIdx ? theme.accent.user : theme.text.secondary}
-									bold={i === selIdx}
-								>
-									{i === selIdx ? '› ' : '  '}/{cmd.name}
-								</Text>
+					{visibleSuggestions.map((cmd, i) => {
+						const absoluteIndex = suggestionStart + i
+						return (
+							<Box key={cmd.name} width="100%" flexDirection="row">
+								<Box width={commandColumnWidth} flexShrink={0}>
+									<Text
+										color={absoluteIndex === selIdx ? theme.accent.user : theme.text.secondary}
+										bold={absoluteIndex === selIdx}
+									>
+										{absoluteIndex === selIdx ? '› ' : '  '}/{cmd.name}
+									</Text>
+								</Box>
+								<Box flexGrow={1} minWidth={0}>
+									<Text color={theme.text.muted} wrap="wrap">
+										{cmd.description}
+									</Text>
+								</Box>
 							</Box>
-							<Box flexGrow={1} minWidth={0}>
-								<Text color={theme.text.muted} wrap="wrap">
-									{cmd.description}
-								</Text>
-							</Box>
-						</Box>
-					))}
+						)
+					})}
 				</Box>
 			) : null}
 		</Box>

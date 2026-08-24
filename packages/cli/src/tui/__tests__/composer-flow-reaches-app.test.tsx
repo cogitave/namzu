@@ -190,8 +190,11 @@ describe('the two composer destinations', () => {
 			const firstPromptRow = screen.viewport().findIndex((line) => line.includes('start here'))
 			expect(
 				firstPromptRow,
-				`the submitted prompt jumped away from the composer:\n${screen.viewport().join('\n')}`,
-			).toBeGreaterThanOrEqual(14)
+				`the submitted prompt did not flow down from the banner:\n${screen.viewport().join('\n')}`,
+			).toBeGreaterThanOrEqual(5)
+			expect(firstPromptRow).toBeLessThan(14)
+			const composerRow = screen.viewport().findIndex((line) => line.includes('Type a message'))
+			expect(composerRow).toBeGreaterThan(firstPromptRow)
 
 			// Alt+V belongs to clipboard attachment, independently of computer-use.
 			screen.press('\x1bv')

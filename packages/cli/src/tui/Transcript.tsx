@@ -41,8 +41,6 @@ export interface TranscriptProps {
 	readonly resetKey: number
 	/** Render selection-friendly source with terminal controls exposed as visible escapes. */
 	readonly raw?: boolean
-	/** Blank rows between settled scrollback and the redrawable live tail. */
-	readonly spacerRows?: number
 	/**
 	 * Header (banner) printed once as the first <Static> row. It must live
 	 * inside <Static> — Ink writes static output to scrollback *above* the
@@ -71,7 +69,6 @@ export function Transcript({
 	settled,
 	resetKey,
 	raw = false,
-	spacerRows = 0,
 	header,
 }: TranscriptProps) {
 	const spinner = useSpinner(state !== 'idle')
@@ -110,10 +107,6 @@ export function Transcript({
 					)
 				}
 			</Static>
-			{/* Bottom-align the redrawable conversation tail. Keeping this spacer
-			    outside Transcript put it after the new user row, so submission moved
-			    that row from the composer to the top of the viewport. */}
-			{spacerRows > 0 ? <Box height={spacerRows} /> : null}
 			{live.map((message, i) =>
 				raw ? (
 					<RawMessageRow key={message.id} message={message} prev={messages[inScrollback + i - 1]} />
