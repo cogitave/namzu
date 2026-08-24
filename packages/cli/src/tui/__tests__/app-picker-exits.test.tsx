@@ -492,7 +492,12 @@ describe('publishing a picker selection', () => {
 		expect(harness.lastFrame()).toContain('default')
 		expect(harness.lastFrame()).toContain('low')
 		expect(harness.lastFrame()).toContain('high')
-		harness.stdin.write('2')
+		harness.stdin.write('\x1b[F')
+		harness.stdin.write('\x1b[H')
+		harness.stdin.write('\x1b[6~')
+		harness.stdin.write('\x1b[5~')
+		harness.stdin.write('\x1b[B')
+		harness.stdin.write('\r')
 		await frameShows(harness.lastFrame, 'Reasoning effort changed to low')
 
 		await submit(harness, '/permissions')

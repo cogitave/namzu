@@ -74,7 +74,9 @@ export function ChoicePicker({ title, notice, options, selected }: ChoicePickerP
 				})}
 			</Box>
 			<Box paddingTop={1}>
-				<Text color={theme.text.muted}>↑↓ navigate · 1–9 select · enter apply · esc cancel</Text>
+				<Text color={theme.text.muted}>
+					↑↓ navigate · PgUp/PgDn jump · Home/End boundary · 1–9 select · enter apply · esc cancel
+				</Text>
 			</Box>
 		</Box>
 	)

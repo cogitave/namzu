@@ -63,7 +63,9 @@ export function ResumePicker({ conversations, selected }: ResumePickerProps) {
 				})}
 			</Box>
 			<Box paddingTop={1}>
-				<Text color={theme.text.muted}>↑↓ navigate · enter resume · esc cancel</Text>
+				<Text color={theme.text.muted}>
+					↑↓ navigate · PgUp/PgDn jump · Home/End boundary · enter resume · esc cancel
+				</Text>
 			</Box>
 		</Box>
 	)

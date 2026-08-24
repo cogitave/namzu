@@ -146,7 +146,10 @@ matching command while using the remaining terminal width for descriptions.
 Its position line makes the full result count visible; PageUp/PageDown jump by
 a window and Home/End reach the boundaries. Menu input and selection are
 synchronous, so `/`, navigation and Enter may arrive in one terminal burst
-without losing the chosen command. On
+without losing the chosen command. The same page and boundary keys work in
+model, resume, review, skill, copy and other finite command choosers; their
+Enter action also follows the newest cursor when navigation arrives in the
+same terminal burst. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
 boot and sandbox diagnostics are reserved for crashes.
 

@@ -436,7 +436,10 @@ every matching command remains reachable with Up/Down. It prints the absolute
 selection and total count; PageUp/PageDown jump by six and Home/End select the
 registry boundaries. The live input buffer and selection, rather than the last
 rendered frame, own dispatch, so a slash, repeated navigation and Enter in one
-input burst run the highlighted command. A short transcript flows
+input burst run the highlighted command. Model, resume, review, skill, copy and
+other finite choice overlays expose the same page and boundary navigation over
+their seven-row windows. Their synchronous cursor is also the Enter authority,
+so a navigation burst cannot apply the previously rendered row. A short transcript flows
 from the banner downward; any unused viewport is padded after the complete
 transcript so the composer remains near the bottom without moving conversation
 rows there.

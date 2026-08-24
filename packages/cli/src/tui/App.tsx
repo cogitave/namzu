@@ -155,8 +155,10 @@ import {
 	runSlash,
 } from './slashCommands.js'
 import { splitCompleteBlocks } from './stream-blocks.js'
+import { moveSelection } from './selection-window.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
+import { useSelectionIndex } from './use-selection-index.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
 	type ReviewCommit,
@@ -693,14 +695,26 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 	const compactingRef = useRef(false)
 	const [compacting, setCompacting] = useState(false)
 	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
-	const [selectedResume, setSelectedResume] = useState<number>(0)
+	const {
+		selection: selectedResume,
+		selectionRef: selectedResumeRef,
+		setSelection: setSelectedResume,
+	} = useSelectionIndex(0)
 	const [editList, setEditList] = useState<readonly EditablePrompt[]>([])
-	const [selectedEdit, setSelectedEdit] = useState<number>(0)
+	const {
+		selection: selectedEdit,
+		selectionRef: selectedEditRef,
+		setSelection: setSelectedEdit,
+	} = useSelectionIndex(0)
 	const editCommittedRef = useRef(false)
 	/** `/copy` owns this exact response snapshot until selection or cancellation. */
 	const [copyPicker, setCopyPickerState] = useState<CopyPickerState | null>(null)
 	const copyPickerRef = useRef<CopyPickerState | null>(null)
-	const [selectedCopy, setSelectedCopy] = useState(0)
+	const {
+		selection: selectedCopy,
+		selectionRef: selectedCopyRef,
+		setSelection: setSelectedCopy,
+	} = useSelectionIndex(0)
 	const setCopyPicker = useCallback((next: CopyPickerState | null) => {
 		copyPickerRef.current = next
 		setCopyPickerState(next)
@@ -714,7 +728,11 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 	 * that created it before a menu has existed in the rendered tree.
 	 */
 	const choicePickerCommittedRef = useRef<ChoicePickerState | null>(null)
-	const [selectedChoice, setSelectedChoice] = useState(0)
+	const {
+		selection: selectedChoice,
+		selectionRef: selectedChoiceRef,
+		setSelection: setSelectedChoice,
+	} = useSelectionIndex(0)
 	const setChoicePicker = useCallback((next: ChoicePickerState | null) => {
 		choicePickerRef.current = next
 		if (next === null) choicePickerCommittedRef.current = null
@@ -4282,16 +4300,32 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 					setPhase('ready')
 					return
 				}
+				if (key.home || key.end || key.pageUp || key.pageDown) {
+					setSelectedEdit((index) =>
+						moveSelection(
+							index,
+							editList.length,
+							key.home
+								? 'first'
+								: key.end
+									? 'last'
+									: key.pageUp
+										? 'previous-page'
+										: 'next-page',
+						),
+					)
+					return
+				}
 				if (key.escape || key.leftArrow || key.upArrow) {
-					setSelectedEdit((index) => Math.max(0, index - 1))
+					setSelectedEdit((index) => moveSelection(index, editList.length, 'previous'))
 					return
 				}
 				if (key.rightArrow || key.downArrow) {
-					setSelectedEdit((index) => Math.min(editList.length - 1, index + 1))
+					setSelectedEdit((index) => moveSelection(index, editList.length, 'next'))
 					return
 				}
 				if (key.return) {
-					const target = editList[selectedEdit]
+					const target = editList[selectedEditRef.current]
 					if (target) void confirmPromptEdit(target)
 				}
 				return
@@ -4303,10 +4337,26 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 				// second read and an Esc would hand back a screen that is about to be
 				// replaced regardless.
 				if (resumeCommittedRef.current) return
-				if (key.upArrow) setSelectedResume((i) => Math.max(0, i - 1))
-				else if (key.downArrow) setSelectedResume((i) => Math.min(resumeList.length - 1, i + 1))
+				if (key.home || key.end || key.pageUp || key.pageDown) {
+					setSelectedResume((index) =>
+						moveSelection(
+							index,
+							resumeList.length,
+							key.home
+								? 'first'
+								: key.end
+									? 'last'
+									: key.pageUp
+										? 'previous-page'
+										: 'next-page',
+						),
+					)
+				} else if (key.upArrow)
+					setSelectedResume((index) => moveSelection(index, resumeList.length, 'previous'))
+				else if (key.downArrow)
+					setSelectedResume((index) => moveSelection(index, resumeList.length, 'next'))
 				else if (key.return) {
-					const conv = resumeList[selectedResume]
+					const conv = resumeList[selectedResumeRef.current]
 					if (conv) void resumeConversation(conv)
 				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
 				return
@@ -4377,16 +4427,32 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 					setChoicePicker(null)
 					return
 				}
+				if (key.home || key.end || key.pageUp || key.pageDown) {
+					setSelectedChoice((index) =>
+						moveSelection(
+							index,
+							options.length,
+							key.home
+								? 'first'
+								: key.end
+									? 'last'
+									: key.pageUp
+										? 'previous-page'
+										: 'next-page',
+						),
+					)
+					return
+				}
 				if (key.upArrow) {
-					setSelectedChoice((index) => Math.max(0, index - 1))
+					setSelectedChoice((index) => moveSelection(index, options.length, 'previous'))
 					return
 				}
 				if (key.downArrow) {
-					setSelectedChoice((index) => Math.min(options.length - 1, index + 1))
+					setSelectedChoice((index) => moveSelection(index, options.length, 'next'))
 					return
 				}
 				if (key.return) {
-					applyChoiceSelection(selectedChoice)
+					applyChoiceSelection(selectedChoiceRef.current)
 					return
 				}
 				if (/^[1-9]$/.test(input)) {
@@ -4404,16 +4470,32 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 					setCopyPicker(null)
 					return
 				}
+				if (key.home || key.end || key.pageUp || key.pageDown) {
+					setSelectedCopy((index) =>
+						moveSelection(
+							index,
+							targets.length,
+							key.home
+								? 'first'
+								: key.end
+									? 'last'
+									: key.pageUp
+										? 'previous-page'
+										: 'next-page',
+						),
+					)
+					return
+				}
 				if (key.upArrow) {
-					setSelectedCopy((index) => Math.max(0, index - 1))
+					setSelectedCopy((index) => moveSelection(index, targets.length, 'previous'))
 					return
 				}
 				if (key.downArrow) {
-					setSelectedCopy((index) => Math.min(targets.length - 1, index + 1))
+					setSelectedCopy((index) => moveSelection(index, targets.length, 'next'))
 					return
 				}
 				if (key.return) {
-					sendCopyRequest(selectedCopy)
+					sendCopyRequest(selectedCopyRef.current)
 					return
 				}
 				if (/^[1-9]$/.test(input)) {

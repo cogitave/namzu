@@ -59,7 +59,8 @@ export function CopyPicker({ targets, selected }: CopyPickerProps) {
 			</Box>
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
-					↑↓ navigate · 1–9 select · enter send request · esc cancel
+					↑↓ navigate · PgUp/PgDn jump · Home/End boundary · 1–9 select · enter send request ·
+					esc cancel
 				</Text>
 			</Box>
 		</Box>

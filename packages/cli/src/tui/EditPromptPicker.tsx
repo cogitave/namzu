@@ -56,7 +56,8 @@ export function EditPromptPicker({ prompts, selected }: EditPromptPickerProps) {
 			</Box>
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
-					Esc / ← older · → newer · enter fork and edit · q cancel
+					Esc / ← older · → newer · PgUp/PgDn jump · Home/End boundary · enter fork and edit · q
+					cancel
 				</Text>
 			</Box>
 		</Box>

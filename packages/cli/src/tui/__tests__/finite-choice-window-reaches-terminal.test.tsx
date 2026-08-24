@@ -52,6 +52,7 @@ const RECENT = Array.from({ length: 30 }, (_, index) => ({
 	count: 2,
 	named: false,
 }))
+const loadedConversationIds: string[] = []
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -65,7 +66,10 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	appendMessages: async () => {},
 	replaceConversation: async () => {},
 	listRecent: async () => RECENT,
-	loadConversation: async () => [],
+	loadConversation: async (_sessions: unknown, id: string) => {
+		loadedConversationIds.push(id)
+		return []
+	},
 }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 vi.mock('../agent.js', async (importOriginal) => {
@@ -111,9 +115,10 @@ afterEach(async () => {
 	for (const screen of mounted.splice(0)) await screen.unmount()
 })
 
-async function waitUntil(screen: Screen, predicate: () => boolean, attempts = 100): Promise<void> {
-	for (let index = 0; index < attempts && !predicate(); index += 1) {
-		await screen.waitForRender()
+async function waitUntil(_screen: Screen, predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+	const started = performance.now()
+	while (!predicate() && performance.now() - started < timeoutMs) {
+		await new Promise((resolve) => setTimeout(resolve, 20))
 	}
 	expect(predicate()).toBe(true)
 }
@@ -122,7 +127,7 @@ function viewport(screen: Screen): string {
 	return screen.viewport().join('\n')
 }
 
-it('keeps a model reached beyond the first page visible and submits its absolute id', async () => {
+it('pages to model boundaries while keeping the absolute id visible and selectable', async () => {
 	const onSubmit = vi.fn()
 	const screen = await renderToScreen(
 		<Picker
@@ -137,22 +142,30 @@ it('keeps a model reached beyond the first page visible and submits its absolute
 
 	screen.press('\r')
 	await waitUntil(screen, () => viewport(screen).includes('Choose a model'))
-	for (let index = 0; index < 12; index += 1) {
-		screen.press('\x1B[B')
-		await screen.waitForRender()
-	}
+	screen.press('\x1b[6~')
+	screen.press('\x1b[6~')
+	screen.press('\x1b[F')
+	screen.press('\x1b[H')
+	screen.press('\x1b[F')
+	screen.press('\x1b[5~')
+	await screen.waitForRender()
 
 	const output = viewport(screen)
-	expect(output).toContain('❯ 13. Model 12')
-	expect(output).toContain('13/31')
-	expect(output).not.toContain('31. Model 30')
+	expect(output).toContain('❯ 24. Model 23')
+	expect(output).toContain('24/31')
+	expect(output).not.toContain('1. model-default')
 
+	// Navigation and Enter may arrive in one terminal chunk. The applied id must
+	// follow the synchronous cursor, not the React frame rendered above.
+	screen.press('\x1b[H')
+	screen.press('\x1b[6~')
 	screen.press('\r')
 	await waitUntil(screen, () => onSubmit.mock.calls.length === 1)
-	expect(onSubmit.mock.calls[0]?.[0]).toEqual({ provider: 'openai', model: 'model-12' })
+	expect(onSubmit.mock.calls[0]?.[0]).toEqual({ provider: 'openai', model: 'model-7' })
 })
 
-it('keeps App resume navigation on the selected conversation instead of an offscreen row', async () => {
+it('pages through App resume boundaries without selecting an offscreen conversation', async () => {
+	loadedConversationIds.length = 0
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 16 })
 	mounted.push(screen)
 	await waitUntil(screen, () => screen.scrollback().join('\n').includes('Connected to A Provider'))
@@ -161,13 +174,20 @@ it('keeps App resume navigation on the selected conversation instead of an offsc
 	await screen.waitForRender()
 	screen.press('\r')
 	await waitUntil(screen, () => viewport(screen).includes('Resume a conversation'))
-	for (let index = 0; index < 12; index += 1) {
-		screen.press('\x1B[B')
-		await screen.waitForRender()
-	}
+	screen.press('\x1b[6~')
+	screen.press('\x1b[6~')
+	screen.press('\x1b[F')
+	screen.press('\x1b[H')
+	screen.press('\x1b[6~')
+	await screen.waitForRender()
 
 	const output = viewport(screen)
-	expect(output).toContain('› Conversation 13')
-	expect(output).toContain('13/30')
+	expect(output).toContain('› Conversation 8')
+	expect(output).toContain('8/30')
 	expect(output).not.toContain('Conversation 30')
+
+	screen.press('\x1b[6~')
+	screen.press('\r')
+	await waitUntil(screen, () => loadedConversationIds.length === 1)
+	expect(loadedConversationIds).toEqual(['ses_15'])
 })

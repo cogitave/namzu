@@ -29,8 +29,9 @@ import {
 	sessionCredential,
 } from './credential-entry.js'
 import { type ModelStep, modelStep } from './model-choices.js'
-import { selectionWindow } from './selection-window.js'
+import { moveSelection, selectionWindow } from './selection-window.js'
 import { theme } from './theme.js'
+import { useSelectionIndex } from './use-selection-index.js'
 
 export interface PickerProps {
 	readonly detected: readonly DetectedProvider[]
@@ -243,7 +244,11 @@ export function Picker({
 		(currentProvider !== null && currentProvider !== undefined
 			? detected.findIndex((d) => d.entry.id === currentProvider)
 			: 0) || 0
-	const [cursor, setCursor] = useState<number>(Math.max(0, initialIndex))
+	const {
+		selection: cursor,
+		selectionRef: cursorRef,
+		setSelection: setCursor,
+	} = useSelectionIndex(Math.max(0, initialIndex))
 	const [errorHint, setErrorHint] = useState<string | null>(null)
 	// `null` while choosing a provider. Once a provider is accepted this holds
 	// the model step, and `undefined` inside it means the listing is in flight.
@@ -492,16 +497,32 @@ export function Picker({
 
 		if (loginPhase) {
 			const choices = subscriptionChoices(detected)
+			if (key.home || key.end || key.pageUp || key.pageDown) {
+				setCursor((current) =>
+					moveSelection(
+						current,
+						choices.length,
+						key.home
+							? 'first'
+							: key.end
+								? 'last'
+								: key.pageUp
+									? 'previous-page'
+									: 'next-page',
+					),
+				)
+				return
+			}
 			if (key.upArrow) {
-				setCursor((current) => Math.max(0, current - 1))
+				setCursor((current) => moveSelection(current, choices.length, 'previous'))
 				return
 			}
 			if (key.downArrow) {
-				setCursor((current) => Math.min(choices.length - 1, current + 1))
+				setCursor((current) => moveSelection(current, choices.length, 'next'))
 				return
 			}
 			if (key.return) {
-				const chosen = choices[cursor]
+				const chosen = choices[cursorRef.current]
 				if (!chosen) return
 				if (chosen.kind === 'existing') {
 					const operation = beginOperation()
@@ -545,16 +566,32 @@ export function Picker({
 		if (modelPhase) {
 			const step = modelPhase.step
 			if (!step) return // still listing; ignore input rather than act on a stale list
+			if (key.home || key.end || key.pageUp || key.pageDown) {
+				setCursor((current) =>
+					moveSelection(
+						current,
+						step.choices.length,
+						key.home
+							? 'first'
+							: key.end
+								? 'last'
+								: key.pageUp
+									? 'previous-page'
+									: 'next-page',
+					),
+				)
+				return
+			}
 			if (key.upArrow) {
-				setCursor((c) => Math.max(0, c - 1))
+				setCursor((current) => moveSelection(current, step.choices.length, 'previous'))
 				return
 			}
 			if (key.downArrow) {
-				setCursor((c) => Math.min(step.choices.length - 1, c + 1))
+				setCursor((current) => moveSelection(current, step.choices.length, 'next'))
 				return
 			}
 			if (key.return) {
-				const chosen = step.choices[cursor]
+				const chosen = step.choices[cursorRef.current]
 				if (!chosen) {
 					setErrorHint('No model available.')
 					return
@@ -571,16 +608,32 @@ export function Picker({
 			return
 		}
 
+		if (key.home || key.end || key.pageUp || key.pageDown) {
+			setCursor((current) =>
+				moveSelection(
+					current,
+					detected.length,
+					key.home
+						? 'first'
+						: key.end
+							? 'last'
+							: key.pageUp
+								? 'previous-page'
+								: 'next-page',
+				),
+			)
+			return
+		}
 		if (key.upArrow) {
-			setCursor((c) => Math.max(0, c - 1))
+			setCursor((current) => moveSelection(current, detected.length, 'previous'))
 			return
 		}
 		if (key.downArrow) {
-			setCursor((c) => Math.min(Math.max(0, detected.length - 1), c + 1))
+			setCursor((current) => moveSelection(current, detected.length, 'next'))
 			return
 		}
 		if (key.return) {
-			const current = detected[cursor]
+			const current = detected[cursorRef.current]
 			if (!current) {
 				setErrorHint('No provider available.')
 				return
@@ -950,7 +1003,9 @@ function ModelStepView({
 				</>
 			)}
 			<Box flexDirection="column" paddingTop={1}>
-				<Text color={theme.text.muted}>↑↓ or 1-9 navigate · enter accept · esc back</Text>
+				<Text color={theme.text.muted}>
+					↑↓ or 1-9 navigate · PgUp/PgDn jump · Home/End boundary · enter accept · esc back
+				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>
 		</Box>
