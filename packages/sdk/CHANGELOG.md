@@ -1,5 +1,66 @@
 # Changelog
 
+## 32.0.0
+
+### Major Changes
+
+- 343730a: Stored attachment resolution is now reachable through `runAgent`, `ReactiveAgent`, `SupervisorAgent`, routed delegates, and directory-derived configs. Pass the owning `AttachmentStore` through `runAgent({ attachmentStore })` or `AgentInput.attachmentStore`.
+
+  The materialization phase now has a finite one-minute default. Configure `attachmentResolveTimeoutMs` on the run or agent boundary, or set it to `0` to retain the previous unbounded wait. Direct `resolveAttachment` and `resolveAttachments` callers can use `options.timeoutMs`. A deadline rejects with `AttachmentResolutionTimeoutError`; missing, mismatched, or late attachments are never silently dropped.
+
+- 90deea2: Recover a server-confirmed invalid-image request once when the provider-bound
+  history contains exactly one distinct image. HTTP 400 responses carrying the
+  exact `invalid_image` provider code preserve the original bytes with durable
+  `modelOmission` metadata after a successful image-free retry, suppress that
+  image on later requests, and emit a measured history-repair event. A legacy
+  phrase can recover the current request but cannot claim durable server proof;
+  failed, ambiguous, partial-output, and cancelled attempts leave history unchanged.
+
+  SDK consumers that exhaustively switch over
+  `message_history_repaired.source` must handle the new
+  `provider-rejected-image` member. Persistence implementations must retain the
+  optional `modelOmission` field on image attachments and image tool-result
+  blocks. `ProviderErrorInfo.providerCode` is now the bounded machine identifier
+  from a provider error response; do not parse `detail` for provider-defined
+  codes. Hosts should render the repair as retained bytes with model delivery
+  suppressed, not as deletion.
+
+- 1643672: Add `runtime-context` to `UserMessageSource` and tag SDK-authored user-role
+  messages with the reason they were inserted. Consumers that exhaustively switch
+  over `UserMessageSource` must handle the new member; persistence layers must
+  preserve it instead of reclassifying the message as operator input.
+
+  The CLI now renders, edits, resumes, validates and exports these durable messages
+  as runtime context rather than as text typed by the operator.
+
+- 645b9db: Make nested and model-authored tool calls source-aware and operation-owned.
+  Every executor-issued `ToolContext` now identifies a direct, nested, or
+  `run_code` source; a child receives its own execution id, progress route,
+  parent lineage and deadline. Durable pauses remain bound to the nearest
+  model-issued ancestor because that is the call a checkpoint can replay. Nested
+  success and failure text is passed through the configured tool-output budget
+  before crossing into the code runtime, while terminal events expose the
+  original size and truncation metadata.
+
+  Custom `CodeRuntime` implementations must migrate their host callback from
+  `onHostCall(request)` to
+  `onHostCall(request, {runtimeToolCallId, signal})`, using a per-program unique
+  id and an operation signal revoked by caller cancellation or the runtime's wall
+  clock. The SDK root now exports the code-runtime contract, result types,
+  `HostCallContext`, `WorkerCodeRuntime`, and `HostCallDeniedError` so this
+  migration requires no deep import. The shipped worker waits for already-started
+  host calls before claiming an ordinary program completion and preserves exact
+  abort causes.
+
+### Patch Changes
+
+- aedd9f8: Bound live tool progress under host backpressure. `ToolContext.report()` now
+  keeps at most one in-flight and one latest pending update per call, caps each
+  published message at 8 KiB of UTF-8, and settles accepted progress before the
+  terminal event without changing the durable tool result. The interactive CLI
+  shows that latest progress and optional percentage on the matching live tool
+  row with terminal-safe rendering.
+
 ## 31.1.0
 
 ### Minor Changes
