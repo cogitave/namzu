@@ -72,6 +72,7 @@ Screenshots return base64-encoded PNG in `ToolResult.output`. Destructive action
 | **Linux X11** | `maim` | `xdotool` | `xdotool` | `xdotool` | `apt install xdotool maim` / `dnf install …` / `pacman -S …` |
 | **Linux Wayland** | `grim` (wlroots) | `ydotool` (needs uinput daemon) | `wtype` or `ydotool` | — | `apt install grim wtype ydotool` + start `ydotoold` |
 | **Windows** | PowerShell `System.Drawing` | `SendInput` via inline C# | `SendKeys` | `Cursor::Position` | `pwsh` or `powershell.exe` (built-in) |
+| **WSL → Windows** | PowerShell `System.Drawing` | `SendInput` via inline C# | `SendKeys` | `Cursor::Position` | Windows `powershell.exe` through WSL interop |
 
 ### macOS permissions (TCC)
 
@@ -95,6 +96,8 @@ Scroll is not supported on macOS from built-in CLIs. Use keyboard navigation (`{
 ### Windows caveats
 
 - Input fails when the workstation is locked or on the screensaver. No way around this — Windows enforces user-session context for `SendInput`.
+- WSL targets the paired Windows desktop, not the WSLg compositor. WSL's
+  `DISPLAY` and `WAYLAND_DISPLAY` therefore do not override the interop route.
 
 ## Capability Flags
 

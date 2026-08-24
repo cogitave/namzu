@@ -32,6 +32,9 @@ importers:
       '@namzu/anthropic':
         specifier: workspace:*
         version: link:../providers/anthropic
+      '@namzu/computer-use':
+        specifier: workspace:*
+        version: link:../computer-use
       '@namzu/deepseek':
         specifier: workspace:^
         version: link:../providers/deepseek

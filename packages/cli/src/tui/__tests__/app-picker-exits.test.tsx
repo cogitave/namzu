@@ -286,7 +286,7 @@ afterEach(async () => {
 })
 
 describe('trusted runtime config reaches hydration', () => {
-	it('passes plugin authority into the real createAgentSession hop', async () => {
+	it('passes plugin and interactive desktop authority into the real createAgentSession hop', async () => {
 		let seen: Parameters<typeof createSession>[2]
 		createSession = async (_prefs, _detected, options) => {
 			seen = options
@@ -310,6 +310,7 @@ describe('trusted runtime config reaches hydration', () => {
 		expect(seen).toEqual(
 			expect.objectContaining({
 				cwd: '/w',
+				enableComputerUse: true,
 				plugins: {
 					enabled: true,
 					allowedScopes: ['project'],

@@ -53,11 +53,11 @@ irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
 ```
 
 Installing brings the kernel and five model drivers — Anthropic, OpenAI,
-DeepSeek, OpenRouter and Ollama — plus `@namzu/files`, as ordinary dependencies
-rather than peers. So a fresh install can already reach any of those services, given a
-credential. `@namzu/telemetry`, `@namzu/sandbox` and `@namzu/computer-use` are
-**not** installed with it; they are the optional capabilities `namzu doctor`
-probes for.
+DeepSeek, OpenRouter and Ollama — plus `@namzu/files` and
+`@namzu/computer-use`, as ordinary dependencies rather than peers. So a fresh
+install can already reach those services and expose desktop control when the
+device has a supported adapter. `@namzu/telemetry` and `@namzu/sandbox` remain
+optional capabilities that `namzu doctor` probes for.
 
 ## Usage
 
@@ -77,6 +77,15 @@ actually running, installs the exact registry version there, and reads that
 same package back before reporting success. It refuses local checkouts and
 unknown package-manager layouts instead of guessing at another binary on
 `PATH`; update those with the package manager that installed them.
+
+Desktop control is separate from attaching a clipboard image. Ctrl+V/Alt+V
+adds an image to the current prompt; the TUI's `computer_use` tool lets the
+model take a fresh screenshot and, after the normal permission decision, drive
+pointer or keyboard input. Namzu mounts that tool only when the host adapter
+initializes. Unattended `run`, `run-stream` and `drain` do not mount it because
+they have no interactive permission owner. Inside WSL the TUI targets the
+paired Windows desktop through `powershell.exe`, so WSLg display variables do
+not incorrectly select a Linux compositor adapter.
 
 On startup, Namzu first reuses usable `Claude` and `Codex` sessions already owned
 by their installed command-line clients, including the paired Windows home from

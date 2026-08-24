@@ -90,17 +90,8 @@ export function translateKeyToSendKeys(combo: string): string {
 
 const POWERSHELL_BASE_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass']
 
-async function runPowerShell(script: string): Promise<Buffer> {
-	// Prefer pwsh (PowerShell Core), fall back to powershell.exe
-	const [hasPwsh, hasPs] = await Promise.all([hasExecutable('pwsh'), hasExecutable('powershell')])
-	const exe = hasPwsh ? 'pwsh' : hasPs ? 'powershell' : null
-	if (!exe) {
-		throw new AdapterUnavailableError(
-			'Win32Adapter: neither pwsh nor powershell is available on PATH',
-			['pwsh', 'powershell'],
-		)
-	}
-	const result = await runCommandOrThrow(exe, [...POWERSHELL_BASE_ARGS, '-Command', script])
+async function runPowerShell(executable: string, script: string): Promise<Buffer> {
+	const result = await runCommandOrThrow(executable, [...POWERSHELL_BASE_ARGS, '-Command', script])
 	return result.stdout
 }
 
@@ -268,23 +259,17 @@ const MOUSE_DOWN_UP_FLAGS: Readonly<Record<MouseButton, readonly [string, string
 // Adapter
 // ---------------------------------------------------------------------------
 
-interface ProbeResult {
-	readonly hasPwsh: boolean
-	readonly hasPowerShell: boolean
-}
+const POWERSHELL_CANDIDATES = ['pwsh', 'powershell', 'pwsh.exe', 'powershell.exe'] as const
 
-async function probe(): Promise<ProbeResult> {
-	const [hasPwsh, hasPowerShell] = await Promise.all([
-		hasExecutable('pwsh'),
-		hasExecutable('powershell'),
-	])
-	return { hasPwsh, hasPowerShell }
+async function findPowerShell(): Promise<string | null> {
+	const present = await Promise.all(POWERSHELL_CANDIDATES.map((name) => hasExecutable(name)))
+	return POWERSHELL_CANDIDATES.find((_name, index) => present[index]) ?? null
 }
 
 export class Win32Adapter implements Adapter {
 	readonly capabilities: ComputerUseCapabilities
 
-	private constructor() {
+	private constructor(private readonly powershell: string) {
 		this.capabilities = Object.freeze({
 			displayServer: 'win32',
 			screenshot: true,
@@ -296,18 +281,18 @@ export class Win32Adapter implements Adapter {
 	}
 
 	static async create(): Promise<Win32Adapter> {
-		const probeResult = await probe()
-		if (!probeResult.hasPwsh && !probeResult.hasPowerShell) {
+		const powershell = await findPowerShell()
+		if (!powershell) {
 			throw new AdapterUnavailableError(
-				'Win32Adapter: neither pwsh (PowerShell 7+) nor powershell.exe are available on PATH',
-				['pwsh', 'powershell'],
+				'Win32Adapter: neither PowerShell Core nor Windows PowerShell is available on PATH',
+				[...POWERSHELL_CANDIDATES],
 			)
 		}
-		return new Win32Adapter()
+		return new Win32Adapter(powershell)
 	}
 
 	async getDisplayGeometry(): Promise<DisplayGeometry> {
-		const stdout = await runPowerShell(GEOMETRY_SCRIPT)
+		const stdout = await runPowerShell(this.powershell, GEOMETRY_SCRIPT)
 		const parsed = JSON.parse(stdout.toString('utf8')) as {
 			width: number
 			height: number
@@ -319,7 +304,7 @@ export class Win32Adapter implements Adapter {
 	async execute(action: ComputerUseAction): Promise<ComputerUseResult> {
 		switch (action.type) {
 			case 'screenshot': {
-				const data = await runPowerShell(SCREENSHOT_SCRIPT)
+				const data = await runPowerShell(this.powershell, SCREENSHOT_SCRIPT)
 				const dims = decodePngDims(data)
 				return {
 					type: 'screenshot',
@@ -332,27 +317,30 @@ export class Win32Adapter implements Adapter {
 				}
 			}
 			case 'cursor_position': {
-				const stdout = await runPowerShell(CURSOR_POSITION_SCRIPT)
+				const stdout = await runPowerShell(this.powershell, CURSOR_POSITION_SCRIPT)
 				const parsed = JSON.parse(stdout.toString('utf8')) as { x: number; y: number }
 				return { type: 'cursor_position', point: parsed }
 			}
 			case 'mouse_move':
-				await runPowerShell(mouseMoveScript(action.to))
+				await runPowerShell(this.powershell, mouseMoveScript(action.to))
 				return { type: 'ok' }
 			case 'mouse_click':
-				await runPowerShell(mouseClickScript(action.at, action.button))
+				await runPowerShell(this.powershell, mouseClickScript(action.at, action.button))
 				return { type: 'ok' }
 			case 'mouse_drag':
-				await runPowerShell(mouseDragScript(action.from, action.to, action.button))
+				await runPowerShell(this.powershell, mouseDragScript(action.from, action.to, action.button))
 				return { type: 'ok' }
 			case 'scroll':
-				await runPowerShell(scrollScript(action.at, action.direction, action.amount))
+				await runPowerShell(
+					this.powershell,
+					scrollScript(action.at, action.direction, action.amount),
+				)
 				return { type: 'ok' }
 			case 'type_text':
-				await runPowerShell(typeTextScript(action.text))
+				await runPowerShell(this.powershell, typeTextScript(action.text))
 				return { type: 'ok' }
 			case 'key':
-				await runPowerShell(pressKeyScript(action.keys))
+				await runPowerShell(this.powershell, pressKeyScript(action.keys))
 				return { type: 'ok' }
 		}
 	}

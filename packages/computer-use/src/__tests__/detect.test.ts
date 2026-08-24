@@ -11,6 +11,18 @@ describe('detectDisplayServer', () => {
 		expect(detectDisplayServer({}, 'win32')).toBe('win32')
 	})
 
+	it('uses the paired Windows desktop under WSL before WSLg display hints', () => {
+		expect(
+			detectDisplayServer(
+				{ WSL_DISTRO_NAME: 'test', WAYLAND_DISPLAY: 'wayland-0', DISPLAY: ':0' },
+				'linux',
+			),
+		).toBe('win32')
+		expect(detectDisplayServer({ WSL_INTEROP: '/run/WSL/1_interop', DISPLAY: ':0' }, 'linux')).toBe(
+			'win32',
+		)
+	})
+
 	it('prefers XDG_SESSION_TYPE on linux', () => {
 		expect(detectDisplayServer({ XDG_SESSION_TYPE: 'wayland' }, 'linux')).toBe('wayland')
 		expect(detectDisplayServer({ XDG_SESSION_TYPE: 'x11' }, 'linux')).toBe('x11')

@@ -12,6 +12,7 @@
 	},
 	"references": [
 		{ "path": "../sdk" },
+		{ "path": "../computer-use" },
 		{ "path": "../telemetry"
 		},
 		{

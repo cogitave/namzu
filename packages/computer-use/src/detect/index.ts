@@ -14,6 +14,15 @@ export function detectDisplayServer(
 	if (platform === 'win32') return 'win32'
 	if (platform !== 'linux') return 'unknown'
 
+	// WSL is a Linux process attached to a Windows interactive desktop. WSLg
+	// also publishes DISPLAY and WAYLAND_DISPLAY, but those sockets describe
+	// the Linux application surface, not the Windows desktop the operator asked
+	// the terminal agent to see. Windows PowerShell is available through the
+	// interop bridge and the Win32 adapter can therefore serve the complete
+	// desktop capability without asking the user to install Linux compositor
+	// tools that still would not control the host desktop.
+	if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return 'win32'
+
 	const sessionType = env.XDG_SESSION_TYPE?.toLowerCase()
 	if (sessionType === 'wayland') return 'wayland'
 	if (sessionType === 'x11') return 'x11'

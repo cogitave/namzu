@@ -1207,6 +1207,7 @@ export function App({ ctx: initialCtx, onExitSummary }: AppProps) {
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				enableComputerUse: true,
 				rules: activeCtx.rules,
 				...(sessionsRef.current ? { sessionGoals: sessionsRef.current.goals } : {}),
 				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),

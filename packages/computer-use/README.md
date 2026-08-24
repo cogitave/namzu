@@ -69,6 +69,11 @@ const registry = new ToolRegistry()
 registry.register(createComputerUseTool(host))
 ```
 
+When Namzu runs inside WSL, the host selects the paired Windows desktop and
+uses `powershell.exe` through WSL interop. This takes precedence over WSLg's
+`DISPLAY`/`WAYLAND_DISPLAY`, which describe Linux GUI applications rather than
+the Windows desktop containing the terminal.
+
 ## Documentation
 
 - [Computer use — the platform matrix, capability flags and error surface](https://github.com/cogitave/namzu/blob/main/docs/packages/computer-use.md)

@@ -74,6 +74,7 @@ import {
 	buildMemoryTools,
 	buildSessionGoalTools,
 	compactNow,
+	createComputerUseTool,
 	createMemoryPromoter,
 	createToolPresenter,
 	genericLabel,
@@ -83,6 +84,8 @@ import {
 	resumeRun,
 	withProviderFallback,
 } from '@namzu/sdk'
+
+import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { join } from 'node:path'
 import type { PluginConfig, SandboxConfig } from '../config/schema.js'
@@ -986,6 +989,13 @@ export interface AgentSessionOptions {
 	readonly onRunEvent?: (event: RunEvent) => void
 	/** Durable goal authority for the main TUI session; omitted on headless surfaces. */
 	readonly sessionGoals?: SessionGoalStore
+	/**
+	 * Mount host desktop control for a surface that owns an interactive
+	 * permission callback. False by default: `run`, `run-stream` and `drain`
+	 * have no human prompt to guard pointer/keyboard input and must not inherit
+	 * this capability merely because the package is installed.
+	 */
+	readonly enableComputerUse?: boolean
 }
 
 export async function createAgentSession(
@@ -1310,6 +1320,26 @@ export async function createAgentSession(
 		'namzu.sandbox.unconfined': sandbox.unconfined,
 	})
 	const { registry, memoryStore } = buildToolRegistry(cwd)
+	// Package presence is not tool reachability. The CLI used to probe and
+	// report @namzu/computer-use without ever constructing its host or mounting
+	// SDK's computer_use definition, so even an installed, healthy package was
+	// invisible to the model. Probe first to retain absent/broken diagnostics;
+	// only a successfully initialised adapter earns a schema in the registry.
+	const capabilities = await probeCapabilities()
+	const computerUsePackage = capabilities.find((probe) => probe.specifier === '@namzu/computer-use')
+	let computerUseHost: SubprocessComputerUseHost | undefined
+	let computerUseError: Error | undefined
+	if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
+		const candidate = new SubprocessComputerUseHost()
+		try {
+			await candidate.initialize()
+			registry.register(createComputerUseTool(candidate))
+			computerUseHost = candidate
+		} catch (error) {
+			computerUseError = error instanceof Error ? error : new Error(String(error))
+			await candidate.dispose().catch(() => {})
+		}
+	}
 	// Registered only on the main session path. Sub-agents call
 	// `buildToolRegistry` directly below, so they never receive these tools.
 	// Per-send denial further keeps the schemas out of ordinary human turns.
@@ -1354,8 +1384,10 @@ export async function createAgentSession(
 	// separately run via `namzu doctor` — same probe, same three-state
 	// answer, so the boot narrative and the doctor report can never disagree
 	// about whether @namzu/sandbox loaded.
-	const capabilities = await probeCapabilities()
-	logCapabilities(capabilities)
+	logCapabilities(capabilities, {
+		computerUseReady: computerUseHost !== undefined,
+		...(computerUseError ? { computerUseError } : {}),
+	})
 	// This session passes a `taskStore` to query() below, which registers the
 	// task tools deferred — so `search_tools` has something to find here.
 	registry.register([SearchToolsTool])
@@ -1479,7 +1511,7 @@ export async function createAgentSession(
 	try {
 		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd)
 	} catch (error) {
-		await mcp.close()
+		await Promise.allSettled([mcp.close(), computerUseHost?.dispose()])
 		return emptySession(describeError(error))
 	}
 	if (pluginRuntime) {
@@ -1501,7 +1533,11 @@ export async function createAgentSession(
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_READY,
 	})
 	const operations = new SessionOperationOwner(async () => {
-		const results = await Promise.allSettled([pluginRuntime?.close(), mcp.close()])
+		const results = await Promise.allSettled([
+			pluginRuntime?.close(),
+			mcp.close(),
+			computerUseHost?.dispose(),
+		])
 		const failures = results
 			.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
 			.map((result) => result.reason)
@@ -1563,6 +1599,9 @@ export async function createAgentSession(
 		configNotices: [
 			...(capabilityNotice ? [capabilityNotice] : []),
 			...(effortNotice ? [effortNotice] : []),
+			...(computerUseError
+				? [`Computer use is unavailable on this device: ${describeError(computerUseError)}`]
+				: []),
 			...unresolvedNotice.map(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
 			),
@@ -3043,10 +3082,17 @@ function exceptionAttributes(err: unknown): LogAttributes {
  * capability's failure degrades what this line SAYS, never whether
  * `namzu.boot.ready` fires.
  */
-function logCapabilities(probes: readonly CapabilityProbe[]): void {
+function logCapabilities(
+	probes: readonly CapabilityProbe[],
+	runtime: { readonly computerUseReady: boolean; readonly computerUseError?: Error },
+): void {
 	const log = cliLogger()
 	const summary = probes
-		.map((p) => `${p.specifier.split('/').pop()} ${p.state === 'present' ? 'yes' : 'no'}`)
+		.map((p) => {
+			const present =
+				p.specifier === '@namzu/computer-use' ? runtime.computerUseReady : p.state === 'present'
+			return `${p.specifier.split('/').pop()} ${present ? 'yes' : 'no'}`
+		})
 		.join(' · ')
 	log.info(summary, {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED,
@@ -3066,6 +3112,15 @@ function logCapabilities(probes: readonly CapabilityProbe[]): void {
 			'namzu.capability.state': probe.state,
 			'namzu.capability.present': probe.state === 'present',
 			...(probe.state === 'present' ? { 'namzu.capability.version': probe.version } : {}),
+		})
+	}
+	if (runtime.computerUseError) {
+		log.warn('Computer use adapter is unavailable', {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED,
+			'namzu.capability.name': '@namzu/computer-use',
+			'namzu.capability.state': 'unavailable',
+			'namzu.capability.present': false,
+			...exceptionAttributes(runtime.computerUseError),
 		})
 	}
 }
