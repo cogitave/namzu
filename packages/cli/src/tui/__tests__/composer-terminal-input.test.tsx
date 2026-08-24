@@ -254,6 +254,72 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
+	it('moves by words with Alt+B/F and modified arrows', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('alpha beta')
+			screen.press('\x1bb')
+			screen.press('X')
+			screen.press('\x1b[1;5D')
+			screen.press('\x1b[1;5D')
+			screen.press('\x1bf')
+			screen.press('!')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('alpha! Xbeta', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('deletes the previous or next word at the live cursor', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('alpha beta gamma')
+			screen.press('\x1b\x7f')
+			screen.press('\x01')
+			screen.press('\x1bd')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('beta', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('uses Ctrl+D as forward grapheme deletion without submitting', async () => {
+		const submit = vi.fn()
+		const screen = await renderToScreen(composer(submit), {
+			cols: 100,
+			rows: 16,
+		})
+		try {
+			screen.press('a👍🏽b')
+			screen.press('\x01')
+			screen.press('\x1b[C')
+			screen.press('\x04')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(submit).toHaveBeenCalledWith('ab', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('deletes forward at Delete and kills toward either line boundary', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(composer(submit), {

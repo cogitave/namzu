@@ -131,7 +131,9 @@ characters, Home/End and Ctrl+A/Ctrl+E move to line boundaries, and
 Ctrl+W/Ctrl+U/Ctrl+K delete around the live cursor. Ctrl+J, Shift+Enter and
 Alt+Enter add a newline; Up/Down and Ctrl+P/Ctrl+N move between authored lines
 before crossing into prompt history, where returning to the newest entry
-restores the unsent draft. Conversation rows flow
+restores the unsent draft. Alt+B/F and modified arrows move by words,
+Alt+Backspace/Alt+D delete words, and Ctrl+D deletes the next complete
+displayed character. Conversation rows flow
 downward from the banner while unused viewport
 space stays below the transcript, and the slash palette scrolls through every
 matching command while using the remaining terminal width for descriptions. On

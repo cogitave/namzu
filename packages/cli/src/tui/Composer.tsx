@@ -225,10 +225,7 @@ export function deletePreviousWord(source: string): string {
 	return deletePreviousWordAt(source, source.length).value
 }
 
-function deletePreviousWordAt(
-	source: string,
-	cursor: number,
-): { readonly value: string; readonly cursor: number } {
+function previousWordBoundary(source: string, cursor: number): number {
 	let start = cursor
 	while (start > 0) {
 		const previous = previousGraphemeBoundary(source, start)
@@ -240,7 +237,38 @@ function deletePreviousWordAt(
 		if (/\s/u.test(source.slice(previous, start))) break
 		start = previous
 	}
+	return start
+}
+
+function nextWordBoundary(source: string, cursor: number): number {
+	let end = cursor
+	while (end < source.length) {
+		const next = nextGraphemeBoundary(source, end)
+		if (!/\s/u.test(source.slice(end, next))) break
+		end = next
+	}
+	while (end < source.length) {
+		const next = nextGraphemeBoundary(source, end)
+		if (/\s/u.test(source.slice(end, next))) break
+		end = next
+	}
+	return end
+}
+
+function deletePreviousWordAt(
+	source: string,
+	cursor: number,
+): { readonly value: string; readonly cursor: number } {
+	const start = previousWordBoundary(source, cursor)
 	return { value: source.slice(0, start) + source.slice(cursor), cursor: start }
+}
+
+function deleteNextWordAt(
+	source: string,
+	cursor: number,
+): { readonly value: string; readonly cursor: number } {
+	const end = nextWordBoundary(source, cursor)
+	return { value: source.slice(0, cursor) + source.slice(end), cursor }
 }
 
 export function Composer({
@@ -410,6 +438,11 @@ export function Composer({
 				reset()
 				return
 			}
+			if (key.backspace && (key.meta || key.ctrl)) {
+				const result = deletePreviousWordAt(valueRef.current, cursorRef.current)
+				editBuffer(result.value, result.cursor)
+				return
+			}
 			if (key.backspace) {
 				// Backspace on an empty line removes the last durable attachment first,
 				// then pasted text.
@@ -429,13 +462,27 @@ export function Composer({
 				)
 				return
 			}
-			if (key.delete) {
+			if (key.delete || (key.ctrl && input === 'd')) {
 				const position = cursorRef.current
 				const next = nextGraphemeBoundary(valueRef.current, position)
 				editBuffer(
 					valueRef.current.slice(0, position) + valueRef.current.slice(next),
 					position,
 				)
+				return
+			}
+			if ((key.leftArrow && (key.meta || key.ctrl)) || (key.meta && input === 'b')) {
+				verticalColumnRef.current = null
+				const previous = previousWordBoundary(valueRef.current, cursorRef.current)
+				cursorRef.current = previous
+				setCursorState(previous)
+				return
+			}
+			if ((key.rightArrow && (key.meta || key.ctrl)) || (key.meta && input === 'f')) {
+				verticalColumnRef.current = null
+				const next = nextWordBoundary(valueRef.current, cursorRef.current)
+				cursorRef.current = next
+				setCursorState(next)
 				return
 			}
 			if (key.leftArrow || (key.ctrl && input === 'b')) {
@@ -556,6 +603,11 @@ export function Composer({
 				const position = cursorRef.current
 				const end = lineEnd(valueRef.current, position)
 				editBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(end), position)
+				return
+			}
+			if (key.meta && input === 'd') {
+				const result = deleteNextWordAt(valueRef.current, cursorRef.current)
+				editBuffer(result.value, result.cursor)
 				return
 			}
 			if (key.ctrl || key.meta) return
