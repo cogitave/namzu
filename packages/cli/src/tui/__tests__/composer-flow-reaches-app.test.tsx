@@ -4,8 +4,13 @@ import type { Message } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import type { UserCommand } from '../../user-commands/store.js'
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
-import { matchSlashCommands } from '../slashCommands.js'
+import {
+	kernelCommandDescriptors,
+	matchSlashCommands,
+	mergeHostCommands,
+} from '../slashCommands.js'
 import type { TuiContext } from '../types.js'
 import { renderToScreen } from './support/screen.js'
 
@@ -20,7 +25,10 @@ const sent: Message[][] = []
 const sentOptions: SendOptions[] = []
 const delivered: Message[][] = []
 const replacements: Message[][] = []
-const { defaultEditor } = vi.hoisted(() => ({ defaultEditor: vi.fn() }))
+const { defaultEditor, discoveredUserCommands } = vi.hoisted(() => ({
+	defaultEditor: vi.fn(),
+	discoveredUserCommands: [] as UserCommand[],
+}))
 
 let releaseFirstTurn: () => void = () => {}
 let firstTurnGate = Promise.resolve()
@@ -41,7 +49,7 @@ vi.mock('../external-editor.js', async (importOriginal) => {
 	return { ...actual, editDraftInExternalEditor: defaultEditor }
 })
 vi.mock('../../user-commands/store.js', () => ({
-	discoverUserCommands: () => [],
+	discoverUserCommands: () => discoveredUserCommands,
 }))
 vi.mock('../mentions.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../mentions.js')>()
@@ -170,6 +178,7 @@ beforeEach(() => {
 	sentOptions.length = 0
 	delivered.length = 0
 	replacements.length = 0
+	discoveredUserCommands.length = 0
 	defaultEditor.mockReset().mockResolvedValue('edited by configured host editor')
 	drainFirstTurn = true
 	firstTurnGate = new Promise<void>((resolve) => {
@@ -292,6 +301,94 @@ describe('the two composer destinations', () => {
 				'burst-selected /tools command never reached App',
 			)
 
+			expect(sent).toHaveLength(0)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('opens a tall command palette with /help and dispatches its selected command', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 40,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			screen.press('/help')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Choose a command')),
+				'/help did not reach the command palette',
+			)
+
+			const commands = mergeHostCommands(kernelCommandDescriptors())
+			// A 40-row terminal has room for twelve command rows. The twelfth exact
+			// label distinguishes this from the old seven-row finite overlay.
+			const twelfth = commands[11]
+			expect(twelfth).toBeDefined()
+			expect(screen.viewport().some((line) => line.includes(`/${twelfth?.name}`))).toBe(true)
+
+			const agentsIndex = commands.findIndex((command) => command.name === 'agents')
+			expect(agentsIndex).toBeGreaterThan(0)
+			for (let index = 0; index < agentsIndex; index += 1) screen.press('\x1b[B')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Agents: none.')),
+				'the command selected from /help never re-entered App dispatch',
+			)
+			expect(sent).toHaveLength(0)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('keeps a refused project command visible without dispatching its colliding builtin', async () => {
+		discoveredUserCommands.push({
+			name: 'tools',
+			description: 'project-owned collision',
+			template: '',
+			path: '/w/.namzu/commands/tools.md',
+			source: 'project',
+			problem: '"/tools" is a built-in command, so this file is not used.',
+		})
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 40,
+		})
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			screen.press('/help')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Choose a command')),
+				'/help did not reach the command palette',
+			)
+			screen.press('\x1b[F')
+			screen.press('\r')
+			await waitUntil(
+				screen,
+				() =>
+					screen
+						.scrollback()
+						.some((line) =>
+							line.includes(
+								'Cannot run /tools: "/tools" is a built-in command, so this file is not used.',
+							),
+						),
+				'the refused project command did not keep its own refusal identity',
+			)
+			expect(screen.scrollback().join('\n')).not.toContain('No tools registered yet')
 			expect(sent).toHaveLength(0)
 		} finally {
 			await screen.unmount()

@@ -86,6 +86,13 @@ Commands the kernel's own registry contributes are merged in beside them; a name
 claimed by both raises an error rather than letting one silently shadow the
 other.
 
+`/help` opens that exact merged vocabulary as an interactive command palette.
+Enter dispatches the selected row through the ordinary slash-command path, so a
+command with another decision (such as `/permissions`) opens its normal chooser
+instead of a parallel implementation. Project command files that cannot be
+loaded remain visible with their refusal reason and cannot accidentally invoke a
+same-named built-in.
+
 `/pwd` prints the canonical working directory this session uses. `/mention`
 returns the composer to an editable `@` token instead of sending the command to
 the model. Tracked and unignored project files appear in a bounded chooser;
@@ -168,9 +175,10 @@ Model catalogues and the fifty-entry recent-conversation index therefore keep
 the active row visible as arrow navigation crosses a page; the position counter
 continues to describe the complete list rather than the visible slice.
 
-Slash-command and file-completion menus reserve a six-row window on short
-terminals, grow to twelve rows when the terminal has spare height, and keep the
-full roster reachable by arrows and page keys in either layout.
+Slash-command and file-completion menus, plus the `/help` command palette,
+reserve a six-row window on short terminals, grow to twelve rows when the
+terminal has spare height, and keep the full roster reachable by arrows and
+page keys in either layout.
 
 The one-line footer keeps the active model, reasoning effort and working
 directory on the left. A durable goal state or a state-specific interaction hint

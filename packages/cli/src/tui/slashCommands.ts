@@ -38,8 +38,18 @@ import { type PermissionMode, isPermissionMode } from '../permissions/mode.js'
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
 
+/** One row in the interactive `/help` command palette. */
+export interface CommandPickerEntry {
+	readonly name: string
+	readonly description: string
+	/** Present when a discovered command file exists but cannot be executed. */
+	readonly problem?: string
+}
+
 export type SlashAction =
 	| { kind: 'message'; role: 'system'; content: string }
+	/** Choose and dispatch one exact command from the session's live vocabulary. */
+	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
 	| { kind: 'exit' }
 	/** Empty only the rendered terminal transcript; model context is unchanged. */
 	| { kind: 'clear-screen' }
@@ -503,30 +513,25 @@ export function parseSlash(line: string): ParsedSlash | null {
 export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'help',
-		description: 'Show available slash commands.',
+		description: 'Choose and run an available slash command.',
 		action: (ctx) => {
-			// Reads what this session OFFERS, not a module constant. A command
-			// the kernel registered and `/help` did not list is a command
-			// nobody discovers.
-			const builtin = (ctx.builtins ?? CLI_LOCAL_COMMANDS).map(
-				(c) => `/${c.name.padEnd(12)} ${c.description}`,
-			)
-			// Listed separately and always, including the refused ones with their
-			// reason. A command file that exists and does not work is exactly what
-			// its author needs to see here — leaving it out of `/help` is how it
-			// stays broken.
-			const own = ctx.userCommands.map((c) =>
-				c.problem
-					? `/${c.name.padEnd(12)} ⚠ ${c.problem}`
-					: `/${c.name.padEnd(12)} ${c.description}`,
-			)
+			// Reads what this session OFFERS, not a module constant. A command the
+			// kernel registered and `/help` did not list is a command nobody
+			// discovers. Refused command files remain rows with their reason; App
+			// refuses those rows instead of silently invoking a same-named builtin.
 			return {
-				kind: 'message',
-				role: 'system',
-				content:
-					own.length > 0
-						? `${builtin.join('\n')}\n\nYour commands:\n${own.join('\n')}`
-						: builtin.join('\n'),
+				kind: 'command-picker',
+				commands: [
+					...(ctx.builtins ?? CLI_LOCAL_COMMANDS).map((command) => ({
+						name: command.name,
+						description: command.description,
+					})),
+					...ctx.userCommands.map((command) => ({
+						name: command.name,
+						description: command.description,
+						...(command.problem ? { problem: command.problem } : {}),
+					})),
+				],
 			}
 		},
 	},

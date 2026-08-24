@@ -15,11 +15,12 @@ export interface ChoicePickerProps {
 	readonly notice?: string
 	readonly options: readonly ChoicePickerOption[]
 	readonly selected: number
+	readonly windowSize?: number
 }
 
 /** Finite command chooser; App owns keys and applies the selected authority. */
-export function ChoicePicker({ title, notice, options, selected }: ChoicePickerProps) {
-	const { start, items: visible } = selectionWindow(options, selected)
+export function ChoicePicker({ title, notice, options, selected, windowSize }: ChoicePickerProps) {
+	const { start, items: visible } = selectionWindow(options, selected, windowSize)
 	// A fixed 18-column label made branch names, commit subjects and skill names
 	// unreadable even in a wide terminal. Grow only the visible page so the
 	// description keeps useful room and navigating does not create a huge box

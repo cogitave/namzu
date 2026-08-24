@@ -173,13 +173,13 @@ describe('runSlash', () => {
 		if (r?.kind === 'message') expect(r.content).toContain('Unknown command')
 	})
 
-	it('/help lists every registered command', () => {
+	it('/help opens a finite chooser over every registered command', () => {
 		const r = runSlash('/help', ctx)
-		expect(r?.kind).toBe('message')
-		if (r?.kind === 'message') {
-			for (const cmd of CLI_LOCAL_COMMANDS) {
-				expect(r.content).toContain(`/${cmd.name}`)
-			}
+		expect(r?.kind).toBe('command-picker')
+		if (r?.kind === 'command-picker') {
+			expect(r.commands.map((command) => command.name)).toEqual(
+				CLI_LOCAL_COMMANDS.map((command) => command.name),
+			)
 		}
 	})
 
@@ -737,28 +737,23 @@ describe('/init', () => {
 })
 
 describe('the new commands are reachable', () => {
-	it('/help lists them, so they are discoverable without docs', () => {
+	it('/help offers them, so they are selectable without docs', () => {
 		// Through the MERGED set, which is the whole claim: `/agents` is the
 		// kernel's command now, and it reaches `/help` with no edit to this
 		// file. Deleting the merge makes this fail.
 		const merged = mergeHostCommands(kernelCommandDescriptors())
 		const r = runSlash('/help', { ...ctx, builtins: merged }, merged)
-		expect(r?.kind).toBe('message')
-		if (r?.kind === 'message') {
-			// Anchored on the whole name, not a prefix. `toContain('/agents')` was
-			// the first version and it survived renaming the command to
-			// `/agentsXX`, because that contains it — the same substring trap that
-			// let a deleted command keep passing a `--help` assertion in
-			// `cli.test.ts`. `/help` pads the name, so a real entry is the name
-			// followed by whitespace.
-			expect(r.content).toMatch(/\/cost\s/)
-			expect(r.content).toMatch(/\/permissions\s/)
-			expect(r.content).toMatch(/\/effort\s/)
-			expect(r.content).toMatch(/\/agents\s/)
+		expect(r?.kind).toBe('command-picker')
+		if (r?.kind === 'command-picker') {
+			const names = r.commands.map((command) => command.name)
+			expect(names).toContain('cost')
+			expect(names).toContain('permissions')
+			expect(names).toContain('effort')
+			expect(names).toContain('agents')
 			// `/expand` replaced a key. A key is discoverable by pressing it and a
 			// command is not, so the entry that names it is load-bearing in a way
 			// the others are not.
-			expect(r.content).toMatch(/\/expand\s/)
+			expect(names).toContain('expand')
 		}
 	})
 
@@ -881,10 +876,11 @@ describe('/login and /logout', () => {
 
 	it('both appear in /help, or nobody finds them', () => {
 		const help = runSlash('/help', ctx)
-		expect(help?.kind).toBe('message')
-		if (help?.kind === 'message') {
-			expect(help.content).toContain('/login')
-			expect(help.content).toContain('/logout')
+		expect(help?.kind).toBe('command-picker')
+		if (help?.kind === 'command-picker') {
+			expect(help.commands.map((command) => command.name)).toEqual(
+				expect.arrayContaining(['login', 'logout']),
+			)
 		}
 	})
 

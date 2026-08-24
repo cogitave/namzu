@@ -102,7 +102,12 @@ import type { PermissionMode } from '../permissions/mode.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
-import { Composer, type ComposerDraft, type ComposerSubmitMode } from './Composer.js'
+import {
+	Composer,
+	type ComposerDraft,
+	type ComposerSubmitMode,
+	suggestionWindowSize,
+} from './Composer.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
@@ -147,6 +152,7 @@ import {
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
+	type CommandPickerEntry,
 	type SlashContext,
 	baseBranchReviewPrompt,
 	commitReviewPrompt,
@@ -211,6 +217,14 @@ type ConversationExportDestination =
 	| { readonly kind: 'clipboard' }
 	| { readonly kind: 'file'; readonly path: string }
 type ChoicePickerState =
+	| {
+			readonly kind: 'command'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly CommandPickerEntry[]
+			readonly options: readonly ChoicePickerOption[]
+			readonly windowSize: number
+	  }
 	| {
 			readonly kind: 'archive-conversation'
 			readonly title: string
@@ -783,6 +797,7 @@ export function App({
 	 * that created it before a menu has existed in the rendered tree.
 	 */
 	const choicePickerCommittedRef = useRef<ChoicePickerState | null>(null)
+	const commandPickerSubmitRef = useRef<(command: string) => void>(() => {})
 	const {
 		selection: selectedChoice,
 		selectionRef: selectedChoiceRef,
@@ -1605,6 +1620,15 @@ export function App({
 				return
 			}
 			setChoicePicker(null)
+			if (picker.kind === 'command') {
+				const command = value as CommandPickerEntry
+				if (command.problem) {
+					pushMessage('system', `Cannot run /${command.name}: ${command.problem}`)
+					return
+				}
+				commandPickerSubmitRef.current(`/${command.name}`)
+				return
+			}
 			if (picker.kind === 'archive-conversation') {
 				if (value === 'archive') archiveCurrentConversation()
 				return
@@ -3640,6 +3664,27 @@ export function App({
 					case 'message':
 						pushMessage(slash.role, slash.content)
 						return
+					case 'command-picker': {
+						if (slash.commands.length === 0) {
+							pushMessage('system', 'No slash commands are available in this session.')
+							return
+						}
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'command',
+							title: 'Choose a command',
+							notice: 'Enter runs the selected command; Esc returns to the composer.',
+							values: slash.commands,
+							options: slash.commands.map((command) => ({
+								label: `/${command.name}`,
+								description: command.problem
+									? `Unavailable: ${command.problem}`
+									: command.description,
+							})),
+							windowSize: suggestionWindowSize(stdout.rows),
+						})
+						return
+					}
 					case 'clear-screen':
 						setMessages([])
 						resetTranscript()
@@ -4370,8 +4415,14 @@ export function App({
 			stableExportSource,
 			startFreshConversation,
 			state,
+			stdout.rows,
 		],
 	)
+	// `applyChoiceSelection` is declared before `handleSubmit` because the
+	// picker is also used by review/export flows. Keep only this dispatch hop in
+	// a ref so selecting a help row re-enters the one ordinary slash-command
+	// path instead of growing a second command executor.
+	commandPickerSubmitRef.current = handleSubmit
 
 	// Keep the footer on the same durable goal record the driver mutates. A ref
 	// alone cannot repaint React, so every goal mutation bumps goalDriveVersion;
@@ -4872,6 +4923,7 @@ export function App({
 					return
 				}
 				if (key.home || key.end || key.pageUp || key.pageDown) {
+					const pageSize = picker.kind === 'command' ? picker.windowSize : undefined
 					setSelectedChoice((index) =>
 						moveSelection(
 							index,
@@ -4883,6 +4935,7 @@ export function App({
 									: key.pageUp
 										? 'previous-page'
 										: 'next-page',
+							pageSize,
 						),
 					)
 					return
@@ -5119,6 +5172,9 @@ export function App({
 								notice={choicePicker.notice}
 								options={choicePicker.options}
 								selected={selectedChoice}
+								windowSize={
+									choicePicker.kind === 'command' ? choicePicker.windowSize : undefined
+								}
 							/>
 						) : permission === null && copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />

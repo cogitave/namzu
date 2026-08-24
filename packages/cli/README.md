@@ -106,7 +106,10 @@ API keys remain optional alternatives through environment variables or the
 session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
 
-Bare `/effort`, `/permissions`, `/feedback`, `/skills`, and `/review` open finite
+Bare `/help` opens the session's complete command vocabulary as a keyboard
+palette; selecting a row runs that command through the same dispatcher as a
+typed slash command. Refused project command files remain visible with their
+reason. Bare `/effort`, `/permissions`, `/feedback`, `/skills`, and `/review` open finite
 keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
 `/title` remains an alias and `/title clear` removes the chosen name. The review
 chooser can target a base branch, uncommitted work, or a recent commit; choosing
@@ -123,7 +126,8 @@ history remains on disk for inspection.
 `/skills list` prints the roster. Long model and resume lists
 keep a seven-row window around the active choice and show its absolute position.
 Finite labels grow into available terminal width, so branch names and commit
-subjects are not forced through the same narrow column. Completion menus keep a
+subjects are not forced through the same narrow column. The `/help` palette and
+completion menus keep a
 six-row window on short terminals and grow to twelve rows when height is
 available; arrow navigation still reaches the full roster. The
 footer keeps `model effort · cwd` on the left and reserves the right edge for a
