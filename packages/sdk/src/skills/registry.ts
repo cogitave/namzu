@@ -208,6 +208,53 @@ export class SkillRegistry {
 	}
 
 	/**
+	 * The model-facing catalog, keyed by what this registry actually accepts.
+	 *
+	 * Reading the Map key is load-bearing for host namespaces. A plugin may file
+	 * `reconcile` as `ledger__reconcile`; reconstructing the name from the skill
+	 * body would advertise a call that cannot resolve (and could collide with a
+	 * different plugin's unqualified name).
+	 */
+	async catalog(): Promise<
+		readonly {
+			registeredName: string
+			description: string
+			location: string
+			allowedTools?: string
+			invocation?: 'model' | 'operator' | 'both'
+		}[]
+	> {
+		const entries: Array<{
+			registeredName: string
+			description: string
+			location: string
+			allowedTools?: string
+			invocation?: 'model' | 'operator' | 'both'
+		}> = []
+		// `load` owns file freshness and deletion. Listing straight from the Map
+		// would make an edited SKILL.md stale here while a named read in the same
+		// run saw the new metadata — two catalogs depending on which operation the
+		// model happened to try first.
+		for (const registeredName of [...this.skills.keys()]) {
+			const loaded = await this.load(registeredName, 'metadata')
+			if (!loaded) continue
+			const skill = loaded.skill
+			entries.push({
+				registeredName,
+				description: skill.metadata.description,
+				location: join(skill.dirPath, SKILL_FILENAME),
+				...(skill.metadata.allowedTools === undefined
+					? {}
+					: { allowedTools: skill.metadata.allowedTools }),
+				...(skill.metadata.invocation === undefined
+					? {}
+					: { invocation: skill.metadata.invocation }),
+			})
+		}
+		return entries
+	}
+
+	/**
 	 * Every registered name.
 	 *
 	 * So a lookup that misses can name what IS there. A bare "not found"

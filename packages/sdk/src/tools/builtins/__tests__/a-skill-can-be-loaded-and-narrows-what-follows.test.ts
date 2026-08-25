@@ -71,6 +71,91 @@ function contextFor(
 }
 
 describe('the model can open a skill without a filesystem', () => {
+	it('refuses list mode when a structural registry cannot enumerate audience-safe metadata', async () => {
+		const result = await SkillTool.execute(
+			{},
+			contextFor(registry([{ name: 'operator-secret', invocation: 'operator' }])),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/cannot enumerate model-safe metadata/)
+		expect(result.output).not.toContain('operator-secret')
+	})
+
+	it('uses a warning phase without advancing past an unseen retained entry', async () => {
+		const skills: SkillRegistryRef = {
+			catalog: () => [
+				{
+					registeredName: 'oversized',
+					description: 'x'.repeat(1_024),
+					location: '/skills/oversized/SKILL.md',
+				},
+				{
+					registeredName: 'small',
+					description: 'small',
+					location: '/skills/small/SKILL.md',
+				},
+			],
+			load: async () => undefined,
+			names: () => ['oversized', 'small'],
+		}
+
+		let first:
+			| {
+					cap: number
+					output: string
+					page: { skills: unknown[]; warnings: string[]; nextCursor: string | null }
+			  }
+			| undefined
+		for (let cap = 120; cap <= 420; cap += 1) {
+			const result = await SkillTool.execute(
+				{},
+				contextFor(skills, undefined, { maxToolOutputChars: cap }),
+			)
+			if (!result.success) continue
+			const page = JSON.parse(result.output) as {
+				skills: unknown[]
+				warnings: string[]
+				nextCursor: string | null
+			}
+			if (page.skills.length === 0 && page.warnings.length === 1 && page.nextCursor) {
+				first = { cap, output: result.output, page }
+				break
+			}
+		}
+
+		expect(first, 'fixture could not isolate the warning-only budget boundary').toBeDefined()
+		const wrongBudget = await SkillTool.execute(
+			{ cursor: first?.page.nextCursor as string },
+			contextFor(skills, undefined, { maxToolOutputChars: (first?.cap as number) + 1 }),
+		)
+		expect(wrongBudget.success).toBe(false)
+		expect(wrongBudget.error).toMatch(/stale or invalid/)
+		const continued = await SkillTool.execute(
+			{ cursor: first?.page.nextCursor as string },
+			contextFor(skills, undefined, { maxToolOutputChars: first?.cap }),
+		)
+		expect(continued.success).toBe(true)
+		const second = JSON.parse(continued.output) as {
+			skills: Array<{ name: string }>
+			warnings: string[]
+			nextCursor: string | null
+		}
+		expect(first?.output.length).toBeLessThanOrEqual(first?.cap as number)
+		expect(continued.output.length).toBeLessThanOrEqual(first?.cap as number)
+		expect(second).toEqual({
+			skills: [
+				{
+					name: 'small',
+					description: 'small',
+					location: '/skills/small/SKILL.md',
+				},
+			],
+			warnings: [],
+			nextCursor: null,
+		})
+	})
+
 	it('returns the body', async () => {
 		const result = await SkillTool.execute(
 			{ name: 'reconcile' },

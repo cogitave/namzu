@@ -287,6 +287,7 @@ and the custom `CodeRuntime` migration contract.
 
 Purpose:
 
+- list model-invocable skill metadata when called without `name`
 - load the body of a skill already named in the available-skills manifest
 - adopt its declared `allowed-tools` restriction for the next model batch
 
@@ -294,8 +295,18 @@ Notes:
 
 - not in `getBuiltinTools()`; register `SkillTool` and supply
   `query({ skillRegistry })` together
+- list pages contain at most 20 skills and stay inside the effective
+  `maxToolOutputChars`; operator-only skills are not disclosed, and a
+  structural registry that cannot enumerate audience-safe metadata refuses
+  list mode rather than falling back to its unfiltered names
+- oversized catalog entries are omitted with one explicit warning; the
+  continuation cursor records that the warning was delivered independently
+  of the next retained catalog offset, so a warning-only page neither loops
+  nor skips an entry
 - long bodies are paged within the effective `maxToolOutputChars`; keep calling
   with the returned opaque `cursor` until the result has no continuation
+- list cursors are bound to the ordered effective catalog and active output
+  cap; editing metadata or changing the cap makes an old cursor stale
 - a cursor is bound to the registered name, exact body, normalized
   `allowed-tools`, and invocation policy; editing any of them makes an old
   cursor stale before it can change the run's tool scope

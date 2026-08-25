@@ -510,6 +510,13 @@ protocol can therefore page before the generic head+tail fallback discards its
 middle. Direct host calls may omit the field; a tool must preserve its existing
 unbounded direct-call behavior in that case unless the host says otherwise.
 
+`SkillTool` uses that native path for both operations: omit `name` to page the
+model-invocable metadata catalog, or provide `name` to page the exact skill
+body. Catalog pages never substitute the registry's raw name list because that
+list may include operator-only skills. Both cursor forms bind the state that
+makes their continuation truthful; a metadata, policy, body, or active-cap
+change is a stale-cursor refusal rather than a mixed snapshot.
+
 Relatedly, `read` returns the first 2000 lines when given no window, and says so with a `[PARTIAL view — lines X-Y of Z]` notice naming the exact next call. A truncated read that looks like a short file is the most expensive silent failure a read tool can have.
 
 ## 7c. Failing and Recovering

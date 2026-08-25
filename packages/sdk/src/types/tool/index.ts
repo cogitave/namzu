@@ -27,6 +27,32 @@ export interface ToolRegistryRef {
  */
 export interface SkillRegistryRef {
 	/**
+	 * Enumerate the metadata the model may use to discover a skill.
+	 *
+	 * Optional so an older structural registry that only supports named loads
+	 * remains a valid host. `SkillTool` refuses its list mode when this member is
+	 * absent: `names()` cannot distinguish a model skill from an operator-only
+	 * one, so treating it as a safe catalog would disclose an authority boundary.
+	 */
+	catalog?():
+		| readonly {
+				/** The name the registry accepts, which may be namespaced by its host. */
+				registeredName: string
+				description: string
+				location: string
+				allowedTools?: string
+				invocation?: 'model' | 'operator' | 'both'
+		  }[]
+		| Promise<
+				readonly {
+					registeredName: string
+					description: string
+					location: string
+					allowedTools?: string
+					invocation?: 'model' | 'operator' | 'both'
+				}[]
+		  >
+	/**
 	 * Load a skill's full body, or `undefined` for a name nobody registered.
 	 *
 	 * Full disclosure by design: a tool call asking for a skill is asking

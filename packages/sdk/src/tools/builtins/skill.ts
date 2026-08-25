@@ -24,17 +24,24 @@ const inputSchema = z.object({
 	name: z
 		.string()
 		.min(1)
-		.describe('The skill to load, exactly as listed in the available-skills manifest.'),
+		.optional()
+		.describe(
+			'The skill to load, exactly as listed in the available-skills manifest. Omit it to list model-invocable skills.',
+		),
 	cursor: z
 		.string()
 		.max(160)
 		.optional()
-		.describe('Opaque continuation cursor returned by an earlier call for this exact skill.'),
+		.describe('Opaque continuation cursor returned by an earlier call in the same mode.'),
 })
 
 type SkillInput = z.infer<typeof inputSchema>
 
 const CURSOR_PATTERN = /^v1\.([1-9][0-9]*)\.([A-Za-z0-9_-]{43})$/
+const LIST_CURSOR_PATTERN = /^v1\.list\.(0|[1-9][0-9]*)\.([01])\.([A-Za-z0-9_-]{43})$/
+const MAX_SKILLS_PER_PAGE = 20
+const OVERSIZED_CATALOG_WARNING =
+	'Some skills were omitted because their metadata is too large for this response budget.'
 
 interface SkillSnapshot {
 	readonly name: string
@@ -46,6 +53,19 @@ interface SkillSnapshot {
 interface SkillPage {
 	readonly output: string
 	readonly nextCursor?: string
+}
+
+interface ListedSkill {
+	readonly name: string
+	readonly description: string
+	readonly location: string
+	readonly allowedTools?: string
+}
+
+interface SkillListPage {
+	readonly skills: readonly ListedSkill[]
+	readonly warnings: readonly string[]
+	readonly nextCursor: string | null
 }
 
 function snapshotDigest(snapshot: SkillSnapshot): string {
@@ -72,6 +92,97 @@ function parseCursor(cursor: string): { offset: number; digest: string } | undef
 	const offset = Number(match[1])
 	if (!Number.isSafeInteger(offset)) return undefined
 	return { offset, digest: match[2] ?? '' }
+}
+
+function listCursorFor(offset: number, warned: boolean, digest: string): string {
+	return `v1.list.${offset}.${warned ? 1 : 0}.${digest}`
+}
+
+function parseListCursor(
+	cursor: string,
+): { offset: number; warned: boolean; digest: string } | undefined {
+	const match = LIST_CURSOR_PATTERN.exec(cursor)
+	if (!match) return undefined
+	const offset = Number(match[1])
+	if (!Number.isSafeInteger(offset)) return undefined
+	return { offset, warned: match[2] === '1', digest: match[3] ?? '' }
+}
+
+function activeOutputCap(maxChars: number | undefined): number | undefined {
+	return maxChars !== undefined && maxChars > 0 ? maxChars : undefined
+}
+
+function listDigest(skills: readonly ListedSkill[], maxChars: number | undefined): string {
+	return createHash('sha256')
+		.update(JSON.stringify({ version: 1, kind: 'list', maxChars: maxChars ?? null, skills }))
+		.digest('base64url')
+}
+
+function serializeListPage(page: SkillListPage): string {
+	return JSON.stringify(page)
+}
+
+function fitsListBudget(page: SkillListPage, maxChars: number | undefined): boolean {
+	return maxChars === undefined || serializeListPage(page).length <= maxChars
+}
+
+function pageSkillCatalog(input: {
+	readonly skills: readonly ListedSkill[]
+	readonly digest: string
+	readonly start: number
+	readonly warningAlreadyShown: boolean
+	readonly maxChars: number | undefined
+}): SkillListPage | undefined {
+	const { skills, digest, start, warningAlreadyShown, maxChars } = input
+	const retained: Array<{ index: number; skill: ListedSkill }> = []
+	let omitted = false
+	let hasRetainedLater = false
+
+	// Work backwards so the final retained entry is tested without a cursor.
+	// A last entry that fits by itself must not be dropped merely because an
+	// earlier page will need a continuation token to reach it.
+	for (let index = skills.length - 1; index >= start; index -= 1) {
+		const skill = skills[index]
+		if (!skill) continue
+		const nextCursor = hasRetainedLater ? listCursorFor(index + 1, true, digest) : null
+		if (fitsListBudget({ skills: [skill], warnings: [], nextCursor }, maxChars)) {
+			retained.push({ index, skill })
+			hasRetainedLater = true
+		} else {
+			omitted = true
+		}
+	}
+	retained.reverse()
+
+	const warning = omitted && !warningAlreadyShown ? [OVERSIZED_CATALOG_WARNING] : []
+	let count = Math.min(MAX_SKILLS_PER_PAGE, retained.length)
+	while (count > 0) {
+		const selected = retained.slice(0, count)
+		const last = selected.at(-1)
+		const hasMore = count < retained.length
+		const page: SkillListPage = {
+			skills: selected.map((entry) => entry.skill),
+			warnings: warning,
+			nextCursor:
+				hasMore && last
+					? listCursorFor(last.index + 1, warningAlreadyShown || warning.length > 0, digest)
+					: null,
+		}
+		if (fitsListBudget(page, maxChars)) return page
+		count -= 1
+	}
+
+	if (warning.length > 0) {
+		const page: SkillListPage = {
+			skills: [],
+			warnings: warning,
+			nextCursor: retained.length > 0 ? listCursorFor(start, true, digest) : null,
+		}
+		if (fitsListBudget(page, maxChars)) return page
+	}
+
+	const empty: SkillListPage = { skills: [], warnings: [], nextCursor: null }
+	return retained.length === 0 && fitsListBudget(empty, maxChars) ? empty : undefined
 }
 
 function isCodePointBoundary(text: string, index: number): boolean {
@@ -146,7 +257,7 @@ export const SKILL_TOOL_NAME = 'skill'
 export const SkillTool = defineTool({
 	name: SKILL_TOOL_NAME,
 	description:
-		'Loads the instructions for a skill listed in the available-skills manifest. Long skills return an opaque continuation cursor; keep calling with that cursor until no continuation remains, before doing the work. The manifest carries only names and descriptions.',
+		'Lists model-invocable skills when called without a name, or loads one skill by its exact listed name. Long lists and bodies return an opaque continuation cursor; keep calling in the same mode with that cursor until no continuation remains. The manifest carries only names and descriptions.',
 	inputSchema,
 	category: 'analysis',
 	permissions: [],
@@ -164,6 +275,75 @@ export const SkillTool = defineTool({
 				output: '',
 				error:
 					'This run has no skills registry, so there is nothing to load. Proceed without the skill.',
+			}
+		}
+
+		if (input.name === undefined) {
+			if (!context.skills.catalog) {
+				return {
+					success: false,
+					output: '',
+					error:
+						'This skills registry cannot enumerate model-safe metadata. Use a skill name from the available-skills manifest.',
+				}
+			}
+			const skills = (await context.skills.catalog())
+				.filter(
+					(entry) =>
+						entry.invocation === undefined ||
+						entry.invocation === 'model' ||
+						entry.invocation === 'both',
+				)
+				.map(
+					(entry): ListedSkill => ({
+						name: entry.registeredName,
+						description: entry.description,
+						location: entry.location,
+						...(entry.allowedTools === undefined ? {} : { allowedTools: entry.allowedTools }),
+					}),
+				)
+			const maxChars = activeOutputCap(context.maxToolOutputChars)
+			const digest = listDigest(skills, maxChars)
+			let start = 0
+			let warningAlreadyShown = false
+			if (input.cursor !== undefined) {
+				const parsed = parseListCursor(input.cursor)
+				if (!parsed || parsed.digest !== digest || parsed.offset >= skills.length) {
+					return {
+						success: false,
+						output: '',
+						error:
+							'The skill-list continuation cursor is stale or invalid. Call skill again without a cursor to read the current catalog.',
+					}
+				}
+				start = parsed.offset
+				warningAlreadyShown = parsed.warned
+			}
+
+			const page = pageSkillCatalog({
+				skills,
+				digest,
+				start,
+				warningAlreadyShown,
+				maxChars,
+			})
+			if (!page) {
+				return {
+					success: false,
+					output: '',
+					error:
+						'The model-visible tool-output budget is too small to list skill metadata safely. Increase maxToolOutputChars and retry.',
+				}
+			}
+
+			return {
+				success: true,
+				output: serializeListPage(page),
+				data: {
+					kind: 'list',
+					count: page.skills.length,
+					...(page.nextCursor === null ? {} : { nextCursor: page.nextCursor }),
+				},
 			}
 		}
 
