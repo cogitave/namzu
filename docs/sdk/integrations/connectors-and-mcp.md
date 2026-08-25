@@ -668,6 +668,16 @@ id or reach its handlers, and only a successful `initialize` response may set
 the Streamable HTTP session id. A failed best-effort cancellation remains a
 per-request failure and cannot reject concurrent sibling calls.
 
+Both HTTP transports refuse redirects on the event-stream GET and every
+JSON-RPC POST. Authentication headers, session ids and model-authored tool
+arguments therefore stay at the endpoint the host configured. Configure the
+final MCP endpoint directly when a server returns a 3xx response; redirects
+are not followed even when their target has the same origin. For a redirected
+`tools/call`, the configured server has already received the request and may
+have applied it before returning the redirect. The generated tool result marks
+that case as `outcome: 'unknown'` and `retrySafety: 'unsafe'`; do not
+automatically retry it.
+
 A server-initiated request the client does not implement
 (`sampling/createMessage`, `elicitation/create`, `roots/list`) is answered
 with JSON-RPC `-32601` rather than dropped, so a spec-current server does

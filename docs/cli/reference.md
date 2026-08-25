@@ -982,7 +982,7 @@ valid.
 | `permissions` | tool → effect, or tool → { pattern → effect } | Effects are `allow`, `ask`, `deny`. Absent means every mutating tool prompts |
 | `permissionChecks` | list of `{ tool, input, expect }` | Checks the compiled permission table at startup and reports each mismatch or malformed entry |
 | `profiles` | name → config mapping | Select with `--profile` or `NAMZU_PROFILE`; a profile cannot contain `profiles` or executable `plugins` |
-| `mcpServers` | name → `{ command, args }` or `{ url }` | Tools arrive prefixed with the server's name |
+| `mcpServers` | name → `{ command, args }` or `{ url }` | Tools arrive prefixed with the server's name. HTTP URLs must name the final endpoint; redirects are refused so credentials and tool arguments cannot leave it |
 | `plugins` | `{ enabled?, autoDiscovery?, allowedScopes?, hookTimeoutMs? }` | Default off. Exact `enabled: true` admits executable bundles; scopes are `project` / `user` and hook timeouts are positive integer milliseconds |
 | `sandbox` | `{ enabled?, requireIsolation?, teardownTimeoutMs? }` | `enabled` defaults to **on**. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start. `teardownTimeoutMs` defaults to `30000`; `0` restores the former unbounded wait |
 | `telemetry` | `{ sessionExport?: { destination, eventTypes?, redactors? } }` | Writes run events to a JSONL file. `redactors: []` means no redaction and has to be written to mean it |

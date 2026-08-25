@@ -9,6 +9,8 @@
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { type IncomingMessage, type Server, createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -17,12 +19,23 @@ import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { connectMcpServers, transportFor } from '../servers.js'
 
 let dir: string
+const origins: TestOrigin[] = []
+
+interface TestOrigin {
+	readonly url: string
+	readonly requests: Array<{
+		readonly headers: IncomingMessage['headers']
+		readonly body: string
+	}>
+	readonly server: Server
+}
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), 'namzu-mcp-'))
 })
 
 afterEach(async () => {
+	await Promise.all(origins.splice(0).map((origin) => closeOrigin(origin)))
 	// A child's working directory is the temp directory, and `close()` sends
 	// SIGTERM without waiting for the exit — so on Windows the directory is
 	// still held for a moment after the last assertion. Retried rather than
@@ -119,7 +132,91 @@ function send(o) { process.stdout.write(JSON.stringify(o) + '\\n') }
 /** Starts, and never answers. The case a request timeout cannot cover. */
 const SILENT_SERVER = 'setInterval(() => {}, 1000)\n'
 
+async function startOrigin(
+	handler: (
+		request: IncomingMessage,
+		response: import('node:http').ServerResponse,
+		body: string,
+	) => void | Promise<void>,
+): Promise<TestOrigin> {
+	const requests: TestOrigin['requests'] = []
+	const server = createServer(async (request, response) => {
+		let body = ''
+		for await (const chunk of request) body += String(chunk)
+		requests.push({ headers: { ...request.headers }, body })
+		await handler(request, response, body)
+	})
+	await new Promise<void>((resolve, reject) => {
+		server.once('error', reject)
+		server.listen(0, '127.0.0.1', () => {
+			server.off('error', reject)
+			resolve()
+		})
+	})
+	const address = server.address() as AddressInfo
+	const origin = { url: `http://127.0.0.1:${address.port}`, requests, server }
+	origins.push(origin)
+	return origin
+}
+
+async function closeOrigin(origin: TestOrigin): Promise<void> {
+	origin.server.closeAllConnections()
+	await new Promise<void>((resolve) => origin.server.close(() => resolve()))
+}
+
 describe('a declared server', () => {
+	it('does not send configured credentials or JSON-RPC bodies to a redirect target', async () => {
+		const sink = await startOrigin((_request, response, body) => {
+			const message = JSON.parse(body) as { id?: number; method?: string }
+			if (message.method === 'initialize') {
+				response.writeHead(200, { 'Content-Type': 'application/json' }).end(
+					JSON.stringify({
+						jsonrpc: '2.0',
+						id: message.id,
+						result: {
+							protocolVersion: '2024-11-05',
+							capabilities: { tools: {} },
+							serverInfo: { name: 'redirect-target', version: '1' },
+						},
+					}),
+				)
+				return
+			}
+			if (message.method === 'tools/list') {
+				response
+					.writeHead(200, { 'Content-Type': 'application/json' })
+					.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { tools: [] } }))
+				return
+			}
+			response.writeHead(202).end()
+		})
+		const source = await startOrigin((_request, response) => {
+			response.writeHead(307, { Location: `${sink.url}/collect` }).end()
+		})
+
+		const mcp = await connectMcpServers(
+			{
+				private: {
+					url: `${source.url}/rpc`,
+					headers: { 'X-API-Key': 'mcp-secret' },
+				},
+			},
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.connected).toEqual([])
+			expect(mcp.failed).toHaveLength(1)
+			expect(mcp.failed[0]?.name).toBe('private')
+			expect(mcp.failed[0]?.reason).toMatch(/configure the final MCP endpoint directly/i)
+			expect(source.requests).toHaveLength(1)
+			expect(source.requests[0]?.headers['x-api-key']).toBe('mcp-secret')
+			expect(source.requests[0]?.body).toContain('initialize')
+			expect(sink.requests).toEqual([])
+		} finally {
+			await mcp.close()
+		}
+	})
+
 	it('brings its tools, named after it', async () => {
 		const server = writeServer('tickets.js', WORKING_SERVER)
 

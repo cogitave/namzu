@@ -7,6 +7,7 @@ import type {
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { ConnectorHttpOperation, validateConnectorTimeoutMs } from '../http-operation.js'
+import { refuseMcpHttpRedirect } from './http-redirect.js'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -83,10 +84,12 @@ export class StreamableHttpTransport implements MCPTransport {
 					method: 'POST',
 					headers: this.buildHeaders(),
 					body: JSON.stringify(message),
+					redirect: 'manual',
 					signal: operation.signal,
 				}),
 			)
 
+			refuseMcpHttpRedirect(response, message.method)
 			if (!response.ok) {
 				throw new Error(`StreamableHttpTransport: HTTP ${response.status}: ${response.statusText}`)
 			}

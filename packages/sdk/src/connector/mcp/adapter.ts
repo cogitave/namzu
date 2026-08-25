@@ -9,6 +9,7 @@ import type {
 import type { ToolResultBlock, ToolResultContent } from '../../types/message/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import type { MCPClient } from './client.js'
+import { MCPHttpRedirectError } from './http-redirect.js'
 import { admitMcpImageBatch } from './image-admission.js'
 import { inlineSchemaRefs } from './schema-refs.js'
 
@@ -458,10 +459,28 @@ export function mcpToolToToolDefinition(
 		provenance: { server: serverName, readOnlyHintTrusted },
 
 		async execute(input: unknown, context: ToolContext): Promise<ToolResult> {
-			const result = await client.callTool(tool.name, input as Record<string, unknown>, {
-				signal: context.abortSignal,
-			})
-			return frameServerResult(mcpToolResultToToolResult(result), serverName, tool.name)
+			try {
+				const result = await client.callTool(tool.name, input as Record<string, unknown>, {
+					signal: context.abortSignal,
+				})
+				return frameServerResult(mcpToolResultToToolResult(result), serverName, tool.name)
+			} catch (error) {
+				if (error instanceof MCPHttpRedirectError && error.remoteOutcomeUnknown) {
+					return {
+						success: false,
+						output: '',
+						error: error.message,
+						data: {
+							code: 'mcp_tool_outcome_unknown',
+							server: serverName,
+							tool: tool.name,
+							outcome: 'unknown',
+							retrySafety: 'unsafe',
+						},
+					}
+				}
+				throw error
+			}
 		},
 	}
 }

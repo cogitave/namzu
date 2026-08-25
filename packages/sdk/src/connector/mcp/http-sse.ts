@@ -7,6 +7,7 @@ import type {
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { ConnectorHttpOperation, validateConnectorTimeoutMs } from '../http-operation.js'
+import { refuseMcpHttpRedirect } from './http-redirect.js'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -111,10 +112,12 @@ export class HttpSseTransport implements MCPTransport {
 						...this.config.headers,
 					},
 					body: JSON.stringify(message),
+					redirect: 'manual',
 					signal: operation.signal,
 				}),
 			)
 
+			refuseMcpHttpRedirect(response, message.method)
 			if (!response.ok) {
 				throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 			}
@@ -202,9 +205,11 @@ export class HttpSseTransport implements MCPTransport {
 				Accept: 'text/event-stream',
 				...this.config.headers,
 			},
+			redirect: 'manual',
 			signal,
 		})
 
+		refuseMcpHttpRedirect(response)
 		if (!response.ok || !response.body) {
 			throw new Error(`SSE connection failed: HTTP ${response.status}`)
 		}
