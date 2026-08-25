@@ -4,6 +4,7 @@ import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../types/agen
 import type { AgentTaskState } from '../types/agent/task.js'
 import type { RunExecutionStatus } from '../types/common/index.js'
 import type { TaskId } from '../types/ids/index.js'
+import { type CancelCause, RunCancelled } from '../types/run/cancel-cause.js'
 import { asRunId, generateTaskId } from '../utils/id.js'
 
 /**
@@ -248,16 +249,16 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 		await entry.delegate.continue(message)
 	}
 
-	cancelTask(taskId: TaskId): void {
+	cancelTask(taskId: TaskId, cause?: CancelCause): void {
 		const entry = this.tasks.get(taskId)
 		if (!entry) {
-			this.config.local?.cancelTask(taskId)
+			this.config.local?.cancelTask(taskId, cause)
 			return
 		}
 		if (!entry.delegate.capabilities.cancel) {
 			throw new DelegateCapabilityError({ id: entry.delegate.id, capability: 'cancel' })
 		}
-		controllerAbort(entry)
+		controllerAbort(entry, cause)
 	}
 
 	getTask(taskId: TaskId): TaskHandle | undefined {
@@ -292,6 +293,6 @@ export class DelegatingTaskScheduler implements TaskScheduler {
  * race that: a delegate that completed a microsecond before the abort would
  * be recorded as cancelled while its answer sat unread.
  */
-function controllerAbort(entry: Entry): void {
-	entry.controller.abort()
+function controllerAbort(entry: Entry, cause?: CancelCause): void {
+	entry.controller.abort(cause ? new RunCancelled(cause) : undefined)
 }

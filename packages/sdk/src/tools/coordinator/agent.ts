@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
-import type { TaskScheduler } from '../../types/agent/scheduler.js'
+import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
@@ -146,39 +146,41 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 					error: `Unknown subagent_type "${agentId}" — choose one of: ${agentIds.join(', ')}`,
 				}
 			}
-			const handle = await gateway.createTask({
-				agentId,
-				prompt,
-				workingDirectory: cwd,
-				runtimeContext: opts.runtimeContext,
-				// Hang the child off the executing tool's span, so the
-				// delegation appears inside the turn that asked for it rather
-				// than as a disconnected root trace. `create_task` has done
-				// this all along; this tool — the kernel's other delegation
-				// surface, and the one it exports as the canonical shape —
-				// did not.
-				...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
-				// The parent's environment, which is the whole point of setting
-				// one: a delegate that cannot see it runs against different
-				// services than the run that launched it, silently.
-				// `ToolContext.env` is the parent's own resolved map, per run.
-				...(Object.keys(context.env ?? {}).length > 0
-					? { configOverrides: { env: context.env } }
-					: {}),
+			const { handle, completed } = await runBlockingAgentTask({
+				gateway,
+				signal: context.abortSignal,
+				create: {
+					agentId,
+					prompt,
+					workingDirectory: cwd,
+					runtimeContext: opts.runtimeContext,
+					// Hang the child off the executing tool's span, so the
+					// delegation appears inside the turn that asked for it rather
+					// than as a disconnected root trace. `create_task` has done
+					// this all along; this tool — the kernel's other delegation
+					// surface, and the one it exports as the canonical shape —
+					// did not.
+					...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
+					// The parent's environment, which is the whole point of setting
+					// one: a delegate that cannot see it runs against different
+					// services than the run that launched it, silently.
+					// `ToolContext.env` is the parent's own resolved map, per run.
+					...(Object.keys(context.env ?? {}).length > 0
+						? { configOverrides: { env: context.env } }
+						: {}),
+				},
+				onCreated: (handle) =>
+					onTaskLaunched?.(handle.taskId, {
+						agentId,
+						description,
+						// Same canonical-envelope plumbing as coordinator/index.ts
+						// (ses_009-task-notification-envelope). For Agent-tool path
+						// the subagent run is awaited synchronously below, so this
+						// id is only used if a probe / hook unexpectedly forks the
+						// completion to the background notification channel.
+						originalToolUseId: context.toolUseId,
+					}),
 			})
-
-			onTaskLaunched?.(handle.taskId, {
-				agentId,
-				description,
-				// Same canonical-envelope plumbing as coordinator/index.ts
-				// (ses_009-task-notification-envelope). For Agent-tool path
-				// the subagent run is awaited synchronously below, so this
-				// id is only used if a probe / hook unexpectedly forks the
-				// completion to the background notification channel.
-				originalToolUseId: context.toolUseId,
-			})
-
-			const completed = await gateway.waitForTask(handle.taskId)
 
 			// Both authorities must agree — see `taskSucceeded` for which two
 			// and why either alone is wrong. The reasoning used to live here
@@ -252,4 +254,77 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			}
 		},
 	})
+}
+
+interface BlockingAgentTaskInput {
+	readonly gateway: TaskScheduler
+	readonly signal: AbortSignal
+	readonly create: CreateTaskOptions
+	readonly onCreated?: (handle: TaskHandle) => void
+}
+
+/**
+ * Own a blocking child from before creation until its terminal handle.
+ *
+ * The late-create branch is load-bearing. `createTask()` can be inside an
+ * asynchronous workspace/config build when its parent is cancelled. Racing
+ * that await lets the parent settle promptly, but the eventual handle still
+ * has to be cancelled or the task is born after its authority disappeared.
+ */
+async function runBlockingAgentTask(
+	input: BlockingAgentTaskInput,
+): Promise<{ handle: TaskHandle; completed: TaskHandle }> {
+	const { gateway, signal } = input
+	signal.throwIfAborted()
+
+	let handle: TaskHandle | undefined
+	let cancellationRequested = false
+	let taskCancellationAttempted = false
+	let rejectAbort: (reason: unknown) => void = () => {}
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject
+	})
+	const cancel = (task: TaskHandle): void => {
+		if (taskCancellationAttempted) return
+		taskCancellationAttempted = true
+		try {
+			gateway.cancelTask(task.taskId, 'parent')
+		} catch {
+			// Parent cancellation is authoritative even when a host scheduler
+			// cannot honour cancellation for its delegate. Do not replace the
+			// parent's exact abort reason with a secondary capability error.
+		}
+	}
+	const onAbort = (): void => {
+		cancellationRequested = true
+		if (handle) cancel(handle)
+		rejectAbort(signal.reason)
+	}
+
+	signal.addEventListener('abort', onAbort, { once: true })
+	if (signal.aborted) onAbort()
+	const creation = gateway.createTask(input.create)
+	// The abort race can win first. Observe the losing creation promise and
+	// cancel its eventual task in `finally` rather than leaving a rejection or
+	// late child detached.
+	creation.catch(() => {})
+
+	try {
+		handle = await Promise.race([creation, aborted])
+		if (cancellationRequested || signal.aborted) {
+			cancel(handle)
+			signal.throwIfAborted()
+		}
+		input.onCreated?.(handle)
+		const completed = await Promise.race([gateway.waitForTask(handle.taskId), aborted])
+		return { handle, completed }
+	} catch (error) {
+		if (handle) cancel(handle)
+		throw error
+	} finally {
+		if (!handle && cancellationRequested) {
+			void creation.then(cancel, () => {})
+		}
+		signal.removeEventListener('abort', onAbort)
+	}
 }

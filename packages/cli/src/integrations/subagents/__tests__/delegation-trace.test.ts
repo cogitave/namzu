@@ -35,6 +35,7 @@ const fakeSpan = { __brand: 'span' } as unknown as NonNullable<ToolContext['pare
 function toolContext(parentSpan?: ToolContext['parentSpan']): ToolContext {
 	return {
 		runId: 'run_test',
+		abortSignal: new AbortController().signal,
 		...(parentSpan ? { parentSpan } : {}),
 	} as unknown as ToolContext
 }

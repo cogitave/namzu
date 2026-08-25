@@ -492,6 +492,14 @@ Two runtime bounds apply to every tool, with no configuration required.
 
 A tool that legitimately runs longer declares its own `timeoutMs`, and the ones that need to already do: `bash` declares a deadline above the ten-minute ceiling its own input accepts, and `create_task` — which runs an entire agent — declares an hour. A tool that runs long without declaring anything inherits the 120-second default, which is how a delegated child that finished in eight minutes was reported to its parent as an abandoned tool at two.
 
+The blocking `Agent` delegation tool owns its child through this same signal.
+If the launching run is stopped while task creation is still pending, the
+eventual task is cancelled as soon as its handle exists; if the task is already
+running, it is cancelled immediately. Built-in local and foreign-delegate
+schedulers preserve the structured `parent` cause on the child's abort signal.
+This does not change `create_task`: that operation intentionally returns a
+background handle and is governed by its separate task lifecycle.
+
 **A cancellation says what stopped it.** If the host aborted with a reason, that reason reaches the tool result:
 
 ```

@@ -11,6 +11,7 @@ import type {
 import type { AgentTaskContext } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
 import { createUserMessage } from '../types/message/index.js'
+import type { CancelCause } from '../types/run/cancel-cause.js'
 import type { RunEventListener } from '../types/run/events.js'
 import { toErrorMessage } from '../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
@@ -244,8 +245,8 @@ export class LocalTaskScheduler implements TaskScheduler {
 		await this.agentManager.continueTask(taskId, message)
 	}
 
-	cancelTask(taskId: TaskId): void {
-		this.agentManager.cancel(taskId)
+	cancelTask(taskId: TaskId, cause?: CancelCause): void {
+		this.agentManager.cancel(taskId, cause)
 	}
 
 	getTask(taskId: TaskId): TaskHandle | undefined {

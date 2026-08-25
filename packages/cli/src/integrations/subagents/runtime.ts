@@ -22,6 +22,7 @@ import {
 	type BaseAgentConfig,
 	type BaseAgentResult,
 	type Agent as CoreAgent,
+	type CreateTaskOptions,
 	DefaultCapacityValidator,
 	InMemorySessionStore,
 	InMemoryTopicStore,
@@ -30,9 +31,11 @@ import {
 	type ProjectInstructionContext,
 	ReactiveAgent,
 	type ReactiveAgentConfig,
+	RunCancelled,
 	type RunEvent,
 	type SandboxProvider,
 	SessionSummaryMaterializer,
+	type TaskHandle,
 	type TaskScheduler,
 	type ToolDefinition,
 	type ToolRegistryContract,
@@ -92,6 +95,8 @@ export interface SubagentRuntime {
 	readonly gateway: TaskScheduler
 	readonly agentTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
+	/** Stop every child still owned by this parent session. Idempotent. */
+	close(): Promise<void>
 }
 
 /**
@@ -221,18 +226,21 @@ export async function createSubagentRuntime(
 				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
 			}
 			try {
-				const handle = await gateway.createTask({
-					agentId,
-					prompt,
-					workingDirectory: opts.cwd,
-					// Hang the child run off THIS tool's span, so the delegation
-					// shows up inside the turn that asked for it. Without it a
-					// sub-agent opens its OWN root trace, and the one structure
-					// a delegation trace exists to record — who dispatched whom
-					// — is the thing that goes missing.
-					...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
+				const completed = await runBlockingAgentTask({
+					gateway,
+					signal: context.abortSignal,
+					create: {
+						agentId,
+						prompt,
+						workingDirectory: opts.cwd,
+						// Hang the child run off THIS tool's span, so the delegation
+						// shows up inside the turn that asked for it. Without it a
+						// sub-agent opens its OWN root trace, and the one structure
+						// a delegation trace exists to record — who dispatched whom
+						// — is the thing that goes missing.
+						...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
+					},
 				})
-				const completed = await gateway.waitForTask(handle.taskId)
 				const runStatus = completed.result?.status
 				const succeeded =
 					completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
@@ -262,7 +270,80 @@ export async function createSubagentRuntime(
 		},
 	})
 
-	return { gateway, agentTool, allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT] }
+	let closePromise: Promise<void> | undefined
+	const close = (): Promise<void> => {
+		if (closePromise) return closePromise
+		closePromise = Promise.resolve().then(() => {
+			// This controller is the parent of every child the manager creates.
+			// Abort it before disposing bookkeeping so a live child keeps the
+			// structured reason even if its blocking tool wait already detached.
+			if (!taskContext.parentAbortController.signal.aborted) {
+				taskContext.parentAbortController.abort(new RunCancelled('parent'))
+			}
+			manager.dispose()
+		})
+		return closePromise
+	}
+
+	return { gateway, agentTool, allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT], close }
+}
+
+interface BlockingAgentTaskInput {
+	readonly gateway: TaskScheduler
+	readonly signal: AbortSignal
+	readonly create: CreateTaskOptions
+}
+
+/** CLI copy of the SDK Agent tool's ownership boundary. */
+async function runBlockingAgentTask(input: BlockingAgentTaskInput): Promise<TaskHandle> {
+	const { gateway, signal } = input
+	signal.throwIfAborted()
+
+	let handle: TaskHandle | undefined
+	let cancellationRequested = false
+	let taskCancellationAttempted = false
+	let rejectAbort: (reason: unknown) => void = () => {}
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject
+	})
+	const cancel = (task: TaskHandle): void => {
+		if (taskCancellationAttempted) return
+		taskCancellationAttempted = true
+		try {
+			gateway.cancelTask(task.taskId, 'parent')
+		} catch {
+			// The parent cancellation remains the caller-visible authority. A
+			// scheduler's secondary cancellation refusal must not replace it.
+		}
+	}
+	const onAbort = (): void => {
+		cancellationRequested = true
+		if (handle) cancel(handle)
+		rejectAbort(signal.reason)
+	}
+
+	signal.addEventListener('abort', onAbort, { once: true })
+	if (signal.aborted) onAbort()
+	const creation = gateway.createTask(input.create)
+	creation.catch(() => {})
+
+	try {
+		handle = await Promise.race([creation, aborted])
+		if (cancellationRequested || signal.aborted) {
+			cancel(handle)
+			signal.throwIfAborted()
+		}
+		const completed = await Promise.race([gateway.waitForTask(handle.taskId), aborted])
+		return completed
+	} catch (error) {
+		if (handle) cancel(handle)
+		throw error
+	} finally {
+		if (!handle && cancellationRequested) {
+			void creation.then(cancel, () => {})
+		}
+		signal.removeEventListener('abort', onAbort)
+	}
 }
 
 /**

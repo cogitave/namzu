@@ -1,5 +1,6 @@
 import type { TaskId } from '../ids/index.js'
 import type { AgentPersona } from '../persona/index.js'
+import type { CancelCause } from '../run/cancel-cause.js'
 import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentTaskState } from './task.js'
 
@@ -93,7 +94,15 @@ export interface TaskScheduler {
 
 	continueTask(taskId: TaskId, message: string): Promise<void>
 
-	cancelTask(taskId: TaskId): void
+	/**
+	 * Stop one task. A cause is relative to the child: a blocking delegation
+	 * abandoned by the run that launched it is cancelled by its `parent`.
+	 *
+	 * Optional so existing host schedulers remain structurally compatible. A
+	 * scheduler that can preserve the cause should carry it to the task's abort
+	 * signal; built-in local and foreign-delegate schedulers do.
+	 */
+	cancelTask(taskId: TaskId, cause?: CancelCause): void
 
 	/**
 	 * The task's current state, or `undefined` if this gateway does not know

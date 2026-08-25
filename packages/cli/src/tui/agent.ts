@@ -135,7 +135,7 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
-import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
+import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
@@ -1408,6 +1408,7 @@ export async function createAgentSession(
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	let subagentGateway: TaskScheduler | undefined
+	let subagentRuntime: SubagentRuntime | undefined
 	// Buffer of the in-flight sub-agent's tool steps. The gateway streams the
 	// child's events here while the parent's `Agent` tool call blocks; runTurn
 	// drains it onto the `Agent` result as a `├─/└─` tree. Scoped per `Agent`
@@ -1474,10 +1475,18 @@ export async function createAgentSession(
 				}
 			},
 		})
+		subagentRuntime = sub
 		registry.register([sub.agentTool])
 		subagentGateway = sub.gateway
 		allowedAgentIds = sub.allowedAgentIds
 	} catch (err) {
+		await subagentRuntime?.close().catch((closeError: unknown) => {
+			cliLogger().warn(
+				'sub-agent runtime cleanup failed after admission refusal',
+				exceptionAttributes(closeError),
+			)
+		})
+		subagentRuntime = undefined
 		// Sub-agents unavailable this session — non-fatal: `allowedAgentIds`
 		// stays empty and the chat still works. Silent until now, which was
 		// the wrong kind of non-fatal — an operator who expected delegation
@@ -1547,6 +1556,7 @@ export async function createAgentSession(
 	})
 	const operations = new SessionOperationOwner(async () => {
 		const results = await Promise.allSettled([
+			subagentRuntime?.close?.(),
 			pluginRuntime?.close(),
 			mcp.close(),
 			computerUseHost?.dispose(),

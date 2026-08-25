@@ -16,7 +16,7 @@ export interface AgentManagerContract {
 		listener?: RunEventListener,
 	): Promise<AgentTask>
 
-	cancel(taskId: TaskId): void
+	cancel(taskId: TaskId, cause?: CancelCause): void
 	/**
 	 * Defaults to `'parent'` when a caller names nothing, because this call
 	 * site IS a parent abandoning its children — unlike `AbstractAgent.cancel`,

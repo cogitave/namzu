@@ -133,7 +133,7 @@ it('keeps one banner through readiness and the full subscription login frame', a
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('Choose a subscription session'))
 	screen.press('\r')
-	await waitUntil(screen, () => painted(screen).includes('Complete Anthropic (Claude) sign-in'))
+	await waitUntil(screen, () => painted(screen).includes('/oauth/authorize'))
 
 	const loginOutput = painted(screen)
 	expect(loginOutput).toContain('/oauth/authorize')

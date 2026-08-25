@@ -332,6 +332,13 @@ or closing that session cancels and settles the pass before its provider and
 tool-server resources are released; a compaction request made after close is
 refused before provider work starts.
 
+Blocking child-agent work has the same owner. Stopping its parent turn cancels
+the exact child as parent-caused, including a child whose session construction
+has not finished yet. Replacing or closing the interactive session also aborts
+every remaining child before plugin, MCP and computer-use resources
+are released. A late, non-cooperative child response therefore cannot resume
+tool execution after the parent has settled.
+
 Automatic compaction updates that same gauge at the moment the kernel commits
 its edit, before it starts the next model request. The cumulative token and cost
 figures do not fall, but the context percentage does and is marked approximate

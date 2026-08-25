@@ -4,6 +4,7 @@ import { taskFailed, taskSucceeded } from '../../tools/coordinator/outcome.js'
 import type { Delegate, DelegateResult } from '../../types/agent/delegate.js'
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
+import { type CancelCause, cancelCauseOf } from '../../types/run/cancel-cause.js'
 import {
 	DelegateCapabilityError,
 	DelegateCapabilityMismatchError,
@@ -62,8 +63,8 @@ class RecordingLocal implements TaskScheduler {
 	async continueTask(taskId: TaskId): Promise<void> {
 		this.seen.push(`continue:${taskId}`)
 	}
-	cancelTask(taskId: TaskId): void {
-		this.seen.push(`cancel:${taskId}`)
+	cancelTask(taskId: TaskId, cause?: CancelCause): void {
+		this.seen.push(`cancel:${taskId}:${cause ?? 'none'}`)
 	}
 	getTask(): TaskHandle | undefined {
 		return undefined
@@ -282,6 +283,19 @@ describe('an id no delegate claims goes to the local scheduler', () => {
 				.sort(),
 		).toEqual(['local', 'remote'])
 	})
+
+	it('forwards a structured cause when cancelling a local task', async () => {
+		const local = new RecordingLocal()
+		const scheduler = new DelegatingTaskScheduler({
+			local,
+			delegates: [delegate('remote', { status: 'completed' })],
+		})
+		const handle = await scheduler.createTask(request('a-local-agent'))
+
+		scheduler.cancelTask(handle.taskId, 'parent')
+
+		expect(local.seen).toEqual(['a-local-agent', `cancel:${handle.taskId}:parent`])
+	})
 })
 
 describe('a capability a delegate does not have is refused, not dropped', () => {
@@ -378,6 +392,30 @@ describe('a capability a delegate does not have is refused, not dropped', () => 
 		// delegate that finished a microsecond before the abort would
 		// otherwise be recorded as cancelled with its answer left unread.
 		expect(settled.state).toBe('canceled')
+	})
+
+	it('preserves a structured parent cause on the foreign delegate signal', async () => {
+		let seen: AbortSignal | undefined
+		const scheduler = new DelegatingTaskScheduler({
+			delegates: [
+				{
+					id: 'remote',
+					capabilities: { cancel: true, continue: false },
+					dispatch: async (_request, opts) => {
+						seen = opts.signal
+						return await new Promise<DelegateResult>((resolve) => {
+							opts.signal?.addEventListener('abort', () => resolve({ status: 'cancelled' }))
+						})
+					},
+				},
+			],
+		})
+		const handle = await scheduler.createTask(request('remote'))
+
+		scheduler.cancelTask(handle.taskId, 'parent')
+		await scheduler.waitForTask(handle.taskId)
+
+		expect(cancelCauseOf(seen?.reason)).toBe('parent')
 	})
 
 	it('lets a delegate that finished first keep its answer', async () => {

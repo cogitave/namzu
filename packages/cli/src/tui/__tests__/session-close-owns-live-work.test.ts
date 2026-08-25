@@ -18,6 +18,7 @@ const operations = vi.hoisted(() => ({
 	}>,
 	order: [] as string[],
 	releases: [] as Array<() => void>,
+	subagentToolName: 'Agent' as string,
 }))
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
@@ -110,12 +111,15 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async () => ({
 		gateway: {} as unknown,
 		agentTool: {
-			name: 'Agent',
+			name: operations.subagentToolName,
 			description: 'stub',
 			inputSchema: { type: 'object', properties: {} },
 			execute: async () => ({ success: true, output: '' }),
 		},
 		allowedAgentIds: [],
+		close: async () => {
+			operations.order.push('subagent-close')
+		},
 	}),
 }))
 
@@ -125,6 +129,7 @@ beforeEach(() => {
 	operations.calls.length = 0
 	operations.order.length = 0
 	operations.releases.length = 0
+	operations.subagentToolName = 'Agent'
 	cwd = mkdtempSync(join(tmpdir(), 'namzu-session-owner-'))
 })
 
@@ -143,6 +148,36 @@ async function waitForCalls(count: number): Promise<void> {
 }
 
 describe('AgentSession close owns its live work', () => {
+	it('closes a constructed subagent runtime when tool admission fails', async () => {
+		operations.subagentToolName = 'invalid name'
+		const session = await createAgentSession(
+			{
+				version: 3,
+				providers: [{ id: 'anthropic' }],
+				subagents: { active: [] },
+			} as Preferences,
+			[
+				{
+					entry: {
+						id: 'anthropic',
+						label: 'Anthropic',
+						defaultModel: 'a-model',
+						requiresApiKey: true,
+						envVars: ['ANTHROPIC_API_KEY'],
+					},
+					source: { kind: 'env', envName: 'ANTHROPIC_API_KEY' },
+					apiKey: 'not-a-real-key',
+					alternatives: [],
+				} as unknown as DetectedProvider,
+			],
+			{ cwd },
+		)
+
+		expect(operations.order.filter((event) => event === 'subagent-close')).toHaveLength(1)
+		await session.close()
+		expect(operations.order.filter((event) => event === 'subagent-close')).toHaveLength(1)
+	})
+
 	it('keeps a stream owned when throw and return yield cleanup values', async () => {
 		const order: string[] = []
 		const owner = new SessionOperationOwner(async () => {
@@ -276,7 +311,9 @@ describe('AgentSession close owns its live work', () => {
 			})
 		}
 		const mcpClose = operations.order.indexOf('mcp-close')
+		const subagentClose = operations.order.indexOf('subagent-close')
 		expect(mcpClose).toBeGreaterThan(-1)
+		expect(subagentClose).toBeGreaterThan(-1)
 		for (const event of [
 			'query-cleanup-start',
 			'query-cleanup-finished',
@@ -287,6 +324,7 @@ describe('AgentSession close owns its live work', () => {
 			const eventIndex = operations.order.indexOf(event)
 			expect(eventIndex, `${event} was observed`).toBeGreaterThan(-1)
 			expect(eventIndex, `${event} preceded MCP close`).toBeLessThan(mcpClose)
+			expect(eventIndex, `${event} preceded subagent close`).toBeLessThan(subagentClose)
 		}
 		expect((sendCall?.skillRegistry as { list(): readonly unknown[] } | undefined)?.list()).toEqual(
 			[],
