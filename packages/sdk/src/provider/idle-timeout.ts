@@ -220,6 +220,14 @@ export function withStreamIdleTimeout(
 					) => provider.reasoningEffortLevelsFor?.(model, thinking),
 				}
 			: {}),
+		...(provider.reasoningEffortDefaultFor
+			? {
+					reasoningEffortDefaultFor: (
+						model: string,
+						thinking?: Parameters<NonNullable<LLMProvider['reasoningEffortDefaultFor']>>[1],
+					) => provider.reasoningEffortDefaultFor?.(model, thinking),
+				}
+			: {}),
 		...(provider.effortLevelsFor
 			? {
 					effortLevelsFor: (

@@ -130,6 +130,46 @@ describe('withProviderFallback', () => {
 		).toEqual([])
 	})
 
+	it('publishes a default only when every reachable member agrees inside the common menu', () => {
+		const primary = {
+			...member('primary', []),
+			reasoningEffortLevelsFor: () => ['low', 'medium', 'high'] as const,
+			reasoningEffortDefaultFor: () => 'high' as const,
+		} satisfies LLMProvider
+		const narrowed = {
+			...member('narrowed', []),
+			reasoningEffortLevelsFor: () => ['low', 'medium'] as const,
+			reasoningEffortDefaultFor: () => 'high' as const,
+		} satisfies LLMProvider
+		const disagrees = {
+			...member('disagrees', []),
+			reasoningEffortLevelsFor: () => ['low', 'medium', 'high'] as const,
+			reasoningEffortDefaultFor: () => 'medium' as const,
+		} satisfies LLMProvider
+		const agrees = {
+			...member('agrees', []),
+			reasoningEffortLevelsFor: () => ['high', 'medium'] as const,
+			reasoningEffortDefaultFor: () => 'high' as const,
+		} satisfies LLMProvider
+
+		const outsideCommon = withProviderFallback([{ provider: primary }, { provider: narrowed }])
+		expect(outsideCommon.reasoningEffortLevelsFor?.('model')).toEqual(['low', 'medium'])
+		expect(outsideCommon.reasoningEffortDefaultFor?.('model')).toBeUndefined()
+
+		expect(
+			withProviderFallback([
+				{ provider: primary },
+				{ provider: disagrees },
+			]).reasoningEffortDefaultFor?.('model'),
+		).toBeUndefined()
+		expect(
+			withProviderFallback([
+				{ provider: primary },
+				{ provider: agrees },
+			]).reasoningEffortDefaultFor?.('model'),
+		).toBe('high')
+	})
+
 	it('leaves the deprecated effort menu head-only for existing consumers', () => {
 		const head = {
 			...member('head', []),

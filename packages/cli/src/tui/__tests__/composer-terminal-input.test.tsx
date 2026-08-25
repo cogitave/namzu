@@ -120,6 +120,37 @@ describe('the composer on a production-shaped terminal', () => {
 		}
 	})
 
+	it('routes modified effort keys without moving through history or editing the draft', async () => {
+		const submit = vi.fn()
+		const directions: string[] = []
+		const screen = await renderToScreen(
+			<Composer
+				history={['older prompt']}
+				onSubmit={submit}
+				onStepReasoningEffort={(direction) => directions.push(direction)}
+			/>,
+			{ cols: 100, rows: 16 },
+		)
+		try {
+			screen.press('keep draft')
+			screen.press('\x1b[1;2A')
+			screen.press('\x1b[1;2B')
+			// Ink can distinguish Alt+punctuation once the enhanced keyboard
+			// protocol requested by launchTui is active. The modifier parameter
+			// is one plus the Alt bit, hence `3`.
+			screen.press('\x1b[46;3u')
+			screen.press('\x1b[44;3u')
+			await screen.waitForRender()
+			screen.press('\r')
+			await screen.waitForRender()
+
+			expect(directions).toEqual(['raise', 'lower', 'raise', 'lower'])
+			expect(submit).toHaveBeenCalledWith('keep draft', undefined)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('uses whitespace-delimited Ctrl+W word rubout', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(composer(submit), {

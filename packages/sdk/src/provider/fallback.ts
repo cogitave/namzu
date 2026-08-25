@@ -230,6 +230,40 @@ function memberReasoningEffortLevels(
 	return member.provider.effortLevelsFor?.(model, thinking)
 }
 
+/** Read one member's model-owned default using its routed model id. */
+function memberReasoningEffortDefault(
+	member: ProviderChainMember,
+	requestModel: string,
+	thinking?: ThinkingConfig,
+): ReasoningEffort | undefined {
+	return member.provider.reasoningEffortDefaultFor?.(member.model ?? requestModel, thinking)
+}
+
+/**
+ * A fallback request has one unambiguous default only when every route agrees.
+ *
+ * Omitting effort lets whichever member serves the request choose its own
+ * default. Publishing the head's answer as the chain's answer can therefore
+ * make the same shortcut move in opposite directions after fallback. The
+ * agreed value must also survive the chain-wide exact menu.
+ */
+function commonReasoningEffortDefault(
+	members: readonly ProviderChainMember[],
+	requestModel: string,
+	thinking?: ThinkingConfig,
+): ReasoningEffort | undefined {
+	const common = commonReasoningEffortLevels(members, requestModel, thinking)
+	if (common === undefined) return undefined
+	let agreed: ReasoningEffort | undefined
+	for (const member of members) {
+		const value = memberReasoningEffortDefault(member, requestModel, thinking)
+		if (value === undefined) return undefined
+		if (agreed !== undefined && value !== agreed) return undefined
+		agreed = value
+	}
+	return agreed !== undefined && common.includes(agreed) ? agreed : undefined
+}
+
 /**
  * The levels one request may carry safely through every member it can reach.
  *
@@ -463,6 +497,11 @@ export function withProviderFallback(
 		// answer when any member cannot enumerate its selected model.
 		reasoningEffortLevelsFor: (model: string, thinking?: ThinkingConfig) =>
 			commonReasoningEffortLevels(members, model, thinking),
+		// Present on the chain wrapper for the same reason the menu method is:
+		// `undefined` is the honest answer when a member cannot answer, defaults
+		// disagree, or the value is absent from the common exact menu.
+		reasoningEffortDefaultFor: (model: string, thinking?: ThinkingConfig) =>
+			commonReasoningEffortDefault(members, model, thinking),
 		// Compatibility projection only. Existing consumers of the deprecated
 		// member keep the head-only answer they had; new consumers use the
 		// canonical chain-aware member above.

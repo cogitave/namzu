@@ -110,11 +110,15 @@ describe('withProviderRetry', () => {
 		const provider = {
 			...scripted([]),
 			reasoningEffortLevelsFor: () => undefined,
+			reasoningEffortDefaultFor: (model: string) =>
+				model === 'class-model' ? ('high' as const) : undefined,
 		} satisfies LLMProvider
 		const wrapped = withProviderRetry(provider, { config: { maxRetries: 1 } })
 
 		expect(wrapped.reasoningEffortLevelsFor).toBeTypeOf('function')
 		expect(wrapped.reasoningEffortLevelsFor?.('future-model')).toBeUndefined()
+		expect(wrapped.reasoningEffortDefaultFor?.('class-model')).toBe('high')
+		expect(wrapped.reasoningEffortDefaultFor?.('future-model')).toBeUndefined()
 	})
 
 	it('retries a 429 and succeeds', async () => {

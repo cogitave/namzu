@@ -79,7 +79,8 @@ beforeEach(() => {
 				id: 'codex-recording-provider',
 				token,
 				accountId,
-				reasoningEffortLevelsFor: () => undefined,
+				reasoningEffortLevelsFor: () => ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const,
+				reasoningEffortDefaultFor: () => 'low' as const,
 			},
 		}
 	}) as never)
@@ -116,6 +117,8 @@ it('offers the admitted account, adopts rotations, and refuses deletion before m
 	})
 	sessions.push(session)
 	expect(session.hasProvider).toBe(true)
+	expect(session.reasoningEffortLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
+	expect(session.reasoningEffortDefault).toBe('low')
 	expect(constructions).toEqual([
 		{
 			token: firstToken,
@@ -149,4 +152,46 @@ it('offers the admitted account, adopts rotations, and refuses deletion before m
 			.next(),
 	).rejects.toThrow(/Codex session Namzu borrowed is no longer available/)
 	expect(runCalls.queries).toHaveLength(before)
+})
+
+it('never publishes a provider default outside its exact effort menu', async () => {
+	vi.mocked(ProviderRegistry.create).mockImplementation(((config: Record<string, unknown>) => ({
+		provider: {
+			id: 'inconsistent-effort-provider',
+			token: String(config.accessToken ?? ''),
+			reasoningEffortLevelsFor: () => ['low', 'medium'] as const,
+			reasoningEffortDefaultFor: () => 'high' as const,
+		},
+	})) as never)
+
+	const root = mkdtempSync(join(tmpdir(), 'namzu-codex-effort-default-'))
+	roots.push(root)
+	const authPath = join(root, 'codex', 'auth.json')
+	const token = jwt(Math.floor(Date.now() / 1000) + 3600)
+	writeCodex(authPath, token, 'account-a', 0)
+
+	const session = await createAgentSession(
+		preferences,
+		[
+			{
+				entry: PROVIDER_REGISTRY.codex,
+				source: { kind: 'codex-file' as const, path: authPath },
+				apiKey: token,
+				codex: {
+					accountId: 'account-a',
+					expiresAt: Date.now() + 3_600_000,
+					origin: 'codex-file' as const,
+				},
+				alternatives: [],
+			},
+		],
+		{ cwd: root },
+	)
+	sessions.push(session)
+
+	expect(session.reasoningEffortLevels).toEqual(['low', 'medium'])
+	expect(session.reasoningEffortDefault).toBeUndefined()
+	expect(session.configNotices).toEqual(
+		expect.arrayContaining([expect.stringMatching(/default.*outside its exact menu/i)]),
+	)
 })

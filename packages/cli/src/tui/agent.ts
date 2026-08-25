@@ -382,6 +382,13 @@ export interface AgentSession {
 	 */
 	readonly reasoningEffortLevels?: readonly ReasoningEffort[]
 	/**
+	 * The exact level used when this model receives no explicit effort.
+	 *
+	 * Optional because some provider/model routes cannot publish one. A
+	 * directional shortcut must not guess an anchor when it is absent.
+	 */
+	readonly reasoningEffortDefault?: ReasoningEffort
+	/**
 	 * Every tool this session can call, by name, read at call time.
 	 *
 	 * A FUNCTION, for the reason stated one field down about `promptExemptTools`
@@ -1550,6 +1557,7 @@ export async function createAgentSession(
 		if (failures.length > 0) throw new AggregateError(failures, 'Session cleanup failed.')
 	})
 	let reasoningEffortLevels: readonly ReasoningEffort[] | undefined
+	let reasoningEffortDefault: ReasoningEffort | undefined
 	let effortNotice: string | undefined
 	try {
 		const capabilityView = withProviderFallback([
@@ -1560,8 +1568,24 @@ export async function createAgentSession(
 			? capabilityView.reasoningEffortLevelsFor(model)
 			: capabilityView.effortLevelsFor?.(model)
 		reasoningEffortLevels = offered === undefined ? undefined : Object.freeze([...offered])
+		try {
+			const publishedDefault = capabilityView.reasoningEffortDefaultFor?.(model)
+			if (
+				publishedDefault !== undefined &&
+				reasoningEffortLevels !== undefined &&
+				!reasoningEffortLevels.includes(publishedDefault)
+			) {
+				effortNotice = `The provider published default effort "${publishedDefault}" outside its exact menu. Directional effort shortcuts require an explicit selection.`
+			} else {
+				reasoningEffortDefault = publishedDefault
+			}
+		} catch (error) {
+			effortNotice = `The default reasoning effort could not be established for this session: ${describeError(error)}`
+		}
 	} catch (error) {
-		effortNotice = `Reasoning effort levels could not be established for this session: ${describeError(error)}.`
+		reasoningEffortLevels = undefined
+		reasoningEffortDefault = undefined
+		effortNotice = `Reasoning effort levels could not be established for this session: ${describeError(error)}`
 	}
 	return {
 		hasProvider: true,
@@ -1574,6 +1598,7 @@ export async function createAgentSession(
 		providerSummary: entry.label,
 		modelSummary: model,
 		reasoningEffortLevels,
+		reasoningEffortDefault,
 		compact: (messages) =>
 			operations.promise(undefined, async (signal) => {
 				await prepareProviderCredential(signal)

@@ -548,6 +548,65 @@ describe('publishing a picker selection', () => {
 		await vi.waitFor(() => expect(efforts).toEqual(['max', undefined]))
 	})
 
+	it('steps from the published model default without wrapping at a boundary', async () => {
+		const efforts: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture('a-session'),
+			reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'] as const,
+			reasoningEffortDefault: 'high' as const,
+			send: async function* (
+				_messages: readonly Message[],
+				opts?: SendOptions,
+			): AsyncIterable<AgentEvent> {
+				efforts.push(opts?.effort)
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		harness.stdin.write('\x1b[1;2A')
+		await frameShows(harness.lastFrame, 'Reasoning effort changed to xhigh')
+		harness.stdin.write('\x1b[1;2A')
+		await frameShows(harness.lastFrame, 'already at the highest shortcut level (xhigh)')
+		await submit(harness, 'raised once')
+		await vi.waitFor(() => expect(efforts).toEqual(['xhigh']))
+		await frameShows(harness.lastFrame, 'Type a message')
+
+		await submit(harness, '/effort default')
+		await frameShows(harness.lastFrame, 'reset to the provider default')
+		harness.stdin.write('\x1b[1;2B')
+		await frameShows(harness.lastFrame, 'Reasoning effort changed to medium')
+		await submit(harness, 'lowered once')
+		await vi.waitFor(() => expect(efforts).toEqual(['xhigh', 'medium']))
+	})
+
+	it('does not invent a shortcut anchor when the chain has no exact default', async () => {
+		const efforts: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture('a-session'),
+			reasoningEffortLevels: ['low', 'medium', 'high'] as const,
+			send: async function* (
+				_messages: readonly Message[],
+				opts?: SendOptions,
+			): AsyncIterable<AgentEvent> {
+				efforts.push(opts?.effort)
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		harness.stdin.write('\x1b[1;2A')
+		await frameShows(harness.lastFrame, 'does not publish one exact default')
+		await submit(harness, 'keep provider default')
+		await vi.waitFor(() => expect(efforts).toEqual([undefined]))
+	})
+
 	it('releases a failed turn queue only after a usable replacement is published', async () => {
 		detectedProviders = [...DETECTED, DETECTED_B]
 		const releaseFailure = deferred<void>()

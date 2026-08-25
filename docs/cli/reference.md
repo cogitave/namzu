@@ -145,7 +145,11 @@ exact levels accepted by every usable member of the current provider/model
 chain. `/effort <level>` applies that level to later main-query turns;
 `/effort default` restores the provider default. Unknown model metadata disables
 selection rather than inventing a menu, while an empty menu reports that the
-chain explicitly offers none. A successful `/model` selection resets effort
+chain explicitly offers none. Shift+Up/Shift+Down and Alt+period/Alt+comma move
+one level through the published order. An unset selection starts from the exact
+model default; the keys do not wrap, do not guess when a fallback chain has no
+single agreed default, and leave `max`/`ultra` as deliberate `/effort` picker
+choices. A successful `/model` selection resets effort
 before the replacement session or any paused queue is released; a failed or
 cancelled selection keeps the current session and its effort unchanged.
 Subagents and manual compaction continue to use their own provider defaults.

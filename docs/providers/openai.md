@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-22T00:00:00Z
-lastReviewed: 2026-08-22
+lastReviewed: 2026-08-25
 resource: packages/providers/openai/src/index.ts
 tags: [provider, openai, reference]
 ---
@@ -277,7 +277,23 @@ preserved and the kernel still validates every emitted call before execution.
 
 ## Reasoning effort
 
-Effort is model-specific and validated before the vendor client is called:
+The subscription and API-key transports have separate model catalogues and do
+not borrow each other's effort menus. The current subscription catalogue is:
+
+| Subscription model | Default | Accepted levels |
+|---|---|---|
+| `gpt-5.6-sol` | `low` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `gpt-5.6-terra` | `medium` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `gpt-5.6-luna` | `medium` | `low`, `medium`, `high`, `xhigh`, `max` |
+| `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.2` | `medium` | `low`, `medium`, `high`, `xhigh` |
+
+The subscription provider publishes both the exact menu and its model-owned
+default. Unknown ids return `undefined` for both. A recognized subscription
+model refuses `none`; `ultra` is admitted only by the models whose catalogue
+entry includes it.
+
+The API-key transport is also model-specific and validates before the vendor
+client is called:
 
 | Recognized model family | Accepted levels |
 |---|---|

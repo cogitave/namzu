@@ -164,6 +164,24 @@ export interface LLMProvider {
 	): readonly import('./chat.js').ReasoningEffort[] | undefined
 
 	/**
+	 * The effort a model uses when a request omits an explicit level.
+	 *
+	 * A directional control cannot infer this from the menu: a model may start
+	 * anywhere in its advertised order, so treating "default" as an item before
+	 * the first level can make an increase lower the effective effort. The
+	 * method is optional because many drivers cannot establish a model-owned
+	 * default. A present method returning `undefined` means this particular
+	 * model is unknown.
+	 *
+	 * When both this and {@link LLMProvider.reasoningEffortLevelsFor} return an
+	 * exact value, the default must be a member of that menu.
+	 */
+	reasoningEffortDefaultFor?(
+		model: string,
+		thinking?: import('./chat.js').ThinkingConfig,
+	): import('./chat.js').ReasoningEffort | undefined
+
+	/**
 	 * Legacy effort menu which cannot distinguish an unknown model from a model
 	 * with no effort support.
 	 *

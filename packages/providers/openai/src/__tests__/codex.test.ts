@@ -31,9 +31,74 @@ describe('Codex provider registration', () => {
 			supportsVision: false,
 		})
 	})
+
+	it('publishes the subscription catalogue levels and model-owned defaults', () => {
+		const provider = new CodexProvider({
+			accessToken: 'access',
+			accountId: 'account',
+		})
+
+		expect(provider.reasoningEffortLevelsFor('gpt-5.6-sol')).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max',
+			'ultra',
+		])
+		expect(provider.reasoningEffortDefaultFor('gpt-5.6-sol')).toBe('low')
+		expect(provider.reasoningEffortDefaultFor('gpt-5.6-terra')).toBe('medium')
+		expect(provider.reasoningEffortLevelsFor('gpt-5.6-luna')).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max',
+		])
+		expect(provider.reasoningEffortLevelsFor('gateway/future-model')).toBeUndefined()
+		expect(provider.reasoningEffortDefaultFor('gateway/future-model')).toBeUndefined()
+	})
 })
 
 describe('Codex request projection', () => {
+	it('admits an advanced subscription level and refuses a false no-reasoning level', async () => {
+		const create = vi.fn(async (_request: unknown) =>
+			(async function* () {
+				// Empty response is sufficient: this observer owns request admission.
+			})(),
+		)
+		const provider = new CodexProvider({
+			accessToken: 'access',
+			accountId: 'account',
+		})
+		;(provider as unknown as { client: { responses: { create: typeof create } } }).client = {
+			responses: { create },
+		}
+
+		for await (const _chunk of provider.chatStream({
+			model: 'gpt-5.6-sol',
+			messages: [{ role: 'user', content: 'hard task' }],
+			effort: 'ultra',
+		})) {
+			// drain request admission
+		}
+		expect(create.mock.calls[0]?.[0]).toMatchObject({
+			reasoning: { effort: 'ultra', summary: 'auto' },
+		})
+
+		await expect(
+			provider
+				.chatStream({
+					model: 'gpt-5.6-sol',
+					messages: [{ role: 'user', content: 'skip reasoning' }],
+					effort: 'none',
+				})
+				[Symbol.asyncIterator]()
+				.next(),
+		).rejects.toThrow(/effort "none" is not supported/)
+		expect(create).toHaveBeenCalledOnce()
+	})
+
 	it('maps user, assistant tool calls, tool results and schemas in provider order', () => {
 		const messages: ChatCompletionParams['messages'] = [
 			{ role: 'system', content: 'system' },

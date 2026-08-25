@@ -304,6 +304,10 @@ describe('a stalled stream is surfaced', () => {
 			reasoningEffortLevelsFor(model: string) {
 				return model === 'class-model' ? (['low'] as const) : undefined
 			}
+
+			reasoningEffortDefaultFor(model: string) {
+				return model === 'class-model' ? ('low' as const) : undefined
+			}
 		}
 
 		const driver = new ClassDriver()
@@ -325,5 +329,7 @@ describe('a stalled stream is surfaced', () => {
 		expect(driver.probed).toBe(true)
 		expect(wrapped.reasoningEffortLevelsFor?.('class-model')).toEqual(['low'])
 		expect(wrapped.reasoningEffortLevelsFor?.('future-model')).toBeUndefined()
+		expect(wrapped.reasoningEffortDefaultFor?.('class-model')).toBe('low')
+		expect(wrapped.reasoningEffortDefaultFor?.('future-model')).toBeUndefined()
 	})
 })

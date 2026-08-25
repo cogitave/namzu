@@ -61,6 +61,8 @@ export interface ComposerProps {
 	 * silence this exists to end.
 	 */
 	readonly onNotice?: (text: string) => void
+	/** Step through the active model's published reasoning menu. */
+	readonly onStepReasoningEffort?: (direction: 'lower' | 'raise') => void
 	/** Open the complete text draft in an operator-owned external editor. */
 	readonly onExternalEdit?: (seed: string) => Promise<string>
 	/** Empty-composer Esc ×2 asks App to select a durable prompt to edit. */
@@ -313,6 +315,7 @@ export function Composer({
 	hidden = false,
 	escapeInterrupts = false,
 	onNotice,
+	onStepReasoningEffort,
 	onExternalEdit,
 	onEditPrevious,
 	draftToRestore = null,
@@ -496,6 +499,22 @@ export function Composer({
 					return true
 				}
 				return false
+			}
+			if (
+				!hasLiveSuggestions &&
+				onStepReasoningEffort &&
+				((key.shift && key.downArrow) || (key.meta && input === ','))
+			) {
+				onStepReasoningEffort('lower')
+				return
+			}
+			if (
+				!hasLiveSuggestions &&
+				onStepReasoningEffort &&
+				((key.shift && key.upArrow) || (key.meta && input === '.'))
+			) {
+				onStepReasoningEffort('raise')
+				return
 			}
 			if (!key.escape && editPreviousArmed) setEditPreviousArmed(false)
 			const submit = (mode: ComposerSubmitMode): boolean => {

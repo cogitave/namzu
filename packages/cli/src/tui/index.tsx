@@ -41,6 +41,10 @@ export async function launchTui(ctx: TuiContext): Promise<void> {
 			stderr: process.stderr,
 			stdin: process.stdin,
 			exitOnCtrlC: false,
+			kittyKeyboard: {
+				mode: 'auto',
+				flags: ['disambiguateEscapeCodes'],
+			},
 		},
 	)
 	try {

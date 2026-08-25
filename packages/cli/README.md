@@ -142,7 +142,8 @@ characters, Home/End and Ctrl+A/Ctrl+E move to line boundaries, and
 Ctrl+W/Ctrl+U/Ctrl+K delete around the live cursor, and Ctrl+Y restores the
 last non-empty deletion at the cursor even after submitting. Ctrl+H and
 Backspace each remove one displayed character. Ctrl+J, Shift+Enter and
-Alt+Enter add a newline; Up/Down and Ctrl+P/Ctrl+N move between authored lines
+Alt+Enter add a newline; Shift+Up/Shift+Down and Alt+period/Alt+comma step the
+active model's exact reasoning menu without wrapping; Up/Down and Ctrl+P/Ctrl+N move between authored lines
 before crossing into prompt history, where returning to the newest entry
 restores the unsent draft. Ctrl+R searches matching prompts from newest to
 oldest, Ctrl+S walks back toward the draft, and Esc restores the exact text and

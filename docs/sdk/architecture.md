@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-24
+lastReviewed: 2026-08-25
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -449,8 +449,12 @@ has four deliberate states: an absent method means the driver cannot enumerate
 any model, `undefined` means this model is unknown, `[]` means the model
 explicitly offers no level, and a non-empty array is the exact menu. Fallback
 chains expose the intersection in head-member order, because one request may
-reach every member. The older head-only `effortLevelsFor` member remains for a
-deprecation window; new hosts should use the chain-aware member.
+reach every member. `reasoningEffortDefaultFor(model, thinking)` separately
+publishes the model-owned level used when effort is omitted. A fallback chain
+returns one only when every usable member agrees and the value belongs to the
+common menu; a directional control must not invent an anchor when it is absent.
+The older head-only `effortLevelsFor` member remains for a deprecation window;
+new hosts should use the chain-aware members.
 
 The runtime composes each provider as `fallback(retry(idle(provider)))`. The
 idle layer bounds time between chunks rather than total request duration,

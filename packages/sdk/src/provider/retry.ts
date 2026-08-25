@@ -275,6 +275,14 @@ export function withProviderRetry(
 					) => provider.reasoningEffortLevelsFor?.(model, thinking),
 				}
 			: {}),
+		...(provider.reasoningEffortDefaultFor
+			? {
+					reasoningEffortDefaultFor: (
+						model: string,
+						thinking?: Parameters<NonNullable<LLMProvider['reasoningEffortDefaultFor']>>[1],
+					) => provider.reasoningEffortDefaultFor?.(model, thinking),
+				}
+			: {}),
 		// Forwarded for the same reason `healthCheck` is, and both were
 		// missing until something consumed them. A member this wrapper drops
 		// does not fail — it reads as "this driver cannot answer", which is a

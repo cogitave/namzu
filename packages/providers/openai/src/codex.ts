@@ -25,7 +25,6 @@ import type {
 	Tool,
 } from 'openai/resources/responses/responses'
 
-import { openAIReasoningEffortLevels } from './client.js'
 import type { CodexConfig } from './types.js'
 
 export const CODEX_CAPABILITIES: ProviderCapabilities = {
@@ -37,6 +36,33 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
 }
 
 const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+
+interface SubscriptionReasoningProfile {
+	readonly default: ReasoningEffort
+	readonly levels: readonly ReasoningEffort[]
+}
+
+const SOL_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+const TERRA_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+const LUNA_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+const STANDARD_LEVELS = ['low', 'medium', 'high', 'xhigh'] as const
+
+const SUBSCRIPTION_REASONING_PROFILES = new Map<string, SubscriptionReasoningProfile>([
+	['gpt-5.6-sol', { default: 'low', levels: SOL_LEVELS }],
+	['gpt-5.6-terra', { default: 'medium', levels: TERRA_LEVELS }],
+	['gpt-5.6-luna', { default: 'medium', levels: LUNA_LEVELS }],
+	['gpt-daybreak-blue-latest', { default: 'low', levels: SOL_LEVELS }],
+	['gpt-daybreak-red-latest', { default: 'medium', levels: TERRA_LEVELS }],
+	['gpt-5.5', { default: 'medium', levels: STANDARD_LEVELS }],
+	['gpt-5.4', { default: 'medium', levels: STANDARD_LEVELS }],
+	['gpt-5.4-mini', { default: 'medium', levels: STANDARD_LEVELS }],
+	['gpt-5.2', { default: 'medium', levels: STANDARD_LEVELS }],
+	['codex-auto-review', { default: 'medium', levels: LUNA_LEVELS }],
+])
+
+function subscriptionReasoningProfile(model: string): SubscriptionReasoningProfile | undefined {
+	return SUBSCRIPTION_REASONING_PROFILES.get(model.toLowerCase())
+}
 
 interface CodexReplayState {
 	readonly kind: 'namzu.codex.responses'
@@ -212,7 +238,7 @@ function buildRequest(
 	model: string,
 	targetRoute: ProviderRoute,
 ): ResponseCreateParamsStreaming {
-	const supportedEffort = openAIReasoningEffortLevels(model)
+	const supportedEffort = subscriptionReasoningProfile(model)?.levels
 	if (
 		params.effort !== undefined &&
 		supportedEffort !== undefined &&
@@ -260,9 +286,9 @@ function buildRequest(
 				? { reasoning: { summary: 'auto' } }
 				: {}),
 	}
-	// The installed client declaration predates the current GPT-5.6 `max`
+	// The installed client declaration predates the current advanced effort
 	// vocabulary. The model-specific admission check above is the runtime
-	// boundary; this cast only bridges that vendor declaration lag.
+	// boundary; this cast only bridges that declaration lag.
 	return request as ResponseCreateParamsStreaming
 }
 
@@ -299,7 +325,11 @@ export class CodexProvider implements LLMProvider {
 	}
 
 	reasoningEffortLevelsFor(model: string): readonly ReasoningEffort[] | undefined {
-		return openAIReasoningEffortLevels(model)
+		return subscriptionReasoningProfile(model)?.levels
+	}
+
+	reasoningEffortDefaultFor(model: string): ReasoningEffort | undefined {
+		return subscriptionReasoningProfile(model)?.default
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

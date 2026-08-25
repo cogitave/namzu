@@ -36,6 +36,16 @@ describe('launchTui clean settlement', () => {
 
 		expect(close).toHaveBeenCalledOnce()
 		expect(flush).not.toHaveBeenCalled()
+		expect(render).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				exitOnCtrlC: false,
+				kittyKeyboard: {
+					mode: 'auto',
+					flags: ['disambiguateEscapeCodes'],
+				},
+			}),
+		)
 		expect(write).toHaveBeenLastCalledWith(
 			'To resume this conversation, run: namzu resume ses_clean\n',
 		)

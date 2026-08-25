@@ -1206,6 +1206,49 @@ export function App({
 		[hasUnsettledTurn, pushMessage, session, setReasoningEffort, state],
 	)
 
+	const stepReasoningEffort = useCallback(
+		(direction: 'lower' | 'raise'): void => {
+			const levels = session?.reasoningEffortLevels
+			if (!session?.hasProvider || levels === undefined || levels.length === 0) {
+				pushMessage(
+					'system',
+					'Reasoning shortcuts are unavailable because the current provider chain has no exact non-empty effort menu.',
+				)
+				return
+			}
+			const selected = reasoningEffortRef.current
+			const anchor =
+				selected !== undefined && levels.includes(selected)
+					? selected
+					: session.reasoningEffortDefault
+			if (anchor === undefined || !levels.includes(anchor)) {
+				pushMessage(
+					'system',
+					'Reasoning shortcuts are unavailable because the provider chain does not publish one exact default. Use /effort to choose a level explicitly.',
+				)
+				return
+			}
+			const index = levels.indexOf(anchor)
+			const next = direction === 'raise' ? levels[index + 1] : levels[index - 1]
+			if (next === undefined) {
+				pushMessage(
+					'system',
+					`Reasoning is already at the ${direction === 'raise' ? 'highest' : 'lowest'} shortcut level (${anchor}).`,
+				)
+				return
+			}
+			if (direction === 'raise' && (next === 'max' || next === 'ultra')) {
+				pushMessage(
+					'system',
+					`${next} is an advanced reasoning level. Choose it explicitly with /effort.`,
+				)
+				return
+			}
+			applyReasoningEffort(next)
+		},
+		[applyReasoningEffort, pushMessage, session],
+	)
+
 	const recordFeedback = useCallback(
 		(runIdValue: string, messageIdValue: string, rating: 'good' | 'bad', note?: string) => {
 			// Written under the same `<cwd>/.namzu` root the runs live in, so a
@@ -5247,6 +5290,7 @@ export function App({
 								escapeInterrupts={!compacting && (state === 'thinking' || state === 'tool')}
 								onSubmit={handleSubmit}
 								onNotice={(text) => pushMessage('system', text)}
+								onStepReasoningEffort={stepReasoningEffort}
 								onExternalEdit={requestExternalEditor}
 								onEditPrevious={openPromptEditor}
 								draftToRestore={composerDraft}
