@@ -95,6 +95,10 @@ export class StdioTransport implements MCPTransport {
 	private closeHandlers: Array<() => void> = []
 	private errorHandlers: Array<(error: Error) => void> = []
 	private connected = false
+	/** The response channel ended for this process generation. */
+	private retired = false
+	/** Prevents a late event from an old child retiring its replacement. */
+	private generation = 0
 	/** True between kill and the process's own `close` event. */
 	private exitPending = false
 	private buffer = ''
@@ -109,38 +113,47 @@ export class StdioTransport implements MCPTransport {
 
 	async connect(): Promise<void> {
 		if (this.connected) return
+		// A protocol channel can end while its process stays alive. Reconnect
+		// must reap that old owner before publishing a new generation; otherwise
+		// both children remain live and teardown owns only the newest one.
+		if (this.process) await this.close()
+		const generation = ++this.generation
+		this.retired = false
+		this.buffer = ''
 
-		this.process = spawn(this.config.command, this.config.args ?? [], {
+		const child = spawn(this.config.command, this.config.args ?? [], {
 			env: buildChildEnv(this.config),
 			cwd: this.config.cwd,
 			stdio: ['pipe', 'pipe', 'pipe'],
 		})
+		this.process = child
 
-		this.process.stdout?.on('data', (chunk: Buffer) => {
+		child.stdout?.on('data', (chunk: Buffer) => {
+			if (generation !== this.generation || this.retired) return
 			this.buffer += chunk.toString('utf-8')
 			this.processBuffer()
 		})
+		child.stdout?.once('end', () => this.retire(generation, 'close'))
+		child.stdout?.once('close', () => this.retire(generation, 'close'))
+		child.stdout?.once('error', (err) => this.retire(generation, 'error', err))
 
-		this.process.stderr?.on('data', (chunk: Buffer) => {
+		child.stderr?.on('data', (chunk: Buffer) => {
 			this.log.warn('MCP server stderr', {
 				'namzu.mcp.stderr': chunk.toString('utf-8').trim(),
 			})
 		})
 
-		this.process.on('close', (code) => {
-			this.connected = false
-			this.log.info('MCP server process exited', { 'namzu.mcp.exit_code': code })
-			for (const handler of this.closeHandlers) handler()
-			// After the notification, not before it: this event is what tells
-			// `MCPClient` the session ended.
+		child.stdin?.once('close', () => this.retire(generation, 'close'))
+		child.stdin?.once('error', (err) => this.retire(generation, 'error', err))
+
+		child.on('close', (code) => {
+			if (this.process === child) this.process = null
 			this.exitPending = false
-			this.clearHandlers()
+			this.log.info('MCP server process exited', { 'namzu.mcp.exit_code': code })
+			this.retire(generation, 'close')
 		})
 
-		this.process.on('error', (err) => {
-			this.connected = false
-			for (const handler of this.errorHandlers) handler(err)
-		})
+		child.on('error', (err) => this.retire(generation, 'error', err))
 
 		this.connected = true
 		this.log.info('StdioTransport connected', {
@@ -175,7 +188,10 @@ export class StdioTransport implements MCPTransport {
 		// so both settle this, and two timers make a hang impossible: the
 		// first escalates to SIGKILL for a child ignoring SIGTERM, the second
 		// gives up waiting. Neither holds the event loop open.
-		if (child.pid === undefined) return
+		if (child.pid === undefined) {
+			this.exitPending = false
+			return
+		}
 		await new Promise<void>((resolve) => {
 			let settled = false
 			const finish = (): void => {
@@ -185,18 +201,20 @@ export class StdioTransport implements MCPTransport {
 				clearTimeout(giveUp)
 				resolve()
 			}
-			child.once('exit', finish)
+			child.once('close', finish)
 			child.once('error', finish)
-			child.kill('SIGTERM')
+			if (child.exitCode === null && child.signalCode === null) {
+				child.kill('SIGTERM')
+			}
 			const escalate = setTimeout(() => child.kill('SIGKILL'), TERMINATE_GRACE_MS)
 			const giveUp = setTimeout(finish, TERMINATE_GRACE_MS * 2)
 			escalate.unref?.()
 			giveUp.unref?.()
 		})
-		// The handlers deliberately survive this call. `process.on('close')`
-		// fires them when the process actually exits, and dropping them here
-		// would leave `MCPClient` believing it is still connected — so its next
-		// `connect()` would be refused with "already connected".
+		this.exitPending = false
+		// The active generation's terminal stream/process event owns handler
+		// retirement. A reconnect can register its handlers before `connect()`
+		// reaps an already-retired child, so `close()` must not clear them here.
 	}
 
 	/**
@@ -212,6 +230,30 @@ export class StdioTransport implements MCPTransport {
 		this.messageHandlers = []
 		this.closeHandlers = []
 		this.errorHandlers = []
+	}
+
+	/**
+	 * Publish one terminal result for the current response channel.
+	 *
+	 * A child may close stdout and keep running. That is just as terminal for
+	 * JSON-RPC as process exit: no pending or future request can receive a
+	 * response. Keeping the child handle is intentional; `close()` still owns
+	 * and reaps that process after the protocol session has been retired.
+	 */
+	private retire(generation: number, kind: 'close' | 'error', error?: Error): void {
+		if (generation !== this.generation || this.retired) return
+		this.retired = true
+		this.connected = false
+		this.buffer = ''
+		const closeHandlers = this.closeHandlers
+		const errorHandlers = this.errorHandlers
+		this.clearHandlers()
+		if (kind === 'error') {
+			const reason = error ?? new Error('MCP stdio transport failed')
+			for (const handler of errorHandlers) handler(reason)
+			return
+		}
+		for (const handler of closeHandlers) handler()
 	}
 
 	async send(message: MCPJsonRpcMessage, options?: MCPTransportSendOptions): Promise<void> {

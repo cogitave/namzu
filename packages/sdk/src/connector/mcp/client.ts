@@ -170,13 +170,14 @@ export class MCPClient {
 	async disconnect(): Promise<void> {
 		const reason = new Error('MCPClient disconnecting')
 		this.abortCancellations(reason)
-		if (this.status === 'disconnected') return
+		const alreadyDisconnected = this.status === 'disconnected'
 
 		this.rejectAllPending('MCPClient disconnecting')
 
 		await this.transport.close()
 		this.status = 'disconnected'
 		this.connectedAt = undefined
+		if (alreadyDisconnected) return
 		this.log.info('MCP client disconnected')
 		this.emitLifecycle({ type: 'mcp_client_disconnected', clientId: this.id })
 	}

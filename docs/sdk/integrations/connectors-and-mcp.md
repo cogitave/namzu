@@ -624,7 +624,10 @@ This matters most on `stdio` — the default for local servers — where a
 wedged server would otherwise leave callers pending forever with no error
 and no `run_failed`: not a crash, just a process that stopped. In-flight
 requests are also rejected when the transport closes or errors, not only
-on an explicit `disconnect()`.
+on an explicit `disconnect()`. For a local child, the response stream ending
+is itself a terminal transport event even when the process remains alive:
+pending work is rejected immediately, reconnect reaps that retired child
+before spawning its replacement, and later teardown still owns the old PID.
 
 Direct MCP operations accept an `MCPRequestOptions` signal. The generated MCP
 tool and prompt-as-tool adapters pass the run-owned tool signal automatically:
