@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -74,6 +74,39 @@ function provider(
 	})
 	open.push(p)
 	return p
+}
+
+async function settleWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+	let timer: NodeJS.Timeout | undefined
+	try {
+		return await Promise.race([
+			promise,
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(
+					() => reject(new Error(`operation did not settle within ${timeoutMs}ms`)),
+					timeoutMs,
+				)
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
+}
+
+function processIsAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+		return true
+	} catch {
+		return false
+	}
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+	const deadline = Date.now() + 2_000
+	while (processIsAlive(pid) && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 20))
+	}
 }
 
 /** What the tool this replaces would have answered. */
@@ -229,6 +262,47 @@ describe('a method the server does not implement', () => {
 		const result = await p.references(DECLARATION.file, 0, 0)
 
 		expect(result.kind).toBe('unsupported')
+	}, 30_000)
+})
+
+describe('a live server whose protocol stream closes', () => {
+	it('retires pending and future requests immediately, then still owns process teardown', async () => {
+		const temp = mkdtempSync(join(tmpdir(), 'namzu-lsp-transport-'))
+		const marker = join(temp, 'events.txt')
+		const p = provider({
+			command: process.execPath,
+			args: [join(HERE, '..', '__fixtures__', 'closes-response-stream.mjs'), marker],
+			startupTimeoutMs: 8_000,
+			requestTimeoutMs: 30_000,
+		})
+
+		try {
+			const first = await settleWithin(p.references(DECLARATION.file, 0, 0), 2_000)
+			expect(first.kind).toBe('failed')
+			if (first.kind !== 'failed') return
+			expect(first.error).toContain('response stream closed unexpectedly')
+
+			// The first failure is latched. A second call neither respawns nor
+			// waits for its own 30-second request timeout.
+			const second = await settleWithin(p.definition(DECLARATION.file, 0, 0), 2_000)
+			expect(second.kind).toBe('failed')
+			expect((p as unknown as { pending: Map<number, unknown> }).pending.size).toBe(0)
+			expect(readFileSync(marker, 'utf8').match(/^references$/gm)).toHaveLength(1)
+
+			const pid = Number(/^pid:(\d+)$/m.exec(readFileSync(marker, 'utf8'))?.[1])
+			expect(Number.isSafeInteger(pid)).toBe(true)
+			expect(processIsAlive(pid)).toBe(true)
+
+			await p.dispose()
+			open.pop()
+			await waitForProcessExit(pid)
+			expect(processIsAlive(pid)).toBe(false)
+		} finally {
+			await p.dispose()
+			const index = open.indexOf(p)
+			if (index !== -1) open.splice(index, 1)
+			rmSync(temp, { recursive: true, force: true })
+		}
 	}, 30_000)
 })
 

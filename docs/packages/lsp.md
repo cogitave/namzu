@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+lastReviewed: 2026-08-25
 resource: packages/lsp/src/index.ts
 tags: [lsp, code-navigation, reference]
 ---
@@ -150,6 +150,13 @@ server that never completes `initialize` produces `failed` naming the binary,
 inside a bounded startup timeout — and the failure is *remembered*, so a run
 that asks twenty times does not spawn twenty servers against a binary that is
 not there.
+
+The same bound applies after startup. A server process may remain alive after
+closing stdout or stdin; process liveness is therefore not treated as protocol
+liveness. Closing either channel immediately fails all in-flight requests and
+latches that failure for later calls. The child handle remains owned until
+`dispose()`, so a server that closed its response channel cannot escape the
+run's bounded shutdown.
 
 `hover` carries the same distinction one level down: `contents` may be the
 empty string, because hovering over whitespace or a comment resolves to

@@ -30,6 +30,8 @@ diataxis: reference
 Code navigation for an agent — definitions, references, symbols and
 diagnostics — served by a real language server rather than by grep. One
 server per language, routed by file extension, disposed with the run.
+If either protocol stream closes while the process remains alive, in-flight
+and later calls fail immediately and the process remains owned until disposal.
 
 ## Install
 

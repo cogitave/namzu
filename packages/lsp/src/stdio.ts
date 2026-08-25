@@ -94,7 +94,14 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 	 * server has. The handshake already carries the answer.
 	 */
 	private capabilities: Record<string, unknown> = {}
-	private startupError: string | undefined
+	/**
+	 * The first terminal failure, shared by startup and the live transport.
+	 *
+	 * A process may stay alive after closing one of its protocol streams. The
+	 * process handle therefore remains owned until `dispose`; this latch only
+	 * prevents more protocol work and gives every waiter the same explanation.
+	 */
+	private terminalError: string | undefined
 	private disposed = false
 
 	constructor(private readonly options: StdioCodeNavigationOptions) {}
@@ -230,7 +237,7 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 	private start(): Promise<void> {
 		if (this.disposed)
 			return Promise.reject(new Error('This code navigation provider is disposed.'))
-		if (this.startupError) return Promise.reject(new Error(this.startupError))
+		if (this.terminalError) return Promise.reject(new Error(this.terminalError))
 		if (this.starting) return this.starting
 
 		this.starting = (async () => {
@@ -248,30 +255,7 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 			}
 			this.child = child
 
-			// A spawn failure arrives asynchronously on some platforms, so the
-			// error event has to be able to reject the handshake below rather
-			// than surface as an unhandled error on a child nobody is watching.
-			const spawnFailure = new Promise<never>((_resolve, reject) => {
-				child.once('error', (err) =>
-					reject(
-						new Error(
-							`Could not start the language server "${this.options.command}": ${err.message}`,
-						),
-					),
-				)
-				child.once('exit', (code) =>
-					reject(
-						new Error(
-							`The language server "${this.options.command}" exited with code ${code} before it initialized.`,
-						),
-					),
-				)
-			})
-			// Not unhandled: the race below may settle on the other branch, and
-			// an unobserved rejection would take the process down.
-			spawnFailure.catch(() => {})
-
-			child.stdout?.on('data', (chunk: Buffer) => this.consume(chunk))
+			this.observeTransport(child)
 
 			const startupMs = this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS
 			const timeout = new Promise<never>((_resolve, reject) => {
@@ -294,9 +278,9 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 					workspaceFolders: [{ uri: pathToFileURL(this.options.rootDir).href, name: 'workspace' }],
 					capabilities: {},
 				}),
-				spawnFailure,
 				timeout,
 			])
+			if (this.terminalError) throw new Error(this.terminalError)
 			// Stored from the initialize RESULT, which is the only place a
 			// server states what it can do. Everything downstream reads this
 			// instead of sending a request and interpreting the error.
@@ -306,7 +290,7 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 		})().catch((err: unknown) => {
 			// Remembered, so a run that asks twenty times does not spawn twenty
 			// servers against a binary that is not there.
-			this.startupError = err instanceof Error ? err.message : String(err)
+			this.retireTransport(toError(err))
 			throw err
 		})
 
@@ -314,6 +298,14 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 	}
 
 	private request(method: string, params: Record<string, unknown>): Promise<unknown> {
+		if (this.disposed)
+			return Promise.reject(new Error('This code navigation provider is disposed.'))
+		if (this.terminalError) return Promise.reject(new Error(this.terminalError))
+		if (!this.child) {
+			return Promise.reject(
+				new Error(`The language server "${this.options.command}" is not running.`),
+			)
+		}
 		this.seq += 1
 		const id = this.seq
 		const timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
@@ -324,7 +316,11 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 			}, timeoutMs)
 			timer.unref?.()
 			this.pending.set(id, { resolve, reject, timer })
-			this.write({ jsonrpc: '2.0', id, method, params })
+			try {
+				this.write({ jsonrpc: '2.0', id, method, params })
+			} catch (err) {
+				this.retireTransport(toError(err))
+			}
 		})
 	}
 
@@ -333,9 +329,84 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 	}
 
 	private write(message: Record<string, unknown>): void {
+		if (this.disposed) throw new Error('This code navigation provider is disposed.')
+		if (this.terminalError) throw new Error(this.terminalError)
+		const child = this.child
+		if (!child) throw new Error(`The language server "${this.options.command}" is not running.`)
+		this.writeTo(child, message)
+	}
+
+	private writeTo(child: ChildProcess, message: Record<string, unknown>): void {
+		const stdin = child.stdin
+		if (!stdin || stdin.destroyed || !stdin.writable) {
+			throw new Error(`The language server "${this.options.command}" request stream is closed.`)
+		}
 		const body = Buffer.from(JSON.stringify(message), 'utf-8')
-		this.child?.stdin?.write(`Content-Length: ${body.length}\r\n\r\n`)
-		this.child?.stdin?.write(body)
+		// One write keeps concurrent requests from interleaving a header from
+		// one frame with the body of another.
+		stdin.write(Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`), body]))
+	}
+
+	private observeTransport(child: ChildProcess): void {
+		child.on('error', (err) => {
+			this.retireTransport(
+				new Error(`Could not run the language server "${this.options.command}": ${err.message}`),
+			)
+		})
+		child.on('exit', (code, signal) => {
+			const outcome = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`
+			this.retireTransport(
+				new Error(`The language server "${this.options.command}" exited with ${outcome}.`),
+			)
+		})
+
+		child.stdout?.on('data', (chunk: Buffer) => this.consume(chunk))
+		child.stdout?.on('end', () => {
+			this.retireTransport(
+				new Error(
+					`The language server "${this.options.command}" response stream closed unexpectedly.`,
+				),
+			)
+		})
+		child.stdout?.on('close', () => {
+			this.retireTransport(
+				new Error(
+					`The language server "${this.options.command}" response stream closed unexpectedly.`,
+				),
+			)
+		})
+		child.stdout?.on('error', (err) => {
+			this.retireTransport(
+				new Error(
+					`The language server "${this.options.command}" response stream failed: ${err.message}`,
+				),
+			)
+		})
+		child.stdin?.on('close', () => {
+			this.retireTransport(
+				new Error(
+					`The language server "${this.options.command}" request stream closed unexpectedly.`,
+				),
+			)
+		})
+		child.stdin?.on('error', (err) => {
+			this.retireTransport(
+				new Error(
+					`The language server "${this.options.command}" request stream failed: ${err.message}`,
+				),
+			)
+		})
+	}
+
+	/** Fail every waiter once, but retain the child handle for bounded teardown. */
+	private retireTransport(error: Error): void {
+		if (this.disposed) return
+		this.terminalError ??= error.message
+		for (const waiting of this.pending.values()) {
+			clearTimeout(waiting.timer)
+			waiting.reject(new Error(this.terminalError))
+		}
+		this.pending.clear()
 	}
 
 	/**
@@ -407,16 +478,20 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 		// finish. A `kill` alone leaves whatever it was writing half-written,
 		// and some servers hold a lock file.
 		const exited = new Promise<void>((resolve) => {
-			child.once('exit', () => resolve())
+			if (child.exitCode !== null || child.signalCode !== null) resolve()
+			else child.once('exit', () => resolve())
 		})
 		try {
-			this.child = child
-			this.write({ jsonrpc: '2.0', id: ++this.seq, method: 'shutdown', params: {} })
-			this.write({ jsonrpc: '2.0', method: 'exit', params: {} })
+			this.writeTo(child, {
+				jsonrpc: '2.0',
+				id: ++this.seq,
+				method: 'shutdown',
+				params: {},
+			})
+			this.writeTo(child, { jsonrpc: '2.0', method: 'exit', params: {} })
 		} catch {
 			// The pipe is already gone. Falling through to the kill is right.
 		}
-		this.child = undefined
 		child.stdin?.end()
 
 		// Bounded, because a server that ignores `exit` must not keep the run
@@ -432,6 +507,10 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 			}),
 		])
 	}
+}
+
+function toError(value: unknown): Error {
+	return value instanceof Error ? value : new Error(String(value))
 }
 
 function isLocation(value: unknown): value is LspLocation {
