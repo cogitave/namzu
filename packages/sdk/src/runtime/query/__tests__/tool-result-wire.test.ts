@@ -131,5 +131,6 @@ describe('rich tool content reaches the message', () => {
 		// still carries the full payload.
 		expect(typeof batch.messages[0]?.content).toBe('string')
 		expect(String(batch.messages[0]?.content)).toContain('characters omitted')
+		expect(String(batch.messages[0]?.content).length).toBeLessThanOrEqual(200)
 	})
 })

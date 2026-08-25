@@ -906,6 +906,7 @@ export class ToolExecutor {
 			adoptSkillScope: (scope) => {
 				this.skillScope = { ...scope, adoptedInBatch: this.batchCounter }
 			},
+			maxToolOutputChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 			...(this.config.skills ? { skills: this.config.skills } : {}),
 			...(this.config.web ? { web: this.config.web } : {}),
 			// The SAME registry and the SAME context a model-issued call
@@ -1206,16 +1207,35 @@ export class ToolExecutor {
 			? result.output
 			: formatFailedToolOutput(result.output, result.error)
 
-		let output = result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput
+		const postOverride = post.override
+		let output =
+			postOverride?.output ?? (result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput)
+		const selectedContent = postOverride?.isError
+			? undefined
+			: (postOverride?.content ?? result.content)
+		const maxToolOutputChars = this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS
+
+		// If the text preview forces rich content out, say so inside the SAME
+		// budget. Appending this after truncation made the diagnostic itself a
+		// cap bypass; selecting a post-hook override after truncation was a
+		// larger bypass that could replace a bounded result with anything.
+		if (
+			maxToolOutputChars > 0 &&
+			output.length > maxToolOutputChars &&
+			selectedContent !== undefined
+		) {
+			const dropped = describeDroppedContent(selectedContent)
+			if (dropped) output = `${output}\n\n${dropped}`
+		}
 
 		// Compression is opportunistic and shell-only; the budget is the
-		// hard bound that applies to every tool. Runs after compression so
-		// a result that shrinks under the cap is never spilled needlessly.
+		// hard bound that applies to every final tool result, including a
+		// post-tool hook's replacement and the rich-content omission notice.
 		const budgeted = applyToolOutputBudget({
 			toolName,
 			toolUseId: toolCall.id,
 			output,
-			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+			maxChars: maxToolOutputChars,
 			spillDir: this.config.toolOutputDir,
 			onError: (message) =>
 				this.log.warn('Failed to spill oversized tool output', {
@@ -1233,22 +1253,6 @@ export class ToolExecutor {
 			})
 		}
 		output = budgeted.output
-
-		// A truncated text half drops the rich half with it — the preview is
-		// no longer the tool's own payload, so an image alongside it would be
-		// illustrating something the model can no longer read. Dropping is
-		// right; doing it SILENTLY is not. The model saw a preview and had no
-		// way to know an image existed at all, so it reasoned as though the
-		// tool had returned text only.
-		if (budgeted.truncated && result.content !== undefined) {
-			const dropped = describeDroppedContent(result.content)
-			if (dropped) output = `${output}\n\n${dropped}`
-		}
-
-		const postOverride = post.override
-		if (postOverride !== null) {
-			output = postOverride.output
-		}
 
 		// A failed call, or an override that says the call failed. A `replace`
 		// says the opposite, and reading it as a failure is what made redaction
@@ -1312,12 +1316,8 @@ export class ToolExecutor {
 		})
 
 		const resolveContent = (): { content?: ToolResultContent } => {
-			if (postOverride?.content !== undefined) {
-				return { content: this.budgetContent(postOverride.content, toolName) }
-			}
-			if (postOverride?.isError) return {}
-			if (budgeted.truncated || result.content === undefined) return {}
-			return { content: this.budgetContent(result.content, toolName) }
+			if (budgeted.truncated || selectedContent === undefined) return {}
+			return { content: this.budgetContent(selectedContent, toolName) }
 		}
 
 		return {

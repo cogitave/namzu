@@ -37,6 +37,57 @@ export const SPILL_MARKER = 'The full output was written to:'
  */
 const HEAD_SHARE = 0.75
 
+function safeHead(text: string, maxChars: number): string {
+	let end = Math.min(text.length, Math.max(0, maxChars))
+	if (end > 0) {
+		const last = text.charCodeAt(end - 1)
+		if (last >= 0xd800 && last <= 0xdbff) end--
+	}
+	return text.slice(0, end)
+}
+
+function safeTail(text: string, maxChars: number): string {
+	let start = Math.max(0, text.length - Math.max(0, maxChars))
+	if (start < text.length) {
+		const first = text.charCodeAt(start)
+		if (first >= 0xdc00 && first <= 0xdfff) start++
+	}
+	return text.slice(start)
+}
+
+/**
+ * Fit a recoverable head+tail preview inside the actual model-visible cap.
+ *
+ * The old implementation allocated the entire cap to source text and then
+ * appended its diagnostic and recovery instructions. A configured 1,000
+ * character cap therefore emitted 1,200–1,300 characters; at very small
+ * limits the explanation could be several times larger than the limit.
+ */
+function boundedPreview(
+	output: string,
+	maxChars: number,
+	toolName: string,
+	recovery: string,
+): string {
+	const detailedMiddle = [
+		'',
+		`[... characters omitted — "${toolName}" returned ${output.length.toLocaleString()} characters, over the ${maxChars.toLocaleString()}-character budget ...]`,
+		recovery,
+		'',
+	].join('\n')
+	const compactMiddle = '\n[... omitted ...]\n'
+	const middle = detailedMiddle.length < maxChars ? detailedMiddle : compactMiddle
+
+	// A host may deliberately set a tiny positive cap. At that point no
+	// truthful recovery sentence fits; the hard bound still wins.
+	if (middle.length >= maxChars) return safeHead(middle, maxChars)
+
+	const sourceChars = maxChars - middle.length
+	const headChars = Math.max(1, Math.floor(sourceChars * HEAD_SHARE))
+	const tailChars = Math.max(0, sourceChars - headChars)
+	return `${safeHead(output, headChars)}${middle}${safeTail(output, tailChars)}`
+}
+
 export interface ToolOutputBudgetResult {
 	/** What the model sees. */
 	readonly output: string
@@ -127,15 +178,6 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 		return { output, originalLength, truncated: false }
 	}
 
-	// Both slices are derived from `maxChars` so the preview honours the
-	// budget it is enforcing. `slice(-0)` returns the WHOLE string, so the
-	// zero-tail case must be branched, not computed.
-	const headChars = Math.max(1, Math.floor(maxChars * HEAD_SHARE))
-	const tailChars = Math.max(0, maxChars - headChars)
-	const head = output.slice(0, headChars)
-	const tail = tailChars > 0 ? output.slice(-tailChars) : ''
-	const omitted = originalLength - head.length - tail.length
-
 	const spillPath = opts.spillDir
 		? spill(opts.spillDir, opts.toolUseId, output, opts.onError)
 		: undefined
@@ -148,14 +190,7 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 		: 'The full output was not retained. Re-run with a narrower query, a line range, or a filter.'
 
 	return {
-		output: [
-			head,
-			'',
-			`[... ${omitted.toLocaleString()} characters omitted — "${opts.toolName}" returned ${originalLength.toLocaleString()} characters, over the ${maxChars.toLocaleString()}-character budget ...]`,
-			recovery,
-			'',
-			tail,
-		].join('\n'),
+		output: boundedPreview(output, maxChars, opts.toolName, recovery),
 		originalLength,
 		truncated: true,
 		...(spillPath ? { spillPath } : {}),

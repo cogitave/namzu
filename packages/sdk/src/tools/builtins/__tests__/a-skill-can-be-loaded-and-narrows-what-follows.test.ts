@@ -50,6 +50,7 @@ function registry(skills: StoredSkill[]): SkillRegistryRef {
 function contextFor(
 	skills?: SkillRegistryRef,
 	adopted?: { scope?: { skill: string; allowedTools: readonly string[] } },
+	overrides: Partial<ToolContext> = {},
 ): ToolContext {
 	return {
 		runId: 'run_skill' as RunId,
@@ -65,6 +66,7 @@ function contextFor(
 					},
 				}
 			: {}),
+		...overrides,
 	}
 }
 
@@ -133,6 +135,51 @@ describe('the model can open a skill without a filesystem', () => {
 			)
 			expect(result.success).toBe(true)
 		}
+	})
+
+	it('pages a long body without losing its middle to generic truncation', async () => {
+		const middle = 'MIDDLE_INSTRUCTIONS_MUST_SURVIVE'
+		const body = `${'a'.repeat(700)}${middle}${'z'.repeat(700)}`
+		const ctx = contextFor(registry([{ name: 'long', body }]), undefined, {
+			maxToolOutputChars: 360,
+		})
+		const outputs: string[] = []
+		let cursor: string | undefined
+
+		for (let page = 0; page < 20; page++) {
+			const result = await SkillTool.execute({ name: 'long', ...(cursor ? { cursor } : {}) }, ctx)
+			expect(result.success).toBe(true)
+			expect(result.output.length).toBeLessThanOrEqual(360)
+			expect(result.output).not.toContain('characters omitted')
+			outputs.push(result.output)
+			cursor = (result.data as { nextCursor?: string } | undefined)?.nextCursor
+			if (!cursor) break
+		}
+
+		expect(cursor).toBeUndefined()
+		expect(outputs.length).toBeGreaterThan(1)
+		expect(outputs.join('\n')).toContain(middle)
+	})
+
+	it('rejects a cursor after authorization metadata changes before adopting scope', async () => {
+		const stored: StoredSkill = {
+			name: 'mutable',
+			body: 'body '.repeat(200),
+			allowedTools: 'read',
+		}
+		const adopted: { scope?: { skill: string; allowedTools: readonly string[] } } = {}
+		const ctx = contextFor(registry([stored]), adopted, { maxToolOutputChars: 360 })
+		const first = await SkillTool.execute({ name: 'mutable' }, ctx)
+		const cursor = (first.data as { nextCursor?: string } | undefined)?.nextCursor
+		expect(cursor).toBeDefined()
+		expect(adopted.scope).toEqual({ skill: 'mutable', allowedTools: ['read'] })
+
+		stored.allowedTools = 'bash'
+		const continued = await SkillTool.execute({ name: 'mutable', cursor: cursor as string }, ctx)
+
+		expect(continued.success).toBe(false)
+		expect(continued.error).toMatch(/stale or invalid/)
+		expect(adopted.scope).toEqual({ skill: 'mutable', allowedTools: ['read'] })
 	})
 })
 

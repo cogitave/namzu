@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-24
+lastReviewed: 2026-08-25
 tags: [computer-use, sdk]
 ---
 
@@ -282,6 +282,25 @@ Notes:
 
 See [Tool Context](README.md#3b-nested-and-code-runtime-calls) for source shapes
 and the custom `CodeRuntime` migration contract.
+
+### 4.11 `skill` (opt-in)
+
+Purpose:
+
+- load the body of a skill already named in the available-skills manifest
+- adopt its declared `allowed-tools` restriction for the next model batch
+
+Notes:
+
+- not in `getBuiltinTools()`; register `SkillTool` and supply
+  `query({ skillRegistry })` together
+- long bodies are paged within the effective `maxToolOutputChars`; keep calling
+  with the returned opaque `cursor` until the result has no continuation
+- a cursor is bound to the registered name, exact body, normalized
+  `allowed-tools`, and invocation policy; editing any of them makes an old
+  cursor stale before it can change the run's tool scope
+- a direct host call without `ToolContext.maxToolOutputChars` retains the
+  complete single-result behavior
 
 ## 5. Registering Built-Ins
 

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
@@ -24,9 +25,100 @@ const inputSchema = z.object({
 		.string()
 		.min(1)
 		.describe('The skill to load, exactly as listed in the available-skills manifest.'),
+	cursor: z
+		.string()
+		.max(160)
+		.optional()
+		.describe('Opaque continuation cursor returned by an earlier call for this exact skill.'),
 })
 
 type SkillInput = z.infer<typeof inputSchema>
+
+const CURSOR_PATTERN = /^v1\.([1-9][0-9]*)\.([A-Za-z0-9_-]{43})$/
+
+interface SkillSnapshot {
+	readonly name: string
+	readonly body: string
+	readonly allowedTools: readonly string[] | undefined
+	readonly invocation: ReturnType<typeof skillInvocation>
+}
+
+interface SkillPage {
+	readonly output: string
+	readonly nextCursor?: string
+}
+
+function snapshotDigest(snapshot: SkillSnapshot): string {
+	return createHash('sha256')
+		.update(
+			JSON.stringify({
+				version: 1,
+				name: snapshot.name,
+				body: snapshot.body,
+				allowedTools: snapshot.allowedTools ?? null,
+				invocation: snapshot.invocation,
+			}),
+		)
+		.digest('base64url')
+}
+
+function cursorFor(offset: number, digest: string): string {
+	return `v1.${offset}.${digest}`
+}
+
+function parseCursor(cursor: string): { offset: number; digest: string } | undefined {
+	const match = CURSOR_PATTERN.exec(cursor)
+	if (!match) return undefined
+	const offset = Number(match[1])
+	if (!Number.isSafeInteger(offset)) return undefined
+	return { offset, digest: match[2] ?? '' }
+}
+
+function isCodePointBoundary(text: string, index: number): boolean {
+	if (index <= 0 || index >= text.length) return true
+	const before = text.charCodeAt(index - 1)
+	const after = text.charCodeAt(index)
+	return !(before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff)
+}
+
+function boundaryAtOrBefore(text: string, index: number): number {
+	const bounded = Math.max(0, Math.min(text.length, index))
+	return isCodePointBoundary(text, bounded) ? bounded : bounded - 1
+}
+
+function continuationNotice(name: string, cursor: string): string {
+	return `\n\n[More skill instructions remain. Call skill again with name "${name}" and cursor "${cursor}" before acting.]`
+}
+
+function pageSkillBody(input: {
+	readonly snapshot: SkillSnapshot
+	readonly digest: string
+	readonly start: number
+	readonly notice: string
+	readonly maxChars: number | undefined
+}): SkillPage | undefined {
+	const { snapshot, digest, start, notice, maxChars } = input
+	const remaining = `${snapshot.body.slice(start)}${notice}`
+	if (maxChars === undefined || maxChars <= 0 || remaining.length <= maxChars) {
+		return { output: remaining }
+	}
+
+	// Estimate once, then remove exactly the overflow until the page fits.
+	// The cursor grows only at powers of ten, so this converges in a handful
+	// of steps without allocating an index for every character in a large file.
+	let end = boundaryAtOrBefore(snapshot.body, Math.min(snapshot.body.length - 1, start + maxChars))
+	while (end > start) {
+		const nextCursor = cursorFor(end, digest)
+		const output = `${snapshot.body.slice(start, end)}${continuationNotice(
+			snapshot.name,
+			nextCursor,
+		)}${notice}`
+		if (output.length <= maxChars) return { output, nextCursor }
+		end = boundaryAtOrBefore(snapshot.body, end - Math.max(1, output.length - maxChars))
+	}
+
+	return undefined
+}
 
 /**
  * `allowed-tools` as a list.
@@ -54,7 +146,7 @@ export const SKILL_TOOL_NAME = 'skill'
 export const SkillTool = defineTool({
 	name: SKILL_TOOL_NAME,
 	description:
-		'Loads the full instructions for a skill listed in the available-skills manifest. Call this before doing work the skill describes; the manifest carries only names and descriptions.',
+		'Loads the instructions for a skill listed in the available-skills manifest. Long skills return an opaque continuation cursor; keep calling with that cursor until no continuation remains, before doing the work. The manifest carries only names and descriptions.',
 	inputSchema,
 	category: 'analysis',
 	permissions: [],
@@ -92,6 +184,7 @@ export const SkillTool = defineTool({
 		}
 
 		const skill = loaded.skill
+		const invocation = skillInvocation(skill)
 		if (!isInvocableBy(skill, 'model')) {
 			// Reachable even though the manifest omits it: the model can name
 			// anything, and a check that only filtered the listing would be a
@@ -105,6 +198,54 @@ export const SkillTool = defineTool({
 		}
 
 		const allowed = parseAllowedTools(skill.metadata.allowedTools)
+		const snapshot: SkillSnapshot = {
+			name: input.name,
+			body: skill.body ?? '(this skill has no body)',
+			allowedTools: allowed,
+			invocation,
+		}
+		const digest = snapshotDigest(snapshot)
+		let start = 0
+		if (input.cursor !== undefined) {
+			const parsed = parseCursor(input.cursor)
+			if (
+				!parsed ||
+				parsed.digest !== digest ||
+				parsed.offset >= snapshot.body.length ||
+				!isCodePointBoundary(snapshot.body, parsed.offset)
+			) {
+				return {
+					success: false,
+					output: '',
+					error: `The continuation cursor for "${input.name}" is stale or invalid. Call skill again without a cursor to read the current instructions.`,
+				}
+			}
+			start = parsed.offset
+		}
+
+		const notice =
+			allowed === undefined
+				? ''
+				: `\n\n[While following this skill, restrict yourself to: ${allowed.length > 0 ? allowed.join(', ') : '(no tools)'}. This takes effect from your next turn.]`
+		const page = pageSkillBody({
+			snapshot,
+			digest,
+			start,
+			notice,
+			maxChars: context.maxToolOutputChars,
+		})
+		if (!page) {
+			return {
+				success: false,
+				output: '',
+				error: `The model-visible tool-output budget is too small to read "${input.name}" safely. Increase maxToolOutputChars and retry.`,
+			}
+		}
+
+		// Cursor and policy validation must finish before this mutation. A
+		// continuation is bound to the body AND its effective authorization
+		// metadata, so an edit to allowed-tools or invocation cannot widen the
+		// next batch under an old cursor.
 		if (allowed !== undefined) {
 			// Adopted, not merely announced. The notice below tells the model
 			// what happened; this is what makes it true whether or not the
@@ -117,17 +258,14 @@ export const SkillTool = defineTool({
 			// advice.
 			context.adoptSkillScope?.({ skill: skill.metadata.name, allowedTools: allowed })
 		}
-		const notice =
-			allowed === undefined
-				? ''
-				: `\n\n[While following this skill, restrict yourself to: ${allowed.length > 0 ? allowed.join(', ') : '(no tools)'}. This takes effect from your next turn.]`
 
 		return {
 			success: true,
-			output: `${skill.body ?? '(this skill has no body)'}${notice}`,
+			output: page.output,
 			data: {
 				skill: skill.metadata.name,
 				...(allowed === undefined ? {} : { allowedTools: allowed }),
+				...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
 			},
 		}
 	},

@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-24
+lastReviewed: 2026-08-25
 tags: [computer-use, sdk]
 ---
 
@@ -502,7 +502,13 @@ A cancellation and a deadline arrive by the same mechanism and mean opposite thi
 
 Two kinds of reason are deliberately reported as *no* reason, so today's honest silence is not replaced by a fake explanation: a bare `abort()` fills `reason` with a platform `AbortError`, which is nobody's message, and a non-`Error` reason is dropped rather than rendered (a bare string `'canceled'` would read as `was cancelled: canceled`). Pass an `Error` with a sentence in it if you want the model to see one.
 
-**Output budget.** A single tool result is capped at 40,000 model-visible characters (`maxToolOutputChars`; `0` disables). Over-budget output is written to `<runDir>/tool-output/<toolUseId>.txt` and replaced with a head+tail preview naming the path, so nothing is lost and tokens are paid only if the agent decides the rest is worth re-reading — with `read` and `grep`, tools it already has.
+**Output budget.** A single tool result is capped at 40,000 model-visible characters (`maxToolOutputChars`; `0` disables). The cap includes the executor's omission/recovery text and any `post_tool_use` replacement; those additions cannot silently exceed the configured limit. Over-budget output is written to `<runDir>/tool-output/<toolUseId>.txt` and replaced with a head+tail preview naming the path, so nothing is lost and tokens are paid only if the agent decides the rest is worth re-reading — with `read` and `grep`, tools it already has.
+
+Executor-owned calls also receive the resolved value as
+`ToolContext.maxToolOutputChars`. A tool that has a native continuation
+protocol can therefore page before the generic head+tail fallback discards its
+middle. Direct host calls may omit the field; a tool must preserve its existing
+unbounded direct-call behavior in that case unless the host says otherwise.
 
 Relatedly, `read` returns the first 2000 lines when given no window, and says so with a `[PARTIAL view — lines X-Y of Z]` notice naming the exact next call. A truncated read that looks like a short file is the most expensive silent failure a read tool can have.
 

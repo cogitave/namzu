@@ -1,3 +1,6 @@
+import { access, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
@@ -211,6 +214,71 @@ describe('ToolExecutor plugin hooks', () => {
 		)
 		const batch = await exec.executeBatch(buildResponse('echo', {}))
 		expect(batch.results[0]?.output).toBe('Error: rejected')
+	})
+
+	it('applies the model-visible budget after a post_tool_use override', async () => {
+		const tools = makeToolRegistry(vi.fn(async () => ({ success: true, output: 'raw' })))
+		const pluginManager = makePluginManager(async (event) =>
+			event === 'post_tool_use'
+				? ([{ action: 'replace', output: 'x'.repeat(10_000) }] as PluginHookResult[])
+				: [],
+		)
+		const exec = new ToolExecutor(
+			{
+				tools,
+				runId: mockRunId,
+				workingDirectory: '/tmp',
+				permissionMode: 'auto',
+				env: {},
+				abortSignal: new AbortController().signal,
+				pluginManager,
+				maxToolOutputChars: 128,
+			},
+			activityStore,
+			emitEvent,
+			makeLogger(),
+		)
+
+		const batch = await exec.executeBatch(buildResponse('echo', {}))
+		expect(batch.results[0]?.output.length).toBeLessThanOrEqual(128)
+		expect(batch.results[0]?.output).not.toBe('x'.repeat(10_000))
+	})
+
+	it('does not spill raw output that a post_tool_use hook replaced', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-post-hook-budget-'))
+		const spillDir = join(root, 'tool-output')
+		try {
+			const secret = 'secret-before-redaction-'.repeat(1_000)
+			const tools = makeToolRegistry(vi.fn(async () => ({ success: true, output: secret })))
+			const pluginManager = makePluginManager(async (event) =>
+				event === 'post_tool_use'
+					? ([{ action: 'replace', output: '[redacted]' }] as PluginHookResult[])
+					: [],
+			)
+			const exec = new ToolExecutor(
+				{
+					tools,
+					runId: mockRunId,
+					workingDirectory: root,
+					permissionMode: 'auto',
+					env: {},
+					abortSignal: new AbortController().signal,
+					pluginManager,
+					maxToolOutputChars: 128,
+					toolOutputDir: spillDir,
+				},
+				activityStore,
+				emitEvent,
+				makeLogger(),
+			)
+
+			const batch = await exec.executeBatch(buildResponse('echo', {}))
+
+			expect(batch.results[0]?.output).toBe('[redacted]')
+			await expect(access(spillDir)).rejects.toMatchObject({ code: 'ENOENT' })
+		} finally {
+			await rm(root, { recursive: true, force: true })
+		}
 	})
 
 	it('threads modified input through chained pre_tool_use modify hooks', async () => {

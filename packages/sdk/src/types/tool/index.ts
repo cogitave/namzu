@@ -303,6 +303,16 @@ export interface ToolContext {
 	}) => void
 
 	/**
+	 * Effective model-visible character cap for this tool result.
+	 *
+	 * Present on executor-owned calls so a tool that can paginate does so
+	 * before the generic head+tail fallback loses its middle. `0` means the
+	 * host disabled the cap; absent means a direct host invocation did not
+	 * declare one.
+	 */
+	maxToolOutputChars?: number
+
+	/**
 	 * Run another tool through the same dispatch this call came through.
 	 *
 	 * For `run_code`, whose whole purpose is calling tools in a loop. NOT
