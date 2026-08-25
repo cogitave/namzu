@@ -10,6 +10,7 @@ import {
 } from '../../constants/plugin/index.js'
 import type { PluginId, RunId } from '../ids/index.js'
 import type { Message, ToolResultContent } from '../message/index.js'
+import type { CancelCause } from '../run/cancel-cause.js'
 import type { ToolResult } from '../tool/index.js'
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,7 @@ export function assertPluginContributionType(type: PluginContributionType): void
 export type PluginHookEvent =
 	| 'run_start'
 	| 'run_end'
+	| 'run_interrupt'
 	| 'pre_tool_use'
 	| 'post_tool_use'
 	| 'pre_llm_call'
@@ -96,6 +98,7 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 	switch (event) {
 		case 'run_start':
 		case 'run_end':
+		case 'run_interrupt':
 		case 'pre_tool_use':
 		case 'post_tool_use':
 		case 'pre_llm_call':
@@ -147,6 +150,15 @@ export interface PluginHookContext {
 	readonly toolInput?: unknown
 	readonly toolResult?: ToolResult
 	readonly iteration?: number
+	/**
+	 * Why the run was stopped, on `run_interrupt`.
+	 *
+	 * That hook is emitted only for a root run carrying the explicit `user`
+	 * cause. Keeping the field typed as the complete cause vocabulary lets a
+	 * host narrow normally and leaves room for a future, deliberate expansion
+	 * without overloading `event` or an error sentence.
+	 */
+	readonly cancelCause?: CancelCause
 
 	/**
 	 * The request about to be sent, on `pre_llm_call`.
@@ -176,6 +188,9 @@ export interface PluginHookContext {
 	readonly response?: Readonly<PluginModelResponse>
 	/**
 	 * Aborts when this hook's run is cancelled or its deadline expires.
+	 * `run_interrupt` is the exception: the run is already cancelled, so its
+	 * handler receives a fresh signal that represents only the bounded cleanup
+	 * deadline. The original verdict is available as `cancelCause`.
 	 *
 	 * The runtime stops waiting on a slow hook either way, but in-process
 	 * JavaScript cannot be forcibly stopped. Without a signal the hook itself

@@ -711,6 +711,12 @@ export class PluginLifecycleManager {
 		}
 
 		const results: PluginHookResult[] = []
+		// Interrupt hooks are cleanup/notification observers. One extension's
+		// skip, error, retry, or timeout must not suppress the extensions that
+		// follow it, and none of those results can change the cancellation that
+		// already happened. Other hook events retain their existing flow-control
+		// semantics.
+		const observationalFanOut = event === 'run_interrupt'
 
 		// Determine execution order: post_* hooks run backward (for cleanup semantics)
 		const isPost = event.startsWith('post_')
@@ -830,16 +836,16 @@ export class PluginLifecycleManager {
 
 			results.push(result)
 
-			if (result.action === 'modify') {
+			if (!observationalFanOut && result.action === 'modify') {
 				toolInputOverlay = result.input
 			}
 
 			// Handle flow control: check priority order: error > skip > retry > resume > modify > continue
 			// Short-circuit on error or skip; return immediately on resume or retry
-			if (result.action === 'error' || result.action === 'skip') {
+			if (!observationalFanOut && (result.action === 'error' || result.action === 'skip')) {
 				break
 			}
-			if (result.action === 'retry') {
+			if (!observationalFanOut && result.action === 'retry') {
 				break
 			}
 		}

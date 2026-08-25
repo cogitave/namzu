@@ -32,6 +32,8 @@
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { cancelCauseOf } from '@namzu/sdk'
+
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
@@ -541,6 +543,7 @@ describe('/resume while a turn is running', () => {
 		harness.stdin.write('\x1B')
 		await tick(120)
 		expect(signals[1]?.aborted, 'Esc no longer stops the turn on screen').toBe(true)
+		expect(cancelCauseOf(signals[1]?.reason)).toBe('user')
 	})
 
 	it('does not send a queued follow-up into the conversation it lands in', async () => {

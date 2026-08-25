@@ -25,6 +25,7 @@ import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import { resolveModelPricing } from '../../pricing/index.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
+import { isCallerAbortError } from '../../provider/errors.js'
 import {
 	type ProviderChainMember,
 	type ServingMember,
@@ -77,6 +78,7 @@ import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { ReviewAnswer } from '../../types/run/answer-review.js'
+import { cancelCauseOf } from '../../types/run/cancel-cause.js'
 import type { CheckpointStore, FencingToken } from '../../types/run/checkpoint-store.js'
 import type { RunEventCursor, RunEventReplay } from '../../types/run/event-cursor.js'
 import { resolveRunEventReplay } from '../../types/run/event-cursor.js'
@@ -1367,6 +1369,40 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	eventTranslator.wireActivityStore(ctx.activityStore, ctx.runId)
 	eventTranslator.wirePlanManager(ctx.planManager, ctx.runId)
 	eventTranslator.setGeneration(params.claimFence)
+	let interruptHooksStarted = false
+	const executeUserInterruptHooks = async (terminalError: unknown): Promise<void> => {
+		if (
+			interruptHooksStarted ||
+			!params.pluginManager ||
+			!isCallerAbortError(terminalError, ctx.abortController.signal) ||
+			params.parentRunId !== undefined ||
+			(params.depth ?? 0) !== 0 ||
+			cancelCauseOf(ctx.abortController.signal.reason) !== 'user'
+		) {
+			return
+		}
+
+		interruptHooksStarted = true
+		try {
+			// Deliberately omit the already-aborted run signal. The lifecycle
+			// manager still supplies each handler its own deadline signal, while
+			// `run_interrupt`'s observational fan-out prevents one result from
+			// suppressing the cleanup hooks that follow it.
+			await params.pluginManager.executeHooks(
+				'run_interrupt',
+				{ runId: ctx.runId, cancelCause: 'user' },
+				eventTranslator.emitEvent,
+			)
+		} catch (error) {
+			// Cancellation is the terminal authority. A hook event sink or an
+			// unexpected manager failure is reported, but cannot turn Stop into a
+			// failed run or prevent the durable cancellation verdict.
+			ctx.log.error('Run interrupt hooks did not settle cleanly', {
+				[NAMZU.RUN_ID]: ctx.runId,
+				...errorAttributes(error),
+			})
+		}
+	}
 
 	if (attachmentResolutionCancelled) {
 		// Attachment materialization happens before RunContext exists. Once it
@@ -1375,6 +1411,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// and settle through the ordinary cancellation classifier. Prompt
 		// contributions/cache, host callbacks, tools, plugins, sandbox, guardrails,
 		// advisors, and providers are all authority-bearing work and stay out.
+		// The dedicated root interrupt notification is the sole plugin exception:
+		// it runs after cancellation under its own deadline and cannot regain model
+		// or tool authority.
 		if (params.resumeFromCheckpoint && !selectedResumeState) {
 			// The canonical resume surface hands query the checkpoint state it
 			// already selected. A raw resume query has no such snapshot; after
@@ -1460,6 +1499,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			const terminalError = ctx.abortController.signal.aborted
 				? ctx.abortController.signal.reason
 				: error
+			await executeUserInterruptHooks(terminalError)
+			yield* eventTranslator.drainPending()
 			yield* cancelledAssembler.handleError(terminalError, rootSpan)
 		} finally {
 			rootSpan.end()
@@ -2581,6 +2622,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		} catch (err) {
 			// A failed run still spent its steps; report them.
 			ctx.runMgr.setSteps(iterationOrchestrator.getSteps())
+			await executeUserInterruptHooks(err)
+			yield* eventTranslator.drainPending()
 			yield* resultAssembler.handleError(err, rootSpan)
 		} finally {
 			// Release the process's termination path as soon as this run is

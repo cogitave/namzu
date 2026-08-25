@@ -22,6 +22,8 @@
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { cancelCauseOf } from '@namzu/sdk'
+
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, PermissionDecision, PermissionRequest } from '../agent.js'
 import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
@@ -34,6 +36,7 @@ const decisions: PermissionDecision[] = []
 
 /** Per-turn modes and executions observed beyond the App boundary. */
 const permissionModes: unknown[] = []
+const turnSignals: Array<AbortSignal | undefined> = []
 let toolExecutions = 0
 
 /**
@@ -127,6 +130,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				// `/permissions` rather than through a second prompt.
 				send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
 					permissionModes.push(opts?.permissionMode)
+					turnSignals.push(opts?.signal)
 					yield { kind: 'delta', text: 'working' } as AgentEvent
 					await new Promise((r) => setTimeout(r, permissionDelayMs))
 					if (opts?.permissionMode === 'auto' || latched) {
@@ -227,6 +231,7 @@ const mounted: { unmount: () => void }[] = []
 beforeEach(() => {
 	decisions.length = 0
 	permissionModes.length = 0
+	turnSignals.length = 0
 	toolExecutions = 0
 	permissionDelayMs = 30
 	nowMs = 1_000_000
@@ -344,6 +349,7 @@ describe('the permission prompt', () => {
 		await decisionSettles()
 
 		expect(decisions).toEqual([{ kind: 'reject', feedback: 'User interrupted.' }])
+		expect(cancelCauseOf(turnSignals[0]?.reason)).toBe('user')
 	})
 })
 

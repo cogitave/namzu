@@ -7,7 +7,7 @@ diataxis: how-to
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+lastReviewed: 2026-08-25
 tags: [sdk]
 ---
 
@@ -314,12 +314,27 @@ Hook events currently available:
 
 - `run_start`
 - `run_end`
+- `run_interrupt`
 - `pre_tool_use`
 - `post_tool_use`
 - `pre_llm_call`
 - `post_llm_call`
 - `iteration_start`
 - `iteration_end`
+
+`run_interrupt` is a root-run operator notification, not a second cancellation
+policy. It runs only when the caller stops a root run with the explicit `user`
+cancel cause, after cancellation has been observed and before the durable
+`run_completed` event. Parent abandonment, budget exhaustion, hook refusal,
+unattributed aborts, and delegated child runs do not emit it.
+
+Every registered interrupt handler is attempted in registration order. Its
+result is observational: `skip`, `retry`, `modify`, `error`, and timeout are
+recorded but cannot change the cancellation or suppress a later handler. Each
+handler receives `context.cancelCause === 'user'` and a fresh `context.signal`
+for its own cleanup deadline. That signal is deliberately not the already
+aborted run signal; plugins should forward it to cleanup I/O and treat its abort
+as the end of their notification window.
 
 ### Sanitizing a tool result without failing the call
 

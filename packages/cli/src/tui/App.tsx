@@ -22,6 +22,7 @@ import {
 	type MessageAttachment,
 	type MessageId,
 	type ReasoningEffort,
+	RunCancelled,
 	type RunId,
 	type SessionGoal,
 	SessionGoalActivation,
@@ -2455,7 +2456,7 @@ export function App({
 			resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
 		const ac = abortRef.current
 		if (!ac) return false
-		ac.abort()
+		ac.abort(new RunCancelled('user'))
 		const activeSessionId = scopeRef.current?.sessionId
 		if (activeSessionId) goalActivation.disarm(activeSessionId)
 		wakeGoalDriver()
@@ -4892,7 +4893,7 @@ export function App({
 				// mistake is recoverable in, so it answers on the first press.
 				if (key.ctrl && input === 'c') {
 					resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
-					abortRef.current?.abort()
+					abortRef.current?.abort(new RunCancelled('user'))
 					return
 				}
 				if (ch === 'n' || key.escape) {

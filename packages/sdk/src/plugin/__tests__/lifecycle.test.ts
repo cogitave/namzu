@@ -202,6 +202,62 @@ describe('PluginLifecycleManager', () => {
 			}
 		})
 
+		it('fans out interrupt observers after skip, error, and timeout results', async () => {
+			const observationalManager = new PluginLifecycleManager({
+				pluginRegistry,
+				toolRegistry,
+				scopeRoots: { project: process.cwd(), user: process.cwd() },
+				log: logger,
+				hookTimeoutMs: 10,
+			})
+			const lastObserver = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
+			observationalManager.registerHook('plugin_skip' as PluginId, {
+				event: 'run_interrupt',
+				handler: async () => ({
+					action: 'skip',
+					reason: 'observer has nothing to do',
+				}),
+			})
+			observationalManager.registerHook('plugin_throw' as PluginId, {
+				event: 'run_interrupt',
+				handler: async () => {
+					throw new Error('observer failed')
+				},
+			})
+			observationalManager.registerHook('plugin_timeout' as PluginId, {
+				event: 'run_interrupt',
+				handler: () => new Promise<PluginHookResult>(() => {}),
+			})
+			observationalManager.registerHook('plugin_last' as PluginId, {
+				event: 'run_interrupt',
+				handler: lastObserver,
+			})
+			const emitted: Array<{ type: string; pluginId?: PluginId }> = []
+
+			const results = await observationalManager.executeHooks(
+				'run_interrupt',
+				{ runId: mockRunId, cancelCause: 'user' },
+				async (event) => {
+					const pluginId =
+						event.type === 'plugin_hook_executing' || event.type === 'plugin_hook_completed'
+							? event.pluginId
+							: undefined
+					emitted.push({
+						type: event.type,
+						...(pluginId ? { pluginId } : {}),
+					})
+				},
+			)
+
+			expect(results.map((result) => result.action)).toEqual(['skip', 'error', 'error', 'continue'])
+			expect(lastObserver).toHaveBeenCalledOnce()
+			expect(
+				emitted
+					.filter((event) => event.type === 'plugin_hook_completed')
+					.map((event) => event.pluginId),
+			).toEqual(['plugin_skip', 'plugin_throw', 'plugin_timeout', 'plugin_last'])
+		})
+
 		describe('Hook ordering semantics', () => {
 			it('should execute pre_* hooks in registration order (first registered first)', async () => {
 				const executionOrder: string[] = []

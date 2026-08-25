@@ -5,8 +5,10 @@ import { type Context, type Span, type Tracer, trace } from '@opentelemetry/api'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
+import { PluginRegistry } from '../../../registry/plugin/index.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type {
 	AttachmentOperationOptions,
@@ -17,7 +19,7 @@ import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { PluginId, RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	type MessageAttachment,
@@ -28,10 +30,23 @@ import { RunCancelled } from '../../../types/run/cancel-cause.js'
 import type { CheckpointStore, FencingToken } from '../../../types/run/checkpoint-store.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { Logger } from '../../../utils/logger.js'
 import { drainQuery } from '../index.js'
 import { resumeRun } from '../resume-run.js'
 
 const dirs: string[] = []
+
+function logger(): Logger {
+	const make = (): Logger =>
+		({
+			debug: vi.fn(),
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			child: vi.fn(() => make()),
+		}) as unknown as Logger
+	return make()
+}
 
 afterEach(async () => {
 	trace.disable()
@@ -226,6 +241,69 @@ describe('stored attachment resolution belongs to the run', () => {
 		// publish its bytes or start a provider request.
 		await Promise.resolve()
 		expect(provider.requests).toHaveLength(0)
+	})
+
+	it('notifies root interrupt observers after attachment cancellation without starting ordinary hooks', async () => {
+		let markStarted!: () => void
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve
+		})
+		let release!: (bytes: StoredBytes) => void
+		const held = new Promise<StoredBytes>((resolve) => {
+			release = resolve
+		})
+		const store: AttachmentStore = {
+			put: async () => 'unused',
+			get: () => {
+				markStarted()
+				return held
+			},
+		}
+		const manager = new PluginLifecycleManager({
+			pluginRegistry: new PluginRegistry(),
+			toolRegistry: new ToolRegistry(),
+			scopeRoots: { project: process.cwd(), user: process.cwd() },
+			log: logger(),
+			hookTimeoutMs: 1_000,
+		})
+		const ordinaryStart = vi.fn(async () => ({ action: 'continue' as const }))
+		const interrupted = vi.fn(async () => ({ action: 'continue' as const }))
+		manager.registerHook('plugin_start' as PluginId, {
+			event: 'run_start',
+			handler: ordinaryStart,
+		})
+		manager.registerHook('plugin_interrupt' as PluginId, {
+			event: 'run_interrupt',
+			handler: interrupted,
+		})
+		const provider = new MockLLMProvider({ responseText: 'must not run' })
+		const caller = new AbortController()
+		const events: RunEvent[] = []
+		const pending = drainQuery(
+			{
+				...(await params(provider, store, [storedDocumentMessage()], caller.signal)),
+				pluginManager: manager,
+			},
+			(event) => {
+				events.push(event)
+			},
+		)
+
+		await started
+		caller.abort(new RunCancelled('user'))
+		const run = await pending
+		release({ data: 'late-pdf', mediaType: 'application/pdf' })
+
+		expect(run.status).toBe('cancelled')
+		expect(provider.requests).toHaveLength(0)
+		expect(ordinaryStart).not.toHaveBeenCalled()
+		expect(interrupted).toHaveBeenCalledOnce()
+		const interruptCompleted = events.findIndex(
+			(event) => event.type === 'plugin_hook_completed' && event.hookEvent === 'run_interrupt',
+		)
+		const runCompleted = events.findIndex((event) => event.type === 'run_completed')
+		expect(interruptCompleted).toBeGreaterThan(-1)
+		expect(interruptCompleted).toBeLessThan(runCompleted)
 	})
 
 	it('does not enter a non-cooperative guardrail after attachment cancellation', async () => {
