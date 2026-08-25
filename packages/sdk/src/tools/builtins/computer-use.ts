@@ -3,6 +3,7 @@ import type {
 	ComputerUseAction,
 	ComputerUseCapabilities,
 	ComputerUseHost,
+	ComputerUseOutcomeUnknown,
 	ComputerUseResult,
 } from '../../types/computer-use/index.js'
 import type { ToolDefinition, ToolResult } from '../../types/tool/index.js'
@@ -132,6 +133,41 @@ function resultToToolResult(result: ComputerUseResult): ToolResult {
 	}
 }
 
+function isOutcomeUnknown(
+	value: unknown,
+	action: ComputerUseAction['type'],
+): value is ComputerUseOutcomeUnknown {
+	if (typeof value !== 'object' || value === null) return false
+	const candidate = value as Partial<ComputerUseOutcomeUnknown>
+	return (
+		candidate.code === 'computer_use_outcome_unknown' &&
+		candidate.action === action &&
+		candidate.outcome === 'unknown' &&
+		candidate.retrySafety === 'unsafe' &&
+		typeof candidate.timedOut === 'boolean' &&
+		typeof candidate.exitCode === 'number' &&
+		Number.isInteger(candidate.exitCode) &&
+		typeof candidate.message === 'string' &&
+		candidate.message.length > 0
+	)
+}
+
+function unknownOutcomeToToolResult(error: ComputerUseOutcomeUnknown): ToolResult {
+	return {
+		success: false,
+		output: '',
+		error: error.message,
+		data: {
+			code: error.code,
+			action: error.action,
+			outcome: error.outcome,
+			retrySafety: error.retrySafety,
+			timedOut: error.timedOut,
+			exitCode: error.exitCode,
+		},
+	}
+}
+
 /**
  * Factory: given a ComputerUseHost (provided by the consumer — e.g.
  * @namzu/computer-use's SubprocessComputerUseHost), returns a ToolDefinition
@@ -172,8 +208,15 @@ export function createComputerUseTool(host: ComputerUseHost): ToolDefinition<Act
 					error: `computer_use: action "${input.type}" requires capability "${required}" which is not available on this host (displayServer=${host.capabilities.displayServer}).`,
 				}
 			}
-			const result = await host.execute(input as ComputerUseAction)
-			return resultToToolResult(result)
+			try {
+				const result = await host.execute(input as ComputerUseAction)
+				return resultToToolResult(result)
+			} catch (error) {
+				if (isOutcomeUnknown(error, input.type)) {
+					return unknownOutcomeToToolResult(error)
+				}
+				throw error
+			}
 		},
 	})
 }

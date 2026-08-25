@@ -1,6 +1,7 @@
 export { SubprocessComputerUseHost } from './SubprocessComputerUseHost.js'
 export type { SubprocessComputerUseHostOptions } from './SubprocessComputerUseHost.js'
 export { detectDisplayServer } from './detect/index.js'
+export { ComputerUseOutcomeUnknownError } from './errors.js'
 
 /**
  * The three failures a caller has to tell apart.

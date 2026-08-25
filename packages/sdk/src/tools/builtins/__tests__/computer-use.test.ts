@@ -186,6 +186,67 @@ describe('createComputerUseTool', () => {
 		expect(calls).toEqual([action])
 	})
 
+	it('returns an explicit do-not-retry result when a started desktop action has an unknown outcome', async () => {
+		const { host } = makeHost()
+		host.execute = async (action) => {
+			throw Object.assign(new Error('The outcome is unknown. Do not automatically retry.'), {
+				code: 'computer_use_outcome_unknown' as const,
+				action: action.type,
+				outcome: 'unknown' as const,
+				retrySafety: 'unsafe' as const,
+				timedOut: false,
+				exitCode: 7,
+			})
+		}
+		const tool = createComputerUseTool(host)
+
+		const result = await tool.execute(
+			{ type: 'mouse_click', at: { x: 50, y: 60 }, button: 'left' },
+			makeContext(),
+		)
+
+		expect(result).toEqual({
+			success: false,
+			output: '',
+			error: 'The outcome is unknown. Do not automatically retry.',
+			data: {
+				code: 'computer_use_outcome_unknown',
+				action: 'mouse_click',
+				outcome: 'unknown',
+				retrySafety: 'unsafe',
+				timedOut: false,
+				exitCode: 7,
+			},
+		})
+	})
+
+	it('does not adopt an unknown-outcome record for a different action', async () => {
+		const sentinel = Object.assign(new Error('wrong action'), {
+			code: 'computer_use_outcome_unknown' as const,
+			action: 'type_text' as const,
+			outcome: 'unknown' as const,
+			retrySafety: 'unsafe' as const,
+			timedOut: false,
+			exitCode: 7,
+		})
+		const { host } = makeHost()
+		host.execute = async () => {
+			throw sentinel
+		}
+		const tool = createComputerUseTool(host)
+
+		const result = await tool.execute(
+			{ type: 'mouse_click', at: { x: 50, y: 60 }, button: 'left' },
+			makeContext(),
+		)
+
+		expect(result).toEqual({
+			success: false,
+			output: '',
+			error: 'computer_use failed: wrong action',
+		})
+	})
+
 	it('validates input via the discriminated union schema', () => {
 		const { host } = makeHost()
 		const tool = createComputerUseTool(host)

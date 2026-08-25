@@ -109,6 +109,25 @@ export type ComputerUseResult =
 	| { readonly type: 'cursor_position'; readonly point: Point }
 	| { readonly type: 'ok' }
 
+/**
+ * A state-changing desktop action started, but its subprocess did not report
+ * a clean completion. The desktop may already have changed, so treating this
+ * as an ordinary failure and automatically replaying the action is unsafe.
+ *
+ * Host packages throw an error carrying this shape. The SDK recognises it
+ * structurally so separately installed host and SDK versions do not need to
+ * share an error constructor identity.
+ */
+export interface ComputerUseOutcomeUnknown {
+	readonly code: 'computer_use_outcome_unknown'
+	readonly action: ComputerUseAction['type']
+	readonly outcome: 'unknown'
+	readonly retrySafety: 'unsafe'
+	readonly timedOut: boolean
+	readonly exitCode: number
+	readonly message: string
+}
+
 // ---------------------------------------------------------------------------
 // Host interface — the core abstraction. Mirrors Sandbox/SandboxProvider shape.
 // Implementations live outside @namzu/sdk (e.g. @namzu/computer-use).

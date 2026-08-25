@@ -7,6 +7,8 @@ import type {
 } from '@namzu/sdk'
 import type { Adapter } from './adapters/types.js'
 import { detectDisplayServer } from './detect/index.js'
+import { ComputerUseOutcomeUnknownError } from './errors.js'
+import { SpawnError } from './util/spawn.js'
 
 const UNINITIALISED_CAPABILITIES: ComputerUseCapabilities = {
 	displayServer: 'unknown',
@@ -16,6 +18,14 @@ const UNINITIALISED_CAPABILITIES: ComputerUseCapabilities = {
 	cursorPosition: false,
 	clipboard: false,
 }
+
+const UNSAFE_TO_REPLAY_AFTER_START = new Set<ComputerUseAction['type']>([
+	'mouse_click',
+	'mouse_drag',
+	'scroll',
+	'type_text',
+	'key',
+])
 
 export interface SubprocessComputerUseHostOptions {
 	readonly env?: NodeJS.ProcessEnv
@@ -75,7 +85,20 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 
 	async execute(action: ComputerUseAction): Promise<ComputerUseResult> {
 		const adapter = this.requireAdapter()
-		return adapter.execute(action)
+		try {
+			return await adapter.execute(action)
+		} catch (error) {
+			// SpawnError is produced only after the subprocess started and then
+			// timed out or closed non-zero. An unsafe action may have taken effect
+			// before that terminal status (a multi-command drag is the clearest
+			// example), so replaying it could duplicate or compound the change.
+			// A raw spawn error means the process never established that boundary;
+			// safe reads and idempotent mouse_move keep their ordinary diagnosis.
+			if (error instanceof SpawnError && UNSAFE_TO_REPLAY_AFTER_START.has(action.type)) {
+				throw new ComputerUseOutcomeUnknownError(action.type, error)
+			}
+			throw error
+		}
 	}
 
 	async dispose(): Promise<void> {

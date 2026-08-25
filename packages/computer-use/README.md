@@ -69,6 +69,12 @@ const registry = new ToolRegistry()
 registry.register(createComputerUseTool(host))
 ```
 
+If a click, drag, scroll, text entry or key subprocess starts but does not
+report a clean completion, the host throws
+`ComputerUseOutcomeUnknownError`. The desktop may already have changed; the
+SDK returns that state to the model with `retrySafety: 'unsafe'` instead of
+inviting an automatic replay.
+
 When Namzu runs inside WSL, the host selects the paired Windows desktop and
 uses `powershell.exe` through WSL interop. This takes precedence over WSLg's
 `DISPLAY`/`WAYLAND_DISPLAY`, which describe Linux GUI applications rather than

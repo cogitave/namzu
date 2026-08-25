@@ -141,6 +141,7 @@
       "runtime": [
         "ActionCapabilityError",
         "AdapterUnavailableError",
+        "ComputerUseOutcomeUnknownError",
         "SpawnError",
         "SubprocessComputerUseHost",
         "detectDisplayServer"
@@ -148,6 +149,7 @@
       "declared": [
         "ActionCapabilityError",
         "AdapterUnavailableError",
+        "ComputerUseOutcomeUnknownError",
         "SpawnError",
         "SpawnOptions",
         "SpawnResult",
@@ -1521,6 +1523,7 @@
         "ComputerUseAction",
         "ComputerUseCapabilities",
         "ComputerUseHost",
+        "ComputerUseOutcomeUnknown",
         "ComputerUseResult",
         "ConcurrentInvocationError",
         "ConfigNamespaceCollisionError",

@@ -1,13 +1,13 @@
 ---
 uid: namzu.packages.computer-use
 title: Computer use — the platform matrix, capability flags and error surface
-description: Reference for @namzu/computer-use: which adapter serves which platform, how a capability flag reports what the host can actually do, and the three errors a caller has to distinguish between an unavailable adapter and an unsupported action.
+description: Reference for @namzu/computer-use: platform adapters and capability flags, plus the error and unknown-outcome contracts that keep state-changing desktop actions from being replayed unsafely.
 type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+lastReviewed: 2026-08-25
 resource: packages/computer-use/src/index.ts
 tags: [computer-use, adapters, reference]
 ---
@@ -62,7 +62,10 @@ The tool is a single `computer_use` action with a discriminated-union input:
 { type: 'key';         keys }     // e.g. "ctrl+c", "cmd+shift+t", "Return"
 ```
 
-Screenshots return base64-encoded PNG in `ToolResult.output`. Destructive actions (click/drag/type/key/scroll) surface as `isDestructive === true` so namzu's HITL layer can gate them.
+Screenshots return a short description in `ToolResult.output` and the PNG as an
+image block in `ToolResult.content`, so the provider receives pixels rather
+than base64 text. Destructive actions (click/drag/type/key/scroll) surface as
+`isDestructive === true` so namzu's HITL layer can gate them.
 
 ## Platform Matrix
 
@@ -111,6 +114,7 @@ If the user installs a missing CLI mid-session, reconstruct the host (capabiliti
 import {
   ActionCapabilityError,
   AdapterUnavailableError,
+  ComputerUseOutcomeUnknownError,
   SpawnError,
 } from '@namzu/computer-use'
 ```
@@ -120,9 +124,19 @@ import {
 | `AdapterUnavailableError` | Mandatory binaries missing at construction (e.g. `xdotool` on Linux X11). `err.missing` lists them, which is the actionable half. |
 | `ActionCapabilityError` | The action requires a capability that is `false` (e.g. macOS `mouse_move` without `cliclick`). |
 | `SpawnError` | A spawned CLI returned non-zero or timed out. `err.result.stderr` carries the reason, including a TCC or permission rejection verbatim. |
+| `ComputerUseOutcomeUnknownError` | A click, drag, scroll, text entry or key action started, then its subprocess timed out or closed non-zero. The desktop may already have changed, so the action must not be replayed automatically. `action`, `timedOut`, `exitCode`, `outcome: 'unknown'` and `retrySafety: 'unsafe'` are stable fields. |
 
-All three are exported, so a host can branch on the type rather than matching
-on a message this package is free to reword.
+All four are exported, so a host can branch on the type rather than matching
+on a message this package is free to reword. The SDK also recognises the
+unknown-outcome shape structurally and preserves it in `ToolResult.data`; this
+keeps the model-facing warning intact when the host package and SDK were
+installed separately.
+
+`SpawnError` does not always imply an unknown outcome. Screenshots, cursor
+reads and repeated moves to the same coordinate keep their ordinary diagnosis.
+A raw process-start failure also remains ordinary because no subprocess crossed
+the execution boundary. The fail-closed classification applies only when a
+state-changing action actually started and no clean completion can be proven.
 
 ## Design
 
