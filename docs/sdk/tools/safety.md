@@ -1,13 +1,13 @@
 ---
 uid: namzu.sdk.tools.safety
 title: Tool Safety
-description: Layered tool safety in @namzu/sdk, including tool metadata, availability states, the verification rule vocabulary and its evaluation order, plan mode, and sandbox boundaries.
+description: Layered tool safety in @namzu/sdk, including tool metadata, availability states, the authorization rule vocabulary and its evaluation order, plan mode, and sandbox boundaries.
 type: Guide
 diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-21
+lastReviewed: 2026-08-27
 tags: [computer-use, sdk]
 ---
 
@@ -24,7 +24,7 @@ Tool safety in the SDK is intentionally layered:
 | Tool definition metadata | Describe whether a tool is read-only, destructive, concurrency-safe, and what permissions it declares |
 | Tool availability state | Control whether a tool is active, deferred, or suspended |
 | Permission mode | Block mutating tools in plan-style execution |
-| Verification gate | Decide allow, deny, or review before execution |
+| Authorization gate | Decide allow, deny, or review before execution |
 | Sandbox | Constrain what execution can do if it is allowed |
 
 No single layer is expected to do all the work.
@@ -66,7 +66,7 @@ The tool registry has built-in behavior for permission mode:
 
 That means `permissionMode: 'plan'` is not just a label. If a tool is not read-only, `ToolRegistry.execute()` will reject it in plan mode.
 
-## 5. Verification Gate
+## 5. Authorization Gate
 
 `AuthorizationGate` is the SDK's rule-based pre-execution decision layer.
 
@@ -109,7 +109,7 @@ worst outcome available: they believe it is in force and it is not. Last, it is
 what it always was in substance — a default for tools nobody wrote a rule
 about, rather than an override of the rules they did.
 
-## 6. Verification Gate Example
+## 6. Authorization Gate Example
 
 ```ts
 import { AuthorizationGate, createLogger, prettySink } from '@namzu/sdk'
@@ -329,7 +329,7 @@ For a conservative agent:
 
 1. activate read-only discovery tools by default
 2. keep mutating tools deferred
-3. enable a verification gate with `allowReadOnlyTools`
+3. enable an authorization gate with `allowReadOnlyTools`
 4. use sandboxed execution where possible
 5. turn on stronger review only for tool categories that need it
 

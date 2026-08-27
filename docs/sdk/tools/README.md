@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-25
+lastReviewed: 2026-08-27
 tags: [computer-use, sdk]
 ---
 
@@ -229,7 +229,7 @@ in schema property names, enum/const values, or regex patterns.
 | `requestPause` | Raise a durable pause and wait for a human (see §3a) |
 | `toolUseId` | Identify this exact execution, including a child dispatched by another tool |
 | `source` | Distinguish a model-direct, nested, or `run_code` invocation |
-| `dispatchTool` | Invoke another granted tool through the same registry and audit path |
+| `dispatchTool` | Invoke another granted tool through this invocation's bounded registry and authorization path |
 
 This is the boundary between a simple helper function and a real runtime tool.
 
@@ -299,6 +299,15 @@ tool and parent call id; code-runtime children additionally carry the runtime's
 per-program call id. This is lineage, not input: a tool may narrow the operation
 signal supplied to `dispatchTool`, but the executor chooses the ephemeral child
 id and derives the parent from the context it already issued.
+
+`dispatchTool` is an invocation capability, not a session handle. It closes
+when the parent returns, throws, times out, or is cancelled. Child calls already
+admitted at that point receive cancellation and reach their executor-owned
+terminal event before the parent is reported complete; a retained callback is
+refused before it can mint a new event or touch the registry. If the run has an
+`AuthorizationGate`, every child is evaluated by the same gate. Only `allow`
+proceeds. `deny` and `review` leave a durable refusal because a nested call
+cannot create another human-review checkpoint while its parent is executing.
 
 Nested text crosses back to the caller only after the same
 `maxToolOutputChars` budget used for a direct model-visible result. The raw

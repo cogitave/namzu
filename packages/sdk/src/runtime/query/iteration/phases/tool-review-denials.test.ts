@@ -209,7 +209,7 @@ describe('runToolReview — every tool_use is answered', () => {
 		expect(h.executed).toEqual([])
 		expectEveryToolCallAnswered(h.messages, resp)
 		// The reason must travel inside the tool_result so it can steer.
-		expect(h.messages.some((m) => String(m.content).includes('verification gate'))).toBe(true)
+		expect(h.messages.some((m) => String(m.content).includes('authorization gate'))).toBe(true)
 	})
 
 	it('human reject_tools still emits a tool_result per call, carrying the feedback', async () => {

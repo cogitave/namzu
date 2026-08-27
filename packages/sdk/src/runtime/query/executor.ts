@@ -1,4 +1,5 @@
 import type { Span } from '@opentelemetry/api'
+import type { AuthorizationGate } from '../../authorization/gate.js'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
 import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
@@ -22,6 +23,7 @@ import {
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
+import type { AuditEventInput } from '../../types/run/audit.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type {
@@ -319,6 +321,17 @@ export interface ToolExecutorConfig {
 	 * reaches it. See {@link RepairToolCall}.
 	 */
 	repairToolCall?: RepairToolCall
+	/**
+	 * Operator policy applied to calls dispatched by another tool.
+	 *
+	 * Model-issued calls are reviewed by the iteration orchestrator. Nested
+	 * calls cannot open a second durable review while their parent is already
+	 * executing, so only an explicit `allow` may proceed; `deny` and `review`
+	 * both fail closed before the registry is touched.
+	 */
+	authorizationGate?: AuthorizationGate
+	/** Durable refusal sink paired with {@link authorizationGate}. */
+	recordAudit?: (input: AuditEventInput) => Promise<unknown>
 }
 
 /**
@@ -754,6 +767,14 @@ export class ToolExecutor {
 		parentToolName?: string,
 		options?: ToolDispatchOptions,
 	): Promise<ToolResult> {
+		const signal = options?.signal
+			? AbortSignal.any([context.abortSignal, options.signal])
+			: context.abortSignal
+		// Authority is checked before an id, activity or event is created. A
+		// retained closure must be observationally inert after its invocation
+		// ends, not merely unable to finish the registry call it already started.
+		signal.throwIfAborted()
+
 		const parent = context.toolUseId
 		const via =
 			parent && parentToolName
@@ -769,9 +790,6 @@ export class ToolExecutor {
 		// it rather than to itself.
 		const nestedId = generateToolCallId() as unknown as ToolUseId
 		const startedAt = Date.now()
-		const signal = options?.signal
-			? AbortSignal.any([context.abortSignal, options.signal])
-			: context.abortSignal
 		const source = parent
 			? options?.runtimeToolCallId
 				? {
@@ -787,6 +805,53 @@ export class ToolExecutor {
 			toolUseId: nestedId,
 			toolName: name,
 		})
+
+		const gateResult = this.config.authorizationGate?.evaluate({
+			toolName: name,
+			toolInput: input,
+			toolDef: this.config.tools.get(name),
+		})
+		if (gateResult && gateResult.decision !== 'allow') {
+			const reason =
+				gateResult.decision === 'deny'
+					? `Blocked by the authorization gate: ${gateResult.reason}`
+					: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult.reason}`
+			const output = deniedToolOutput(name, reason)
+			// Same fail-closed durability rule as a direct gate denial: if the
+			// configured run store cannot record the refusal, do not quietly carry
+			// on with an unaudited execution.
+			if (!this.config.recordAudit) {
+				throw new Error(
+					`Nested tool "${name}" was refused, but no durable audit recorder is configured.`,
+				)
+			}
+			await this.config.recordAudit({
+				what: { action: 'tool_call', tool: name },
+				outcome: 'refused',
+				reason,
+			})
+			await this.emitEvent({
+				type: 'tool_executing',
+				runId: this.config.runId,
+				toolUseId: nestedId,
+				toolName: name,
+				input,
+				...(via ? { via } : {}),
+			})
+			await this.emitEvent({
+				type: 'tool_completed',
+				runId: this.config.runId,
+				toolUseId: nestedId,
+				toolName: name,
+				result: output,
+				isError: true,
+				durationMs: Date.now() - startedAt,
+				outputLength: output.length,
+				...(via ? { via } : {}),
+			})
+			return { success: false, output: '', error: reason }
+		}
+
 		const childContext: ToolContext = {
 			...context,
 			abortSignal: signal,
@@ -1369,10 +1434,6 @@ export class ToolExecutor {
 			this.config.toolTimeoutMs ??
 			DEFAULT_TOOL_TIMEOUT_MS
 
-		if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-			return this.config.tools.execute(toolName, input, toolContext)
-		}
-
 		const controller = new AbortController()
 		const parentSignal = toolContext.abortSignal
 		const onParentAbort = () => controller.abort(parentSignal.reason)
@@ -1381,15 +1442,20 @@ export class ToolExecutor {
 
 		let timer: ReturnType<typeof setTimeout> | undefined
 		let timedOut = false
+		let invocationOpen = true
+		const nestedDispatches = new Set<Promise<ToolResult>>()
 
 		try {
-			const expired = new Promise<'timeout'>((resolve) => {
-				timer = setTimeout(() => {
-					timedOut = true
-					controller.abort(new Error(`Tool "${toolName}" exceeded ${timeoutMs}ms`))
-					resolve('timeout')
-				}, timeoutMs)
-			})
+			const expired =
+				Number.isFinite(timeoutMs) && timeoutMs > 0
+					? new Promise<'timeout'>((resolve) => {
+							timer = setTimeout(() => {
+								timedOut = true
+								controller.abort(new Error(`Tool "${toolName}" exceeded ${timeoutMs}ms`))
+								resolve('timeout')
+							}, timeoutMs)
+						})
+					: undefined
 
 			const aborted = new Promise<'aborted'>((resolve) => {
 				if (controller.signal.aborted && !timedOut) {
@@ -1406,26 +1472,50 @@ export class ToolExecutor {
 			})
 
 			const inheritedDispatch = toolContext.dispatchTool
+			const scopedDispatch = inheritedDispatch
+				? (name: string, nestedInput: unknown, options?: ToolDispatchOptions) => {
+						if (!invocationOpen) {
+							return Promise.reject(
+								new Error(`Tool "${toolName}" invocation has settled; nested dispatch is closed.`),
+							)
+						}
+						const nested = inheritedDispatch(name, nestedInput, {
+							...options,
+							signal: options?.signal
+								? AbortSignal.any([controller.signal, options.signal])
+								: controller.signal,
+						})
+						nestedDispatches.add(nested)
+						// `finally()` creates a second promise. Observe that promise too, or a
+						// rejected nested call which its owner intentionally awaits later would
+						// also create an unhandled cleanup rejection here.
+						void nested.finally(() => nestedDispatches.delete(nested)).catch(() => {})
+						return nested
+					}
+				: undefined
+
+			if (controller.signal.aborted) {
+				return {
+					success: false,
+					output: '',
+					error: abortReasonText(controller.signal.reason)
+						? `Tool "${toolName}" was cancelled: ${abortReasonText(controller.signal.reason)}`
+						: `Tool "${toolName}" was cancelled.`,
+				}
+			}
+
 			const execution = this.config.tools.execute(toolName, input, {
 				...toolContext,
 				abortSignal: controller.signal,
-				...(inheritedDispatch
-					? {
-							dispatchTool: (name: string, nestedInput: unknown, options?: ToolDispatchOptions) =>
-								inheritedDispatch(name, nestedInput, {
-									...options,
-									signal: options?.signal
-										? AbortSignal.any([controller.signal, options.signal])
-										: controller.signal,
-								}),
-						}
-					: {}),
+				...(scopedDispatch ? { dispatchTool: scopedDispatch } : {}),
 			})
 			// The loser of the race may still reject later; neutralize it so
 			// it is never an unhandled rejection.
 			execution.catch(() => {})
 
-			const outcome = await Promise.race([execution, expired, aborted])
+			const outcome = await Promise.race(
+				expired ? [execution, expired, aborted] : [execution, aborted],
+			)
 
 			if (outcome === 'timeout') {
 				this.log.warn('Tool timed out', {
@@ -1459,6 +1549,19 @@ export class ToolExecutor {
 
 			return outcome
 		} finally {
+			// Revoke synchronously before awaiting anything. A retained closure
+			// called from another microtask is refused here; the aborted signal is
+			// the structural backstop inside dispatchNested itself.
+			invocationOpen = false
+			if (!controller.signal.aborted) {
+				controller.abort(new Error(`Tool "${toolName}" invocation has settled.`))
+			}
+			// Calls already admitted before closure own event rows and registry
+			// work. Their executor races observe the abort, emit a terminal result,
+			// and settle before the parent is allowed to report completion.
+			while (nestedDispatches.size > 0) {
+				await Promise.allSettled([...nestedDispatches])
+			}
 			if (timer !== undefined) clearTimeout(timer)
 			parentSignal.removeEventListener('abort', onParentAbort)
 		}

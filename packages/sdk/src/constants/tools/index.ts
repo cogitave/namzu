@@ -1,4 +1,4 @@
-// Patterns the verification gate's `deny_dangerous_patterns` rule
+// Patterns the authorization gate's `deny_dangerous_patterns` rule
 // matches against the JSON-serialised tool input. The list is
 // intentionally short and high-signal: the goal is to catch the
 // canonical "I will brick the host" mistakes (filesystem wipes,

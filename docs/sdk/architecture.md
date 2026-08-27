@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-25
+lastReviewed: 2026-08-27
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -36,7 +36,11 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Durability.** Atomic per-iteration checkpoints, an opt-in emergency core-dump on SIGINT/SIGTERM (`emergencySave: true` — a library must not seize a host process termination path by default), and separate storage for runs, sessions, session-owned completion goals, topic state and objectives, activities, memories, and tasks.
 - **IPC.** Native A2A (agent-to-agent) and MCP (Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking so concurrent agents do not stomp on each other.
 - **Capability system.** Tools are first-class, typed, permissioned, and progressively disclosed. The LLM does not see the full tool catalog; tools start deferred, get activated on demand, and can be suspended. Each tool declares `readOnly`, `destructive`, `concurrencySafe`, `permissions`, `category`.
-- **Syscall filtering.** Every tool call goes through a verification gate — allow / deny / ask, with built-in rules for read-only allowlist and dangerous pattern deny-list, plus custom regex rules. This is separate from sandbox isolation; it is the decision layer, the sandbox is the enforcement layer.
+- **Syscall filtering.** When a host configures an authorization gate, every
+  tool call it can reach is decided as allow / deny / review, with built-in
+  rules for read-only allowlists and dangerous-pattern denials plus scoped
+  argument rules. This is separate from sandbox isolation; it is the decision
+  layer, the sandbox is the enforcement layer.
 - **Retrieval-augmented context (RAG).** A full pipeline: chunking, embedding providers, ingestion, knowledge base storage, vector store, retriever, context assembler, and a first-class `rag-tool`.
 - **Skills.** Disclosure-tiered capability bundles that the agent can load on demand, distinct from tools.
 - **Personas.** YAML-defined identity, expertise, reflexes, and output format with inheritance — specialize a base persona by merging a single field, no prompt concatenation.
@@ -321,7 +325,7 @@ Tools in Namzu are first-class typed values, not JSON schemas you have to keep i
 
 - `category` — e.g. `network`, `filesystem`, `compute`, `memory`.
 - `permissions` — e.g. `network_access`, `write_filesystem`. Enforced at dispatch time.
-- `readOnly` — predicate over input; tools that only read get different treatment by the verification gate and tool tiering.
+- `readOnly` — predicate over input; tools that only read get different treatment by the authorization gate and tool tiering.
 - `destructive` — boolean flag that triggers HITL approval when true.
 - `concurrencySafe` — whether two concurrent runs can invoke this tool with no interference.
 
@@ -336,7 +340,7 @@ durable pause route from its model-issued ancestor. That keeps audit lineage
 exact and lets a paused child resume from the top-level checkpoint even when a
 fresh runtime assigns the child a different ephemeral id. `WorkerCodeRuntime`
 is the root-exported opt-in backend for this model-authored-code path; its host
-calls cross the same registry, verification and lifecycle boundary as every
+calls cross the same registry, authorization and lifecycle boundary as every
 other nested dispatch.
 
 **Progressive disclosure** is unique to Namzu. Tools exist in three states — `deferred`, `activated`, `suspended`. The LLM does not see the full tool catalog; it sees the current active set plus a searchable summary of deferred tools. When it needs something specific, it activates it; when it is done, it suspends it. This keeps the context window focused, reduces hallucinated tool calls, and lets a single agent work across dozens of tools without drowning in a prompt.
@@ -345,19 +349,27 @@ other nested dispatch.
 
 Registries (`registry/`) are the kernel's object tables. `registry/tool/` is the canonical tool catalog. `registry/agent/` holds agent definitions (the thing you can `AgentManager.spawn()`). `registry/connector/` holds connector catalogs. `registry/plugin/` holds plugins. `ManagedRegistry` is the shared base class with tenant scoping.
 
-### 8. The Decision Layer: Verification Gate (`verification/`)
+### 8. The Decision Layer: Authorization Gate (`authorization/`)
 
-Before any tool call leaves the kernel, it goes through `verification/gate.ts`'s `VerificationGate`. Think of it as the kernel's seccomp — a rule-based decision layer that says *allow*, *deny*, or *ask*.
+Before a model-issued tool call executes, `authorization/gate.ts`'s
+`AuthorizationGate` decides *allow*, *deny*, or *review*. A call dispatched by
+another tool crosses the same gate; only an explicit allow proceeds because a
+nested call cannot open another durable review inside its executing parent.
 
 Built-in rules:
 
 - **`allow_read_only`** — if the tool's `readOnly(input)` returns true, allow.
 - **`deny_dangerous_patterns`** — if the input matches any pattern from `DANGEROUS_PATTERNS` (shell injection, common exfiltration signatures, etc.), deny.
-- **Custom regex rules** — per-tenant, per-agent, or global.
+- **Name, category, tier, and argument rules** — ordered, with the first match
+  deciding.
 
-The `ask` decision hands control to the HITL layer. The verification gate is the kernel layer that makes "destructive tool requires approval" a policy, not a user-space convention.
+The `review` decision hands a model-issued call to the HITL layer. The
+authorization gate is the kernel layer that makes "destructive tool requires
+approval" a policy, not a user-space convention.
 
-Verification is intentionally separate from the sandbox: verification is the *decision*, sandbox is the *enforcement*. If a rule fails to deny and a call somehow gets through, the sandbox is still there to contain the damage. Defense in depth, kernel-style.
+Authorization is intentionally separate from the sandbox: authorization is
+the *decision*, sandbox is the *enforcement*. If a rule fails to deny and a call
+somehow gets through, the sandbox is still there to contain the damage.
 
 ### 9. Durability: Checkpoints and Emergency Save
 
@@ -429,7 +441,7 @@ Advisors are **provider-agnostic** and there can be many: put a security advisor
 
 ### 14. Human-in-the-Loop (`types/hitl/`, `manager/plan/lifecycle.ts`, `types/decision/`)
 
-HITL is structured, not just a "pause and wait for input" hook. The kernel defines typed decision contracts: the LLM produces a plan, the plan can be approved / edited / rejected, approval can be per-tool with explicit destructiveness acknowledgment, rejection can carry feedback that re-enters the loop as a new iteration. The plan lifecycle has its own manager so that pending plans persist across checkpoint resumes. The verification gate's `ask` decision routes into this same HITL layer.
+HITL is structured, not just a "pause and wait for input" hook. The kernel defines typed decision contracts: the LLM produces a plan, the plan can be approved / edited / rejected, approval can be per-tool with explicit destructiveness acknowledgment, rejection can carry feedback that re-enters the loop as a new iteration. The plan lifecycle has its own manager so that pending plans persist across checkpoint resumes. The authorization gate's `review` decision routes into this same HITL layer.
 
 The kernel does not render a UI for this — it emits events and exposes a typed API so the UI layer you choose can render them however you like.
 
@@ -532,7 +544,7 @@ Four patterns ship in the kernel. They are not mandatory — you can write your 
 - **`RouterAgent`** — an LLM classifies the input and delegates to the best-suited agent from a configured set of candidates, with a fallback. Useful for intent routing in customer support, dispatcher bots, and multi-expert systems.
 - **`SupervisorAgent`** — a coordinator that spawns and orchestrates a set of specialized child agents. Tracks the full parent/child/depth hierarchy, aggregates results, handles partial failures, and honors the shared budget tracker. Only the depth-zero/root supervisor publishes `ask_user_question`; delegated supervisors retain the same human review channel for tool authorization but cannot open competing operator prompts.
 
-All four sit on top of the same lifecycle manager, the same limit checker, the same bus, the same verification gate. Switching patterns does not change what safety or durability the kernel provides.
+All four sit on top of the same lifecycle manager, the same limit checker, the same bus, the same authorization gate. Switching patterns does not change what safety or durability the kernel provides.
 
 ### 23. Multi-Tenant Isolation
 
@@ -566,7 +578,7 @@ Five choices shape every decision in the kernel.
 
 **Type safety is the foundation.** Every resource ID is branded (`RunId`, `TopicId`, `SessionId`, `TaskId`, `TenantId`, `ToolId`, `MemoryId`, `ChunkId`...). Every discriminated union has exhaustiveness checks. Every public API has Zod-validated inputs at the boundary. The TypeScript compiler is not a formality; it is the first line of defense.
 
-**Deny by default. Fail fast.** Sandboxes deny file I/O by default. Verification gates deny tool calls by default unless a rule allows them. Limit checkers fail the run the moment a budget is breached. Configuration errors throw at boot, not at the 90-minute mark of a long-running job.
+**Deny by default. Fail fast.** Sandboxes deny file I/O by default. Authorization gates deny tool calls by default unless a rule allows them. Limit checkers fail the run the moment a budget is breached. Configuration errors throw at boot, not at the 90-minute mark of a long-running job.
 
 **Dependency direction is sacred.** `@namzu/sdk` is the dependency root. The CLI, capability packages, telemetry, evals and provider drivers may import it; the SDK does not import them, and sibling packages do not import one another. Circular dependencies are a compile error, not a code-review suggestion. This is what keeps the kernel's interface surface small even as its guts grow.
 

@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-25
+lastReviewed: 2026-08-27
 tags: [computer-use, sdk]
 ---
 
@@ -273,12 +273,18 @@ Notes:
 - gives every host call a unique nested tool id, parent lineage, its own tool
   deadline, and an operation signal revoked by cancellation or the program
   deadline
+- applies the run's operator authorization gate to every child before registry
+  execution; `deny` is refused and `review` fails closed because a nested call
+  cannot open a second durable human-review turn inside its parent
 - applies `maxToolOutputChars` before a child response is copied into the code
   runtime, for both successful and failed results
 - waits for already-admitted host calls before reporting a normal completion;
   on a deadline the worker stops waiting, revokes their signal, and an
   uncooperative child remains subject to the executor's explicit “may still be
   running” semantics
+- closes `dispatchTool` when the parent call settles or is abandoned, so a
+  retained callback cannot start later work; executor-owned child terminal
+  events settle before the parent reports completion
 
 See [Tool Context](README.md#3b-nested-and-code-runtime-calls) for source shapes
 and the custom `CodeRuntime` migration contract.

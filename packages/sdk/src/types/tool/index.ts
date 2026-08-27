@@ -347,12 +347,17 @@ export interface ToolContext {
 	 * a property of holding a registry reference rather than a capability a
 	 * host wired deliberately.
 	 *
-	 * Available to every tool, which is worth being explicit about rather
-	 * than quietly true. Tools are host-installed code — the model cannot add
-	 * one — so the trust boundary this protects is the MODEL's reach, and
-	 * that is bounded where it has always been: `allowedTools` is enforced at
-	 * dispatch, so a tool calling through here reaches exactly what a
-	 * `tool_use` block would have.
+	 * Available only for this invocation. The executor closes it when the
+	 * visible call settles or is abandoned, aborts calls already started by
+	 * it, and waits for their executor-owned terminal records before reporting
+	 * the parent complete. Retaining the function does not retain authority.
+	 *
+	 * Tools are host-installed code — the model cannot add one — so the trust
+	 * boundary this protects is the MODEL's reach. `allowedTools` is enforced
+	 * again at dispatch. When the run has an operator authorization gate, a
+	 * nested call must be explicitly allowed by that gate; a deny or an
+	 * undecided call fails closed because another durable human review cannot
+	 * be opened from inside the already-executing parent.
 	 */
 	dispatchTool?: (
 		name: string,

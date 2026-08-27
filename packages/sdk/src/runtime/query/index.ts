@@ -1661,6 +1661,14 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const questionParks = params.questionParks ?? new QuestionParkBinding()
 	const pendingAnswers = params.pendingAnswers ?? new PendingAnswers()
 
+	// One gate instance owns both model-issued calls and calls dispatched by
+	// another tool. Constructing it only inside the iteration review left the
+	// nested registry path outside the operator's policy entirely.
+	const gateConfig = params.authorizationGate
+	const verificationGate = gateConfig?.enabled
+		? new AuthorizationGate(gateConfig, ctx.log)
+		: undefined
+
 	//  is null only when the run has no disk layout (tests,
 	// in-memory hosts); the budget then degrades to middle-elision.
 	const runDirForTools = ctx.runMgr.getRunDir()
@@ -1701,6 +1709,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// `read`/`grep` without a new affordance.
 			...(toolOutputDir ? { toolOutputDir } : {}),
 			...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
+			...(verificationGate ? { authorizationGate: verificationGate } : {}),
+			recordAudit: (input) => ctx.runMgr.recordAudit(input),
 			// The durable pause, reachable from any tool rather than from the
 			// four kernel-owned points that used to own it. Built here from
 			// the machinery the run already holds; the recorder binds a few
@@ -1846,12 +1856,6 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			}
 		}
 	}
-
-	const gateConfig = params.authorizationGate
-
-	const verificationGate = gateConfig?.enabled
-		? new AuthorizationGate(gateConfig, ctx.log)
-		: undefined
 
 	const iterationOrchestrator = new IterationOrchestrator({
 		provider: resilientProvider,

@@ -13,12 +13,12 @@ import { defineTool } from '../defineTool.js'
  * loop cannot reach further than the twenty calls could have.
  *
  * **The program's reach is the RUN's reach, and nothing wider.** Every
- * capability it can call is a tool already in this run's registry, already
- * narrowed by the turn's `allowedTools`, already subject to the same
- * dispatch that a model-issued call goes through — the permission gate, the
- * approval policy, the audit record. There is no second path: the runtime
- * hands the host a name and an input, and the host does exactly what it
- * would have done for a `tool_use` block.
+ * capability it can call is a tool already in this run's registry and
+ * narrowed by the turn's `allowedTools`. The host dispatch records every
+ * child in the run and applies the run's operator authorization gate. An
+ * explicit allow proceeds; a denial or an undecided child fails closed and
+ * leaves a durable refusal, because an already-executing parent cannot open
+ * a second durable human-review turn on the program's behalf.
  *
  * Opt-in, and not in the default builtin set. A run that does not need
  * model-authored control flow should not have a way to execute
@@ -100,11 +100,9 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 				maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT,
 				...(context.abortSignal ? { signal: context.abortSignal } : {}),
 				onHostCall: async (request, operation) => {
-					// Through the SAME registry, with the SAME context. Not a
-					// parallel dispatch path: a second path is a second place
-					// for the permission gate to be forgotten, and the one that
-					// forgot it would be the one a model reached through a
-					// program.
+					// Through the run-owned nested dispatch: registry narrowing,
+					// operator authorization, audit/event lineage and invocation
+					// cancellation remain host-owned rather than worker-owned.
 					try {
 						const toolResult = await dispatch(request.name, request.input, {
 							signal: operation.signal,

@@ -162,7 +162,7 @@ export async function* runToolReview(
 
 		for (const gr of gateResults) {
 			if (gr.gateResult.decision === 'deny') {
-				const reason = `Blocked by the verification gate: ${gr.gateResult.reason}`
+				const reason = `Blocked by the authorization gate: ${gr.gateResult.reason}`
 				gateDenied.set(gr.toolCall.id, reason)
 				// A gate denial is a refusal — first-class in the audit trail, never
 				// an absent record (LOG-14, design §5). Written here, once per
@@ -180,7 +180,7 @@ export async function* runToolReview(
 		const allDenied = gateResults.every((gr) => gr.gateResult.decision === 'deny')
 
 		if (allAllowed) {
-			ctx.log.debug('Verification gate: all tool calls pre-approved', {
+			ctx.log.debug('Authorization gate: all tool calls pre-approved', {
 				'namzu.tool.names': gateResults.map((gr) => gr.toolCall.name),
 			})
 			await settle()
@@ -189,7 +189,7 @@ export async function* runToolReview(
 		}
 
 		if (allDenied) {
-			ctx.log.debug('Verification gate: all tool calls denied', {
+			ctx.log.debug('Authorization gate: all tool calls denied', {
 				'namzu.tool.names': gateResults.map((gr) => gr.toolCall.name),
 			})
 			await settle(gateDenied)
@@ -197,7 +197,7 @@ export async function* runToolReview(
 			return finish('rejected')
 		}
 
-		ctx.log.debug('Verification gate: mixed decisions, proceeding to review', {
+		ctx.log.debug('Authorization gate: mixed decisions, proceeding to review', {
 			'namzu.runtime.decisions': gateResults.map((gr) => ({
 				tool: gr.toolCall.name,
 				decision: gr.gateResult.decision,

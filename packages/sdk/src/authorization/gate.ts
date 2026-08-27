@@ -21,7 +21,7 @@ export interface ToolCallContext {
  * What the rule actually said, in words a model can act on.
  *
  * This used to be the rule TYPE and nothing else, so a denial reached the
- * model as "Blocked by the verification gate: Matched rule: deny_by_name" —
+ * model as "Blocked by the authorization gate: Matched rule: deny_by_name" —
  * naming the kind of rule and nothing about it. Not which tool, not which
  * pattern, not whether a different input would fare better.
  *

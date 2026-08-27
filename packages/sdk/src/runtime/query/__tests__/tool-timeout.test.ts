@@ -19,7 +19,10 @@ const RUN_ID = 'run_timeout' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
-	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
+	return {
+		...stub,
+		child: vi.fn(() => ({ ...stub, child: vi.fn() })),
+	} as unknown as Logger
 }
 
 function response(...names: string[]): ChatCompletionResponse {
@@ -99,7 +102,11 @@ function harness(opts: {
 				? { maxToolConcurrency: opts.maxToolConcurrency }
 				: {}),
 		},
-		new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		new ActivityStore(RUN_ID, {
+			enabled: true,
+			trackToolCalls: true,
+			trackLlmTurns: true,
+		}),
 		async () => {},
 		makeLogger(),
 	)
@@ -145,14 +152,21 @@ describe('ToolExecutor — per-tool deadline', () => {
 		expect(batch.results[0]?.output).toContain('timed out after 20ms')
 	})
 
-	it('does not disturb a tool that finishes in time', async () => {
+	it('keeps a tool live while it runs and revokes its context after it finishes', async () => {
+		let observedDuringExecution = false
 		const h = harness({
 			toolTimeoutMs: 5_000,
-			run: async () => ({ success: true, output: 'done' }),
+			run: async (_name, signal) => {
+				observedDuringExecution = !signal.aborted
+				return { success: true, output: 'done' }
+			},
 		})
 		const batch = await h.exec.executeBatch(response('fast'))
 		expect(batch.results[0]?.output).toBe('done')
-		expect(h.signals[0]?.aborted).toBe(false)
+		expect(observedDuringExecution).toBe(true)
+		// ToolContext is invocation-scoped. A tool which retained it does not
+		// keep a live cancellation/dispatch authority after its visible call.
+		expect(h.signals[0]?.aborted).toBe(true)
 	})
 
 	it('cancels an in-flight tool when the RUN is aborted', async () => {

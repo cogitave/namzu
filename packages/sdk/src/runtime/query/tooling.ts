@@ -1,8 +1,10 @@
+import type { AuthorizationGate } from '../../authorization/gate.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
+import type { AuditEventInput } from '../../types/run/audit.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type {
 	RequestToolPause,
@@ -41,6 +43,10 @@ export interface ToolingBootstrapConfig {
 	maxToolContentBytes?: number
 	toolOutputDir?: string
 	repairToolCall?: RepairToolCall
+	/** Operator authorization shared with the direct-call review path. */
+	authorizationGate?: AuthorizationGate
+	/** Durable refusal recorder for nested authorization decisions. */
+	recordAudit?: (input: AuditEventInput) => Promise<unknown>
 	/** Builds the durable-pause seam for one tool call; see ToolContext.requestPause. */
 	toolPause?: (toolUseId: string) => RequestToolPause
 }
@@ -81,6 +87,10 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.toolOutputDir !== undefined ? { toolOutputDir: config.toolOutputDir } : {}),
 				...(config.repairToolCall !== undefined ? { repairToolCall: config.repairToolCall } : {}),
+				...(config.authorizationGate !== undefined
+					? { authorizationGate: config.authorizationGate }
+					: {}),
+				...(config.recordAudit !== undefined ? { recordAudit: config.recordAudit } : {}),
 				...(config.toolPause !== undefined ? { toolPause: config.toolPause } : {}),
 			},
 			activityStore,
