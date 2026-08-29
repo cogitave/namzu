@@ -25,6 +25,10 @@ function okExec(stdout = '', stderr = ''): ExecFileResult {
 	return { stdout, stderr }
 }
 
+function listedWorktree(path: string, branch: string): string {
+	return [`worktree ${path}`, 'HEAD abc123', `branch refs/heads/${branch}`, ''].join('\n')
+}
+
 describe('GitWorktreeDriver', () => {
 	it('create: invokes `git worktree add` with argv array (no shell interpolation)', async () => {
 		const calls: Array<{ file: string; args: readonly string[] }> = []
@@ -56,6 +60,7 @@ describe('GitWorktreeDriver', () => {
 			'add',
 			'-b',
 			'namzu/foo',
+			'--',
 			'/repo/.namzu/worktrees/foo',
 			'main',
 		])
@@ -92,11 +97,28 @@ describe('GitWorktreeDriver', () => {
 		)
 	})
 
+	it.each(['', '..', '../outside', '/outside'])(
+		'create: refuses non-descendant label %j before invoking Git',
+		async (label) => {
+			const exec = vi.fn(async () => okExec())
+			const driver = new GitWorktreeDriver({
+				repoRoot: '/repo',
+				logger: stubLogger(),
+				execFile: exec,
+			})
+
+			await expect(driver.create({ label })).rejects.toBeInstanceOf(WorkspaceBackendError)
+			expect(exec).not.toHaveBeenCalled()
+		},
+	)
+
 	it('dispose: removes worktree with --force', async () => {
 		const calls: Array<readonly string[]> = []
 		const exec: ExecFile = async (_file, args) => {
 			calls.push(args)
-			return okExec()
+			return args.includes('list')
+				? okExec(listedWorktree('/repo/.namzu/worktrees/x', 'namzu/x'))
+				: okExec()
 		}
 		const driver = new GitWorktreeDriver({
 			repoRoot: '/repo',
@@ -114,20 +136,14 @@ describe('GitWorktreeDriver', () => {
 			createdAt: new Date(),
 		}
 		await driver.dispose(ref)
-		expect(calls[0]).toEqual([
-			'-C',
-			'/repo',
-			'worktree',
-			'remove',
-			'/repo/.namzu/worktrees/x',
-			'--force',
+		expect(calls).toEqual([
+			['-C', '/repo', 'worktree', 'list', '--porcelain'],
+			['-C', '/repo', 'worktree', 'remove', '/repo/.namzu/worktrees/x', '--force'],
 		])
 	})
 
-	it('dispose: tolerates missing worktree ("not a working tree")', async () => {
-		const exec: ExecFile = async () => {
-			throw new Error("'/tmp/gone' is not a working tree")
-		}
+	it('dispose: treats an unregistered managed worktree as already gone', async () => {
+		const exec = vi.fn(async () => okExec())
 		const driver = new GitWorktreeDriver({
 			repoRoot: '/repo',
 			logger: stubLogger(),
@@ -139,12 +155,157 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/x',
-				worktreePath: '/tmp/gone',
+				worktreePath: '/repo/.namzu/worktrees/x',
 			},
 			createdAt: new Date(),
 		}
 		// Must NOT throw — roadmap Risk #3 mitigation.
 		await expect(driver.dispose(ref)).resolves.toBeUndefined()
+		expect(exec).toHaveBeenCalledOnce()
+	})
+
+	it.each([
+		{
+			name: 'a path outside the managed directory',
+			repoRoot: '/repo',
+			branch: 'namzu/external',
+			worktreePath: '/external',
+		},
+		{
+			name: 'a sibling-prefix directory',
+			repoRoot: '/repo',
+			branch: 'namzu/x',
+			worktreePath: '/repo/.namzu/worktrees-other/x',
+		},
+		{
+			name: 'the managed root itself',
+			repoRoot: '/repo',
+			branch: 'namzu/worktrees',
+			worktreePath: '/repo/.namzu/worktrees',
+		},
+		{
+			name: 'a different repository',
+			repoRoot: '/other',
+			branch: 'namzu/x',
+			worktreePath: '/repo/.namzu/worktrees/x',
+		},
+		{
+			name: 'a branch inconsistent with its managed path',
+			repoRoot: '/repo',
+			branch: 'main',
+			worktreePath: '/repo/.namzu/worktrees/x',
+		},
+	])('dispose: refuses $name before invoking Git', async (meta) => {
+		const exec = vi.fn(async () => okExec())
+		const driver = new GitWorktreeDriver({
+			repoRoot: '/repo',
+			logger: stubLogger(),
+			execFile: exec,
+		})
+		const ref: WorkspaceRef = {
+			id: 'wsp_foreign' as unknown as WorkspaceRef['id'],
+			meta: { backend: 'git-worktree', ...meta },
+			createdAt: new Date(),
+		}
+
+		await expect(driver.dispose(ref)).rejects.toBeInstanceOf(WorkspaceBackendError)
+		expect(exec).not.toHaveBeenCalled()
+	})
+
+	it('branch: accepts a nested managed ref and separates its base ref from Git options', async () => {
+		const calls: Array<readonly string[]> = []
+		const exec: ExecFile = async (_file, args) => {
+			calls.push(args)
+			return okExec()
+		}
+		const driver = new GitWorktreeDriver({
+			repoRoot: '/repo',
+			logger: stubLogger(),
+			execFile: exec,
+		})
+		const source: WorkspaceRef = {
+			id: 'wsp_nested' as unknown as WorkspaceRef['id'],
+			meta: {
+				backend: 'git-worktree',
+				repoRoot: '/repo',
+				branch: 'namzu/parent/child',
+				worktreePath: '/repo/.namzu/worktrees/parent/child',
+			},
+			createdAt: new Date(),
+		}
+
+		await driver.branch(source, { label: 'next' })
+
+		expect(calls).toHaveLength(1)
+		expect(calls[0]?.map(posix)).toEqual([
+			'-C',
+			'/repo',
+			'worktree',
+			'add',
+			'-b',
+			'namzu/next',
+			'--',
+			'/repo/.namzu/worktrees/next',
+			'namzu/parent/child',
+		])
+	})
+
+	it.each(['branch', 'inspect'] as const)(
+		'%s: refuses a foreign ref before invoking Git',
+		async (operation) => {
+			const exec = vi.fn(async () => okExec())
+			const driver = new GitWorktreeDriver({
+				repoRoot: '/repo',
+				logger: stubLogger(),
+				execFile: exec,
+			})
+			const foreign: WorkspaceRef = {
+				id: 'wsp_foreign' as unknown as WorkspaceRef['id'],
+				meta: {
+					backend: 'git-worktree',
+					repoRoot: '/repo',
+					branch: 'namzu/external',
+					worktreePath: '/external',
+				},
+				createdAt: new Date(),
+			}
+
+			const result =
+				operation === 'branch' ? driver.branch(foreign, { label: 'next' }) : driver.inspect(foreign)
+			await expect(result).rejects.toBeInstanceOf(WorkspaceBackendError)
+			expect(exec).not.toHaveBeenCalled()
+		},
+	)
+
+	it('dispose: remains idempotent when another disposer wins after the list', async () => {
+		let listCalls = 0
+		const exec = vi.fn(async (_file: string, args: readonly string[]) => {
+			if (args.includes('list')) {
+				listCalls++
+				return listCalls === 1
+					? okExec(listedWorktree('/repo/.namzu/worktrees/x', 'namzu/x'))
+					: okExec()
+			}
+			throw new Error('another disposer removed it first')
+		})
+		const driver = new GitWorktreeDriver({
+			repoRoot: '/repo',
+			logger: stubLogger(),
+			execFile: exec,
+		})
+		const ref: WorkspaceRef = {
+			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			meta: {
+				backend: 'git-worktree',
+				repoRoot: '/repo',
+				branch: 'namzu/x',
+				worktreePath: '/repo/.namzu/worktrees/x',
+			},
+			createdAt: new Date(),
+		}
+
+		await expect(driver.dispose(ref)).resolves.toBeUndefined()
+		expect(exec).toHaveBeenCalledTimes(3)
 	})
 
 	it('dispose: surfaces unexpected failures as WorkspaceBackendError', async () => {
@@ -232,6 +393,34 @@ describe('GitWorktreeDriver', () => {
 		}
 		const inspection = await driver.inspect(ref)
 		expect(inspection.isDirty).toBe(true)
+	})
+
+	it('inspect: does not enter a path now registered to another branch', async () => {
+		const exec = vi.fn(async () =>
+			okExec(listedWorktree('/repo/.namzu/worktrees/x', 'namzu/someone-else')),
+		)
+		const driver = new GitWorktreeDriver({
+			repoRoot: '/repo',
+			logger: stubLogger(),
+			execFile: exec,
+		})
+		const ref: WorkspaceRef = {
+			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			meta: {
+				backend: 'git-worktree',
+				repoRoot: '/repo',
+				branch: 'namzu/x',
+				worktreePath: '/repo/.namzu/worktrees/x',
+			},
+			createdAt: new Date(),
+		}
+
+		await expect(driver.inspect(ref)).resolves.toEqual({
+			exists: false,
+			currentRef: 'namzu/x',
+			isDirty: false,
+		})
+		expect(exec).toHaveBeenCalledOnce()
 	})
 })
 

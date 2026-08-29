@@ -255,16 +255,35 @@ describe('executeBroadcastHandoff', () => {
 
 		let addCount = 0
 		let removeCount = 0
+		let registered: { path: string; branch: string } | undefined
 		const exec: ExecFile = async (_file, args) => {
 			if (args.includes('add')) {
 				addCount += 1
 				if (addCount === 2) throw new Error('primary: mid-fanout add failure')
+				const branchIndex = args.indexOf('-b')
+				const positionalIndex = args.indexOf('--')
+				const branch = args[branchIndex + 1]
+				const path = args[positionalIndex + 1]
+				if (!branch || !path) throw new Error('malformed worktree add fixture')
+				registered = { branch, path }
+			}
+			if (args.includes('list')) {
+				return registered
+					? okExec(
+							[
+								`worktree ${registered.path}`,
+								'HEAD abc123',
+								`branch refs/heads/${registered.branch}`,
+								'',
+							].join('\n'),
+						)
+					: okExec()
 			}
 			if (args.includes('remove')) {
 				removeCount += 1
-				// Throw an unclassified error so the regex in dispose does NOT treat
-				// it as idempotent success — exercises the outer try/catch in the
-				// rollback loop.
+				// Keep the registration visible after the failure. The driver therefore
+				// cannot classify this as an already-gone concurrent disposal, and the
+				// outer rollback loop has to contain the secondary error.
 				throw new Error('secondary rollback dispose failure (unexpected)')
 			}
 			return okExec()

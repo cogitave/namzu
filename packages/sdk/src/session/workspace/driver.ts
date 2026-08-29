@@ -19,13 +19,19 @@ import type { WorkspaceBackendKind, WorkspaceRef } from '../../types/workspace/r
  */
 export interface CreateWorkspaceParams {
 	baseRef?: string
+	/**
+	 * Traceable name below the configured workspace root. Nested names are
+	 * accepted; absolute paths, traversal, and paths rewritten by a filesystem
+	 * link are refused by the reference Git driver.
+	 */
 	label?: string
 }
 
 /**
- * Params for {@link WorkspaceBackendDriver.branch}. `label` is a free-form
- * tag embedded into the new workspace name so operators can trace provenance
- * without reaching into the driver's internal naming scheme.
+ * Params for {@link WorkspaceBackendDriver.branch}. `label` is a traceable tag
+ * embedded into the new workspace name so operators can identify provenance
+ * without reaching into the driver's internal naming scheme. Backend path and
+ * identifier constraints still apply.
  */
 export interface BranchWorkspaceParams {
 	label?: string
@@ -47,7 +53,9 @@ export interface WorkspaceInspection {
  * Backend driver contract. All methods are async and may throw
  * {@link WorkspaceBackendError} on I/O failures. `dispose` is idempotent —
  * calling it against an already-disposed ref is not an error (mitigates
- * roadmap Risk #3: broadcast rollback must not fail on partial state).
+ * roadmap Risk #3: broadcast rollback must not fail on partial state). A ref
+ * remains affiliated with the driver configuration that created it; drivers
+ * refuse foreign backend, repository, or ownership-root metadata.
  */
 export interface WorkspaceBackendDriver {
 	readonly kind: WorkspaceBackendKind

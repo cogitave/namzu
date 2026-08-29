@@ -49,6 +49,11 @@ export type WorkspaceBackendMeta = GitWorktreeBackendMeta
  * "which project is this directory" across sessions and process restarts.
  * The two words are close enough that the distinction has been rediscovered
  * more than once; it is written here so it does not have to be again.
+ *
+ * A persisted ref is recovery data for the backend configuration that created
+ * it, not authority for another driver instance to operate on an arbitrary
+ * resource. Reference drivers validate that affiliation before inspection,
+ * branching, or disposal.
  */
 export interface WorkspaceRef {
 	id: WorkspaceId

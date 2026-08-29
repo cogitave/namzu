@@ -4,14 +4,16 @@
  *
  * See session-hierarchy.md §7.2 (Git-worktree reference backend).
  *
- * Safety: every subprocess invocation uses `execFile` with an argv array —
- * no shell interpolation — so caller-supplied `label`/`baseRef` strings
- * cannot escape their argument slot. Failures surface as
+ * Safety: every subprocess invocation uses `execFile` with an argv array and
+ * separates caller-controlled positional arguments from Git options with
+ * `--`. Filesystem paths are canonicalized and confined to the configured
+ * worktree root before Git receives them. Failures surface as
  * {@link WorkspaceBackendError} carrying the underlying cause.
  */
 
 import { execFile } from 'node:child_process'
-import { join } from 'node:path'
+import { realpath } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import type { GitWorktreeBackendMeta, WorkspaceRef } from '../../types/workspace/ref.js'
@@ -71,8 +73,8 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 	private readonly exec: ExecFile
 
 	constructor(config: GitWorktreeDriverConfig) {
-		this.repoRoot = config.repoRoot
-		this.worktreesDir = config.worktreesDir ?? join(config.repoRoot, '.namzu', 'worktrees')
+		this.repoRoot = resolve(config.repoRoot)
+		this.worktreesDir = resolve(config.worktreesDir ?? join(config.repoRoot, '.namzu', 'worktrees'))
 		this.log = config.logger.child({ [SCOPE_ATTRIBUTE]: 'session/workspace/git-worktree' })
 		this.exec = config.execFile ?? defaultExecFile
 	}
@@ -80,10 +82,38 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 	async create(params: CreateWorkspaceParams): Promise<WorkspaceRef> {
 		const id = generateWorkspaceId()
 		const label = params.label ?? id
-		const branch = `namzu/${label}`
-		const worktreePath = join(this.worktreesDir, label)
+		let repoRoot: string
+		let worktreesDir: string
+		let worktreePath: string
+		try {
+			repoRoot = await canonicalizeThroughExisting(this.repoRoot)
+			worktreesDir = await canonicalizeThroughExisting(this.worktreesDir)
+			const lexicalPath = resolve(worktreesDir, label)
+			if (!isStrictDescendant(worktreesDir, lexicalPath)) {
+				throw new Error(`Workspace label escapes the managed worktree directory: ${label}`)
+			}
+			worktreePath = await canonicalizeThroughExisting(lexicalPath)
+			if (!isStrictDescendant(worktreesDir, worktreePath)) {
+				throw new Error(
+					`Workspace label resolves through a link outside the managed worktree directory: ${label}`,
+				)
+			}
+			if (relative(worktreesDir, lexicalPath) !== relative(worktreesDir, worktreePath)) {
+				throw new Error(
+					`Workspace label resolves through a link to a different managed path: ${label}`,
+				)
+			}
+		} catch (cause) {
+			throw new WorkspaceBackendError({ op: 'create:ownership', kind: this.kind, cause })
+		}
 
-		const argv = ['-C', this.repoRoot, 'worktree', 'add', '-b', branch, worktreePath]
+		const relativePath = relative(worktreesDir, worktreePath).split(sep).join('/')
+		const branch = `namzu/${relativePath}`
+
+		// `--` belongs before caller-controlled positional arguments. Without it,
+		// a base ref such as `--no-checkout` is accepted as a Git option and the
+		// driver publishes a checkout containing only its `.git` link.
+		const argv = ['-C', repoRoot, 'worktree', 'add', '-b', branch, '--', worktreePath]
 		if (params.baseRef !== undefined) {
 			argv.push(params.baseRef)
 		}
@@ -103,7 +133,7 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 			// The bar is deliberately high: registered under this exact path
 			// AND carrying the branch this call asked for. A registered path
 			// alone can be a half-finished checkout, or somebody else's.
-			if (!(await this.createdDespite(worktreePath, branch))) {
+			if (!(await this.createdDespite(repoRoot, worktreePath, branch))) {
 				throw new WorkspaceBackendError({ op: 'create', kind: this.kind, cause })
 			}
 			this.log.warn('git-worktree add reported failure but the worktree is present', {
@@ -115,7 +145,7 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 
 		const meta: GitWorktreeBackendMeta = {
 			backend: 'git-worktree',
-			repoRoot: this.repoRoot,
+			repoRoot,
 			branch,
 			worktreePath,
 		}
@@ -135,34 +165,50 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 	async branch(source: WorkspaceRef, params: BranchWorkspaceParams): Promise<WorkspaceRef> {
 		// Branch from the source worktree's current branch. The source's
 		// `meta.branch` is the ref we base off.
-		return this.create({ baseRef: source.meta.branch, label: params.label })
+		const owned = await this.requireOwnedRef(source, 'branch')
+		return this.create({ baseRef: owned.branch, label: params.label })
 	}
 
 	async dispose(ref: WorkspaceRef): Promise<void> {
+		const owned = await this.requireOwnedRef(ref, 'dispose')
+		const registered = await this.registeredEntry(owned, 'dispose:list')
+		if (!registered) {
+			this.log.debug('git-worktree already gone; dispose idempotent', {
+				[NAMZU.SESSION_ID]: ref.id,
+				'namzu.session.path': owned.worktreePath,
+			})
+			return
+		}
+
 		// Tolerate missing directories per roadmap Risk #3 mitigation: the
 		// broadcast-rollback compensating step calls dispose on partially
-		// provisioned refs and must not propagate "already gone" errors.
+		// provisioned refs and must not propagate "already gone" errors. The
+		// repository list, rather than an error-message regex, is the evidence:
+		// an unavailable repository can contain the same "No such file" words.
 		try {
 			await this.exec('git', [
 				'-C',
-				this.repoRoot,
+				owned.repoRoot,
 				'worktree',
 				'remove',
-				ref.meta.worktreePath,
+				owned.worktreePath,
 				'--force',
 			])
 			this.log.info('git-worktree disposed', {
 				[NAMZU.SESSION_ID]: ref.id,
-				'namzu.session.path': ref.meta.worktreePath,
+				'namzu.session.path': owned.worktreePath,
 			})
 		} catch (cause) {
-			const message = cause instanceof Error ? cause.message : String(cause)
-			// git exits non-zero with "is not a working tree" when the path is
-			// absent; treat as idempotent success and log at debug.
-			if (/not a working tree|does not exist|No such file/i.test(message)) {
+			// Two concurrent disposals can both observe the entry before one wins.
+			// Re-read after failure and accept only repository evidence that the
+			// exact owned branch/path pair is now absent.
+			const nowRegistered = await this.registeredEntry(owned, 'dispose:recheck').catch(
+				() => undefined,
+			)
+			if (nowRegistered === null) {
 				this.log.debug('git-worktree already gone; dispose idempotent', {
 					[NAMZU.SESSION_ID]: ref.id,
-					'namzu.session.path': ref.meta.worktreePath,
+					'namzu.session.path': owned.worktreePath,
 				})
 				return
 			}
@@ -184,15 +230,13 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 	 * has already gone wrong once, and guessing optimistically there is how
 	 * a recovery turns a bad situation into a wrong one.
 	 */
-	private async createdDespite(worktreePath: string, branch: string): Promise<boolean> {
+	private async createdDespite(
+		repoRoot: string,
+		worktreePath: string,
+		branch: string,
+	): Promise<boolean> {
 		try {
-			const { stdout } = await this.exec('git', [
-				'-C',
-				this.repoRoot,
-				'worktree',
-				'list',
-				'--porcelain',
-			])
+			const { stdout } = await this.exec('git', ['-C', repoRoot, 'worktree', 'list', '--porcelain'])
 			const entry = parseWorktreeList(stdout, worktreePath)
 			// `--porcelain` writes the branch as a full ref (`refs/heads/x`),
 			// and `branch` here is the short name this call passed to `-b`.
@@ -206,11 +250,12 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 	}
 
 	async inspect(ref: WorkspaceRef): Promise<WorkspaceInspection> {
+		const owned = await this.requireOwnedRef(ref, 'inspect')
 		let listStdout: string
 		try {
 			const result = await this.exec('git', [
 				'-C',
-				this.repoRoot,
+				owned.repoRoot,
 				'worktree',
 				'list',
 				'--porcelain',
@@ -220,14 +265,14 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 			throw new WorkspaceBackendError({ op: 'inspect:list', kind: this.kind, cause })
 		}
 
-		const entry = parseWorktreeList(listStdout, ref.meta.worktreePath)
-		if (!entry) {
-			return { exists: false, currentRef: ref.meta.branch, isDirty: false }
+		const entry = parseWorktreeList(listStdout, owned.worktreePath)
+		if (!entry || entry.branch !== `refs/heads/${owned.branch}`) {
+			return { exists: false, currentRef: owned.branch, isDirty: false }
 		}
 
 		let statusStdout: string
 		try {
-			const result = await this.exec('git', ['-C', ref.meta.worktreePath, 'status', '--porcelain'])
+			const result = await this.exec('git', ['-C', owned.worktreePath, 'status', '--porcelain'])
 			statusStdout = result.stdout
 		} catch (cause) {
 			throw new WorkspaceBackendError({ op: 'inspect:status', kind: this.kind, cause })
@@ -239,6 +284,100 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 			isDirty: statusStdout.trim().length > 0,
 		}
 	}
+
+	/**
+	 * Turn persisted metadata back into an owned driver capability.
+	 *
+	 * A WorkspaceRef is recovery data, not authority to make this driver act on
+	 * any worktree registered in the same repository. Existing links are
+	 * resolved before the boundary is decided, and every Git call receives the
+	 * canonical path that was checked. This closes static symlink escapes. It
+	 * does not claim protection from a host process concurrently swapping path
+	 * components or mount points; the Git CLI exposes no descriptor-relative
+	 * removal primitive with which to make that guarantee.
+	 */
+	private async requireOwnedRef(ref: WorkspaceRef, op: string): Promise<GitWorktreeBackendMeta> {
+		try {
+			if (ref.meta.backend !== this.kind) {
+				throw new Error(`Workspace backend ${ref.meta.backend} does not belong to ${this.kind}`)
+			}
+
+			const repoRoot = await canonicalizeThroughExisting(this.repoRoot)
+			const refRepoRoot = await canonicalizeThroughExisting(ref.meta.repoRoot)
+			if (refRepoRoot !== repoRoot) {
+				throw new Error('Workspace reference belongs to a different repository')
+			}
+
+			const worktreesDir = await canonicalizeThroughExisting(this.worktreesDir)
+			const worktreePath = await canonicalizeThroughExisting(ref.meta.worktreePath)
+			if (!isStrictDescendant(worktreesDir, worktreePath)) {
+				throw new Error('Workspace reference escapes the managed worktree directory')
+			}
+
+			const label = relative(worktreesDir, worktreePath).split(sep).join('/')
+			const branch = `namzu/${label}`
+			if (ref.meta.branch !== branch) {
+				throw new Error('Workspace reference branch does not match its managed path')
+			}
+
+			return {
+				backend: 'git-worktree',
+				repoRoot,
+				branch,
+				worktreePath,
+			}
+		} catch (cause) {
+			throw new WorkspaceBackendError({ op: `${op}:ownership`, kind: this.kind, cause })
+		}
+	}
+
+	private async registeredEntry(
+		owned: GitWorktreeBackendMeta,
+		op: string,
+	): Promise<{ path: string; head?: string; branch?: string } | null> {
+		let stdout: string
+		try {
+			const result = await this.exec('git', [
+				'-C',
+				owned.repoRoot,
+				'worktree',
+				'list',
+				'--porcelain',
+			])
+			stdout = result.stdout
+		} catch (cause) {
+			throw new WorkspaceBackendError({ op, kind: this.kind, cause })
+		}
+
+		const entry = parseWorktreeList(stdout, owned.worktreePath)
+		return entry?.branch === `refs/heads/${owned.branch}` ? entry : null
+	}
+}
+
+/** Resolve every existing path component, preserving only a missing suffix. */
+async function canonicalizeThroughExisting(input: string): Promise<string> {
+	let existing = resolve(input)
+	const remainder: string[] = []
+
+	for (;;) {
+		try {
+			const canonical = await realpath(existing)
+			return resolve(canonical, ...remainder)
+		} catch (cause) {
+			const code = (cause as NodeJS.ErrnoException).code
+			if (code !== 'ENOENT' && code !== 'ENOTDIR') throw cause
+		}
+
+		const parent = dirname(existing)
+		if (parent === existing) return resolve(existing, ...remainder)
+		remainder.unshift(basename(existing))
+		existing = parent
+	}
+}
+
+function isStrictDescendant(root: string, candidate: string): boolean {
+	const rel = relative(root, candidate)
+	return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
 /**
