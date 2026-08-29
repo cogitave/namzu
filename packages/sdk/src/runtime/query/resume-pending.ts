@@ -1,8 +1,11 @@
+import { isDeepStrictEqual } from 'node:util'
+
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import type {
 	CheckpointId,
 	HITLResumeDecision,
 	IterationCheckpoint,
+	ToolCallSummary,
 } from '../../types/hitl/index.js'
 import type { AssistantMessage, Message, ToolCall } from '../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
@@ -38,6 +41,10 @@ export interface PendingResumePlan {
 	readonly response: ChatCompletionResponse
 	/** Per-call refusals derived from the decision. */
 	readonly denials: ToolCallDenials
+	/** Exact projections and gate decisions persisted with a tool review. */
+	readonly reviewedCalls?: readonly ToolCallSummary[]
+	/** Calls whose raw input the human replaced in the durable decision. */
+	readonly modifiedCallIds?: ReadonlySet<string>
 	/**
 	 * Answers to deliver to tools that parked on a question, keyed by the
 	 * asking call's id. Present only on a question resume.
@@ -117,6 +124,8 @@ export function planPendingResume(
 		assistant,
 		response: synthesizeResponse(assistant),
 		denials,
+		reviewedCalls: pending.request.toolCalls,
+		modifiedCallIds: modifiedCallIds(decision),
 	}
 }
 
@@ -246,11 +255,84 @@ export async function applyPendingResume(
 	executor: ToolExecutor,
 	prior?: PriorToolResults,
 ): Promise<void> {
+	const denials = new Map(plan.denials)
+	const reviewedById = new Map(plan.reviewedCalls?.map((call) => [call.id, call]))
+
+	// A gate denial belongs to the run, not to the process that first evaluated
+	// it. Restore it before preparation so denied calls do not even reach a
+	// pre-tool hook after restart.
+	for (const call of plan.reviewedCalls ?? []) {
+		if (call.authorization?.decision !== 'deny' || denials.has(call.id)) continue
+		denials.set(
+			call.id,
+			`Blocked by the authorization gate: ${call.authorization.reason ?? 'the persisted operator policy denied this call'}`,
+		)
+	}
+
+	const callsToPrepare = (plan.response.message.toolCalls ?? []).filter(
+		(call) => !prior?.has(call.id) && !denials.has(call.id),
+	)
+	const responseToPrepare: ChatCompletionResponse = {
+		...plan.response,
+		message: { ...plan.response.message, toolCalls: callsToPrepare },
+	}
+	const preparedBatch = await executor.prepareBatchForReview(responseToPrepare)
+
+	for (const call of preparedBatch.reviewCalls) {
+		const reviewed = reviewedById.get(call.id)
+		const wasModified = plan.modifiedCallIds?.has(call.id) === true
+		if (reviewed && !wasModified) {
+			const unchanged = reviewed.name === call.name && isDeepStrictEqual(reviewed.input, call.input)
+			if (!unchanged) {
+				const reason =
+					'The tool input changed after its durable review; the earlier approval cannot be reused.'
+				denials.set(call.id, reason)
+				await runMgr.recordAudit({
+					what: { action: 'tool_call', tool: call.name },
+					outcome: 'refused',
+					reason,
+				})
+				continue
+			}
+		}
+
+		const current = executor.evaluatePreparedAuthorization(call.name, call.input)
+		let reason: string | undefined
+		if (current?.decision === 'deny') {
+			reason = `Blocked by the authorization gate after resume: ${current.reason}`
+		} else if (current?.decision === 'review' && (wasModified || !reviewed)) {
+			reason = wasModified
+				? `Blocked by the authorization gate after resume: the modified prepared value requires a new explicit approval. ${current.reason}`
+				: `Blocked by the authorization gate after resume: this recovered call requires operator review. ${current.reason}`
+		} else if (!current && reviewed && reviewed.authorization === undefined) {
+			reason =
+				'The durable review predates bound authorization metadata; review this call again before execution.'
+		}
+
+		if (reason) {
+			denials.set(call.id, reason)
+			await runMgr.recordAudit({
+				what: { action: 'tool_call', tool: call.name },
+				outcome: 'refused',
+				reason,
+			})
+		}
+	}
+
 	runMgr.pushMessage(plan.assistant)
-	const batch = await executor.executeBatch(plan.response, plan.denials, prior)
+	const batch = await executor.executeBatch(plan.response, denials, prior, preparedBatch)
 	for (const msg of batch.messages) {
 		runMgr.pushMessage(msg)
 	}
+}
+
+function modifiedCallIds(decision: HITLResumeDecision): ReadonlySet<string> {
+	if (decision.action !== 'modify_tools') return new Set()
+	return new Set(
+		decision.modifications
+			.filter((modification) => modification.action === 'modify')
+			.map((modification) => modification.toolCallId),
+	)
 }
 
 /**

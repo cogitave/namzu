@@ -28,6 +28,7 @@ import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type {
 	FileReadTracker,
+	PreparedToolExecution,
 	RequestToolPause,
 	SkillRegistryRef,
 	ToolContext,
@@ -56,6 +57,74 @@ import {
 } from './tool-output-budget.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
+
+type PreparedDirectCall =
+	| {
+			readonly kind: 'ready'
+			readonly toolCall: ToolCall
+			readonly toolName: string
+			readonly input: unknown
+			readonly prepared: PreparedToolExecution
+	  }
+	| {
+			readonly kind: 'legacy'
+			readonly toolCall: ToolCall
+			readonly toolName: string
+			readonly input: unknown
+	  }
+	| {
+			readonly kind: 'synthetic'
+			readonly toolCall: ToolCall
+			readonly toolName: string
+			readonly input: unknown
+			readonly message: string
+			readonly isError: boolean
+	  }
+
+/**
+ * Executor-owned, single-use preparation of one provider tool-call batch.
+ *
+ * Consumers may inspect `reviewCalls`; only the creating executor can consume
+ * the opaque call preparations. This keeps schema transforms, plugin rewrites,
+ * authorization and execution on one value instead of reparsing between them.
+ */
+export interface PreparedToolBatch {
+	readonly reviewCalls: readonly {
+		readonly id: string
+		readonly name: string
+		readonly input: unknown
+	}[]
+}
+
+interface OwnedPreparedToolBatch extends PreparedToolBatch {
+	readonly calls: ReadonlyMap<string, PreparedDirectCall>
+}
+
+function assertUniqueToolCallIds(toolCalls: readonly ToolCall[]): void {
+	const seen = new Set<string>()
+	for (const [index, toolCall] of toolCalls.entries()) {
+		if (seen.has(toolCall.id)) {
+			throw new Error(
+				`Provider returned duplicate tool call id "${toolCall.id}" at batch index ${index}; the batch is refused because review, denial and result ownership require one unique id per call.`,
+			)
+		}
+		seen.add(toolCall.id)
+	}
+}
+
+type PreparedNestedCall =
+	| {
+			readonly kind: 'ready'
+			readonly input: unknown
+			readonly prepared: PreparedToolExecution
+	  }
+	| { readonly kind: 'legacy'; readonly input: unknown }
+	| {
+			readonly kind: 'synthetic'
+			readonly input: unknown
+			readonly message: string
+			readonly isError: boolean
+	  }
 
 /**
  * Default per-tool deadline. Long enough for a real build or test run,
@@ -349,7 +418,7 @@ interface PostToolOverride {
 }
 
 type PreToolHookOutcome =
-	| { kind: 'continue'; input: unknown }
+	| { kind: 'continue'; input: unknown; modified: boolean }
 	| { kind: 'skip'; input: unknown; output: string }
 	| { kind: 'error'; input: unknown; output: string }
 
@@ -412,6 +481,7 @@ export class ToolExecutor {
 	private workingStateManager?: WorkingStateManager
 	private probes: ProbeEnforcement
 	private parentSpan?: Span
+	private readonly preparedBatches = new WeakSet<PreparedToolBatch>()
 	/** Set per turn by the orchestrator; see {@link setStepAllowedTools}. */
 	private stepAllowedTools?: readonly string[]
 	private readonly readPaths: Set<string> = new Set()
@@ -566,15 +636,78 @@ export class ToolExecutor {
 		return typeof configured === 'function' ? configured() : configured
 	}
 
+	/** Evaluate the run's operator policy against one already-prepared value. */
+	evaluatePreparedAuthorization(toolName: string, input: unknown) {
+		return this.config.authorizationGate?.evaluate({
+			toolName,
+			toolInput: input,
+			toolDef: this.config.tools.get(toolName),
+		})
+	}
+
+	/**
+	 * Resolve repairs and pre-tool hooks, then decode each call exactly once.
+	 * The returned projection is what policy and a human review; execution later
+	 * consumes the registry-owned preparations rather than parsing again.
+	 */
+	async prepareBatchForReview(response: ChatCompletionResponse): Promise<PreparedToolBatch> {
+		assertUniqueToolCallIds(response.message.toolCalls ?? [])
+		const calls = new Map<string, PreparedDirectCall>()
+		for (const toolCall of response.message.toolCalls ?? []) {
+			calls.set(toolCall.id, await this.prepareDirectCall(toolCall))
+		}
+		return this.publishPreparedBatch(calls)
+	}
+
+	/** Re-prepare only calls whose raw input a reviewer actually changed. */
+	async reprepareBatchForReview(
+		response: ChatCompletionResponse,
+		previous: PreparedToolBatch,
+		changedCallIds: ReadonlySet<string>,
+	): Promise<PreparedToolBatch> {
+		assertUniqueToolCallIds(response.message.toolCalls ?? [])
+		if (!this.preparedBatches.has(previous)) {
+			throw new Error('Prepared tool batch is not owned by this executor.')
+		}
+		const calls = new Map((previous as OwnedPreparedToolBatch).calls)
+		for (const toolCall of response.message.toolCalls ?? []) {
+			if (changedCallIds.has(toolCall.id)) {
+				calls.set(toolCall.id, await this.prepareDirectCall(toolCall))
+			}
+		}
+		return this.publishPreparedBatch(calls)
+	}
+
+	private publishPreparedBatch(calls: ReadonlyMap<string, PreparedDirectCall>): PreparedToolBatch {
+		const reviewCalls = [...calls.values()]
+			.filter(
+				(call): call is Exclude<PreparedDirectCall, { kind: 'synthetic' }> =>
+					call.kind !== 'synthetic',
+			)
+			.map((call) => ({
+				id: call.toolCall.id,
+				name: call.toolName,
+				input: call.input,
+			}))
+		const batch: OwnedPreparedToolBatch = Object.freeze({
+			reviewCalls: Object.freeze(reviewCalls),
+			calls: new Map(calls),
+		})
+		this.preparedBatches.add(batch)
+		return batch
+	}
+
 	async executeBatch(
 		response: ChatCompletionResponse,
 		denials?: ToolCallDenials,
 		prior?: PriorToolResults,
+		preparedBatch?: PreparedToolBatch,
 	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
 			return { messages: [], results: [], observations: [] }
 		}
+		assertUniqueToolCallIds(toolCalls)
 
 		this.batchCounter += 1
 
@@ -582,7 +715,11 @@ export class ToolExecutor {
 		// `permissionMode` in the config type.
 		this.batchMode = this.resolvePermissionMode()
 		try {
-			return await this.runBatch(toolCalls, denials, prior)
+			const owned = preparedBatch as OwnedPreparedToolBatch | undefined
+			if (owned && !this.preparedBatches.has(owned)) {
+				throw new Error('Prepared tool batch is not owned by this executor.')
+			}
+			return await this.runBatch(toolCalls, denials, prior, owned)
 		} finally {
 			// Cleared so a later single execution outside a batch resolves
 			// live rather than inheriting the last batch's sample.
@@ -594,6 +731,7 @@ export class ToolExecutor {
 		toolCalls: readonly ToolCall[],
 		denials?: ToolCallDenials,
 		prior?: PriorToolResults,
+		preparedBatch?: OwnedPreparedToolBatch,
 	): Promise<ToolExecutionBatch> {
 		this.log.debug('Executing tool batch', {
 			[NAMZU.RUN_ID]: this.config.runId,
@@ -628,6 +766,7 @@ export class ToolExecutor {
 		// order independence.
 		const gate = new Semaphore(this.config.maxToolConcurrency ?? DEFAULT_TOOL_CONCURRENCY)
 		toolCalls.forEach((toolCall, i) => {
+			const preparedCall = preparedBatch?.calls.get(toolCall.id)
 			const recovered = prior?.get(toolCall.id)
 			if (recovered !== undefined) {
 				// This call already ran, in a process that died before the
@@ -650,7 +789,7 @@ export class ToolExecutor {
 				// on the parallel branch — they perform no side effects, so
 				// serialization would only add latency.
 				parallel.push(
-					this.recordDenial(toolCall, denialReason).then((r) => {
+					this.recordDenial(toolCall, denialReason, preparedCall).then((r) => {
 						results[i] = r
 					}),
 				)
@@ -682,8 +821,12 @@ export class ToolExecutor {
 			}
 			const run = async () => {
 				try {
-					results[i] = await this.executeSingle(toolCall, ctx, recordObservation, () =>
-						progress.close(),
+					results[i] = await this.executeSingle(
+						toolCall,
+						ctx,
+						recordObservation,
+						() => progress.close(),
+						preparedCall,
 					)
 				} finally {
 					await progress.close()
@@ -697,14 +840,19 @@ export class ToolExecutor {
 					gate.release()
 				}
 			}
-			let input: unknown = {}
+			let input: unknown = preparedCall?.input ?? {}
 			try {
-				input = JSON.parse(toolCall.function.arguments || '{}')
+				if (!preparedBatch?.calls.has(toolCall.id)) {
+					input = JSON.parse(toolCall.function.arguments || '{}')
+				}
 			} catch {
 				// non-JSON args → treat as unsafe (serialize), the conservative path
 			}
+			const preparedToolName = preparedCall?.toolName
 			const safe =
-				this.config.tools.get(toolCall.function.name)?.isConcurrencySafe?.(input) === true
+				this.config.tools
+					.get(preparedToolName ?? toolCall.function.name)
+					?.isConcurrencySafe?.(input) === true
 			if (safe) parallel.push(gated())
 			else serial = serial.then(run)
 		})
@@ -774,6 +922,9 @@ export class ToolExecutor {
 		// retained closure must be observationally inert after its invocation
 		// ends, not merely unable to finish the registry call it already started.
 		signal.throwIfAborted()
+		const preparedCall = await this.prepareNestedCall(name, input, signal)
+		signal.throwIfAborted()
+		const preparedInput = preparedCall.input
 
 		const parent = context.toolUseId
 		const via =
@@ -805,10 +956,35 @@ export class ToolExecutor {
 			toolUseId: nestedId,
 			toolName: name,
 		})
+		if (preparedCall.kind === 'synthetic') {
+			await this.emitEvent({
+				type: 'tool_executing',
+				runId: this.config.runId,
+				toolUseId: nestedId,
+				toolName: name,
+				input: preparedInput,
+				...(via ? { via } : {}),
+			})
+			await progress.close()
+			await this.emitEvent({
+				type: 'tool_completed',
+				runId: this.config.runId,
+				toolUseId: nestedId,
+				toolName: name,
+				result: preparedCall.message,
+				isError: preparedCall.isError,
+				durationMs: Date.now() - startedAt,
+				outputLength: preparedCall.message.length,
+				...(via ? { via } : {}),
+			})
+			return preparedCall.isError
+				? { success: false, output: '', error: preparedCall.message }
+				: { success: true, output: preparedCall.message }
+		}
 
 		const gateResult = this.config.authorizationGate?.evaluate({
 			toolName: name,
-			toolInput: input,
+			toolInput: preparedInput,
 			toolDef: this.config.tools.get(name),
 		})
 		if (gateResult && gateResult.decision !== 'allow') {
@@ -830,12 +1006,13 @@ export class ToolExecutor {
 				outcome: 'refused',
 				reason,
 			})
+			await progress.close()
 			await this.emitEvent({
 				type: 'tool_executing',
 				runId: this.config.runId,
 				toolUseId: nestedId,
 				toolName: name,
-				input,
+				input: preparedInput,
 				...(via ? { via } : {}),
 			})
 			await this.emitEvent({
@@ -880,16 +1057,51 @@ export class ToolExecutor {
 			runId: this.config.runId,
 			toolUseId: nestedId,
 			toolName: name,
-			input,
+			input: preparedInput,
 			...(via ? { via } : {}),
 		})
+
+		const vetoOutcome = this.probes.queryVeto(
+			{
+				type: 'tool_executing',
+				runId: this.config.runId,
+				toolUseId: nestedId,
+				toolName: name,
+				input: preparedInput,
+				...(via ? { via } : {}),
+			},
+			buildProbeContext({ runId: this.config.runId }),
+		)
+		if (vetoOutcome.action === 'deny') {
+			const probeName = vetoOutcome.probeName ?? 'unnamed'
+			const reason = vetoOutcome.reason ?? 'no reason provided'
+			const message = new ProbeVetoError(probeName, reason, 'tool_executing').message
+			await progress.close()
+			await this.emitEvent({
+				type: 'tool_completed',
+				runId: this.config.runId,
+				toolUseId: nestedId,
+				toolName: name,
+				result: `Error: ${message}`,
+				isError: true,
+				durationMs: Date.now() - startedAt,
+				outputLength: message.length + 7,
+				...(via ? { via } : {}),
+			})
+			return { success: false, output: '', error: message }
+		}
 
 		let result: ToolResult
 		try {
 			// Use the same deadline layer as a model-issued call. Calling the
 			// registry directly made nested tools the only tools whose own
 			// `timeoutMs` declaration was ignored.
-			result = await this.runOnce(name, input, childContext)
+			result = await this.runOnce(
+				name,
+				preparedInput,
+				childContext,
+				preparedCall.kind === 'ready' ? preparedCall.prepared : undefined,
+			)
 		} finally {
 			await progress.close()
 		}
@@ -938,7 +1150,7 @@ export class ToolExecutor {
 			runId: this.config.runId,
 			toolUseId: nestedId,
 			toolName: name,
-			input,
+			input: preparedInput,
 			result,
 			...(parent ? { parentToolUseId: parent } : {}),
 		})
@@ -1014,99 +1226,111 @@ export class ToolExecutor {
 		toolContext: ToolContext,
 		recordObservation: (observation: ToolResultObservation) => void,
 		settleProgress: () => Promise<void>,
+		preparedCall?: PreparedDirectCall,
 	): Promise<ToolCallOutcome> {
-		let toolName = toolCall.function.name
+		if (preparedCall?.kind === 'synthetic') {
+			return this.recordSyntheticPreparation(preparedCall)
+		}
 
-		// A stream that cut off mid-JSON is the case `repairToolCall` exists
-		// for, and it used to be the one case that never reached it: this
-		// branch returned before `resolveCall` ran, so the motivating failure
-		// was answered with a generic hint while the configured repairer sat
-		// unused. Offer it the partial buffer first.
-		const truncationRepair =
-			toolCall.metadata?.inputTruncated === true
-				? await this.repairTruncatedCall(toolCall, toolName)
-				: null
+		let toolName = preparedCall?.toolName ?? toolCall.function.name
+		let input: unknown
+		let prepared: PreparedToolExecution | undefined
 
-		if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
-			const message = truncatedToolInputMessage(toolName)
-			await this.emitEvent({
-				type: 'tool_executing',
-				runId: this.config.runId,
-				toolUseId: toolCall.id,
-				toolName,
-				input: {},
-			})
-			await this.emitEvent({
-				type: 'tool_completed',
-				runId: this.config.runId,
-				toolUseId: toolCall.id,
-				toolName,
-				result: message,
-				isError: true,
-			})
-			return {
-				toolCallId: toolCall.id,
-				toolName,
-				output: message,
-				isError: true,
+		if (preparedCall?.kind === 'ready' || preparedCall?.kind === 'legacy') {
+			input = preparedCall.input
+			prepared = preparedCall.kind === 'ready' ? preparedCall.prepared : undefined
+		} else {
+			// A stream that cut off mid-JSON is the case `repairToolCall` exists
+			// for, and it used to be the one case that never reached it: this
+			// branch returned before `resolveCall` ran, so the motivating failure
+			// was answered with a generic hint while the configured repairer sat
+			// unused. Offer it the partial buffer first.
+			const truncationRepair =
+				toolCall.metadata?.inputTruncated === true
+					? await this.repairTruncatedCall(toolCall, toolName)
+					: null
+
+			if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
+				const message = truncatedToolInputMessage(toolName)
+				await this.emitEvent({
+					type: 'tool_executing',
+					runId: this.config.runId,
+					toolUseId: toolCall.id,
+					toolName,
+					input: {},
+				})
+				await this.emitEvent({
+					type: 'tool_completed',
+					runId: this.config.runId,
+					toolUseId: toolCall.id,
+					toolName,
+					result: message,
+					isError: true,
+				})
+				return {
+					toolCallId: toolCall.id,
+					toolName,
+					output: message,
+					isError: true,
+				}
 			}
-		}
 
-		// A malformed call used to cost a full model round trip to fix: the
-		// error went back as a `tool_result`, the model re-read the whole
-		// context and tried again. A host that can repair it locally turns
-		// that into nothing. No-op when no repairer is configured.
-		const resolved = await this.resolveCall(
-			truncationRepair
-				? {
-						...toolCall,
-						function: {
-							...toolCall.function,
-							name: truncationRepair.toolName ?? toolName,
-							arguments: truncationRepair.arguments,
-						},
-						metadata: {},
-					}
-				: toolCall,
-		)
-		toolName = resolved.toolName
+			// A malformed call used to cost a full model round trip to fix: the
+			// error went back as a `tool_result`, the model re-read the whole
+			// context and tried again. A host that can repair it locally turns
+			// that into nothing. No-op when no repairer is configured.
+			const resolved = await this.resolveCall(
+				truncationRepair
+					? {
+							...toolCall,
+							function: {
+								...toolCall.function,
+								name: truncationRepair.toolName ?? toolName,
+								arguments: truncationRepair.arguments,
+							},
+							metadata: {},
+						}
+					: toolCall,
+			)
+			toolName = resolved.toolName
 
-		if (!resolved.ok) {
-			// malformed JSON args used to return without ever
-			// emitting tool_executing or tool_completed, leaving UI cards
-			// orphaned in `streaming_input`. Emit the executing→completed
-			// terminal pair so the card lifecycle closes.
-			const message = resolved.message
-			await this.emitEvent({
-				type: 'tool_executing',
-				runId: this.config.runId,
-				toolUseId: toolCall.id,
-				toolName,
-				input: {},
-			})
-			await this.emitEvent({
-				type: 'tool_completed',
-				runId: this.config.runId,
-				toolUseId: toolCall.id,
-				toolName,
-				result: message,
-				isError: true,
-			})
-			return {
-				toolCallId: toolCall.id,
-				toolName,
-				output: message,
-				isError: true,
+			if (!resolved.ok) {
+				// malformed JSON args used to return without ever
+				// emitting tool_executing or tool_completed, leaving UI cards
+				// orphaned in `streaming_input`. Emit the executing→completed
+				// terminal pair so the card lifecycle closes.
+				const message = resolved.message
+				await this.emitEvent({
+					type: 'tool_executing',
+					runId: this.config.runId,
+					toolUseId: toolCall.id,
+					toolName,
+					input: {},
+				})
+				await this.emitEvent({
+					type: 'tool_completed',
+					runId: this.config.runId,
+					toolUseId: toolCall.id,
+					toolName,
+					result: message,
+					isError: true,
+				})
+				return {
+					toolCallId: toolCall.id,
+					toolName,
+					output: message,
+					isError: true,
+				}
 			}
-		}
 
-		let input: unknown = resolved.input
+			input = resolved.input
 
-		const preOutcome = await this.runPreToolHook(toolName, input)
-		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
-			return this.recordSyntheticHookOutcome(toolCall.id, toolName, preOutcome.input, preOutcome)
+			const preOutcome = await this.runPreToolHook(toolName, input)
+			if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
+				return this.recordSyntheticHookOutcome(toolCall.id, toolName, preOutcome.input, preOutcome)
+			}
+			input = preOutcome.input
 		}
-		input = preOutcome.input
 
 		const activity = this.activityStore.create({
 			type: 'tool_call',
@@ -1194,7 +1418,7 @@ export class ToolExecutor {
 		// version silently DROPPED `content`, so a tool returning an image
 		// block had it discarded here — before the wire mapper that was
 		// built to carry it ever saw it.
-		let result: ToolResult = await this.runOnce(toolName, input, toolContext)
+		let result: ToolResult = await this.runOnce(toolName, input, toolContext, prepared)
 		let post = await this.runPostToolHook(toolName, input, result)
 
 		// In-loop retry. A transient failure used to cost a full model round
@@ -1263,7 +1487,7 @@ export class ToolExecutor {
 				break
 			}
 
-			result = await this.runOnce(toolName, input, toolContext)
+			result = await this.runOnce(toolName, input, toolContext, prepared)
 			post = await this.runPostToolHook(toolName, input, result)
 		}
 		const durationMs = Date.now() - startMs
@@ -1428,6 +1652,7 @@ export class ToolExecutor {
 		toolName: string,
 		input: unknown,
 		toolContext: ToolContext,
+		prepared?: PreparedToolExecution,
 	): Promise<ToolResult> {
 		const timeoutMs =
 			this.config.tools.get(toolName)?.timeoutMs ??
@@ -1504,11 +1729,14 @@ export class ToolExecutor {
 				}
 			}
 
-			const execution = this.config.tools.execute(toolName, input, {
+			const context = {
 				...toolContext,
 				abortSignal: controller.signal,
 				...(scopedDispatch ? { dispatchTool: scopedDispatch } : {}),
-			})
+			}
+			const execution = prepared
+				? this.config.tools.executePrepared(prepared, context)
+				: this.config.tools.execute(toolName, input, context)
 			// The loser of the race may still reject later; neutralize it so
 			// it is never an unhandled rejection.
 			execution.catch(() => {})
@@ -1567,19 +1795,278 @@ export class ToolExecutor {
 		}
 	}
 
-	private async runPreToolHook(toolName: string, input: unknown): Promise<PreToolHookOutcome> {
-		if (!this.config.pluginManager) return { kind: 'continue', input }
+	private async runPreToolHook(
+		toolName: string,
+		input: unknown,
+		signal: AbortSignal = this.config.abortSignal,
+	): Promise<PreToolHookOutcome> {
+		if (!this.config.pluginManager) return { kind: 'continue', input, modified: false }
 		const results = await this.config.pluginManager.executeHooks(
 			'pre_tool_use',
 			{
 				runId: this.config.runId,
 				toolName,
 				toolInput: input,
-				signal: this.config.abortSignal,
+				signal,
 			},
 			this.emitEvent,
 		)
 		return this.interpretPreToolResults(toolName, input, results)
+	}
+
+	private async prepareNestedCall(
+		toolName: string,
+		input: unknown,
+		signal: AbortSignal,
+	): Promise<PreparedNestedCall> {
+		const prepare = this.config.tools.prepareExecution
+		const executePrepared = this.config.tools.executePrepared
+		if (typeof prepare !== 'function' || typeof executePrepared !== 'function') {
+			if (this.config.authorizationGate) {
+				return {
+					kind: 'synthetic',
+					input,
+					message: `Tool "${toolName}" was not executed because its registry cannot bind authorization to one prepared input.`,
+					isError: true,
+				}
+			}
+			const preOutcome = await this.runPreToolHook(toolName, input, signal)
+			if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
+				return {
+					kind: 'synthetic',
+					input: preOutcome.input,
+					message: preOutcome.output,
+					isError: preOutcome.kind === 'error',
+				}
+			}
+			return { kind: 'legacy', input: preOutcome.input }
+		}
+
+		let preparation: ReturnType<typeof prepare>
+		try {
+			preparation = prepare.call(this.config.tools, toolName, input)
+		} catch (err) {
+			return {
+				kind: 'synthetic',
+				input,
+				message: `Tool "${toolName}" could not be prepared: ${toErrorMessage(err)}`,
+				isError: true,
+			}
+		}
+		if (!preparation.success) {
+			return {
+				kind: 'synthetic',
+				input,
+				message: formatFailedToolOutput(preparation.result.output, preparation.result.error),
+				isError: true,
+			}
+		}
+		const preOutcome = await this.runPreToolHook(toolName, preparation.prepared.input, signal)
+		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
+			return {
+				kind: 'synthetic',
+				input: preOutcome.input,
+				message: preOutcome.output,
+				isError: preOutcome.kind === 'error',
+			}
+		}
+		if (!preOutcome.modified) {
+			return {
+				kind: 'ready',
+				input: preparation.prepared.input,
+				prepared: preparation.prepared,
+			}
+		}
+		const modified = prepare.call(this.config.tools, toolName, preOutcome.input)
+		if (!modified.success) {
+			return {
+				kind: 'synthetic',
+				input: preOutcome.input,
+				message: formatFailedToolOutput(modified.result.output, modified.result.error),
+				isError: true,
+			}
+		}
+		return { kind: 'ready', input: modified.prepared.input, prepared: modified.prepared }
+	}
+
+	private async prepareDirectCall(toolCall: ToolCall): Promise<PreparedDirectCall> {
+		let toolName = toolCall.function.name
+		const truncationRepair =
+			toolCall.metadata?.inputTruncated === true
+				? await this.repairTruncatedCall(toolCall, toolName)
+				: null
+		if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
+			return {
+				kind: 'synthetic',
+				toolCall,
+				toolName,
+				input: {},
+				message: truncatedToolInputMessage(toolName),
+				isError: true,
+			}
+		}
+
+		const prepare = this.config.tools.prepareExecution
+		const executePrepared = this.config.tools.executePrepared
+		if (typeof prepare !== 'function' || typeof executePrepared !== 'function') {
+			const resolved = await this.resolveCall(
+				truncationRepair
+					? {
+							...toolCall,
+							function: {
+								...toolCall.function,
+								name: truncationRepair.toolName ?? toolName,
+								arguments: truncationRepair.arguments,
+							},
+							metadata: {},
+						}
+					: toolCall,
+			)
+			toolName = resolved.toolName
+			if (!resolved.ok) {
+				return {
+					kind: 'synthetic',
+					toolCall,
+					toolName,
+					input: {},
+					message: resolved.message,
+					isError: true,
+				}
+			}
+			const preOutcome = await this.runPreToolHook(toolName, resolved.input)
+			if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
+				return {
+					kind: 'synthetic',
+					toolCall,
+					toolName,
+					input: preOutcome.input,
+					message: preOutcome.output,
+					isError: preOutcome.kind === 'error',
+				}
+			}
+			if (!this.config.authorizationGate) {
+				return {
+					kind: 'legacy',
+					toolCall,
+					toolName,
+					input: preOutcome.input,
+				}
+			}
+			return {
+				kind: 'synthetic',
+				toolCall,
+				toolName,
+				input: preOutcome.input,
+				message: `Tool "${toolName}" was not executed because its registry cannot bind authorization to one prepared input.`,
+				isError: true,
+			}
+		}
+
+		let raw = truncationRepair?.arguments ?? toolCall.function.arguments
+		toolName = truncationRepair?.toolName ?? toolName
+		let repairUsed = truncationRepair !== null
+		let preparation: ReturnType<typeof prepare>
+		for (;;) {
+			let parsed: unknown
+			try {
+				parsed = parseArguments(raw)
+			} catch {
+				const message = `Error: Invalid JSON in tool arguments for "${toolName}"`
+				const repair =
+					!repairUsed && this.config.repairToolCall
+						? await this.requestRepair(toolCall, toolName, {
+								reason: 'invalid_json',
+								message,
+							})
+						: null
+				if (repair) {
+					repairUsed = true
+					toolName = repair.toolName ?? toolName
+					raw = repair.arguments
+					continue
+				}
+				return { kind: 'synthetic', toolCall, toolName, input: {}, message, isError: true }
+			}
+
+			try {
+				preparation = prepare.call(this.config.tools, toolName, parsed)
+			} catch (err) {
+				const message = `Error: Unknown or unavailable tool "${toolName}": ${toErrorMessage(err)}`
+				const repair =
+					!repairUsed && this.config.repairToolCall
+						? await this.requestRepair(toolCall, toolName, {
+								reason: 'unknown_tool',
+								message,
+							})
+						: null
+				if (repair) {
+					repairUsed = true
+					toolName = repair.toolName ?? toolName
+					raw = repair.arguments
+					continue
+				}
+				return { kind: 'synthetic', toolCall, toolName, input: parsed, message, isError: true }
+			}
+
+			if (preparation.success) break
+			const message = formatFailedToolOutput(preparation.result.output, preparation.result.error)
+			const repair =
+				!repairUsed && this.config.repairToolCall
+					? await this.requestRepair(toolCall, toolName, {
+							reason: 'schema_validation',
+							message,
+						})
+					: null
+			if (repair) {
+				repairUsed = true
+				toolName = repair.toolName ?? toolName
+				raw = repair.arguments
+				continue
+			}
+			return {
+				kind: 'synthetic',
+				toolCall,
+				toolName,
+				input: parsed,
+				message,
+				isError: true,
+			}
+		}
+
+		const preOutcome = await this.runPreToolHook(toolName, preparation.prepared.input)
+		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
+			return {
+				kind: 'synthetic',
+				toolCall,
+				toolName,
+				input: preOutcome.input,
+				message: preOutcome.output,
+				isError: preOutcome.kind === 'error',
+			}
+		}
+
+		if (preOutcome.modified) {
+			const modified = prepare.call(this.config.tools, toolName, preOutcome.input)
+			if (!modified.success) {
+				return {
+					kind: 'synthetic',
+					toolCall,
+					toolName,
+					input: preOutcome.input,
+					message: formatFailedToolOutput(modified.result.output, modified.result.error),
+					isError: true,
+				}
+			}
+			preparation = modified
+		}
+
+		return {
+			kind: 'ready',
+			toolCall,
+			toolName,
+			input: preparation.prepared.input,
+			prepared: preparation.prepared,
+		}
 	}
 
 	private interpretPreToolResults(
@@ -1588,12 +2075,14 @@ export class ToolExecutor {
 		results: readonly PluginHookResult[],
 	): PreToolHookOutcome {
 		let currentInput = initialInput
+		let modified = false
 		for (const result of results) {
 			switch (result.action) {
 				case 'continue':
 					continue
 				case 'modify':
 					currentInput = result.input
+					modified = true
 					continue
 				case 'skip':
 					return {
@@ -1622,7 +2111,7 @@ export class ToolExecutor {
 				}
 			}
 		}
-		return { kind: 'continue', input: currentInput }
+		return { kind: 'continue', input: currentInput, modified }
 	}
 
 	/**
@@ -1802,9 +2291,10 @@ export class ToolExecutor {
 		toolName: string,
 		input: unknown,
 		toolContext: ToolContext,
+		prepared?: PreparedToolExecution,
 	): Promise<ToolResult> {
 		try {
-			return await this.executeWithDeadline(toolName, input, toolContext)
+			return await this.executeWithDeadline(toolName, input, toolContext, prepared)
 		} catch (err) {
 			const message = toErrorMessage(err)
 			this.log.warn('Tool execution threw', {
@@ -1885,13 +2375,19 @@ export class ToolExecutor {
 	 * execution so UI cards reach a terminal state instead of hanging in
 	 * `executing`, and records a failed activity for the trace.
 	 */
-	private async recordDenial(toolCall: ToolCall, reason: string): Promise<ToolCallOutcome> {
-		const toolName = toolCall.function.name
-		let input: unknown = {}
-		try {
-			input = JSON.parse(toolCall.function.arguments || '{}')
-		} catch {
-			input = toolCall.function.arguments
+	private async recordDenial(
+		toolCall: ToolCall,
+		reason: string,
+		preparedCall?: PreparedDirectCall,
+	): Promise<ToolCallOutcome> {
+		const toolName = preparedCall?.toolName ?? toolCall.function.name
+		let input: unknown = preparedCall?.input ?? {}
+		if (!preparedCall) {
+			try {
+				input = JSON.parse(toolCall.function.arguments || '{}')
+			} catch {
+				input = toolCall.function.arguments
+			}
 		}
 
 		const output = deniedToolOutput(toolName, reason)
@@ -1976,6 +2472,13 @@ export class ToolExecutor {
 			output: outcome.output,
 			isError: outcome.kind === 'error',
 		}
+	}
+
+	private recordSyntheticPreparation(call: Extract<PreparedDirectCall, { kind: 'synthetic' }>) {
+		return this.recordSyntheticHookOutcome(call.toolCall.id, call.toolName, call.input, {
+			kind: call.isError ? 'error' : 'skip',
+			output: call.message,
+		})
 	}
 
 	/**

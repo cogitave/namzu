@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-27
+lastReviewed: 2026-08-29
 tags: [computer-use, sdk]
 ---
 
@@ -153,7 +153,37 @@ The important boundary is:
 
 High-level agent helpers (`ReactiveAgent.run()`, `SupervisorAgent.run()`) accept `authorizationGate` directly via their config — both forward it through to `drainQuery`. Hosts that just need a sane default can pass the exported `defaultSandboxedGateConfig()` or `defaultSandboxedShellGateConfig()` preset.
 
-### 6.1 Writing a pattern rule: which of the two
+### 6.1 Authorization inspects the executable value
+
+The runtime does not authorize the provider's raw JSON and then ask the tool
+schema to transform it afterward. `ToolRegistry` decodes and transforms the
+input once, detaches the result into a registry-owned JSON value, and creates a
+second deeply frozen projection for policy, approval UI, probes, events and
+audit. Execution consumes the retained value without parsing again.
+
+That ordering is a security boundary. A schema may coerce, default, strip or
+transform fields, and a caller may still hold references accepted by a custom
+schema. Neither is allowed to change the operation after it was approved. A
+tool retry reuses the same preparation rather than running a stateful transform
+again. A human edit creates a new preparation and crosses the authorization
+gate again.
+
+Prepared inputs must be JSON-value graphs: null, booleans, finite numbers,
+strings, arrays and plain objects. Cycles, accessors, sparse arrays and mutable
+exotic objects are refused. This is intentionally narrower than the values a
+Zod schema can return; an approval surface cannot faithfully freeze or display
+process-local mutable state. Null-prototype plain objects are accepted and
+canonicalized to ordinary objects so their meaning survives JSON checkpoints.
+
+Durable tool reviews persist both the exact review projection and the gate
+verdict. On resume, unresolved calls are prepared again and compared with the
+persisted projection before the current gate is evaluated. A previous process's
+deny therefore remains a deny, and an approval is not reused if the schema or
+input now produces a different executable value. Provider batches containing a
+duplicate tool-call id are refused before hooks or review: one id cannot safely
+own two preparations, decisions or results.
+
+### 6.2 Writing a pattern rule: which of the two
 
 The two pattern rules look interchangeable and are not. Choosing wrong produces
 a rule that decides nothing and says nothing about it.
@@ -243,7 +273,7 @@ input without caring where is a real use — searching for a credential-shaped
 string across every argument of every tool, for instance. Use it for that, and
 use `argument_pattern` when you mean "this tool, this argument".
 
-### 6.2 Reading a verdict back
+### 6.3 Reading a verdict back
 
 `evaluateRule` answers whether a rule matched. `describeRule` gives you the
 sentence for it, and both are exported:

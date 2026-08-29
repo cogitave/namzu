@@ -7,7 +7,7 @@ diataxis: how-to
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-25
+lastReviewed: 2026-08-29
 tags: [sdk]
 ---
 
@@ -376,6 +376,20 @@ Two rules worth knowing:
 - **A replace cannot promote a failure.** A tool that returned `success: false` stays an error even if a hook rewrites its message. The tool decides whether the work happened; the hook decides what may be shown.
 
 `replace` is rejected on `pre_tool_use` — there is no result to replace yet — and on the lifecycle events, loudly rather than silently, so a hook author who meant to redact something finds out instead of watching the secret go through.
+
+### What a pre-tool hook is allowed to change
+
+`pre_tool_use` receives the decoded, detached and deeply frozen input that
+would otherwise be reviewed and executed. Mutating that object in place has no
+effect. Return `{ action: 'modify', input }` to request a different input; the
+runtime validates and detaches that replacement, then runs authorization and
+human review against its final projection before execution.
+
+This order is deliberate: a hook cannot change an operation after approval,
+and a schema transform cannot turn an approved raw value into a different
+unreviewed executable value. The registry keeps a separate private copy for
+execution, so a hook retaining its visible object also retains no mutation
+authority.
 
 ### What a model-call hook is shown
 

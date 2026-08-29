@@ -1,7 +1,8 @@
 import type { AuthorizationGate } from '../../../../authorization/index.js'
+import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
-import type { ToolCallDenials } from '../../executor.js'
+import type { PreparedToolBatch, ToolCallDenials } from '../../executor.js'
 import {
 	awaitProjectInstructionCallback,
 	replaceProjectInstructionSnapshot,
@@ -64,28 +65,42 @@ export async function* runToolReview(
 		return finish('executed')
 	}
 
-	const toolCallSummaries = toolCalls.map((tc) => {
-		let input: unknown
-		try {
-			input = JSON.parse(tc.function.arguments)
-		} catch {
-			input = tc.function.arguments
-		}
-		const tool = ctx.tools.get(tc.function.name)
-		const isDestructive = tool?.isDestructive ? tool.isDestructive(input) : false
+	const prepareForReview = async (): Promise<PreparedToolBatch | undefined> => {
+		const prepare = ctx.toolExecutor.prepareBatchForReview
+		return typeof prepare === 'function' ? prepare.call(ctx.toolExecutor, response) : undefined
+	}
+	let preparedBatch = await prepareForReview()
+	const summariesFor = (prepared: PreparedToolBatch | undefined): ToolCallSummary[] => {
+		const calls =
+			prepared?.reviewCalls ??
+			toolCalls.map((tc) => {
+				let input: unknown
+				try {
+					input = JSON.parse(tc.function.arguments)
+				} catch {
+					input = tc.function.arguments
+				}
+				return { id: tc.id, name: tc.function.name, input }
+			})
+		return calls.map((tc) => {
+			const tool = ctx.tools.get(tc.name)
+			const isDestructive = tool?.isDestructive ? tool.isDestructive(tc.input) : false
 
-		return {
-			id: tc.id,
-			name: tc.function.name,
-			input,
-			isDestructive,
-		}
-	})
+			return {
+				id: tc.id,
+				name: tc.name,
+				input: tc.input,
+				isDestructive,
+				authorization: { decision: 'review' },
+			}
+		})
+	}
+	let toolCallSummaries = summariesFor(preparedBatch)
 
 	/** Executes the batch, answering every call, and appends the results. */
 	const settle = async (denials?: ToolCallDenials): Promise<void> => {
 		const startedAt = Date.now()
-		const batch = await ctx.toolExecutor.executeBatch(response, denials)
+		const batch = await ctx.toolExecutor.executeBatch(response, denials, undefined, preparedBatch)
 		toolMs += Date.now() - startedAt
 		executed = batch.results
 		// Recorded AFTER execution and never before it: this advises, it does
@@ -130,6 +145,12 @@ export async function* runToolReview(
 		}
 	}
 
+	if (toolCallSummaries.length === 0) {
+		await settle()
+		yield* ctx.drainPending()
+		return finish('executed')
+	}
+
 	/** Every call denied for the same reason (human rejection, gate stop). */
 	const denyAll = (reason: string): ToolCallDenials =>
 		new Map(toolCalls.map((tc) => [tc.id, reason]))
@@ -159,6 +180,12 @@ export async function* runToolReview(
 				toolDef: ctx.tools.get(tc.name),
 			}),
 		}))
+		for (const { toolCall, gateResult } of gateResults) {
+			toolCall.authorization = {
+				decision: gateResult.decision,
+				...(gateResult.reason ? { reason: gateResult.reason } : {}),
+			}
+		}
 
 		for (const gr of gateResults) {
 			if (gr.gateResult.decision === 'deny') {
@@ -267,6 +294,7 @@ export async function* runToolReview(
 
 			// Gate denials are the floor; per-call human denials add to them.
 			const denials = new Map(gateDenied)
+			const modifiedCallIds = new Set<string>()
 
 			for (const mod of reviewDecision.modifications) {
 				if (mod.action === 'modify' && mod.modifiedInput !== undefined) {
@@ -274,10 +302,46 @@ export async function* runToolReview(
 					// A modification cannot resurrect a gate-denied call.
 					if (tc && !denials.has(tc.id)) {
 						tc.function.arguments = JSON.stringify(mod.modifiedInput)
+						modifiedCallIds.add(tc.id)
 					}
 				}
 				if (mod.action === 'deny' && !denials.has(mod.toolCallId)) {
 					denials.set(mod.toolCallId, 'The user denied this tool call.')
+				}
+			}
+
+			// A human modification changes the raw call after the first preparation.
+			// Decode it once again, then require policy to explicitly allow the new
+			// executable value. A second nested review would be ambiguous: the human
+			// edited raw JSON, not an unseen schema transform of it.
+			if (modifiedCallIds.size > 0) {
+				const reprepare = ctx.toolExecutor.reprepareBatchForReview
+				preparedBatch =
+					preparedBatch && typeof reprepare === 'function'
+						? await reprepare.call(ctx.toolExecutor, response, preparedBatch, modifiedCallIds)
+						: await prepareForReview()
+				toolCallSummaries = summariesFor(preparedBatch)
+			}
+			if (ctx.verificationGate && modifiedCallIds.size > 0) {
+				for (const summary of toolCallSummaries) {
+					if (!modifiedCallIds.has(summary.id)) continue
+					if (denials.has(summary.id)) continue
+					const gateResult = ctx.verificationGate.evaluate({
+						toolName: summary.name,
+						toolInput: summary.input,
+						toolDef: ctx.tools.get(summary.name),
+					})
+					if (gateResult.decision === 'allow') continue
+					const reason =
+						gateResult.decision === 'deny'
+							? `Blocked by the authorization gate after the tool input was modified: ${gateResult.reason}`
+							: `Blocked by the authorization gate after the tool input was modified: the prepared value requires a new explicit approval. ${gateResult.reason}`
+					denials.set(summary.id, reason)
+					await ctx.runMgr.recordAudit({
+						what: { action: 'tool_call', tool: summary.name },
+						outcome: 'refused',
+						reason,
+					})
 				}
 			}
 

@@ -690,6 +690,27 @@ export interface ToolExecutionResult extends ToolResult {
 }
 
 /**
+ * An input decoded exactly once by its owning tool registry.
+ *
+ * `input` is the detached, deeply frozen JSON review projection:
+ * authorization, approval UI, probes and audit all inspect this value. The
+ * registry privately retains a separate detached copy that
+ * {@link ToolRegistryContract.executePrepared} gives the tool. Caller-owned
+ * aliases therefore cannot change either side after preparation. A
+ * preparation is registry-owned and cannot be executed by a different
+ * registry or after that tool registration is replaced.
+ */
+export interface PreparedToolExecution {
+	readonly toolName: string
+	readonly input: unknown
+}
+
+/** Result of decoding a tool input at the execution boundary. */
+export type ToolPreparationResult =
+	| { readonly success: true; readonly prepared: PreparedToolExecution }
+	| { readonly success: false; readonly result: ToolExecutionResult }
+
+/**
  * Full tool registry contract — registration, lookup, execution, prompt generation.
  * Concrete implementation: `ToolRegistry` in `registry/tool/execute.ts`.
  */
@@ -715,6 +736,23 @@ export interface ToolRegistryContract {
 	hasSuspended(): boolean
 	searchDeferred(query: string): ToolDefinition[]
 	getCallableTools(toolNames?: string[]): ToolDefinition[]
+
+	/**
+	 * Decode/transform an input once, before authorization or human review.
+	 *
+	 * The returned preparation is opaque registry authority. Implementations
+	 * must not run tool code here. They must detach both the executable value
+	 * and `prepared.input` from caller/schema aliases, and make the latter a
+	 * deeply immutable JSON projection of the exact value retained for
+	 * execution. Unsupported mutable/exotic graphs fail closed.
+	 */
+	prepareExecution(toolName: string, rawInput: unknown): ToolPreparationResult
+
+	/** Execute the exact value retained by `prepareExecution`, without parsing again. */
+	executePrepared(
+		prepared: PreparedToolExecution,
+		context: ToolContext,
+	): Promise<ToolExecutionResult>
 
 	execute(toolName: string, rawInput: unknown, context: ToolContext): Promise<ToolExecutionResult>
 

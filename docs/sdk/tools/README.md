@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-27
+lastReviewed: 2026-08-29
 tags: [computer-use, sdk]
 ---
 
@@ -75,6 +75,18 @@ include one complete safe payload:
 validationErrorHint:
   'Required shape: {"path":"file.md","old_string":"exact text","new_string":"replacement"}.',
 ```
+
+The schema's parsed value is also the authorization boundary. The runtime
+parses or transforms once, detaches the result as a JSON-value graph, shows an
+independent frozen projection to policy and review, then executes the retained
+value without parsing again. This means a transform must return null,
+booleans, finite numbers, strings, arrays or plain objects. Dates, maps, shared
+buffers, accessors, cycles and other process-local mutable values are refused.
+
+This is observable when a schema uses `.transform()`: `execute()` receives the
+transformed value, and authorization rules and the human approval surface see
+that same value rather than the provider's raw input. A retry does not invoke
+the transform a second time.
 
 ### Publish a provider-safe model contract
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
+import { probe } from '../../../probe/registry.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
@@ -371,5 +373,268 @@ describe('nested dispatch authority', () => {
 				reason: expect.stringMatching(/requires an explicit allow rule/i),
 			}),
 		)
+	})
+
+	it('applies pre-tool rewrites before authorizing a nested call', async () => {
+		let shellExecutions = 0
+		const runStore = new InMemoryRunStore()
+		const tools = new ToolRegistry()
+		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
+		tools.register(
+			defineTool({
+				name: 'shell',
+				description: 'nested hook fixture',
+				inputSchema: z.object({ command: z.string() }),
+				category: 'shell',
+				permissions: ['shell_execute'],
+				readOnly: false,
+				destructive: true,
+				concurrencySafe: false,
+				execute: async () => {
+					shellExecutions++
+					return { success: true, output: 'executed' }
+				},
+			}),
+		)
+		const pluginManager = {
+			executeHooks: async (event: string, context: { toolName?: string }) =>
+				event === 'pre_tool_use' && context.toolName === 'shell'
+					? [{ action: 'modify', input: { command: 'git push origin main' } }]
+					: [],
+		} as unknown as PluginLifecycleManager
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						call('parent', 'run_code', {
+							code: 'return await call("shell", { command: "status" })',
+							tools: ['shell'],
+						}),
+					],
+				},
+				{ text: 'done' },
+			],
+		})
+
+		await drainQuery({
+			...params(provider, tools),
+			runStore,
+			pluginManager,
+			authorizationGate: {
+				enabled: true,
+				rules: [
+					{
+						type: 'custom_pattern',
+						pattern: 'git push',
+						target: 'args',
+						decision: 'deny',
+					},
+					{ type: 'allow_by_name', toolNames: ['run_code', 'shell'] },
+				],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+		})
+
+		expect(shellExecutions).toBe(0)
+		expect(await runStore.readAuditEvents()).toContainEqual(
+			expect.objectContaining({
+				what: { action: 'tool_call', tool: 'shell' },
+				outcome: 'refused',
+				reason: expect.stringMatching(/git push/i),
+			}),
+		)
+	})
+
+	it('executes the detached value even when a nested caller mutates its input after dispatch', async () => {
+		const executed: unknown[] = []
+		const tools = new ToolRegistry()
+		tools.register(
+			parentTool(
+				'aliasing_parent',
+				async (context) => {
+					const callerOwned = { command: 'status' }
+					const pending = context.dispatchTool?.('shell', callerOwned)
+					callerOwned.command = 'git push origin main'
+					return (await pending) ?? { success: false, output: 'dispatch unavailable' }
+				},
+				1_000,
+			),
+		)
+		tools.register(
+			defineTool({
+				name: 'shell',
+				description: 'nested alias fixture',
+				inputSchema: z.any(),
+				category: 'shell',
+				permissions: ['shell_execute'],
+				readOnly: false,
+				destructive: true,
+				concurrencySafe: false,
+				execute: async (input) => {
+					executed.push(input)
+					return { success: true, output: 'executed' }
+				},
+			}),
+		)
+		const provider = new MockLLMProvider({
+			turns: [{ toolCalls: [call('parent', 'aliasing_parent', {})] }, { text: 'done' }],
+		})
+
+		await drainQuery({
+			...params(provider, tools),
+			authorizationGate: {
+				enabled: true,
+				rules: [
+					{
+						type: 'custom_pattern',
+						pattern: 'git push',
+						target: 'args',
+						decision: 'deny',
+					},
+					{ type: 'allow_by_name', toolNames: ['aliasing_parent', 'shell'] },
+				],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+		})
+
+		expect(executed).toEqual([{ command: 'status' }])
+	})
+
+	it('applies the probe veto to nested calls too', async () => {
+		let effects = 0
+		const events: RunEvent[] = []
+		const tools = new ToolRegistry()
+		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
+		tools.register(
+			defineTool({
+				name: 'nested_probe_effect',
+				description: 'nested probe fixture',
+				inputSchema: z.object({}),
+				category: 'custom',
+				permissions: [],
+				readOnly: false,
+				destructive: true,
+				concurrencySafe: false,
+				execute: async () => {
+					effects++
+					return { success: true, output: 'executed' }
+				},
+			}),
+		)
+		const removeVeto = probe.veto(
+			'tool_executing',
+			() => ({ action: 'deny', reason: 'nested probe refusal' }),
+			{
+				name: `nested-probe-${Math.random()}`,
+				where: (event) => event.toolName === 'nested_probe_effect',
+			},
+		)
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						call('parent', 'run_code', {
+							code: 'return await call("nested_probe_effect", {})',
+							tools: ['nested_probe_effect'],
+						}),
+					],
+				},
+				{ text: 'done' },
+			],
+		})
+
+		try {
+			await drainQuery(params(provider, tools), (event) => {
+				events.push(event)
+			})
+		} finally {
+			removeVeto()
+		}
+
+		expect(effects).toBe(0)
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				type: 'tool_completed',
+				toolName: 'nested_probe_effect',
+				isError: true,
+				result: expect.stringMatching(/nested probe refusal/i),
+				via: expect.objectContaining({ tool: 'run_code' }),
+			}),
+		)
+	})
+
+	it('cancels a held nested pre-tool hook with its parent invocation', async () => {
+		let shellExecutions = 0
+		let hookSignal: AbortSignal | undefined
+		let enter!: () => void
+		const entered = new Promise<void>((resolve) => {
+			enter = resolve
+		})
+		const tools = new ToolRegistry()
+		const runCode = buildRunCodeTool({ timeoutMs: 2_000 })
+		tools.register({ ...runCode, timeoutMs: 250 })
+		tools.register(
+			defineTool({
+				name: 'shell',
+				description: 'held nested hook fixture',
+				inputSchema: z.object({ command: z.string() }),
+				category: 'shell',
+				permissions: ['shell_execute'],
+				readOnly: false,
+				destructive: true,
+				concurrencySafe: false,
+				execute: async () => {
+					shellExecutions++
+					return { success: true, output: 'executed' }
+				},
+			}),
+		)
+		const pluginManager = {
+			executeHooks: async (event: string, context: { toolName?: string; signal?: AbortSignal }) => {
+				if (event !== 'pre_tool_use' || context.toolName !== 'shell') return []
+				hookSignal = context.signal
+				enter()
+				await new Promise<never>((_resolve, reject) => {
+					const signal = context.signal
+					if (!signal) return
+					if (signal.aborted) reject(signal.reason)
+					else signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+				})
+				return []
+			},
+		} as unknown as PluginLifecycleManager
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						call('parent', 'run_code', {
+							code: 'return await call("shell", { command: "status" })',
+							tools: ['shell'],
+						}),
+					],
+				},
+				{ text: 'parent timeout handled' },
+			],
+		})
+
+		const pending = drainQuery({
+			...params(provider, tools),
+			pluginManager,
+		})
+		await entered
+		const safety = Symbol('nested hook remained live')
+		const result = await Promise.race([
+			pending,
+			new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 1_500)),
+		])
+
+		expect(result).not.toBe(safety)
+		expect(hookSignal?.aborted).toBe(true)
+		expect((hookSignal?.reason as Error | undefined)?.message).toMatch(/run_code.*exceeded 250ms/i)
+		expect(shellExecutions).toBe(0)
 	})
 })

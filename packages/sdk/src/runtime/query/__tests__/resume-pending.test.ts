@@ -8,6 +8,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
+import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { type AssistantMessage, createUserMessage } from '../../../types/message/index.js'
@@ -282,6 +283,55 @@ describe('an approval survives a process boundary', () => {
 		expect(h.calls).toEqual([])
 	})
 
+	it('refuses duplicate call ids in a durable review instead of applying one approval twice', async () => {
+		const h = await harness()
+		const first = new MockLLMProvider({
+			turns: [{ toolCalls: [{ name: 'delete_row', args: { id: 1 } }] }],
+		})
+		const parked = await drainQuery({
+			...baseParams(h, first, pauseOnReview),
+			messages: [createUserMessage('delete row 1')],
+		})
+		const cp = await findPendingCheckpoint(h.store, { ...h.scope, runId: parked.id })
+		if (!cp?.pending || cp.pending.request.type !== 'tool_review') throw new Error('no park')
+		const assistant = cp.messages.find(
+			(message): message is AssistantMessage => message.role === 'assistant',
+		)
+		const original = assistant?.toolCalls?.[0]
+		if (!assistant || !original) throw new Error('no reviewed call')
+		const duplicateAssistant: AssistantMessage = {
+			...assistant,
+			toolCalls: [
+				original,
+				{
+					...original,
+					function: { ...original.function, arguments: JSON.stringify({ id: 2 }) },
+				},
+			],
+		}
+		await h.store.writeCheckpoint(
+			{ ...h.scope, runId: parked.id },
+			{
+				...cp,
+				messages: cp.messages.map((message) =>
+					message === assistant ? duplicateAssistant : message,
+				),
+			},
+		)
+
+		const second = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
+		const resumed = await drainQuery({
+			...baseParams(h, second, pauseOnReview),
+			messages: [],
+			resumeFromCheckpoint: cp.id,
+			pendingDecision: { action: 'approve_tools' },
+		})
+		expect(resumed.status).toBe('failed')
+		expect(resumed.lastError).toMatch(new RegExp(`repeats tool-call id '${original.id}'`, 'i'))
+		expect(h.calls).toEqual([])
+		expect(second.requests).toHaveLength(0)
+	})
+
 	it('a decision that does not describe a batch falls back to the repair path', async () => {
 		const h = await harness()
 		const first = new MockLLMProvider({
@@ -303,6 +353,199 @@ describe('an approval survives a process boundary', () => {
 		})
 
 		expect(h.calls).toEqual([])
+	})
+
+	it('preserves a mixed-batch gate denial across a process boundary', async () => {
+		const h = await harness()
+		const executions: string[] = []
+		const makeTools = () => {
+			const tools = new ToolRegistry()
+			tools.register(deleteRowTool(executions) as unknown as ToolDefinition)
+			tools.register({
+				name: 'shell',
+				description: 'schema-transforming shell fixture',
+				inputSchema: z
+					.object({ command: z.string() })
+					.transform(() => ({ command: 'git push origin main' })),
+				modelInputSchema: {
+					type: 'object',
+					properties: { command: { type: 'string' } },
+					required: ['command'],
+				},
+				isDestructive: () => true,
+				execute: ({ command }: { command: string }) => {
+					executions.push(command)
+					return Promise.resolve({ success: true, output: 'ran shell' })
+				},
+			} as ToolDefinition)
+			return tools
+		}
+		const authorizationGate: AuthorizationGateConfig = {
+			enabled: true,
+			rules: [
+				{ type: 'custom_pattern', pattern: 'git push', target: 'args', decision: 'deny' },
+				{ type: 'allow_by_name', toolNames: ['delete_row', 'shell'] },
+			],
+			allowReadOnlyTools: false,
+			denyDangerousPatterns: false,
+			logDecisions: false,
+		}
+		const first = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						{ id: 'safe_call', name: 'delete_row', args: { id: 9 } },
+						{ id: 'denied_call', name: 'shell', args: { command: 'status' } },
+					],
+				},
+			],
+		})
+		const parked = await drainQuery({
+			...baseParams(h, first, pauseOnReview),
+			tools: makeTools(),
+			authorizationGate,
+			messages: [createUserMessage('run both')],
+		})
+		expect(parked.stopReason).toBe('paused')
+		expect(executions).toEqual([])
+
+		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		if (state?.pending?.request.type !== 'tool_review') throw new Error('expected tool review')
+		expect(state.pending.request.toolCalls).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: 'safe_call',
+					authorization: expect.objectContaining({ decision: 'allow' }),
+				}),
+				expect.objectContaining({
+					id: 'denied_call',
+					input: { command: 'git push origin main' },
+					authorization: expect.objectContaining({ decision: 'deny' }),
+				}),
+			]),
+		)
+
+		const second = new MockLLMProvider({ turns: [{ text: 'settled' }] })
+		const currentGate: AuthorizationGateConfig = {
+			...authorizationGate,
+			// A later policy may allow this shape, but that cannot retroactively
+			// turn the human's mixed-batch approval into consent for the call the
+			// original process explicitly withheld from review.
+			rules: [{ type: 'allow_by_name', toolNames: ['delete_row', 'shell'] }],
+		}
+		await drainQuery({
+			...baseParams(h, second, pauseOnReview),
+			tools: makeTools(),
+			authorizationGate: currentGate,
+			messages: [],
+			resumeFromCheckpoint: state.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+		})
+
+		expect(executions).toEqual(['delete:9'])
+		const toolResults = (second.requests[0]?.messages ?? []).filter(
+			(message) => message.role === 'tool',
+		)
+		expect(toolResults).toHaveLength(2)
+		expect(JSON.stringify(toolResults)).toMatch(/authorization gate/i)
+	})
+
+	it('treats a null-prototype schema result as the same JSON value after disk resume', async () => {
+		const h = await harness()
+		const executions: string[] = []
+		const makeTools = () => {
+			const tools = new ToolRegistry()
+			tools.register({
+				name: 'canonicalize',
+				description: 'null-prototype normalization fixture',
+				inputSchema: z
+					.object({ value: z.string() })
+					.transform(({ value }) =>
+						Object.assign(Object.create(null) as Record<string, unknown>, { value }),
+					),
+				isDestructive: () => true,
+				execute: (input: { value: string }) => {
+					executions.push(input.value)
+					return Promise.resolve({ success: true, output: input.value })
+				},
+			} as ToolDefinition)
+			return tools
+		}
+		const first = new MockLLMProvider({
+			turns: [{ toolCalls: [{ name: 'canonicalize', args: { value: 'x' } }] }],
+		})
+		const parked = await drainQuery({
+			...baseParams(h, first, pauseOnReview),
+			tools: makeTools(),
+			messages: [createUserMessage('normalize x')],
+		})
+		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		expect(state?.pending?.request.type).toBe('tool_review')
+
+		const second = new MockLLMProvider({ turns: [{ text: 'done' }] })
+		await drainQuery({
+			...baseParams(h, second, pauseOnReview),
+			tools: makeTools(),
+			messages: [],
+			resumeFromCheckpoint: state?.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+		})
+
+		expect(executions).toEqual(['x'])
+		expect(JSON.stringify(second.requests[0]?.messages)).not.toMatch(
+			/changed after its durable review/i,
+		)
+	})
+
+	it('refuses a durable approval when schema normalization changed after review', async () => {
+		const h = await harness()
+		const executions: string[] = []
+		const makeTools = (version: string) => {
+			const tools = new ToolRegistry()
+			tools.register({
+				name: 'normalize',
+				description: 'versioned normalization fixture',
+				inputSchema: z
+					.object({ value: z.string() })
+					.transform(({ value }) => ({ value: `${version}:${value}` })),
+				modelInputSchema: {
+					type: 'object',
+					properties: { value: { type: 'string' } },
+					required: ['value'],
+				},
+				isDestructive: () => true,
+				execute: ({ value }: { value: string }) => {
+					executions.push(value)
+					return Promise.resolve({ success: true, output: value })
+				},
+			} as ToolDefinition)
+			return tools
+		}
+		const first = new MockLLMProvider({
+			turns: [{ toolCalls: [{ id: 'normalize_call', name: 'normalize', args: { value: 'x' } }] }],
+		})
+		const parked = await drainQuery({
+			...baseParams(h, first, pauseOnReview),
+			tools: makeTools('v1'),
+			messages: [createUserMessage('normalize')],
+		})
+		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		if (state?.pending?.request.type !== 'tool_review') throw new Error('expected tool review')
+		expect(state.pending.request.toolCalls[0]?.input).toEqual({ value: 'v1:x' })
+
+		const second = new MockLLMProvider({ turns: [{ text: 'not run' }] })
+		await drainQuery({
+			...baseParams(h, second, pauseOnReview),
+			tools: makeTools('v2'),
+			messages: [],
+			resumeFromCheckpoint: state.checkpointId,
+			pendingDecision: { action: 'approve_tools' },
+		})
+
+		expect(executions).toEqual([])
+		expect(JSON.stringify(second.requests[0]?.messages)).toMatch(
+			/changed after its durable review/i,
+		)
 	})
 })
 

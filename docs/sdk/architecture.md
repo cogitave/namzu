@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-27
+lastReviewed: 2026-08-29
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -355,6 +355,17 @@ Before a model-issued tool call executes, `authorization/gate.ts`'s
 `AuthorizationGate` decides *allow*, *deny*, or *review*. A call dispatched by
 another tool crosses the same gate; only an explicit allow proceeds because a
 nested call cannot open another durable review inside its executing parent.
+
+The gate evaluates the registry-prepared value, not the provider's raw JSON.
+Schemas decode and transform exactly once; the registry retains a detached JSON
+value for execution and publishes a separate frozen projection to policy,
+approval UI, probes, events and audit. Durable reviews persist that projection
+and the gate verdict. A resumed process prepares unresolved calls again,
+compares their final values, reapplies current policy and executes the same
+preparation, so a restart cannot turn a mixed-batch denial into approval or run
+a value different from the one the operator saw. Duplicate tool-call ids fail
+before hooks or review because the id is the durable owner of preparation,
+decision and result state.
 
 Built-in rules:
 

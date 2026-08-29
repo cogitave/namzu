@@ -465,6 +465,145 @@ describe('ToolRegistry — toPromptSection + toLLMTools', () => {
 })
 
 describe('ToolRegistry — execute', () => {
+	it('prepares a detached review value once and executes the retained value', async () => {
+		let parses = 0
+		const executed: unknown[] = []
+		const r = new ToolRegistry()
+		r.register(
+			makeTool('prepared', {
+				inputSchema: z.object({ k: z.string() }).transform(({ k }) => ({ k: `${k}-${++parses}` })),
+				execute: async (input) => {
+					executed.push(input)
+					return { success: true, output: 'ok' }
+				},
+			}),
+		)
+
+		const result = r.prepareExecution('prepared', { k: 'value' })
+		expect(result.success).toBe(true)
+		if (!result.success) return
+		expect(result.prepared.input).toEqual({ k: 'value-1' })
+		expect(Object.isFrozen(result.prepared.input)).toBe(true)
+
+		await r.executePrepared(result.prepared, makeContext())
+		expect(parses).toBe(1)
+		expect(executed).toEqual([{ k: 'value-1' }])
+		expect(executed[0]).not.toBe(result.prepared.input)
+	})
+
+	it('detaches the executable value from schema and caller aliases', async () => {
+		const executed: unknown[] = []
+		const r = new ToolRegistry()
+		r.register(
+			makeTool('prepared', {
+				inputSchema: z.any(),
+				execute: async (input) => {
+					executed.push(input)
+					return { success: true, output: 'ok' }
+				},
+			}),
+		)
+		const callerOwned = { command: 'status', nested: { force: false } }
+		const result = r.prepareExecution('prepared', callerOwned)
+		if (!result.success) throw new Error('expected preparation')
+
+		callerOwned.command = 'git push origin main'
+		callerOwned.nested.force = true
+		await r.executePrepared(result.prepared, makeContext())
+
+		expect(result.prepared.input).toEqual({ command: 'status', nested: { force: false } })
+		expect(executed).toEqual([{ command: 'status', nested: { force: false } }])
+	})
+
+	it.each([
+		['Date', new Date(0)],
+		['Map', new Map([['command', 'status']])],
+		['SharedArrayBuffer', new SharedArrayBuffer(8)],
+	])('refuses a prepared %s because it cannot be made immutable JSON', (_label, value) => {
+		const r = new ToolRegistry()
+		r.register(makeTool('prepared', { inputSchema: z.any() }))
+
+		const result = r.prepareExecution('prepared', value)
+
+		expect(result.success).toBe(false)
+		if (result.success) return
+		expect(result.result.error).toMatch(/plain JSON object/i)
+	})
+
+	it('refuses array accessors without invoking them', () => {
+		let getterRuns = 0
+		const value: unknown[] = []
+		Object.defineProperty(value, '0', {
+			enumerable: true,
+			configurable: true,
+			get() {
+				getterRuns++
+				return 'value'
+			},
+		})
+		value.length = 1
+		const r = new ToolRegistry()
+		r.register(makeTool('prepared', { inputSchema: z.any() }))
+
+		const result = r.prepareExecution('prepared', value)
+
+		expect(result.success).toBe(false)
+		expect(getterRuns).toBe(0)
+		if (result.success) return
+		expect(result.result.error).toMatch(/enumerable data property/i)
+	})
+
+	it('refuses non-enumerable array elements', () => {
+		const value: unknown[] = []
+		Object.defineProperty(value, '0', {
+			enumerable: false,
+			configurable: true,
+			value: 'hidden',
+		})
+		value.length = 1
+		const r = new ToolRegistry()
+		r.register(makeTool('prepared', { inputSchema: z.any() }))
+
+		const result = r.prepareExecution('prepared', value)
+
+		expect(result.success).toBe(false)
+		if (result.success) return
+		expect(result.result.error).toMatch(/enumerable data property/i)
+	})
+
+	it('refuses a preparation forged outside the registry', async () => {
+		const r = new ToolRegistry()
+		const execute = vi.fn(async () => ({ success: true, output: 'ok' }))
+		r.register(makeTool('prepared', { execute }))
+
+		const result = await r.executePrepared(
+			{ toolName: 'prepared', input: { k: 'value' } },
+			makeContext(),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/not owned by this registry/i)
+		expect(execute).not.toHaveBeenCalled()
+	})
+
+	it('invalidates a preparation when the registered tool is replaced', async () => {
+		const r = new ToolRegistry()
+		const original = vi.fn(async () => ({ success: true, output: 'old' }))
+		const replacement = vi.fn(async () => ({ success: true, output: 'new' }))
+		r.register(makeTool('prepared', { execute: original }))
+		const prepared = r.prepareExecution('prepared', { k: 'value' })
+		if (!prepared.success) throw new Error('expected preparation')
+		r.unregister('prepared')
+		r.register(makeTool('prepared', { execute: replacement }))
+
+		const result = await r.executePrepared(prepared.prepared, makeContext())
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/changed after its input was reviewed/i)
+		expect(original).not.toHaveBeenCalled()
+		expect(replacement).not.toHaveBeenCalled()
+	})
+
 	it('returns error when tool is not active (e.g. deferred)', async () => {
 		const r = new ToolRegistry()
 		r.register([makeTool('a')], 'deferred')

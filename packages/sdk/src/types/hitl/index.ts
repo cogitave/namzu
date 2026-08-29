@@ -71,6 +71,17 @@ export interface ToolCallSummary {
 	name: string
 	input: unknown
 	isDestructive: boolean
+	/**
+	 * Operator-policy verdict attached to the exact input shown for review.
+	 *
+	 * Persisted with a durable review so a later process cannot treat a call
+	 * the gate denied as approved merely because the human approved a mixed
+	 * batch. Absent only on checkpoints written before this field existed.
+	 */
+	authorization?: {
+		decision: 'allow' | 'deny' | 'review'
+		reason?: string
+	}
 }
 
 export interface ToolModification {

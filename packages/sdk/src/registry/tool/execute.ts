@@ -7,10 +7,12 @@ import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type {
 	LLMToolSchema,
+	PreparedToolExecution,
 	ToolAvailability,
 	ToolContext,
 	ToolDefinition,
 	ToolExecutionResult,
+	ToolPreparationResult,
 	ToolRegistryConfig,
 	ToolTierConfig,
 } from '../../types/tool/index.js'
@@ -87,6 +89,82 @@ export function assertToolName(name: string): void {
 	)
 }
 
+function clonePreparedInput(value: unknown, freeze: boolean, path = '$'): unknown {
+	const active = new WeakSet<object>()
+	const copies = new WeakMap<object, object>()
+
+	const clone = (candidate: unknown, at: string): unknown => {
+		if (candidate === null || typeof candidate === 'string' || typeof candidate === 'boolean') {
+			return candidate
+		}
+		if (typeof candidate === 'number') {
+			if (!Number.isFinite(candidate) || Object.is(candidate, -0)) {
+				throw new TypeError(`${at} must be a finite JSON number`)
+			}
+			return candidate
+		}
+		if (typeof candidate !== 'object') {
+			throw new TypeError(`${at} must be a JSON value, not ${typeof candidate}`)
+		}
+		if (active.has(candidate)) throw new TypeError(`${at} contains a cycle`)
+		const existing = copies.get(candidate)
+		if (existing) return existing
+
+		active.add(candidate)
+		try {
+			if (Array.isArray(candidate)) {
+				const extra = Reflect.ownKeys(candidate).filter(
+					(key) => key !== 'length' && (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key)),
+				)
+				if (extra.length > 0) throw new TypeError(`${at} has non-JSON array properties`)
+				const result: unknown[] = new Array(candidate.length)
+				copies.set(candidate, result)
+				for (let index = 0; index < candidate.length; index++) {
+					const descriptor = Object.getOwnPropertyDescriptor(candidate, String(index))
+					if (!descriptor) throw new TypeError(`${at}[${index}] is a sparse array hole`)
+					if (!descriptor.enumerable || !('value' in descriptor)) {
+						throw new TypeError(`${at}[${index}] must be an enumerable data property`)
+					}
+					result[index] = clone(descriptor.value, `${at}[${index}]`)
+				}
+				if (freeze) Object.freeze(result)
+				return result
+			}
+
+			const prototype = Object.getPrototypeOf(candidate)
+			if (prototype !== Object.prototype && prototype !== null) {
+				throw new TypeError(`${at} must be a plain JSON object`)
+			}
+			// JSON does not preserve prototypes. Canonicalize both admitted plain
+			// shapes to an ordinary object so a disk checkpoint round-trip compares
+			// equal to a fresh preparation of the same semantic value. Properties
+			// are still defined explicitly, so a literal "__proto__" key remains
+			// data rather than changing this object's prototype.
+			const result: Record<string, unknown> = {}
+			copies.set(candidate, result)
+			for (const key of Reflect.ownKeys(candidate)) {
+				if (typeof key !== 'string') throw new TypeError(`${at} has a symbol property`)
+				const descriptor = Object.getOwnPropertyDescriptor(candidate, key)
+				if (!descriptor?.enumerable || !('value' in descriptor)) {
+					throw new TypeError(`${at}.${key} must be an enumerable data property`)
+				}
+				Object.defineProperty(result, key, {
+					value: clone(descriptor.value, `${at}.${key}`),
+					enumerable: true,
+					writable: !freeze,
+					configurable: !freeze,
+				})
+			}
+			if (freeze) Object.freeze(result)
+			return result
+		} finally {
+			active.delete(candidate)
+		}
+	}
+
+	return clone(value, path)
+}
+
 /**
  * Two sources contributed the same tool name and neither may take it.
  *
@@ -136,9 +214,17 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
 	private resultGuardrails?: readonly ToolResultGuardrailSpec[]
+	private readonly preparations = new WeakMap<
+		PreparedToolExecution,
+		{ readonly tool: ToolDefinition; readonly input: unknown }
+	>()
 
 	constructor(config?: ToolRegistryConfig) {
-		super({ componentName: 'ToolRegistry', idField: 'name', logger: config?.logger })
+		super({
+			componentName: 'ToolRegistry',
+			idField: 'name',
+			logger: config?.logger,
+		})
 		this.tierConfig = config?.tierConfig
 		this.resultGuardrails = config?.resultGuardrails
 	}
@@ -401,9 +487,105 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 		return this.getByAvailability(['active'], toolNames)
 	}
 
+	prepareExecution(toolName: string, rawInput: unknown): ToolPreparationResult {
+		const tool = this.getOrThrow(toolName)
+		const parseResult = tool.inputSchema.safeParse(rawInput)
+		if (!parseResult.success) {
+			return {
+				success: false,
+				result: this.validationFailure(tool, rawInput, parseResult.error),
+			}
+		}
+
+		let retainedInput: unknown
+		let reviewInput: unknown
+		try {
+			retainedInput = clonePreparedInput(parseResult.data, false)
+			reviewInput = clonePreparedInput(retainedInput, true)
+		} catch (err) {
+			const message = `Tool "${toolName}" produced an input that cannot be safely prepared for review and execution: ${toErrorMessage(err)}`
+			this.log.error('Prepared tool input could not be detached for review and execution', {
+				'namzu.tool.name': toolName,
+				'exception.message': toErrorMessage(err),
+			})
+			return {
+				success: false,
+				result: { success: false, output: '', error: message },
+			}
+		}
+
+		const prepared = Object.freeze({ toolName, input: reviewInput })
+		this.preparations.set(prepared, { tool, input: retainedInput })
+		return { success: true, prepared }
+	}
+
+	async executePrepared(
+		prepared: PreparedToolExecution,
+		context: ToolContext,
+	): Promise<ToolExecutionResult> {
+		const retained = this.preparations.get(prepared)
+		if (!retained) {
+			return {
+				success: false,
+				output: '',
+				error: `Tool "${prepared.toolName}" preparation is not owned by this registry or is no longer valid.`,
+			}
+		}
+		if (this.get(prepared.toolName) !== retained.tool) {
+			return {
+				success: false,
+				output: '',
+				error: `Tool "${prepared.toolName}" changed after its input was reviewed; prepare the call again.`,
+			}
+		}
+		return this.executeRetained(prepared.toolName, retained.tool, retained.input, context)
+	}
+
 	async execute(
 		toolName: string,
 		rawInput: unknown,
+		context: ToolContext,
+	): Promise<ToolExecutionResult> {
+		let preparation: ToolPreparationResult
+		try {
+			preparation = this.prepareExecution(toolName, rawInput)
+		} catch (err) {
+			return this.rejectPreparationWithClosedSpan(toolName, context, err)
+		}
+		if (!preparation.success) return preparation.result
+		return this.executePrepared(preparation.prepared, context)
+	}
+
+	private rejectPreparationWithClosedSpan(
+		toolName: string,
+		context: ToolContext,
+		err: unknown,
+	): Promise<never> {
+		const tracer = getTracer()
+		const parentCtx = context.parentSpan
+			? trace.setSpan(otelContext.active(), context.parentSpan)
+			: otelContext.active()
+		return tracer.startActiveSpan(toolSpanName(toolName), {}, parentCtx, async (span) => {
+			try {
+				span.setAttributes({
+					[GENAI.TOOL_NAME]: toolName,
+					[GENAI.TOOL_TYPE]: 'function',
+					...(context.toolUseId !== undefined ? { [GENAI.TOOL_CALL_ID]: context.toolUseId } : {}),
+					[NAMZU.TOOL_SUCCESS]: false,
+					[NAMZU.TOOL_ERROR]: toErrorMessage(err),
+				})
+				span.setStatus({ code: SpanStatusCode.ERROR, message: toErrorMessage(err) })
+				throw err
+			} finally {
+				span.end()
+			}
+		})
+	}
+
+	private async executeRetained(
+		toolName: string,
+		tool: ToolDefinition,
+		finalInput: unknown,
 		context: ToolContext,
 	): Promise<ToolExecutionResult> {
 		const tracer = getTracer()
@@ -436,8 +618,6 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					[GENAI.TOOL_TYPE]: 'function',
 					...(context.toolUseId !== undefined ? { [GENAI.TOOL_CALL_ID]: context.toolUseId } : {}),
 				})
-
-				const tool = this.getOrThrow(toolName)
 
 				const availability = this.getAvailability(toolName)
 				if (availability !== 'active') {
@@ -492,7 +672,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 				const mode = context.permissionContext?.mode ?? 'auto'
 				if (mode === 'plan') {
-					const isReadOnly = isTrustedReadOnly(tool, rawInput)
+					const isReadOnly = isTrustedReadOnly(tool, finalInput)
 					if (!isReadOnly) {
 						const msg = `plan mode: non-read-only tool "${toolName}" blocked`
 						span.setAttributes({
@@ -509,63 +689,6 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						}
 					}
 				}
-
-				const parseResult = tool.inputSchema.safeParse(rawInput)
-				if (!parseResult.success) {
-					const errorMessage = parseResult.error.issues
-						.map((i) => `${i.path.join('.')}: ${i.message}`)
-						.join('; ')
-
-					// Distinguish "model sent an empty/no-arg call" from
-					// "model sent partial args" — the first is most often a
-					// streaming hiccup or a definition-test ping (a provider
-					// occasionally pings tool surfaces with `{}` while the
-					// schema is still loading), the second is a genuine
-					// programming mistake by the model. The model self-
-					// corrects MUCH more reliably when the error tells it
-					// (a) which fields are required, (b) their types, and
-					// (c) a minimal example call. Without these hints the
-					// downstream UI just shows a red "Failed" row and the
-					// model rarely retries with the right args.
-					const isEmptyInput =
-						rawInput === null ||
-						rawInput === undefined ||
-						(typeof rawInput === 'object' &&
-							!Array.isArray(rawInput) &&
-							Object.keys(rawInput as Record<string, unknown>).length === 0)
-
-					const requiredHint = describeRequiredInput(tool.inputSchema)
-					// A conditional schema's required shape cannot be reconstructed
-					// from JSON Schema's top-level `required`, so the author gets to
-					// say what a valid retry looks like.
-					const recoveryHint = tool.validationErrorHint?.trim()
-						? ` ${tool.validationErrorHint.trim()}`
-						: ''
-
-					const enrichedMessage = isEmptyInput
-						? `Tool "${toolName}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
-						: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}${recoveryHint}`
-
-					this.log.error('Tool input validation failed', {
-						'namzu.tool.name': toolName,
-						'namzu.registry.errors': errorMessage,
-						'namzu.registry.empty': isEmptyInput,
-					})
-
-					span.setAttributes({
-						[NAMZU.TOOL_SUCCESS]: false,
-						[NAMZU.TOOL_ERROR]: `Validation: ${errorMessage}`,
-					})
-					span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
-
-					return {
-						success: false,
-						output: '',
-						error: enrichedMessage,
-					}
-				}
-
-				const finalInput = parseResult.data
 
 				try {
 					this.log.debug('Executing tool', { 'namzu.tool.name': toolName })
@@ -604,7 +727,10 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					)
 					if (!result.success && result.error) {
 						span.setAttribute(NAMZU.TOOL_ERROR, result.error)
-						span.setStatus({ code: SpanStatusCode.ERROR, message: result.error })
+						span.setStatus({
+							code: SpanStatusCode.ERROR,
+							message: result.error,
+						})
 					} else {
 						span.setStatus({ code: SpanStatusCode.OK })
 					}
@@ -622,7 +748,10 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 							[NAMZU.TOOL_SUCCESS]: false,
 							[NAMZU.TOOL_ERROR]: err.message,
 						})
-						span.setStatus({ code: SpanStatusCode.ERROR, message: err.message })
+						span.setStatus({
+							code: SpanStatusCode.ERROR,
+							message: err.message,
+						})
 						throw err
 					}
 					const errorMessage = toErrorMessage(err)
@@ -635,7 +764,10 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						[NAMZU.TOOL_SUCCESS]: false,
 						[NAMZU.TOOL_ERROR]: errorMessage,
 					})
-					span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
+					span.setStatus({
+						code: SpanStatusCode.ERROR,
+						message: errorMessage,
+					})
 					span.recordException(err instanceof Error ? err : new Error(errorMessage))
 
 					return {
@@ -653,6 +785,40 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				span.end()
 			}
 		})
+	}
+
+	private validationFailure(
+		tool: ToolDefinition,
+		rawInput: unknown,
+		error: {
+			readonly issues: readonly {
+				readonly path: readonly PropertyKey[]
+				readonly message: string
+			}[]
+		},
+	): ToolExecutionResult {
+		const errorMessage = error.issues
+			.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+			.join('; ')
+		const isEmptyInput =
+			rawInput === null ||
+			rawInput === undefined ||
+			(typeof rawInput === 'object' &&
+				!Array.isArray(rawInput) &&
+				Object.keys(rawInput as Record<string, unknown>).length === 0)
+		const requiredHint = describeRequiredInput(tool.inputSchema)
+		const recoveryHint = tool.validationErrorHint?.trim()
+			? ` ${tool.validationErrorHint.trim()}`
+			: ''
+		const enrichedMessage = isEmptyInput
+			? `Tool "${tool.name}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
+			: `Validation failed for "${tool.name}": ${errorMessage}. ${requiredHint}${recoveryHint}`
+		this.log.error('Tool input validation failed', {
+			'namzu.tool.name': tool.name,
+			'namzu.registry.errors': errorMessage,
+			'namzu.registry.empty': isEmptyInput,
+		})
+		return { success: false, output: '', error: enrichedMessage }
 	}
 
 	private getByAvailability(states: ToolAvailability[], filter?: string[]): ToolDefinition[] {
