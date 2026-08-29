@@ -227,7 +227,14 @@ vi.mock('../agent.js', async (importOriginal) => {
 				if (askPermission && turn === 0) {
 					permissionAsked = true
 					const decision = await opts?.onPermission?.({
-						toolCalls: [{ id: 'call-1', name: 'bash', summary: 'rm -rf build', isDestructive: true }],
+						toolCalls: [
+							{
+								id: 'call-1',
+								name: 'bash',
+								input: { command: 'rm -rf build' },
+								isDestructive: true,
+							},
+						],
 					})
 					if (decision) decisions.push(decision)
 				}

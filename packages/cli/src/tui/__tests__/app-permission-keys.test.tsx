@@ -140,7 +140,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 					if (opts?.permissionMode === 'strict') return
 					const req: PermissionRequest = {
 						toolCalls: [
-							{ id: 'call-1', name: 'bash', summary: 'rm -rf build', isDestructive: true },
+							{
+								id: 'call-1',
+								name: 'bash',
+								input: { command: 'rm -rf build' },
+								isDestructive: true,
+							},
 						],
 					}
 					const decision = await opts?.onPermission?.(req)

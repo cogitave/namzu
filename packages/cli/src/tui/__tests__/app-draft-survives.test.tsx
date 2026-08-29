@@ -117,7 +117,14 @@ vi.mock('../agent.js', async (importOriginal) => {
 				// signal instead of a clock.
 				await permissionGate
 				const req: PermissionRequest = {
-					toolCalls: [{ id: 'c1', name: 'bash', summary: 'rm -rf build', isDestructive: true }],
+					toolCalls: [
+						{
+							id: 'c1',
+							name: 'bash',
+							input: { command: 'rm -rf build' },
+							isDestructive: true,
+						},
+					],
 				}
 				const decision = await opts?.onPermission?.(req)
 				if (decision) decisions.push(decision)

@@ -5,6 +5,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, PermissionRequest } from '../agent.js'
 import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
+import {
+	MAX_PERMISSION_REVIEW_BYTES,
+	PERMISSION_REVIEW_PAGE_ROWS,
+} from '../permission-review.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -13,23 +17,26 @@ const CSI = String.fromCodePoint(0x9b)
 const BIDI = String.fromCodePoint(0x202e)
 const UNSAFE = `SOURCE${BEL} bell ${CSI}31m colour ${BIDI}reordered`
 const VISIBLE = 'SOURCE\\u{0007} bell \\u{009b}31m colour \\u{202e}reordered'
+const PERMISSION_VISIBLE = 'SOURCE\\u0007 bell \\u{009b}31m colour \\u{202e}reordered'
 const PROGRESS_UNSAFE = `PROGRESS${BEL}${CSI}${BIDI}compiled 40/120`
 const PROGRESS_VISIBLE = 'PROGRESS\\u{0007}\\u{009b}\\u{202e}compiled 40/120'
 const LINK_TARGET = 'https://docs.example.test/guide'
 const LINK_LABEL = 'operator guide'
 const LINK_OSC = `\u001b]8;;${LINK_TARGET}\u001b\\${LINK_LABEL}\u001b]8;;\u001b\\`
 const LOCAL_TARGET = 'file:///tmp/private'
-const REQUEST: PermissionRequest = Object.freeze({
-	toolCalls: Object.freeze([
+function permissionRequest(input: unknown): PermissionRequest {
+	const toolCalls = Object.freeze([
 		Object.freeze({
 			id: 'call-unsafe',
 			name: `bash${BEL}${CSI}${BIDI}`,
-			summary: UNSAFE,
-			preview: Object.freeze([UNSAFE]),
+			input,
 			isDestructive: true,
 		}),
-	]),
-})
+	])
+	return Object.freeze({ toolCalls })
+}
+
+const REQUEST = permissionRequest(Object.freeze({ command: UNSAFE }))
 const REQUEST_SOURCE = structuredClone(REQUEST)
 const PREFS: Preferences = {
 	version: 3,
@@ -39,6 +46,8 @@ const PREFS: Preferences = {
 
 let releaseLiveTool: (() => void) | null = null
 let nowMs = 1_000_000
+let activeRequest: PermissionRequest = REQUEST
+const permissionDecisions: unknown[] = []
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -92,7 +101,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 				// Real stream chunks arrive across async pulls. Let Ink publish this
 				// one before the permission callback temporarily owns the viewport.
 				await new Promise<void>((resolve) => setImmediate(resolve))
-				const decision = await options?.onPermission?.(REQUEST)
+				const decision = await options?.onPermission?.(activeRequest)
+				if (decision) permissionDecisions.push(decision)
 				if (!decision || decision.kind === 'reject') return
 				yield {
 					kind: 'tool-start',
@@ -132,6 +142,8 @@ let mounted: Screen | null = null
 beforeEach(() => {
 	releaseLiveTool = null
 	nowMs = 1_000_000
+	activeRequest = REQUEST
+	permissionDecisions.length = 0
 	vi.stubEnv('TERM_PROGRAM', 'WezTerm')
 	vi.stubEnv('TERM', 'xterm-256color')
 	vi.stubEnv('TMUX', '')
@@ -185,7 +197,7 @@ it('escapes permission, live-tool and transcript output while preserving the req
 	expect(painted(screen)).toContain(LINK_LABEL)
 	expect(painted(screen)).not.toContain(`(${LINK_TARGET})`)
 	expect(painted(screen)).toContain(`local (${LOCAL_TARGET})`)
-	expect(painted(screen)).toContain(VISIBLE)
+	expect(painted(screen)).toContain(PERMISSION_VISIBLE)
 	expectNoAgentControls(screen)
 	expect(REQUEST).toEqual(REQUEST_SOURCE)
 
@@ -201,6 +213,70 @@ it('escapes permission, live-tool and transcript output while preserving the req
 	expect(painted(screen)).toContain(VISIBLE)
 	expectNoAgentControls(screen)
 	expect(REQUEST).toEqual(REQUEST_SOURCE)
+})
+
+it('pages a single long JSON string by physical rows in a narrow terminal', async () => {
+	const suffix = 'DANGER_TAIL'
+	activeRequest = permissionRequest(
+		Object.freeze({ command: 'x'.repeat(480), tail: suffix }),
+	)
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 24 })
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
+	await submit(screen, 'run the long proposed call')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Exact prepared input'))
+
+	const first = screen.viewport().join('\n')
+	expect(first).not.toContain(suffix)
+	const firstRows = screen.viewport()
+	const firstStart = firstRows.findIndex((row) => row.includes('Exact prepared input'))
+	const firstEnd = firstRows.findIndex((row) => row.includes('↑↓ row'))
+	expect(
+		firstRows
+			.slice(firstStart + 1, firstEnd)
+			.filter((row) => /^\s*│\s+[│↳]/u.test(row)).length,
+	).toBe(PERMISSION_REVIEW_PAGE_ROWS)
+
+	for (let page = 0; page < 20 && !screen.viewport().join('\n').includes(suffix); page += 1) {
+		screen.press('\u001b[6~')
+		await screen.waitForRender()
+	}
+
+	const last = screen.viewport().join('\n')
+	expect(last).toContain(suffix)
+	const lastRows = screen.viewport()
+	const lastStart = lastRows.findIndex((row) => row.includes('Exact prepared input'))
+	const lastEnd = lastRows.findIndex((row) => row.includes('↑↓ row'))
+	expect(
+		lastRows
+			.slice(lastStart + 1, lastEnd)
+			.filter((row) => /^\s*│\s+[│↳]/u.test(row)).length,
+	).toBe(PERMISSION_REVIEW_PAGE_ROWS)
+	const commandCloseRow = lastRows.find((row) => row.includes('",'))
+	expect(commandCloseRow).toMatch(/",\s*│\s*$/u)
+	expect(activeRequest.toolCalls[0]?.input).toEqual({
+		command: 'x'.repeat(480),
+		tail: suffix,
+	})
+})
+
+it('refuses a TUI batch whose complete input cannot fit without truncation', async () => {
+	const input = Object.freeze({ command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES) })
+	activeRequest = permissionRequest(input)
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24 })
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
+	await submit(screen, 'run an oversized proposed call')
+	await waitUntil(screen, () => permissionDecisions.length === 1)
+
+	expect(permissionDecisions).toEqual([
+		expect.objectContaining({
+			kind: 'reject',
+			feedback: expect.stringContaining('complete tool batch exceeds'),
+		}),
+	])
+	expect(screen.viewport().join('\n')).not.toContain('wants to run')
+	expect(activeRequest.toolCalls[0]?.input).toBe(input)
 })
 
 it('keeps the destination visible when the terminal path is not known to support links', async () => {

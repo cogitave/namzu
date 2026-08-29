@@ -113,6 +113,12 @@ import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
+import {
+	PERMISSION_REVIEW_PAGE_ROWS,
+	buildPermissionReview,
+	permissionReviewRefusal,
+	permissionReviewRows,
+} from './permission-review.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { type ContextFill, StatusBar } from './StatusBar.js'
@@ -185,6 +191,8 @@ export interface AppProps {
 	/** Test/embedding seam; the normal TUI uses VISUAL/EDITOR on the host. */
 	readonly externalEditor?: ExternalEditorAdapter
 }
+
+type PendingPermission = PermissionRequest & { readonly review: string }
 
 export type ExternalEditorAdapter = (request: {
 	readonly seed: string
@@ -665,7 +673,13 @@ export function App({
 	 * moment it mattered. Both refusals that route here use it.
 	 */
 	const [pickerNotice, setPickerNotice] = useState<string | null>(null)
-	const [permission, setPermission] = useState<PermissionRequest | null>(null)
+	const [permission, setPermission] = useState<PendingPermission | null>(null)
+	const [permissionReviewOffset, setPermissionReviewOffsetState] = useState(0)
+	const permissionReviewOffsetRef = useRef(0)
+	const setPermissionReviewOffset = useCallback((next: number) => {
+		permissionReviewOffsetRef.current = next
+		setPermissionReviewOffsetState(next)
+	}, [])
 	// The launch bypass is an INITIAL selection, not permanent authority. A
 	// typed /permissions command can narrow it back to prompt/strict without
 	// rebuilding the provider, tools, plugins, or sandbox.
@@ -2358,7 +2372,7 @@ export function App({
 	// PLUS the live window above it — the window is part of the live region, and
 	// leaving it out would have the spacer padding room that is already taken.
 	const spacerCandidate =
-		phase === 'ready'
+		phase === 'ready' && permission === null
 			? bottomSpacerRows({
 					rows: stdout.rows,
 					columns: stdout.columns,
@@ -2376,11 +2390,11 @@ export function App({
 			.map(({ id, content, meta, detail }) => ({ id, content, meta, detail })),
 	} satisfies Omit<SpacerLayoutCache, 'spacerRows'>
 	const spacerRows =
-		phase === 'ready' && sameSpacerLayout(spacerLayoutRef.current, spacerLayout)
+		phase === 'ready' && permission === null && sameSpacerLayout(spacerLayoutRef.current, spacerLayout)
 			? spacerLayoutRef.current.spacerRows
 			: spacerCandidate
 	spacerLayoutRef.current =
-		phase === 'ready' ? { ...spacerLayout, spacerRows } : null
+		phase === 'ready' && permission === null ? { ...spacerLayout, spacerRows } : null
 
 	// One merged vocabulary for the session: this host's own commands plus
 	// whatever the kernel's registry reports. Built here so `/help`, the
@@ -2472,9 +2486,10 @@ export function App({
 		const resolve = permissionResolveRef.current
 		permissionResolveRef.current = null
 		permissionOpenedAtRef.current = null
+		setPermissionReviewOffset(0)
 		setPermission(null)
 		if (resolve) resolve(decision)
-	}, [])
+	}, [setPermissionReviewOffset])
 
 	/**
 	 * Stop the running turn, and hand the screen back in a usable state.
@@ -3005,15 +3020,24 @@ export function App({
 	// Bridge passed into session.send(): the agent calls this before a
 	// non-read-only tool batch; it parks until the user presses y/n/a.
 	const onPermission = useCallback(
-		(req: PermissionRequest) =>
-			new Promise<PermissionDecision>((resolve) => {
+		(req: PermissionRequest) => {
+			const review = buildPermissionReview(req.toolCalls)
+			if (!review.ok) {
+				return Promise.resolve<PermissionDecision>({
+					kind: 'reject',
+					feedback: permissionReviewRefusal(review.reason),
+				})
+			}
+			return new Promise<PermissionDecision>((resolve) => {
 				permissionResolveRef.current = resolve
 				permissionOpenedAtRef.current = Date.now()
-				setPermission(req)
+				setPermissionReviewOffset(0)
+				setPermission({ ...req, review: review.text })
 				setState('awaiting-permission')
 				sendTerminalNotification({ kind: 'approval-required' })
-			}),
-		[sendTerminalNotification],
+			})
+		},
+		[sendTerminalNotification, setPermissionReviewOffset],
 	)
 
 	// Render one agent event onto the transcript. Shared by the local turn loop
@@ -4931,6 +4955,27 @@ export function App({
 			}
 			// A pending permission prompt owns the keyboard: y/n/a decide it.
 			if (permissionResolveRef.current) {
+				if (
+					permission &&
+					(key.upArrow || key.downArrow || key.pageUp || key.pageDown || key.home || key.end)
+				) {
+					const count = permissionReviewRows(permission.review, stdout.columns).length
+					const maxOffset = Math.max(0, count - PERMISSION_REVIEW_PAGE_ROWS)
+					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
+					const next = key.home
+						? 0
+						: key.end
+							? maxOffset
+							: key.pageUp
+								? Math.max(0, current - PERMISSION_REVIEW_PAGE_ROWS)
+								: key.pageDown
+									? Math.min(maxOffset, current + PERMISSION_REVIEW_PAGE_ROWS)
+									: key.upArrow
+										? Math.max(0, current - 1)
+										: Math.min(maxOffset, current + 1)
+					setPermissionReviewOffset(next)
+					return
+				}
 				const ch = input.toLowerCase()
 				// Refusing is never deferred or gated — it is the direction a
 				// mistake is recoverable in, so it answers on the first press.
@@ -5207,7 +5252,14 @@ export function App({
 						    trigger. The composer now stays mounted and draws
 						    nothing while the prompt is up, so its state survives a
 						    decision it had nothing to do with. */}
-						{permission ? <PermissionOverlay toolCalls={permission.toolCalls} /> : null}
+						{permission ? (
+							<PermissionOverlay
+								toolCalls={permission.toolCalls}
+								review={permission.review}
+								reviewOffset={permissionReviewOffset}
+								columns={stdout.columns}
+							/>
+						) : null}
 						{textPrompt ? (
 							<TextPrompt
 								key={textPrompt.token}

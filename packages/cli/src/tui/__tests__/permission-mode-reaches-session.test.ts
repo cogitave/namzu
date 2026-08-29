@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 import type { PermissionDecision, PermissionRequest, SendOptions } from '../agent.js'
+import { MAX_PERMISSION_REVIEW_BYTES } from '../permission-review.js'
 
 const queryCalls: Record<string, unknown>[] = []
 vi.mock('@namzu/sdk', async (importOriginal) => {
@@ -106,5 +107,54 @@ describe('the TUI permission-mode hop', () => {
 				'Refused: this run only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.',
 		})
 		expect(onPermission).not.toHaveBeenCalled()
+	})
+
+	it('carries the complete prepared input through the real session into the human review', async () => {
+		const onPermission = vi.fn<(request: PermissionRequest) => Promise<PermissionDecision>>(
+			async () => ({ kind: 'approve' }),
+		)
+
+		await sendWith({ onPermission, permissionMode: 'prompt' })
+		const handler = queryCalls[0]?.resumeHandler as
+			| ((request: unknown) => Promise<unknown>)
+			| undefined
+		const input = {
+			command: `echo ${'safe '.repeat(80)}&& git push origin main`,
+			cwd,
+		}
+		const promptReview = {
+			...review,
+			toolCalls: [{ ...review.toolCalls[0], name: 'bash', input }],
+		}
+
+		expect(await handler?.(promptReview)).toEqual({ action: 'approve_tools' })
+		const request = onPermission.mock.calls[0]?.[0]
+		expect(request?.toolCalls[0]?.input).toEqual(input)
+	})
+
+	it('leaves a non-terminal reviewer free to carry input above the TUI display limit', async () => {
+		const onPermission = vi.fn<(request: PermissionRequest) => Promise<PermissionDecision>>(
+			async () => ({ kind: 'approve' }),
+		)
+
+		await sendWith({ onPermission, permissionMode: 'prompt' })
+		const handler = queryCalls[0]?.resumeHandler as
+			| ((request: unknown) => Promise<unknown>)
+			| undefined
+		const oversized = {
+			...review,
+			toolCalls: [
+				{
+					...review.toolCalls[0],
+					name: 'bash',
+					input: { command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES) },
+				},
+			],
+		}
+
+		expect(await handler?.(oversized)).toEqual({ action: 'approve_tools' })
+		expect(onPermission.mock.calls[0]?.[0].toolCalls[0]?.input).toEqual({
+			command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES),
+		})
 	})
 })

@@ -28,8 +28,8 @@ import {
 	makeResumeHandler,
 	toAgentEvent,
 	viewToLines,
-	viewToPreview,
 } from './agent.js'
+import { MAX_PERMISSION_REVIEW_BYTES } from './permission-review.js'
 
 const runId = 'run_x' as RunId
 const sessionId = 'ses_x' as SessionId
@@ -325,28 +325,6 @@ describe('isPromptExempt', () => {
 	})
 })
 
-describe('the permission overlay preview', () => {
-	const preview = (name: string, input: unknown) =>
-		viewToPreview(presenter.presentCall(name, input))
-
-	it('previews write content with a head + overflow note', () => {
-		const content = Array.from({ length: 12 }, (_, i) => `line${i}`).join('\n')
-		const rows = preview('write', { path: '/x', content })
-		expect(rows?.[0]).toBe('line0')
-		expect(rows?.at(-1)).toContain('+4 more lines')
-	})
-
-	it('previews edit as -old / +new diff lines', () => {
-		const rows = preview('edit', { path: '/x', old_string: 'foo', new_string: 'bar' })
-		expect(rows).toEqual(['- foo', '+ bar'])
-	})
-
-	it('returns undefined for non-previewable tools', () => {
-		expect(preview('bash', { command: 'ls' })).toBeUndefined()
-		expect(preview('read', { path: '/x' })).toBeUndefined()
-	})
-})
-
 describe('makeResumeHandler', () => {
 	it('auto-approves exempt batches without calling onPermission', async () => {
 		const onPermission = vi.fn<(r: PermissionRequest) => Promise<PermissionDecision>>()
@@ -421,51 +399,34 @@ describe('makeResumeHandler', () => {
 	})
 })
 
-describe('the permission overlay asks the tool', () => {
-	it('gets its preview from the tool, once per prompted call', async () => {
-		// Criterion the rename exists for: the overlay used to call
-		// `previewToolInput(name, input)` and match `edit` by name. Now the
-		// tool is asked, and a spy on ITS hook is the only assertion that can
-		// tell the two apart — the rendered rows are identical either way,
-		// which is exactly why the old code survived so long.
-		const registry = new ToolRegistry()
-		registry.register(getBuiltinTools())
-		const edit = registry.get('edit') as unknown as { presentCall: (i: unknown) => unknown }
-		const spy = vi.spyOn(edit, 'presentCall')
-
-		const onPermission = vi.fn<(r: PermissionRequest) => Promise<PermissionDecision>>(
-			async () => ({ kind: 'approve' }) as PermissionDecision,
-		)
-		const handler = makeResumeHandler(
-			{ all: false },
-			onPermission,
-			'prompt',
-			() => false,
-			createToolPresenter(registry),
-		)
-
-		await handler(
-			toolReview([tc({ name: 'edit', input: { path: '/x', old_string: 'a', new_string: 'b' } })]),
-		)
-
-		expect(spy).toHaveBeenCalledOnce()
-		expect(onPermission.mock.calls[0]?.[0].toolCalls[0]?.preview).toEqual(['- a', '+ b'])
-		spy.mockRestore()
-	})
-
-	it('falls back to a label when the caller has no registry', async () => {
-		// `makeResumeHandler` is unit-tested without one, and the default
-		// presenter has to describe the call rather than hand back an empty
-		// string — otherwise those tests pass while a real user is prompted
-		// to approve nothing in particular.
+describe('the interactive permission review', () => {
+	it('hands the operator the complete exact input, including a hidden suffix', async () => {
+		const input = {
+			command: `echo ${'safe '.repeat(80)}&& git push origin main`,
+			cwd: '/work',
+		}
 		const onPermission = vi.fn<(r: PermissionRequest) => Promise<PermissionDecision>>(
 			async () => ({ kind: 'approve' }) as PermissionDecision,
 		)
 		const handler = makeResumeHandler({ all: false }, onPermission)
 
-		await handler(toolReview([tc({ name: 'bash', input: { command: 'rm -rf /tmp/x' } })]))
+		await handler(toolReview([tc({ name: 'bash', input })]))
 
-		expect(onPermission.mock.calls[0]?.[0].toolCalls[0]?.summary).toBe('rm -rf /tmp/x')
+		const request = onPermission.mock.calls[0]?.[0]
+		expect(request?.toolCalls[0]?.input).toEqual(input)
+	})
+
+	it('does not truncate a large exact input before handing it to a non-terminal reviewer', async () => {
+		const input = { command: 'x'.repeat(MAX_PERMISSION_REVIEW_BYTES + 1) }
+		const onPermission = vi.fn<(r: PermissionRequest) => Promise<PermissionDecision>>(async () => ({
+			kind: 'approve',
+		}))
+		const handler = makeResumeHandler({ all: false }, onPermission)
+
+		const decision = await handler(toolReview([tc({ name: 'bash', input })]))
+
+		expect(decision).toEqual({ action: 'approve_tools' })
+		expect(onPermission.mock.calls[0]?.[0].toolCalls[0]?.input).toEqual(input)
 	})
 })
 

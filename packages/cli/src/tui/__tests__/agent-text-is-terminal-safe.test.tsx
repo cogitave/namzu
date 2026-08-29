@@ -7,6 +7,7 @@ import { LiveActivity } from '../LiveActivity.js'
 import { PermissionOverlay } from '../PermissionOverlay.js'
 import { Transcript, renderedDetailLines } from '../Transcript.js'
 import { transcriptLines } from '../live-window.js'
+import { buildPermissionReview } from '../permission-review.js'
 import type { TranscriptMessage } from '../types.js'
 
 const BEL = String.fromCodePoint(0x07)
@@ -56,21 +57,29 @@ it('projects rich, raw, metadata and detail views without mutating transcript so
 	}
 })
 
-it('projects the permission summary and preview before an operator decides', () => {
-	const request = Object.freeze([
+it('projects the exact permission input before an operator decides', () => {
+	const toolCalls = Object.freeze([
 		Object.freeze({
 			id: 'call',
 			name: unsafe,
-			summary: unsafe,
-			preview: Object.freeze([unsafe]),
+			input: Object.freeze({ command: unsafe }),
 			isDestructive: true,
 		}),
 	])
-	const original = structuredClone(request)
-	const harness = render(<PermissionOverlay toolCalls={request} />)
+	const review = buildPermissionReview(toolCalls)
+	expect(review.ok).toBe(true)
+	if (!review.ok) return
+	const original = structuredClone(toolCalls)
+	const harness = render(
+		<PermissionOverlay toolCalls={toolCalls} review={review.text} columns={120} />,
+	)
 	try {
-		expectSafe(harness.lastFrame() ?? '')
-		expect(request).toEqual(original)
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('before\\u0007 bell \\u{009b}31m colour \\u{202e}reordered')
+		expect(frame).not.toContain(BEL)
+		expect(frame).not.toContain(CSI)
+		expect(frame).not.toContain(BIDI)
+		expect(toolCalls).toEqual(original)
 	} finally {
 		harness.unmount()
 	}

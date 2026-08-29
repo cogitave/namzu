@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-25T00:00:00Z
-lastReviewed: 2026-08-25
+lastReviewed: 2026-08-29
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -586,10 +586,20 @@ rebuild back to rich rendering. `/clear-screen` still removes the rendered rows,
 so raw mode cannot and does not resurrect a view the operator deliberately
 cleared.
 
-The same projection applies before agent-authored tool text reaches the
-permission overlay or the live activity row. A proposed command or write
-preview therefore cannot ring, overwrite or reorder the consent screen before
-the operator decides; the underlying request being approved is not rewritten.
+The same projection applies before agent-authored tool text reaches the live
+activity row. Permission prompts use a stronger boundary: they serialize the
+whole prepared batch as JSON, including every call id, tool name, exact input
+and destructive classification. The fixed eight-row window pages over physical
+terminal rows with arrows, PageUp/PageDown and Home/End, so one long JSON string
+cannot hide its suffix below a logical-line pager. Terminal controls remain
+visible escapes and the underlying prepared inputs are not rewritten.
+
+An interactive review is capped at 8,000 UTF-8 bytes for the complete batch. A
+larger batch, an accessor, a cyclic value or another input JSON cannot preserve
+exactly is rejected before the permission overlay opens; it is never shortened
+into something different from the operation awaiting approval. Non-terminal
+ACP permission clients receive the exact prepared input directly and do not
+inherit this terminal display limit.
 
 **`/export [path]` exports a verified Markdown conversation, not a rendering of
 the terminal.** Bare `/export` opens a finite destination chooser. Copy to

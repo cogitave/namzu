@@ -273,7 +273,7 @@ export function createCliAcpRuntime(
 					toolCalls: readonly {
 						id: string
 						name: string
-						summary: string
+						input: unknown
 						isDestructive: boolean
 					}[]
 				}) => {
@@ -282,7 +282,7 @@ export function createCliAcpRuntime(
 						toolCalls: request.toolCalls.map((call) => ({
 							id: call.id,
 							name: call.name,
-							input: call.summary,
+							input: call.input,
 							isDestructive: call.isDestructive,
 						})),
 					})

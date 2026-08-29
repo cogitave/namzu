@@ -169,7 +169,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 							{
 								id: 'call-1',
 								name: 'bash',
-								summary: 'write output',
+								input: { command: 'write output' },
 								isDestructive: true,
 							},
 						],

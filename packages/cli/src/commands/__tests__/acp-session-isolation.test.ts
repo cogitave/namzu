@@ -1,6 +1,7 @@
 import {
 	ACPServer,
 	ACP_PERMISSION_CAPABILITY,
+	type AcpPermissionRequest,
 	HostCommandRegistry,
 	type MCPJsonRpcMessage,
 	type MCPTransport,
@@ -233,12 +234,13 @@ describe('the CLI ACP runtime', () => {
 						sends.push(messages)
 						starts.get(cwd)?.resolve()
 						await releases.get(cwd)?.promise
+						const input = { command: `echo ${cwd}`, hidden: `exact-${cwd}-${turn}` }
 						await send?.onPermission?.({
 							toolCalls: [
 								{
 									id: `call-${cwd}-${turn}`,
 									name: 'bash',
-									summary: `echo ${cwd}`,
+									input,
 									isDestructive: false,
 								},
 							],
@@ -283,9 +285,9 @@ describe('the CLI ACP runtime', () => {
 		const runtime = createCliAcpRuntime(bootstrap, deps)
 		const routedA: RunEvent[] = []
 		const routedB: RunEvent[] = []
-		const permissionSessions: string[] = []
-		const ask = async (request: { sessionId: string }) => {
-			permissionSessions.push(request.sessionId)
+		const permissionRequests: AcpPermissionRequest[] = []
+		const ask = async (request: AcpPermissionRequest) => {
+			permissionRequests.push(request)
 			return { kind: 'approve' as const }
 		}
 		const signalA = new AbortController().signal
@@ -328,7 +330,20 @@ describe('the CLI ACP runtime', () => {
 		releases.get('/canonical/a')?.resolve()
 		releases.get('/canonical/b')?.resolve()
 		const [resultA, resultB] = await Promise.all([turnA, turnB])
-		expect(permissionSessions.sort()).toEqual(['session-a', 'session-b'])
+		expect(
+			permissionRequests
+				.map((request) => ({ sessionId: request.sessionId, input: request.toolCalls[0]?.input }))
+				.sort((left, right) => left.sessionId.localeCompare(right.sessionId)),
+		).toEqual([
+			{
+				sessionId: 'session-a',
+				input: { command: 'echo /canonical/a', hidden: 'exact-/canonical/a-1' },
+			},
+			{
+				sessionId: 'session-b',
+				input: { command: 'echo /canonical/b', hidden: 'exact-/canonical/b-1' },
+			},
+		])
 		expect(createSession).toHaveBeenCalledTimes(2)
 		expect(optionsByCwd.get('/canonical/a')).toEqual(
 			expect.objectContaining({

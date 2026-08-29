@@ -122,6 +122,13 @@ command is the active completion ahead of longer names with the same prefix.
 `/archive` opens a safe-first confirmation, then makes the current durable
 conversation read-only and exits without advertising it as resumable. Its
 history remains on disk for inspection.
+
+When a tool batch needs consent, the TUI reviews the whole prepared JSON input,
+not a shortened command or file preview. Arrows, PageUp/PageDown and Home/End
+page through a fixed eight physical rows, including long single-line values.
+The complete batch is refused above 8,000 UTF-8 bytes or when it cannot be
+represented exactly; approval never covers hidden or truncated input.
+
 `/skill` remains an alias, `/skills <name>` activates directly, and
 `/skills list` prints the roster. Long model and resume lists
 keep a seven-row window around the active choice and show its absolute position.

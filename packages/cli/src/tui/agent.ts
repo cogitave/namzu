@@ -277,10 +277,9 @@ export type AgentEvent =
 export interface PermissionToolCall {
 	readonly id: string
 	readonly name: string
-	readonly summary: string
+	/** Exact detached input the kernel prepared and the approval covers. */
+	readonly input: unknown
 	readonly isDestructive: boolean
-	/** Optional multi-line preview (e.g. content to write, edit diff). */
-	readonly preview?: readonly string[]
 }
 
 export interface PermissionRequest {
@@ -2439,7 +2438,6 @@ async function* runTurn({
 				opts?.onPermission,
 				permissionMode,
 				(name, input) => isPromptExempt(tools, name, input),
-				presenter,
 			),
 			signal,
 			...scope,
@@ -2521,13 +2519,6 @@ export function makeResumeHandler(
 	 * the live roster at the moment of the call.
 	 */
 	exempt: (name: string, input: unknown) => boolean = () => false,
-	/**
-	 * How a prompted call is described. Injected for the same reason
-	 * `exempt` is — this handler is unit-tested without a registry — and
-	 * defaulted to the generic view so a caller that has no registry still
-	 * gets the label the tool's arguments imply, rather than nothing.
-	 */
-	presenter: ToolPresenter = GENERIC_PRESENTER,
 ): ResumeHandler {
 	return async (request): Promise<HITLResumeDecision> => {
 		if (request.type !== 'tool_review') {
@@ -2555,10 +2546,7 @@ export function makeResumeHandler(
 			toolCalls: request.toolCalls.map((tc) => ({
 				id: tc.id,
 				name: tc.name,
-				...(() => {
-					const view = presenter.presentCall(tc.name, tc.input)
-					return { summary: viewToSummary(view), preview: viewToPreview(view) }
-				})(),
+				input: tc.input,
 				isDestructive: tc.isDestructive,
 			})),
 		})
@@ -2937,27 +2925,6 @@ function asTree(steps: readonly string[]): string[] {
 	return steps.map((s, i) => `${i === steps.length - 1 ? '└─' : '├─'} ${s}`)
 }
 
-/** Short, human-readable one-liner for a tool call (e.g. `ls -la`, path). */
-/**
- * The presenter a caller with no registry gets.
- *
- * `makeResumeHandler` is unit-tested without one, and a handler that
- * described every prompted call as an empty string would make those tests
- * pass while telling a real user nothing. This is the same fallback the
- * registry-backed presenter uses when a tool has no opinion, which is what
- * the four deleted functions did for every tool.
- */
-const GENERIC_PRESENTER: ToolPresenter = {
-	presentCall: (_name, input) => ({
-		kind: 'generic',
-		label: genericLabel(input),
-	}),
-	presentResult: (_name, _input, result) => ({
-		kind: 'terminal',
-		output: result.output ?? '',
-	}),
-}
-
 /**
  * The one presentation function this host keeps.
  *
@@ -3012,34 +2979,9 @@ export function viewToSummary(view: ToolCallView): string {
 	}
 }
 
-/**
- * The permission overlay's preview: the same shapes, cut shorter.
- *
- * A user approving a call needs enough to recognise it, not the whole
- * file — the transcript shows that once it has run.
- */
-export function viewToPreview(view: ToolCallView): readonly string[] | undefined {
-	if (view.kind !== 'diff') return undefined
-	if (view.before === '') {
-		const lines = previewLines(view.after, 8)
-		return lines.length > 0 ? lines : undefined
-	}
-	const lines: string[] = []
-	for (const line of previewLines(view.before, 4)) lines.push(`- ${line}`)
-	for (const line of previewLines(view.after, 4)) lines.push(`+ ${line}`)
-	return lines.length > 0 ? lines : undefined
-}
-
 function truncate(value: string, max: number): string {
 	const oneLine = value.replace(/\s+/g, ' ')
 	return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
-}
-
-function previewLines(value: string, max: number): string[] {
-	const lines = value.split('\n')
-	const head = lines.slice(0, max).map((l) => truncate(l, 100))
-	if (lines.length > max) head.push(`… (+${lines.length - max} more lines)`)
-	return head
 }
 
 const MAX_DETAIL_LINES = 200
