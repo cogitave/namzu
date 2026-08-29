@@ -57,6 +57,7 @@ import {
 	type SandboxBackend,
 	type SandboxBackendOptions,
 } from '../../index.js'
+import { execViaHttpWorker } from '../http-worker-client.js'
 import {
 	OperationDeadline,
 	OperationDeadlineExpired,
@@ -599,12 +600,14 @@ async function spawnDockerSandbox(
 		throw err
 	}
 
-	let status: SandboxStatus = 'ready'
+	let activeExecutions = 0
+	let destroyed = false
 
 	return {
 		id,
 		get status(): SandboxStatus {
-			return status
+			if (destroyed) return 'destroyed'
+			return activeExecutions > 0 ? 'busy' : 'ready'
 		},
 		rootDir,
 		environment: detectEnvironment(),
@@ -614,11 +617,12 @@ async function spawnDockerSandbox(
 			argv?: string[],
 			opts?: SandboxExecOptions,
 		): Promise<SandboxExecResult> {
-			status = 'busy'
+			if (destroyed) throw new Error(`Sandbox ${id} is destroyed`)
+			activeExecutions += 1
 			try {
-				return await execViaWorker(baseUrl, command, argv, opts)
+				return await execViaHttpWorker(baseUrl, command, argv, opts)
 			} finally {
-				status = 'ready'
+				activeExecutions = Math.max(0, activeExecutions - 1)
 			}
 		},
 
@@ -696,7 +700,7 @@ async function spawnDockerSandbox(
 		},
 
 		async destroy(options?: SandboxDestroyOptions): Promise<void> {
-			status = 'destroyed'
+			destroyed = true
 			await runOnceQuiet(docker, ['rm', '-f', containerName], options?.signal)
 			// The proxy holds real credentials and a live allowlist. Leaving
 			// it listening after the sandbox it was filtering for is gone
@@ -746,119 +750,6 @@ async function readMappedPort(
 	return port
 }
 
-async function execViaWorker(
-	baseUrl: string,
-	command: string,
-	argv: string[] | undefined,
-	opts: SandboxExecOptions | undefined,
-): Promise<SandboxExecResult> {
-	// `opts.signal` is deliberately NOT passed to `fetch`. It would abort the
-	// request and leave the worker running the command — abandoning the wait
-	// while the process lives on is the exact failure
-	// `SandboxExecOptions.signal` exists to prevent, and wiring it here would
-	// make the option look honoured while delivering that failure. Honouring
-	// it needs a cancel endpoint on the worker.
-	const start = Date.now()
-	let res: Response
-	try {
-		res = await fetch(`${baseUrl}/execute`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				command,
-				args: argv ?? [],
-				cwd: opts?.cwd,
-				env: opts?.env,
-				timeoutMs: opts?.timeout,
-			}),
-		})
-	} catch (err) {
-		// Surface the underlying transport error (DNS, ECONNREFUSED,
-		// socket-hangup, …) instead of the generic "fetch failed" the
-		// undici client throws. Without `cause`, ops cannot tell whether
-		// the worker died, the bridge dropped, or something else.
-		const cause = err instanceof Error ? err.cause : undefined
-		const causeMsg =
-			cause instanceof Error
-				? `${cause.message}${(cause as Error & { code?: string }).code ? ` (${(cause as Error & { code?: string }).code})` : ''}`
-				: cause
-					? String(cause)
-					: 'unknown'
-		throw withHint(
-			new Error(
-				`namzu-sandbox /execute fetch failed (baseUrl=${baseUrl}): ${err instanceof Error ? err.message : String(err)} — cause: ${causeMsg}`,
-				{ cause: err },
-			),
-			'The container was reachable when it started, so it has most likely exited or been killed since — an out-of-memory kill under `memoryLimitMb` is the common cause. Check the container logs and its exit code.',
-		)
-	}
-	if (!res.ok || !res.body) {
-		throw new Error(`execute failed: HTTP ${res.status} ${await res.text()}`)
-	}
-
-	let stdout = ''
-	let stderr = ''
-	let exitCode = -1
-	let timedOut = false
-	let signal: string | undefined
-
-	const decoder = new TextDecoder()
-	const reader = res.body.getReader()
-	let buffered = ''
-	for (;;) {
-		const { value, done } = await reader.read()
-		if (done) break
-		buffered += decoder.decode(value, { stream: true })
-		let newlineIdx = buffered.indexOf('\n')
-		while (newlineIdx !== -1) {
-			const line = buffered.slice(0, newlineIdx).trim()
-			buffered = buffered.slice(newlineIdx + 1)
-			if (line) {
-				try {
-					const event = JSON.parse(line) as
-						| { type: 'stdout_delta'; data: string }
-						| { type: 'stderr_delta'; data: string }
-						| {
-								type: 'result'
-								exitCode: number
-								timedOut: boolean
-								durationMs: number
-						  }
-						| { type: 'error'; error: string }
-					if (event.type === 'stdout_delta') {
-						stdout += event.data
-						opts?.onOutput?.({ stream: 'stdout', data: event.data })
-					} else if (event.type === 'stderr_delta') {
-						stderr += event.data
-						opts?.onOutput?.({ stream: 'stderr', data: event.data })
-					} else if (event.type === 'result') {
-						exitCode = event.exitCode
-						timedOut = event.timedOut
-					} else if (event.type === 'error') {
-						throw new Error(event.error)
-					}
-				} catch (err) {
-					if (err instanceof SyntaxError) {
-						// Ignore malformed lines from the worker.
-					} else {
-						throw err
-					}
-				}
-			}
-			newlineIdx = buffered.indexOf('\n')
-		}
-	}
-
-	return {
-		exitCode,
-		stdout,
-		stderr,
-		...(signal ? { signal } : {}),
-		timedOut,
-		durationMs: Date.now() - start,
-	}
-}
-
 /**
  * Recursively list regular files under `rootPath` by shelling out to
  * the worker's `find` (GNU find on the Debian-based reference image).
@@ -871,7 +762,7 @@ async function listFilesViaWorker(
 	baseUrl: string,
 	rootPath: string,
 ): Promise<readonly SandboxFileEntry[]> {
-	const result = await execViaWorker(
+	const result = await execViaHttpWorker(
 		baseUrl,
 		'find',
 		[rootPath, '-type', 'f', '-printf', '%p\t%s\n'],

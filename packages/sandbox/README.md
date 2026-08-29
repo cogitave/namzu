@@ -6,7 +6,7 @@ description: >-
   four backends, a bounded filesystem view, and an egress boundary the run
   cannot talk its way past.
 tags: [readme, package, sandbox, isolation]
-timestamp: 2026-08-17T00:00:00Z
+timestamp: 2026-08-30T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -63,6 +63,25 @@ const provider = createSandboxProvider({
   defaultMaxProcesses: 128,
 })
 ```
+
+## Cancellation and worker compatibility
+
+Pass `SandboxExecOptions.signal` to stop a command on the local-container or
+standby-container backend. The host reserves the command before admission and
+the worker confirms process-group termination over a separate cancellation
+request; stopping the HTTP wait alone is never reported as stopping the
+command. A stalled execution stream is bounded relative to the requested
+command timeout and reconciled through that same control path. An unconfirmed
+stop retires the worker; a confirmed stop with an incomplete terminal stream is
+reported separately so callers do not mistake partial output for an unknown
+process outcome.
+
+The cancellation path requires a worker image built from the same release. A
+current host and worker remain compatible with legacy no-signal execution, but
+a signal sent to an older image is refused with a rebuild instruction. For a
+standby pool, publish a new container group profile revision containing the
+current worker before enabling cancellation. The framed microVM backend has a
+separate guest protocol and does not yet honour this option.
 
 ## Documentation
 

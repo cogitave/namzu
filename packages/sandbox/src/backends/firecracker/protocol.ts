@@ -1,5 +1,5 @@
 /**
- * The ONE wire contract, shared across both transports.
+ * The execution-data codec shared by both transports.
  *
  * The docker (`backends/docker/`) and ACI (`backends/aci-standby-pool/`)
  * backends speak this contract over **HTTP**: a streaming NDJSON
@@ -9,20 +9,12 @@
  * shapes** — only the transport changes from HTTP-over-TCP to
  * framed-over-vsock (see `transport.ts`).
  *
- * This module is the single source of truth for the message shapes
- * and the streaming exec-line parser, so the two transports cannot
- * drift. It deliberately carries NO transport concern (no `fetch`, no
- * socket) — it is pure codec. The HTTP backends keep their own inline
- * copies (they predate this module and stay UNTOUCHED per the P0
- * scope); this module mirrors those shapes verbatim and is the
- * canonical definition the vsock path consumes.
- *
- * Why mirror rather than refactor docker/aci onto it: the P0 scope is
- * "do NOT touch docker or aci". Centralising the shapes here, with the
- * inline docker copy pinned by `backends/docker/__tests__` and this
- * module pinned by `backends/firecracker/__tests__`, keeps both honest
- * without editing the frozen HTTP path. A later cleanup pass can fold
- * docker/aci onto this module once it is no longer release-frozen.
+ * This module remains the pure codec consumed by the framed guest transport.
+ * The two HTTP backends now share one strict HTTP client rather than two inline
+ * parsers. Its execution stream mirrors these event shapes, while its reserve
+ * and cancel operations are intentionally HTTP-only lifecycle control: the
+ * framed guest protocol does not yet have corresponding operations and must
+ * not be described as cancellable merely because its data frames match.
  */
 
 import type { SandboxExecResult } from '@namzu/sdk'

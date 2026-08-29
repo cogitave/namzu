@@ -149,11 +149,14 @@ export interface SandboxExecOptions {
 	 * believed the run had been cancelled.
 	 *
 	 * **Who honours it.** The in-process local sandbox does: the signal is
-	 * merged with the call's own deadline and reaches `spawn`, so the child
-	 * dies. The remote backends do not, and deliberately: their wire has no
-	 * cancel op, so aborting the request would abandon the wait and leave the
-	 * command running — the failure above, wearing the appearance of a fix.
-	 * They will honour it when their protocols carry a cancel.
+	 * merged with the call's own deadline and reaches `spawn`, so the process
+	 * group dies. The HTTP-container backends in `@namzu/sandbox` also do: a
+	 * current worker reserves an execution before admission and confirms its
+	 * cancellation over a separate control request. Their older worker images
+	 * are refused when this option is present, because aborting only the HTTP
+	 * request would abandon the wait and leave the command running. The framed
+	 * microVM backend still has no cancel operation and therefore ignores the
+	 * signal rather than wearing that false appearance of support.
 	 *
 	 * Passing it is therefore always safe and never harmful; whether it takes
 	 * effect depends on the backend.

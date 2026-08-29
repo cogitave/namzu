@@ -102,6 +102,58 @@ function stubClaim(
 }
 
 describe('standby worker readiness deadline', () => {
+	it('routes a cancellable exec through the worker lease protocol', async () => {
+		const workerPaths: string[] = []
+		globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+			const url = String(input)
+			const method = init?.method ?? 'GET'
+			if (url.startsWith('https://management.azure.com') && method === 'PUT') {
+				return new Response(
+					JSON.stringify({
+						properties: {
+							provisioningState: 'Succeeded',
+							ipAddress: { ip: '10.0.0.8' },
+						},
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } },
+				)
+			}
+			if (url.startsWith('https://management.azure.com') && method === 'DELETE') {
+				return new Response(null, { status: 204 })
+			}
+			workerPaths.push(url)
+			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
+			if (url.endsWith('/executions/reserve')) {
+				return new Response(
+					JSON.stringify({
+						ok: true,
+						protocolVersion: 2,
+						executionId: 'exec_00000000-0000-4000-8000-000000000001',
+						leaseExpiresAt: Date.now() + 30_000,
+					}),
+					{ status: 201 },
+				)
+			}
+			if (url.endsWith('/execute')) {
+				return new Response('{"type":"result","exitCode":0,"timedOut":false,"durationMs":4}\n', {
+					status: 200,
+				})
+			}
+			throw new Error(`unexpected URL ${url}`)
+		}) as typeof fetch
+		const sandbox = await backend(100).create({ workingDirectory: '/workspace' })
+
+		await expect(
+			sandbox.exec('true', [], { signal: new AbortController().signal }),
+		).resolves.toMatchObject({ exitCode: 0 })
+		expect(workerPaths).toEqual([
+			'http://10.0.0.8:2024/healthz',
+			'http://10.0.0.8:2024/executions/reserve',
+			'http://10.0.0.8:2024/execute',
+		])
+		await sandbox.destroy()
+	})
+
 	it('bounds a health fetch by the caller-selected total readiness clock', async () => {
 		const observed = stubClaim()
 		const startedAt = performance.now()

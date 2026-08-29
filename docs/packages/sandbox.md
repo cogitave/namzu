@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+timestamp: 2026-08-30T00:00:00Z
+lastReviewed: 2026-08-30
 resource: packages/sandbox/src/index.ts
 tags: [sandbox, isolation, reference]
 ---
@@ -544,18 +544,49 @@ in-flight request bound and one-second failure-cleanup grace described above.
 Per-sandbox egress, memory caps, process caps and environment variables are
 refused here, as the table above says.
 
-## What is not honoured
+## Command cancellation and the remaining gap
 
-Two gaps, written down rather than implied away, because both would otherwise
-look like features that work.
+`SandboxExecOptions.signal` terminates commands in the local SDK sandbox and in
+both HTTP-container backends. The container client first reserves an inert,
+expiring execution lease; only that lease can admit `/execute`. Cancellation is
+a separate idempotent request that closes a reservation before spawn or sends
+TERM and then KILL to the owned process group. A successful worker
+acknowledgement means terminal state is known, and the client still drains the
+execution stream through its one terminal result so tail output and truncation
+metadata are not lost. The host also places a finite observation deadline just
+beyond the requested command timeout; a blackholed execution connection enters
+the same cancel-and-confirm path instead of waiting forever.
 
-`SandboxExecOptions.signal` is accepted and **not** forwarded by either tier.
-Neither wire has a cancel operation: aborting the request here would abandon the
-wait while the command kept running inside the container or the guest, which is
-verbatim the failure that option exists to prevent — except it would then look
-honoured. A per-command `timeout` is enforced, by the worker on the container
-tier and by the guest agent on the microVM tier; both refuse a value above their
-30-minute ceiling rather than silently running under a shorter one.
+Failure meanings stay separate. If process termination cannot be confirmed,
+the outcome is reported as unknown and the worker retires rather than accepting
+another command beside a possibly live process. If termination is confirmed but
+the terminal stream cannot be drained, the error says that termination is known
+while output is incomplete. Neither condition should be treated as permission
+to infer complete output or blindly replay a side-effecting command.
+
+This protocol requires the current worker image. A new host keeps legacy
+one-request execution when no signal is supplied, and a new worker still accepts
+that legacy request for rolling upgrades. When a signal is supplied to an old
+worker, the host refuses with a rebuild instruction rather than claiming the
+command was cancellable. Standby-pool deployments must publish a new container
+group profile revision containing the current worker before opting into this
+path.
+
+The process-group wording is deliberate. An ordinary shell and its descendants
+share the group; a program that deliberately creates a new session can escape
+it. Stronger teardown of arbitrary descendants belongs to the container or
+microVM lifecycle boundary, not to a claim about one POSIX signal target.
+
+The framed microVM transport still accepts and **does not forward**
+`SandboxExecOptions.signal`: its guest-agent wire has no cancel operation.
+Aborting its socket would abandon the wait while the command kept running, so
+the backend remains truthful about the gap until that separate protocol gains
+the same lifecycle operation. A per-command `timeout` is enforced by both
+container worker and guest agent; both refuse a value above their 30-minute
+ceiling rather than silently running under a shorter one.
+
+One other gap remains, written down rather than implied away because it would
+otherwise look like a feature that works.
 
 `Sandbox.openTerminal` is not implemented by any backend in this package. The
 contract's rule is that a backend which cannot open a real pseudo-terminal must

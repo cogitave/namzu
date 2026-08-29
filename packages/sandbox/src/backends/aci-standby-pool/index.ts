@@ -55,6 +55,7 @@ import type {
 import { asSandboxId } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
+import { execViaHttpWorker } from '../http-worker-client.js'
 import {
 	OperationDeadline,
 	OperationDeadlineExpired,
@@ -517,13 +518,15 @@ async function spawnAciSandbox(
 			readiness.pollIntervalMs,
 		)
 
-		let status: SandboxStatus = 'ready'
+		let activeExecutions = 0
+		let destroyed = false
 		const rootDir = config.layout.outputs.containerPath
 
 		return {
 			id,
 			get status(): SandboxStatus {
-				return status
+				if (destroyed) return 'destroyed'
+				return activeExecutions > 0 ? 'busy' : 'ready'
 			},
 			rootDir,
 			environment: detectEnvironment(),
@@ -533,11 +536,12 @@ async function spawnAciSandbox(
 				argv?: string[],
 				opts?: SandboxExecOptions,
 			): Promise<SandboxExecResult> {
-				status = 'busy'
+				if (destroyed) throw new Error(`Sandbox ${id} is destroyed`)
+				activeExecutions += 1
 				try {
-					return await execViaWorker(baseUrl, command, argv, opts)
+					return await execViaHttpWorker(baseUrl, command, argv, opts)
 				} finally {
-					status = 'ready'
+					activeExecutions = Math.max(0, activeExecutions - 1)
 				}
 			},
 
@@ -582,7 +586,7 @@ async function spawnAciSandbox(
 			},
 
 			async destroy(options?: SandboxDestroyOptions): Promise<void> {
-				status = 'destroyed'
+				destroyed = true
 				// ARM DELETE — let failures propagate. The Vandal-side
 				// lifecycle wraps this in its own try/catch with logging,
 				// so a silently swallowed error here means orphan ACI
@@ -659,80 +663,6 @@ async function waitForWorkerReady(
 	throw new Error(`aci-standby-pool: worker /healthz never responded (${timeoutMs}ms)`)
 }
 
-async function execViaWorker(
-	baseUrl: string,
-	command: string,
-	argv: string[] | undefined,
-	opts: SandboxExecOptions | undefined,
-): Promise<SandboxExecResult> {
-	const start = Date.now()
-	const res = await fetch(`${baseUrl}/execute`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
-			command,
-			args: argv ?? [],
-			cwd: opts?.cwd,
-			env: opts?.env,
-			timeoutMs: opts?.timeout,
-		}),
-	})
-	if (!res.ok || !res.body) {
-		throw new Error(`execute failed: HTTP ${res.status} ${await res.text()}`)
-	}
-
-	let stdout = ''
-	let stderr = ''
-	let exitCode = -1
-	let timedOut = false
-
-	const decoder = new TextDecoder()
-	const reader = res.body.getReader()
-	let buffered = ''
-	for (;;) {
-		const { value, done } = await reader.read()
-		if (done) break
-		buffered += decoder.decode(value, { stream: true })
-		let newlineIdx = buffered.indexOf('\n')
-		while (newlineIdx !== -1) {
-			const line = buffered.slice(0, newlineIdx).trim()
-			buffered = buffered.slice(newlineIdx + 1)
-			if (line) {
-				try {
-					const event = JSON.parse(line) as
-						| { type: 'stdout_delta'; data: string }
-						| { type: 'stderr_delta'; data: string }
-						| { type: 'result'; exitCode: number; timedOut: boolean }
-						| { type: 'error'; error: string }
-					if (event.type === 'stdout_delta') {
-						stdout += event.data
-						opts?.onOutput?.({ stream: 'stdout', data: event.data })
-					} else if (event.type === 'stderr_delta') {
-						stderr += event.data
-						opts?.onOutput?.({ stream: 'stderr', data: event.data })
-					} else if (event.type === 'result') {
-						exitCode = event.exitCode
-						timedOut = event.timedOut
-					} else if (event.type === 'error') {
-						throw new Error(event.error)
-					}
-				} catch (err) {
-					if (!(err instanceof SyntaxError)) throw err
-				}
-			}
-			newlineIdx = buffered.indexOf('\n')
-		}
-	}
-
-	return {
-		stdout,
-		stderr,
-		exitCode,
-		timedOut,
-		durationMs: Date.now() - start,
-	} as SandboxExecResult
-}
-
 /**
  * Recursively list regular files under `rootPath` by shelling out to
  * the worker's `find` (GNU find on the Debian-based reference image).
@@ -745,7 +675,7 @@ async function listFilesViaWorker(
 	baseUrl: string,
 	rootPath: string,
 ): Promise<readonly SandboxFileEntry[]> {
-	const result = await execViaWorker(
+	const result = await execViaHttpWorker(
 		baseUrl,
 		'find',
 		[rootPath, '-type', 'f', '-printf', '%p\t%s\n'],

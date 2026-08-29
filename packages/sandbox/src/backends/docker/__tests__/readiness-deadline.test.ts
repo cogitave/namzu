@@ -57,6 +57,84 @@ function cleanupCalls(): number {
 }
 
 describe('docker worker readiness deadline', () => {
+	it('routes a cancellable exec through the worker lease protocol', async () => {
+		const paths: string[] = []
+		globalThis.fetch = vi.fn(async (input) => {
+			const url = String(input)
+			paths.push(url)
+			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
+			if (url.endsWith('/executions/reserve')) {
+				return new Response(
+					JSON.stringify({
+						ok: true,
+						protocolVersion: 2,
+						executionId: 'exec_00000000-0000-4000-8000-000000000001',
+						leaseExpiresAt: Date.now() + 30_000,
+					}),
+					{ status: 201 },
+				)
+			}
+			if (url.endsWith('/execute')) {
+				return new Response('{"type":"result","exitCode":0,"timedOut":false,"durationMs":4}\n', {
+					status: 200,
+				})
+			}
+			throw new Error(`unexpected URL ${url}`)
+		}) as typeof fetch
+		const sandbox = await backend(100).create({ workingDirectory: workDir })
+
+		await expect(
+			sandbox.exec('true', [], { signal: new AbortController().signal }),
+		).resolves.toMatchObject({ exitCode: 0 })
+		expect(paths).toEqual([
+			'http://127.0.0.1:65534/healthz',
+			'http://127.0.0.1:65534/executions/reserve',
+			'http://127.0.0.1:65534/execute',
+		])
+		await sandbox.destroy()
+	})
+
+	it('stays busy until every concurrent exec finishes and never resurrects after destroy', async () => {
+		const releases: Array<() => void> = []
+		globalThis.fetch = vi.fn(async (input) => {
+			const url = String(input)
+			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
+			if (url.endsWith('/execute')) {
+				return new Response(
+					new ReadableStream({
+						start(controller) {
+							releases.push(() => {
+								controller.enqueue(
+									new TextEncoder().encode(
+										'{"type":"result","exitCode":0,"timedOut":false,"durationMs":4}\n',
+									),
+								)
+								controller.close()
+							})
+						},
+					}),
+					{ status: 200 },
+				)
+			}
+			throw new Error(`unexpected URL ${url}`)
+		}) as typeof fetch
+		const sandbox = await backend(100).create({ workingDirectory: workDir })
+		const first = sandbox.exec('first')
+		const second = sandbox.exec('second')
+		while (releases.length < 2) await new Promise((resolve) => setTimeout(resolve, 0))
+
+		expect(sandbox.status).toBe('busy')
+		releases[0]?.()
+		await first
+		expect(sandbox.status).toBe('busy')
+
+		await sandbox.destroy()
+		expect(sandbox.status).toBe('destroyed')
+		releases[1]?.()
+		await second
+		expect(sandbox.status).toBe('destroyed')
+	})
+
 	it('settles and aborts a health fetch implementation that ignores cancellation', async () => {
 		let healthSignal: AbortSignal | undefined
 		globalThis.fetch = vi.fn(async (_input, init) => {

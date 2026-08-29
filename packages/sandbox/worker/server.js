@@ -18,11 +18,18 @@
  * Endpoints:
  *   GET  /healthz       — liveness probe.
  *   POST /execute       — run a command inside the workspace.
- *                         body: { command, args, cwd, env, stdin,
+ *                         body: { executionId?, command, args, cwd, env, stdin,
  *                                 timeoutMs, maxOutputBytes }
  *                         response: NDJSON stream of
  *                                 { type: 'stdout_delta'|'stderr_delta'
  *                                       |'result'|'error', ... }
+ *   POST /executions/reserve
+ *                       — reserve an inert, expiring execution lease.
+ *                         response: { ok, executionId, leaseExpiresAt }
+ *   POST /cancel        — cancel one reserved or running execution.
+ *                         body: { executionId }
+ *                         a successful response is sent only after terminal
+ *                         state is known; an unconfirmed stop retires worker.
  *   POST /read-file     — read a file from the workspace.
  *                         body: { path, encoding? }
  *                         response: { ok, content, sizeBytes }
@@ -47,6 +54,7 @@
 
 const http = require('node:http')
 const { spawn } = require('node:child_process')
+const { randomUUID } = require('node:crypto')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
@@ -96,6 +104,22 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 // as worse than never offering the control — the caller stops looking,
 // and a timeout it believes it set is not the one in force.
 const MAX_TIMEOUT_MS = Number(process.env.NAMZU_SANDBOX_MAX_TIMEOUT_MS || 30 * 60 * 1000)
+// Cancellation is a second control request, not an aborted `/execute`
+// transport. The worker owns a finite execution lease before it owns a
+// process, then a finite TERM -> KILL confirmation window once it does.
+// Unknown ids are never admitted by `/execute`, so no tombstone has to make
+// an unbounded promise about a request that may arrive later.
+const EXECUTION_LEASE_TTL_MS = Number(process.env.NAMZU_SANDBOX_EXECUTION_LEASE_TTL_MS || 30_000)
+const EXECUTION_TERMINAL_TTL_MS = Number(
+	process.env.NAMZU_SANDBOX_EXECUTION_TERMINAL_TTL_MS || 60_000,
+)
+const MAX_TRACKED_EXECUTIONS = Number(process.env.NAMZU_SANDBOX_MAX_TRACKED_EXECUTIONS || 1_024)
+const CANCEL_GRACE_MS = Number(process.env.NAMZU_SANDBOX_CANCEL_GRACE_MS || 2_000)
+const CANCEL_CONFIRM_TIMEOUT_MS = Number(
+	process.env.NAMZU_SANDBOX_CANCEL_CONFIRM_TIMEOUT_MS || 5_000,
+)
+const POISON_EXIT_DELAY_MS = 50
+const EXECUTION_ID_PATTERN = /^exec_[0-9a-f-]{36}$/
 // Idle timeout: if the worker sees no `/execute`, `/read-file`, or
 // `/write-file` request for this many ms, it `process.exit(0)`s. The
 // container is spawned `--rm` so the daemon collects the corpse
@@ -279,6 +303,280 @@ function childEnvironment(requested) {
 	return { ...inherited, ...(requested || {}) }
 }
 
+/**
+ * Execution ownership registry.
+ *
+ * A reservation is deliberately inert: losing its response can leak one
+ * bounded map entry, never a process. `/execute` may transition ONLY a live
+ * reservation, which is the admission barrier that makes cancel-before-start
+ * sound without an immortal unknown-id tombstone.
+ */
+const executions = new Map()
+let activeWorkCount = 0
+let workerPoisoned = false
+
+function acquireWorkerActivity() {
+	let released = false
+	activeWorkCount += 1
+	disarmIdleTimer()
+	return () => {
+		if (released) return
+		released = true
+		activeWorkCount = Math.max(0, activeWorkCount - 1)
+		if (activeWorkCount === 0) resetIdleTimer()
+	}
+}
+
+async function whileWorkerActive(operation) {
+	const release = acquireWorkerActivity()
+	try {
+		return await operation()
+	} finally {
+		release()
+	}
+}
+
+function pruneExecutions(now = Date.now()) {
+	for (const [executionId, execution] of executions) {
+		if (
+			(execution.state === 'reserved' || execution.state === 'terminal') &&
+			execution.expiresAt <= now
+		) {
+			executions.delete(executionId)
+		}
+	}
+}
+
+function validateExecutionId(executionId) {
+	return typeof executionId === 'string' && EXECUTION_ID_PATTERN.test(executionId)
+}
+
+function syntheticCancelledResult(start = Date.now()) {
+	return {
+		exitCode: 1,
+		timedOut: false,
+		durationMs: Math.max(0, Date.now() - start),
+		stdoutTruncated: false,
+		stderrTruncated: false,
+	}
+}
+
+function rememberTerminal(execution, outcome, result, error) {
+	execution.started = execution.started ?? Boolean(execution.child)
+	execution.state = 'terminal'
+	execution.outcome = outcome
+	execution.result = result
+	execution.error = error
+	execution.expiresAt = Date.now() + EXECUTION_TERMINAL_TTL_MS
+	execution.child = undefined
+	execution.processGroupId = undefined
+	execution.done = undefined
+	execution.resolveDone = undefined
+	execution.terminationPromise = undefined
+}
+
+function terminalPayload(execution) {
+	return {
+		ok: true,
+		state: execution.outcome,
+		started: execution.started === true,
+		...(execution.result ? { result: execution.result } : {}),
+		...(execution.error ? { error: execution.error } : {}),
+	}
+}
+
+async function handleReserveExecution(_req, res) {
+	pruneExecutions()
+	if (executions.size >= MAX_TRACKED_EXECUTIONS) {
+		writeJson(res, 503, {
+			error: 'execution_capacity',
+			message: `worker already tracks ${MAX_TRACKED_EXECUTIONS} execution leases`,
+		})
+		return
+	}
+
+	const executionId = `exec_${randomUUID()}`
+	const leaseExpiresAt = Date.now() + EXECUTION_LEASE_TTL_MS
+	executions.set(executionId, {
+		executionId,
+		state: 'reserved',
+		expiresAt: leaseExpiresAt,
+	})
+	writeJson(res, 201, {
+		ok: true,
+		protocolVersion: 2,
+		executionId,
+		leaseExpiresAt,
+	})
+}
+
+function processGroupAlive(processGroupId) {
+	if (!processGroupId) return false
+	if (process.platform === 'win32') return true
+	try {
+		process.kill(-processGroupId, 0)
+		return true
+	} catch (error) {
+		if (error?.code === 'ESRCH') return false
+		// EPERM still proves that the group exists. Any other result is not
+		// evidence that it is gone, so keep waiting until the hard bound.
+		return true
+	}
+}
+
+function signalProcessGroup(execution, signal) {
+	const processGroupId = execution.processGroupId
+	if (!processGroupId || process.platform === 'win32') {
+		try {
+			execution.child?.kill(signal)
+		} catch {}
+		return
+	}
+	try {
+		process.kill(-processGroupId, signal)
+	} catch (error) {
+		if (error?.code !== 'ESRCH') throw error
+	}
+}
+
+function delay(ms) {
+	return new Promise((resolve) => {
+		const timer = setTimeout(resolve, ms)
+		timer.unref?.()
+	})
+}
+
+async function waitForGroupExit(processGroupId, deadlineAt) {
+	while (processGroupAlive(processGroupId)) {
+		const remaining = deadlineAt - Date.now()
+		if (remaining <= 0) return false
+		await delay(Math.min(25, remaining))
+	}
+	return true
+}
+
+async function waitForDone(execution, deadlineAt) {
+	const remaining = deadlineAt - Date.now()
+	if (remaining <= 0) throw new Error('execution close was not observed before the deadline')
+	let timer
+	try {
+		return await Promise.race([
+			execution.done,
+			new Promise((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error('execution close was not observed before the deadline')),
+					remaining,
+				)
+				timer.unref?.()
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
+}
+
+async function terminateAndConfirm(execution, cause) {
+	if (execution.state === 'terminal') return terminalPayload(execution)
+	if (execution.state === 'exited') {
+		// `exit` proves that the owned leader has gone; `close` may lag while
+		// inherited stdio drains. Do not relabel a naturally completed command,
+		// and do not signal a numeric process-group id after its leader exited.
+		await waitForDone(execution, Date.now() + CANCEL_CONFIRM_TIMEOUT_MS)
+		return terminalPayload(execution)
+	}
+	if (execution.state !== 'running') {
+		throw new Error(`execution is not running (state=${execution.state})`)
+	}
+	if (execution.terminationCause === undefined) execution.terminationCause = cause
+
+	const deadlineAt = Date.now() + CANCEL_CONFIRM_TIMEOUT_MS
+	signalProcessGroup(execution, 'SIGTERM')
+	const termDeadline = Math.min(deadlineAt, Date.now() + CANCEL_GRACE_MS)
+	let groupGone = await waitForGroupExit(execution.processGroupId, termDeadline)
+	if (!groupGone) {
+		signalProcessGroup(execution, 'SIGKILL')
+		groupGone = await waitForGroupExit(execution.processGroupId, deadlineAt)
+	}
+	if (!groupGone) {
+		throw new Error(`process group ${execution.processGroupId} remained live after SIGKILL`)
+	}
+
+	await waitForDone(execution, deadlineAt)
+	return terminalPayload(execution)
+}
+
+function ensureTermination(execution, cause) {
+	if (!execution.terminationPromise) {
+		execution.terminationPromise = terminateAndConfirm(execution, cause).catch((error) => {
+			// A later idempotent cancel is allowed to retry observation/signalling.
+			// Retaining a rejected promise would turn a lost first confirmation
+			// into a permanent false negative even after the process has exited.
+			execution.terminationPromise = undefined
+			throw error
+		})
+	}
+	return execution.terminationPromise
+}
+
+function poisonWorker(error) {
+	if (workerPoisoned) return
+	workerPoisoned = true
+	disarmIdleTimer()
+	console.error(
+		`[namzu-sandbox-worker] termination could not be confirmed; retiring worker: ${error instanceof Error ? error.message : String(error)}`,
+	)
+	try {
+		server.close()
+	} catch {}
+	// This worker is the container's ownership boundary. If it cannot prove
+	// that a command is gone, keeping the container reusable would allow an
+	// unowned process to overlap the next call. Exiting PID 1 asks the runtime
+	// to tear down the whole container and its remaining process namespace.
+	setTimeout(() => process.exit(1), POISON_EXIT_DELAY_MS)
+}
+
+async function handleCancelExecution(req, res) {
+	let body
+	try {
+		body = await readBody(req)
+	} catch (error) {
+		writeJson(res, 400, { error: 'invalid_body', message: error.message })
+		return
+	}
+	if (!validateExecutionId(body.executionId)) {
+		writeJson(res, 400, { error: 'invalid_execution_id' })
+		return
+	}
+
+	pruneExecutions()
+	const execution = executions.get(body.executionId)
+	if (!execution) {
+		writeJson(res, 404, { error: 'unknown_execution' })
+		return
+	}
+
+	if (execution.state === 'reserved' || execution.state === 'starting') {
+		const result = syntheticCancelledResult(execution.startedAt)
+		rememberTerminal(execution, 'cancelled', result)
+		writeJson(res, 200, terminalPayload(execution))
+		return
+	}
+	if (execution.state === 'terminal') {
+		writeJson(res, 200, terminalPayload(execution))
+		return
+	}
+
+	try {
+		writeJson(res, 200, await ensureTermination(execution, 'cancelled'))
+	} catch (error) {
+		writeJson(res, 504, {
+			error: 'cancellation_unconfirmed',
+			message: error instanceof Error ? error.message : String(error),
+		})
+		poisonWorker(error)
+	}
+}
+
 async function handleExecute(req, res) {
 	let body
 	try {
@@ -291,6 +589,14 @@ async function handleExecute(req, res) {
 	if (!body.command || typeof body.command !== 'string') {
 		writeJson(res, 400, { error: 'missing_command' })
 		return
+	}
+
+	let trackedExecution
+	if (body.executionId !== undefined) {
+		if (!validateExecutionId(body.executionId)) {
+			writeJson(res, 400, { error: 'invalid_execution_id' })
+			return
+		}
 	}
 
 	// Resolve `cwd` and pre-create it BEFORE we commit to the streaming
@@ -323,10 +629,63 @@ async function handleExecute(req, res) {
 	const maxOutputBytes = Number(body.maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES
 	const start = Date.now()
 
+	if (body.executionId !== undefined) {
+		pruneExecutions()
+		trackedExecution = executions.get(body.executionId)
+		if (!trackedExecution) {
+			writeJson(res, 404, { error: 'unknown_execution' })
+			return
+		}
+		if (trackedExecution.state !== 'reserved') {
+			writeJson(res, 409, {
+				error: 'execution_not_reserved',
+				state:
+					trackedExecution.state === 'terminal' ? trackedExecution.outcome : trackedExecution.state,
+			})
+			return
+		}
+		// Validation above is synchronous, so this remains an atomic admission
+		// transition. Invalid input leaves an expiring reservation rather than
+		// manufacturing an immortal `starting` entry.
+		trackedExecution.state = 'starting'
+		trackedExecution.startedAt = start
+		trackedExecution.expiresAt = undefined
+	}
+
 	try {
 		await fs.mkdir(cwd, { recursive: true })
 	} catch (err) {
+		if (trackedExecution?.state === 'starting') {
+			rememberTerminal(trackedExecution, 'failed', undefined, err.message)
+		}
 		writeJson(res, 400, { error: 'mkdir_failed', message: err.message })
+		return
+	}
+	if (trackedExecution?.state === 'terminal') {
+		writeJson(res, 409, {
+			error: 'execution_cancelled',
+			state: trackedExecution.outcome,
+		})
+		return
+	}
+
+	let child
+	try {
+		child = spawn(body.command, Array.isArray(body.args) ? body.args : [], {
+			cwd,
+			env: childEnvironment(body.env),
+			stdio: [body.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+			// The worker owns the process group, not only the command's outer
+			// wrapper. Cancellation can therefore address the wrapper and ordinary
+			// descendants with the same signal. A descendant that deliberately
+			// creates a new session is outside this narrower process-group claim.
+			detached: process.platform !== 'win32',
+		})
+	} catch (err) {
+		if (trackedExecution?.state === 'starting') {
+			rememberTerminal(trackedExecution, 'failed', undefined, err.message)
+		}
+		writeJson(res, 400, { error: 'spawn_failed', message: err.message })
 		return
 	}
 
@@ -335,32 +694,30 @@ async function handleExecute(req, res) {
 		'cache-control': 'no-store',
 	})
 
-	let child
-	try {
-		child = spawn(body.command, Array.isArray(body.args) ? body.args : [], {
-			cwd,
-			env: childEnvironment(body.env),
-			stdio: [body.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-		})
-	} catch (err) {
-		// `spawn` throws synchronously for pathologies like an empty
-		// command name or an env that contains a `=` in its key.
-		// Headers are already on the wire (NDJSON 200), so we cannot
-		// downgrade to 400 — emit a terminal `error` event and end
-		// the stream like the `child.on('error', …)` path below.
-		writeEvent(res, { type: 'error', error: err.message })
-		res.end()
-		return
-	}
-
 	if (body.stdin !== undefined && child.stdin) {
 		child.stdin.end(String(body.stdin))
 	}
 
 	const stdout = { chunks: [], bytes: 0, truncated: false }
 	const stderr = { chunks: [], bytes: 0, truncated: false }
-	let timedOut = false
 	let settled = false
+	let resolveDone
+	const done = new Promise((resolve) => {
+		resolveDone = resolve
+	})
+	const execution = trackedExecution ?? { state: 'starting', startedAt: start }
+	Object.assign(execution, {
+		state: 'running',
+		child,
+		processGroupId: child.pid,
+		done,
+		resolveDone,
+		terminationCause: undefined,
+	})
+	// `whileWorkerActive` owns request parsing and preparation. The spawned
+	// command outlives this handler, so take a second activity lease before the
+	// request lease can be released; `settle` transfers it back exactly once.
+	const releaseActivity = acquireWorkerActivity()
 
 	function appendChunk(target, chunk) {
 		if (target.truncated) return null
@@ -386,41 +743,56 @@ async function handleExecute(req, res) {
 	})
 
 	const timeout = setTimeout(() => {
-		timedOut = true
-		try {
-			child.kill('SIGTERM')
-		} catch {}
-		setTimeout(() => {
-			if (!settled) {
-				try {
-					child.kill('SIGKILL')
-				} catch {}
-			}
-		}, 2_000).unref()
+		void ensureTermination(execution, 'timeout').catch((error) => {
+			console.error(
+				`[namzu-sandbox-worker] timed out execution could not be confirmed stopped: ${error instanceof Error ? error.message : String(error)}`,
+			)
+			poisonWorker(error)
+		})
 	}, timeoutMs)
 	timeout.unref()
 
-	child.on('error', (error) => {
+	function settle(error, result) {
 		if (settled) return
 		settled = true
 		clearTimeout(timeout)
-		writeEvent(res, { type: 'error', error: error.message })
-		res.end()
+		releaseActivity()
+		if (trackedExecution) {
+			rememberTerminal(
+				trackedExecution,
+				execution.terminationCause === 'cancelled' ? 'cancelled' : error ? 'failed' : 'completed',
+				result,
+				error?.message,
+			)
+		}
+		resolveDone({ error, result })
+		try {
+			if (error) writeEvent(res, { type: 'error', error: error.message })
+			else writeEvent(res, { type: 'result', ...result })
+			res.end()
+		} catch {}
+	}
+
+	child.on('error', (error) => {
+		settle(error)
 	})
 
-	child.on('close', (exitCode) => {
-		if (settled) return
-		settled = true
-		clearTimeout(timeout)
-		writeEvent(res, {
-			type: 'result',
+	child.on('exit', (exitCode, signal) => {
+		if (execution.state !== 'running') return
+		execution.state = 'exited'
+		execution.exitCode = exitCode
+		execution.exitSignal = signal
+	})
+
+	child.on('close', (exitCode, signal) => {
+		settle(undefined, {
 			exitCode: typeof exitCode === 'number' ? exitCode : -1,
-			timedOut,
+			timedOut: execution.terminationCause === 'timeout',
 			durationMs: Date.now() - start,
+			...(signal ? { signal } : {}),
 			stdoutTruncated: stdout.truncated,
 			stderrTruncated: stderr.truncated,
 		})
-		res.end()
 	})
 }
 
@@ -483,16 +855,27 @@ async function handleWriteFile(req, res) {
 	}
 }
 
-// Idle-exit timer. Reset on every "real work" request (`/execute`,
-// `/read-file`, `/write-file`); `/healthz` is deliberately NOT a
-// reset — heartbeat liveness pings should not extend a sandbox that's
-// otherwise idle. When the timer fires, exit cleanly so the
+// Idle-exit timer. Every "real work" request (`/execute`,
+// `/executions/reserve`, `/cancel`, `/read-file`, `/write-file`) holds an
+// activity lease for its whole handler; a spawned command transfers that lease
+// through process close. `/healthz` deliberately holds none — heartbeat
+// liveness pings should not extend a sandbox that's otherwise idle. When the timer fires, exit cleanly so the
 // container's `--rm` flag triggers daemon-side cleanup. `0` disables
 // the layer entirely (testing, hosts that don't want it).
 let idleTimer
+function disarmIdleTimer() {
+	if (!idleTimer) return
+	clearTimeout(idleTimer)
+	idleTimer = undefined
+}
+
 function resetIdleTimer() {
 	if (!IDLE_TIMEOUT_MS || IDLE_TIMEOUT_MS <= 0) return
-	if (idleTimer) clearTimeout(idleTimer)
+	disarmIdleTimer()
+	// Active HTTP work or an execution owns the worker. The idle policy starts
+	// only after the final owner releases, so it cannot tear down request
+	// parsing, file I/O, command preparation, or a live execution stream.
+	if (activeWorkCount > 0) return
 	idleTimer = setTimeout(() => {
 		console.log(
 			`[namzu-sandbox-worker] idle for ${IDLE_TIMEOUT_MS}ms — exiting (container --rm cleans up)`,
@@ -510,23 +893,32 @@ function resetIdleTimer() {
 
 const server = http.createServer(async (req, res) => {
 	try {
+		if (workerPoisoned) {
+			writeJson(res, 503, { error: 'worker_retiring' })
+			return
+		}
 		if (req.method === 'GET' && req.url === '/healthz') {
 			writeJson(res, 200, { ok: true })
 			return
 		}
 		if (req.method === 'POST' && req.url === '/execute') {
-			resetIdleTimer()
-			await handleExecute(req, res)
+			await whileWorkerActive(() => handleExecute(req, res))
+			return
+		}
+		if (req.method === 'POST' && req.url === '/executions/reserve') {
+			await whileWorkerActive(() => handleReserveExecution(req, res))
+			return
+		}
+		if (req.method === 'POST' && req.url === '/cancel') {
+			await whileWorkerActive(() => handleCancelExecution(req, res))
 			return
 		}
 		if (req.method === 'POST' && req.url === '/read-file') {
-			resetIdleTimer()
-			await handleReadFile(req, res)
+			await whileWorkerActive(() => handleReadFile(req, res))
 			return
 		}
 		if (req.method === 'POST' && req.url === '/write-file') {
-			resetIdleTimer()
-			await handleWriteFile(req, res)
+			await whileWorkerActive(() => handleWriteFile(req, res))
 			return
 		}
 		writeJson(res, 404, { error: 'not_found' })
