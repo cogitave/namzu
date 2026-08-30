@@ -200,11 +200,22 @@ describe('the provider', () => {
 						pid: number
 						stdout: PassThrough
 						stderr: PassThrough
+						stdio: PassThrough[]
 					}
 					child.pid = 42
 					child.stdout = new PassThrough()
 					child.stderr = new PassThrough()
+					child.stdio = [
+						new PassThrough(),
+						child.stdout,
+						child.stderr,
+						new PassThrough(),
+						new PassThrough(),
+					]
 					queueMicrotask(() => {
+						if (environment === 'linux-bwrap') {
+							child.stdio[3]?.write('{ "child-pid": 43 }\n')
+						}
 						child.stdout.end()
 						child.stderr.end()
 						child.emit('close', 0, null)
@@ -219,6 +230,11 @@ describe('the provider', () => {
 							status: 0,
 							signal: null,
 							stdout: 'namzu-sandbox-spawn-probe',
+							...(environment === 'linux-bwrap'
+								? {
+									output: [null, 'namzu-sandbox-spawn-probe', '', '{ "child-pid": 43 }\n', null],
+									}
+								: {}),
 						}
 					}
 					return {

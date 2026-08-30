@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { constants, accessSync, existsSync, realpathSync } from 'node:fs'
 import {
 	readFile as fsReadFile,
@@ -72,6 +73,8 @@ function assertInsideSandbox(sandboxRoot: string, targetPath: string): string {
 const LINUX_UNSHARE_FLAGS = ['--mount', '--pid', '--fork', '--map-root-user', '--net']
 
 const SPAWN_PROBE_SENTINEL = 'namzu-sandbox-spawn-probe'
+const BWRAP_INFO_FD = 3
+const BWRAP_BLOCK_FD = 4
 
 interface SpawnProbeObservation {
 	readonly error?: unknown
@@ -115,6 +118,48 @@ function probeSandboxSpawn(command: string, wrapperArgs: readonly string[]): boo
 		},
 	)
 	return acceptsSandboxSpawnProbe(observation)
+}
+
+function readBwrapChildPid(value: string): number | undefined {
+	try {
+		const record = JSON.parse(value) as { readonly 'child-pid'?: unknown }
+		const pid = record['child-pid']
+		return typeof pid === 'number' && Number.isSafeInteger(pid) && pid > 0 ? pid : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/** The bwrap tier is usable only if its child can be addressed after startup. */
+function probeBwrapSpawn(command: string, wrapperArgs: readonly string[]): boolean {
+	const observation = spawnSync(
+		command,
+		[
+			...wrapperArgs,
+			'--info-fd',
+			String(BWRAP_INFO_FD),
+			'--block-fd',
+			String(BWRAP_BLOCK_FD),
+			'--',
+			process.execPath,
+			'-e',
+			`process.stdout.write(${JSON.stringify(SPAWN_PROBE_SENTINEL)})`,
+		],
+		{
+			encoding: 'utf8',
+			timeout: 5_000,
+			// `/dev/null` proves the option is accepted and lets the synchronous
+			// probe proceed. Production supplies a live pipe and releases it only
+			// after the info record establishes ownership of the inner namespace.
+			stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'ignore'],
+		},
+	)
+	const status = observation.output?.[BWRAP_INFO_FD]
+	return (
+		acceptsSandboxSpawnProbe(observation) &&
+		typeof status === 'string' &&
+		readBwrapChildPid(status) !== undefined
+	)
 }
 
 const TRUSTED_WRAPPER_CANDIDATES = {
@@ -275,7 +320,7 @@ function detectEnvironment(): DetectedEnvironment {
 		// hosts that mediate namespace helpers and can claim a tier production
 		// cannot actually drive.
 		const bwrap = resolveTrustedWrapper('bwrap')
-		if (bwrap !== undefined && probeSandboxSpawn(bwrap, buildBwrapArgs(tmpdir()))) {
+		if (bwrap !== undefined && probeBwrapSpawn(bwrap, buildBwrapArgs(tmpdir()))) {
 			return { environment: 'linux-bwrap', wrapperCommand: bwrap }
 		}
 
@@ -522,6 +567,46 @@ function buildSafeEnv(
 	return env
 }
 
+/**
+ * Subscribe without raising the package's Node 20.0 runtime floor.
+ *
+ * `events.addAbortListener` is the safer API because another listener cannot
+ * hide cancellation with `stopImmediatePropagation`, but it arrived after
+ * Node 20.0. The fallback preserves support for the package's declared floor;
+ * both branches return the same explicit disposer so a completed command does
+ * not stay attached to a caller-owned, long-lived signal.
+ */
+function subscribeToAbort(signal: AbortSignal, listener: () => void): () => void {
+	if (typeof EventEmitter.addAbortListener === 'function') {
+		const subscription = EventEmitter.addAbortListener(signal, listener)
+		return () => subscription[Symbol.dispose]()
+	}
+
+	signal.addEventListener('abort', listener, { once: true })
+	return () => signal.removeEventListener('abort', listener)
+}
+
+/**
+ * Reach bwrap's PID-namespace reaper as well as its outer host wrapper.
+ *
+ * `--new-session` deliberately moves the inner reaper out of the outer
+ * detached process group. `--die-with-parent` normally bridges that boundary,
+ * but there is a startup interval before the inner reaper has armed its parent
+ * death signal. `--info-fd` gives us the host pid once it exists. Address both
+ * its eventual process group and the pid itself: before `setsid` only the pid
+ * is valid; afterwards the negative pid reaches the complete inner session.
+ */
+function killBwrapChild(pid: number | undefined, signal: NodeJS.Signals): void {
+	if (pid === undefined || process.platform === 'win32') return
+	for (const target of [-pid, pid]) {
+		try {
+			process.kill(target, signal)
+		} catch {
+			// The other address may be the valid one, or the namespace is gone.
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // LocalSandbox
 // ---------------------------------------------------------------------------
@@ -577,7 +662,10 @@ class LocalSandbox implements Sandbox {
 
 		const cwd = opts?.cwd ? assertInsideSandbox(this.rootDir, opts.cwd) : this.rootDir
 
-		const { spawnCommand, spawnArgs } = this.buildSpawnArgs(command, args)
+		const { spawnCommand, spawnArgs, bwrapInfoFd, bwrapBlockFd } = this.buildSpawnArgs(
+			command,
+			args,
+		)
 
 		this.log.debug('Executing command', {
 			'namzu.sandbox.command': command,
@@ -586,23 +674,27 @@ class LocalSandbox implements Sandbox {
 			'namzu.execution.environment': this.environment,
 		})
 
-		// The caller's cancellation and this call's own deadline both have to
-		// reach `spawn`, and `spawn` takes exactly one signal.
-		//
-		// Only the deadline used to. `SandboxExecOptions.signal` is declared,
-		// documented, and exported, and every backend dropped it — so a Stop
-		// abandoned the *wait* and left the sandboxed process running, which is
-		// verbatim the failure the option's own docstring says it exists to
-		// prevent. `AbortSignal.any` is what makes both reach the child: it
-		// aborts as soon as either does, and — unlike an `addEventListener`
-		// bridge — it does not retain a listener on the caller's long-lived
-		// signal after this call settles.
+		// The caller's cancellation and this call's own deadline are separate
+		// causes. `spawn({ signal })` cannot own either one here: Node sends that
+		// signal only to the direct wrapper pid and removes its abort listener on
+		// `exit`, while this promise must wait for `close` so inherited stdout and
+		// stderr have drained. A wrapper can therefore exit before a descendant;
+		// an abort in that interval would reach nobody and the descendant would
+		// keep both pipes — and this call — alive.
 		const ac = new AbortController()
 		const timeoutId = setTimeout(() => ac.abort(), timeout)
-		const spawnSignal = opts?.signal ? AbortSignal.any([ac.signal, opts.signal]) : ac.signal
 
 		try {
-			const result = await this.spawnProcess(spawnCommand, spawnArgs, cwd, env, ac, spawnSignal)
+			const result = await this.spawnProcess(
+				spawnCommand,
+				spawnArgs,
+				cwd,
+				env,
+				ac.signal,
+				opts?.signal,
+				bwrapInfoFd,
+				bwrapBlockFd,
+			)
 			return { ...result, durationMs: Date.now() - startTime }
 		} finally {
 			clearTimeout(timeoutId)
@@ -685,8 +777,13 @@ class LocalSandbox implements Sandbox {
 	private buildSpawnArgs(
 		command: string,
 		args: string[],
-	): { spawnCommand: string; spawnArgs: string[] } {
-		return buildLimitedSpawn({
+	): {
+		spawnCommand: string
+		spawnArgs: string[]
+		bwrapInfoFd?: number
+		bwrapBlockFd?: number
+	} {
+		const built = buildLimitedSpawn({
 			environment: this.environment,
 			...(this.wrapperCommand !== undefined ? { wrapperCommand: this.wrapperCommand } : {}),
 			command,
@@ -697,24 +794,40 @@ class LocalSandbox implements Sandbox {
 				: {}),
 			...(this.config.maxProcesses !== undefined ? { maxProcesses: this.config.maxProcesses } : {}),
 		})
+		if (this.environment !== 'linux-bwrap') return built
+
+		const separator = built.spawnArgs.indexOf('--')
+		if (separator < 0) throw new Error('bwrap invocation has no command separator')
+		return {
+			spawnCommand: built.spawnCommand,
+			spawnArgs: [
+				...built.spawnArgs.slice(0, separator),
+				'--info-fd',
+				String(BWRAP_INFO_FD),
+				'--block-fd',
+				String(BWRAP_BLOCK_FD),
+				...built.spawnArgs.slice(separator),
+			],
+			bwrapInfoFd: BWRAP_INFO_FD,
+			bwrapBlockFd: BWRAP_BLOCK_FD,
+		}
 	}
 
 	/**
-	 * @param ac      this call's own deadline — still the thing that decides
-	 *                whether a termination is reported as `timedOut`.
-	 * @param signal  what actually reaches `spawn`: the deadline, merged with
-	 *                the caller's cancellation when one was passed. Two
-	 *                parameters because they answer different questions —
-	 *                "should this process die" and "did it die because it ran
-	 *                too long" — and a cancelled run did not time out.
+	 * The two signals stay distinct so the first accepted cause is latched.
+	 * Reading `deadline.aborted` later would let a deadline that fired while a
+	 * caller cancellation was draining retroactively turn that cancellation
+	 * into a timeout.
 	 */
 	private spawnProcess(
 		command: string,
 		args: string[],
 		cwd: string,
 		env: Record<string, string>,
-		ac: AbortController,
-		signal: AbortSignal = ac.signal,
+		deadlineSignal: AbortSignal,
+		callerSignal?: AbortSignal,
+		bwrapInfoFd?: number,
+		bwrapBlockFd?: number,
 	): Promise<Omit<SandboxExecResult, 'durationMs'>> {
 		return new Promise((resolvePromise, rejectPromise) => {
 			let child: ReturnType<typeof spawn>
@@ -722,8 +835,10 @@ class LocalSandbox implements Sandbox {
 				child = spawn(command, args, {
 					cwd,
 					env,
-					stdio: ['pipe', 'pipe', 'pipe'],
-					signal,
+					stdio:
+						bwrapInfoFd === undefined
+							? ['pipe', 'pipe', 'pipe']
+							: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
 					// Leader of its own process group (POSIX only — Windows has
 					// nothing to opt into here), not a member of this Node
 					// process's. That is what lets `killTree` below reach `cmd`
@@ -738,30 +853,92 @@ class LocalSandbox implements Sandbox {
 
 			const stdout = new CappedStream(SANDBOX_MAX_OUTPUT_BYTES)
 			const stderr = new CappedStream(SANDBOX_MAX_OUTPUT_BYTES)
-			let timedOut = false
+			let cancellation: 'caller' | 'deadline' | undefined
+			let bwrapChildPid: number | undefined
+			let terminationSignal: NodeJS.Signals | undefined
+			let settled = false
+			let escalation: ReturnType<typeof setTimeout> | undefined
+			const disposeAbortListeners: Array<() => void> = []
+
+			const finishSubscriptions = () => {
+				for (const dispose of disposeAbortListeners.splice(0)) dispose()
+			}
+			const terminate = (signal: NodeJS.Signals) => {
+				terminationSignal = signal
+				// Before bwrap publishes its inner reaper, killing only the outer
+				// wrapper can strand startup between fork() and PR_SET_PDEATHSIG. Its
+				// block fd guarantees the authored command is not admitted meanwhile;
+				// retain the wrapper until the addressable inner pid arrives.
+				if (bwrapBlockFd !== undefined && bwrapChildPid === undefined) return
+				killTree(child, signal)
+				killBwrapChild(bwrapChildPid, signal)
+			}
+			const cancel = (origin: 'caller' | 'deadline') => {
+				if (settled || cancellation !== undefined) return
+				cancellation = origin
+				// Own the group while its leader is still ours. Deferring this to
+				// Node's AbortError loses the wrapper-exit/stdio-close interval.
+				terminate('SIGTERM')
+				escalation = setTimeout(() => {
+					escalation = undefined
+					terminate('SIGKILL')
+				}, SANDBOX_KILL_GRACE_MS)
+				// A command that honoured SIGTERM must not leave the host alive just
+				// to deliver a no-op escalation. If shared stdio closes first, the
+				// close handler forces any remaining group before releasing its pid.
+				escalation.unref?.()
+			}
 
 			child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk))
 			child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk))
-
-			child.on('error', (err: NodeJS.ErrnoException) => {
-				if (err.code === 'ABORT_ERR' || signal.aborted) {
-					// `timedOut` means the DEADLINE fired. A caller-cancelled
-					// run is aborted but not late, and reporting it as a
-					// timeout would tell the model to retry with a longer
-					// budget for something a human just stopped.
-					timedOut = ac.signal.aborted
-					// `spawn`'s own `signal` handling already reached `child.pid`
-					// — the outermost wrapper — but that was never the process
-					// this call exists to stop. Reach the whole tree, then give
-					// it a grace period before forcing it.
-					killTree(child, 'SIGTERM')
-					setTimeout(() => killTree(child, 'SIGKILL'), SANDBOX_KILL_GRACE_MS)
-					return
+			const bwrapInfo = bwrapInfoFd === undefined ? undefined : child.stdio[bwrapInfoFd]
+			const bwrapBlock = bwrapBlockFd === undefined ? undefined : child.stdio[bwrapBlockFd]
+			let bwrapInfoBuffer = ''
+			bwrapInfo?.on('data', (chunk: Buffer) => {
+				if (bwrapChildPid !== undefined) return
+				bwrapInfoBuffer += chunk.toString('utf8')
+				// `--info-fd` writes one JSON document, often pretty-printed across
+				// several lines and potentially split across stream chunks. Parse the
+				// whole accumulated document whenever more arrives.
+				const observed = readBwrapChildPid(bwrapInfoBuffer)
+				if (observed === undefined) return
+				bwrapChildPid = observed
+				// Cancellation may have won before bwrap published the inner reaper.
+				// Nothing authored has been admitted yet, so there is no graceful
+				// shutdown to preserve: kill startup atomically before it can cross the
+				// gate. Otherwise one byte admits the command now that it has an owner.
+				if (terminationSignal !== undefined) {
+					if (escalation !== undefined) {
+						clearTimeout(escalation)
+						escalation = undefined
+					}
+					terminate('SIGKILL')
+				} else if (bwrapBlock !== undefined && bwrapBlock !== null && 'end' in bwrapBlock) {
+					bwrapBlock.end(Buffer.from([1]))
 				}
+			})
+
+			child.once('error', (err: NodeJS.ErrnoException) => {
+				if (settled) return
+				settled = true
+				finishSubscriptions()
+				if (escalation !== undefined) clearTimeout(escalation)
 				rejectPromise(err)
 			})
 
-			child.on('close', (code, signal) => {
+			child.once('close', (code, signal) => {
+				if (settled) return
+				settled = true
+				finishSubscriptions()
+				if (escalation !== undefined) {
+					clearTimeout(escalation)
+					escalation = undefined
+					// `close` proves the wrapper and shared pipes are gone, not that a
+					// descendant which closed its copies has stopped. Force the old group
+					// now: retaining its numeric pid for a later timer risks pid reuse.
+					terminate('SIGKILL')
+				}
+				const timedOut = cancellation === 'deadline'
 				resolvePromise({
 					exitCode: code ?? (timedOut ? 124 : 1),
 					stdout: stdout.text,
@@ -776,6 +953,16 @@ class LocalSandbox implements Sandbox {
 					stderrTruncated: stderr.truncated,
 				})
 			})
+
+			// Register only after every terminal handler exists, then re-check.
+			// JavaScript cannot interleave an abort callback inside this synchronous
+			// block, and the check closes the already-aborted admission edge.
+			disposeAbortListeners.push(subscribeToAbort(deadlineSignal, () => cancel('deadline')))
+			if (callerSignal !== undefined) {
+				disposeAbortListeners.push(subscribeToAbort(callerSignal, () => cancel('caller')))
+			}
+			if (deadlineSignal.aborted) cancel('deadline')
+			else if (callerSignal?.aborted) cancel('caller')
 		})
 	}
 }

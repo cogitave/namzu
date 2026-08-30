@@ -120,6 +120,11 @@ describe('linux-bwrap enforces the filesystem control it declares', () => {
 		const provider = new LocalSandboxProvider(NOOP_LOGGER)
 		const sandbox = await provider.create()
 		try {
+			// Binding the exact sandbox root creates its missing parent directory
+			// names inside the otherwise empty mount namespace. With TMPDIR=/var/tmp,
+			// `/var` therefore exists but contains no host `/var`; presence alone is
+			// not a host mount. Derive that one legitimate top from the root.
+			const sandboxTop = sandbox.rootDir.split('/').find(Boolean)
 			const listing = await sandbox.exec('sh', ['-c', 'ls -1 /'])
 			const seen = listing.stdout.trim().split('\n').filter(Boolean).sort()
 			// Derived, not hard-coded. The tier binds the interpreter's own
@@ -129,7 +134,11 @@ describe('linux-bwrap enforces the filesystem control it declares', () => {
 			// which is the failure this test exists to catch.
 			const systemTops = ['bin', 'dev', 'etc', 'lib', 'lib64', 'opt', 'proc', 'sbin', 'tmp', 'usr']
 			const interpreterTop = dirname(dirname(realpathSync(process.execPath))).split('/')[1]
-			const allowed = new Set([...systemTops, ...(interpreterTop ? [interpreterTop] : [])])
+			const allowed = new Set([
+				...systemTops,
+				...(interpreterTop ? [interpreterTop] : []),
+				...(sandboxTop ? [sandboxTop] : []),
+			])
 			expect(seen.filter((entry) => !allowed.has(entry))).toEqual([])
 			// And not vacuous: a child that saw nothing at all would pass the
 			// line above.
@@ -144,6 +153,17 @@ describe('linux-bwrap enforces the filesystem control it declares', () => {
 			files.push(homeSecret)
 			const reach = await sandbox.exec('sh', ['-c', `cat ${homeSecret} 2>&1`])
 			expect(`${reach.stdout}${reach.stderr}`).not.toContain('home-only')
+
+			// The sandbox-root top is subject to the same rule as `home`: allowing
+			// the directory NAME must not allow the host tree below it. A sibling
+			// beside the bound root is a direct observer for an accidental bind of
+			// TMPDIR or its parent.
+			const rootSibling = mkdtempSync(join(dirname(sandbox.rootDir), 'namzu-root-sibling-'))
+			dirs.push(rootSibling)
+			const siblingSecret = join(rootSibling, 'secret.txt')
+			writeFileSync(siblingSecret, 'root-sibling-only')
+			const siblingReach = await sandbox.exec('sh', ['-c', `cat ${siblingSecret} 2>&1`])
+			expect(`${siblingReach.stdout}${siblingReach.stderr}`).not.toContain('root-sibling-only')
 		} finally {
 			await sandbox.destroy()
 		}

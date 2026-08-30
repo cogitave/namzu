@@ -150,9 +150,10 @@ export interface SandboxExecOptions {
 	 * the *wait* — the sandboxed process kept running after the host
 	 * believed the run had been cancelled.
 	 *
-	 * **Who honours it.** The in-process local sandbox does: the signal is
-	 * merged with the call's own deadline and reaches `spawn`, so the process
-	 * group dies. The HTTP-container backends in `@namzu/sandbox` also do: a
+	 * **Who honours it.** The in-process local sandbox does: the run owns a
+	 * listener until the process group's shared stdio closes, and terminates
+	 * that group directly. The HTTP-container backends in `@namzu/sandbox` also
+	 * do: a
 	 * current peer reserves an execution before admission and confirms its
 	 * cancellation over a separate control request. Older worker and microVM
 	 * images are refused when this option is present, because aborting only the HTTP
