@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-29
+lastReviewed: 2026-08-30
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -32,6 +32,7 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Agent lifecycle.** Parent/child agent spawn with depth tracking, budget splitting, and causal trace linkage. A supervisor can fork a subtree of agents and get their results back, with each child isolated from its siblings.
 - **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Limit checker, task router (cheap model for compaction, expensive for coding), tool tiering (LLM learns to prefer cheaper tools first).
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs can be paused and resumed, aborted cleanly, and emit lifecycle events for every transition.
+- **Duplex sessions.** Live provider sessions have one run-owned lifetime spanning connection, input, events and tool calls. Conversational interruption abandons stale unpublished results without pretending an in-flight side effect was cancelled; run cancellation fences new work, propagates to every tool context and bounds provider cleanup.
 - **Memory management.** Working memory via structured compaction to a typed `WorkingState`. Long-term memory via an indexed, tag/query/status-searchable store with disk persistence. No vector database required by default.
 - **Durability.** Atomic per-iteration checkpoints, an opt-in emergency core-dump on SIGINT/SIGTERM (`emergencySave: true` — a library must not seize a host process termination path by default), and separate storage for runs, sessions, session-owned completion goals, topic state and objectives, activities, memories, and tasks.
 - **Workspace provisioning.** `WorkspaceBackendDriver` keeps per-run workspace lifecycle behind a backend contract. The reference Git driver treats a persisted `WorkspaceRef` as recovery data affiliated with the repository and managed root that created it: create, branch, inspect, and dispose canonicalize existing links and refuse foreign paths before Git runs. Disposal is idempotent only when the repository's worktree registry says that exact managed branch/path pair is absent; transport error wording is not absence evidence.
@@ -85,6 +86,7 @@ exists to be checked against the source, not against anybody else.
 | Multi-tenancy | Tenant, project, topic, session and run are separate identities from day one, not a field added later |
 | Sub-agent spawn | Parent/child with depth, budget and a shared pool the parent debits |
 | Signal propagation | One abort tree; cancelling a parent tears down every descendant |
+| Duplex provider sessions | One run-owned lifetime with interruption-safe result publication, duplicate-call fencing and bounded cleanup |
 | Checkpoint and resume | Per iteration, versioned, written atomically, with the trace context to rejoin |
 | Emergency save | Opt-in snapshot on a fatal signal, replayable through the ordinary restore path |
 | Resource quotas | Token, cost and wall-clock caps per run and per child |
@@ -217,6 +219,8 @@ The limit checker (`run/LimitChecker.ts`) is the kernel scheduler's enforcement 
 - `runtime/query/events.ts` emits the typed events that feed the bus.
 
 `runtime/decision/` (with `parser.ts` and `fallback.ts`) parses LLM decisions (tool calls vs final answer vs thinking vs advisory request) and falls back gracefully when the LLM returns malformed output.
+
+`runtime/bidi/` owns the separate duplex path used by live provider sessions. Its run signal covers connection, input, provider events and tool contexts. A conversational interruption advances the generation and abandons a stale result only before publication begins; it does not claim to cancel an irreversible tool halfway through. Caller cancellation, explicit close or provider termination synchronously fences further admission, duplicate tool-call ids close the session before a side effect can run twice, and provider cleanup has an explicit time bound. See [Duplex run lifetime](runtime/duplex-run-lifetime.md) for the full contract.
 
 ### 6. Memory Management: Compaction (`compaction/`) and Store (`store/`)
 
