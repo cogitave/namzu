@@ -265,6 +265,16 @@ export async function renderToScreen(
 		exitOnCtrlC: false,
 		patchConsole: false,
 	})
+	// Register while the instance is live. Calling waitUntilExit only after an
+	// unmount makes Ink install a beforeExit hook that the already-unmounted
+	// instance can no longer remove. Observe the promise now, like the shipped
+	// TUI does, and suppress its error because component behavior has its own
+	// assertions in the calling test.
+	const exitPromise = instance.waitUntilExit().then(
+		() => undefined,
+		() => undefined,
+	)
+	let teardown: Promise<void> | undefined
 
 	/**
 	 * Settle, without a duration anywhere in it.
@@ -314,12 +324,17 @@ export async function renderToScreen(
 		press: (input) => stdin.press(input),
 		rerender: (next) => instance.rerender(next),
 		waitForRender,
-		unmount: async () => {
-			instance.unmount()
-			await instance.waitUntilExit().catch(() => {})
-			instance.cleanup()
-			await stdout.drain()
-			term.dispose()
+		unmount: () => {
+			teardown ??= (async () => {
+				try {
+					instance.unmount()
+					await exitPromise
+					await stdout.drain()
+				} finally {
+					term.dispose()
+				}
+			})()
+			return teardown
 		},
 	}
 

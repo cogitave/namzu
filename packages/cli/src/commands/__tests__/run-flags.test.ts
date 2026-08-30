@@ -11,7 +11,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Readable } from 'node:stream'
+import { PassThrough, Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
@@ -256,6 +256,28 @@ describe('the pipe reaches the model, not just the composer', () => {
 			expect(code).toBe(0)
 			expect(seen.prompt).toBe('the question is in here')
 		})
+	})
+
+	it('releases first-byte observers when an open pipe stays silent', async () => {
+		const real = Object.getOwnPropertyDescriptor(process, 'stdin')
+		const input = Object.assign(new PassThrough(), { isTTY: false })
+		const readableBefore = input.rawListeners('readable')
+		const endBefore = input.rawListeners('end')
+		Object.defineProperty(process, 'stdin', {
+			configurable: true,
+			get: () => input,
+		})
+		try {
+			const { code } = await run(['summarise this'])
+
+			expect(code).toBe(0)
+			expect(seen.prompt).toBe('summarise this')
+			expect(input.rawListeners('readable')).toEqual(readableBefore)
+			expect(input.rawListeners('end')).toEqual(endBefore)
+		} finally {
+			input.destroy()
+			if (real) Object.defineProperty(process, 'stdin', real)
+		}
 	})
 })
 

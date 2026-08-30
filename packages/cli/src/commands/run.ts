@@ -65,24 +65,36 @@ import type { CommandDef } from './types.js'
 const FIRST_BYTE_DEADLINE_MS = 250
 
 async function readStdin(opts: { readonly deadline?: boolean } = {}): Promise<string> {
-	if (process.stdin.isTTY) return ''
+	// Capture once. Tests and embedded hosts can replace the process getter;
+	// registration, observation and cleanup must still concern one stream.
+	const input = process.stdin
+	if (input.isTTY) return ''
 	const chunks: Buffer[] = []
 	const collect = async (): Promise<void> => {
-		for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
+		for await (const chunk of input) chunks.push(chunk as Buffer)
 	}
 	if (!opts.deadline) {
 		await collect()
 		return Buffer.concat(chunks).toString('utf8')
 	}
 	let timer: NodeJS.Timeout | undefined
+	let settleFirstByte: (() => void) | undefined
 	const firstByte = new Promise<void>((resolve) => {
-		timer = setTimeout(() => resolve(), FIRST_BYTE_DEADLINE_MS)
-		process.stdin.once('readable', () => resolve())
-		process.stdin.once('end', () => resolve())
+		settleFirstByte = resolve
+		timer = setTimeout(settleFirstByte, FIRST_BYTE_DEADLINE_MS)
+		input.once('readable', settleFirstByte)
+		input.once('end', settleFirstByte)
 	})
-	await firstByte
-	if (timer) clearTimeout(timer)
-	if (process.stdin.readableEnded || process.stdin.readableLength > 0) await collect()
+	try {
+		await firstByte
+	} finally {
+		if (timer) clearTimeout(timer)
+		if (settleFirstByte) {
+			input.removeListener('readable', settleFirstByte)
+			input.removeListener('end', settleFirstByte)
+		}
+	}
+	if (input.readableEnded || input.readableLength > 0) await collect()
 	return Buffer.concat(chunks).toString('utf8')
 }
 
