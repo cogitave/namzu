@@ -60,13 +60,13 @@
 		"lint": "biome check src/",
 		"lint:fix": "biome check --write src/",
 		"format": "biome format --write src/",
-		"test": "vitest run --passWithNoTests",
-		"test:coverage": "vitest run --passWithNoTests --coverage",
+		"test": "node ../../scripts/run-sdk-tests.mjs unit --passWithNoTests",
+		"test:coverage": "node ../../scripts/run-sdk-tests.mjs unit --passWithNoTests --coverage",
 		"typecheck": "tsc --noEmit",
 		"knip": "knip",
 		"knip:production": "knip --production",
 		"prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build",
-		"test:proc": "tsc --build && vitest run --config vitest.proc.config.ts"
+		"test:proc": "tsc --build && node ../../scripts/run-sdk-tests.mjs proc"
 	},
 	"peerDependencies": {
 		"@opentelemetry/api": "^1.9.0",

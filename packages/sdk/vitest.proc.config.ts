@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
+import { sdkTestIsolation } from './vitest.shared.js'
+
 /**
  * Tests that spawn a child process, run on their own.
  *
@@ -17,11 +19,11 @@ import { defineConfig } from 'vitest/config'
  */
 export default defineConfig({
 	test: {
+		...sdkTestIsolation,
 		include: ['src/**/*.proc-test.ts'],
-		// No `setupFiles` — same reason as `vitest.config.ts`'s. The file it
-		// named existed to silence a process-wide stderr logger that LOG-20
-		// removed, and it installed a process sink to do it, which collided
-		// with every suite that installs its own.
+		// The shared setup only verifies the runner-owned test boundary. The
+		// former logger-silencing setup remains removed for the reason recorded
+		// in `vitest.config.ts`; this observer does not mutate logging state.
 		// One at a time. These measure what a process does when nothing else is
 		// in it; running two at once would put something else in it.
 		fileParallelism: false,
