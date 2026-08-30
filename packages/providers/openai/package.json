@@ -1,6 +1,6 @@
 {
   "name": "@namzu/openai",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "description": "OpenAI API-key and ChatGPT subscription providers for @namzu/sdk, with streaming and tool use.",
   "license": "FSL-1.1-MIT",
   "engines": {

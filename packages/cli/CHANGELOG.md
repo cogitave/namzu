@@ -1,5 +1,145 @@
 # @namzu/cli
 
+## 15.0.0
+
+### Major Changes
+
+- 0532eb5: HTTP MCP transports no longer follow redirects. Configure the final MCP
+  endpoint directly instead of a URL that returns a 3xx response. This is a
+  breaking security boundary: authenticated SSE requests, session headers and
+  JSON-RPC bodies now remain at the exact configured endpoint. A redirected
+  tool call is reported as an unknown remote outcome that must not be retried
+  automatically, because the configured server may already have applied it.
+
+### Minor Changes
+
+- 9937e90: Add a safe-first `/archive` confirmation that publishes a read-only durable conversation tombstone, removes it from `/resume`, and exits without printing a misleading resume command.
+- e0d74ba: Add PageUp, PageDown, Home and End navigation to model, subscription, resume,
+  prompt-edit, review, skill, permission, effort and copy choosers. Selection
+  authority now updates synchronously so Enter applies the newest cursor even
+  when navigation and confirmation arrive in one terminal input burst.
+- 1d8ac36: Add Ctrl+L as an idle-only terminal display clear. It preserves model and
+  durable conversation history like `/clear-screen`, and refuses while a turn is
+  still producing output.
+- d2c5896: Turn `/help` into an interactive, height-aware command palette that includes the live kernel and project command vocabulary and dispatches the selected row through the ordinary slash-command path.
+- d85f9e0: Open bare `/export` as a destination chooser for a verified Markdown transcript.
+  Clipboard export sends the complete durable projection through a bounded OSC 52
+  request, while file export opens a session-prefilled filename editor and keeps
+  the existing no-overwrite guarantee. `/export <path>` remains available.
+- 6a71f3b: Open bare `/skills` as the discovered skill chooser. Preserve the previous text
+  roster as `/skills list`, allow `/skills <name>` for direct activation, and keep
+  `/skill` as a compatible alias.
+- bd5b25c: Make Markdown HTTP(S) labels clickable on recognized terminal families while
+  keeping destinations visible on unknown, remote, multiplexed and non-TTY output
+  paths. Local-file and other non-web targets remain non-clickable.
+- 677c185: Author multiline prompts with terminal newline bindings, move vertically by grapheme column, and preserve unsent text while traversing prompt history.
+- 354b7a1: Ship and mount desktop computer use in the interactive CLI when its adapter
+  initializes, with the host lifetime owned by the agent session and no exposure
+  on unattended surfaces. WSL now targets the paired Windows desktop through
+  `powershell.exe` instead of misclassifying WSLg as a Linux compositor session.
+- 5d695e0: Edit drafts at the visible cursor with grapheme-safe movement and deletion, line-boundary movement, and terminal word and line kill bindings.
+- ec42140: Move and delete by words with terminal-native bindings, and delete the next complete grapheme with Ctrl+D.
+- 4ca89ce: Open the current text draft in the operator's `VISUAL` or `EDITOR` with Ctrl+G,
+  temporarily releasing terminal raw mode and restoring the edited draft safely.
+- 6265f5e: Grow slash-command and file-completion menus from six to as many as twelve
+  visible choices when the terminal has spare height. Short terminals retain the
+  bounded six-row window, and keyboard/page navigation continues over the full
+  roster.
+- c1b8c1f: Replace the successful `namzu skills` milestone stub with a real, trust-gated
+  skill roster. The command supports `--cwd` and structured JSON/YAML output,
+  shows broken skills with their refusal reason, and preserves project-over-user
+  shadowing.
+- 8cf937d: Navigate every slash-command match with visible position, page and boundary keys, including rapid terminal input bursts.
+- 1b15308: Add selectable `/pwd` and `/mention` commands. `/pwd` reports the active
+  session directory, while `/mention` restores an editable `@` file token in the
+  composer without starting a model turn.
+- 4ea7041: Add a prefilled conversation-name editor under `/rename`, keep `/title` as an
+  alias, and persist the selected name directly to the session store for `/resume`.
+- b74dcc7: Restore operator-authored prompt history for Ctrl+R after direct or in-TUI conversation resume.
+- 4b6df87: Open bare `/review` as a keyboard chooser for a base branch, uncommitted work,
+  a recent commit, or custom instructions. Branch comparisons are resolved to an
+  immutable merge-base commit before reaching the agent, and finite choice labels
+  use available terminal width instead of truncating every name to 18 columns.
+- 46c3f95: Search submitted prompts with Ctrl+R and Ctrl+S while preserving the exact unsent draft and cursor.
+- fd5baca: Add keyboard-selectable project-file mentions. `/mention` and a typed `@` show
+  tracked, unignored paths; Enter or Tab inserts the selected token without
+  submitting, and mention expansion refuses symlinks outside the trusted project.
+- 8783b0b: Add `namzu resume <conversation-id>` as a copy-pasteable interactive-session
+  handoff on clean exit. Short conversations now flow down from the banner while
+  the composer remains near the terminal bottom, and slash-command navigation
+  scrolls past the first six matches instead of making later commands unreachable.
+- e3da442: Publish a model-owned reasoning-effort default alongside each exact menu and preserve it through retry, idle-timeout, and fallback decorators. Fallback chains expose a default only when every usable member agrees inside the common menu.
+
+  Add non-wrapping Shift+Up/Shift+Down and Alt+period/Alt+comma effort shortcuts to the interactive composer. An unset selection anchors at the provider-published default; unknown or disagreeing defaults require an explicit `/effort` choice.
+
+  Correct the subscription transport's model-specific effort contract. Recognized subscription models no longer offer or accept `none`, and only models whose current catalogue includes `ultra` accept it. Consumers that sent `none` to a recognized subscription model must omit effort or select one of the provider's published levels.
+
+- 6f0b16f: Add terminal-native composer kill/yank editing: Ctrl+Y restores the last
+  non-empty Ctrl+W, Ctrl+U, Ctrl+K, Alt+Backspace, or Alt+D deletion at the live
+  cursor, and Ctrl+H consistently behaves as a grapheme-safe Backspace.
+- d4dc3b3: Keep long model and conversation choices visible while navigating the terminal.
+  Bare `/feedback` and `/skill` now open finite choosers, and a fully typed slash
+  command is selected before longer names that share its prefix. When both
+  Namzu-owned subscriptions exist, bare `/logout` asks which one to remove;
+  provider-targeted slash and shell forms preserve the other credential.
+
+### Patch Changes
+
+- 315ee36: Make update checks settle at their deadline even when a registry transport or response body ignores cancellation, so `namzu upgrade` cannot hang indefinitely on an uncooperative request.
+- b9c5b7c: Let task schedulers preserve an optional structured cancellation cause, and
+  make the blocking `Agent` delegation end with the run that launched it. Parent
+  cancellation now reaches both already-running tasks and tasks whose creation
+  finishes late; built-in local and foreign schedulers expose `parent` on the
+  child signal.
+
+  Make the interactive session own its subagent runtime so Stop, session
+  replacement and shutdown prevent late child tool work after the parent has
+  settled.
+
+- 6549301: Report the aggregate sandbox capability from the live runtime provider instead
+  of optional-package installation, preventing contradictory startup diagnostics.
+- 7209853: Report current MCP transport failures from `/mcp` instead of continuing to show a server as connected after its process or network connection has closed.
+- e1a7e69: Add the observational `run_interrupt` plugin hook for explicitly user-cancelled root runs. Every registered interrupt handler gets a bounded cleanup window before the durable cancellation event; one handler's skip, error, retry, or timeout no longer suppresses later interrupt observers.
+
+  Attribute interactive CLI turn interrupts to the public `user` cancellation cause so configured interrupt hooks run on both ordinary Stop actions and permission-prompt cancellation.
+
+- 18e4d8c: Repeated headless run invocations no longer retain stdin listeners when an open pipe sends no data. The terminal test harness also releases its process-exit hook after teardown.
+- 60ef03d: Report the running CLI package version in `namzu doctor --json` instead of the
+  generic `unknown` placeholder.
+- 6fa623a: Show the complete prepared tool input in interactive permission prompts instead
+  of approving from a shortened summary. The terminal review is paged by physical
+  rows and refuses an oversized or non-JSON-compatible batch rather than
+  truncating it; ACP permission requests now carry the exact prepared input.
+- Updated dependencies [7ea6c6c]
+- Updated dependencies [5591d35]
+- Updated dependencies [64f8040]
+- Updated dependencies [cf2e8d0]
+- Updated dependencies [b9c5b7c]
+- Updated dependencies [5e95792]
+- Updated dependencies [84d202d]
+- Updated dependencies [8943b5b]
+- Updated dependencies [354b7a1]
+- Updated dependencies [c7783a6]
+- Updated dependencies [6b49cdb]
+- Updated dependencies [0f65d5e]
+- Updated dependencies [e1a7e69]
+- Updated dependencies [07990a8]
+- Updated dependencies [f1c368d]
+- Updated dependencies [8126a5a]
+- Updated dependencies [1a59f58]
+- Updated dependencies [10c0434]
+- Updated dependencies [8fcb248]
+- Updated dependencies [0532eb5]
+- Updated dependencies [5854b4d]
+- Updated dependencies [eca824b]
+- Updated dependencies [e3da442]
+  - @namzu/sdk@33.0.0
+  - @namzu/computer-use@1.4.0
+  - @namzu/openai@2.0.0
+  - @namzu/anthropic@4.0.1
+  - @namzu/ollama@2.2.1
+  - @namzu/openrouter@2.3.1
+
 ## 14.3.0
 
 ### Minor Changes
