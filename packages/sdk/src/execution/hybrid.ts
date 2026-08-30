@@ -84,12 +84,16 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 	}
 
 	protected async doTeardown(): Promise<void> {
-		const teardownPromises: Promise<void>[] = []
-		for (const remote of this.remoteCtxs.values()) {
-			teardownPromises.push(remote.teardown())
+		const contexts: BaseExecutionContext[] = [this.localCtx, ...this.remoteCtxs.values()]
+		const results = await Promise.allSettled(contexts.map((context) => context.teardown()))
+		const failures = results.flatMap((result) =>
+			result.status === 'rejected' ? [result.reason] : [],
+		)
+
+		if (failures.length === 1) throw failures[0]
+		if (failures.length > 1) {
+			throw new AggregateError(failures, 'Multiple hybrid execution contexts failed to tear down')
 		}
-		await Promise.allSettled(teardownPromises)
-		await this.localCtx.teardown()
 	}
 
 	getLocal(): LocalExecutionContext {
