@@ -75,7 +75,12 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 
 	private async performInitialize(): Promise<void> {
 		try {
+			this.onInitializationStarted()
 			await this.doInitialize()
+			if (this.lifecycleState !== 'initializing') {
+				throw new InitializationSupersededError(this.id)
+			}
+			this.onInitializationCommitted()
 			if (this.lifecycleState !== 'initializing') {
 				throw new InitializationSupersededError(this.id)
 			}
@@ -132,15 +137,17 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 	}
 
 	private async performTeardown(pendingInitialization: Promise<void> | undefined): Promise<void> {
-		if (pendingInitialization) {
-			try {
-				await pendingInitialization
-			} catch {
-				// Initialization errors are reported by their owner. Cleanup still runs.
-			}
-		}
-
 		try {
+			// Runs before the first await. Subclasses close public admission here so
+			// work cannot slip behind an initialization this teardown must await.
+			this.onTeardownRequested()
+			if (pendingInitialization) {
+				try {
+					await pendingInitialization
+				} catch {
+					// Initialization errors are reported by their owner. Cleanup still runs.
+				}
+			}
 			await this.doTeardown()
 			this.lifecycleState = 'torn-down'
 			this.log.info('Execution context torn down', {
@@ -186,4 +193,13 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 
 	protected abstract doInitialize(): Promise<void>
 	protected abstract doTeardown(): Promise<void>
+
+	/** Fence subclass-owned public admission before initialization begins. */
+	protected onInitializationStarted(): void {}
+
+	/** Reopen admission only after Base has proved initialization was not superseded. */
+	protected onInitializationCommitted(): void {}
+
+	/** Fence subclass-owned public admission synchronously when teardown is requested. */
+	protected onTeardownRequested(): void {}
 }

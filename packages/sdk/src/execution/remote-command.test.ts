@@ -7,6 +7,7 @@ import type {
 	RemoteCommandHandler,
 	RemoteTarget,
 } from '../types/connector/index.js'
+import { CommandCancellationUnsupportedError, RemoteExecutionBusyError } from './errors.js'
 import { HybridExecutionContext } from './hybrid.js'
 import { RemoteExecutionContext } from './remote.js'
 
@@ -14,6 +15,22 @@ const target: RemoteTarget = { type: 'ssh', host: 'remote.example.com' }
 
 function commandResult(): CommandResult {
 	return { exitCode: 0, stdout: 'ok', stderr: '', durationMs: 1 }
+}
+
+interface Deferred<T> {
+	promise: Promise<T>
+	resolve(value: T | PromiseLike<T>): void
+	reject(reason?: unknown): void
+}
+
+function deferred<T>(): Deferred<T> {
+	let resolve!: Deferred<T>['resolve']
+	let reject!: Deferred<T>['reject']
+	const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+		resolve = resolvePromise
+		reject = rejectPromise
+	})
+	return { promise, resolve, reject }
 }
 
 class StatefulCommandExecutor implements CommandExecutor {
@@ -149,6 +166,191 @@ describe('RemoteExecutionContext structured command migration', () => {
 			'No remote command executor configured',
 		)
 	})
+
+	it('refuses a caller signal before invoking a structured executor', async () => {
+		const executor = new StatefulCommandExecutor()
+		const context = new RemoteExecutionContext({
+			id: 'structured-cancellation',
+			target,
+			commandExecutor: executor,
+		})
+		await context.connect()
+
+		await expect(
+			context.executeCommand('tool', [], { signal: new AbortController().signal }),
+		).rejects.toBeInstanceOf(CommandCancellationUnsupportedError)
+		expect(executor.calls).toBe(0)
+	})
+
+	it('refuses even a pre-aborted signal before invoking a legacy handler', async () => {
+		const caller = new AbortController()
+		caller.abort(new Error('already stopped'))
+		const legacy = {
+			executeRemote: vi.fn().mockResolvedValue(commandResult()),
+		} satisfies RemoteCommandHandler
+		const context = new RemoteExecutionContext({
+			id: 'legacy-cancellation',
+			target,
+			commandHandler: legacy,
+		})
+		await context.connect()
+
+		await expect(
+			context.executeCommand('tool', [], { signal: caller.signal }),
+		).rejects.toMatchObject({
+			code: 'command_cancellation_unsupported',
+			contextId: context.id,
+		})
+		await expect(context.executeRemote('tool', { signal: caller.signal })).rejects.toBeInstanceOf(
+			CommandCancellationUnsupportedError,
+		)
+		expect(legacy.executeRemote).not.toHaveBeenCalled()
+	})
+
+	it('preserves implementation then connection error precedence ahead of cancellation refusal', async () => {
+		const signal = new AbortController().signal
+		const unconfigured = new RemoteExecutionContext({ id: 'unconfigured-signal', target })
+		await expect(unconfigured.executeCommand('tool', [], { signal })).rejects.toThrow(
+			'No remote command executor configured',
+		)
+
+		const executor = new StatefulCommandExecutor()
+		const disconnected = new RemoteExecutionContext({
+			id: 'disconnected-signal',
+			target,
+			commandExecutor: executor,
+		})
+		await expect(disconnected.executeCommand('tool', [], { signal })).rejects.toThrow(
+			'is not connected',
+		)
+		expect(executor.calls).toBe(0)
+	})
+
+	it('refuses disconnect while a command is active and succeeds after fulfillment', async () => {
+		const result = deferred<CommandResult>()
+		const executor: CommandExecutor = {
+			executeCommand: () => result.promise,
+		}
+		const context = new RemoteExecutionContext({
+			id: 'busy-fulfilled',
+			target,
+			commandExecutor: executor,
+		})
+		await context.connect()
+
+		const running = context.executeCommand('held')
+		await expect(context.disconnect()).rejects.toBeInstanceOf(RemoteExecutionBusyError)
+		expect(context.isConnected()).toBe(true)
+
+		result.resolve(commandResult())
+		await running
+		await context.disconnect()
+		expect(context.isConnected()).toBe(false)
+	})
+
+	it('reports the exact active count when several commands hold disconnect', async () => {
+		const result = deferred<CommandResult>()
+		const context = new RemoteExecutionContext({
+			id: 'busy-multiple',
+			target,
+			commandExecutor: { executeCommand: () => result.promise },
+		})
+		await context.connect()
+
+		const first = context.executeCommand('first')
+		const second = context.executeCommand('second')
+		await expect(context.disconnect()).rejects.toMatchObject({
+			code: 'remote_execution_busy',
+			activeCommandCount: 2,
+			message: expect.stringContaining('2 active commands'),
+		})
+
+		result.resolve(commandResult())
+		await Promise.all([first, second])
+		await expect(context.disconnect()).resolves.toBeUndefined()
+	})
+
+	it('registers ownership before a remote executor can re-enter disconnect', async () => {
+		let disconnectAttempt: Promise<void> | undefined
+		const owner: { context?: RemoteExecutionContext } = {}
+		const executor: CommandExecutor = {
+			executeCommand: () => {
+				if (!owner.context) throw new Error('context was not assigned')
+				disconnectAttempt = owner.context.disconnect()
+				return Promise.resolve(commandResult())
+			},
+		}
+		const context = new RemoteExecutionContext({
+			id: 'reentrant-disconnect',
+			target,
+			commandExecutor: executor,
+		})
+		owner.context = context
+		await context.connect()
+
+		const running = context.executeCommand('reentrant')
+		expect(disconnectAttempt).toBeDefined()
+		await expect(disconnectAttempt).rejects.toBeInstanceOf(RemoteExecutionBusyError)
+		expect(context.isConnected()).toBe(true)
+		await running
+		await expect(context.disconnect()).resolves.toBeUndefined()
+	})
+
+	it('releases active ownership after rejection and synchronous throw', async () => {
+		const rejected = deferred<CommandResult>()
+		const rejection = new Error('remote rejected')
+		const rejecting = new RemoteExecutionContext({
+			id: 'busy-rejected',
+			target,
+			commandExecutor: { executeCommand: () => rejected.promise },
+		})
+		await rejecting.connect()
+		const running = rejecting.executeCommand('held')
+		await expect(rejecting.disconnect()).rejects.toBeInstanceOf(RemoteExecutionBusyError)
+		rejected.reject(rejection)
+		await expect(running).rejects.toBe(rejection)
+		await expect(rejecting.disconnect()).resolves.toBeUndefined()
+
+		const synchronousFailure = new Error('synchronous failure')
+		const throwing = new RemoteExecutionContext({
+			id: 'sync-throw',
+			target,
+			commandExecutor: {
+				executeCommand: () => {
+					throw synchronousFailure
+				},
+			},
+		})
+		await throwing.connect()
+		await expect(throwing.executeCommand('held')).rejects.toBe(synchronousFailure)
+		await expect(throwing.disconnect()).resolves.toBeUndefined()
+	})
+
+	it('fails teardown promptly while busy, publishes no success, and permits retry', async () => {
+		const result = deferred<CommandResult>()
+		const context = new RemoteExecutionContext({
+			id: 'busy-teardown',
+			target,
+			commandExecutor: { executeCommand: () => result.promise },
+		})
+		const events: string[] = []
+		context.on((event) => events.push(event.type))
+		await context.connect()
+		const running = context.executeCommand('held')
+
+		await expect(context.teardown()).rejects.toMatchObject({
+			code: 'remote_execution_busy',
+			activeCommandCount: 1,
+		})
+		expect(events).not.toContain('context_teardown')
+		await expect(context.executeCommand('too-late')).rejects.toThrow('tearing down')
+
+		result.resolve(commandResult())
+		await running
+		await context.teardown()
+		expect(events.filter((event) => event === 'remote_disconnected')).toHaveLength(1)
+		expect(events.filter((event) => event === 'context_teardown')).toHaveLength(1)
+	})
 })
 
 describe('HybridExecutionContext structured command reachability', () => {
@@ -209,5 +411,49 @@ describe('HybridExecutionContext structured command reachability', () => {
 			'No remote command executor configured',
 		)
 		expect(local).not.toHaveBeenCalled()
+	})
+
+	it('preserves remote cancellation refusal through remote-first and round-robin routing', async () => {
+		const signal = new AbortController().signal
+		const remoteFirst = createHybrid('remote-first')
+		const remoteFirstTarget = remoteAt(remoteFirst)
+		const remoteFirstExecutor = new StatefulCommandExecutor()
+		remoteFirstTarget.setCommandExecutor(remoteFirstExecutor)
+		await remoteFirstTarget.connect()
+
+		await expect(remoteFirst.executeCommand('remote', [], { signal })).rejects.toBeInstanceOf(
+			CommandCancellationUnsupportedError,
+		)
+		expect(remoteFirstExecutor.calls).toBe(0)
+
+		const roundRobin = createHybrid('round-robin')
+		const roundRobinTarget = remoteAt(roundRobin)
+		const roundRobinExecutor = new StatefulCommandExecutor()
+		vi.spyOn(roundRobin.getLocal(), 'executeCommand').mockResolvedValue(commandResult())
+		roundRobinTarget.setCommandExecutor(roundRobinExecutor)
+		await roundRobinTarget.connect()
+		await roundRobin.executeCommand('first-local')
+
+		await expect(roundRobin.executeCommand('then-remote', [], { signal })).rejects.toBeInstanceOf(
+			CommandCancellationUnsupportedError,
+		)
+		expect(roundRobinExecutor.calls).toBe(0)
+	})
+
+	it('propagates a busy remote from disconnectAllRemotes', async () => {
+		const result = deferred<CommandResult>()
+		const context = createHybrid('remote-first')
+		const remote = remoteAt(context)
+		remote.setCommandExecutor({ executeCommand: () => result.promise })
+		await remote.connect()
+		const running = context.executeCommand('held')
+
+		await expect(context.disconnectAllRemotes()).rejects.toBeInstanceOf(RemoteExecutionBusyError)
+		expect(remote.isConnected()).toBe(true)
+
+		result.resolve(commandResult())
+		await running
+		await context.disconnectAllRemotes()
+		expect(remote.isConnected()).toBe(false)
 	})
 })

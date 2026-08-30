@@ -110,7 +110,10 @@ describe.skipIf(process.platform === 'win32')(
 			const started = Date.now()
 			await context.teardown()
 			const elapsed = Date.now() - started
-			await expect(running).resolves.toMatchObject({ exitCode: 1 })
+			await expect(running).resolves.toMatchObject({
+				exitCode: null,
+				termination: { origin: 'teardown', admitted: true },
+			})
 
 			expect(
 				elapsed,

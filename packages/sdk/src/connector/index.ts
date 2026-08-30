@@ -24,9 +24,11 @@ export { WebhookConnector } from './builtins/webhook.js'
 // thing that defines one.
 export {
 	BaseExecutionContext,
+	CommandCancellationUnsupportedError,
 	ExecutionContextFactory,
 	HybridExecutionContext,
 	LocalExecutionContext,
+	RemoteExecutionBusyError,
 	RemoteExecutionContext,
 } from '../execution/index.js'
 export type {

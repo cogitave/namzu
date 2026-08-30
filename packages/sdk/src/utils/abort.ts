@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { toErrorMessage } from './error.js'
 
 /**
@@ -45,6 +46,23 @@ export function abortReasonText(reason: unknown): string | undefined {
 	}
 	const text = toErrorMessage(reason).trim()
 	return text.length > 0 ? text : undefined
+}
+
+/**
+ * Subscribe to caller cancellation without raising the Node 20.0 runtime floor.
+ *
+ * `addAbortListener` cannot be hidden by another listener calling
+ * `stopImmediatePropagation`. Both branches return an explicit disposer so a
+ * completed operation does not remain attached to a long-lived caller signal.
+ */
+export function subscribeToAbort(signal: AbortSignal, listener: () => void): () => void {
+	if (typeof EventEmitter.addAbortListener === 'function') {
+		const subscription = EventEmitter.addAbortListener(signal, listener)
+		return () => subscription[Symbol.dispose]()
+	}
+
+	signal.addEventListener('abort', listener, { once: true })
+	return () => signal.removeEventListener('abort', listener)
 }
 
 export function createChildAbortController(parent: AbortController): AbortController {

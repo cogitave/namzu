@@ -29,9 +29,13 @@ describe('RemoteExecutionContext', () => {
 
 	it('starts disconnected; connect flips to connected', async () => {
 		const r = new RemoteExecutionContext({ id: 'r1', target })
+		const events: string[] = []
+		r.on((event) => events.push(event.type))
 		expect(r.isConnected()).toBe(false)
 		await r.connect()
+		await r.connect()
 		expect(r.isConnected()).toBe(true)
+		expect(events.filter((event) => event === 'remote_connected')).toHaveLength(1)
 	})
 
 	it('disconnect when not connected is a no-op', async () => {
@@ -59,5 +63,16 @@ describe('RemoteExecutionContext', () => {
 		expect(r.isReady()).toBe(false)
 		await r.initialize()
 		expect(r.isReady()).toBe(true)
+	})
+
+	it('requires an initialization commit before reconnecting after teardown', async () => {
+		const r = new RemoteExecutionContext({ id: 'r1', target })
+		await r.connect()
+		await r.teardown()
+
+		await expect(r.connect()).rejects.toThrow('initialization commits after teardown')
+		await r.initialize()
+		await r.connect()
+		expect(r.isConnected()).toBe(true)
 	})
 })

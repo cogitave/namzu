@@ -676,6 +676,7 @@ export {
 export {
 	BaseConnector,
 	BaseExecutionContext,
+	CommandCancellationUnsupportedError,
 	ConnectorManager,
 	ConnectorRegistry,
 	EnvironmentConnectorManager,
@@ -699,6 +700,7 @@ export {
 	mcpToolResultToToolResult,
 	mcpToolToToolDefinition,
 	RemoteExecutionContext,
+	RemoteExecutionBusyError,
 	ScopedConnectorRegistry,
 	// The only transport in the tree that can RUN an `MCPServer`. It reached
 	// `connector/mcp/index.ts` and stopped there, so the server was public

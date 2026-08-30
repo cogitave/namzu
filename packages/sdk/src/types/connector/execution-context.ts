@@ -13,6 +13,7 @@ export type {
 export type {
 	CommandOptions,
 	CommandResult,
+	CommandTermination,
 	CommandExecutor,
 	RemoteCommandHandler,
 } from '../execution/index.js'

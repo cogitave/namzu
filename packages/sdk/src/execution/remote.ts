@@ -10,6 +10,7 @@ import type {
 } from '../types/connector/index.js'
 import type { Logger } from '../utils/logger.js'
 import { BaseExecutionContext } from './base.js'
+import { CommandCancellationUnsupportedError, RemoteExecutionBusyError } from './errors.js'
 
 export interface RemoteExecutionContextOptions {
 	id: string
@@ -35,6 +36,8 @@ export class RemoteExecutionContext extends BaseExecutionContext implements Comm
 	private capabilities: ExecutionCapability[]
 	private commandExecutor: CommandExecutor | undefined
 	private commandHandler: RemoteCommandHandler | undefined
+	private lifecycleAdmissionsOpen = true
+	private readonly activeCommands = new Set<symbol>()
 
 	constructor(options: RemoteExecutionContextOptions) {
 		super(options.log)
@@ -53,18 +56,30 @@ export class RemoteExecutionContext extends BaseExecutionContext implements Comm
 		})
 	}
 
+	protected override onInitializationStarted(): void {
+		this.lifecycleAdmissionsOpen = false
+	}
+
+	protected override onInitializationCommitted(): void {
+		this.lifecycleAdmissionsOpen = true
+	}
+
+	protected override onTeardownRequested(): void {
+		this.lifecycleAdmissionsOpen = false
+	}
+
 	protected async doTeardown(): Promise<void> {
-		if (this.connected) {
-			this.connected = false
-			this.emit({
-				type: 'remote_disconnected',
-				contextId: this.id,
-				host: this.target.host,
-			})
-		}
+		this.assertIdleForDisconnect()
+		await this.disconnect()
 	}
 
 	async connect(): Promise<void> {
+		if (!this.lifecycleAdmissionsOpen) {
+			throw new Error(
+				`Remote execution context "${this.id}" cannot connect until initialization commits after teardown or failed initialization.`,
+			)
+		}
+		if (this.connected) return
 		this.connected = true
 		this.emit({
 			type: 'remote_connected',
@@ -80,6 +95,7 @@ export class RemoteExecutionContext extends BaseExecutionContext implements Comm
 
 	async disconnect(): Promise<void> {
 		if (!this.connected) return
+		this.assertIdleForDisconnect()
 		this.connected = false
 		this.emit({
 			type: 'remote_disconnected',
@@ -129,15 +145,17 @@ export class RemoteExecutionContext extends BaseExecutionContext implements Comm
 				this.commandExecutor,
 				`No remote command executor configured for context "${this.id}". Set one via setCommandExecutor() before calling executeCommand().`,
 			)
-			return executor.executeCommand(command, args, options)
+			this.assertCancellationUnsupported(options?.signal)
+			return this.trackCommand(() => executor.executeCommand(command, args, options))
 		}
 
 		const handler = this.admitCommand(
 			this.commandHandler,
 			`No remote command executor configured for context "${this.id}". Set one via setCommandExecutor() before calling executeCommand().`,
 		)
+		this.assertCancellationUnsupported(options?.signal)
 		const fullCommand = args.length > 0 ? `${command} ${args.join(' ')}` : command
-		return handler.executeRemote(fullCommand, options)
+		return this.trackCommand(() => handler.executeRemote(fullCommand, options))
 	}
 
 	/**
@@ -149,7 +167,8 @@ export class RemoteExecutionContext extends BaseExecutionContext implements Comm
 			this.commandHandler,
 			`No remote command handler configured for context "${this.id}". Set one via setCommandHandler() before calling executeRemote().`,
 		)
-		return handler.executeRemote(command, options)
+		this.assertCancellationUnsupported(options?.signal)
+		return this.trackCommand(() => handler.executeRemote(command, options))
 	}
 
 	toConfig(): RemoteExecutionContextConfig {
@@ -172,9 +191,51 @@ export class RemoteExecutionContext extends BaseExecutionContext implements Comm
 
 	private admitCommand<T>(implementation: T | undefined, missingMessage: string): T {
 		if (implementation === undefined) throw new Error(missingMessage)
+		if (!this.lifecycleAdmissionsOpen) {
+			throw new Error(
+				`Remote execution context "${this.id}" is initializing, tearing down, or torn down. Wait for initialization to commit before executing another command.`,
+			)
+		}
 		if (!this.connected) {
 			throw new Error(`Remote context "${this.id}" is not connected. Call connect() first.`)
 		}
 		return implementation
+	}
+
+	private assertCancellationUnsupported(signal: AbortSignal | undefined): void {
+		if (signal !== undefined) throw new CommandCancellationUnsupportedError(this.id)
+	}
+
+	private assertIdleForDisconnect(): void {
+		if (this.activeCommands.size > 0) {
+			throw new RemoteExecutionBusyError(this.id, this.activeCommands.size)
+		}
+	}
+
+	private trackCommand(invoke: () => Promise<CommandResult>): Promise<CommandResult> {
+		const ownership = Symbol('remote-command')
+		this.activeCommands.add(ownership)
+		const release = (): void => {
+			this.activeCommands.delete(ownership)
+		}
+
+		let operation: Promise<CommandResult>
+		try {
+			operation = Promise.resolve(invoke())
+		} catch (error) {
+			release()
+			return Promise.reject(error)
+		}
+
+		return operation.then(
+			(result) => {
+				release()
+				return result
+			},
+			(error: unknown) => {
+				release()
+				throw error
+			},
+		)
 	}
 }

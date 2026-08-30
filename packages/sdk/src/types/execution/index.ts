@@ -6,6 +6,17 @@ export interface CommandOptions {
 	cwd?: string
 	env?: Record<string, string>
 	/**
+	 * Caller-owned cancellation for this command.
+	 *
+	 * A compliant executor may accept this only when it can prove that command
+	 * admission never happened or that admitted work reached quiescence before
+	 * settling. `LocalExecutionContext` owns that guarantee for its process
+	 * group. `RemoteExecutionContext` refuses this option because its generic
+	 * executor seam has no reservation and terminal-acknowledgement protocol;
+	 * use the `Sandbox.exec()` contract for cancellable remote execution.
+	 */
+	signal?: AbortSignal
+	/**
 	 * Command deadline in milliseconds; `0` disables the deadline.
 	 *
 	 * `LocalExecutionContext` owns its spawned process group through stdio
@@ -17,11 +28,28 @@ export interface CommandOptions {
 	shell?: string | boolean
 }
 
+export type CommandTermination =
+	| {
+			/** Caller cancellation was already present, so no process was admitted. */
+			origin: 'caller'
+			admitted: false
+	  }
+	| {
+			/** The first Namzu-owned cause that requested termination. */
+			origin: 'caller' | 'timeout' | 'teardown'
+			admitted: true
+			/** The direct child's actual close signal, when Node reported one. */
+			signal?: string
+	  }
+
 export interface CommandResult {
-	exitCode: number
+	/** Numeric process exit, or `null` when no numeric exit exists. */
+	exitCode: number | null
 	stdout: string
 	stderr: string
 	durationMs: number
+	/** Present only when Namzu requested termination or refused pre-aborted admission. */
+	termination?: CommandTermination
 }
 
 export interface CommandExecutor {

@@ -198,7 +198,13 @@ When the parent is cancelled — by HITL, by a limit breach, or by an external s
 
 The router policy (`model-router/task-router.ts`) decides which model a task should go to. Compaction and summarization go to cheap models; coding and complex reasoning stay on expensive ones. Tiering is user-defined — you decide which models belong in which tier and what guidance the LLM gets about preferring tier-1 tools first.
 
-The execution layer (`execution/base.ts`, `execution/local.ts`) is the concrete executor that invokes the provider, dispatches tool calls, and produces iteration results. Execution is pluggable; you could swap in a remote executor without touching the agent patterns above.
+The execution-context layer (`execution/base.ts`, `execution/local.ts`,
+`execution/remote.ts`) owns host-command admission, shutdown, and local or
+remote routing. Local cancellation settles only after the owned process group
+reaches its close boundary; generic remote execution refuses cancellation when
+its dependency cannot prove terminal acknowledgement. See [Command execution
+lifetime and cancellation](command-execution-lifetime.md) for the public result
+and lifecycle contract.
 
 The limit checker (`run/LimitChecker.ts`) is the kernel scheduler's enforcement point. Every iteration it checks: have we exceeded the token budget? The cost budget? The wall-clock timeout? The iteration count? Has the user issued an abort? If any is true, it returns a typed hard-stop decision — `cancelled`, `token_budget_exceeded`, `timeout`, `max_iterations` — and the run ends cleanly with a stop reason recorded in its metadata.
 

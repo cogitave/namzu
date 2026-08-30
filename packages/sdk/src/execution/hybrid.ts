@@ -36,6 +36,7 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 	private remoteTargets: RemoteTarget[]
 	private routingStrategy: ExecutionRoutingStrategy
 	private roundRobinIndex = 0
+	private admissionsOpen = true
 
 	constructor(options: HybridExecutionContextOptions) {
 		super(options.log)
@@ -83,6 +84,18 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 		})
 	}
 
+	protected override onInitializationStarted(): void {
+		this.admissionsOpen = false
+	}
+
+	protected override onInitializationCommitted(): void {
+		this.admissionsOpen = true
+	}
+
+	protected override onTeardownRequested(): void {
+		this.admissionsOpen = false
+	}
+
 	protected async doTeardown(): Promise<void> {
 		const contexts: BaseExecutionContext[] = [this.localCtx, ...this.remoteCtxs.values()]
 		const results = await Promise.allSettled(contexts.map((context) => context.teardown()))
@@ -126,11 +139,16 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 	}
 
 	async disconnectAllRemotes(): Promise<void> {
-		const promises: Promise<void>[] = []
-		for (const remote of this.remoteCtxs.values()) {
-			promises.push(remote.disconnect())
+		const results = await Promise.allSettled(
+			Array.from(this.remoteCtxs.values(), (remote) => remote.disconnect()),
+		)
+		const failures = results.flatMap((result) =>
+			result.status === 'rejected' ? [result.reason] : [],
+		)
+		if (failures.length === 1) throw failures[0]
+		if (failures.length > 1) {
+			throw new AggregateError(failures, 'Multiple remote execution contexts failed to disconnect')
 		}
-		await Promise.allSettled(promises)
 	}
 
 	async executeCommand(
@@ -138,6 +156,11 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 		args: string[] = [],
 		options?: CommandOptions,
 	): Promise<CommandResult> {
+		if (!this.admissionsOpen) {
+			throw new Error(
+				`Hybrid execution context "${this.id}" is initializing, tearing down, or torn down. Wait for initialization to commit before executing another command.`,
+			)
+		}
 		switch (this.routingStrategy) {
 			case 'local-first':
 				return this.localCtx.executeCommand(command, args, options)

@@ -37,6 +37,26 @@ function remoteAt(context: HybridExecutionContext, index: number): RemoteExecuti
 }
 
 describe('HybridExecutionContext teardown ownership', () => {
+	it('keeps parent routing fenced when teardown supersedes a pending initialization', async () => {
+		const remoteInitialization = deferred<void>()
+		const context = createContext()
+		const remoteInitialize = vi
+			.spyOn(remoteAt(context, 0), 'initialize')
+			.mockReturnValue(remoteInitialization.promise)
+
+		const initializing = context.initialize()
+		await vi.waitFor(() => expect(remoteInitialize).toHaveBeenCalledOnce())
+		await expect(context.executeCommand('during-initialize')).rejects.toThrow('initializing')
+
+		const tearingDown = context.teardown()
+		await expect(context.executeCommand('after-teardown-request')).rejects.toThrow('tearing down')
+		remoteInitialization.resolve()
+
+		await expect(initializing).rejects.toThrow('superseded by teardown')
+		await tearingDown
+		await expect(context.executeCommand('after-teardown')).rejects.toThrow('torn down')
+	})
+
 	it('starts local cleanup without waiting for a remote cleanup to settle', async () => {
 		const remoteCleanup = deferred<void>()
 		const context = createContext()
@@ -87,5 +107,24 @@ describe('HybridExecutionContext teardown ownership', () => {
 		expect(finalRemoteTeardown).toHaveBeenCalledOnce()
 		expect(caught).toBeInstanceOf(AggregateError)
 		expect((caught as AggregateError).errors).toEqual([localFailure, remoteFailure])
+	})
+
+	it('reports every bulk-disconnect failure in stable remote order', async () => {
+		const firstFailure = new Error('first disconnect failed')
+		const secondFailure = new Error('second disconnect failed')
+		const context = createContext(2)
+		const firstDisconnect = vi
+			.spyOn(remoteAt(context, 0), 'disconnect')
+			.mockRejectedValue(firstFailure)
+		const secondDisconnect = vi
+			.spyOn(remoteAt(context, 1), 'disconnect')
+			.mockRejectedValue(secondFailure)
+
+		const caught = await context.disconnectAllRemotes().catch((error: unknown) => error)
+
+		expect(firstDisconnect).toHaveBeenCalledOnce()
+		expect(secondDisconnect).toHaveBeenCalledOnce()
+		expect(caught).toBeInstanceOf(AggregateError)
+		expect((caught as AggregateError).errors).toEqual([firstFailure, secondFailure])
 	})
 })

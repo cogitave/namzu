@@ -26,6 +26,8 @@ class ControlledExecutionContext extends BaseExecutionContext {
 	teardownCalls = 0
 	initializeHook: () => Promise<void> = () => Promise.resolve()
 	teardownHook: () => Promise<void> = () => Promise.resolve()
+	commitHook: () => void = () => {}
+	admissionsOpen = true
 
 	protected doInitialize(): Promise<void> {
 		this.initializeCalls++
@@ -35,6 +37,19 @@ class ControlledExecutionContext extends BaseExecutionContext {
 	protected doTeardown(): Promise<void> {
 		this.teardownCalls++
 		return this.teardownHook()
+	}
+
+	protected override onInitializationStarted(): void {
+		this.admissionsOpen = false
+	}
+
+	protected override onInitializationCommitted(): void {
+		this.commitHook()
+		this.admissionsOpen = true
+	}
+
+	protected override onTeardownRequested(): void {
+		this.admissionsOpen = false
 	}
 }
 
@@ -52,11 +67,13 @@ describe('BaseExecutionContext lifecycle ownership', () => {
 		expect(second).toBe(first)
 		expect(context.initializeCalls).toBe(1)
 		expect(context.isReady()).toBe(false)
+		expect(context.admissionsOpen).toBe(false)
 
 		gate.resolve()
 		await first
 
 		expect(context.isReady()).toBe(true)
+		expect(context.admissionsOpen).toBe(true)
 		expect(events.map((event) => event.type)).toEqual(['context_initialized', 'context_ready'])
 	})
 
@@ -111,15 +128,33 @@ describe('BaseExecutionContext lifecycle ownership', () => {
 		const tearingDown = context.teardown()
 
 		expect(context.isReady()).toBe(false)
+		expect(context.admissionsOpen).toBe(false)
 		expect(context.teardownCalls).toBe(0)
 		initialization.resolve()
 
 		await expect(initializing).rejects.toThrow('initialization was superseded by teardown')
+		expect(context.admissionsOpen).toBe(false)
 		await tearingDown
 
 		expect(context.teardownCalls).toBe(1)
 		expect(context.isReady()).toBe(false)
 		expect(events.map((event) => event.type)).toEqual(['context_teardown'])
+	})
+
+	it('contains an initialization-commit hook failure in the shared lifecycle promise', async () => {
+		const failure = new Error('commit fence failed')
+		const context = new ControlledExecutionContext()
+		context.commitHook = () => {
+			throw failure
+		}
+
+		let initializing: Promise<void> | undefined
+		expect(() => {
+			initializing = context.initialize()
+		}).not.toThrow()
+		await expect(initializing).rejects.toBe(failure)
+		expect(context.isReady()).toBe(false)
+		expect(context.admissionsOpen).toBe(false)
 	})
 
 	it('does not publish ready when an initialized listener admits teardown', async () => {

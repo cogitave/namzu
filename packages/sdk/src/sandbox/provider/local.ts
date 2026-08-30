@@ -1,5 +1,4 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { EventEmitter } from 'node:events'
 import { constants, accessSync, existsSync, realpathSync } from 'node:fs'
 import {
 	readFile as fsReadFile,
@@ -39,6 +38,7 @@ import type {
 	SandboxProvider,
 	SandboxStatus,
 } from '../../types/sandbox/index.js'
+import { subscribeToAbort } from '../../utils/abort.js'
 import { generateSandboxId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import {
@@ -565,25 +565,6 @@ function buildSafeEnv(
 	applyEnvironmentOverrides(env, optsEnv)
 
 	return env
-}
-
-/**
- * Subscribe without raising the package's Node 20.0 runtime floor.
- *
- * `events.addAbortListener` is the safer API because another listener cannot
- * hide cancellation with `stopImmediatePropagation`, but it arrived after
- * Node 20.0. The fallback preserves support for the package's declared floor;
- * both branches return the same explicit disposer so a completed command does
- * not stay attached to a caller-owned, long-lived signal.
- */
-function subscribeToAbort(signal: AbortSignal, listener: () => void): () => void {
-	if (typeof EventEmitter.addAbortListener === 'function') {
-		const subscription = EventEmitter.addAbortListener(signal, listener)
-		return () => subscription[Symbol.dispose]()
-	}
-
-	signal.addEventListener('abort', listener, { once: true })
-	return () => signal.removeEventListener('abort', listener)
 }
 
 /**

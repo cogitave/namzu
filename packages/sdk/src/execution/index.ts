@@ -18,6 +18,7 @@
  */
 
 export { BaseExecutionContext } from './base.js'
+export { CommandCancellationUnsupportedError, RemoteExecutionBusyError } from './errors.js'
 export { ExecutionContextFactory } from './factory.js'
 export { HybridExecutionContext } from './hybrid.js'
 export type { HybridExecutionContextOptions } from './hybrid.js'

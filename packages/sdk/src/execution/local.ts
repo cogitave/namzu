@@ -10,13 +10,14 @@ import type {
 	ExecutionCapability,
 	ExecutionEnvironment,
 } from '../types/execution/index.js'
+import { subscribeToAbort } from '../utils/abort.js'
 import type { Logger } from '../utils/logger.js'
 import { BaseExecutionContext } from './base.js'
 
 const LOCAL_COMMAND_DEFAULT_TIMEOUT_MS = 30_000
 const LOCAL_COMMAND_KILL_GRACE_MS = 3_000
 
-type LocalCommandCancellation = 'deadline' | 'teardown'
+type LocalCommandCancellation = 'caller' | 'deadline' | 'teardown'
 
 interface ActiveLocalCommand {
 	readonly closed: Promise<void>
@@ -64,14 +65,22 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 		if (!existsSync(this.cwd)) {
 			throw new Error(`Working directory does not exist: ${this.cwd}`)
 		}
-		this.acceptsCommands = true
 		this.log.info('Local context initialized', { 'namzu.execution.cwd': this.cwd })
 	}
 
-	protected async doTeardown(): Promise<void> {
-		// Fence before the first await so a command submitted in the same turn
-		// cannot slip behind the teardown snapshot.
+	protected override onInitializationStarted(): void {
 		this.acceptsCommands = false
+	}
+
+	protected override onInitializationCommitted(): void {
+		this.acceptsCommands = true
+	}
+
+	protected override onTeardownRequested(): void {
+		this.acceptsCommands = false
+	}
+
+	protected async doTeardown(): Promise<void> {
 		const admitted = [...this.activeCommands]
 		for (const operation of admitted) operation.cancel('teardown')
 		await Promise.all(admitted.map((operation) => operation.closed))
@@ -146,6 +155,16 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 		// literal value. Since `command`/`args` here are whatever a tool call passed in,
 		// shell interpretation must be an explicit opt-in, never the silent default.
 		const shell = options?.shell ?? this.shell ?? false
+		const callerSignal = options?.signal
+		if (callerSignal?.aborted) {
+			return {
+				exitCode: null,
+				stdout: '',
+				stderr: '',
+				durationMs: 0,
+				termination: { origin: 'caller', admitted: false },
+			}
+		}
 
 		let operation: ActiveLocalCommand
 		const result = new Promise<CommandResult>((resolvePromise) => {
@@ -166,6 +185,7 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 			let cancellation: LocalCommandCancellation | undefined
 			let escalation: ReturnType<typeof setTimeout> | undefined
 			let deadline: ReturnType<typeof setTimeout> | undefined
+			let disposeCallerAbort: (() => void) | undefined
 			let settled = false
 
 			const terminate = (signal: NodeJS.Signals): void => {
@@ -209,9 +229,10 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 				spawnError = err
 			})
 
-			proc.once('close', (code) => {
+			proc.once('close', (code, signal) => {
 				if (settled) return
 				settled = true
+				disposeCallerAbort?.()
 				if (deadline !== undefined) clearTimeout(deadline)
 				if (escalation !== undefined) {
 					clearTimeout(escalation)
@@ -223,12 +244,26 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 				this.activeCommands.delete(operation)
 				resolveClosed?.()
 				resolvePromise({
-					exitCode: spawnError === undefined ? (code ?? 1) : 1,
+					exitCode: spawnError === undefined ? code : 1,
 					stdout,
 					stderr: spawnError?.message ?? stderr,
 					durationMs: Math.round(performance.now() - start),
+					...(cancellation === undefined
+						? {}
+						: {
+								termination: {
+									origin: cancellation === 'deadline' ? ('timeout' as const) : cancellation,
+									admitted: true as const,
+									...(signal === null ? {} : { signal }),
+								},
+							}),
 				})
 			})
+
+			if (callerSignal !== undefined) {
+				disposeCallerAbort = subscribeToAbort(callerSignal, () => cancel('caller'))
+				if (callerSignal.aborted) cancel('caller')
+			}
 		})
 		return result
 	}
