@@ -198,12 +198,32 @@ async function submit(stdin: { write: (text: string) => void }, text: string): P
 	stdin.write('\r')
 }
 
+async function waitForComposerInput(harness: {
+	readonly stdin: { write: (text: string) => void }
+	lastFrame(): string | undefined
+}): Promise<void> {
+	const probe = 'composer-ready-probe'
+	const started = performance.now()
+	while (!(harness.lastFrame() ?? '').includes(probe) && performance.now() - started < 4_000) {
+		harness.stdin.write(probe)
+		await tick(250)
+	}
+	expect(harness.lastFrame()).toContain(probe)
+	// Ctrl+U clears every probe, including repeats sent before a busy render
+	// made the first accepted one visible.
+	harness.stdin.write('\u0015')
+	await waitFor(harness.lastFrame, 'Type a message')
+}
+
 it('exports raw model/tool history after /fork and /clear-screen, then refuses to overwrite it', async () => {
 	const ctx: TuiContext = { cwd: root, version: '0.0.0-test' }
 	const harness = render(<App ctx={ctx} />)
 	mounted = harness
 	await waitFor(harness.lastFrame, 'Type a message')
-	await tick(100)
+	// The ready frame can paint before Ink replaces the disabled input
+	// subscription from the preceding boot render. Prove the composer owns
+	// input instead of guessing how long that effect takes on a loaded runner.
+	await waitForComposerInput(harness)
 
 	await submit(harness.stdin, 'inspect this')
 	await waitFor(harness.lastFrame, 'inspect this')

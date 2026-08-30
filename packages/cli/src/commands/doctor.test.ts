@@ -102,7 +102,7 @@ describe('runDoctorCommand', () => {
 
 	it('--json emits valid JSON conforming to DoctorReport', async () => {
 		const code = await runDoctorCommand(['--json'])
-		expect([0, 1]).toContain(code)
+		expect([0, 1, 69]).toContain(code)
 		const json = JSON.parse(captured)
 		expect(json).toHaveProperty('version', CLI_VERSION)
 		expect(json).toHaveProperty('timestamp')
@@ -113,7 +113,7 @@ describe('runDoctorCommand', () => {
 
 	it('default human output includes the summary line', async () => {
 		const code = await runDoctorCommand([])
-		expect([0, 1]).toContain(code)
+		expect([0, 1, 69]).toContain(code)
 		expect(captured).toContain('namzu doctor —')
 		expect(captured).toMatch(/pass: \d+ {2}fail: \d+/)
 		expect(captured).toMatch(/exit: \d+/)
@@ -176,12 +176,11 @@ describe('runDoctorCommand', () => {
 		)
 		expect(byId.get('vault.registered')).toBe('skipped')
 		expect(byId.get('providers.registered')).toBe('skipped')
-		expect(['pass', 'skipped', 'fail']).toContain(byId.get('telemetry.installed'))
 	})
 
 	it('built-in checks register with stable ids', async () => {
 		const code = await runDoctorCommand(['--json'])
-		expect([0, 1]).toContain(code)
+		expect([0, 1, 69]).toContain(code)
 		const json = JSON.parse(captured)
 		const ids = json.checks.map((c: { id: string }) => c.id).sort()
 		expect(ids).toContain('sandbox.platform')

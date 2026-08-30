@@ -44,6 +44,7 @@ export type BidiEvent =
 	| { readonly type: 'audio'; readonly data: string; readonly mediaType: string }
 	| {
 			readonly type: 'tool_call'
+			/** Unique for the complete session; a duplicate is a protocol failure. */
 			readonly id: string
 			readonly name: string
 			/** JSON, as the model produced it. */
@@ -51,7 +52,11 @@ export type BidiEvent =
 	  }
 	/** The model finished a stretch of output and is waiting. */
 	| { readonly type: 'turn_complete' }
-	/** The human spoke over the model; anything in flight is now stale. */
+	/**
+	 * The human spoke over the model; work that has not started publishing a
+	 * result is now stale. This is not run cancellation: tool code keeps its
+	 * live signal so an irreversible side effect is not stopped halfway.
+	 */
 	| { readonly type: 'interrupted' }
 	| { readonly type: 'error'; readonly message: string }
 	| { readonly type: 'closed'; readonly reason?: string }
@@ -60,6 +65,10 @@ export interface BidiConnectParams {
 	readonly model: string
 	readonly system?: string
 	readonly tools?: readonly LLMToolSchema[]
+	/**
+	 * Lifetime of the host-owned run. A provider uses it for connection and
+	 * ongoing transport work; the host also invokes `close()` when it aborts.
+	 */
 	readonly signal?: AbortSignal
 }
 
@@ -72,9 +81,14 @@ export interface BidiSession {
 	 * Separate from {@link send} because it is not input from the human:
 	 * a driver has to attach it to the call it answers, and a session that
 	 * received it as ordinary input would have to guess.
+	 *
+	 * Atomically publish one result. Entering this call is the commit point:
+	 * a later conversational interruption cannot recall it. Resolve only after
+	 * the provider accepted the result; reject when it did not.
 	 */
 	sendToolResult(id: string, output: string, isError?: boolean): Promise<void>
 	events(): AsyncIterable<BidiEvent>
+	/** Stop the event stream and release provider resources. Called at most once. */
 	close(): Promise<void>
 }
 
@@ -106,7 +120,10 @@ export type BidiRunEvent =
 			readonly output: string
 			readonly isError: boolean
 	  }
-	/** A tool's answer was thrown away because the human interrupted. */
+	/**
+	 * A tool's answer was thrown away because the human interrupted before
+	 * publication began. The operation itself may have run to completion.
+	 */
 	| {
 			readonly type: 'tool_abandoned'
 			readonly runId: RunId

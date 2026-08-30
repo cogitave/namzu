@@ -293,7 +293,11 @@ export {
 	formatSteeringNote,
 } from './runtime/query/steering.js'
 export type { SteeringChannel } from './runtime/query/steering.js'
-export { createMockBidiProvider, startBidiRun } from './runtime/bidi/index.js'
+export {
+	BidiSessionCloseTimeoutError,
+	createMockBidiProvider,
+	startBidiRun,
+} from './runtime/bidi/index.js'
 export { PromptCache } from './runtime/query/prompt-cache.js'
 export {
 	CheckpointManager,
