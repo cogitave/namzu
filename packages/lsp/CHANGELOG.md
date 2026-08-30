@@ -1,5 +1,13 @@
 # @namzu/lsp
 
+## 0.3.1
+
+### Patch Changes
+
+- dd43d9f: Reject in-flight and future navigation calls immediately when a language
+  server's stdio transport closes after startup, while retaining ownership of
+  the child process for bounded disposal.
+
 ## 0.3.0
 
 ### Minor Changes

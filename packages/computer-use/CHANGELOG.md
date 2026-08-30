@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+
+### Minor Changes
+
+- 354b7a1: Ship and mount desktop computer use in the interactive CLI when its adapter
+  initializes, with the host lifetime owned by the agent session and no exposure
+  on unattended surfaces. WSL now targets the paired Windows desktop through
+  `powershell.exe` instead of misclassifying WSLg as a Linux compositor session.
+- 5854b4d: Expose a stable computer-use unknown-outcome contract and preserve it in tool results. A host can now report that a desktop action started without proving its final state, and models receive explicit unsafe-to-retry guidance plus structured action, timeout, and exit evidence.
+
+  Classify subprocess failures after click, drag, scroll, text-entry, and key actions as unknown outcomes. Consumers can catch `ComputerUseOutcomeUnknownError`; ordinary read failures, idempotent pointer moves, and process-start failures keep their existing error behavior.
+
 ## 1.3.0
 
 ### Minor Changes

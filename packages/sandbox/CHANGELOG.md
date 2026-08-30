@@ -1,5 +1,37 @@
 # @namzu/sandbox
 
+## 7.1.0
+
+### Minor Changes
+
+- 84d202d: Honor `SandboxExecOptions.signal` in the framed microVM backend through a
+  reserve-before-admission and idempotent cancellation protocol. Remote execution
+  now preserves streamed output and terminal signal/truncation metadata, refuses
+  malformed or trailing terminal frames, and confirms process-group quiescence
+  before a cancelled sandbox can be reused.
+
+  Reject delayed or partial data after the framed terminator, route the public
+  request-shaped microVM transport method through the same ownership controller,
+  evict terminal history before refusing live capacity, and retire rather than
+  signal a numeric process-group id after its leader exits. Teardown calls are
+  coalesced and Docker retirement now reports success only when removal succeeds;
+  credential-proxy cleanup still runs on removal failure.
+
+  Reserve every command on current HTTP and framed peers, including commands
+  without a caller signal. Explicitly detected older peers keep legacy no-signal
+  execution; an ambiguous legacy result or unconfirmed cancellation fences the
+  handle and retires the whole container, container group, or microVM.
+
+- 8943b5b: HTTP-container sandbox commands now honour `SandboxExecOptions.signal` through
+  an acknowledged execution lease and a separately bounded cancellation request.
+  Rebuild local worker images and publish a new standby-pool profile revision
+  before passing a signal; older workers are refused instead of leaving the
+  remote command running behind an aborted request. Calls without a signal keep
+  the legacy one-request protocol, and the framed microVM backend remains
+  unchanged. Stalled result observation is bounded, unconfirmed termination
+  retires the worker, and confirmed termination with incomplete output is
+  reported distinctly.
+
 ## 7.0.0
 
 ### Major Changes

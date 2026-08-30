@@ -1,5 +1,132 @@
 # Changelog
 
+## 33.0.0
+
+### Major Changes
+
+- 5591d35: Custom `ToolRegistryContract` implementations must add `prepareExecution` and
+  `executePrepared`. Decode and transform an input once, detach an immutable JSON
+  projection for authorization and review, retain a separate equivalent value,
+  and execute that preparation without parsing again. Tool schema transforms must
+  now return JSON-value graphs; mutable exotic values are refused. Durable tool
+  reviews also persist the prepared projection and authorization verdict so a
+  resumed approval cannot execute a changed or previously denied call.
+- 64f8040: Bound `LocalExecutionContext` command output to 4 MiB per stdout/stderr stream. The previous default retained unlimited output in memory. Consumers that require a larger result must set the new finite `maxOutputBytes` option, up to the 64 MiB per-stream hard ceiling.
+
+  `CommandResult` now exposes optional `stdoutTruncated` and `stderrTruncated` facts. The built-in local context always reports both booleans; absent flags from custom and remote executors remain unknown. Workspace fingerprinting refuses partial command results, while failed command gates name which diagnostic streams were truncated.
+
+  Hybrid configuration serialization now preserves its local `capabilities`, `shell`, and resolved `maxOutputBytes`. Consumers that deep-compare serialized Hybrid configs must account for those fields.
+
+- 07990a8: Make command cancellation and shutdown outcomes explicit. `CommandResult.exitCode`
+  is now `number | null`, and cancelled results may carry a discriminated
+  `termination` describing the first Namzu-owned cause, admission state, and
+  actual close signal. Consumers must handle a missing numeric exit and inspect
+  `termination` when they need to distinguish caller cancellation, timeout, and
+  teardown.
+
+  `CommandOptions.signal` is now reserved for `AbortSignal`; rename an unrelated
+  structural `signal` field before upgrading. Local execution owns accepted work
+  through process-group close. Generic remote executors reject every supplied
+  signal before invocation because their contract cannot prove remote quiescence;
+  use the sandbox execution contract for cancellable remote work.
+
+  Remote disconnect and teardown now reject while commands are active, and
+  `HybridExecutionContext.disconnectAllRemotes()` propagates disconnect failures.
+  Wait for active commands to settle and retry shutdown, and handle failures from
+  bulk disconnect instead of assuming it always resolves.
+
+- f1c368d: Make `startBidiRun()` own the complete duplex lifetime. Caller cancellation,
+  manual close and provider closure now fence local admission, abort active tool
+  contexts, close a late or active provider session once, and refuse duplicate
+  tool-call ids before a side effect can run twice.
+
+  **What breaks:** `BidiRun.close()` no longer waits for tool implementations
+  that ignore their cancellation signal, and provider cleanup now has a
+  five-second default bound. Set `closeTimeoutMs: 0` to retain the former
+  unbounded provider-close wait. Providers must treat entering
+  `sendToolResult()` as an atomic publication boundary and resolve it only after
+  the result was accepted.
+
+  The new `BidiSessionCloseTimeoutError` distinguishes a locally fenced run whose
+  provider cleanup could not be confirmed before the configured bound.
+
+- 0532eb5: HTTP MCP transports no longer follow redirects. Configure the final MCP
+  endpoint directly instead of a URL that returns a 3xx response. This is a
+  breaking security boundary: authenticated SSE requests, session headers and
+  JSON-RPC bodies now remain at the exact configured endpoint. A redirected
+  tool call is reported as an unknown remote outcome that must not be retried
+  automatically, because the configured server may already have applied it.
+
+### Minor Changes
+
+- 7ea6c6c: Preserve remote MCP rich-result provenance all the way to provider requests and
+  preflight image batches before model delivery. Invalid or MIME-mismatched image
+  containers remain exact in durable history and host data while the model sees a
+  diagnostic; `ModelContentOmission.reason` adds `invalid-image` for that state.
+- cf2e8d0: Make `ToolContext.dispatchTool` an invocation-owned capability: it is revoked when the parent tool settles or is abandoned, and already-started nested calls reach their terminal record before the parent completes. Runs with an `AuthorizationGate` now apply it to nested calls too; denials and calls requiring review fail closed with a durable refusal instead of bypassing operator policy.
+- b9c5b7c: Let task schedulers preserve an optional structured cancellation cause, and
+  make the blocking `Agent` delegation end with the run that launched it. Parent
+  cancellation now reaches both already-running tasks and tasks whose creation
+  finishes late; built-in local and foreign schedulers expose `parent` on the
+  child signal.
+
+  Make the interactive session own its subagent runtime so Stop, session
+  replacement and shutdown prevent late child tool work after the parent has
+  settled.
+
+- 6b49cdb: Add an argv-preserving remote command seam. Configure `RemoteExecutionContext` with `commandExecutor` (or call `setCommandExecutor`) and use `executeCommand(command, args, options)` so Namzu forwards argument boundaries without joining them into one string. `RemoteCommandHandler`, `commandHandler`, `setCommandHandler`, and `executeRemote(line, options)` are now deprecated; they remain compatible for this release and keep their existing joined-string behavior when no structured executor is configured.
+- 0f65d5e: Allow `SkillTool` calls without a name to page model-invocable skill metadata within `maxToolOutputChars`. Operator-only entries remain undisclosed, oversized entries produce one bounded warning, and continuation cursors become stale when the catalog or active cap changes. `SkillRegistryRef` gains an optional audience-safe `catalog()` capability; existing structural registries continue to support named skill loading and explicitly refuse list mode.
+- e1a7e69: Add the observational `run_interrupt` plugin hook for explicitly user-cancelled root runs. Every registered interrupt handler gets a bounded cleanup window before the durable cancellation event; one handler's skip, error, retry, or timeout no longer suppresses later interrupt observers.
+
+  Attribute interactive CLI turn interrupts to the public `user` cancellation cause so configured interrupt hooks run on both ordinary Stop actions and permission-prompt cancellation.
+
+- 8fcb248: Keep final tool results inside `maxToolOutputChars`, including hook replacements and diagnostics, expose the effective cap to tool implementations through `ToolContext.maxToolOutputChars`, and paginate long `SkillTool` instructions with policy-bound continuation cursors instead of irretrievably truncating their middle.
+- 5854b4d: Expose a stable computer-use unknown-outcome contract and preserve it in tool results. A host can now report that a desktop action started without proving its final state, and models receive explicit unsafe-to-retry guidance plus structured action, timeout, and exit evidence.
+
+  Classify subprocess failures after click, drag, scroll, text-entry, and key actions as unknown outcomes. Consumers can catch `ComputerUseOutcomeUnknownError`; ordinary read failures, idempotent pointer moves, and process-start failures keep their existing error behavior.
+
+- e3da442: Publish a model-owned reasoning-effort default alongside each exact menu and preserve it through retry, idle-timeout, and fallback decorators. Fallback chains expose a default only when every usable member agrees inside the common menu.
+
+  Add non-wrapping Shift+Up/Shift+Down and Alt+period/Alt+comma effort shortcuts to the interactive composer. An unset selection anchors at the provider-published default; unknown or disagreeing defaults require an explicit `/effort` choice.
+
+  Correct the subscription transport's model-specific effort contract. Recognized subscription models no longer offer or accept `none`, and only models whose current catalogue includes `ultra` accept it. Consumers that sent `none` to a recognized subscription model must omit effort or select one of the provider's published levels.
+
+### Patch Changes
+
+- 5e95792: Confine the Git workspace driver to its configured repository and managed worktree root. Persisted foreign paths, static symlink escapes, and mismatched branch metadata now fail before destructive Git operations; option-shaped base refs are passed as refs, and already-gone disposal is established from the repository registry rather than stderr wording.
+- 84d202d: Honor `SandboxExecOptions.signal` in the framed microVM backend through a
+  reserve-before-admission and idempotent cancellation protocol. Remote execution
+  now preserves streamed output and terminal signal/truncation metadata, refuses
+  malformed or trailing terminal frames, and confirms process-group quiescence
+  before a cancelled sandbox can be reused.
+
+  Reject delayed or partial data after the framed terminator, route the public
+  request-shaped microVM transport method through the same ownership controller,
+  evict terminal history before refusing live capacity, and retire rather than
+  signal a numeric process-group id after its leader exits. Teardown calls are
+  coalesced and Docker retirement now reports success only when removal succeeds;
+  credential-proxy cleanup still runs on removal failure.
+
+  Reserve every command on current HTTP and framed peers, including commands
+  without a caller signal. Explicitly detected older peers keep legacy no-signal
+  execution; an ambiguous legacy result or unconfirmed cancellation fences the
+  handle and retires the whole container, container group, or microVM.
+
+- 8943b5b: HTTP-container sandbox commands now honour `SandboxExecOptions.signal` through
+  an acknowledged execution lease and a separately bounded cancellation request.
+  Rebuild local worker images and publish a new standby-pool profile revision
+  before passing a signal; older workers are refused instead of leaving the
+  remote command running behind an aborted request. Calls without a signal keep
+  the legacy one-request protocol, and the framed microVM backend remains
+  unchanged. Stalled result observation is bounded, unconfirmed termination
+  retires the worker, and confirmed termination with incomplete output is
+  reported distinctly.
+- c7783a6: The SDK runtime and API are unchanged. Supported source-checkout test scripts now write into a run-owned temporary directory and, after ordinary child completion, remove that directory only when its filesystem identity still matches the one the runner created.
+- 8126a5a: Make execution-context lifecycle transitions single-owner and truthful. Concurrent initialization or teardown calls now share their active operation, teardown prevents a late initialization from restoring readiness, and cleanup failures emit an error without also announcing successful teardown. Hybrid contexts start local and remote cleanup together and surface child cleanup failures instead of silently discarding them.
+- 1a59f58: Keep local sandbox cancellation under the run's ownership until shared process output closes. The confined Linux tier now admits a command only after tracking its inner PID namespace, cancelling during wrapper startup or after wrapper exit terminates the complete process tree, and a later deadline no longer misreports a caller cancellation as a timeout.
+- 10c0434: Make local command deadlines and context teardown own the spawned process group until inherited output streams close. Descendants no longer keep timed-out commands or torn-down execution contexts alive after their direct parent exits.
+- eca824b: Retire MCP stdio connections immediately when their response stream ends, reject pending calls without waiting for the request deadline, and preserve ownership of a still-live server process through reconnect and teardown.
+
 ## 32.0.0
 
 ### Major Changes
