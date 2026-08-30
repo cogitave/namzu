@@ -144,7 +144,13 @@ describe.skipIf(process.platform === 'win32')('LocalExecutionContext command lif
 		if (!ordinaryObservation) throw new Error('ordinary spawn was not observed')
 		close(ordinaryObservation.child, 0)
 		const ordinaryResult = await ordinary
-		expect(ordinaryResult).toMatchObject({ exitCode: 0, stdout: '', stderr: '' })
+		expect(ordinaryResult).toMatchObject({
+			exitCode: 0,
+			stdout: '',
+			stderr: '',
+			stdoutTruncated: false,
+			stderrTruncated: false,
+		})
 		expect(ordinaryResult).not.toHaveProperty('termination')
 
 		const unbounded = context.executeCommand('unbounded', [], { timeoutMs: 0 })
@@ -169,9 +175,77 @@ describe.skipIf(process.platform === 'win32')('LocalExecutionContext command lif
 			exitCode: null,
 			stdout: '',
 			stderr: '',
+			stdoutTruncated: false,
+			stderrTruncated: false,
 			durationMs: 0,
 			termination: { origin: 'caller', admitted: false },
 		})
+	})
+
+	it('bounds stdout and stderr independently and reports only the stream that lost bytes', async () => {
+		const LocalExecutionContext = await loadLocalExecutionContext()
+		const context = new LocalExecutionContext({
+			id: 'bounded-output',
+			cwd: process.cwd(),
+			maxOutputBytes: 6,
+		})
+
+		const running = context.executeCommand('chatty', [], { timeoutMs: 0 })
+		const observation = observations[0]
+		expect(observation).toBeDefined()
+		if (!observation) throw new Error('spawn was not observed')
+		observation.child.stdout.write(Buffer.from('0123'))
+		observation.child.stdout.write(Buffer.from('456789'))
+		observation.child.stderr.write(Buffer.from('abcdef'))
+		close(observation.child, 1)
+
+		await expect(running).resolves.toMatchObject({
+			exitCode: 1,
+			stdout: '456789',
+			stderr: 'abcdef',
+			stdoutTruncated: true,
+			stderrTruncated: false,
+		})
+	})
+
+	it('composes a spawn error through the same bounded stderr collector', async () => {
+		const LocalExecutionContext = await loadLocalExecutionContext()
+		const context = new LocalExecutionContext({
+			id: 'bounded-spawn-error',
+			cwd: process.cwd(),
+			maxOutputBytes: 16,
+		})
+
+		const running = context.executeCommand('missing', [], { timeoutMs: 0 })
+		const observation = observations[0]
+		expect(observation).toBeDefined()
+		if (!observation) throw new Error('spawn was not observed')
+		observation.child.stderr.write(Buffer.from('old diagnostics'))
+		observation.child.emit('error', new Error('spawn failed'))
+		close(observation.child, -2)
+
+		const result = await running
+		expect(result.exitCode).toBe(1)
+		expect(result.stderr).toBe('ics\nspawn failed')
+		expect(Buffer.byteLength(result.stderr, 'utf8')).toBeLessThanOrEqual(16)
+		expect(result.stderrTruncated).toBe(true)
+		expect(result.stdoutTruncated).toBe(false)
+	})
+
+	it('returns explicit non-truncation facts when capability policy refuses admission', async () => {
+		const LocalExecutionContext = await loadLocalExecutionContext()
+		const context = new LocalExecutionContext({
+			id: 'no-process',
+			cwd: process.cwd(),
+			capabilities: ['filesystem'],
+		})
+
+		await expect(context.executeCommand('never')).resolves.toMatchObject({
+			exitCode: 1,
+			stdoutTruncated: false,
+			stderrTruncated: false,
+		})
+		expect(observations).toEqual([])
 	})
 
 	it('owns caller cancellation through close and records the actual close signal', async () => {
@@ -368,7 +442,12 @@ describe.skipIf(process.platform === 'win32')('LocalExecutionContext command lif
 		expect(settled).toBe(0)
 
 		close(observation.child, -2)
-		await expect(running).resolves.toMatchObject({ exitCode: 1, stderr: 'spawn failed' })
+		await expect(running).resolves.toMatchObject({
+			exitCode: 1,
+			stderr: 'spawn failed',
+			stdoutTruncated: false,
+			stderrTruncated: false,
+		})
 		expect(settled).toBe(1)
 	})
 })

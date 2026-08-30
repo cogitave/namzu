@@ -150,6 +150,24 @@ describe('when it cannot tell', () => {
 		expect(await fingerprint({ maxBytes: 64 })).toBeNull()
 	})
 
+	it.each(['stdoutTruncated', 'stderrTruncated'] as const)(
+		'returns null when git reports %s even if its retained text is short',
+		async (flag) => {
+			const fp = await fingerprintWorkspace({
+				cwd: dir,
+				exec: async (): Promise<CommandResult> => ({
+					exitCode: 0,
+					stdout: '',
+					stderr: '',
+					durationMs: 1,
+					[flag]: true,
+				}),
+			})
+
+			expect(fp).toBeNull()
+		},
+	)
+
 	it('returns null when git cannot be run at all', async () => {
 		const fp = await fingerprintWorkspace({
 			cwd: dir,

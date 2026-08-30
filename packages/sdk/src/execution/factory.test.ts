@@ -27,10 +27,12 @@ describe('ExecutionContextFactory', () => {
 			environment: 'local',
 			cwd: '/tmp',
 			fsAccess: true,
+			maxOutputBytes: 31,
 		})
 		expect(ctx).toBeInstanceOf(LocalExecutionContext)
 		expect(ctx.id).toBe('c1')
 		expect(ctx.environment).toBe('local')
+		expect((ctx as LocalExecutionContext).toConfig().maxOutputBytes).toBe(31)
 	})
 
 	it('creates a RemoteExecutionContext for environment: remote', () => {
@@ -47,11 +49,22 @@ describe('ExecutionContextFactory', () => {
 		const ctx = ExecutionContextFactory.create({
 			id: 'c3',
 			environment: 'hybrid',
-			local: { cwd: '/tmp', fsAccess: true },
+			local: {
+				cwd: '/tmp',
+				fsAccess: true,
+				capabilities: ['process'],
+				shell: '/bin/sh',
+				maxOutputBytes: 37,
+			},
 			remotes: [{ type: 'ssh', host: 'r1.example.com' }],
 		})
 		expect(ctx).toBeInstanceOf(HybridExecutionContext)
 		expect(ctx.environment).toBe('hybrid')
+		expect((ctx as HybridExecutionContext).getLocal().toConfig()).toMatchObject({
+			capabilities: ['process'],
+			shell: '/bin/sh',
+			maxOutputBytes: 37,
+		})
 	})
 
 	it('createLocal / createRemote / createHybrid return the right subclass', () => {
@@ -72,4 +85,52 @@ describe('ExecutionContextFactory', () => {
 			}),
 		).toBeInstanceOf(HybridExecutionContext)
 	})
+
+	it('materializes the local default and preserves it through config and Factory', () => {
+		const original = ExecutionContextFactory.createLocal({ id: 'local-round-trip', cwd: '/tmp' })
+		const config = original.toConfig()
+
+		expect(config.maxOutputBytes).toBe(4 * 1024 * 1024)
+		const restored = ExecutionContextFactory.create(config)
+		expect(restored).toBeInstanceOf(LocalExecutionContext)
+		expect((restored as LocalExecutionContext).toConfig()).toEqual(config)
+	})
+
+	it('preserves every local child option through a Hybrid config round trip', () => {
+		const original = ExecutionContextFactory.createHybrid({
+			id: 'hybrid-round-trip',
+			local: {
+				cwd: '/tmp',
+				fsAccess: false,
+				envVars: { NAMZU_ROUND_TRIP: 'yes' },
+				capabilities: ['filesystem', 'process'],
+				shell: '/bin/sh',
+				maxOutputBytes: 41,
+			},
+			remotes: [],
+			routingStrategy: 'round-robin',
+		})
+		const config = original.toConfig()
+
+		expect(config.local).toEqual({
+			cwd: '/tmp',
+			fsAccess: false,
+			envVars: { NAMZU_ROUND_TRIP: 'yes' },
+			capabilities: ['filesystem', 'process'],
+			shell: '/bin/sh',
+			maxOutputBytes: 41,
+		})
+		const restored = ExecutionContextFactory.create(config)
+		expect(restored).toBeInstanceOf(HybridExecutionContext)
+		expect((restored as HybridExecutionContext).toConfig()).toEqual(config)
+	})
+
+	it.each([0, -1, 64 * 1024 * 1024 + 1, Number.MAX_SAFE_INTEGER + 1])(
+		'refuses an unsafe local maxOutputBytes value (%s)',
+		(maxOutputBytes) => {
+			expect(
+				() => new LocalExecutionContext({ id: 'invalid-cap', cwd: '/tmp', maxOutputBytes }),
+			).toThrow(RangeError)
+		},
+	)
 })

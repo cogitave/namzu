@@ -21,6 +21,7 @@ export interface HybridExecutionContextOptions {
 		envVars?: Record<string, string>
 		capabilities?: ExecutionCapability[]
 		shell?: string
+		maxOutputBytes?: number
 	}
 	remotes: RemoteTarget[]
 	routingStrategy?: ExecutionRoutingStrategy
@@ -51,6 +52,7 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 			envVars: options.local.envVars,
 			capabilities: options.local.capabilities,
 			shell: options.local.shell,
+			maxOutputBytes: options.local.maxOutputBytes,
 			log: options.log,
 		})
 
@@ -199,13 +201,17 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 	}
 
 	toConfig(): HybridExecutionContextConfig {
+		const local = this.localCtx.toConfig()
 		return {
 			id: this.id,
 			environment: 'hybrid',
 			local: {
-				cwd: this.localCtx.getCwd(),
-				fsAccess: this.localCtx.hasFsAccess(),
-				envVars: this.localCtx.getEnvVars(),
+				cwd: local.cwd,
+				fsAccess: local.fsAccess,
+				envVars: local.envVars,
+				capabilities: local.capabilities,
+				shell: local.shell,
+				maxOutputBytes: local.maxOutputBytes,
 			},
 			remotes: this.remoteTargets.map((t) => ({ ...t })),
 			routingStrategy: this.routingStrategy,

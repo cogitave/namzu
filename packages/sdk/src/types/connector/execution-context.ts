@@ -34,6 +34,8 @@ export interface LocalExecutionContextConfig extends ExecutionContextBase {
 	fsAccess: boolean
 	envVars?: Record<string, string>
 	shell?: string
+	/** Retained bytes per stdout/stderr stream. Defaults to 4 MiB; maximum 64 MiB. */
+	maxOutputBytes?: number
 }
 
 export interface RemoteExecutionContextConfig extends ExecutionContextBase {

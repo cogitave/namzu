@@ -130,6 +130,17 @@ function failureFeedback(
 	maxOutputChars: number,
 ): string {
 	const output = clipOutput(`${result.stdout}\n${result.stderr}`, maxOutputChars)
+	const truncatedStreams = [
+		result.stdoutTruncated === true ? 'stdout' : undefined,
+		result.stderrTruncated === true ? 'stderr' : undefined,
+	].filter((stream): stream is string => stream !== undefined)
+	const truncationWarning =
+		truncatedStreams.length === 0
+			? []
+			: [
+					'',
+					`Retained output is incomplete: ${truncatedStreams.join(' and ')} ${truncatedStreams.length === 1 ? 'was' : 'were'} truncated by the execution context. Re-run with a narrower command or filter to recover the missing diagnostics.`,
+				]
 	return [
 		`The answer was not accepted: \`${command}\` failed (attempt ${attempt}, exit ${result.exitCode}).`,
 		'',
@@ -137,6 +148,7 @@ function failureFeedback(
 		'```',
 		output || '(no output)',
 		'```',
+		...truncationWarning,
 		'',
 		'Fix the cause and then finish. Do not restate the failure back to me; change the code so the command passes.',
 	].join('\n')

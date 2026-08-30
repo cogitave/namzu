@@ -47,6 +47,10 @@ export interface CommandResult {
 	exitCode: number | null
 	stdout: string
 	stderr: string
+	/** Whether the executor retained only part of stdout. Absent means unknown. */
+	stdoutTruncated?: boolean
+	/** Whether the executor retained only part of stderr. Absent means unknown. */
+	stderrTruncated?: boolean
 	durationMs: number
 	/** Present only when Namzu requested termination or refused pre-aborted admission. */
 	termination?: CommandTermination

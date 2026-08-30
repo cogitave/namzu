@@ -41,10 +41,10 @@
  * told to edit something it had already edited.
  *
  * So: a non-zero exit from any git invocation, a repository with no commits,
- * a timeout, or output past the size cap all produce `null` rather than a
- * partial hash. A truncated diff that hashed successfully would be the worst
- * outcome available here, because two different workspaces truncated at the
- * same point collide.
+ * a timeout, an executor-reported truncated stream, or output past the size
+ * cap all produce `null` rather than a partial hash. A truncated diff that
+ * hashed successfully would be the worst outcome available here, because two
+ * different workspaces truncated at the same point collide.
  */
 
 import { createHash } from 'node:crypto'
@@ -156,6 +156,7 @@ export async function fingerprintWorkspace(
 		// repository" and "no commits yet". All three mean the same thing to
 		// this function: it has no basis for a comparison.
 		if (result.exitCode !== 0) return null
+		if (result.stdoutTruncated === true || result.stderrTruncated === true) return null
 		if (Buffer.byteLength(result.stdout, 'utf8') > maxBytes) return null
 		return result.stdout
 	}

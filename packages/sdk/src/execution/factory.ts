@@ -15,6 +15,7 @@ export class ExecutionContextFactory {
 					envVars: config.envVars,
 					capabilities: config.capabilities,
 					shell: config.shell,
+					maxOutputBytes: config.maxOutputBytes,
 				})
 
 			case 'remote':

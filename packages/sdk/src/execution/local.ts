@@ -13,9 +13,12 @@ import type {
 import { subscribeToAbort } from '../utils/abort.js'
 import type { Logger } from '../utils/logger.js'
 import { BaseExecutionContext } from './base.js'
+import { BoundedTailCapture } from './output.js'
 
 const LOCAL_COMMAND_DEFAULT_TIMEOUT_MS = 30_000
 const LOCAL_COMMAND_KILL_GRACE_MS = 3_000
+const LOCAL_COMMAND_DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024
+const LOCAL_COMMAND_HARD_MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 
 type LocalCommandCancellation = 'caller' | 'deadline' | 'teardown'
 
@@ -31,6 +34,8 @@ export interface LocalExecutionContextOptions {
 	envVars?: Record<string, string>
 	capabilities?: ExecutionCapability[]
 	shell?: string
+	/** Retained bytes per stdout/stderr stream. Defaults to 4 MiB; maximum 64 MiB. */
+	maxOutputBytes?: number
 	log?: Logger
 }
 
@@ -43,6 +48,7 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 	private envVars: Record<string, string>
 	private capabilities: ExecutionCapability[]
 	private shell: string | undefined
+	private maxOutputBytes: number
 	/**
 	 * Constructor-created contexts are intentionally executable before
 	 * `initialize()`: `createCommandGate()` has always used that public path.
@@ -59,6 +65,17 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 		this.envVars = options.envVars ?? {}
 		this.capabilities = options.capabilities ?? ['filesystem', 'process', 'shell']
 		this.shell = options.shell
+		const maxOutputBytes = options.maxOutputBytes ?? LOCAL_COMMAND_DEFAULT_MAX_OUTPUT_BYTES
+		if (
+			!Number.isSafeInteger(maxOutputBytes) ||
+			maxOutputBytes <= 0 ||
+			maxOutputBytes > LOCAL_COMMAND_HARD_MAX_OUTPUT_BYTES
+		) {
+			throw new RangeError(
+				`The value of "maxOutputBytes" is out of range. It must be a positive safe integer no greater than ${LOCAL_COMMAND_HARD_MAX_OUTPUT_BYTES}. Received ${maxOutputBytes}`,
+			)
+		}
+		this.maxOutputBytes = maxOutputBytes
 	}
 
 	protected async doInitialize(): Promise<void> {
@@ -137,6 +154,8 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 				exitCode: 1,
 				stdout: '',
 				stderr: 'Command execution not available: context lacks process/shell capability',
+				stdoutTruncated: false,
+				stderrTruncated: false,
 				durationMs: 0,
 			}
 		}
@@ -161,6 +180,8 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 				exitCode: null,
 				stdout: '',
 				stderr: '',
+				stdoutTruncated: false,
+				stderrTruncated: false,
 				durationMs: 0,
 				termination: { origin: 'caller', admitted: false },
 			}
@@ -179,8 +200,8 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 				detached: process.platform !== 'win32',
 			})
 
-			let stdout = ''
-			let stderr = ''
+			const stdout = new BoundedTailCapture(this.maxOutputBytes)
+			const stderr = new BoundedTailCapture(this.maxOutputBytes)
 			let spawnError: Error | undefined
 			let cancellation: LocalCommandCancellation | undefined
 			let escalation: ReturnType<typeof setTimeout> | undefined
@@ -215,11 +236,11 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 			}
 
 			proc.stdout?.on('data', (data: Buffer) => {
-				stdout += data.toString()
+				stdout.push(data)
 			})
 
 			proc.stderr?.on('data', (data: Buffer) => {
-				stderr += data.toString()
+				stderr.push(data)
 			})
 
 			proc.once('error', (err) => {
@@ -243,10 +264,16 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 				}
 				this.activeCommands.delete(operation)
 				resolveClosed?.()
+				if (spawnError !== undefined) {
+					if (stderr.retainedBytes > 0) stderr.push(Buffer.from('\n'))
+					stderr.push(Buffer.from(spawnError.message))
+				}
 				resolvePromise({
 					exitCode: spawnError === undefined ? code : 1,
-					stdout,
-					stderr: spawnError?.message ?? stderr,
+					stdout: stdout.text,
+					stderr: stderr.text,
+					stdoutTruncated: stdout.truncated,
+					stderrTruncated: stderr.truncated,
 					durationMs: Math.round(performance.now() - start),
 					...(cancellation === undefined
 						? {}
@@ -277,6 +304,7 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 			envVars: this.envVars,
 			capabilities: this.capabilities,
 			shell: this.shell,
+			maxOutputBytes: this.maxOutputBytes,
 		}
 	}
 }

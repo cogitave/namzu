@@ -79,6 +79,18 @@ describe('a gate whose command passes', () => {
 		// handing the model both invites it to fix the symptom.
 		expect(exec).toHaveBeenCalledTimes(1)
 	})
+
+	it('accepts a successful command even when its unused diagnostic output was truncated', async () => {
+		const gate = createCommandGate({
+			commands: ['pnpm test'],
+			cwd: '/w',
+			exec: async () =>
+				result({ stdoutTruncated: true, stderrTruncated: true, stdout: 'unused diagnostics' }),
+			fingerprint: tree().fingerprint,
+		})
+
+		await expect(reviewed(gate)).resolves.toEqual({ accept: true })
+	})
 })
 
 describe('an answer that changed nothing', () => {
@@ -265,6 +277,34 @@ describe('what the model is told', () => {
 
 	it('leaves a short output alone', () => {
 		expect(clipOutput('  all good\n\n', 100)).toBe('  all good')
+	})
+
+	it.each([
+		{ stdoutTruncated: true, stderrTruncated: false, named: 'stdout', verb: 'was' },
+		{ stdoutTruncated: false, stderrTruncated: true, named: 'stderr', verb: 'was' },
+		{ stdoutTruncated: true, stderrTruncated: true, named: 'stdout and stderr', verb: 'were' },
+	])('names truncated $named after the clipped failure excerpt', async (flags) => {
+		const gate = createCommandGate({
+			commands: ['pnpm test'],
+			cwd: '/w',
+			maxOutputChars: 8,
+			exec: async () =>
+				result({
+					exitCode: 1,
+					stdout: 'a very long stdout diagnostic',
+					stderr: 'a very long stderr diagnostic',
+					stdoutTruncated: flags.stdoutTruncated,
+					stderrTruncated: flags.stderrTruncated,
+				}),
+			fingerprint: tree().fingerprint,
+		})
+
+		const review = await reviewed(gate)
+		if (review.accept) throw new Error('unreachable')
+		const closingFence = review.feedback.indexOf('```', review.feedback.indexOf('```') + 3)
+		const warning = `Retained output is incomplete: ${flags.named} ${flags.verb} truncated`
+		expect(review.feedback).toContain(warning)
+		expect(review.feedback.indexOf(warning)).toBeGreaterThan(closingFence)
 	})
 })
 

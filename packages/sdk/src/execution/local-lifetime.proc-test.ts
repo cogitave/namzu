@@ -58,6 +58,28 @@ async function waitUntil(predicate: () => boolean, timeoutMs: number): Promise<v
 describe.skipIf(process.platform === 'win32')(
 	'LocalExecutionContext real process ownership',
 	() => {
+		it('bounds both real stdio streams while retaining their diagnostic tails', async () => {
+			const dir = tempDir()
+			const context = new LocalExecutionContext({
+				id: 'bounded-real-output',
+				cwd: dir,
+				maxOutputBytes: 8,
+			})
+
+			const result = await context.executeCommand(process.execPath, [
+				'-e',
+				"process.stdout.write('stdout-head-TAIL'); process.stderr.write('stderr-head-END!')",
+			])
+
+			expect(result).toMatchObject({
+				exitCode: 0,
+				stdout: 'ead-TAIL',
+				stderr: 'ead-END!',
+				stdoutTruncated: true,
+				stderrTruncated: true,
+			})
+		}, 10_000)
+
 		it('ends a descendant which holds inherited pipes after its direct parent exits', async () => {
 			const dir = tempDir()
 			const processToken = token('deadline')
