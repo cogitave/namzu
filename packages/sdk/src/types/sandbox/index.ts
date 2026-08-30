@@ -141,8 +141,10 @@ export interface SandboxExecOptions {
 		readonly data: string
 	}) => void
 	/**
-	 * Cancellation for the command. A backend that honours it kills the
-	 * process; one that does not simply ignores it, so this is additive.
+	 * Cancellation for the command. A backend that accepts it must terminate
+	 * the owned process or prove that admission never happened. A backend that
+	 * cannot make that guarantee must refuse before admission; silently
+	 * ignoring the signal is not a compliant implementation.
 	 *
 	 * Without it a Stop (or a per-tool deadline) could only ever abandon
 	 * the *wait* — the sandboxed process kept running after the host
@@ -151,15 +153,14 @@ export interface SandboxExecOptions {
 	 * **Who honours it.** The in-process local sandbox does: the signal is
 	 * merged with the call's own deadline and reaches `spawn`, so the process
 	 * group dies. The HTTP-container backends in `@namzu/sandbox` also do: a
-	 * current worker reserves an execution before admission and confirms its
-	 * cancellation over a separate control request. Their older worker images
-	 * are refused when this option is present, because aborting only the HTTP
-	 * request would abandon the wait and leave the command running. The framed
-	 * microVM backend still has no cancel operation and therefore ignores the
-	 * signal rather than wearing that false appearance of support.
+	 * current peer reserves an execution before admission and confirms its
+	 * cancellation over a separate control request. Older worker and microVM
+	 * images are refused when this option is present, because aborting only the HTTP
+	 * or framed data request would abandon the wait and leave the command
+	 * running.
 	 *
-	 * Passing it is therefore always safe and never harmful; whether it takes
-	 * effect depends on the backend.
+	 * Every backend shipped by Namzu therefore either enforces the signal or
+	 * returns an explicit unsupported error before running the command.
 	 */
 	readonly signal?: AbortSignal
 }

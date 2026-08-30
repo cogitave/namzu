@@ -25,7 +25,7 @@ import { type TLSSocket, type Server as TlsServer, createServer as createTlsServ
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { VsockAgentTransport } from '../transport.js'
+import { VsockAgentTransport, __framing } from '../transport.js'
 
 // The agent is a CommonJS module that reads NAMZU_SANDBOX_WORKSPACE at
 // require-time. Set the env, then require it through createRequire so
@@ -46,6 +46,8 @@ interface AgentModule {
 	handleConnection(socket: Socket): void
 }
 
+const EXECUTION_ID = 'exec_00000000-0000-4000-8000-000000000001'
+
 let workDir: string
 let sockPath: string
 let server: Server | undefined
@@ -59,11 +61,48 @@ function startAgentServer(connHandler: (s: Socket) => void): Promise<Server> {
 	})
 }
 
+function startExecutionPeer(replyToExecute: (socket: Socket) => void): Promise<Server> {
+	return startAgentServer((socket) => {
+		const reader = new __framing.FrameReader()
+		socket.on('data', (chunk: Buffer) => {
+			const payload = reader.push(chunk)[0]
+			if (payload === undefined) return
+			const request = JSON.parse(payload) as { op?: string }
+			if (request.op === 'reserve-execution') {
+				socket.end(
+					__framing.frame(
+						JSON.stringify({
+							ok: true,
+							protocolVersion: 2,
+							executionId: EXECUTION_ID,
+							leaseExpiresAt: Date.now() + 30_000,
+						}),
+					),
+				)
+				return
+			}
+			if (request.op === 'execute') {
+				replyToExecute(socket)
+				return
+			}
+			if (request.op === 'cancel-execution') {
+				socket.end(
+					__framing.frame(JSON.stringify({ ok: true, state: 'cancelled', started: false })),
+				)
+				return
+			}
+			socket.end(__framing.frame(JSON.stringify({ ok: false, error: 'unexpected_op' })))
+		})
+	})
+}
+
 beforeEach(() => {
 	workDir = mkdtempSync(join(tmpdir(), 'fc-agent-test-'))
 	sockPath = localIpcPath(workDir)
 	// Bind the agent's workspace jail to the temp dir BEFORE requiring it.
 	process.env.NAMZU_SANDBOX_WORKSPACE = workDir
+	process.env.NAMZU_AGENT_CANCEL_GRACE_MS = '50'
+	process.env.NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS = '1000'
 	// The agent's root-normalization filters env on PRESENCE; `= undefined`
 	// sets the literal string "undefined" and would widen READ/WRITE_ROOTS, so
 	// these must be true deletes.
@@ -82,12 +121,21 @@ afterEach(async () => {
 		server = undefined
 	}
 	rmSync(workDir, { recursive: true, force: true })
+	// biome-ignore lint/performance/noDelete: restore module-level test configuration.
+	delete process.env.NAMZU_AGENT_CANCEL_GRACE_MS
+	// biome-ignore lint/performance/noDelete: restore module-level test configuration.
+	delete process.env.NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS
+	// biome-ignore lint/performance/noDelete: restore module-level test configuration.
+	delete process.env.NAMZU_AGENT_MAX_TRACKED_EXECUTIONS
 })
 
 describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback agent', () => {
 	it('streams stdout/stderr/result NDJSON from an exec', async () => {
 		server = await startAgentServer(agent.handleConnection)
-		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
 
 		const r = await transport.execute({
 			command: '/bin/sh',
@@ -102,7 +150,10 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 
 	it('streams a large multi-chunk stdout intact (delta accumulation)', async () => {
 		server = await startAgentServer(agent.handleConnection)
-		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
 
 		// 200 lines so the agent emits multiple stdout_delta frames the
 		// FrameReader must reassemble across socket chunks.
@@ -117,9 +168,57 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		expect(lines[199]).toBe('line-200')
 	})
 
+	it('cancels the owned process group over a fresh control connection and emits no late mutation', async () => {
+		let connections = 0
+		server = await startAgentServer((socket) => {
+			connections += 1
+			agent.handleConnection(socket)
+		})
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
+		const caller = new AbortController()
+		let observedReady: (() => void) | undefined
+		const ready = new Promise<void>((resolve) => {
+			observedReady = resolve
+		})
+
+		const running = transport.execute(
+			{
+				command: '/bin/sh',
+				args: [
+					'-c',
+					"trap '' TERM; (trap '' TERM; sleep 0.4; printf late > late.txt) & echo ready; wait",
+				],
+			},
+			{
+				signal: caller.signal,
+				onOutput: (chunk) => {
+					if (chunk.stream === 'stdout' && chunk.data.includes('ready')) observedReady?.()
+				},
+			},
+		)
+		await ready
+		caller.abort(new Error('operator cancelled'))
+
+		await expect(running).resolves.toMatchObject({
+			signal: 'SIGKILL',
+			timedOut: false,
+		})
+		// Reservation, data-plane execute and cancellation each own a fresh
+		// connection; cancellation never depends on the stream it interrupts.
+		expect(connections).toBe(3)
+		await new Promise((resolve) => setTimeout(resolve, 500))
+		await expect(transport.readFile('late.txt')).rejects.toThrow()
+	})
+
 	it('round-trips writeFile/readFile as base64 through the workspace jail', async () => {
 		server = await startAgentServer(agent.handleConnection)
-		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
 
 		// Binary content (non-UTF8 bytes) proves base64 fidelity, not
 		// just text.
@@ -131,13 +230,19 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 
 	it('rejects a path that escapes the workspace jail', async () => {
 		server = await startAgentServer(agent.handleConnection)
-		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
 		await expect(transport.readFile('../../../../etc/passwd')).rejects.toThrow(/escapes/)
 	})
 
 	it('healthz returns true against a live agent', async () => {
 		server = await startAgentServer(agent.handleConnection)
-		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
 		expect(await transport.healthz()).toBe(true)
 	})
 
@@ -169,9 +274,150 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 
 	it('surfaces an exec error event as a thrown error', async () => {
 		server = await startAgentServer(agent.handleConnection)
-		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
 		// Empty command name → agent emits { type: 'error' }.
 		await expect(transport.execute({ command: '' })).rejects.toThrow()
+	})
+
+	it('rejects a result whose framed stream closes without its terminator', async () => {
+		server = await startExecutionPeer((socket) => {
+			socket.end(
+				__framing.frame(
+					JSON.stringify({
+						type: 'result',
+						exitCode: 0,
+						timedOut: false,
+						durationMs: 1,
+					}),
+				),
+			)
+		})
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
+
+		await expect(transport.execute({ command: 'true' })).rejects.toThrow(
+			/before exec stream terminator/,
+		)
+	})
+
+	it('rejects trailing frames in the same batch after the stream terminator', async () => {
+		server = await startExecutionPeer((socket) => {
+			socket.end(
+				Buffer.concat([
+					__framing.frame(
+						JSON.stringify({
+							type: 'result',
+							exitCode: 0,
+							timedOut: false,
+							durationMs: 1,
+						}),
+					),
+					__framing.frame(''),
+					__framing.frame(JSON.stringify({ type: 'stdout_delta', data: 'late' })),
+				]),
+			)
+		})
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
+
+		await expect(transport.execute({ command: 'true' })).rejects.toThrow(/after its terminator/)
+	})
+
+	it('rejects a delayed frame after the stream terminator', async () => {
+		server = await startExecutionPeer((socket) => {
+			socket.write(
+				Buffer.concat([
+					__framing.frame(
+						JSON.stringify({
+							type: 'result',
+							exitCode: 0,
+							timedOut: false,
+							durationMs: 1,
+						}),
+					),
+					__framing.frame(''),
+				]),
+			)
+			setTimeout(
+				() => socket.end(__framing.frame(JSON.stringify({ type: 'stdout_delta', data: 'late' }))),
+				20,
+			)
+		})
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
+
+		await expect(transport.execute({ command: 'true' })).rejects.toThrow(/after its terminator/)
+	})
+
+	it('rejects a partial trailing frame after the stream terminator', async () => {
+		server = await startExecutionPeer((socket) => {
+			socket.end(
+				Buffer.concat([
+					__framing.frame(
+						JSON.stringify({
+							type: 'result',
+							exitCode: 0,
+							timedOut: false,
+							durationMs: 1,
+						}),
+					),
+					__framing.frame(''),
+					Buffer.from('0000'),
+				]),
+			)
+		})
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
+
+		await expect(transport.execute({ command: 'true' })).rejects.toThrow(/trailing partial data/)
+	})
+
+	it('rejects multiple control response frames', async () => {
+		server = await startAgentServer((socket) => {
+			socket.once('data', () => {
+				socket.end(
+					Buffer.concat([
+						__framing.frame(JSON.stringify({ ok: true })),
+						__framing.frame(JSON.stringify({ ok: true })),
+					]),
+				)
+			})
+		})
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
+
+		await expect(transport.request({ op: 'healthz' })).rejects.toThrow(/multiple frames/)
+	})
+
+	it('evicts terminal execution history before refusing a sequential command', async () => {
+		process.env.NAMZU_AGENT_MAX_TRACKED_EXECUTIONS = '1'
+		delete require_.cache[require_.resolve('../../../../agent/agent.cjs')]
+		agent = require_('../../../../agent/agent.cjs') as AgentModule
+		server = await startAgentServer(agent.handleConnection)
+		const transport = new VsockAgentTransport({
+			kind: 'unix',
+			path: sockPath,
+		})
+
+		await expect(transport.exec('/bin/sh', ['-c', 'printf first'])).resolves.toMatchObject({
+			stdout: 'first',
+		})
+		await expect(transport.exec('/bin/sh', ['-c', 'printf second'])).resolves.toMatchObject({
+			stdout: 'second',
+		})
 	})
 
 	it('survives a simulated resume: server torn down then re-listened, dialer reconnects', async () => {
@@ -180,9 +426,16 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		const transport = new VsockAgentTransport(
 			{ kind: 'unix', path: sockPath },
 			// Tight retry budget so the test is fast but still proves retry.
-			{ connectRetryBudgetMs: 5_000, connectRetryIntervalMs: 50, connectTimeoutMs: 1_000 },
+			{
+				connectRetryBudgetMs: 5_000,
+				connectRetryIntervalMs: 50,
+				connectTimeoutMs: 1_000,
+			},
 		)
-		const first = await transport.execute({ command: '/bin/sh', args: ['-c', 'echo before'] })
+		const first = await transport.execute({
+			command: '/bin/sh',
+			args: ['-c', 'echo before'],
+		})
 		expect(first.stdout).toContain('before')
 
 		// 2. Simulate a resume: the FC vsock driver closes all connections
@@ -195,7 +448,10 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		//    connect-retry budget must hold (ECONNREFUSED) until the agent
 		//    re-listens — this is the FC #4713 / TRANSPORT_RESET-not-
 		//    delivered mitigation: the host re-dials rather than hanging.
-		const pending = transport.execute({ command: '/bin/sh', args: ['-c', 'echo after'] })
+		const pending = transport.execute({
+			command: '/bin/sh',
+			args: ['-c', 'echo after'],
+		})
 
 		// 4. After a beat, the agent re-establishes its listen on the SAME
 		//    address (the resume re-listen invariant).
@@ -212,7 +468,11 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		// and throw a descriptive error rather than hang forever.
 		const transport = new VsockAgentTransport(
 			{ kind: 'unix', path: sockPath },
-			{ connectRetryBudgetMs: 400, connectRetryIntervalMs: 50, connectTimeoutMs: 200 },
+			{
+				connectRetryBudgetMs: 400,
+				connectRetryIntervalMs: 50,
+				connectTimeoutMs: 200,
+			},
 		)
 		await expect(transport.healthz()).resolves.toBe(false)
 		await expect(transport.readFile('x')).rejects.toThrow(/could not connect to agent/)
@@ -456,6 +716,40 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport mtls arm over a TLS loopback re
 		expect(await transport.healthz()).toBe(true)
 	})
 
+	it('owns mTLS cancellation across separate authenticated reserve, execute and cancel calls', async () => {
+		let agentConnections = 0
+		agentServer = await startAgentServer((socket) => {
+			agentConnections += 1
+			agent.handleConnection(socket)
+		})
+		relay = await startMtlsRelay(sockPath)
+		const transport = mtlsTransport()
+		const caller = new AbortController()
+		let observedReady: (() => void) | undefined
+		const ready = new Promise<void>((resolve) => {
+			observedReady = resolve
+		})
+
+		const running = transport.exec(
+			'/bin/sh',
+			['-c', "trap '' TERM; echo ready; while :; do sleep 1; done"],
+			{
+				signal: caller.signal,
+				onOutput: (chunk) => {
+					if (chunk.stream === 'stdout' && chunk.data.includes('ready')) observedReady?.()
+				},
+			},
+		)
+		await ready
+		caller.abort(new Error('operator cancelled'))
+
+		await expect(running).resolves.toMatchObject({
+			signal: 'SIGKILL',
+			timedOut: false,
+		})
+		expect(agentConnections).toBe(3)
+	})
+
 	it('sends `SANDBOX <id>` as the first bytes after the handshake (no CONNECT line)', async () => {
 		agentServer = await startAgentServer(agent.handleConnection)
 		relay = await startMtlsRelay(sockPath)
@@ -485,7 +779,11 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport mtls arm over a TLS loopback re
 					servername: 'sandbox.fc.internal',
 				},
 			},
-			{ connectRetryBudgetMs: 600, connectRetryIntervalMs: 50, connectTimeoutMs: 300 },
+			{
+				connectRetryBudgetMs: 600,
+				connectRetryIntervalMs: 50,
+				connectTimeoutMs: 300,
+			},
 		)
 		// The relay's `rejectUnauthorized` drops the connection AFTER the
 		// client handshake completes (the client trusts the server CA), so
@@ -514,7 +812,11 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport mtls arm over a TLS loopback re
 					servername: 'sandbox.fc.internal',
 				},
 			},
-			{ connectRetryBudgetMs: 600, connectRetryIntervalMs: 50, connectTimeoutMs: 300 },
+			{
+				connectRetryBudgetMs: 600,
+				connectRetryIntervalMs: 50,
+				connectTimeoutMs: 300,
+			},
 		)
 		await expect(wrongCaCaller.readFile('x')).rejects.toThrow(/could not connect to agent/)
 	})
@@ -536,9 +838,16 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport mtls arm over a TLS loopback re
 					servername: 'sandbox.fc.internal',
 				},
 			},
-			{ connectRetryBudgetMs: 5_000, connectRetryIntervalMs: 50, connectTimeoutMs: 1_000 },
+			{
+				connectRetryBudgetMs: 5_000,
+				connectRetryIntervalMs: 50,
+				connectTimeoutMs: 1_000,
+			},
 		)
-		const first = await transport.execute({ command: '/bin/sh', args: ['-c', 'echo before'] })
+		const first = await transport.execute({
+			command: '/bin/sh',
+			args: ['-c', 'echo before'],
+		})
 		expect(first.stdout).toContain('before')
 
 		// Simulate the FC host bridge going away then coming back (the
@@ -548,7 +857,10 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport mtls arm over a TLS loopback re
 		await new Promise<void>((r) => relay?.server.close(() => r()))
 		relay = undefined
 
-		const pending = transport.execute({ command: '/bin/sh', args: ['-c', 'echo after'] })
+		const pending = transport.execute({
+			command: '/bin/sh',
+			args: ['-c', 'echo after'],
+		})
 		await new Promise((r) => setTimeout(r, 300))
 		// Re-listen the relay on the SAME port (the host bridge restarts).
 		relay = await startMtlsRelayOnPort(sockPath, fixedPort)

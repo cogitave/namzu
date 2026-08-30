@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { execViaHttpWorker } from './http-worker-client.js'
+import { HttpWorkerClient, execViaHttpWorker } from './http-worker-client.js'
 
 const EXECUTION_ID = 'exec_00000000-0000-4000-8000-000000000001'
 
@@ -52,10 +52,13 @@ afterEach(() => {
 })
 
 describe('the shared HTTP worker execution client', () => {
-	it('retains the legacy one-request wire when no cancellation signal is supplied', async () => {
+	it('reserves every command before admission, including commands without a caller signal', async () => {
 		const output: Array<{ stream: string; data: string }> = []
-		const fetch_ = vi.fn(async (_input: string | URL | Request) =>
-			ndjson([
+		const fetch_ = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
+			const url = String(input)
+			if (url.endsWith('/executions/reserve')) return reservation()
+			if (!url.endsWith('/execute')) throw new Error(`unexpected URL ${url}`)
+			return ndjson([
 				{ type: 'stdout_delta', data: 'hello' },
 				{ type: 'stderr_delta', data: 'warn' },
 				{
@@ -66,16 +69,22 @@ describe('the shared HTTP worker execution client', () => {
 					stdoutTruncated: true,
 					stderrTruncated: false,
 				},
-			]),
-		)
+			])
+		})
 		vi.stubGlobal('fetch', fetch_)
 
 		const result = await execViaHttpWorker('http://worker', 'echo', ['hello'], {
 			onOutput: (chunk) => output.push(chunk),
 		})
 
-		expect(fetch_).toHaveBeenCalledTimes(1)
-		expect(String(fetch_.mock.calls[0]?.[0])).toBe('http://worker/execute')
+		expect(fetch_).toHaveBeenCalledTimes(2)
+		expect(fetch_.mock.calls.map((call) => String(call[0]))).toEqual([
+			'http://worker/executions/reserve',
+			'http://worker/execute',
+		])
+		expect(JSON.parse(String(fetch_.mock.calls[1]?.[1]?.body))).toMatchObject({
+			executionId: EXECUTION_ID,
+		})
 		expect(result).toMatchObject({
 			exitCode: 0,
 			stdout: 'hello',
@@ -87,6 +96,30 @@ describe('the shared HTTP worker execution client', () => {
 		expect(output).toEqual([
 			{ stream: 'stdout', data: 'hello' },
 			{ stream: 'stderr', data: 'warn' },
+		])
+	})
+
+	it('falls back only after an explicit old-worker response and caches that peer capability', async () => {
+		const paths: string[] = []
+		const fetch_ = vi.fn(async (input: string | URL | Request) => {
+			const url = String(input)
+			paths.push(url)
+			if (url.endsWith('/executions/reserve')) return json({ error: 'not_found' }, 404)
+			if (url.endsWith('/execute')) {
+				return ndjson([{ type: 'result', exitCode: 0, timedOut: false, durationMs: 1 }])
+			}
+			throw new Error(`unexpected URL ${url}`)
+		})
+		vi.stubGlobal('fetch', fetch_)
+		const client = new HttpWorkerClient('http://old-worker')
+
+		await expect(client.exec('true', [], undefined)).resolves.toMatchObject({ exitCode: 0 })
+		await expect(client.exec('true', [], undefined)).resolves.toMatchObject({ exitCode: 0 })
+
+		expect(paths).toEqual([
+			'http://old-worker/executions/reserve',
+			'http://old-worker/execute',
+			'http://old-worker/execute',
 		])
 	})
 

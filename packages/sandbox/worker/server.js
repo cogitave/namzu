@@ -347,6 +347,17 @@ function pruneExecutions(now = Date.now()) {
 	}
 }
 
+function makeRoomForReservation() {
+	if (executions.size < MAX_TRACKED_EXECUTIONS) return
+	const terminal = [...executions.entries()]
+		.filter(([, execution]) => execution.state === 'terminal')
+		.sort(([, left], [, right]) => left.expiresAt - right.expiresAt)
+	for (const [executionId] of terminal) {
+		executions.delete(executionId)
+		if (executions.size < MAX_TRACKED_EXECUTIONS) return
+	}
+}
+
 function validateExecutionId(executionId) {
 	return typeof executionId === 'string' && EXECUTION_ID_PATTERN.test(executionId)
 }
@@ -387,6 +398,7 @@ function terminalPayload(execution) {
 
 async function handleReserveExecution(_req, res) {
 	pruneExecutions()
+	makeRoomForReservation()
 	if (executions.size >= MAX_TRACKED_EXECUTIONS) {
 		writeJson(res, 503, {
 			error: 'execution_capacity',
@@ -494,6 +506,11 @@ async function terminateAndConfirm(execution, cause) {
 	const termDeadline = Math.min(deadlineAt, Date.now() + CANCEL_GRACE_MS)
 	let groupGone = await waitForGroupExit(execution.processGroupId, termDeadline)
 	if (!groupGone) {
+		if (execution.state === 'exited') {
+			throw new Error(
+				`process group ${execution.processGroupId} outlived its leader during cancellation; refusing to signal a reusable numeric process-group id`,
+			)
+		}
 		signalProcessGroup(execution, 'SIGKILL')
 		groupGone = await waitForGroupExit(execution.processGroupId, deadlineAt)
 	}
@@ -516,6 +533,26 @@ function ensureTermination(execution, cause) {
 		})
 	}
 	return execution.terminationPromise
+}
+
+async function confirmExitedProcessGroup(execution) {
+	if (!processGroupAlive(execution.processGroupId)) return
+	if (execution.terminationCause !== undefined) {
+		const groupGone = await waitForGroupExit(
+			execution.processGroupId,
+			Date.now() + CANCEL_CONFIRM_TIMEOUT_MS,
+		)
+		if (groupGone) return
+	} else {
+		// `close` and kernel process-table cleanup can be adjacent but not
+		// perfectly simultaneous. Observe one short no-signal grace before
+		// treating the surviving numeric group id as unsafe to reuse.
+		await delay(25)
+		if (!processGroupAlive(execution.processGroupId)) return
+	}
+	throw new Error(
+		`process group ${execution.processGroupId} remained live after its leader exited; refusing to signal a reusable numeric process-group id`,
+	)
 }
 
 function poisonWorker(error) {
@@ -785,14 +822,18 @@ async function handleExecute(req, res) {
 	})
 
 	child.on('close', (exitCode, signal) => {
-		settle(undefined, {
-			exitCode: typeof exitCode === 'number' ? exitCode : -1,
-			timedOut: execution.terminationCause === 'timeout',
-			durationMs: Date.now() - start,
-			...(signal ? { signal } : {}),
-			stdoutTruncated: stdout.truncated,
-			stderrTruncated: stderr.truncated,
-		})
+		void confirmExitedProcessGroup(execution)
+			.then(() => {
+				settle(undefined, {
+					exitCode: typeof exitCode === 'number' ? exitCode : -1,
+					timedOut: execution.terminationCause === 'timeout',
+					durationMs: Date.now() - start,
+					...(signal ? { signal } : {}),
+					stdoutTruncated: stdout.truncated,
+					stderrTruncated: stderr.truncated,
+				})
+			})
+			.catch((error) => poisonWorker(error))
 	})
 }
 

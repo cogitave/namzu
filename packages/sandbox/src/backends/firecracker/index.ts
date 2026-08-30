@@ -58,7 +58,8 @@ import type {
 } from '@namzu/sdk'
 
 import type { AgentSnapshotRef, SandboxBackend, SandboxBackendOptions } from '../../index.js'
-import { resolveReadinessOptions, runFailureCleanup } from '../readiness.js'
+import { OperationDeadline, resolveReadinessOptions, runFailureCleanup } from '../readiness.js'
+import { RemoteCancellationUnknownError } from '../remote-execution-controller.js'
 import type {
 	MtlsClientMaterial,
 	SandboxAgentHandle,
@@ -143,6 +144,7 @@ export interface FirecrackerBackendInternalConfig {
 const DEFAULT_AGENT_VSOCK_PORT = 1024
 const DEFAULT_READY_TIMEOUT_MS = 60_000
 const DEFAULT_READY_POLL_MS = 250
+const RETIREMENT_TIMEOUT_MS = 5_000
 
 /**
  * Build a {@link SandboxBackend} backed by the owned Firecracker
@@ -220,6 +222,7 @@ async function orchestratorCall<T>(
 	body?: unknown,
 	mtls?: MtlsClientMaterial,
 	signal?: AbortSignal,
+	acceptedStatuses: readonly number[] = [],
 ): Promise<T | undefined> {
 	signal?.throwIfAborted()
 	const token = await getToken()
@@ -252,6 +255,11 @@ async function orchestratorCall<T>(
 		)
 	}
 	if (res.status < 200 || res.status >= 300) {
+		if (acceptedStatuses.includes(res.status)) {
+			await res.text()
+			signal?.throwIfAborted()
+			return undefined
+		}
 		const text = await res.text()
 		signal?.throwIfAborted()
 		throw new Error(`firecracker orchestrator ${method} ${url} → ${res.status}: ${text}`)
@@ -411,7 +419,10 @@ async function spawnFirecrackerSandbox(
 	)
 	const transport = new VsockAgentTransport(handle, config.transport ?? {})
 
-	const destroy = async (signal?: AbortSignal): Promise<void> => {
+	const destroy = async (
+		signal?: AbortSignal,
+		acceptedStatuses: readonly number[] = [],
+	): Promise<void> => {
 		await orchestratorCall(
 			endpoint,
 			`/sandboxes/${encodeURIComponent(id)}:delete`,
@@ -420,6 +431,7 @@ async function spawnFirecrackerSandbox(
 			undefined,
 			config.controlPlaneMtls,
 			signal,
+			acceptedStatuses,
 		)
 	}
 
@@ -441,12 +453,88 @@ async function spawnFirecrackerSandbox(
 		throw err
 	}
 
-	let status: SandboxStatus = 'ready'
+	type Lifecycle = 'active' | 'retiring' | 'destroyed'
+	let activeExecutions = 0
+	let lifecycle: Lifecycle = 'active'
+	let retirementPromise: Promise<{ readonly accepted: boolean; readonly error?: Error }> | undefined
+	let teardownPromise: Promise<void> | undefined
+	let teardownComplete = false
+
+	const assertActive = (): void => {
+		if (lifecycle !== 'active') {
+			throw new Error(`Sandbox ${id} is ${lifecycle}; no new guest operation can be admitted`)
+		}
+	}
+
+	const teardownSandbox = (signal?: AbortSignal): Promise<void> => {
+		lifecycle = 'retiring'
+		if (teardownComplete) return Promise.resolve()
+		if (teardownPromise) return teardownPromise
+		const attempt = destroy(signal, [404, 410])
+		const shared = attempt.then(
+			() => {
+				teardownComplete = true
+				lifecycle = 'destroyed'
+			},
+			(error: unknown) => {
+				if (teardownPromise === shared) teardownPromise = undefined
+				throw error
+			},
+		)
+		teardownPromise = shared
+		return shared
+	}
+	const retire = (): Promise<{ readonly accepted: boolean; readonly error?: Error }> => {
+		lifecycle = 'retiring'
+		if (retirementPromise) return retirementPromise
+		const deadline = new OperationDeadline(
+			RETIREMENT_TIMEOUT_MS,
+			`firecracker sandbox ${id} retirement`,
+		)
+		retirementPromise = deadline
+			.run(async (signal) => {
+				const joinedExistingAttempt = teardownPromise !== undefined
+				try {
+					await teardownSandbox(signal)
+				} catch (error) {
+					if (!joinedExistingAttempt || signal.aborted) throw error
+					await teardownSandbox(signal)
+				}
+			})
+			.then(() => {
+				return { accepted: true as const }
+			})
+			.catch((error: unknown) => {
+				const normalized = error instanceof Error ? error : new Error(String(error))
+				return { accepted: false as const, error: normalized }
+			})
+		return retirementPromise
+	}
+
+	const classifyExecutionFailure = async (error: unknown): Promise<never> => {
+		if (error instanceof RemoteCancellationUnknownError) {
+			error.retirement = await retire()
+		}
+		throw error
+	}
+
+	const runExecution = async <T>(operation: () => Promise<T>): Promise<T> => {
+		assertActive()
+		activeExecutions += 1
+		try {
+			return await operation()
+		} catch (error) {
+			return await classifyExecutionFailure(error)
+		} finally {
+			activeExecutions = Math.max(0, activeExecutions - 1)
+		}
+	}
 
 	return {
 		id,
 		get status(): SandboxStatus {
-			return status
+			if (lifecycle !== 'active') return 'destroyed'
+			return activeExecutions > 0 ? 'busy' : 'ready'
 		},
 		rootDir,
 		environment: detectEnvironment(),
@@ -456,67 +544,51 @@ async function spawnFirecrackerSandbox(
 			argv?: string[],
 			opts?: SandboxExecOptions,
 		): Promise<SandboxExecResult> {
-			// `opts.signal` is deliberately not forwarded, and the reason is
-			// worth writing down because the obvious "fix" is worse than the
-			// gap. There is no cancel op on this wire — the guest agent takes
-			// an execute frame and answers when the command is done. Aborting
-			// the socket here would abandon the WAIT while the process keeps
-			// running inside the microVM, which is verbatim the failure
-			// `SandboxExecOptions.signal` exists to prevent, except it would
-			// then look honoured. Honouring it means a cancel op in the guest
-			// protocol; until then, ignoring it is the truthful behaviour the
-			// option's own contract allows.
-			status = 'busy'
-			try {
-				return await transport.execute({
-					command,
-					args: argv ?? [],
-					...(opts?.cwd !== undefined ? { cwd: opts.cwd } : {}),
-					...(opts?.env !== undefined ? { env: opts.env } : {}),
-					...(opts?.timeout !== undefined ? { timeoutMs: opts.timeout } : {}),
-				})
-			} finally {
-				status = 'ready'
-			}
+			return await runExecution(async () => await transport.exec(command, argv, opts))
 		},
 
 		async writeFile(path: string, content: string | Buffer): Promise<void> {
+			assertActive()
 			const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
 			await transport.writeFile(path, buf)
 		},
 
 		async readFile(path: string): Promise<Buffer> {
+			assertActive()
 			return await transport.readFile(path)
 		},
 
 		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
-			// Same wire as docker/aci: `find -printf '%p\t%s\n'`, parse
-			// line-by-line, map a non-zero exit (missing root) to "empty".
-			const result = await transport.execute({
-				command: 'find',
-				args: [rootPath, '-type', 'f', '-printf', '%p\t%s\n'],
+			return await runExecution(async () => {
+				// Same wire as docker/aci: `find -printf '%p\t%s\n'`, parse
+				// line-by-line, map a non-zero exit (missing root) to "empty".
+				const result = await transport.exec('find', [rootPath, '-type', 'f', '-printf', '%p\t%s\n'])
+				if (result.exitCode !== 0) return []
+				const entries: SandboxFileEntry[] = []
+				for (const rawLine of result.stdout.split('\n')) {
+					if (!rawLine) continue
+					const tab = rawLine.indexOf('\t')
+					if (tab < 0) continue
+					const filePath = rawLine.slice(0, tab)
+					const size = Number.parseInt(rawLine.slice(tab + 1), 10)
+					if (!filePath || !Number.isFinite(size)) continue
+					entries.push({ path: filePath, size })
+				}
+				return entries
 			})
-			if (result.exitCode !== 0) return []
-			const entries: SandboxFileEntry[] = []
-			for (const rawLine of result.stdout.split('\n')) {
-				if (!rawLine) continue
-				const tab = rawLine.indexOf('\t')
-				if (tab < 0) continue
-				const filePath = rawLine.slice(0, tab)
-				const size = Number.parseInt(rawLine.slice(tab + 1), 10)
-				if (!filePath || !Number.isFinite(size)) continue
-				entries.push({ path: filePath, size })
-			}
-			return entries
 		},
 
 		async destroy(options?: SandboxDestroyOptions): Promise<void> {
-			status = 'destroyed'
+			if (retirementPromise) {
+				const observation = await retirementPromise
+				if (observation.accepted) return
+				retirementPromise = undefined
+			}
 			// Let the orchestrator DELETE failure propagate — the
 			// Vandal-side lifecycle wraps this with logging, and a
 			// swallowed error here means orphaned microVMs (and their
 			// netns / UFFD handlers) pile up with no observability handle.
-			await destroy(options?.signal)
+			await teardownSandbox(options?.signal)
 		},
 	}
 }

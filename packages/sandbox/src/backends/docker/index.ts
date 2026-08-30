@@ -57,7 +57,7 @@ import {
 	type SandboxBackend,
 	type SandboxBackendOptions,
 } from '../../index.js'
-import { execViaHttpWorker } from '../http-worker-client.js'
+import { HttpWorkerClient } from '../http-worker-client.js'
 import {
 	OperationDeadline,
 	OperationDeadlineExpired,
@@ -65,6 +65,7 @@ import {
 	resolveReadinessOptions,
 	runFailureCleanup,
 } from '../readiness.js'
+import { RemoteCancellationUnknownError } from '../remote-execution-controller.js'
 
 /**
  * Backend-specific tuning. Most hosts use the defaults; advanced
@@ -600,13 +601,95 @@ async function spawnDockerSandbox(
 		throw err
 	}
 
+	type Lifecycle = 'active' | 'retiring' | 'destroyed'
 	let activeExecutions = 0
-	let destroyed = false
+	let lifecycle: Lifecycle = 'active'
+	let retirementPromise: Promise<{ readonly accepted: boolean; readonly error?: Error }> | undefined
+	let teardownPromise: Promise<void> | undefined
+	let teardownComplete = false
+	const workerClient = new HttpWorkerClient(baseUrl)
+	const assertActive = (): void => {
+		if (lifecycle !== 'active') {
+			throw new Error(`Sandbox ${id} is ${lifecycle}; no new worker operation can be admitted`)
+		}
+	}
+	const teardownSandbox = (signal?: AbortSignal): Promise<void> => {
+		lifecycle = 'retiring'
+		if (teardownComplete) return Promise.resolve()
+		if (teardownPromise) return teardownPromise
+		const attempt = (async () => {
+			let teardownError: unknown
+			try {
+				await runOnce(docker, ['rm', '-f', containerName], signal)
+			} catch (error) {
+				teardownError = error
+			} finally {
+				try {
+					await egressProxy?.close()
+				} catch (error) {
+					teardownError ??= error
+				}
+			}
+			if (teardownError !== undefined) throw teardownError
+		})()
+		const shared = attempt.then(
+			() => {
+				teardownComplete = true
+				lifecycle = 'destroyed'
+			},
+			(error: unknown) => {
+				if (teardownPromise === shared) teardownPromise = undefined
+				throw error
+			},
+		)
+		teardownPromise = shared
+		return shared
+	}
+	const retire = (): Promise<{
+		readonly accepted: boolean
+		readonly error?: Error
+	}> => {
+		lifecycle = 'retiring'
+		if (retirementPromise) return retirementPromise
+		const deadline = new OperationDeadline(5_000, `docker sandbox ${id} retirement`)
+		retirementPromise = deadline
+			.run(async (signal) => {
+				const joinedExistingAttempt = teardownPromise !== undefined
+				try {
+					await teardownSandbox(signal)
+				} catch (error) {
+					if (!joinedExistingAttempt || signal.aborted) throw error
+					await teardownSandbox(signal)
+				}
+			})
+			.then(() => {
+				return { accepted: true as const }
+			})
+			.catch((error: unknown) => ({
+				accepted: false as const,
+				error: error instanceof Error ? error : new Error(String(error)),
+			}))
+		return retirementPromise
+	}
+	const runExecution = async <T>(operation: () => Promise<T>): Promise<T> => {
+		assertActive()
+		activeExecutions += 1
+		try {
+			return await operation()
+		} catch (error) {
+			if (error instanceof RemoteCancellationUnknownError) {
+				error.retirement = await retire()
+			}
+			throw error
+		} finally {
+			activeExecutions = Math.max(0, activeExecutions - 1)
+		}
+	}
 
 	return {
 		id,
 		get status(): SandboxStatus {
-			if (destroyed) return 'destroyed'
+			if (lifecycle !== 'active') return 'destroyed'
 			return activeExecutions > 0 ? 'busy' : 'ready'
 		},
 		rootDir,
@@ -617,16 +700,11 @@ async function spawnDockerSandbox(
 			argv?: string[],
 			opts?: SandboxExecOptions,
 		): Promise<SandboxExecResult> {
-			if (destroyed) throw new Error(`Sandbox ${id} is destroyed`)
-			activeExecutions += 1
-			try {
-				return await execViaHttpWorker(baseUrl, command, argv, opts)
-			} finally {
-				activeExecutions = Math.max(0, activeExecutions - 1)
-			}
+			return await runExecution(async () => await workerClient.exec(command, argv, opts))
 		},
 
 		async setNetworkPolicy(policy): Promise<void> {
+			assertActive()
 			// Enforceable only through the egress proxy. Without one the
 			// container's network was fixed at creation — `--network none`
 			// or not — and there is nothing to narrow: accepting the policy
@@ -645,6 +723,7 @@ async function spawnDockerSandbox(
 		},
 
 		async writeFile(path: string, content: string | Buffer): Promise<void> {
+			assertActive()
 			const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
 			let res: Response
 			try {
@@ -676,6 +755,7 @@ async function spawnDockerSandbox(
 		},
 
 		async readFile(path: string): Promise<Buffer> {
+			assertActive()
 			const res = await fetch(`${baseUrl}/read-file`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -696,17 +776,16 @@ async function spawnDockerSandbox(
 		},
 
 		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
-			return await listFilesViaWorker(baseUrl, rootPath)
+			return await runExecution(async () => await listFilesViaWorker(workerClient, rootPath))
 		},
 
 		async destroy(options?: SandboxDestroyOptions): Promise<void> {
-			destroyed = true
-			await runOnceQuiet(docker, ['rm', '-f', containerName], options?.signal)
-			// The proxy holds real credentials and a live allowlist. Leaving
-			// it listening after the sandbox it was filtering for is gone
-			// means a loopback port that still stamps a token onto anything
-			// that asks — outliving the only thing that justified it.
-			await egressProxy?.close()
+			if (retirementPromise) {
+				const observation = await retirementPromise
+				if (observation.accepted) return
+				retirementPromise = undefined
+			}
+			await teardownSandbox(options?.signal)
 			// Backend never allocates host paths — every bind source
 			// comes from the consumer-supplied layout. Container
 			// teardown is sufficient; the consumer's own lifecycle
@@ -759,11 +838,10 @@ async function readMappedPort(
  * have produced anything in `rootPath` yet.
  */
 async function listFilesViaWorker(
-	baseUrl: string,
+	workerClient: HttpWorkerClient,
 	rootPath: string,
 ): Promise<readonly SandboxFileEntry[]> {
-	const result = await execViaHttpWorker(
-		baseUrl,
+	const result = await workerClient.exec(
 		'find',
 		[rootPath, '-type', 'f', '-printf', '%p\t%s\n'],
 		undefined,

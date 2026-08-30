@@ -10,14 +10,14 @@
  * framed-over-vsock (see `transport.ts`).
  *
  * This module remains the pure codec consumed by the framed guest transport.
- * The two HTTP backends now share one strict HTTP client rather than two inline
- * parsers. Its execution stream mirrors these event shapes, while its reserve
- * and cancel operations are intentionally HTTP-only lifecycle control: the
- * framed guest protocol does not yet have corresponding operations and must
- * not be described as cancellable merely because its data frames match.
+ * The two HTTP backends share one strict HTTP client, and both transports put
+ * the same reserve-before-admission + idempotent-cancel state machine around
+ * these data events. HTTP uses endpoints; the framed guest uses dedicated ops.
  */
 
-import type { SandboxExecResult } from '@namzu/sdk'
+import type { SandboxExecOptions, SandboxExecResult } from '@namzu/sdk'
+
+import { RemoteCommandError, RemoteProtocolError } from '../remote-execution-controller.js'
 
 // ---------------------------------------------------------------------------
 // Exec — request + the NDJSON event shapes (verbatim from worker/server.js)
@@ -30,6 +30,7 @@ import type { SandboxExecResult } from '@namzu/sdk'
  * `SandboxExecOptions.timeout`.
  */
 export interface ExecRequest {
+	readonly executionId?: string
 	readonly command: string
 	readonly args?: readonly string[]
 	readonly cwd?: string
@@ -54,7 +55,8 @@ export type ExecEvent =
 			readonly type: 'result'
 			readonly exitCode: number
 			readonly timedOut: boolean
-			readonly durationMs?: number
+			readonly durationMs: number
+			readonly signal?: string
 			readonly stdoutTruncated?: boolean
 			readonly stderrTruncated?: boolean
 	  }
@@ -105,9 +107,8 @@ export interface ReadFileResponse {
  * terminal `result`, and **throw** on an `error` event.
  *
  * Transport-agnostic: feed it whole parsed {@link ExecEvent}s (the
- * transport owns newline-framing → JSON.parse → here). Malformed lines
- * are dropped by the transport's `JSON.parse` guard before they reach
- * this accumulator, matching the docker loop's `SyntaxError` swallow.
+ * transport owns framing → strict JSON validation → here). Malformed or
+ * trailing events are protocol failures rather than silently discarded data.
  */
 export class ExecResultAccumulator {
 	private stdout = ''
@@ -115,11 +116,16 @@ export class ExecResultAccumulator {
 	private exitCode = -1
 	private timedOut = false
 	private signal: string | undefined
+	private durationMs: number | undefined
+	private stdoutTruncated: boolean | undefined
+	private stderrTruncated: boolean | undefined
 	private settled = false
 	private readonly start: number
+	private readonly onOutput: SandboxExecOptions['onOutput']
 
-	constructor(start: number = Date.now()) {
+	constructor(start: number = Date.now(), onOutput?: SandboxExecOptions['onOutput']) {
 		this.start = start
+		this.onOutput = onOutput
 	}
 
 	/**
@@ -129,55 +135,91 @@ export class ExecResultAccumulator {
 	 * docker loop uses (`throw new Error(event.error)`).
 	 */
 	push(event: ExecEvent): boolean {
+		if (this.settled) {
+			throw new RemoteProtocolError('exec stream emitted data after its terminal event')
+		}
 		if (event.type === 'stdout_delta') {
 			this.stdout += event.data
+			this.onOutput?.({ stream: 'stdout', data: event.data })
 			return false
 		}
 		if (event.type === 'stderr_delta') {
 			this.stderr += event.data
+			this.onOutput?.({ stream: 'stderr', data: event.data })
 			return false
 		}
 		if (event.type === 'result') {
 			this.exitCode = event.exitCode
 			this.timedOut = event.timedOut
+			this.durationMs = event.durationMs
+			this.signal = event.signal
+			this.stdoutTruncated = event.stdoutTruncated
+			this.stderrTruncated = event.stderrTruncated
 			this.settled = true
 			return true
 		}
 		// event.type === 'error'
-		throw new Error(event.error)
+		throw new RemoteCommandError(event.error)
 	}
 
 	get done(): boolean {
 		return this.settled
 	}
 
-	/** Build the SDK-shaped result. `durationMs` measured host-side. */
+	/** Build the SDK-shaped result from the guest's terminal metadata. */
 	finish(): SandboxExecResult {
+		if (!this.settled || this.durationMs === undefined) {
+			throw new RemoteProtocolError('exec stream ended without exactly one result event')
+		}
 		return {
 			exitCode: this.exitCode,
 			stdout: this.stdout,
 			stderr: this.stderr,
 			...(this.signal ? { signal: this.signal } : {}),
 			timedOut: this.timedOut,
-			durationMs: Date.now() - this.start,
+			durationMs: this.durationMs ?? Date.now() - this.start,
+			...(this.stdoutTruncated !== undefined ? { stdoutTruncated: this.stdoutTruncated } : {}),
+			...(this.stderrTruncated !== undefined ? { stderrTruncated: this.stderrTruncated } : {}),
 		}
 	}
 }
 
 /**
- * Parse a single NDJSON line into an {@link ExecEvent}, or `undefined`
- * if the line is blank or not valid JSON (the docker loop's
- * `SyntaxError` swallow). Non-`SyntaxError` problems are impossible
- * here because we only `JSON.parse`; structural validation is by the
- * `type` discriminator at the call site.
+ * Parse and structurally validate a single NDJSON event. Blank padding is
+ * ignored; malformed JSON and unknown/partial event shapes are refused.
  */
 export function parseExecLine(line: string): ExecEvent | undefined {
 	const trimmed = line.trim()
 	if (!trimmed) return undefined
+	let parsed: unknown
 	try {
-		return JSON.parse(trimmed) as ExecEvent
-	} catch (err) {
-		if (err instanceof SyntaxError) return undefined
-		throw err
+		parsed = JSON.parse(trimmed)
+	} catch (error) {
+		throw new RemoteProtocolError(
+			`agent emitted malformed NDJSON: ${error instanceof Error ? error.message : String(error)}`,
+		)
 	}
+	if (!parsed || typeof parsed !== 'object') {
+		throw new RemoteProtocolError('agent emitted an event without an object body')
+	}
+	const event = parsed as Record<string, unknown>
+	if (
+		(event.type === 'stdout_delta' || event.type === 'stderr_delta') &&
+		typeof event.data === 'string'
+	) {
+		return event as ExecEvent
+	}
+	if (event.type === 'error' && typeof event.error === 'string') return event as ExecEvent
+	if (
+		event.type === 'result' &&
+		Number.isFinite(event.exitCode) &&
+		typeof event.timedOut === 'boolean' &&
+		Number.isFinite(event.durationMs) &&
+		(event.signal === undefined || typeof event.signal === 'string') &&
+		(event.stdoutTruncated === undefined || typeof event.stdoutTruncated === 'boolean') &&
+		(event.stderrTruncated === undefined || typeof event.stderrTruncated === 'boolean')
+	) {
+		return event as ExecEvent
+	}
+	throw new RemoteProtocolError(`agent emitted an invalid ${String(event.type)} event`)
 }

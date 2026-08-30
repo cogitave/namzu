@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildFirecrackerBackend, normalizeHandle } from '../index.js'
-import type { WireSandboxAgentHandle } from '../transport.js'
+import { type WireSandboxAgentHandle, __framing } from '../transport.js'
 import { localIpcPath } from './fixtures/ipc-path.js'
 import {
 	CA_CRT,
@@ -55,6 +55,8 @@ beforeEach(() => {
 	sockPath = localIpcPath(workDir)
 	realPath = process.env.PATH
 	process.env.NAMZU_SANDBOX_WORKSPACE = workDir
+	process.env.NAMZU_AGENT_CANCEL_GRACE_MS = '50'
+	process.env.NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS = '1000'
 	delete require_.cache[require_.resolve('../../../../agent/agent.cjs')]
 	agent = require_('../../../../agent/agent.cjs') as AgentModule
 })
@@ -62,6 +64,10 @@ beforeEach(() => {
 afterEach(async () => {
 	globalThis.fetch = realFetch
 	process.env.PATH = realPath
+	// biome-ignore lint/performance/noDelete: restore module-level test configuration.
+	delete process.env.NAMZU_AGENT_CANCEL_GRACE_MS
+	// biome-ignore lint/performance/noDelete: restore module-level test configuration.
+	delete process.env.NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS
 	if (relay) {
 		await new Promise<void>((r) => relay?.server.close(() => r()))
 		relay = undefined
@@ -73,12 +79,16 @@ afterEach(async () => {
 	rmSync(workDir, { recursive: true, force: true })
 })
 
-function startAgent(): Promise<Server> {
+function startAgentServer(connectionHandler: (socket: Socket) => void): Promise<Server> {
 	return new Promise((resolve, reject) => {
-		const s = createServer(agent.handleConnection)
+		const s = createServer(connectionHandler)
 		s.on('error', reject)
 		s.listen(sockPath, () => resolve(s))
 	})
+}
+
+function startAgent(): Promise<Server> {
+	return startAgentServer(agent.handleConnection)
 }
 
 /**
@@ -86,7 +96,10 @@ function startAgent(): Promise<Server> {
  * the loopback unix socket; `:delete` returns 204. Records calls so the
  * test can assert the create body + destroy round-trip.
  */
-function stubOrchestrator(handle: WireSandboxAgentHandle): {
+function stubOrchestrator(
+	handle: WireSandboxAgentHandle,
+	deleteStatus = 204,
+): {
 	calls: Array<{ url: string; method: string; body?: unknown }>
 } {
 	const calls: Array<{ url: string; method: string; body?: unknown }> = []
@@ -106,7 +119,7 @@ function stubOrchestrator(handle: WireSandboxAgentHandle): {
 			)
 		}
 		if (method === 'DELETE' && url.includes(':delete')) {
-			return new Response(null, { status: 204 })
+			return new Response(null, { status: deleteStatus })
 		}
 		return new Response('unexpected', { status: 500 })
 	}) as typeof fetch
@@ -175,9 +188,9 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		}
 
 		// destroy calls the orchestrator :delete and flips status.
-		await sandbox.destroy()
+		await Promise.all([sandbox.destroy(), sandbox.destroy()])
 		expect(sandbox.status).toBe('destroyed')
-		expect(calls.some((c) => c.method === 'DELETE' && c.url.includes(':delete'))).toBe(true)
+		expect(calls.filter((c) => c.method === 'DELETE' && c.url.includes(':delete'))).toHaveLength(1)
 	})
 
 	it('tears down the microVM when the readiness fence times out (no orphan)', async () => {
@@ -200,6 +213,154 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		)
 		expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
 	})
+
+	it('honours public exec cancellation and keeps a confirmed-quiescent microVM reusable', async () => {
+		server = await startAgent()
+		stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 1_000,
+			readyPollIntervalMs: 10,
+		})
+		const sandbox = await backend.create({ workingDirectory: workDir })
+		const caller = new AbortController()
+		let observedReady: (() => void) | undefined
+		const ready = new Promise<void>((resolve) => {
+			observedReady = resolve
+		})
+
+		const running = sandbox.exec(
+			'/bin/sh',
+			['-c', "trap '' TERM; (trap '' TERM; sleep 0.4; printf late > late.txt) & echo ready; wait"],
+			{
+				signal: caller.signal,
+				onOutput: (chunk) => {
+					if (chunk.stream === 'stdout' && chunk.data.includes('ready')) observedReady?.()
+				},
+			},
+		)
+		await ready
+		expect(sandbox.status).toBe('busy')
+		caller.abort(new Error('operator cancelled'))
+
+		await expect(running).resolves.toMatchObject({
+			signal: 'SIGKILL',
+			timedOut: false,
+		})
+		expect(sandbox.status).toBe('ready')
+		await new Promise((resolve) => setTimeout(resolve, 500))
+		await expect(sandbox.readFile('late.txt')).rejects.toThrow()
+		await expect(sandbox.exec('/bin/sh', ['-c', 'printf reused'])).resolves.toMatchObject({
+			stdout: 'reused',
+			exitCode: 0,
+		})
+		await sandbox.destroy()
+	})
+
+	it('fences and retires the whole microVM when the guest reports an unknown process outcome', async () => {
+		let agentConnections = 0
+		server = await startAgentServer((socket) => {
+			agentConnections += 1
+			const reader = new __framing.FrameReader()
+			socket.on('data', (chunk: Buffer) => {
+				const payload = reader.push(chunk)[0]
+				if (payload === undefined) return
+				const request = JSON.parse(payload) as { op?: string }
+				if (request.op === 'healthz') {
+					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+					return
+				}
+				if (request.op === 'reserve-execution') {
+					socket.end(__framing.frame(JSON.stringify({ ok: false, error: 'agent_retiring' })))
+					return
+				}
+				socket.end(__framing.frame(JSON.stringify({ ok: false, error: 'unexpected' })))
+			})
+		})
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath }, 410)
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 1_000,
+			readyPollIntervalMs: 10,
+		})
+		const sandbox = await backend.create({ workingDirectory: workDir })
+
+		try {
+			await sandbox.exec('/bin/true')
+			expect.unreachable('a self-fenced guest must retire its microVM')
+		} catch (error) {
+			expect(error).toMatchObject({ retirement: { accepted: true } })
+			expect((error as Error).message).toMatch(/must be retired/)
+		}
+		expect(sandbox.status).toBe('destroyed')
+		expect(agentConnections).toBe(2)
+		expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
+		await expect(sandbox.readFile('anything')).rejects.toThrow(/no new guest operation/)
+	})
+
+	it('retires after an admitted data stream is lost and cancellation cannot be confirmed', async () => {
+		let executeCalls = 0
+		let cancelCalls = 0
+		server = await startAgentServer((socket) => {
+			const reader = new __framing.FrameReader()
+			socket.on('data', (chunk: Buffer) => {
+				const payload = reader.push(chunk)[0]
+				if (payload === undefined) return
+				const request = JSON.parse(payload) as { op?: string }
+				if (request.op === 'healthz') {
+					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+					return
+				}
+				if (request.op === 'reserve-execution') {
+					socket.end(
+						__framing.frame(
+							JSON.stringify({
+								ok: true,
+								protocolVersion: 2,
+								executionId: 'exec_00000000-0000-4000-8000-000000000001',
+								leaseExpiresAt: Date.now() + 30_000,
+							}),
+						),
+					)
+					return
+				}
+				if (request.op === 'execute') {
+					executeCalls += 1
+					socket.destroy()
+					return
+				}
+				if (request.op === 'cancel-execution') {
+					cancelCalls += 1
+					socket.end(
+						__framing.frame(JSON.stringify({ ok: false, error: 'cancellation_unconfirmed' })),
+					)
+				}
+			})
+		})
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 1_000,
+			readyPollIntervalMs: 10,
+		})
+		const sandbox = await backend.create({ workingDirectory: workDir })
+
+		try {
+			await sandbox.exec('/bin/true')
+			expect.unreachable('an admitted command with unknown termination must retire the VM')
+		} catch (error) {
+			expect(error).toMatchObject({ retirement: { accepted: true } })
+			expect((error as Error).message).toMatch(/outcome is unknown|could not be confirmed/i)
+		}
+		expect(executeCalls).toBe(1)
+		expect(cancelCalls).toBeGreaterThan(1)
+		expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
+		expect(sandbox.status).toBe('destroyed')
+		await expect(sandbox.exec('/bin/true')).rejects.toThrow(/no new guest operation/)
+	}, 12_000)
 
 	it('does not let a held failure DELETE keep create pending forever', async () => {
 		let deleteCalls = 0

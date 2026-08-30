@@ -66,22 +66,31 @@ const provider = createSandboxProvider({
 
 ## Cancellation and worker compatibility
 
-Pass `SandboxExecOptions.signal` to stop a command on the local-container or
-standby-container backend. The host reserves the command before admission and
-the worker confirms process-group termination over a separate cancellation
-request; stopping the HTTP wait alone is never reported as stopping the
+Pass `SandboxExecOptions.signal` to stop a command on any shipped backend. A
+remote host reserves every command before admission and the container worker or
+microVM guest confirms process-group termination over a separate cancellation
+request; stopping the data-stream wait alone is never reported as stopping the
 command. A stalled execution stream is bounded relative to the requested
 command timeout and reconciled through that same control path. An unconfirmed
-stop retires the worker; a confirmed stop with an incomplete terminal stream is
-reported separately so callers do not mistake partial output for an unknown
-process outcome.
+stop fences the handle and retires the whole container, container group, or
+microVM; a confirmed stop with an incomplete terminal stream is reported
+separately so callers do not mistake partial output for an unknown process
+outcome.
 
-The cancellation path requires a worker image built from the same release. A
-current host and worker remain compatible with legacy no-signal execution, but
-a signal sent to an older image is refused with a rebuild instruction. For a
-standby pool, publish a new container group profile revision containing the
-current worker before enabling cancellation. The framed microVM backend has a
-separate guest protocol and does not yet honour this option.
+Remote peers retain terminal ids briefly for idempotent cancellation, but evict
+the oldest terminal history before refusing new work. If a command leader exits
+while descendants remain, the peer fences itself and retires the whole sandbox
+instead of signalling a numeric process-group id that the kernel could reuse.
+Concurrent destroy and automatic-retirement calls share one checked teardown;
+Docker removal is never reported as accepted after a non-zero or aborted
+`docker rm -f`.
+
+The cancellation path requires a worker or guest image built from the same
+release. A current host explicitly detects an older peer and remains compatible
+with legacy no-signal execution, but a signal sent to that peer is refused with
+a rebuild instruction. For a standby pool, publish a new container group
+profile revision containing the current worker before enabling cancellation;
+for a microVM deployment, rebuild its golden guest image.
 
 ## Documentation
 

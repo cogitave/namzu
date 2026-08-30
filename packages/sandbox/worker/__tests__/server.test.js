@@ -311,7 +311,10 @@ describe('worker execution leases and cancellation', () => {
 		const cancellation = await cancel(worker, lease.executionId)
 		expect(cancellation.status).toBe(200)
 		finishBody()
-		expect(await execute).toMatchObject({ ok: true, response: { status: 409 } })
+		expect(await execute).toMatchObject({
+			ok: true,
+			response: { status: 409 },
+		})
 	})
 
 	it('lets cancellation close admission during awaited preparation', async () => {
@@ -341,7 +344,10 @@ describe('worker execution leases and cancellation', () => {
 			state: 'cancelled',
 			started: false,
 		})
-		expect(await execute).toMatchObject({ ok: true, response: { status: 409 } })
+		expect(await execute).toMatchObject({
+			ok: true,
+			response: { status: 409 },
+		})
 	})
 
 	it('refuses capacity instead of evicting a live reservation', async () => {
@@ -357,6 +363,23 @@ describe('worker execution leases and cancellation', () => {
 		// an unknown-id 404 rather than an idempotent terminal cancellation.
 		expect((await cancel(worker, first.executionId)).status).toBe(200)
 		expect((await cancel(worker, second.executionId)).status).toBe(200)
+	})
+
+	it('evicts terminal history before refusing a new sequential command', async () => {
+		worker = await spawnWorker({ NAMZU_SANDBOX_MAX_TRACKED_EXECUTIONS: '1' })
+		for (const output of ['first', 'second']) {
+			const lease = await reserve(worker)
+			const response = await fetch(`${worker.baseUrl}/execute`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					executionId: lease.executionId,
+					command: process.execPath,
+					args: ['-e', `console.log(${JSON.stringify(output)})`],
+				}),
+			})
+			expect(await response.text()).toContain(output)
+		}
 	})
 
 	it('keeps a terminal id idempotent and refuses duplicate execution', async () => {
@@ -493,6 +516,47 @@ describe('worker execution leases and cancellation', () => {
 		})
 	}, 10_000)
 
+	it('does not report natural completion while a detached-stdio descendant can still mutate', async () => {
+		worker = await spawnWorker({
+			NAMZU_SANDBOX_CANCEL_GRACE_MS: '80',
+			NAMZU_SANDBOX_CANCEL_CONFIRM_TIMEOUT_MS: '1500',
+		})
+		const marker = path.join(worker.workspace, 'background-survived.txt')
+		const groupFile = path.join(worker.workspace, 'background.pgid')
+		const childScript = path.join(worker.workspace, 'background-child.cjs')
+		await writeFile(
+			childScript,
+			`process.on('SIGTERM', () => {})\nsetTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'survived'), 500)\nsetInterval(() => {}, 1000)`,
+		)
+		const lease = await reserve(worker)
+		const response = await fetch(`${worker.baseUrl}/execute`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				executionId: lease.executionId,
+				command: '/bin/sh',
+				args: [
+					'-c',
+					`printf '%s' $$ > ${groupFile}; ${process.execPath} ${childScript} >/dev/null 2>&1 & echo DONE`,
+				],
+				timeoutMs: 5_000,
+			}),
+		})
+
+		expect(response.status).toBe(200)
+		await expect(response.text()).rejects.toThrow()
+		expect(await waitForExit(worker.child)).toBe(1)
+		const processGroupId = Number(await readFile(groupFile, 'utf8'))
+		expect(Number.isSafeInteger(processGroupId)).toBe(true)
+		try {
+			process.kill(-processGroupId, 'SIGKILL')
+		} catch (error) {
+			if (error?.code !== 'ESRCH') throw error
+		}
+		await new Promise((resolve) => setTimeout(resolve, 650))
+		await expect(access(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+	}, 10_000)
+
 	it('retires the worker when timeout termination cannot be confirmed', async () => {
 		worker = await spawnWorker({
 			NAMZU_SANDBOX_CANCEL_GRACE_MS: '1000',
@@ -585,7 +649,10 @@ describe('worker execution leases and cancellation', () => {
 		)
 		await new Promise((resolve) => setTimeout(resolve, 70))
 		finishBody()
-		expect(await execution).toMatchObject({ ok: true, text: expect.stringContaining('done') })
+		expect(await execution).toMatchObject({
+			ok: true,
+			text: expect.stringContaining('done'),
+		})
 	})
 
 	it.each([

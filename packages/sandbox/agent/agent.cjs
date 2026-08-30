@@ -52,6 +52,7 @@
 
 const net = require('node:net')
 const { spawn } = require('node:child_process')
+const { randomUUID } = require('node:crypto')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
@@ -79,6 +80,28 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 // `resolveTimeoutMs`.
 const MAX_TIMEOUT_MS = 30 * 60 * 1000
 const LENGTH_PREFIX_HEX = 8
+
+function positiveIntegerConfig(name, fallback, allowZero = false) {
+	const value = process.env[name] === undefined ? fallback : Number(process.env[name])
+	if (!Number.isSafeInteger(value) || (allowZero ? value < 0 : value <= 0)) {
+		throw new Error(`${name} must be ${allowZero ? 'a non-negative' : 'a positive'} safe integer`)
+	}
+	return value
+}
+
+const EXECUTION_LEASE_TTL_MS = positiveIntegerConfig('NAMZU_AGENT_EXECUTION_LEASE_TTL_MS', 30_000)
+const EXECUTION_TERMINAL_TTL_MS = positiveIntegerConfig(
+	'NAMZU_AGENT_EXECUTION_TERMINAL_TTL_MS',
+	60_000,
+)
+const MAX_TRACKED_EXECUTIONS = positiveIntegerConfig('NAMZU_AGENT_MAX_TRACKED_EXECUTIONS', 1_024)
+const CANCEL_GRACE_MS = positiveIntegerConfig('NAMZU_AGENT_CANCEL_GRACE_MS', 2_000, true)
+const CANCEL_CONFIRM_TIMEOUT_MS = positiveIntegerConfig(
+	'NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS',
+	5_000,
+)
+const EXECUTION_ID_PATTERN =
+	/^exec_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 // --- framing (matches transport.ts byte-for-byte) --------------------------
 
@@ -112,6 +135,9 @@ class FrameReader {
 			if (nl < 0) break
 			if (nl < LENGTH_PREFIX_HEX) throw new Error(`malformed frame header (newline at ${nl})`)
 			const header = this.buf.subarray(0, nl).toString('ascii')
+			if (!/^[0-9a-fA-F]{8}$/.test(header)) {
+				throw new Error(`invalid frame length header ${JSON.stringify(header)}`)
+			}
 			const len = Number.parseInt(header, 16)
 			if (!Number.isInteger(len) || len < 0) {
 				throw new Error(`invalid frame length header ${JSON.stringify(header)}`)
@@ -156,7 +182,10 @@ function isWithinRoot(resolved, root) {
 
 function resolveAgainstRoots(p, roots) {
 	if (!path.isAbsolute(p)) {
-		return { target: resolveWithinWorkspace(p, WORKSPACE_ROOT), root: path.resolve(WORKSPACE_ROOT) }
+		return {
+			target: resolveWithinWorkspace(p, WORKSPACE_ROOT),
+			root: path.resolve(WORKSPACE_ROOT),
+		}
 	}
 	const target = path.resolve(p)
 	const root = roots.find((candidate) => isWithinRoot(target, candidate))
@@ -200,115 +229,476 @@ function resolveTimeoutMs(rawTimeoutMs) {
 	return timeoutMs
 }
 
-function handleExecute(socket, body) {
+function childEnvironment(requested) {
+	const inherited = {}
+	for (const key of Object.keys(process.env)) {
+		if (key.startsWith('NAMZU_AGENT_') || key.startsWith('NAMZU_SANDBOX_')) continue
+		inherited[key] = process.env[key]
+	}
+	return { ...inherited, ...(requested || {}) }
+}
+
+// --- execution ownership --------------------------------------------------
+
+const executions = new Map()
+let agentRetiring = false
+
+function pruneExecutions(now = Date.now()) {
+	for (const [executionId, execution] of executions) {
+		if (
+			(execution.state === 'reserved' || execution.state === 'terminal') &&
+			execution.expiresAt <= now
+		) {
+			executions.delete(executionId)
+		}
+	}
+}
+
+function makeRoomForReservation() {
+	if (executions.size < MAX_TRACKED_EXECUTIONS) return
+	const terminal = [...executions.entries()]
+		.filter(([, execution]) => execution.state === 'terminal')
+		.sort(([, left], [, right]) => left.expiresAt - right.expiresAt)
+	for (const [executionId] of terminal) {
+		executions.delete(executionId)
+		if (executions.size < MAX_TRACKED_EXECUTIONS) return
+	}
+}
+
+function validateExecutionId(executionId) {
+	return typeof executionId === 'string' && EXECUTION_ID_PATTERN.test(executionId)
+}
+
+function syntheticCancelledResult(start = Date.now()) {
+	return {
+		exitCode: 1,
+		timedOut: false,
+		durationMs: Math.max(0, Date.now() - start),
+		stdoutTruncated: false,
+		stderrTruncated: false,
+	}
+}
+
+function rememberTerminal(execution, outcome, result, error) {
+	execution.started = execution.started ?? Boolean(execution.child)
+	execution.state = 'terminal'
+	execution.outcome = outcome
+	execution.result = result
+	execution.error = error
+	execution.expiresAt = Date.now() + EXECUTION_TERMINAL_TTL_MS
+	execution.child = undefined
+	execution.processGroupId = undefined
+	execution.done = undefined
+	execution.resolveDone = undefined
+	execution.terminationPromise = undefined
+}
+
+function terminalPayload(execution) {
+	return {
+		ok: true,
+		state: execution.outcome,
+		started: execution.started === true,
+		...(execution.result ? { result: execution.result } : {}),
+		...(execution.error ? { error: execution.error } : {}),
+	}
+}
+
+function processGroupAlive(processGroupId) {
+	if (!processGroupId) return false
+	if (process.platform === 'win32') return true
+	try {
+		process.kill(-processGroupId, 0)
+		return true
+	} catch (error) {
+		if (error?.code === 'ESRCH') return false
+		return true
+	}
+}
+
+function signalProcessGroup(execution, signal) {
+	const processGroupId = execution.processGroupId
+	if (!processGroupId || process.platform === 'win32') {
+		try {
+			execution.child?.kill(signal)
+		} catch {}
+		return
+	}
+	try {
+		process.kill(-processGroupId, signal)
+	} catch (error) {
+		if (error?.code !== 'ESRCH') throw error
+	}
+}
+
+function delay(ms) {
+	return new Promise((resolve) => {
+		const timer = setTimeout(resolve, ms)
+		timer.unref?.()
+	})
+}
+
+async function waitForGroupExit(processGroupId, deadlineAt) {
+	while (processGroupAlive(processGroupId)) {
+		const remaining = deadlineAt - Date.now()
+		if (remaining <= 0) return false
+		await delay(Math.min(25, remaining))
+	}
+	return true
+}
+
+async function waitForDone(execution, deadlineAt) {
+	const remaining = deadlineAt - Date.now()
+	if (remaining <= 0) throw new Error('execution close was not observed before the deadline')
+	let timer
+	try {
+		return await Promise.race([
+			execution.done,
+			new Promise((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error('execution close was not observed before the deadline')),
+					remaining,
+				)
+				timer.unref?.()
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
+}
+
+async function terminateAndConfirm(execution, cause) {
+	if (execution.state === 'terminal') return terminalPayload(execution)
+	if (execution.state === 'exited') {
+		await waitForDone(execution, Date.now() + CANCEL_CONFIRM_TIMEOUT_MS)
+		return terminalPayload(execution)
+	}
+	if (execution.state !== 'running') {
+		throw new Error(`execution is not running (state=${execution.state})`)
+	}
+	if (execution.terminationCause === undefined) execution.terminationCause = cause
+
+	const deadlineAt = Date.now() + CANCEL_CONFIRM_TIMEOUT_MS
+	signalProcessGroup(execution, 'SIGTERM')
+	const termDeadline = Math.min(deadlineAt, Date.now() + CANCEL_GRACE_MS)
+	let groupGone = await waitForGroupExit(execution.processGroupId, termDeadline)
+	if (!groupGone) {
+		if (execution.state === 'exited') {
+			throw new Error(
+				`process group ${execution.processGroupId} outlived its leader during cancellation; refusing to signal a reusable numeric process-group id`,
+			)
+		}
+		signalProcessGroup(execution, 'SIGKILL')
+		groupGone = await waitForGroupExit(execution.processGroupId, deadlineAt)
+	}
+	if (!groupGone) {
+		throw new Error(`process group ${execution.processGroupId} remained live after SIGKILL`)
+	}
+	await waitForDone(execution, deadlineAt)
+	return terminalPayload(execution)
+}
+
+function ensureTermination(execution, cause) {
+	if (!execution.terminationPromise) {
+		execution.terminationPromise = terminateAndConfirm(execution, cause).catch((error) => {
+			execution.terminationPromise = undefined
+			throw error
+		})
+	}
+	return execution.terminationPromise
+}
+
+function retireAgent(error) {
+	if (agentRetiring) return
+	agentRetiring = true
+	console.error(
+		`[namzu-fc-agent] termination could not be confirmed; refusing reuse: ${error instanceof Error ? error.message : String(error)}`,
+	)
+}
+
+function handleReserveExecution(socket) {
+	pruneExecutions()
+	makeRoomForReservation()
+	if (agentRetiring) {
+		writeFrame(socket, { ok: false, error: 'agent_retiring' })
+		socket.end()
+		return
+	}
+	if (executions.size >= MAX_TRACKED_EXECUTIONS) {
+		writeFrame(socket, { ok: false, error: 'execution_capacity' })
+		socket.end()
+		return
+	}
+	const executionId = `exec_${randomUUID()}`
+	const leaseExpiresAt = Date.now() + EXECUTION_LEASE_TTL_MS
+	executions.set(executionId, {
+		executionId,
+		state: 'reserved',
+		expiresAt: leaseExpiresAt,
+	})
+	writeFrame(socket, {
+		ok: true,
+		protocolVersion: 2,
+		executionId,
+		leaseExpiresAt,
+	})
+	socket.end()
+}
+
+async function handleCancelExecution(socket, body) {
+	if (!validateExecutionId(body?.executionId)) {
+		writeFrame(socket, { ok: false, error: 'invalid_execution_id' })
+		return
+	}
+	pruneExecutions()
+	const execution = executions.get(body.executionId)
+	if (!execution) {
+		writeFrame(socket, { ok: false, error: 'unknown_execution' })
+		return
+	}
+	if (execution.state === 'reserved' || execution.state === 'starting') {
+		rememberTerminal(execution, 'cancelled', syntheticCancelledResult(execution.startedAt))
+		writeFrame(socket, terminalPayload(execution))
+		return
+	}
+	if (execution.state === 'terminal') {
+		writeFrame(socket, terminalPayload(execution))
+		return
+	}
+	try {
+		writeFrame(socket, await ensureTermination(execution, 'cancelled'))
+	} catch (error) {
+		writeFrame(socket, {
+			ok: false,
+			error: 'cancellation_unconfirmed',
+			message: error instanceof Error ? error.message : String(error),
+		})
+		retireAgent(error)
+	}
+}
+
+async function handleExecute(socket, body) {
 	if (!body || !body.command || typeof body.command !== 'string') {
 		writeFrame(socket, { type: 'error', error: 'missing_command' })
 		writeTerminator(socket)
+		socket.end()
 		return
 	}
+	if (body.executionId !== undefined && !validateExecutionId(body.executionId)) {
+		writeFrame(socket, { type: 'error', error: 'invalid_execution_id' })
+		writeTerminator(socket)
+		socket.end()
+		return
+	}
+	let trackedExecution
 	let cwd
 	try {
 		cwd = body.cwd ? resolveWithinWorkspace(body.cwd, WORKSPACE_ROOT) : WORKSPACE_ROOT
 	} catch (err) {
 		writeFrame(socket, { type: 'error', error: `invalid_cwd: ${err.message}` })
 		writeTerminator(socket)
+		socket.end()
 		return
 	}
 	let timeoutMs
 	try {
 		timeoutMs = resolveTimeoutMs(body.timeoutMs)
 	} catch (err) {
-		writeFrame(socket, { type: 'error', error: `invalid_timeout: ${err.message}` })
+		writeFrame(socket, {
+			type: 'error',
+			error: `invalid_timeout: ${err.message}`,
+		})
 		writeTerminator(socket)
+		socket.end()
 		return
 	}
 	const maxOutputBytes = Number(body.maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES
 	const start = Date.now()
 
-	fs.mkdir(cwd, { recursive: true })
-		.then(() => {
-			let child
-			try {
-				child = spawn(body.command, Array.isArray(body.args) ? body.args : [], {
-					cwd,
-					env: { ...process.env, ...(body.env || {}) },
-					stdio: [body.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-				})
-			} catch (err) {
-				writeFrame(socket, { type: 'error', error: err.message })
-				writeTerminator(socket)
-				return
-			}
-			if (body.stdin !== undefined && child.stdin) child.stdin.end(String(body.stdin))
-
-			const stdout = { bytes: 0, truncated: false }
-			const stderr = { bytes: 0, truncated: false }
-			let timedOut = false
-			let settled = false
-
-			function clip(target, chunk) {
-				if (target.truncated) return null
-				const remaining = maxOutputBytes - target.bytes
-				if (remaining <= 0) {
-					target.truncated = true
-					return null
-				}
-				const clipped = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk
-				target.bytes += clipped.length
-				if (clipped.length < chunk.length) target.truncated = true
-				return clipped
-			}
-
-			child.stdout.on('data', (chunk) => {
-				const c = clip(stdout, chunk)
-				if (c) writeFrame(socket, { type: 'stdout_delta', data: c.toString('utf8') })
-			})
-			child.stderr.on('data', (chunk) => {
-				const c = clip(stderr, chunk)
-				if (c) writeFrame(socket, { type: 'stderr_delta', data: c.toString('utf8') })
-			})
-
-			const timeout = setTimeout(() => {
-				timedOut = true
-				try {
-					child.kill('SIGTERM')
-				} catch {}
-				setTimeout(() => {
-					if (!settled) {
-						try {
-							child.kill('SIGKILL')
-						} catch {}
-					}
-				}, 2_000).unref()
-			}, timeoutMs)
-			timeout.unref()
-
-			child.on('error', (error) => {
-				if (settled) return
-				settled = true
-				clearTimeout(timeout)
-				writeFrame(socket, { type: 'error', error: error.message })
-				writeTerminator(socket)
-			})
-			child.on('close', (exitCode) => {
-				if (settled) return
-				settled = true
-				clearTimeout(timeout)
-				writeFrame(socket, {
-					type: 'result',
-					exitCode: typeof exitCode === 'number' ? exitCode : -1,
-					timedOut,
-					durationMs: Date.now() - start,
-					stdoutTruncated: stdout.truncated,
-					stderrTruncated: stderr.truncated,
-				})
-				writeTerminator(socket)
-			})
-		})
-		.catch((err) => {
-			writeFrame(socket, { type: 'error', error: `mkdir_failed: ${err.message}` })
+	if (body.executionId !== undefined) {
+		pruneExecutions()
+		trackedExecution = executions.get(body.executionId)
+		if (!trackedExecution) {
+			writeFrame(socket, { type: 'error', error: 'unknown_execution' })
 			writeTerminator(socket)
+			socket.end()
+			return
+		}
+		if (trackedExecution.state !== 'reserved') {
+			writeFrame(socket, {
+				type: 'error',
+				error: `execution_not_reserved: ${trackedExecution.state}`,
+			})
+			writeTerminator(socket)
+			socket.end()
+			return
+		}
+		trackedExecution.state = 'starting'
+		trackedExecution.startedAt = start
+		trackedExecution.expiresAt = undefined
+	}
+
+	try {
+		await fs.mkdir(cwd, { recursive: true })
+	} catch (err) {
+		if (trackedExecution?.state === 'starting') {
+			rememberTerminal(trackedExecution, 'failed', undefined, err.message)
+		}
+		writeFrame(socket, {
+			type: 'error',
+			error: `mkdir_failed: ${err.message}`,
 		})
+		writeTerminator(socket)
+		socket.end()
+		return
+	}
+	if (trackedExecution?.state === 'terminal') {
+		writeFrame(socket, { type: 'error', error: 'execution_cancelled' })
+		writeTerminator(socket)
+		socket.end()
+		return
+	}
+
+	let child
+	try {
+		child = spawn(body.command, Array.isArray(body.args) ? body.args : [], {
+			cwd,
+			env: childEnvironment(body.env),
+			stdio: [body.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+			detached: process.platform !== 'win32',
+		})
+	} catch (err) {
+		if (trackedExecution?.state === 'starting') {
+			rememberTerminal(trackedExecution, 'failed', undefined, err.message)
+		}
+		writeFrame(socket, { type: 'error', error: err.message })
+		writeTerminator(socket)
+		socket.end()
+		return
+	}
+	if (body.stdin !== undefined && child.stdin) child.stdin.end(String(body.stdin))
+
+	const stdout = { bytes: 0, truncated: false }
+	const stderr = { bytes: 0, truncated: false }
+	let settled = false
+	let resolveDone
+	const done = new Promise((resolve) => {
+		resolveDone = resolve
+	})
+	const execution = trackedExecution ?? { state: 'starting', startedAt: start }
+	Object.assign(execution, {
+		state: 'running',
+		child,
+		processGroupId: child.pid,
+		done,
+		resolveDone,
+		terminationCause: undefined,
+	})
+
+	function clip(target, chunk) {
+		if (target.truncated) return null
+		const remaining = maxOutputBytes - target.bytes
+		if (remaining <= 0) {
+			target.truncated = true
+			return null
+		}
+		const clipped = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk
+		target.bytes += clipped.length
+		if (clipped.length < chunk.length) target.truncated = true
+		return clipped
+	}
+
+	child.stdout.on('data', (chunk) => {
+		const clipped = clip(stdout, chunk)
+		if (clipped)
+			writeFrame(socket, {
+				type: 'stdout_delta',
+				data: clipped.toString('utf8'),
+			})
+	})
+	child.stderr.on('data', (chunk) => {
+		const clipped = clip(stderr, chunk)
+		if (clipped)
+			writeFrame(socket, {
+				type: 'stderr_delta',
+				data: clipped.toString('utf8'),
+			})
+	})
+
+	const timeout = setTimeout(() => {
+		void ensureTermination(execution, 'timeout').catch((error) => {
+			retireAgent(error)
+		})
+	}, timeoutMs)
+	timeout.unref()
+
+	function settle(error, result) {
+		if (settled) return
+		settled = true
+		clearTimeout(timeout)
+		if (trackedExecution) {
+			rememberTerminal(
+				trackedExecution,
+				execution.terminationCause === 'cancelled' ? 'cancelled' : error ? 'failed' : 'completed',
+				result,
+				error?.message,
+			)
+		}
+		resolveDone({ error, result })
+		try {
+			if (error) writeFrame(socket, { type: 'error', error: error.message })
+			else writeFrame(socket, { type: 'result', ...result })
+			writeTerminator(socket)
+			socket.end()
+		} catch {}
+	}
+
+	child.on('error', (error) => settle(error))
+	child.on('exit', (exitCode, signal) => {
+		if (execution.state !== 'running') return
+		execution.state = 'exited'
+		execution.exitCode = exitCode
+		execution.exitSignal = signal
+	})
+	child.on('close', (exitCode, signal) => {
+		void (async () => {
+			if (settled) return
+			execution.state = 'exited'
+			if (processGroupAlive(execution.processGroupId)) {
+				if (execution.terminationCause !== undefined) {
+					const groupGone = await waitForGroupExit(
+						execution.processGroupId,
+						Date.now() + CANCEL_CONFIRM_TIMEOUT_MS,
+					)
+					if (!groupGone) {
+						throw new Error(
+							`process group ${execution.processGroupId} remained live after termination`,
+						)
+					}
+				} else {
+					await delay(25)
+					if (processGroupAlive(execution.processGroupId)) {
+						throw new Error(
+							`process group ${execution.processGroupId} remained live after its leader exited; refusing to signal a reusable numeric process-group id`,
+						)
+					}
+				}
+			}
+			settle(undefined, {
+				exitCode: typeof exitCode === 'number' ? exitCode : -1,
+				timedOut: execution.terminationCause === 'timeout',
+				durationMs: Date.now() - start,
+				...(signal ? { signal } : {}),
+				stdoutTruncated: stdout.truncated,
+				stderrTruncated: stderr.truncated,
+			})
+		})().catch((error) => {
+			retireAgent(error)
+			// No terminal frame is truthful here: the owned process group may
+			// still be alive. Drop the data connection so the host reconciles
+			// through cancel, observes the unconfirmed state, and retires the VM.
+			socket.destroy()
+		})
+	})
 }
 
 async function handleReadFile(socket, body) {
@@ -389,14 +779,36 @@ function handleConnection(socket) {
 function dispatch(socket, req) {
 	const op = req?.op
 	if (op === 'healthz') {
-		writeFrame(socket, { ok: true })
+		writeFrame(socket, {
+			ok: !agentRetiring,
+			...(agentRetiring ? { retiring: true } : {}),
+		})
 		socket.end()
 		return
 	}
+	if (op === 'cancel-execution') {
+		handleCancelExecution(socket, req.body)
+			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
+			.finally(() => socket.end())
+		return
+	}
+	if (agentRetiring) {
+		writeFrame(socket, { ok: false, error: 'agent_retiring' })
+		socket.end()
+		return
+	}
+	if (op === 'reserve-execution') {
+		handleReserveExecution(socket)
+		return
+	}
 	if (op === 'execute') {
-		handleExecute(socket, req.body)
-		// execute closes the socket itself after the terminator.
-		socket.on('close', () => {})
+		handleExecute(socket, req.body).catch((error) => {
+			try {
+				writeFrame(socket, { type: 'error', error: error.message })
+				writeTerminator(socket)
+				socket.end()
+			} catch {}
+		})
 		return
 	}
 	if (op === 'read-file') {

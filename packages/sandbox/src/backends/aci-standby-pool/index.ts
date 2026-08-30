@@ -55,7 +55,7 @@ import type {
 import { asSandboxId } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
-import { execViaHttpWorker } from '../http-worker-client.js'
+import { HttpWorkerClient } from '../http-worker-client.js'
 import {
 	OperationDeadline,
 	OperationDeadlineExpired,
@@ -63,6 +63,7 @@ import {
 	resolveReadinessOptions,
 	runFailureCleanup,
 } from '../readiness.js'
+import { RemoteCancellationUnknownError } from '../remote-execution-controller.js'
 
 /**
  * Authentication callback. Caller returns a fresh Azure Resource
@@ -302,6 +303,7 @@ async function armCall<T>(
 	getToken: ArmTokenProvider,
 	body?: unknown,
 	signal?: AbortSignal,
+	acceptedStatuses: readonly number[] = [],
 ): Promise<T | undefined> {
 	signal?.throwIfAborted()
 	const token = await getToken()
@@ -320,6 +322,11 @@ async function armCall<T>(
 	const res = await fetch(url, init)
 	signal?.throwIfAborted()
 	if (!res.ok) {
+		if (acceptedStatuses.includes(res.status)) {
+			await res.text()
+			signal?.throwIfAborted()
+			return undefined
+		}
 		const text = await res.text()
 		signal?.throwIfAborted()
 		throw new Error(`ARM ${method} ${url} → ${res.status}: ${text}`)
@@ -518,14 +525,91 @@ async function spawnAciSandbox(
 			readiness.pollIntervalMs,
 		)
 
+		type Lifecycle = 'active' | 'retiring' | 'destroyed'
 		let activeExecutions = 0
-		let destroyed = false
+		let lifecycle: Lifecycle = 'active'
+		let retirementPromise:
+			| Promise<{ readonly accepted: boolean; readonly error?: Error }>
+			| undefined
+		let teardownPromise: Promise<void> | undefined
+		let teardownComplete = false
 		const rootDir = config.layout.outputs.containerPath
+		const workerClient = new HttpWorkerClient(baseUrl)
+		const assertActive = (): void => {
+			if (lifecycle !== 'active') {
+				throw new Error(`Sandbox ${id} is ${lifecycle}; no new worker operation can be admitted`)
+			}
+		}
+		const teardownSandbox = (signal?: AbortSignal): Promise<void> => {
+			lifecycle = 'retiring'
+			if (teardownComplete) return Promise.resolve()
+			if (teardownPromise) return teardownPromise
+			const attempt = armCall(
+				armUrl,
+				'DELETE',
+				config.getArmToken,
+				undefined,
+				signal,
+				[404, 410],
+			).then(() => undefined)
+			const shared = attempt.then(
+				() => {
+					teardownComplete = true
+					lifecycle = 'destroyed'
+				},
+				(error: unknown) => {
+					if (teardownPromise === shared) teardownPromise = undefined
+					throw error
+				},
+			)
+			teardownPromise = shared
+			return shared
+		}
+		const retire = (): Promise<{
+			readonly accepted: boolean
+			readonly error?: Error
+		}> => {
+			lifecycle = 'retiring'
+			if (retirementPromise) return retirementPromise
+			const deadline = new OperationDeadline(5_000, `ACI sandbox ${id} retirement`)
+			retirementPromise = deadline
+				.run(async (signal) => {
+					const joinedExistingAttempt = teardownPromise !== undefined
+					try {
+						await teardownSandbox(signal)
+					} catch (error) {
+						if (!joinedExistingAttempt || signal.aborted) throw error
+						await teardownSandbox(signal)
+					}
+				})
+				.then(() => {
+					return { accepted: true as const }
+				})
+				.catch((error: unknown) => ({
+					accepted: false as const,
+					error: error instanceof Error ? error : new Error(String(error)),
+				}))
+			return retirementPromise
+		}
+		const runExecution = async <T>(operation: () => Promise<T>): Promise<T> => {
+			assertActive()
+			activeExecutions += 1
+			try {
+				return await operation()
+			} catch (error) {
+				if (error instanceof RemoteCancellationUnknownError) {
+					error.retirement = await retire()
+				}
+				throw error
+			} finally {
+				activeExecutions = Math.max(0, activeExecutions - 1)
+			}
+		}
 
 		return {
 			id,
 			get status(): SandboxStatus {
-				if (destroyed) return 'destroyed'
+				if (lifecycle !== 'active') return 'destroyed'
 				return activeExecutions > 0 ? 'busy' : 'ready'
 			},
 			rootDir,
@@ -536,16 +620,11 @@ async function spawnAciSandbox(
 				argv?: string[],
 				opts?: SandboxExecOptions,
 			): Promise<SandboxExecResult> {
-				if (destroyed) throw new Error(`Sandbox ${id} is destroyed`)
-				activeExecutions += 1
-				try {
-					return await execViaHttpWorker(baseUrl, command, argv, opts)
-				} finally {
-					activeExecutions = Math.max(0, activeExecutions - 1)
-				}
+				return await runExecution(async () => await workerClient.exec(command, argv, opts))
 			},
 
 			async writeFile(path: string, content: string | Buffer): Promise<void> {
+				assertActive()
 				const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
 				const res = await fetch(`${baseUrl}/write-file`, {
 					method: 'POST',
@@ -562,6 +641,7 @@ async function spawnAciSandbox(
 			},
 
 			async readFile(path: string): Promise<Buffer> {
+				assertActive()
 				const res = await fetch(`${baseUrl}/read-file`, {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
@@ -582,11 +662,15 @@ async function spawnAciSandbox(
 			},
 
 			async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
-				return await listFilesViaWorker(baseUrl, rootPath)
+				return await runExecution(async () => await listFilesViaWorker(workerClient, rootPath))
 			},
 
 			async destroy(options?: SandboxDestroyOptions): Promise<void> {
-				destroyed = true
+				if (retirementPromise) {
+					const observation = await retirementPromise
+					if (observation.accepted) return
+					retirementPromise = undefined
+				}
 				// ARM DELETE — let failures propagate. The Vandal-side
 				// lifecycle wraps this in its own try/catch with logging,
 				// so a silently swallowed error here means orphan ACI
@@ -595,7 +679,7 @@ async function spawnAciSandbox(
 				// the WARM side topped up; that has nothing to do with
 				// cleaning up a CLAIMED instance, which is exclusively the
 				// claimer's responsibility.
-				await armCall(armUrl, 'DELETE', config.getArmToken, undefined, options?.signal)
+				await teardownSandbox(options?.signal)
 			},
 		}
 	} catch (err) {
@@ -672,11 +756,10 @@ async function waitForWorkerReady(
  * have produced anything in `rootPath` yet.
  */
 async function listFilesViaWorker(
-	baseUrl: string,
+	workerClient: HttpWorkerClient,
 	rootPath: string,
 ): Promise<readonly SandboxFileEntry[]> {
-	const result = await execViaHttpWorker(
-		baseUrl,
+	const result = await workerClient.exec(
 		'find',
 		[rootPath, '-type', 'f', '-printf', '%p\t%s\n'],
 		undefined,

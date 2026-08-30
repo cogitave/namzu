@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-09
+lastReviewed: 2026-08-30
 tags: [convention, api-design, types]
 verified:
   - by: process:conventions-migration
@@ -40,9 +40,11 @@ is the finding.
   happened. **Repaired**, and the repair is what `resource` above points at:
   a regression test that drives the real provider, because a stub asserting
   "the signal was passed along" would have passed against the broken code. The
-  backends that still cannot honour it now say so in source rather than
-  forwarding a signal that would abort the *wait* and leave the process
-  running — see [Refuse, do not silently degrade](refuse-do-not-degrade.md).
+  every shipped backend now either terminates locally or uses a separate
+  reserve/cancel ownership protocol that confirms the remote process group is
+  gone before reporting cancellation. Older remote images are detected and a
+  signal is refused rather than forwarded to the *wait* — see
+  [Refuse, do not silently degrade](refuse-do-not-degrade.md).
 - `ThinkingConfig.display` — on the type, never serialized into the request.
   And its values were wrong: `'full'` was not a value any driver accepted.
 - `runtimeToolOverrides` — honoured at two call sites, ignored at the third,

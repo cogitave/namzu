@@ -15,13 +15,30 @@ describe('ExecResultAccumulator', () => {
 		expect(acc.push({ type: 'stdout_delta', data: 'b' })).toBe(false)
 		expect(acc.push({ type: 'stderr_delta', data: 'E' })).toBe(false)
 		expect(acc.done).toBe(false)
-		expect(acc.push({ type: 'result', exitCode: 0, timedOut: false })).toBe(true)
+		expect(
+			acc.push({
+				type: 'result',
+				exitCode: 0,
+				timedOut: false,
+				durationMs: 12,
+				signal: 'SIGTERM',
+				stdoutTruncated: true,
+				stderrTruncated: false,
+			}),
+		).toBe(true)
 		expect(acc.done).toBe(true)
 		const r = acc.finish()
 		expect(r.stdout).toBe('ab')
 		expect(r.stderr).toBe('E')
 		expect(r.exitCode).toBe(0)
 		expect(r.timedOut).toBe(false)
+		expect(r.durationMs).toBe(12)
+		expect(r.signal).toBe('SIGTERM')
+		expect(r.stdoutTruncated).toBe(true)
+		expect(r.stderrTruncated).toBe(false)
+		expect(() =>
+			acc.push({ type: 'result', exitCode: 0, timedOut: false, durationMs: 13 }),
+		).toThrow(/after its terminal event/)
 	})
 
 	it('throws on an error event (docker loop parity)', () => {
@@ -37,10 +54,11 @@ describe('parseExecLine', () => {
 			data: 'x',
 		})
 	})
-	it('returns undefined for blank or malformed lines (SyntaxError swallow)', () => {
+	it('ignores blank lines but rejects malformed or structurally invalid events', () => {
 		expect(parseExecLine('')).toBeUndefined()
 		expect(parseExecLine('   ')).toBeUndefined()
-		expect(parseExecLine('{not json')).toBeUndefined()
+		expect(() => parseExecLine('{not json')).toThrow(/malformed NDJSON/)
+		expect(() => parseExecLine('{"type":"result","exitCode":0}')).toThrow(/invalid result/)
 	})
 })
 

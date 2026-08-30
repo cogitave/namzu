@@ -544,49 +544,77 @@ in-flight request bound and one-second failure-cleanup grace described above.
 Per-sandbox egress, memory caps, process caps and environment variables are
 refused here, as the table above says.
 
-## Command cancellation and the remaining gap
+## Command cancellation and remote ownership
 
 `SandboxExecOptions.signal` terminates commands in the local SDK sandbox and in
-both HTTP-container backends. The container client first reserves an inert,
-expiring execution lease; only that lease can admit `/execute`. Cancellation is
-a separate idempotent request that closes a reservation before spawn or sends
-TERM and then KILL to the owned process group. A successful worker
-acknowledgement means terminal state is known, and the client still drains the
-execution stream through its one terminal result so tail output and truncation
-metadata are not lost. The host also places a finite observation deadline just
-beyond the requested command timeout; a blackholed execution connection enters
-the same cancel-and-confirm path instead of waiting forever.
+both HTTP-container backends and the framed microVM backend. Each remote client
+first reserves an inert, expiring execution lease; only that lease can admit
+the execution. Cancellation is a separate idempotent request, carried on a
+fresh connection, that closes a reservation before spawn or sends TERM and then
+KILL to the owned process group. A successful peer acknowledgement means
+terminal state is known, and the client still drains the data stream through
+its one terminal result so tail output, signal and truncation metadata are not
+lost. The host also places a finite observation deadline just beyond the
+requested command timeout; a blackholed execution connection enters the same
+cancel-and-confirm path instead of waiting forever.
 
 Failure meanings stay separate. If process termination cannot be confirmed,
-the outcome is reported as unknown and the worker retires rather than accepting
-another command beside a possibly live process. If termination is confirmed but
-the terminal stream cannot be drained, the error says that termination is known
-while output is incomplete. Neither condition should be treated as permission
-to infer complete output or blindly replay a side-effecting command.
+the outcome is reported as unknown, the host synchronously fences every new
+operation, and it requests retirement of the whole container, container group,
+or microVM rather than accepting another command beside a possibly live
+process. If termination is confirmed but the terminal stream cannot be drained,
+the error says that termination is known while output is incomplete. Neither
+condition is permission to infer complete output or blindly replay a
+side-effecting command.
 
-This protocol requires the current worker image. A new host keeps legacy
-one-request execution when no signal is supplied, and a new worker still accepts
-that legacy request for rolling upgrades. When a signal is supplied to an old
-worker, the host refuses with a rebuild instruction rather than claiming the
-command was cancellable. Standby-pool deployments must publish a new container
-group profile revision containing the current worker before opting into this
-path.
+Retirement is coalesced per sandbox. Concurrent explicit destroy calls and an
+automatic retirement racing a destroy share one teardown attempt; a failed
+attempt remains retryable. Docker retirement is accepted only after
+`docker rm -f` exits successfully, while container-group and microVM deletion
+also accept `404`/`410` as already absent. Credential proxies are closed even
+when container removal fails, and a failed teardown is attached to the
+original unknown-outcome error as `retirement.accepted: false`.
+
+This protocol requires a current worker or microVM guest image. A new host
+probes the peer before admitting its first command. An explicit unsupported
+response enables cached legacy one-request execution when no signal is
+supplied; a timeout, malformed reply, or lost reservation response never does.
+When a signal is supplied to an old peer, the host refuses with a rebuild
+instruction rather than claiming the command was cancellable. Standby-pool
+deployments must publish a new container group profile revision containing the
+current worker, and microVM deployments must rebuild their golden guest image,
+before opting into this path.
 
 The process-group wording is deliberate. An ordinary shell and its descendants
 share the group; a program that deliberately creates a new session can escape
 it. Stronger teardown of arbitrary descendants belongs to the container or
-microVM lifecycle boundary, not to a claim about one POSIX signal target.
+microVM lifecycle boundary, not to a claim about one POSIX signal target. Once
+the group leader has exited, the peer does not signal the remaining numeric
+group id because the kernel may reuse it for an unrelated concurrent command.
+If descendants remain after a short no-signal observation, the peer self-fences
+and the host retires the whole container or microVM.
 
-The framed microVM transport still accepts and **does not forward**
-`SandboxExecOptions.signal`: its guest-agent wire has no cancel operation.
-Aborting its socket would abandon the wait while the command kept running, so
-the backend remains truthful about the gap until that separate protocol gains
-the same lifecycle operation. A per-command `timeout` is enforced by both
-container worker and guest agent; both refuse a value above their 30-minute
-ceiling rather than silently running under a shorter one.
+A framed execution must contain exactly one terminal result followed by exactly
+one zero-length terminator followed by a clean peer close. Missing terminators,
+malformed metadata, partial trailing bytes and trailing frames — including data
+arriving in a later socket chunk — are protocol failures; after admission they
+enter reconciliation rather than being treated as successful partial output.
+The reserve, execute and cancel operations use distinct fresh connections,
+including through the mTLS relay, so cancellation does not depend on the data
+connection it interrupts.
 
-One other gap remains, written down rather than implied away because it would
-otherwise look like a feature that works.
+Terminal execution records stay briefly available so cancellation retries are
+idempotent. They never consume live admission capacity indefinitely: when the
+bounded registry is full, the oldest terminal records are evicted before a new
+reservation is refused, while reserved, starting and running records are never
+evicted.
+
+A per-command `timeout` is enforced by both container worker and guest agent;
+both refuse a value above their 30-minute ceiling rather than silently running
+under a shorter one.
+
+One separate gap remains, written down rather than implied away because it
+would otherwise look like a feature that works.
 
 `Sandbox.openTerminal` is not implemented by any backend in this package. The
 contract's rule is that a backend which cannot open a real pseudo-terminal must

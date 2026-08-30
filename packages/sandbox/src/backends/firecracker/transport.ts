@@ -56,8 +56,15 @@
 import net from 'node:net'
 import tls from 'node:tls'
 
-import type { SandboxExecResult } from '@namzu/sdk'
+import type { SandboxExecOptions, SandboxExecResult } from '@namzu/sdk'
 import { OperationDeadline, OperationDeadlineExpired } from '../readiness.js'
+import {
+	RemoteCancellationUnknownError,
+	RemoteCancellationUnsupportedError,
+	type RemoteExecutionAdapter,
+	RemoteExecutionController,
+	RemoteProtocolError,
+} from '../remote-execution-controller.js'
 import {
 	type ExecRequest,
 	ExecResultAccumulator,
@@ -156,6 +163,11 @@ export type WireSandboxAgentHandle =
  */
 export type AgentRequest =
 	| { readonly op: 'execute'; readonly body: ExecRequest }
+	| { readonly op: 'reserve-execution' }
+	| {
+			readonly op: 'cancel-execution'
+			readonly body: { readonly executionId: string }
+	  }
 	| { readonly op: 'read-file'; readonly body: ReadFileRequest }
 	| { readonly op: 'write-file'; readonly body: WriteFileRequest }
 	| { readonly op: 'healthz' }
@@ -181,6 +193,14 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
 const DEFAULT_CONNECT_RETRY_BUDGET_MS = 30_000
 const DEFAULT_CONNECT_RETRY_INTERVAL_MS = 100
 const DEFAULT_READ_IDLE_TIMEOUT_MS = 60_000
+const DEFAULT_EXECUTION_TIMEOUT_MS = 5 * 60_000
+// The ownership controller begins reconciliation shortly after the requested
+// command timeout. The data socket itself stays observable for the peer's
+// bounded TERM -> KILL confirmation window so a quiet but correctly
+// terminating command can still deliver its terminal frame and output tail.
+const EXECUTION_TRANSPORT_GRACE_MS = 10_000
+const POST_RESPONSE_CLOSE_TIMEOUT_MS = 1_000
+const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 /** Framing: 8 hex digits of payload byte length, then `\n`, then payload. */
 const LENGTH_PREFIX_HEX = 8
@@ -215,6 +235,9 @@ class FrameReader {
 				break
 			}
 			const header = this.buf.subarray(0, nl).toString('ascii')
+			if (!/^[0-9a-fA-F]{8}$/.test(header)) {
+				throw new Error(`vsock transport: invalid frame length header ${JSON.stringify(header)}`)
+			}
 			const len = Number.parseInt(header, 16)
 			if (!Number.isInteger(len) || len < 0) {
 				throw new Error(`vsock transport: invalid frame length header ${JSON.stringify(header)}`)
@@ -227,13 +250,17 @@ class FrameReader {
 		}
 		return out
 	}
+
+	get bufferedBytes(): number {
+		return this.buf.length
+	}
 }
 
 /**
  * The transport. One instance per sandbox handle; every request opens
  * a fresh connection (resume-survivable — no socket lingers across a
- * resume to be silently severed). All four ops + the heartbeat go
- * through {@link request} / {@link execute}.
+ * resume to be silently severed). Execution reservation, data, cancellation,
+ * file I/O and heartbeat all use independent calls through this dialer.
  */
 export class VsockAgentTransport {
 	private readonly handle: SandboxAgentHandle
@@ -241,6 +268,9 @@ export class VsockAgentTransport {
 	private readonly connectRetryBudgetMs: number
 	private readonly connectRetryIntervalMs: number
 	private readonly readIdleTimeoutMs: number
+	private readonly executionController: RemoteExecutionController<
+		Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>
+	>
 
 	constructor(handle: SandboxAgentHandle, options: VsockTransportOptions = {}) {
 		this.handle = handle
@@ -249,6 +279,29 @@ export class VsockAgentTransport {
 		this.connectRetryIntervalMs =
 			options.connectRetryIntervalMs ?? DEFAULT_CONNECT_RETRY_INTERVAL_MS
 		this.readIdleTimeoutMs = options.readIdleTimeoutMs ?? DEFAULT_READ_IDLE_TIMEOUT_MS
+		const adapter: RemoteExecutionAdapter<Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>> = {
+			label: 'framed microVM agent',
+			reserve: async (signal) => await this.reserveExecution(signal),
+			cancel: async (executionId, signal) => await this.cancelExecution(executionId, signal),
+			execute: async (executionId, command, argv, opts, signal, context) =>
+				await this.executeRaw(
+					{
+						...(executionId ? { executionId } : {}),
+						command,
+						args: argv ?? [],
+						...(opts?.cwd !== undefined ? { cwd: opts.cwd } : {}),
+						...(opts?.env !== undefined ? { env: opts.env } : {}),
+						...(opts?.timeout !== undefined ? { timeoutMs: opts.timeout } : {}),
+						...(context?.stdin !== undefined ? { stdin: context.stdin } : {}),
+						...(context?.maxOutputBytes !== undefined
+							? { maxOutputBytes: context.maxOutputBytes }
+							: {}),
+					},
+					opts,
+					signal,
+				),
+		}
+		this.executionController = new RemoteExecutionController(adapter)
 	}
 
 	/**
@@ -447,10 +500,13 @@ export class VsockAgentTransport {
 		return await new Promise<T>((resolve, reject) => {
 			const reader = new FrameReader()
 			let settled = false
+			let response: T | undefined
+			let closeTimer: ReturnType<typeof setTimeout> | undefined
 			const finish = (err: Error | null, value?: T) => {
 				if (settled) return
 				settled = true
 				idle.clear()
+				if (closeTimer) clearTimeout(closeTimer)
 				signal?.removeEventListener('abort', abort)
 				socket.destroy()
 				if (err) reject(err)
@@ -462,6 +518,10 @@ export class VsockAgentTransport {
 			)
 			socket.on('data', (chunk: Buffer) => {
 				idle.bump()
+				if (response !== undefined) {
+					finish(new Error('vsock transport: control reply emitted data after its response'))
+					return
+				}
 				let frames: string[]
 				try {
 					frames = reader.push(chunk)
@@ -469,17 +529,34 @@ export class VsockAgentTransport {
 					finish(err instanceof Error ? err : new Error(String(err)))
 					return
 				}
+				if (frames.length > 1) {
+					finish(new Error('vsock transport: control reply emitted multiple frames'))
+					return
+				}
 				const first = frames[0]
 				if (first !== undefined) {
 					try {
-						finish(null, JSON.parse(first) as T)
+						response = JSON.parse(first) as T
+						if (reader.bufferedBytes > 0) {
+							finish(new Error('vsock transport: control reply has trailing partial data'))
+							return
+						}
+						idle.clear()
+						closeTimer = setTimeout(
+							() => finish(new Error('vsock transport: control peer did not close after reply')),
+							POST_RESPONSE_CLOSE_TIMEOUT_MS,
+						)
+						closeTimer.unref()
 					} catch (err) {
 						finish(err instanceof Error ? err : new Error(String(err)))
 					}
 				}
 			})
 			socket.once('error', (err) => finish(err))
-			socket.once('close', () => finish(new Error('vsock transport: socket closed before reply')))
+			socket.once('close', () => {
+				if (response !== undefined) finish(null, response)
+				else finish(new Error('vsock transport: socket closed before reply'))
+			})
 			if (signal?.aborted) {
 				abort()
 				return
@@ -495,31 +572,52 @@ export class VsockAgentTransport {
 	 * {@link SandboxExecResult} via the shared {@link ExecResultAccumulator}.
 	 * The agent terminates the stream with a zero-length frame.
 	 */
-	async execute(body: ExecRequest): Promise<SandboxExecResult> {
-		const socket = await this.dial()
+	private async executeRaw(
+		body: ExecRequest,
+		opts?: SandboxExecOptions,
+		signal?: AbortSignal,
+	): Promise<SandboxExecResult> {
+		const socket = await this.dial(signal)
 		const start = Date.now()
 		return await new Promise<SandboxExecResult>((resolve, reject) => {
 			const reader = new FrameReader()
-			const acc = new ExecResultAccumulator(start)
+			const acc = new ExecResultAccumulator(start, opts?.onOutput)
 			let settled = false
-			const idle = new IdleTimer(this.readIdleTimeoutMs, () => {
-				if (settled) return
-				settled = true
-				socket.destroy()
-				reject(
-					new Error(`vsock transport: exec read idle timeout after ${this.readIdleTimeoutMs}ms`),
-				)
-			})
+			let terminated = false
+			let terminalResult: SandboxExecResult | undefined
+			let closeTimer: ReturnType<typeof setTimeout> | undefined
+			const requestedTimeout =
+				typeof body.timeoutMs === 'number' && Number.isFinite(body.timeoutMs) && body.timeoutMs > 0
+					? body.timeoutMs
+					: DEFAULT_EXECUTION_TIMEOUT_MS
+			const observationTimeoutMs = Math.min(
+				MAX_TIMER_DELAY_MS,
+				requestedTimeout + EXECUTION_TRANSPORT_GRACE_MS,
+			)
 			const finish = (err: Error | null, value?: SandboxExecResult) => {
 				if (settled) return
 				settled = true
-				idle.clear()
+				clearTimeout(observationTimer)
+				if (closeTimer) clearTimeout(closeTimer)
+				signal?.removeEventListener('abort', abort)
 				socket.destroy()
 				if (err) reject(err)
 				else resolve(value as SandboxExecResult)
 			}
+			const abort = () => finish(signalError(signal))
+			const observationTimer = setTimeout(
+				() =>
+					finish(
+						new Error(`vsock transport: execution observation exceeded ${observationTimeoutMs}ms`),
+					),
+				observationTimeoutMs,
+			)
+			observationTimer.unref()
 			socket.on('data', (chunk: Buffer) => {
-				idle.bump()
+				if (terminated) {
+					finish(new Error('vsock transport: exec stream emitted data after its terminator'))
+					return
+				}
 				let frames: string[]
 				try {
 					frames = reader.push(chunk)
@@ -528,41 +626,118 @@ export class VsockAgentTransport {
 					return
 				}
 				for (const payload of frames) {
-					if (payload.length === 0) {
-						// Zero-length terminator. If a result was seen, we are
-						// done; otherwise the stream ended without a result.
-						finish(
-							acc.done ? null : new Error('exec stream ended without a result event'),
-							acc.finish(),
-						)
+					if (terminated) {
+						finish(new Error('vsock transport: exec stream emitted data after its terminator'))
 						return
 					}
-					const event = parseExecLine(payload)
-					if (!event) continue // malformed line — swallow (docker parity)
-					try {
-						if (acc.push(event)) {
-							// Terminal result seen; wait for terminator but we can
-							// resolve now — the agent closes after the terminator.
+					if (payload.length === 0) {
+						if (!acc.done) {
+							finish(new Error('exec stream ended without a result event'))
+							return
 						}
+						terminated = true
+						continue
+					}
+					try {
+						const event = parseExecLine(payload)
+						if (event) acc.push(event)
 					} catch (err) {
 						finish(err instanceof Error ? err : new Error(String(err)))
 						return
 					}
 				}
+				if (terminated) {
+					if (reader.bufferedBytes > 0) {
+						finish(new Error('vsock transport: exec stream has trailing partial data'))
+						return
+					}
+					terminalResult = acc.finish()
+					closeTimer = setTimeout(
+						() => finish(new Error('vsock transport: exec peer did not close after terminator')),
+						POST_RESPONSE_CLOSE_TIMEOUT_MS,
+					)
+					closeTimer.unref()
+				}
 			})
 			socket.once('error', (err) => finish(err))
 			socket.once('close', () => {
-				// Stream closed. If a result arrived, deliver it (some agents
-				// close right after the terminator without a separate event);
-				// otherwise it is a truncated stream.
-				finish(
-					acc.done ? null : new Error('vsock transport: socket closed before exec result'),
-					acc.finish(),
-				)
+				if (terminated && terminalResult) finish(null, terminalResult)
+				else finish(new Error('vsock transport: socket closed before exec stream terminator'))
 			})
-			idle.bump()
+			if (signal?.aborted) {
+				abort()
+				return
+			}
+			signal?.addEventListener('abort', abort, { once: true })
 			socket.write(frame(JSON.stringify({ op: 'execute', body } satisfies AgentRequest)))
 		})
+	}
+
+	/**
+	 * Compatibility request-shaped entry point. It now enters the same
+	 * reserve-before-admission controller as {@link exec}; the raw data-plane
+	 * primitive is deliberately private so aborting this public method cannot
+	 * abandon a live guest command.
+	 */
+	async execute(
+		body: ExecRequest,
+		opts?: SandboxExecOptions,
+		signal?: AbortSignal,
+	): Promise<SandboxExecResult> {
+		if (body.executionId !== undefined) {
+			throw new RemoteProtocolError(
+				'VsockAgentTransport.execute does not accept caller-owned execution ids',
+			)
+		}
+		return await this.executionController.exec(
+			body.command,
+			body.args ? [...body.args] : undefined,
+			{
+				...opts,
+				...(body.cwd !== undefined ? { cwd: body.cwd } : {}),
+				...(body.env !== undefined ? { env: body.env } : {}),
+				...(body.timeoutMs !== undefined ? { timeout: body.timeoutMs } : {}),
+				...(opts?.signal === undefined && signal !== undefined ? { signal } : {}),
+			},
+			{
+				...(body.stdin !== undefined ? { stdin: body.stdin } : {}),
+				...(body.maxOutputBytes !== undefined ? { maxOutputBytes: body.maxOutputBytes } : {}),
+			},
+		)
+	}
+
+	async exec(
+		command: string,
+		argv?: string[],
+		opts?: SandboxExecOptions,
+	): Promise<SandboxExecResult> {
+		return await this.executionController.exec(command, argv, opts)
+	}
+
+	private async reserveExecution(signal: AbortSignal): Promise<unknown> {
+		const response = await this.request<Record<string, unknown>>(
+			{ op: 'reserve-execution' },
+			signal,
+		)
+		if (
+			response.ok === false &&
+			typeof response.error === 'string' &&
+			response.error.startsWith('unknown_op:')
+		) {
+			throw new RemoteCancellationUnsupportedError(
+				'This microVM agent does not support the execution-cancellation lease protocol. Rebuild the guest image before passing SandboxExecOptions.signal; refusing rather than pretending cancellation is active.',
+			)
+		}
+		if (response.ok === false && response.error === 'agent_retiring') {
+			throw new RemoteCancellationUnknownError(
+				'The microVM agent has fenced itself because an earlier process-group shutdown could not be confirmed; the sandbox must be retired.',
+			)
+		}
+		return response
+	}
+
+	private async cancelExecution(executionId: string, signal: AbortSignal): Promise<unknown> {
+		return await this.request<unknown>({ op: 'cancel-execution', body: { executionId } }, signal)
 	}
 
 	/** Liveness probe. Returns true on an `{ ok: true }` healthz reply. */
