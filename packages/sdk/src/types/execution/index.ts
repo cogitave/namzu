@@ -5,6 +5,14 @@ export type ExecutionCapability = 'filesystem' | 'process' | 'network' | 'shell'
 export interface CommandOptions {
 	cwd?: string
 	env?: Record<string, string>
+	/**
+	 * Command deadline in milliseconds; `0` disables the deadline.
+	 *
+	 * `LocalExecutionContext` owns its spawned process group through stdio
+	 * close, first requesting termination and then forcing it after a bounded
+	 * grace period. Remote handlers define how this option is enforced at their
+	 * own execution boundary.
+	 */
 	timeoutMs?: number
 	shell?: string | boolean
 }

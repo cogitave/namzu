@@ -10,23 +10,21 @@ import type { spawn } from 'node:child_process'
  * paid for by a bug where a cancelled command kept running, and a
  * near-copy would reproduce the bug in the copy.
  *
- * Every caller reaches a real command through `/bin/sh -c "cmd"`, and under
- * the local sandbox's `linux-namespace`/`macos-seatbelt` tiers that shell is
- * wrapped again (`unshare …`/`sandbox-exec … -- /bin/sh -c "cmd"`). Either
- * way, `child.pid` names the OUTERMOST wrapper Node spawned, not `cmd` —
- * signalling only that pid, which is both what `child.kill()` does and what
- * `spawn`'s own `signal` option does internally on abort, reaps the wrapper
- * and leaves `cmd`, and anything it forked, running past both a cancel and a
- * timeout.
+ * Some callers reach a command through a shell or isolation wrapper; the
+ * local execution context can also spawn the authored executable directly.
+ * In every case, signalling only `child.pid` — which is both what
+ * `child.kill()` does and what `spawn`'s own `signal`/`timeout` options do —
+ * can reap that direct child while leaving a descendant running past both a
+ * cancel and a timeout.
  *
  * POSIX: the caller must spawn with `detached: true`, which makes the child
  * the leader of a new process group (pgid === pid) instead of joining this
  * Node process's own. A negative pid signals that whole group in one call.
- * Group membership is a host-kernel fact that a fork()'d descendant inherits
- * from its parent whether or not it — or an ancestor such as `unshare --pid`
- * — subsequently entered a new PID namespace, so this reaches `cmd` and its
- * descendants along with the wrapper itself even under the namespaced
- * isolation tiers.
+ * Group membership is a host-kernel fact that an ordinary forked descendant
+ * inherits from its parent, including under the namespaced isolation tiers.
+ * A process which deliberately starts a new session/process group can escape
+ * this boundary; this helper is process-group signalling, not a portable
+ * arbitrary-descendant ownership primitive.
  *
  * Windows has no process-group id to sign a kill with — `process.kill` with
  * a negative pid there either throws or silently does nothing, depending on
