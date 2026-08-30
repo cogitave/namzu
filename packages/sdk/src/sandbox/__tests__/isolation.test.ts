@@ -232,7 +232,7 @@ describe('the provider', () => {
 							stdout: 'namzu-sandbox-spawn-probe',
 							...(environment === 'linux-bwrap'
 								? {
-									output: [null, 'namzu-sandbox-spawn-probe', '', '{ "child-pid": 43 }\n', null],
+										output: [null, 'namzu-sandbox-spawn-probe', '', '{ "child-pid": 43 }\n', null],
 									}
 								: {}),
 						}
