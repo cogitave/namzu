@@ -145,8 +145,7 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 			case 'remote-first': {
 				const connectedRemote = this.getFirstConnectedRemote()
 				if (connectedRemote) {
-					const fullCommand = args.length > 0 ? `${command} ${args.join(' ')}` : command
-					return connectedRemote.executeRemote(fullCommand, options)
+					return connectedRemote.executeCommand(command, args, options)
 				}
 				return this.localCtx.executeCommand(command, args, options)
 			}
@@ -166,8 +165,7 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 				if (target === this.localCtx) {
 					return this.localCtx.executeCommand(command, args, options)
 				}
-				const fullCommand = args.length > 0 ? `${command} ${args.join(' ')}` : command
-				return (target as RemoteExecutionContext).executeRemote(fullCommand, options)
+				return (target as RemoteExecutionContext).executeCommand(command, args, options)
 			}
 
 			default: {

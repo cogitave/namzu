@@ -28,7 +28,12 @@ export interface CommandExecutor {
 	executeCommand(command: string, args?: string[], options?: CommandOptions): Promise<CommandResult>
 }
 
+/**
+ * @deprecated Use `CommandExecutor` so command arguments retain their
+ * boundaries at the remote execution seam.
+ */
 export interface RemoteCommandHandler {
+	/** @deprecated Use `CommandExecutor.executeCommand()`. */
 	executeRemote(command: string, options?: CommandOptions): Promise<CommandResult>
 }
 

@@ -1,4 +1,5 @@
 import type {
+	CommandExecutor,
 	CommandOptions,
 	CommandResult,
 	ExecutionCapability,
@@ -14,17 +15,25 @@ export interface RemoteExecutionContextOptions {
 	id: string
 	target: RemoteTarget
 	capabilities?: ExecutionCapability[]
+	/**
+	 * Executes a command while preserving its argument boundaries at Namzu's
+	 * remote seam. A downstream executor may still interpret `shell` according
+	 * to its own target.
+	 */
+	commandExecutor?: CommandExecutor
+	/** @deprecated Use `commandExecutor`. */
 	commandHandler?: RemoteCommandHandler
 	log?: Logger
 }
 
-export class RemoteExecutionContext extends BaseExecutionContext {
+export class RemoteExecutionContext extends BaseExecutionContext implements CommandExecutor {
 	readonly id: string
 	readonly environment: ExecutionEnvironment = 'remote'
 
 	private target: RemoteTarget
 	private connected = false
 	private capabilities: ExecutionCapability[]
+	private commandExecutor: CommandExecutor | undefined
 	private commandHandler: RemoteCommandHandler | undefined
 
 	constructor(options: RemoteExecutionContextOptions) {
@@ -32,6 +41,7 @@ export class RemoteExecutionContext extends BaseExecutionContext {
 		this.id = options.id
 		this.target = options.target
 		this.capabilities = options.capabilities ?? ['network']
+		this.commandExecutor = options.commandExecutor
 		this.commandHandler = options.commandHandler
 	}
 
@@ -100,20 +110,46 @@ export class RemoteExecutionContext extends BaseExecutionContext {
 		return this.capabilities.includes(cap)
 	}
 
+	setCommandExecutor(executor: CommandExecutor): void {
+		this.commandExecutor = executor
+	}
+
+	/** @deprecated Use `setCommandExecutor()`. */
 	setCommandHandler(handler: RemoteCommandHandler): void {
 		this.commandHandler = handler
 	}
 
-	async executeRemote(command: string, options?: CommandOptions): Promise<CommandResult> {
-		if (!this.commandHandler) {
-			throw new Error(
-				`No remote command handler configured for context "${this.id}". Set one via setCommandHandler() before calling executeRemote().`,
+	async executeCommand(
+		command: string,
+		args: string[] = [],
+		options?: CommandOptions,
+	): Promise<CommandResult> {
+		if (this.commandExecutor) {
+			const executor = this.admitCommand(
+				this.commandExecutor,
+				`No remote command executor configured for context "${this.id}". Set one via setCommandExecutor() before calling executeCommand().`,
 			)
+			return executor.executeCommand(command, args, options)
 		}
-		if (!this.connected) {
-			throw new Error(`Remote context "${this.id}" is not connected. Call connect() first.`)
-		}
-		return this.commandHandler.executeRemote(command, options)
+
+		const handler = this.admitCommand(
+			this.commandHandler,
+			`No remote command executor configured for context "${this.id}". Set one via setCommandExecutor() before calling executeCommand().`,
+		)
+		const fullCommand = args.length > 0 ? `${command} ${args.join(' ')}` : command
+		return handler.executeRemote(fullCommand, options)
+	}
+
+	/**
+	 * @deprecated Use `executeCommand()` so command arguments retain their
+	 * boundaries at Namzu's remote execution seam.
+	 */
+	async executeRemote(command: string, options?: CommandOptions): Promise<CommandResult> {
+		const handler = this.admitCommand(
+			this.commandHandler,
+			`No remote command handler configured for context "${this.id}". Set one via setCommandHandler() before calling executeRemote().`,
+		)
+		return handler.executeRemote(command, options)
 	}
 
 	toConfig(): RemoteExecutionContextConfig {
@@ -132,5 +168,13 @@ export class RemoteExecutionContext extends BaseExecutionContext {
 		if (!['ssh', 'rdp', 'api'].includes(target.type)) {
 			throw new Error(`Unsupported remote target type: "${target.type}"`)
 		}
+	}
+
+	private admitCommand<T>(implementation: T | undefined, missingMessage: string): T {
+		if (implementation === undefined) throw new Error(missingMessage)
+		if (!this.connected) {
+			throw new Error(`Remote context "${this.id}" is not connected. Call connect() first.`)
+		}
+		return implementation
 	}
 }
