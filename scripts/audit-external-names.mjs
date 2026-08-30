@@ -128,8 +128,9 @@
  * repeating it.
  */
 
-import { readdir, readFile } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { lstat, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 const ROOT = process.cwd()
 
@@ -285,33 +286,6 @@ const TERMS = FORBIDDEN.flatMap((entry) => {
 	]
 })
 
-/** Directories whose contents are never scanned, matched by name at any depth. */
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git', '.turbo'])
-
-/**
- * Directories skipped by their path from the root rather than by name.
- *
- * `.claude/worktrees/` holds agent worktrees, and a worktree is a **whole
- * second copy of this repository under a different path prefix**. Every
- * exemption in this file is matched on a path — `packages/providers/`, the
- * wire-value list — so inside a worktree none of them match, and the driver
- * packages that are exempt by design get re-reported as violations. Scanning it
- * is not extra coverage: it is the same files audited with the rules switched
- * off.
- *
- * Measured before adding: with one agent worktree present the run emitted 566
- * findings, **every one** of them from `.claude/worktrees/` and none from the
- * repository. The gate failed on a developer machine for a reason that had
- * nothing to do with the tree it was auditing, and a gate that fails for a
- * phantom is one people learn to run with `|| true`.
- *
- * By path and not by name, deliberately, and **not** `.claude/` as a whole:
- * eight skill files under `.claude/skills/` are tracked prose that this audit
- * is exactly about. Skipping the parent to silence the child would have traded
- * a phantom failure for a real blind spot — the shape issue #220 was about.
- */
-const SKIP_PATHS = new Set(['.claude/worktrees'])
-
 /**
  * Files exempt from the identifier rule because their whole purpose is to
  * speak another party's protocol or name another party's service.
@@ -386,17 +360,55 @@ function familyOf(path) {
  */
 const isHook = (path) => path.split('/').includes('.husky')
 
-async function* walk(dir) {
-	for (const entry of await readdir(dir, { withFileTypes: true })) {
-		if (SKIP_DIRS.has(entry.name)) continue
-		const full = join(dir, entry.name)
-		const posix = relative(ROOT, full).split(sep).join('/')
-		if (SKIP_PATHS.has(posix)) continue
-		if (entry.isDirectory()) {
-			yield* walk(full)
-			continue
+const AUDIT_ROOTS = ['packages/', 'docs/', 'scripts/', 'tools/', '.github/', '.husky/', '.claude/']
+const INVENTORY_MAX_BYTES = 16 * 1024 * 1024
+
+/**
+ * This gate audits authored working-tree content: every tracked path plus each
+ * untracked path Git says is eligible to be added. Ignore rules are the source
+ * of truth for runtime state, build output and nested worktrees; hard-coding
+ * their directory names here would hide a file that had been force-tracked.
+ */
+function inventoriedPaths() {
+	const output = execFileSync(
+		'git',
+		['ls-files', '--cached', '--others', '--exclude-standard', '--deduplicate', '-z'],
+		{
+			cwd: ROOT,
+			encoding: 'utf8',
+			maxBuffer: INVENTORY_MAX_BYTES,
+		},
+	)
+	return output.split('\0').filter(Boolean)
+}
+
+function shouldAuditPath(path) {
+	if (!path.includes('/')) return /\.(md|sh|ps1)$/.test(path)
+	if (!AUDIT_ROOTS.some((root) => path.startsWith(root))) return false
+	return SCANNED.test(path) || isHook(path)
+}
+
+const isErrno = (error, code) =>
+	typeof error === 'object' && error !== null && 'code' in error && error.code === code
+
+/**
+ * A cached path may be deleted in the working tree, in which case there is no
+ * prose left to inspect. ENOENT from a path that still exists — notably a
+ * broken file symlink — is structural failure, not permission to skip it.
+ */
+async function readInventoriedFile(path) {
+	const full = join(ROOT, path)
+	try {
+		return await readFile(full, 'utf8')
+	} catch (error) {
+		if (!isErrno(error, 'ENOENT')) throw error
+		try {
+			await lstat(full)
+		} catch (statError) {
+			if (isErrno(statError, 'ENOENT')) return undefined
+			throw statError
 		}
-		if (SCANNED.test(entry.name) || isHook(full.split(sep).join('/'))) yield full
+		throw error
 	}
 }
 
@@ -832,54 +844,27 @@ selfCheck()
 
 const all = []
 
-// The repository's own top-level pages are the most public prose there is,
-// and they were the one surface no walk reached. Top level only, and
-// deliberately not a recursive walk from the root: `.work/` is gitignored
-// working memory where naming another system is the WORK — a comparative
-// analysis has to say what it compared against.
-//
-// That exemption is a property of being UNTRACKED, not of the directory's
-// name. When the documentation tree moved to `docs/`, nine of those documents
-// were measured against this rule and produced 87 findings between them, so
-// they stayed in `.work/` rather than moving with the rest.
-//
-// Whether they could instead move into `docs/` under a path exemption was put
-// to the owner, who ruled that no third-party brand name appears in tracked
-// prose. That ruling is settled, and it is the owner's to revisit — not a
-// default, not a convention, and not something to reopen from inside this
-// file. Adding a path exemption here would reverse an owner decision in the
-// least visible place available. Do not; raise it instead.
-//
-// The installers sit at this level too, and they are the most exposed files in
-// the repository: `install.sh` runs on a machine where namzu does not exist
-// yet, for a person who has read nothing else. Any top-level shell or
-// PowerShell script is taken, not just the two that exist today — naming them
-// individually would mean the next one arrives unscanned, which is the shape of
-// the gap this closes.
-for (const entry of await readdir(ROOT, { withFileTypes: true })) {
-	if (!entry.isFile() || !/\.(md|sh|ps1)$/.test(entry.name)) continue
-	all.push(...findings(await readFile(join(ROOT, entry.name), 'utf-8'), entry.name))
+let inventory
+try {
+	inventory = inventoriedPaths()
+} catch (error) {
+	console.error(`the authored-file inventory could not be read: ${String(error)}`)
+	process.exit(2)
 }
 
-// `tools/`, `.github/` and `.husky/` joined in issue #220. Each holds authored
-// material the rule always covered and the scan never reached: a workflow's
-// rationale comments, a gate script's docstring, a hook's explanation of what
-// it refuses. `.claude/` is here for the same reason — its skill files are
-// tracked prose that instructs an agent, which is as authored as it gets.
-//
-// Still deliberately absent: `.work/`. That exemption is a property of being
-// UNTRACKED, not of a name on this list, and it is spelled out above.
-for (const dir of ['packages', 'docs', 'scripts', 'tools', '.github', '.husky', '.claude']) {
+for (const path of inventory) {
+	if (!shouldAuditPath(path)) continue
+	// This file lists the forbidden names in order to forbid them.
+	if (path.endsWith('audit-external-names.mjs')) continue
+	let source
 	try {
-		for await (const file of walk(join(ROOT, dir))) {
-			const path = relative(ROOT, file).split(sep).join('/')
-			// This file lists the forbidden names in order to forbid them.
-			if (path.endsWith('audit-external-names.mjs')) continue
-			all.push(...findings(await readFile(file, 'utf-8'), path))
-		}
-	} catch {
-		// A directory that does not exist is not a failure.
+		source = await readInventoriedFile(path)
+	} catch (error) {
+		console.error(`the authored file ${path} could not be read: ${String(error)}`)
+		process.exit(2)
 	}
+	if (source === undefined) continue
+	all.push(...findings(source, path))
 }
 
 if (all.length === 0) {

@@ -52,7 +52,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Build | `pnpm -r build` |
 | Test | `pnpm -r test` |
 | Process-level regression tests | `pnpm --filter @namzu/sdk test:proc` |
-| External-name audit | `node scripts/audit-external-names.mjs` |
+| External-name audit | `node --import tsx --test scripts/__tests__/audit-external-names.test.ts && node scripts/audit-external-names.mjs` |
 | Log standard gate | `node --import tsx --test scripts/__tests__/check-log-standard.test.ts && node scripts/check-log-standard.mjs` |
 | Model price catalogue matches its source | `node scripts/generate-model-prices.mjs --check` |
 | Installer parses as POSIX sh | `sh -n install.sh && dash -n install.sh` |
@@ -137,7 +137,7 @@ This file is a **router**, not a rulebook. Detail lives in the folders below; re
 
     **A lint finding is not evidence your branch caused it.** `pnpm lint` is `pnpm -r lint`, and each package's script is `biome check src/` — the package's whole source tree, never your diff. A worktree branched from an older `origin/main` therefore reports whatever was there at that commit. Check `git diff --name-only origin/main...HEAD` before you accept a hit as yours, and never reformat a file your branch did not change in order to make a gate pass.
 
-    `scripts/audit-external-names.mjs` skips this directory by path, so running it from the shared checkout never audits a worktree; run it from inside your worktree to audit the tree you are actually changing.
+    `scripts/audit-external-names.mjs` inventories tracked and non-ignored untracked files, so Git's ignored-worktree rule keeps this second checkout out of a scan from the shared tree. Run the audit from inside your worktree to audit the tree you are actually changing.
 
     The three above are mechanics — where state lives and what a gate reads. The two below are etiquette, and they are the ones that have actually destroyed work.
 

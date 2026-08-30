@@ -74,7 +74,7 @@ jobs:
         run: node .github/scripts/check-project-references.mjs
 
       - name: External-name audit
-        run: node scripts/audit-external-names.mjs
+        run: node --import tsx --test scripts/__tests__/audit-external-names.test.ts && node scripts/audit-external-names.mjs
 
       - name: Log standard gate
         run: node scripts/check-log-standard.mjs

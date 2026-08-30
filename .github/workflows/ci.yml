@@ -162,7 +162,7 @@ jobs:
       - name: Process-level regression tests
         run: pnpm --filter @namzu/sdk test:proc
       - name: External-name audit
-        run: node scripts/audit-external-names.mjs
+        run: node --import tsx --test scripts/__tests__/audit-external-names.test.ts && node scripts/audit-external-names.mjs
 
       # Started as the seed of the eventual nine-rule log-standard gate
       # (LOG-02): four rules a plain syntactic AST walk can decide — the
