@@ -33,6 +33,7 @@ import {
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiExitSummary } from '../exit-summary.js'
 import type { TuiContext } from '../types.js'
+import { type Screen, renderToScreen } from './support/screen.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -222,6 +223,7 @@ const { App } = await import('../App.js')
 const ctx: TuiContext = { cwd: '/w', version: '0.0.0-test' }
 const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
 const mounted: { unmount: () => void }[] = []
+const mountedScreens: Screen[] = []
 
 function deferred<T>() {
 	let resolve: (value: T) => void = () => {}
@@ -284,11 +286,36 @@ afterEach(async () => {
 	// tree; tearing the renderer down mid-commit makes later tests inherit a
 	// closed WASM node even though the App operation itself already settled.
 	await tick(80)
+	for (const screen of mountedScreens) await screen.unmount()
+	mountedScreens.length = 0
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
 	await tick()
 	vi.restoreAllMocks()
 })
+
+async function screenShows(screen: Screen, text: string, attempts = 100): Promise<void> {
+	for (let i = 0; i < attempts && !screen.scrollback().join('\n').includes(text); i++) {
+		await screen.waitForRender()
+	}
+	expect(screen.scrollback().join('\n')).toContain(text)
+}
+
+async function screenMatchCount(
+	screen: Screen,
+	pattern: RegExp,
+	count: number,
+	attempts = 100,
+): Promise<void> {
+	for (
+		let i = 0;
+		i < attempts && (screen.scrollback().join('\n').match(pattern)?.length ?? 0) !== count;
+		i++
+	) {
+		await screen.waitForRender()
+	}
+	expect(screen.scrollback().join('\n').match(pattern)).toHaveLength(count)
+}
 
 describe('trusted runtime config reaches hydration', () => {
 	it('passes plugin and interactive desktop authority into the real createAgentSession hop', async () => {
@@ -472,6 +499,32 @@ describe('first-run signed-in subscriptions', () => {
 })
 
 describe('publishing a picker selection', () => {
+	it('does not replace the session while its active turn still owns provider events', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* (): AsyncIterable<AgentEvent> {
+				sends += 1
+				await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'stable boundary')
+		expect(harness.lastFrame()).not.toContain('Choose a provider')
+
+		release.resolve()
+		await frameShows(harness.lastFrame, 'Type a message')
+	})
+
 	it('opens and applies finite effort and permission choices without typed arguments', async () => {
 		const efforts: unknown[] = []
 		const modes: unknown[] = []
@@ -890,6 +943,29 @@ describe('publishing a picker selection', () => {
 })
 
 describe('cancelling the picker opened by /model', () => {
+	it('keeps one terminal-owned banner through a complete model-picker round trip', async () => {
+		detectedProviders = DETECTED
+		createSession = async () => sessionFixture('catalog-provider')
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 24 })
+		mountedScreens.push(screen)
+		await screenShows(screen, 'Connected to catalog-provider')
+
+		screen.press('/model')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screenShows(screen, 'Choose a provider')
+		expect(screen.viewport().join('\n')).toContain('Choose a provider')
+		screen.press('\r')
+		await screenShows(screen, 'Choose a model')
+		expect(screen.viewport().join('\n')).toContain('Choose a model')
+		screen.press('\r')
+		await screenMatchCount(screen, /Connected to catalog-provider/g, 2)
+
+		const painted = screen.scrollback().join('\n')
+		expect(painted.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)
+		expect(painted.match(/Connected to catalog-provider/g)).toHaveLength(2)
+	})
+
 	it('returns to the session that was already running', async () => {
 		// The defect: declining to change model threw away a working session,
 		// landing on a phase whose composer is disabled and from which `/model`

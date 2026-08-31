@@ -610,6 +610,12 @@ export function App({
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
 	const [session, setSession] = useState<AgentSession | null>(null)
+	// Once a usable session publishes the transcript, temporary lifecycle
+	// surfaces must never take ownership of it. Ink's <Static> remembers which
+	// rows it already handed to terminal scrollback only for the lifetime of its
+	// component instance; unmounting it for /model or /resume prints the banner
+	// and settled history again when the picker closes.
+	const [transcriptOwned, setTranscriptOwned] = useState(false)
 	const [detected, setDetected] = useState<readonly DetectedProvider[]>([])
 	const [currentProvider, setCurrentProvider] = useState<ProviderId | null>(null)
 	/**
@@ -1925,6 +1931,7 @@ export function App({
 			// therefore cannot release its dependent queue.
 			if (signal !== undefined) advanceQueueContinuation()
 			if (s.hasProvider) {
+				setTranscriptOwned(true)
 				setPhase('ready')
 				pushMessage(
 					'system',
@@ -3770,6 +3777,22 @@ export function App({
 						exitWithSummary()
 						return
 					case 'repick':
+						if (
+							state !== 'idle' ||
+							abortRef.current !== null ||
+							hasUnsettledTurn() ||
+							(queuedRef.current.length > 0 && queuePauseRef.current === null) ||
+							permissionResolveRef.current !== null ||
+							compactingRef.current ||
+							conversationMutationRef.current !== null ||
+							exportingRef.current
+						) {
+							pushMessage(
+								'system',
+								'Model choices are unavailable until the active turn, permission prompt, queue, compaction, export, or conversation change reaches a stable boundary.',
+							)
+							return
+						}
 						// Opened as a choice, not as a repair. A launch-time refusal
 						// left on screen here would explain a problem that has since
 						// been solved — the session behind this picker is running.
@@ -5139,9 +5162,35 @@ export function App({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
+	const lifecycleOwnsViewport =
+		phase === 'trust' || phase === 'resume' || phase === 'edit' || phase === 'picker'
 	return (
 		<Box flexDirection="column" display={externalEditorRequest ? 'none' : 'flex'}>
 			<Box flexDirection="column" paddingX={1}>
+				{transcriptOwned || !lifecycleOwnsViewport ? (
+					<TranscriptFrame>
+						<Transcript
+							messages={finalized}
+							pending={messages.find((m) => m.pending) ?? null}
+							state={state}
+							settled={window.settled}
+							resetKey={resetKey}
+							raw={rawOutput}
+							hyperlinks={hyperlinks}
+							showLive={!lifecycleOwnsViewport}
+							header={
+								transcriptOwned ? (
+									<Banner
+										version={ctx.version}
+										session={session}
+										permissionMode={permissionMode}
+										cwd={ctx.cwd}
+									/>
+								) : undefined
+							}
+						/>
+					</TranscriptFrame>
+				) : null}
 				{phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
 				) : phase === 'resume' ? (
@@ -5165,27 +5214,6 @@ export function App({
 					/>
 				) : (
 					<>
-						<TranscriptFrame>
-							<Transcript
-								messages={finalized}
-								pending={messages.find((m) => m.pending) ?? null}
-								state={state}
-								settled={window.settled}
-								resetKey={resetKey}
-								raw={rawOutput}
-								hyperlinks={hyperlinks}
-								header={
-									phase === 'ready' ? (
-										<Banner
-											version={ctx.version}
-											session={session}
-											permissionMode={permissionMode}
-											cwd={ctx.cwd}
-										/>
-									) : undefined
-								}
-							/>
-						</TranscriptFrame>
 						{/* Keep the inline viewport minimal: finalized history flows into native
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize

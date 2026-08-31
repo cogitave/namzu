@@ -1,5 +1,10 @@
-import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
-import type { ChatCompletionParams, LLMToolSchema } from '@namzu/sdk'
+import {
+	DuplicateProviderError,
+	ProviderRegistry,
+	createComputerUseTool,
+	renderToolSchema,
+} from '@namzu/sdk'
+import type { ChatCompletionParams, ComputerUseHost, LLMToolSchema } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { AnthropicProvider } from '../client.js'
 import { ANTHROPIC_CAPABILITIES, registerAnthropic } from '../index.js'
@@ -176,6 +181,98 @@ describe('AnthropicProvider — buildCreateParams', () => {
 			},
 		},
 	]
+
+	it('roots the actual computer-use union without moving it in the CLI tool roster', () => {
+		const host = {
+			id: 'test-desktop',
+			capabilities: {
+				displayServer: 'x11',
+				screenshot: true,
+				mouse: true,
+				keyboard: true,
+				cursorPosition: true,
+				clipboard: true,
+			},
+			getDisplayGeometry: async () => ({ width: 1, height: 1, scaleFactor: 1 }),
+			execute: async () => ({ type: 'ok' as const }),
+		} satisfies ComputerUseHost
+		const sourceSchema = renderToolSchema(createComputerUseTool(host).inputSchema)
+		const names = [
+			'bash',
+			'edit',
+			'glob',
+			'grep',
+			'job',
+			'read',
+			'write',
+			'search_memory',
+			'read_memory',
+			'save_memory',
+			'computer_use',
+			'search_tools',
+			'Agent',
+		] as const
+		const roster: LLMToolSchema[] = names.map((name) => ({
+			type: 'function',
+			function: {
+				name,
+				description: name,
+				parameters: name === 'computer_use' ? sourceSchema : { type: 'object' },
+			},
+		}))
+
+		const body = buildParams(makeProvider(), {
+			model: 'claude-sonnet-4-6',
+			messages: [{ role: 'user', content: 'hello' }],
+			tools: roster,
+			cacheControl: { type: 'auto' },
+		})
+
+		expect(body.tools?.map((tool) => tool.name)).toEqual(names)
+		const computerUse = body.tools?.[10]?.input_schema as Record<string, unknown>
+		expect(sourceSchema).not.toHaveProperty('type')
+		expect(computerUse.type).toBe('object')
+		expect(computerUse.anyOf).toHaveLength(8)
+		expect(
+			(computerUse.anyOf as Record<string, unknown>[]).map(
+				(branch) =>
+					((branch.properties as Record<string, unknown>).type as Record<string, unknown>).const,
+			),
+		).toEqual([
+			'screenshot',
+			'cursor_position',
+			'mouse_move',
+			'mouse_click',
+			'mouse_drag',
+			'scroll',
+			'type_text',
+			'key',
+		])
+		expect(body.tools?.filter((tool) => 'cache_control' in tool).map((tool) => tool.name)).toEqual([
+			'Agent',
+		])
+	})
+
+	it('refuses a non-object union before it reaches the provider wire', () => {
+		expect(() =>
+			buildParams(makeProvider(), {
+				model: 'claude-sonnet-4-6',
+				messages: [{ role: 'user', content: 'hello' }],
+				tools: [
+					{
+						type: 'function',
+						function: {
+							name: 'mixed_input',
+							description: 'Mixed input',
+							parameters: {
+								anyOf: [{ type: 'object' }, { type: 'string' }],
+							},
+						},
+					},
+				],
+			}),
+		).toThrow(/mixed_input.*object/i)
+	})
 
 	describe('tool_choice mapping', () => {
 		it("maps 'none' to the first-class {type:'none'} while KEEPING the tools param", () => {

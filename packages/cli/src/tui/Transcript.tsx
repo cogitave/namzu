@@ -44,6 +44,14 @@ export interface TranscriptProps {
 	/** Render admitted Markdown links as terminal hyperlinks. */
 	readonly hyperlinks?: boolean
 	/**
+	 * Whether the mutable transcript tail owns inline viewport rows.
+	 *
+	 * Lifecycle pickers temporarily need those rows, but the `<Static>` owner
+	 * above them must stay mounted so terminal scrollback is never replayed.
+	 * Turning this off hides only the redrawable tail and pending row.
+	 */
+	readonly showLive?: boolean
+	/**
 	 * Header (banner) printed once as the first <Static> row. It must live
 	 * inside <Static> — Ink writes static output to scrollback *above* the
 	 * live region, so a banner kept in the live tree would be pushed down as
@@ -72,6 +80,7 @@ export function Transcript({
 	resetKey,
 	raw = false,
 	hyperlinks = false,
+	showLive = true,
 	header,
 }: TranscriptProps) {
 	const spinner = useSpinner(state !== 'idle')
@@ -116,22 +125,28 @@ export function Transcript({
 					)
 				}
 			</Static>
-			{live.map((message, i) =>
-				raw ? (
-					<RawMessageRow key={message.id} message={message} prev={messages[inScrollback + i - 1]} />
-				) : (
-					<LiveRow
-						key={message.id}
-						message={message}
-						prev={messages[inScrollback + i - 1]}
-						spinner=""
-						hyperlinks={hyperlinks}
-					/>
-				),
-			)}
-			{pending && raw ? (
+			{showLive
+				? live.map((message, i) =>
+						raw ? (
+							<RawMessageRow
+								key={message.id}
+								message={message}
+								prev={messages[inScrollback + i - 1]}
+							/>
+						) : (
+							<LiveRow
+								key={message.id}
+								message={message}
+								prev={messages[inScrollback + i - 1]}
+								spinner=""
+								hyperlinks={hyperlinks}
+							/>
+						),
+					)
+				: null}
+			{showLive && pending && raw ? (
 				<RawMessageRow message={pending} prev={messages[messages.length - 1]} />
-			) : pending ? (
+			) : showLive && pending ? (
 				<MessageRow
 					message={pending}
 					prev={messages[messages.length - 1]}
@@ -139,7 +154,7 @@ export function Transcript({
 					hyperlinks={hyperlinks}
 				/>
 			) : null}
-			{messages.length === 0 && !pending ? (
+			{showLive && messages.length === 0 && !pending ? (
 				<Box paddingY={1}>
 					<Text color={theme.text.muted}>
 						Type a message to begin · <Text color={theme.text.secondary}>/help</Text> for commands

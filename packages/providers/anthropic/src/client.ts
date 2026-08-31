@@ -531,12 +531,16 @@ function toAnthropicTools(
 	const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
 	const tools: AnthropicToolParam[] = params.tools.map((t) => {
 		const strict = strictToolUseEnabled && enforcedNames.has(t.function.name)
+		const inputSchema = toSchemaDialect(
+			objectToolInputSchema(t.function.name, t.function.parameters),
+			'2020-12',
+		)
 		// Checked exactly where the pairing is made, because this is the only
 		// place both facts are in hand: that this schema is going out, and that
 		// this driver is about to vouch for it. A schema outside the strict
 		// subset is not degraded by the vendor — the whole request is rejected,
 		// so one unexpressible field takes down every other tool with it.
-		if (strict) assertStrictSchema(t.function.name, t.function.parameters)
+		if (strict) assertStrictSchema(t.function.name, inputSchema)
 		return {
 			name: t.function.name,
 			description: t.function.description ?? '',
@@ -546,12 +550,7 @@ function toAnthropicTools(
 			// rejects the WHOLE request for it, not the one field. Converting
 			// here rather than in the renderer keeps the dialect where the
 			// knowledge is: only this file knows which wire it is talking to.
-			input_schema: toSchemaDialect(
-				(t.function.parameters as Record<string, unknown> | undefined) ?? {
-					type: 'object',
-				},
-				'2020-12',
-			),
+			input_schema: inputSchema,
 			...(strict ? { strict: true } : {}),
 		}
 	})
@@ -563,6 +562,62 @@ function toAnthropicTools(
 		if (tail) tail.cache_control = { type: 'ephemeral' }
 	}
 	return tools
+}
+
+const EMPTY_OBJECT_TOOL_SCHEMA = Object.freeze({ type: 'object' as const })
+const ROOTED_OBJECT_TOOL_SCHEMAS = new WeakMap<object, Record<string, unknown>>()
+
+/**
+ * The Messages wire requires a custom tool's input schema to carry a root
+ * `type: "object"`. Tool arguments are objects too, but a rendered Zod union
+ * expresses that fact on each branch and leaves the composite root as only
+ * `anyOf`. Preserve the union and add the redundant root fact at this wire
+ * boundary; doing it in the shared renderer would force every provider to
+ * speak a constraint only this wire requires.
+ *
+ * A composite containing a primitive is different. Adding an object root to
+ * that schema would silently remove a branch, so refuse it locally with the
+ * tool name instead of paying for a provider 400 or changing its contract.
+ */
+function objectToolInputSchema(toolName: string, schema: unknown): Record<string, unknown> {
+	if (schema === undefined) return EMPTY_OBJECT_TOOL_SCHEMA
+	if (!isSchemaObject(schema)) {
+		throw new Error(`Tool "${toolName}" input schema must be a JSON object schema.`)
+	}
+	if (schema.type === 'object') return schema
+	if (schema.type !== undefined) {
+		throw new Error(
+			`Tool "${toolName}" input schema must describe an object; received root type ${JSON.stringify(schema.type)}.`,
+		)
+	}
+	if (!hasObjectOnlyAlternatives(schema)) {
+		throw new Error(
+			`Tool "${toolName}" input schema must describe an object on every union branch.`,
+		)
+	}
+
+	const cached = ROOTED_OBJECT_TOOL_SCHEMAS.get(schema)
+	if (cached) return cached
+	// `type` comes last deliberately: a caller-owned `{ type: undefined }`
+	// cannot override the required wire value through object spread.
+	const rooted = Object.freeze({ ...schema, type: 'object' as const })
+	ROOTED_OBJECT_TOOL_SCHEMAS.set(schema, rooted)
+	return rooted
+}
+
+function isSchemaObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasObjectOnlyAlternatives(schema: Record<string, unknown>): boolean {
+	for (const keyword of ['anyOf', 'oneOf'] as const) {
+		const alternatives = schema[keyword]
+		if (alternatives === undefined) continue
+		if (!Array.isArray(alternatives) || alternatives.length === 0) return false
+		if (!alternatives.every((branch) => isSchemaObject(branch) && branch.type === 'object'))
+			return false
+	}
+	return true
 }
 
 function shouldUseStrictToolInputs(
