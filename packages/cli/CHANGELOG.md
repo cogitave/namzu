@@ -1,5 +1,16 @@
 # @namzu/cli
 
+## 15.1.1
+
+### Patch Changes
+
+- c982b56: Keep the terminal-owned transcript mounted while lifecycle pickers temporarily own the interactive viewport, preventing duplicate banners and settled history after provider or model changes.
+
+  Normalize object-only union tool schemas at the provider wire boundary so built-in desktop actions retain every branch while satisfying the required root object type.
+
+- Updated dependencies [c982b56]
+  - @namzu/anthropic@4.0.3
+
 ## 15.1.0
 
 ### Minor Changes
