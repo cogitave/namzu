@@ -445,9 +445,10 @@ file tree, and triage of somebody else's directory all actually want.
 
 ## The packages
 
-`@namzu/sdk` is the kernel and has no workspace dependencies. Everything else
-depends on it through a `peerDependencies` entry; nothing in the kernel depends
-back.
+`@namzu/sdk` is the kernel and has no workspace dependencies. Runtime extension
+packages depend on it through `peerDependencies`; the CLI is the composition
+root and owns direct dependencies on the extensions it ships. `@namzu/files`
+is standalone. Nothing in the kernel depends back on any leaf package.
 
 | Package | What it is |
 |---|---|
@@ -457,6 +458,7 @@ back.
 | `@namzu/telemetry` | The exporter pipeline, kept separate so consumers who emit nothing install nothing |
 | `@namzu/computer-use` | Screenshot, mouse and keyboard control through platform-native tools |
 | `@namzu/live` | Transport-agnostic live sessions with pluggable speech and audio-output drivers |
+| `@namzu/lsp` | Language-server-backed code navigation and symbol resolution |
 | `@namzu/files` | File registry contracts, with in-memory, local-disk, Azure Blob and HTTP backends. Pre-1.0 |
 | `@namzu/evals` | The kernel's own behaviour suites, runnable against an installed kernel |
 
@@ -527,15 +529,17 @@ is correct; please open an issue.
 
 ## Status
 
-All fourteen packages are published; the badges above are live, so they cannot
-go stale here. Two things a reader should weigh honestly:
+Releases are driven by Changesets, so a package newly added on `main` can
+appear in this table before its first registry release. Two things a reader
+should weigh honestly:
 
 - **Majors move quickly.** This project treats *any* backward-incompatible
   change to a public API as a major, however small the diff — so the version
   number tracks the surface rather than the size of the work, and it climbs
   faster than you may expect. Pin your dependency and read the changelog.
-- **`@namzu/cli`, `@namzu/files` and `@namzu/evals` are pre-1.0** and their
-  APIs still move. The kernel itself is the stable surface.
+- **`@namzu/cli`, `@namzu/files`, `@namzu/evals`, `@namzu/live` and
+  `@namzu/lsp` are pre-1.0** and their APIs still move. The kernel itself is
+  the stable surface.
 
 Node 20 or newer is declared; CI exercises 22 and 24.
 

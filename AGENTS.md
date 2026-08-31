@@ -8,17 +8,21 @@ Namzu is an AI agent platform. The monorepo ships:
 
 - `@namzu/sdk` — core runtime (agents, tools, providers, stores, compaction)
 - `@namzu/cli` — the operator application
-- `@namzu/computer-use`, `@namzu/files`, `@namzu/sandbox` — optional capability packages
+- `@namzu/computer-use`, `@namzu/files`, `@namzu/live`, `@namzu/lsp`, `@namzu/sandbox` — optional capability packages
 - `@namzu/telemetry` — optional observability package
 - `@namzu/evals` — the eval suites
 - `@namzu/<provider>` — one driver package per service
 
 <dependency_direction>
 ```
-sdk  ←  { cli | computer-use | files | sandbox | telemetry | evals | providers }
+sdk  ←  { computer-use | live | lsp | sandbox | telemetry | evals | providers }
+{ sdk | computer-use | files | selected providers }  ←  cli
+files  (standalone)
 ```
 
-No circular dependencies. Nothing imports from the same level or above.
+No circular dependencies. Leaf packages do not import one another; the CLI is
+the composition root and may import the leaves it ships with. No package
+imports the CLI.
 </dependency_direction>
 
 > This list previously named `@namzu/contracts`, `@namzu/agents` and

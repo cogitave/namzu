@@ -47,17 +47,19 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsc --build",
+    "build": "pnpm clean && tsc --build --force",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { force: true, recursive: true })\"",
     "dev": "tsc --build --watch",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
+    "prepack": "pnpm --silent build",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },
   "peerDependencies": {
-    "@namzu/sdk": ">=1.0.0"
+    "@namzu/sdk": ">=33.1.1 <34"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

@@ -122,6 +122,11 @@ rate, channel count and samples per channel on every frame. Oversized frames,
 realtime-buffer overflow, missing requested drivers and unresolved utterances
 are errors; they are never accepted and dropped.
 
+A final transcript timestamps the end of its recognized speech on the same
+source timeline as VAD. The runtime matches it to the containing VAD interval,
+so independently scheduled drivers cannot swap two utterances merely because
+their callbacks arrive in a different order. Ambiguous overlaps are refused.
+
 ## Boundaries
 
 - Conversation history records completed generated transcripts. It does not

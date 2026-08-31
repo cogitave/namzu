@@ -48,10 +48,13 @@ export type CapabilityProbe =
 	| { readonly state: 'broken'; readonly specifier: string; readonly error: Error }
 
 /**
- * The optional packages namzu runs without. Listed once so the doctor's
- * per-package checks, the boot narrative's `capability` line (NZ-BOOT-05),
- * and this module's own tests all read the SAME set — a capability added
- * here with no check wired to it is exactly the gap
+ * The optional packages the CLI boot path actually consumes or diagnoses.
+ * SDK extension libraries do not belong here merely because they are
+ * optional: until the CLI has a front door that drives one, reporting its
+ * installation as a usable CLI capability would be false. Listed once so the
+ * doctor's per-package checks, the boot narrative's `capability` line
+ * (NZ-BOOT-05), and this module's own tests all read the SAME set — a
+ * CLI-consumed capability added here with no check wired to it is exactly the gap
  * `doctor/checks/__tests__/index.test.ts` fails the build on.
  */
 export const NAMZU_OPTIONAL_CAPABILITIES = [

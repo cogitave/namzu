@@ -55,7 +55,6 @@ function stalledIterable<T>(wait: Promise<unknown>): AsyncIterable<T> {
 }
 
 class EchoModel implements LiveModel {
-	readonly label = 'echo'
 	readonly turns: LiveModelTurn[] = []
 
 	async *stream(turn: LiveModelTurn) {
@@ -73,7 +72,6 @@ class EchoModel implements LiveModel {
 
 function twoUtteranceVad(waitBeforeSecond?: Promise<unknown>): VoiceActivityDetector {
 	return {
-		label: 'test-vad',
 		async *detect(frames) {
 			for await (const audio of frames) {
 				if (audio.sequence === 0) {
@@ -93,7 +91,6 @@ function twoUtteranceVad(waitBeforeSecond?: Promise<unknown>): VoiceActivityDete
 
 function twoUtteranceStt(): SpeechRecognizer {
 	return {
-		label: 'test-stt',
 		async *transcribe(frames) {
 			for await (const audio of frames) {
 				if (audio.sequence === 0) {
@@ -109,7 +106,6 @@ function twoUtteranceStt(): SpeechRecognizer {
 }
 
 const completeTurns: TurnDetector = {
-	label: 'complete',
 	isTurnComplete: () => true,
 }
 
@@ -152,7 +148,6 @@ describe('LiveSession', () => {
 	it('interrupts an older model turn and never commits its partial assistant text', async () => {
 		const firstStarted = makeDeferred()
 		const model: LiveModel = {
-			label: 'interruptible',
 			async *stream(turn) {
 				const input = turn.messages.at(-1)?.content
 				if (input === 'first') {
@@ -199,7 +194,6 @@ describe('LiveSession', () => {
 		const cancellations: string[] = []
 		let writes = 0
 		const tts: SpeechSynthesizer = {
-			label: 'test-tts',
 			async *synthesize(chunks) {
 				for await (const text of chunks) {
 					synthesizedText.push(text)
@@ -267,7 +261,7 @@ describe('LiveSession', () => {
 		const model = new EchoModel()
 		const session = new LiveSession({
 			stt: twoUtteranceStt(),
-			turnDetector: { isTurnComplete: detector, label: 'semantic' },
+			turnDetector: { isTurnComplete: detector },
 			vad: twoUtteranceVad(),
 		})
 		await session.start(new LiveAgent({ instructions: 'test', model }))
@@ -281,6 +275,86 @@ describe('LiveSession', () => {
 		expect(detector).toHaveBeenCalledTimes(2)
 		expect(model.turns).toHaveLength(1)
 		expect(model.turns[0]?.messages.at(-1)?.content).toBe('first second')
+		await session.close()
+	})
+
+	it('correlates final transcripts by source timestamp when drivers finish out of order', async () => {
+		const endpointsReady = makeDeferred()
+		const detector = vi
+			.fn<TurnDetector['isTurnComplete']>()
+			.mockResolvedValueOnce(false)
+			.mockResolvedValueOnce(true)
+		const model = new EchoModel()
+		const vad: VoiceActivityDetector = {
+			async *detect(frames) {
+				for await (const audio of frames) {
+					void audio
+					// Drain the same source before publishing the complete VAD timeline.
+				}
+				yield { timestampMs: 0, type: 'speech_start' }
+				yield { timestampMs: 40, type: 'speech_end' }
+				yield { timestampMs: 40, type: 'speech_start' }
+				yield { timestampMs: 80, type: 'speech_end' }
+				endpointsReady.resolve()
+			},
+		}
+		const stt: SpeechRecognizer = {
+			async *transcribe(frames) {
+				for await (const audio of frames) {
+					void audio
+					// Drain independently; callback order below is intentionally reversed.
+				}
+				await endpointsReady.promise
+				yield { text: 'second', timestampMs: 75, type: 'final_transcript' }
+				yield { text: 'first', timestampMs: 35, type: 'final_transcript' }
+			},
+		}
+		const session = new LiveSession({
+			stt,
+			turnDetector: { isTurnComplete: detector },
+			vad,
+		})
+		await session.start(new LiveAgent({ instructions: 'test', model }))
+
+		await session
+			.listen(values([frame(0), frame(1), frame(2), frame(3)]), { responseMode: 'text' })
+			.wait()
+
+		expect(detector.mock.calls.map(([context]) => context.transcript)).toEqual([
+			'first',
+			'first second',
+		])
+		expect(model.turns[0]?.messages.at(-1)?.content).toBe('first second')
+		await session.close()
+	})
+
+	it('refuses a final transcript that ambiguously lands on two touching intervals', async () => {
+		const endpointsReady = makeDeferred()
+		const vad: VoiceActivityDetector = {
+			async *detect(frames) {
+				for await (const audio of frames) void audio
+				yield { timestampMs: 0, type: 'speech_start' }
+				yield { timestampMs: 40, type: 'speech_end' }
+				yield { timestampMs: 40, type: 'speech_start' }
+				yield { timestampMs: 80, type: 'speech_end' }
+				endpointsReady.resolve()
+			},
+		}
+		const stt: SpeechRecognizer = {
+			async *transcribe(frames) {
+				for await (const audio of frames) void audio
+				await endpointsReady.promise
+				yield { text: 'ambiguous', timestampMs: 40, type: 'final_transcript' }
+			},
+		}
+		const session = new LiveSession({ stt, turnDetector: completeTurns, vad })
+		await session.start(new LiveAgent({ instructions: 'test', model: new EchoModel() }))
+
+		await expect(
+			session
+				.listen(values([frame(0), frame(1), frame(2), frame(3)]), { responseMode: 'text' })
+				.wait(),
+		).rejects.toMatchObject({ code: 'invalid_driver_event' })
 		await session.close()
 	})
 
@@ -301,12 +375,10 @@ describe('LiveSession', () => {
 	it('refuses malformed driver events at the realtime boundary', async () => {
 		const session = new LiveSession({
 			stt: {
-				label: 'quiet-stt',
 				transcribe: () => values([]),
 			},
 			turnDetector: completeTurns,
 			vad: {
-				label: 'malformed-vad',
 				detect: () => values([{ timestampMs: Number.NaN, type: 'speech_start' }]),
 			},
 		})
@@ -321,11 +393,9 @@ describe('LiveSession', () => {
 	it('refuses realtime buffer overflow instead of accumulating blocked audio puts', async () => {
 		const never = new Promise<void>(() => undefined)
 		const vad: VoiceActivityDetector = {
-			label: 'stalled-vad',
 			detect: () => stalledIterable(never),
 		}
 		const stt: SpeechRecognizer = {
-			label: 'stalled-stt',
 			transcribe: () => stalledIterable(never),
 		}
 		const session = new LiveSession({
@@ -359,12 +429,10 @@ describe('LiveSession', () => {
 		const session = new LiveSession({
 			closeTimeoutMs: 20,
 			stt: {
-				label: 'hostile-stt',
 				transcribe: () => stalledIterable(stalled),
 			},
 			turnDetector: completeTurns,
 			vad: {
-				label: 'hostile-vad',
 				detect: () => stalledIterable(stalled),
 			},
 		})
@@ -379,7 +447,6 @@ describe('LiveSession', () => {
 	it('forces an abort-ignoring model turn terminal at the session close deadline and fences late text', async () => {
 		const release = makeDeferred()
 		const model: LiveModel = {
-			label: 'hostile-model',
 			async *stream() {
 				yield { messageId: 'early', text: 'early', type: 'text_delta' }
 				await release.promise
@@ -422,7 +489,6 @@ describe('LiveSession', () => {
 			},
 			closeTimeoutMs: 20,
 			tts: {
-				label: 'one-frame',
 				async *synthesize(chunks) {
 					for await (const text of chunks) yield { final: true, frame: frame(20), text }
 				},

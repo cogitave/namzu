@@ -16,7 +16,6 @@ export type NamzuQueryConfig = Omit<QueryParams, 'messages' | 'signal' | 'system
 export interface NamzuModelOptions {
 	/** Build fresh SDK configuration for one live turn. This callback must be synchronous. */
 	readonly createQueryParams: (turn: LiveModelTurn) => NamzuQueryConfig
-	readonly label?: string
 }
 
 const SPEAKABLE_STOP_REASONS = new Set<StopReason>(['end_turn', 'stop_condition'])
@@ -65,12 +64,10 @@ function assertSpeakableRun(run: Run): asserts run is Run & { stopReason: StopRe
 }
 
 export class NamzuModel implements LiveModel {
-	readonly label: string
 	private readonly options: NamzuModelOptions
 
 	constructor(options: NamzuModelOptions) {
 		this.options = options
-		this.label = options.label ?? 'namzu'
 	}
 
 	async *stream(turn: LiveModelTurn): AsyncIterable<LiveModelEvent> {

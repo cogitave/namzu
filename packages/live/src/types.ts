@@ -46,7 +46,6 @@ export type LiveModelEvent =
 	| { readonly runId: string; readonly type: 'cancelled' }
 
 export interface LiveModel {
-	readonly label: string
 	stream(turn: LiveModelTurn): AsyncIterable<LiveModelEvent>
 }
 
@@ -69,7 +68,6 @@ export type VoiceActivityEvent =
 	  }
 
 export interface VoiceActivityDetector {
-	readonly label: string
 	detect(
 		frames: AsyncIterable<AudioFrame>,
 		context: MediaDriverContext,
@@ -89,13 +87,15 @@ export type TranscriptEvent =
 			readonly confidence?: number
 			readonly language?: string
 			readonly text: string
-			/** Milliseconds on the same source timeline used by voice-activity events. */
+			/**
+			 * End of the recognized speech on the same source timeline used by
+			 * voice-activity events. It must fall inside the matching VAD interval.
+			 */
 			readonly timestampMs: number
 			readonly type: 'final_transcript'
 	  }
 
 export interface SpeechRecognizer {
-	readonly label: string
 	transcribe(
 		frames: AsyncIterable<AudioFrame>,
 		context: MediaDriverContext,
@@ -112,7 +112,6 @@ export interface TurnDetectionContext {
 }
 
 export interface TurnDetector {
-	readonly label: string
 	isTurnComplete(context: TurnDetectionContext): boolean | Promise<boolean>
 }
 
@@ -128,7 +127,6 @@ export interface SynthesizedAudio {
 }
 
 export interface SpeechSynthesizer {
-	readonly label: string
 	synthesize(
 		text: AsyncIterable<string>,
 		context: SpeechSynthesisContext,

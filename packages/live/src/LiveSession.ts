@@ -186,7 +186,13 @@ function isTurnSettled(turn: LiveTurn): boolean {
 	return turnControls.get(turn)?.settled ?? true
 }
 
-export class LiveTurn {
+export interface LiveTurn {
+	readonly id: string
+	interrupt(reason?: string): void
+	wait(): Promise<LiveTurnResult>
+}
+
+class LiveTurnHandle implements LiveTurn {
 	readonly id: string
 	private readonly interruptTurn: (reason: string) => void
 
@@ -232,7 +238,12 @@ function isListeningSettled(listening: LiveListening): boolean {
 	return listeningControls.get(listening)?.settled ?? true
 }
 
-export class LiveListening {
+export interface LiveListening {
+	stop(reason?: string): void
+	wait(): Promise<void>
+}
+
+class LiveListeningHandle implements LiveListening {
 	private readonly stopListening: (reason: string) => void
 
 	constructor(stopListening: (reason: string) => void) {
@@ -350,7 +361,7 @@ export class LiveSession {
 		const controller = new AbortController()
 		const generation = ++this.turnGeneration
 		const turnId = randomUUID()
-		const handle = new LiveTurn(turnId, (reason) => {
+		const handle = new LiveTurnHandle(turnId, (reason) => {
 			const active = this.currentTurn
 			if (active?.handle.id === turnId) this.interruptRecord(active, reason)
 		})
@@ -396,7 +407,7 @@ export class LiveSession {
 		this.validateResponseMode(responseMode)
 
 		const controller = new AbortController()
-		const handle = new LiveListening((reason) => {
+		const handle = new LiveListeningHandle((reason) => {
 			const active = this.listening
 			if (active?.handle === handle) this.stopListening(active, reason)
 		})
@@ -799,11 +810,6 @@ export class LiveSession {
 					}
 				}, this.options.maxSpeechDurationMs)
 				record.utterances.push(utterance)
-				const pendingFinal = record.pendingFinalTranscripts.shift()
-				if (pendingFinal) {
-					utterance.finalText = pendingFinal.text
-					utterance.finalAt = pendingFinal.timestampMs
-				}
 				if (this.currentTurn && !isTurnSettled(this.currentTurn.handle)) {
 					this.interruptRecord(this.currentTurn, 'caller started speaking')
 				}
@@ -824,6 +830,7 @@ export class LiveSession {
 			}
 			utterance.endedAt = event.timestampMs
 			if (utterance.speechTimer) clearTimeout(utterance.speechTimer)
+			this.matchFinalTranscripts(record)
 			if (!utterance.finalText) {
 				utterance.transcriptTimer = setTimeout(() => {
 					if (!record.controller.signal.aborted && !utterance.finalText) {
@@ -836,7 +843,7 @@ export class LiveSession {
 					}
 				}, this.options.endOfTurnTimeoutMs)
 			}
-			this.scheduleDecision(record, utterance, responseMode)
+			this.scheduleReadyDecisions(record, responseMode)
 		}
 	}
 
@@ -855,14 +862,51 @@ export class LiveSession {
 			if (event.text.trim().length === 0) {
 				throw new LiveError('invalid_driver_event', 'Speech recognition finalized empty text.')
 			}
-			const utterance = record.utterances.find((candidate) => candidate.finalText === undefined)
+			record.pendingFinalTranscripts.push(event)
+			this.matchFinalTranscripts(record)
+			this.scheduleReadyDecisions(record, responseMode)
+		}
+	}
+
+	private matchFinalTranscripts(record: ListeningRecord): void {
+		for (let index = 0; index < record.pendingFinalTranscripts.length; ) {
+			const transcript = record.pendingFinalTranscripts[index]
+			if (!transcript) break
+			const candidates = record.utterances.filter(
+				(utterance) =>
+					utterance.finalText === undefined &&
+					utterance.endedAt !== undefined &&
+					transcript.timestampMs >= utterance.startedAt &&
+					transcript.timestampMs <= utterance.endedAt,
+			)
+			if (candidates.length > 1) {
+				throw new LiveError(
+					'invalid_driver_event',
+					'Speech-recognition timestamp matched overlapping VAD utterances.',
+				)
+			}
+			const utterance = candidates[0]
 			if (!utterance) {
-				record.pendingFinalTranscripts.push(event)
+				index++
 				continue
 			}
-			utterance.finalText = event.text
-			utterance.finalAt = event.timestampMs
+			utterance.finalText = transcript.text
+			utterance.finalAt = transcript.timestampMs
 			if (utterance.transcriptTimer) clearTimeout(utterance.transcriptTimer)
+			record.pendingFinalTranscripts.splice(index, 1)
+		}
+	}
+
+	private scheduleReadyDecisions(record: ListeningRecord, responseMode: 'speech' | 'text'): void {
+		for (const utterance of record.utterances) {
+			if (utterance.decisionStarted) continue
+			if (
+				utterance.endedAt === undefined ||
+				utterance.finalAt === undefined ||
+				utterance.finalText === undefined
+			) {
+				return
+			}
 			this.scheduleDecision(record, utterance, responseMode)
 		}
 	}

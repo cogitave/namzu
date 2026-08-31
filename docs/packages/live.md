@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-31T00:00:00Z
-lastReviewed: 2026-08-31
+lastReviewed: 2026-09-01
 resource: packages/live/src/index.ts
 tags: [live, voice, realtime, reference]
 ---
@@ -99,8 +99,11 @@ utterance coordinator:
    response. VAD owns pre-roll and hangover policy.
 2. `speech_end` supplies the acoustic endpoint. A maximum speech timer refuses
    an utterance that never ends.
-3. `final_transcript` supplies the recognizer's final hypothesis. Partial
-   transcripts are observable but never submitted to the model as final text.
+3. `final_transcript` supplies the recognizer's final hypothesis. Its timestamp
+   is the end of recognized speech and must fall inside the matching VAD
+   start/end interval. Finals are paired by that shared source timeline, not by
+   callback arrival order; an ambiguous overlap is refused. Partial transcripts
+   are observable but never submitted to the model as final text.
 4. `TurnDetector.isTurnComplete()` receives both timestamps, the final text and
    conversation history. Returning `false` carries the text into the next
    utterance; it is not dropped.

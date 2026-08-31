@@ -61,7 +61,12 @@ function packedPaths(dir) {
 	// Getting this wrong is silent in the worst way: the first draft of this
 	// check caught the spawn error and continued, reporting fourteen packages
 	// clean while packing none of them.
-	const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+	// A package may legitimately clean/build in `prepack`. Without npm's
+	// `--silent`, lifecycle banners are written before the JSON document and
+	// JSON.parse sees `> @scope/package prepack` instead of the artifact report.
+	// Silence presentation, not scripts: the hook still runs and a hook failure
+	// still makes execFileSync throw.
+	const out = execFileSync('npm', ['--silent', 'pack', '--dry-run', '--json'], {
 		cwd: dir,
 		encoding: 'utf8',
 		shell: process.platform === 'win32',

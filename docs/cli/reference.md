@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-25T00:00:00Z
-lastReviewed: 2026-08-31
+lastReviewed: 2026-09-01
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -1285,6 +1285,9 @@ for (const probe of await probeCapabilities()) {
 `ConfigProvenance` names which cascade layer won each key, down to *which*
 `NAMZU_*` variable it was — "env" alone would not tell an operator what to
 change. `loadConfig()` is the same cascade without the provenance.
+`NAMZU_OPTIONAL_CAPABILITIES` is the set this CLI boot path consumes or
+diagnoses, not an inventory of every optional SDK extension. A library enters
+that set only when the CLI has a real front door that drives it.
 `probeOptionalPackage(specifier)` probes one package instead of all four.
 `registerCommand` / `registerAll` add a `CommandDef` to a Commander program, and
 `DEFAULT_CONFIG`, `ConfigLoadError`, `ConfigValueError`, `isFormatName` and

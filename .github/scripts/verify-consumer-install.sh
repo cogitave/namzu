@@ -10,8 +10,13 @@
 # cannot resolve each other cleanly, `npm install` errors with ERESOLVE and
 # this script exits non-zero — gating the Changesets publish step.
 #
-# After the SDK + consumer install, runs two additional assertions for
-# @namzu/telemetry:
+# After the SDK + consumer install, runs runtime assertions that cannot be
+# established by directory presence alone:
+#   1. The packed @namzu/live entry point drives a complete LiveSession →
+#      NamzuModel → SDK query() turn. The fixture checks the provider request,
+#      live events, returned text and terminal run-store state.
+#
+# @namzu/telemetry then carries two additional assertions:
 #   1. require.resolve('@opentelemetry/api') computed from
 #      node_modules/@namzu/sdk MUST equal the same call from
 #      node_modules/@namzu/telemetry. Differing paths mean two physical
@@ -193,7 +198,7 @@ while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
   test -f "$TARBALL" || { echo "    ✗ Missing tarball for $dep"; exit 1; }
 
   rm -rf node_modules package-lock.json
-  npm install --no-fund --no-audit --silent "$SDK_TARBALL" "$TARBALL"
+  npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$TARBALL"
 
   test -d "node_modules/$pkg_name" || { echo "    ✗ $pkg_name did not install"; exit 1; }
   test -d "node_modules/@namzu/sdk" || { echo "    ✗ @namzu/sdk did not install"; exit 1; }
@@ -201,8 +206,167 @@ while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
   DEPENDENT_COUNT=$((DEPENDENT_COUNT + 1))
 done < "$PACKAGE_TABLE"
 
+SAVED_DEPENDENT_COUNT=$(node -p "Object.keys(require('./package.json').dependencies ?? {}).length")
+test "$SAVED_DEPENDENT_COUNT" -eq 0 || {
+  echo "✗ Consumer pair installs polluted package.json with $SAVED_DEPENDENT_COUNT saved dependencies"
+  exit 1
+}
+
 echo ""
 echo "✅ Consumer install verified for all $DEPENDENT_COUNT SDK-dependent packages"
+
+# ---------------------------------------------------------------------------
+# @namzu/live packed-runtime fixture (ses_022-live-agent-bridge).
+# ---------------------------------------------------------------------------
+#
+# Installing a directory proves only that the peer graph resolved. Import the
+# exact tarballs that will ship and drive the whole public bridge so a missing
+# export, stale dist file, broken peer resolution or disconnected SDK model
+# cannot pass this release gate as "installed".
+
+echo ""
+echo "=== @namzu/live packed runtime → SDK query fixture ==="
+
+LIVE_TARBALL=$(ls "$PACK_DIR"/namzu-live-*.tgz | head -1)
+test -f "$LIVE_TARBALL" || { echo "    ✗ Missing live tarball in $PACK_DIR"; exit 1; }
+
+# A previous adapter was deleted from src/ while its compiled module remained
+# in dist/. Incremental compilation quite correctly ignored an output it no
+# longer owned, but `files: ["dist"]` packed it anyway. Require every shipped
+# live runtime module to have a source owner so reused release workspaces
+# produce the same artifact as clean ones.
+LIVE_RUNTIME_FILES=0
+LIVE_ORPHANS=0
+while IFS= read -r entry; do
+  case "$entry" in
+    package/dist/*.js)
+      relative=${entry#package/dist/}
+      source="$WORKSPACE_ROOT/packages/live/src/${relative%.js}.ts"
+      LIVE_RUNTIME_FILES=$((LIVE_RUNTIME_FILES + 1))
+      if [ ! -f "$source" ]; then
+        echo "    ✗ Packed live runtime module has no source owner: $entry"
+        LIVE_ORPHANS=$((LIVE_ORPHANS + 1))
+      fi
+      ;;
+  esac
+done < <(tar -tzf "$LIVE_TARBALL")
+test "$LIVE_RUNTIME_FILES" -gt 0 || { echo "    ✗ Live tarball contains no runtime modules"; exit 1; }
+test "$LIVE_ORPHANS" -eq 0 || exit 1
+echo "    ✓ $LIVE_RUNTIME_FILES packed runtime modules have source owners"
+
+rm -rf node_modules package-lock.json
+npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$LIVE_TARBALL"
+
+cat > assert-live-runtime.mjs <<'EOF'
+import { LiveAgent, LiveSession, NamzuModel } from '@namzu/live'
+import { InMemoryRunStore, MockLLMProvider, ToolRegistry } from '@namzu/sdk'
+
+const expectedText = 'PACKED_LIVE_BRIDGE_OK'
+const instructions = 'PACKED_LIVE_INSTRUCTIONS'
+const userInput = 'Exercise the packed live bridge.'
+const provider = new MockLLMProvider({ responseText: expectedText })
+const runStore = new InMemoryRunStore()
+const events = []
+const session = new LiveSession()
+session.onEvent((event) => events.push(event))
+
+await session.start(
+  new LiveAgent({
+    instructions,
+    model: new NamzuModel({
+      createQueryParams: () => ({
+        agentId: 'agent_packed_live',
+        agentName: 'Packed live agent',
+        projectId: 'project_packed_live',
+        provider,
+        resumeHandler: async () => ({ action: 'continue' }),
+        runConfig: {
+          maxIterations: 4,
+          maxResponseTokens: 512,
+          model: 'packed-fixture-model',
+          timeoutMs: 30_000,
+          tokenBudget: 100_000,
+        },
+        runStore,
+        sessionId: 'session_packed_live',
+        tenantId: 'tenant_packed_live',
+        tools: new ToolRegistry(),
+        topicId: 'topic_packed_live',
+        workingDirectory: process.cwd(),
+      }),
+    }),
+  }),
+)
+
+const result = await session.run({ userInput }).wait()
+await session.close()
+
+const failures = []
+if (result.status !== 'completed') {
+  failures.push(`turn status = ${JSON.stringify(result.status)}, expected "completed"`)
+}
+if (result.message?.content !== expectedText) {
+  failures.push(`assistant text = ${JSON.stringify(result.message?.content)}, expected ${JSON.stringify(expectedText)}`)
+}
+if (!result.runId) {
+  failures.push('completed turn omitted its SDK run id')
+}
+
+if (provider.requests.length !== 1) {
+  failures.push(`provider request count = ${provider.requests.length}, expected 1`)
+} else {
+  const messages = provider.requests[0].messages
+  const sawInstructions = messages.some(
+    (message) => message.role === 'system' && JSON.stringify(message.content).includes(instructions),
+  )
+  const sawUserInput = messages.some(
+    (message) => message.role === 'user' && JSON.stringify(message.content).includes(userInput),
+  )
+  if (!sawInstructions) failures.push('SDK provider request omitted the live agent instructions')
+  if (!sawUserInput) failures.push('SDK provider request omitted the live user turn')
+}
+
+for (const requiredType of ['turn_started', 'assistant_text_delta', 'turn_completed']) {
+  if (!events.some((event) => event.type === requiredType)) {
+    failures.push(`live event stream omitted ${requiredType}`)
+  }
+}
+
+if (runStore.snapshot().meta.status !== 'completed') {
+  failures.push(`SDK run-store status = ${JSON.stringify(runStore.snapshot().meta.status)}, expected "completed"`)
+}
+
+if (failures.length > 0) {
+  console.error('✗ @namzu/live packed-runtime check failed:')
+  for (const failure of failures) console.error('  - ' + failure)
+  process.exit(1)
+}
+
+console.log('✅ packed @namzu/live completed one SDK-backed turn with public exports, events and run-store state intact')
+EOF
+
+echo "    → packed live + shipping SDK"
+node assert-live-runtime.mjs
+
+# The peer range promises the first SDK version in the supported major too,
+# not only the workspace head. Exercise that exact lower bound with the same
+# packed live artifact so the declaration and runtime cannot drift apart.
+LIVE_SDK_RANGE=$(node -p "require('$WORKSPACE_ROOT/packages/live/package.json').peerDependencies['@namzu/sdk']")
+LIVE_MINIMUM_SDK=${LIVE_SDK_RANGE#>=}
+LIVE_MINIMUM_SDK=${LIVE_MINIMUM_SDK%% *}
+case "$LIVE_MINIMUM_SDK" in
+  [0-9]*.[0-9]*.[0-9]*) ;;
+  *) echo "    ✗ Could not derive live's minimum SDK from peer range: $LIVE_SDK_RANGE"; exit 1 ;;
+esac
+echo "    → packed live + minimum supported SDK $LIVE_MINIMUM_SDK"
+rm -rf node_modules package-lock.json
+npm install --no-fund --no-audit --no-save --silent "$LIVE_TARBALL" "@namzu/sdk@$LIVE_MINIMUM_SDK"
+INSTALLED_LIVE_MINIMUM_SDK=$(node -p "require('./node_modules/@namzu/sdk/package.json').version")
+test "$INSTALLED_LIVE_MINIMUM_SDK" = "$LIVE_MINIMUM_SDK" || {
+  echo "    ✗ Expected minimum SDK $LIVE_MINIMUM_SDK, installed $INSTALLED_LIVE_MINIMUM_SDK"
+  exit 1
+}
+node assert-live-runtime.mjs
 
 # ---------------------------------------------------------------------------
 # @namzu/sandbox public-surface fixture (ses_005-sandbox-multi-mount-layout).
@@ -224,7 +388,7 @@ SANDBOX_TARBALL=$(ls "$PACK_DIR"/namzu-sandbox-*.tgz | head -1)
 test -f "$SANDBOX_TARBALL" || { echo "    ✗ Missing sandbox tarball in $PACK_DIR"; exit 1; }
 
 rm -rf node_modules package-lock.json
-npm install --no-fund --no-audit --silent "$SDK_TARBALL" "$SANDBOX_TARBALL"
+npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$SANDBOX_TARBALL"
 
 cat > assert-sandbox-public-surface.mjs <<'EOF'
 import * as sandbox from '@namzu/sandbox'
@@ -308,7 +472,7 @@ case "$SDK_MAJOR_MINOR" in
 esac
 
 rm -rf node_modules package-lock.json
-npm install --no-fund --no-audit --silent \
+npm install --no-fund --no-audit --no-save --silent \
   "$SDK_TARBALL" \
   "$TELEMETRY_TARBALL" \
   @opentelemetry/api@^1.9.0 \
