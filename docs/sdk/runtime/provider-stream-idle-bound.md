@@ -7,8 +7,8 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-29
-resource: packages/sdk/src/runtime/query/index.ts
+lastReviewed: 2026-08-31
+resource: packages/sdk/src/runtime/query/__tests__/stream-idle-timeout-reaches-run.test.ts
 tags: [sdk, runtime, providers, retry, cancellation]
 ---
 

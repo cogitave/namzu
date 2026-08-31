@@ -508,6 +508,13 @@ explicitly resumes the same FIFO; an automatic goal-round failure does not pause
 independent human input. The terminal-settled notification fires at the pause
 boundary because no queued work is immediately continuing.
 
+A retryable provider failure with a checkpoint is shown as **Run paused**, not
+as success and not as a permanent error. The transcript names the stable
+explanation id, any finite provider-directed retry delay, the catalog remedy and
+the preserved checkpoint. Its dependent queue is held under a distinct
+resumable-pause label. Unclassified failures keep their original reason and get
+no invented advice.
+
 The TUI buffers routine boot, provider and sandbox diagnostics so they cannot
 corrupt an Ink frame. A crash prints the bounded buffer with its fatal error; a
 clean Ctrl+C exit discards it and prints only the copy-pasteable
@@ -794,6 +801,13 @@ so every failure is an `error` event on stdout and the exit code says only
 whether the caller could reach the run by sending something else: `0` when they
 could, `1` when they could not, `77` for the untrusted folder that only a person
 can change.
+
+`run_paused` crosses the live CLI protocol as
+`{"kind":"paused","checkpointId":…,"reason":…}` with the optional structured
+`failure`, `providerError` and `explanation` fields the SDK emitted. `namzu run`
+prints any partial answer but exits `1` and names the checkpoint; `run-stream`
+forwards the pause, terminates with `done`, and remains `0` because its host can
+retry or resume. Neither surface reports a silent success.
 
 ## Configuration
 

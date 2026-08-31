@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-24
+lastReviewed: 2026-08-31
 tags: [sdk]
 ---
 
@@ -468,6 +468,21 @@ Two conditions, both required: the failure must classify as `retryable`,
 and a checkpoint must exist. Pausing on a permanent error would invite a
 resume that cannot work, and pausing with nowhere to resume from produces a
 run nobody can ever pick up — strictly worse than reporting the failure.
+
+`run_paused` carries the same optional `failure`, `providerError` and
+`explanation` values as `run_failed`, beside `checkpointId` and `reason`. A pause
+is a different verdict, not a less informative one: retryability and
+`retryAfterMs` are the facts a host needs to schedule recovery. The SSE
+`run.paused` projection keeps all three structured values; A2A keeps the
+checkpoint plus `failure` classification as status metadata, matching its
+`run_failed` projection while retaining the address needed to recover.
+
+Both provider error generations reach this path. Current drivers throw the
+structural `ProviderRequestError` shape while older/custom providers may throw
+`ProviderError`; terminal projection runs both through the same provider
+taxonomy. A first-hand throttle therefore remains `provider_error` /
+`rate_limit`, retryable, and retains status and retry delay instead of becoming
+`unknown` at the run boundary.
 
 That makes the A2A stream cleaner than the full internal event bus.
 

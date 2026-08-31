@@ -1,5 +1,5 @@
 import type { PlatformError } from '../common/index.js'
-import { ProviderError } from '../provider/errors.js'
+import { ProviderError, classifyProviderError } from '../provider/errors.js'
 
 /**
  * What went wrong, at the granularity a HOST actually branches on.
@@ -97,17 +97,31 @@ export function toPlatformError(err: unknown): PlatformError {
 		}
 	}
 
-	if (err instanceof ProviderError) {
+	// Current drivers throw `ProviderRequestError`; older/custom providers may
+	// throw `ProviderError`. The retry layer already classifies both through the
+	// shared function below, but this terminal projection used to recognise only
+	// the older class and turn a first-hand 429 into unknown/non-retryable.
+	const providerFailure =
+		err instanceof ProviderError
+			? err
+			: err instanceof Error && err.name === 'ProviderRequestError'
+				? classifyProviderError(err)
+				: undefined
+	if (providerFailure) {
 		return {
 			code: 'provider_error',
-			message: err.message,
+			message: providerFailure.message,
 			details: {
-				providerCode: err.code,
-				...(err.providerId !== undefined ? { providerId: err.providerId } : {}),
-				...(err.status !== undefined ? { status: err.status } : {}),
-				...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
+				providerCode: providerFailure.code,
+				...(providerFailure.providerId !== undefined
+					? { providerId: providerFailure.providerId }
+					: {}),
+				...(providerFailure.status !== undefined ? { status: providerFailure.status } : {}),
+				...(providerFailure.retryAfterMs !== undefined
+					? { retryAfterMs: providerFailure.retryAfterMs }
+					: {}),
 			},
-			retryable: err.retryable,
+			retryable: providerFailure.retryable,
 		}
 	}
 

@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-22T00:00:00Z
-lastReviewed: 2026-08-22
+lastReviewed: 2026-08-31
 resource: packages/providers/deepseek/src/client.ts
 tags: [provider, deepseek, reasoning, reference]
 ---
@@ -207,14 +207,18 @@ with `samplingInThinkingMode: 'ignore'`.
 import { DEEPSEEK_CAPABILITIES } from '@namzu/deepseek'
 
 // supportsTools, supportsStreaming, supportsFunctionCalling and
-// supportsVision are true; supportsDocuments is false.
+// supportsVision and supportsToolResultImages are true;
+// supportsDocuments and supportsToolResultDocuments are false.
 console.log(DEEPSEEK_CAPABILITIES.supportsVision)
 ```
 
 The capability says the driver has a real image mapping. The per-model
 `inputModalities` list and the driver's pre-transport model guard say where that
 mapping is legal. Documents remain false because no document mapping is
-implemented.
+implemented. Tool-result capability is declared independently: an image from a
+tool can use the rich-result projection described above, while a document from
+a tool is refused or reported as an explicit capability mismatch rather than
+being dropped.
 
 ## Cost
 

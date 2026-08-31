@@ -140,6 +140,28 @@ export class ResultAssembler {
 		// later, discarding every field of it. `toPlatformError` is the
 		// projection that was written for exactly this and had no callers.
 		const failure = toPlatformError(err)
+		// The driver's classification and the operator explanation describe the
+		// throwable, not the terminal verdict. Compute them before choosing paused
+		// versus failed so a recoverable run does not become the one path that
+		// discards the reason and remedy a host needs in order to recover it.
+		const providerError = isProviderRequestError(err)
+			? {
+					kind: err.kind,
+					providerId: err.providerId,
+					...(err.providerCode !== undefined ? { providerCode: err.providerCode } : {}),
+					...(err.status !== undefined ? { status: err.status } : {}),
+					...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
+					// The provider's own sentence, already truncated and scrubbed
+					// by the driver. Without it a host rendering this metadata
+					// knows a request was rejected but not which field, and has to
+					// re-parse prose to find out.
+					...(err.detail !== undefined ? { detail: err.detail } : {}),
+				}
+			: undefined
+		// Classification is structural; remediation is editorial. The catalog is
+		// optional because inventing advice for an uncharacterised failure is worse
+		// than presenting the reason alone.
+		const explanation = explainError(err) ?? undefined
 
 		// A transient failure that survived every in-turn recovery is not the
 		// same thing as a bad API key, and settling both as `failed` gave the
@@ -157,6 +179,9 @@ export class ResultAssembler {
 				runId: runMgr.id,
 				checkpointId: resumeFrom,
 				reason: errorMessage,
+				failure,
+				...(providerError ? { providerError } : {}),
+				...(explanation ? { explanation } : {}),
 			})
 			yield* drainPending()
 
@@ -177,34 +202,11 @@ export class ResultAssembler {
 			return
 		}
 
-		// The driver's classification, carried onto the run so a host can
-		// branch on WHAT failed without re-parsing a sentence.
-		const providerError = isProviderRequestError(err)
-			? {
-					kind: err.kind,
-					providerId: err.providerId,
-					...(err.providerCode !== undefined ? { providerCode: err.providerCode } : {}),
-					...(err.status !== undefined ? { status: err.status } : {}),
-					...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
-					// The provider's own sentence, already truncated and scrubbed
-					// by the driver. Without it a host rendering this metadata
-					// knows a request was rejected but not which field, and has to
-					// go re-parse `error` to find out — which is exactly the
-					// re-parsing the line above says this exists to avoid.
-					...(err.detail !== undefined ? { detail: err.detail } : {}),
-				}
-			: undefined
 		runMgr.markFailed(errorMessage, providerError)
 
 		if (planManager.isActive) {
 			planManager.failPlan(errorMessage)
 		}
-
-		// The classification says what kind of failure it is; the catalog
-		// says what a person should do about it. Keeping them separate is the
-		// point — classification is structural and belongs at the boundary,
-		// remediation is editorial and belongs in a list a human appends to.
-		const explanation = explainError(err) ?? undefined
 
 		// Same terminal-verdict recording as the success path in completeRun —
 		// see LOG-14, design §5. Placed AFTER the early `resumeFrom !== undefined`

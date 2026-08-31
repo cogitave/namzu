@@ -206,10 +206,29 @@ const MAPPING: {
 		}),
 
 	run_paused: (e, ctx) =>
-		statusEvent(e.runId, 'input-required', false, ctx, {
-			role: 'agent',
-			parts: [{ kind: 'text', text: `Run paused: ${e.reason}` }],
-		}),
+		statusEvent(
+			e.runId,
+			'input-required',
+			false,
+			ctx,
+			{
+				role: 'agent',
+				parts: [{ kind: 'text', text: `Run paused: ${e.reason}` }],
+			},
+			// A remote host has the same recovery decision as a local one. The
+			// checkpoint is the address of that recovery; the classification tells
+			// it whether and when a retry is justified.
+			{
+				checkpointId: e.checkpointId,
+				...(e.failure
+					? {
+							code: e.failure.code,
+							retryable: e.failure.retryable,
+							...(e.failure.details ? { details: e.failure.details } : {}),
+						}
+					: {}),
+			},
+		),
 
 	iteration_completed: null,
 	// Context management is kernel-internal bookkeeping; A2A peers model a

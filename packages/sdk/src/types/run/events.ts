@@ -505,6 +505,17 @@ type CoreRunEvent =
 			runId: RunId
 			checkpointId: CheckpointId
 			reason: string
+			/**
+			 * The same structured failure projection a terminal `run_failed`
+			 * carries. A pause is a different verdict, not a less informative one:
+			 * the retryability and any provider-directed delay are what let a host
+			 * decide when and how to resume this checkpoint.
+			 */
+			failure?: PlatformError
+			/** First-hand driver classification, when the provider produced one. */
+			providerError?: import('../provider/error.js').ProviderErrorInfo
+			/** Curated operator copy, absent when no catalog rule matched. */
+			explanation?: { id: string; message: string; hint: string }
 	  }
 	| {
 			type: 'run_resuming'

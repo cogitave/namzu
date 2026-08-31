@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { ProviderRequestError } from '../../../provider/errors.js'
 import { ProviderError } from '../../provider/errors.js'
 import { DEFAULT_ERROR_RULES, explainError, factsOf, readHint, withHint } from '../catalog.js'
 import { NamzuError } from '../index.js'
@@ -51,6 +52,18 @@ describe('explaining a failure', () => {
 		expect(explainError(providerError('overloaded', 529))?.id).toBe('provider.unavailable')
 		expect(explainError(providerError('network'))?.id).toBe('provider.network')
 		expect(explainError(providerError('not_found', 404))?.id).toBe('provider.model_not_found')
+	})
+
+	it('recognises the current driver throttle shape without matching its prose', () => {
+		const err = new ProviderRequestError({
+			kind: 'throttle',
+			providerId: 'openai',
+			status: 429,
+			retryAfterMs: 4_000,
+			detail: 'future vendor wording',
+		})
+		expect(factsOf(err)).toMatchObject({ code: 'rate_limit', status: 429, retryAfterMs: 4_000 })
+		expect(explainError(err)?.id).toBe('provider.rate_limit')
 	})
 
 	it('says nothing rather than inventing advice', () => {

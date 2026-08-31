@@ -168,6 +168,33 @@ describe('exit 0 — the caller can reach the run by sending something else', ()
 		expect(r.code).toBe(0)
 		expect(r.out).toContain('503')
 	})
+
+	it('a run that paused forwards its checkpoint and still terminates in band', async () => {
+		vi.mocked(createAgentSession).mockImplementation(async () =>
+			fakeAgentSession({
+				send: async function* () {
+					yield {
+						kind: 'paused',
+						checkpointId: 'cp_stream_4',
+						reason: 'slow down',
+						failure: {
+							code: 'provider_error',
+							message: 'slow down',
+							retryable: true,
+							details: { providerCode: 'rate_limit', retryAfterMs: 4_000 },
+						},
+					} as never
+				},
+			}),
+		)
+		const r = await run(['hello'])
+
+		expect(r.code).toBe(0)
+		expect(r.out).toContain('"kind":"paused"')
+		expect(r.out).toContain('"checkpointId":"cp_stream_4"')
+		expect(r.out).toContain('"retryAfterMs":4000')
+		expect(r.out).toContain('"kind":"done"')
+	})
 })
 
 describe('exit 1 — nothing the caller sends changes it', () => {

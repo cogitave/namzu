@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { RunPersistence } from '../../../manager/run/persistence.js'
+import { ProviderRequestError } from '../../../provider/errors.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
 import type { RunId } from '../../../types/ids/index.js'
@@ -117,6 +118,37 @@ describe('a transient failure with somewhere to resume from', () => {
 	it('records why it stopped without marking the run failed', async () => {
 		const { marks } = await settle(transient(), CP)
 		expect(marks).toContain('lastError')
+	})
+
+	it('keeps current driver classification, retry delay and remedy on the pause', async () => {
+		const current = new ProviderRequestError({
+			kind: 'throttle',
+			providerId: 'openai',
+			providerCode: 'rate_limit_exceeded',
+			status: 429,
+			retryAfterMs: 12_000,
+			detail: 'organization window exhausted',
+		})
+		const { emitted } = await settle(current, CP)
+		const paused = emitted[0]
+
+		expect(paused).toMatchObject({
+			type: 'run_paused',
+			checkpointId: CP,
+			failure: {
+				code: 'provider_error',
+				retryable: true,
+				details: { providerCode: 'rate_limit', status: 429, retryAfterMs: 12_000 },
+			},
+			providerError: {
+				kind: 'throttle',
+				providerId: 'openai',
+				status: 429,
+				retryAfterMs: 12_000,
+				detail: 'organization window exhausted',
+			},
+			explanation: { id: 'provider.rate_limit' },
+		})
 	})
 })
 

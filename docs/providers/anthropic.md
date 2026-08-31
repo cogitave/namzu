@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-23T00:00:00Z
-lastReviewed: 2026-08-23
+lastReviewed: 2026-08-31
 resource: packages/providers/anthropic/src/client.ts
 tags: [provider, anthropic, reference]
 ---
@@ -186,9 +186,17 @@ import { ANTHROPIC_CAPABILITIES } from '@namzu/anthropic'
 //   supportsFunctionCalling: true,
 //   supportsVision: true,
 //   supportsDocuments: true,
+//   supportsToolResultImages: true,
+//   supportsToolResultDocuments: false,
 // }
 console.log(ANTHROPIC_CAPABILITIES.supportsVision)
 ```
+
+The last two declarations are deliberately separate from user attachments.
+This driver projects an image returned by a tool as native rich result content,
+but it has no corresponding document-result mapping. With strict capability
+checking, the runtime therefore permits the former and refuses the latter
+before another model request is made.
 
 ## Observability
 

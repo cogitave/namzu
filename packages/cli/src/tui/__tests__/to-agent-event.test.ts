@@ -160,6 +160,53 @@ describe('toAgentEvent carries the stop reason across', () => {
 
 		expect(mapped).toEqual({ kind: 'error', message: 'boom' })
 	})
+
+	it('keeps structured recovery data on failures and resumable pauses', () => {
+		const failure = {
+			code: 'provider_error',
+			message: 'slow down',
+			retryable: true,
+			details: { providerCode: 'rate_limit', retryAfterMs: 3_000 },
+		} as const
+		const explanation = {
+			id: 'provider.rate_limit',
+			message: 'The provider is rate limiting this run.',
+			hint: 'Wait for the quota window to reset.',
+		}
+
+		expect(
+			toAgentEvent(
+				{
+					type: 'run_paused',
+					runId,
+					checkpointId: 'cp_7' as never,
+					reason: 'slow down',
+					failure,
+					explanation,
+				} as RunEvent,
+				presenter,
+			),
+		).toEqual({
+			kind: 'paused',
+			checkpointId: 'cp_7',
+			reason: 'slow down',
+			failure,
+			explanation,
+		})
+
+		expect(
+			toAgentEvent(
+				{
+					type: 'run_failed',
+					runId,
+					error: 'slow down',
+					failure,
+					explanation,
+				} as RunEvent,
+				presenter,
+			),
+		).toEqual({ kind: 'error', message: 'slow down', failure, explanation })
+	})
 })
 
 describe('compaction is reported, not silent', () => {

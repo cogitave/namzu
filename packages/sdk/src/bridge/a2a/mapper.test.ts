@@ -223,6 +223,12 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 			runId: RID,
 			checkpointId: 'ckpt_1' as CheckpointId,
 			reason: 'waiting for review',
+			failure: {
+				code: 'provider_error',
+				message: 'slow down',
+				retryable: true,
+				details: { providerCode: 'rate_limit', retryAfterMs: 5_000 },
+			},
 		}
 		const a2a = mapRunToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
@@ -231,6 +237,35 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 			expect(a2a.status.message?.parts[0]).toMatchObject({
 				kind: 'text',
 				text: expect.stringContaining('waiting for review'),
+			})
+			expect(a2a.metadata).toMatchObject({
+				checkpointId: 'ckpt_1',
+				code: 'provider_error',
+				retryable: true,
+				details: { providerCode: 'rate_limit', retryAfterMs: 5_000 },
+			})
+		}
+	})
+
+	it('run_paused metadata does not invent absent failure details', () => {
+		const a2a = mapRunToA2AEvent({
+			type: 'run_paused',
+			runId: RID,
+			checkpointId: 'ckpt_without_details' as CheckpointId,
+			reason: 'transient provider stop',
+			failure: {
+				code: 'provider_error',
+				message: 'transient provider stop',
+				retryable: true,
+			},
+		})
+
+		expect(isStatusEvent(a2a)).toBe(true)
+		if (isStatusEvent(a2a)) {
+			expect(a2a.metadata).toEqual({
+				checkpointId: 'ckpt_without_details',
+				code: 'provider_error',
+				retryable: true,
 			})
 		}
 	})

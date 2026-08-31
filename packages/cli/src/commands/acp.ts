@@ -307,7 +307,9 @@ export function createCliAcpRuntime(
 					},
 				})) {
 					if (event.kind === 'done') stopReason = event.stopReason
-					else if (event.kind === 'error') stopReason = signal.aborted ? 'cancelled' : 'error'
+					else if (event.kind === 'error' || event.kind === 'paused') {
+						stopReason = signal.aborted ? 'cancelled' : 'error'
+					}
 				}
 				if (signal.aborted) stopReason = 'cancelled'
 				return {

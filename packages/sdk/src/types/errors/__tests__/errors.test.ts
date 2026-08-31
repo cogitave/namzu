@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { ProviderRequestError } from '../../../provider/errors.js'
 import { ProviderError } from '../../provider/errors.js'
 import { NamzuError, isNamzuError, toPlatformError } from '../index.js'
 
@@ -99,6 +100,29 @@ describe('toPlatformError', () => {
 	it('does not claim a non-retryable provider failure is retryable', () => {
 		const err = new ProviderError({ code: 'auth', message: 'bad key' })
 		expect(toPlatformError(err).retryable).toBe(false)
+	})
+
+	it('projects the current driver error shape through the same provider taxonomy', () => {
+		const err = new ProviderRequestError({
+			kind: 'throttle',
+			providerId: 'openai',
+			providerCode: 'rate_limit_exceeded',
+			status: 429,
+			retryAfterMs: 8_000,
+			detail: 'organization window exhausted',
+		})
+
+		expect(toPlatformError(err)).toEqual({
+			code: 'provider_error',
+			message: err.message,
+			details: {
+				providerCode: 'rate_limit',
+				providerId: 'openai',
+				status: 429,
+				retryAfterMs: 8_000,
+			},
+			retryable: true,
+		})
 	})
 
 	it('reports a plain Error honestly as `unknown` rather than guessing', () => {

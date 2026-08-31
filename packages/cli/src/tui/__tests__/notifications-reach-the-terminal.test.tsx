@@ -29,7 +29,7 @@ const PREFS: Preferences = {
 }
 
 type TurnScript = {
-	readonly outcome: 'completed' | 'stopped' | 'failed' | 'thrown'
+	readonly outcome: 'completed' | 'stopped' | 'failed' | 'paused' | 'thrown'
 	readonly hold?: 'before-terminal-event' | 'after-terminal-event'
 	readonly holdAfterTerminal?: boolean
 	readonly asksPermission?: boolean
@@ -184,6 +184,30 @@ vi.mock('../agent.js', async (importOriginal) => {
 
 				if (script.outcome === 'failed') {
 					yield { kind: 'error', message: 'provider failed' } as AgentEvent
+				} else if (script.outcome === 'paused') {
+					yield {
+						kind: 'paused',
+						checkpointId: 'cp_rate_7',
+						reason: 'request rejected after retries',
+						failure: {
+							code: 'provider_error',
+							message: 'request rejected after retries',
+							retryable: true,
+							details: { providerCode: 'rate_limit', retryAfterMs: 3_000 },
+						},
+						providerError: {
+							kind: 'throttle',
+							providerId: 'openai',
+							status: 429,
+							retryAfterMs: 3_000,
+							detail: 'organization window exhausted',
+						},
+						explanation: {
+							id: 'provider.rate_limit',
+							message: 'The provider is rate limiting this run.',
+							hint: 'Wait for the quota window to reset before continuing.',
+						},
+					} as AgentEvent
 				} else {
 					const stopReason: StopReason =
 						script.outcome === 'completed' ? 'end_turn' : 'output_guardrail'
@@ -295,6 +319,7 @@ it.each([
 	{ scriptOutcome: 'completed', expectedOutcome: 'completed' },
 	{ scriptOutcome: 'stopped', expectedOutcome: 'stopped' },
 	{ scriptOutcome: 'failed', expectedOutcome: 'failed' },
+	{ scriptOutcome: 'paused', expectedOutcome: 'stopped' },
 	{ scriptOutcome: 'thrown', expectedOutcome: 'failed' },
 ] as const)(
 	'maps a $scriptOutcome turn into one settled notification',
@@ -353,6 +378,28 @@ it.each([
 		expect(requests).toEqual([{ notification: { kind: 'turn-settled', outcome }, method: 'osc9' }])
 	},
 )
+
+it('explains a resumable pause and holds dependent queued work', async () => {
+	scripts.push({ outcome: 'paused', hold: 'before-terminal-event' }, { outcome: 'completed' })
+	const harness = await mountReady({ notifications: ['turn-settled'] })
+
+	await submit(harness, 'first premise')
+	await waitUntil(() => gates.length === 1)
+	await submit(harness, 'depends on first')
+	gates[0]?.release()
+
+	await frameShows(harness, 'Run paused [provider.rate_limit]: The provider is rate limiting this run.')
+	await frameShows(harness, 'Provider retry delay: at least 3 seconds from this failure.')
+	await frameShows(harness, 'Next: Wait for the quota window to reset before continuing.')
+	await frameShows(harness, 'Checkpoint preserved: cp_rate_7')
+	await frameShows(harness, 'held after a resumable run paused')
+	await tick(100)
+
+	expect(sendCalls, 'the dependent prompt ran after a resumable stop').toBe(1)
+	expect(requests).toEqual([
+		{ notification: { kind: 'turn-settled', outcome: 'stopped' }, method: 'osc9' },
+	])
+})
 
 it('lets a post-error human continuation release the earlier FIFO before finally runs', async () => {
 	scripts.push(

@@ -236,6 +236,11 @@ run happens, so a script can act on a tool call before the run is over. Both
 take `--verbose`/`--quiet`, and both write logs to stderr so stdout stays a
 clean protocol stream.
 
+Recoverable provider stops are explicit `paused` events carrying their
+checkpoint and any structured retry guidance. The interactive transcript shows
+the same remedy and holds dependent queued input; `run` exits non-zero rather
+than treating a paused or failed partial answer as complete.
+
 The interactive transcript also shows provider capability mismatches and
 tool-history repairs before the affected answer. A history warning reports the
 source and measured rewrite counts without echoing tool content, and tells the

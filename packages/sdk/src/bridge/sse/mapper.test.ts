@@ -148,11 +148,27 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 				runId: RID,
 				checkpointId: 'ckpt_2' as CheckpointId,
 				reason: 'input required',
+				failure: {
+					code: 'provider_error',
+					message: 'slow down',
+					retryable: true,
+					details: { providerCode: 'rate_limit', retryAfterMs: 3_000 },
+				},
+				explanation: {
+					id: 'provider.rate_limit',
+					message: 'The provider is rate limiting this run.',
+					hint: 'Wait, then resume.',
+				},
 			},
 			RID,
 		)
 		expect(p?.wire).toBe('run.paused')
-		expect(p?.data).toMatchObject({ checkpoint_id: 'ckpt_2', reason: 'input required' })
+		expect(p?.data).toMatchObject({
+			checkpoint_id: 'ckpt_2',
+			reason: 'input required',
+			failure: { retryable: true, details: { retryAfterMs: 3_000 } },
+			explanation: { id: 'provider.rate_limit' },
+		})
 
 		const r = mapRunToStreamEvent(
 			{ type: 'run_resuming', runId: RID, fromCheckpointId: 'ckpt_2' as CheckpointId },

@@ -276,6 +276,9 @@ const MAPPING: {
 			run_id: runId,
 			checkpoint_id: e.checkpointId,
 			reason: e.reason,
+			...(e.failure ? { failure: e.failure } : {}),
+			...(e.providerError ? { provider_error: e.providerError } : {}),
+			...(e.explanation ? { explanation: e.explanation } : {}),
 		}),
 	},
 

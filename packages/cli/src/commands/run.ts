@@ -33,6 +33,7 @@ import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
+import { describeRunInterruption } from '../tui/run-interruption.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import { resolveResume } from './resume.js'
@@ -448,8 +449,9 @@ export const runCommand: CommandDef = {
 			// stderr, like every other status line, so it reaches a person
 			// watching without contaminating the answer a caller piped.
 			else if (event.kind === 'context') ctx.formatter.info(event.text)
-			else if (event.kind === 'error') failed = event.message
-			else if (event.kind === 'done') stopReason = event.stopReason
+			else if (event.kind === 'error' || event.kind === 'paused') {
+				failed = describeRunInterruption(event)
+			} else if (event.kind === 'done') stopReason = event.stopReason
 		}
 
 		// Every exit below this point releases the session first. A stdio tool
@@ -462,7 +464,16 @@ export const runCommand: CommandDef = {
 		await sessionExport?.shutdown()
 
 		if (failed) {
-			ctx.formatter.error({ message: failed })
+			// A provider can pause or fail after producing useful text. The TUI
+			// keeps that partial answer and a shell caller deserves the same bytes;
+			// the non-zero verdict is what prevents it being mistaken for complete.
+			const partial = text.trim()
+			if (partial) {
+				ctx.formatter.print(ctx.formatter.name === 'json' ? { text: partial } : partial)
+			}
+			ctx.formatter.error({
+				message: `${failed}${partial ? ' — the output above is partial' : ''}`,
+			})
 			return 1
 		}
 

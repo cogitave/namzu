@@ -277,7 +277,22 @@ export type AgentEvent =
 	 * of budget, iterations, time, or permission to say what it produced.
 	 */
 	| { readonly kind: 'done'; readonly stopReason?: StopReason }
-	| { readonly kind: 'error'; readonly message: string }
+	| {
+			/** A recoverable run stopped with an addressable checkpoint. */
+			readonly kind: 'paused'
+			readonly checkpointId: string
+			readonly reason: string
+			readonly failure?: Extract<RunEvent, { type: 'run_paused' }>['failure']
+			readonly providerError?: Extract<RunEvent, { type: 'run_paused' }>['providerError']
+			readonly explanation?: Extract<RunEvent, { type: 'run_paused' }>['explanation']
+	  }
+	| {
+			readonly kind: 'error'
+			readonly message: string
+			readonly failure?: Extract<RunEvent, { type: 'run_failed' }>['failure']
+			readonly providerError?: Extract<RunEvent, { type: 'run_failed' }>['providerError']
+			readonly explanation?: Extract<RunEvent, { type: 'run_failed' }>['explanation']
+	  }
 
 /** A single tool the model wants to run, surfaced to the user for approval. */
 export interface PermissionToolCall {
@@ -2780,6 +2795,19 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			return event.status === 'completed'
 				? { kind: 'task', subject: event.subject, status: event.status }
 				: null
+		case 'run_paused':
+			// A pause is not an error and not an invisible end. The checkpoint and
+			// classification are the recovery surface; dropping this event made a
+			// shell report success and let the interactive queue run on a premise
+			// the SDK had explicitly stopped.
+			return {
+				kind: 'paused',
+				checkpointId: event.checkpointId,
+				reason: event.reason,
+				...(event.failure ? { failure: event.failure } : {}),
+				...(event.providerError ? { providerError: event.providerError } : {}),
+				...(event.explanation ? { explanation: event.explanation } : {}),
+			}
 		case 'run_completed':
 			// Carried through rather than dropped: `run_failed` fires only from
 			// the throw path, so this event is also how a budget stop, a
@@ -2791,13 +2819,16 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				...(event.stopReason ? { stopReason: event.stopReason } : {}),
 			}
 		case 'run_failed':
-			// The classification is now carried on the event rather than
-			// having been flattened away upstream. Shown because "rate
-			// limited, retryable" and "your key is wrong" are the same
-			// sentence to a reader who only gets the message.
+			// Keep the compatibility string and the structure. Prefixing the
+			// message with only the coarse `provider_error` code discarded the
+			// stable explanation, retry delay and first-hand provider detail while
+			// still forcing every host to parse prose.
 			return {
 				kind: 'error',
-				message: event.failure ? `[${event.failure.code}] ${event.error}` : event.error,
+				message: event.error,
+				...(event.failure ? { failure: event.failure } : {}),
+				...(event.providerError ? { providerError: event.providerError } : {}),
+				...(event.explanation ? { explanation: event.explanation } : {}),
 			}
 		case 'compaction_completed':
 			return { kind: 'context', text: describeCompaction(event), shed: true }

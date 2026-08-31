@@ -142,6 +142,7 @@ import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { liveWindow } from './live-window.js'
+import { describeRunInterruption } from './run-interruption.js'
 import {
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
@@ -326,6 +327,8 @@ type StreamState = {
 	completed: boolean
 	/** Exact durable run outcome; notification wording is intentionally coarser. */
 	outcome: ConversationTurnOutcome | null
+	/** More precise queue copy when a resumable SDK run stopped. */
+	queuePauseOutcome?: QueuePauseOutcome
 	/** Terminal notice earned by this turn, or null when it was interrupted. */
 	notification: TerminalNotification | null
 }
@@ -504,7 +507,7 @@ function humanPromptMeta(
 	if (live) parts.push('steered current turn')
 	return parts.length > 0 ? parts.join(' · ') : undefined
 }
-type QueuePauseOutcome = 'failed' | 'stopped'
+type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
 
 interface QueuePause {
 	readonly outcome: QueuePauseOutcome
@@ -3146,12 +3149,23 @@ export function App({
 					}
 					closeAssistant()
 					break
+				case 'paused':
+					// Paused is a recoverable SDK verdict, not success and not failure.
+					// Conversation evidence has no paused member, so it records the
+					// truthful coarse outcome (`stopped`) while queue copy retains the
+					// distinction the operator acts on.
+					closeAssistant()
+					st.outcome = 'stopped'
+					st.queuePauseOutcome = 'paused'
+					st.notification = { kind: 'turn-settled', outcome: 'stopped' }
+					pushMessage('system', describeRunInterruption(event), false, '⏸')
+					break
 				case 'error':
 					closeAssistant()
 					st.outcome = event.message === 'aborted' ? 'cancelled' : 'failed'
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
-						pushMessage('system', `Error: ${event.message}`)
+						pushMessage('system', describeRunInterruption(event), false, '⚠')
 					} else st.notification = null
 					break
 			}
@@ -3281,7 +3295,7 @@ export function App({
 				abnormalTerminal = {
 					token: turnToken,
 					continuationEpoch: queueContinuationEpochRef.current,
-					outcome: st.outcome,
+					outcome: st.queuePauseOutcome ?? st.outcome,
 				}
 			}
 			abortRef.current = ac
@@ -5253,7 +5267,9 @@ export function App({
 										{queuePause ? '⏸' : '⏎'} {queued.length} message
 										{queued.length > 1 ? 's' : ''} queued —{' '}
 										{queuePause
-											? `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
+										? queuePause.outcome === 'paused'
+											? 'held after a resumable run paused; wait for recovery, change model, or send a message to release it'
+											: `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
 											: 'sending when ready'}
 									</Text>
 								</Box>

@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+lastReviewed: 2026-08-31
 resource: packages/providers/openrouter/src/client.ts
 tags: [provider, openrouter, reference]
 ---
@@ -250,6 +250,8 @@ import { OPENROUTER_CAPABILITIES } from '@namzu/openrouter'
 //   supportsFunctionCalling: true,
 //   supportsVision: false,
 //   supportsDocuments: false,
+//   supportsToolResultImages: false,
+//   supportsToolResultDocuments: false,
 // }
 ```
 
@@ -258,8 +260,9 @@ runtime reads them before the request is built — it warns, or fails under
 `strictCapabilities`, rather than letting content vanish quietly. So the two
 `false` entries are load-bearing: this driver's message translation maps role
 and content, plus the tool-call fields on assistant and tool turns, and nothing
-else. A user message's image or document `attachments` are not mapped and never
-reach the model.
+else. Neither a user attachment nor an image/document block returned by a tool
+has a rich-content mapping, so the runtime reports that mismatch instead of
+letting the content vanish before the next model request.
 
 Tool schemas pass through as the kernel built them, along with `toolChoice` and
 `parallelToolCalls`. `enforceToolInputSchema` is a kernel-internal hint rather

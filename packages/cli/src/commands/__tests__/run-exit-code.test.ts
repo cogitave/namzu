@@ -112,4 +112,26 @@ describe('namzu run exit code reflects whether the run finished', () => {
 
 		expect(code).toBe(1)
 	})
+
+	it('exits 1, keeps partial output and names a resumable checkpoint', async () => {
+		const { code, printed, errors } = await runWith([
+			{ kind: 'delta', text: 'useful partial answer' },
+			{
+				kind: 'paused',
+				checkpointId: 'cp_9',
+				reason: 'slow down',
+				explanation: {
+					id: 'provider.rate_limit',
+					message: 'The provider is rate limiting this run.',
+					hint: 'Wait before continuing.',
+				},
+			},
+		])
+
+		expect(code).toBe(1)
+		expect(printed.join('')).toContain('useful partial answer')
+		expect(errors.join('')).toContain('Run paused [provider.rate_limit]')
+		expect(errors.join('')).toContain('Checkpoint preserved: cp_9')
+		expect(errors.join('')).toContain('output above is partial')
+	})
 })

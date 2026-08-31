@@ -1,4 +1,4 @@
-import { ProviderError } from '../provider/errors.js'
+import { ProviderError, classifyProviderError } from '../provider/errors.js'
 import { isNamzuError } from './index.js'
 
 /**
@@ -84,13 +84,21 @@ export function factsOf(err: unknown): ErrorFacts {
 	const hint = readHint(err)
 	const message = err instanceof Error ? err.message : String(err)
 
-	if (err instanceof ProviderError) {
+	const providerFailure =
+		err instanceof ProviderError
+			? err
+			: err instanceof Error && err.name === 'ProviderRequestError'
+				? classifyProviderError(err)
+				: undefined
+	if (providerFailure) {
 		return {
-			code: err.code,
+			code: providerFailure.code,
 			message,
-			name: err.name,
-			...(err.status !== undefined ? { status: err.status } : {}),
-			...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
+			name: providerFailure.name,
+			...(providerFailure.status !== undefined ? { status: providerFailure.status } : {}),
+			...(providerFailure.retryAfterMs !== undefined
+				? { retryAfterMs: providerFailure.retryAfterMs }
+				: {}),
 			...(hint !== undefined ? { hint } : {}),
 		}
 	}
