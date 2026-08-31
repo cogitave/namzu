@@ -1,6 +1,6 @@
 // Compiles the TypeScript in `docs/` against the built SDK.
 //
-// `check-docs.mjs` has five fatal checks and every one is about a document's
+// `check-docs.mjs` has six fatal checks and every one is about a document's
 // METADATA. `DRIFT` says a page might be stale because its `resource:` moved;
 // it says nothing about a fence naming a symbol that no longer exists in a
 // page whose `resource:` did not move. So `docs/` carried 184 ```ts fences

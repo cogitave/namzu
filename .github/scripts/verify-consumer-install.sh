@@ -12,7 +12,9 @@
 #
 # After the SDK + consumer install, runs runtime assertions that cannot be
 # established by directory presence alone:
-#   1. The packed @namzu/live entry point drives a complete LiveSession →
+#   1. The packed @namzu/cli binary discovers and runs the packed @namzu/evals
+#      suites exactly as their README documents.
+#   2. The packed @namzu/live entry point drives a complete LiveSession →
 #      NamzuModel → SDK query() turn. The fixture checks the provider request,
 #      live events, returned text and terminal run-store state.
 #
@@ -121,6 +123,42 @@ else
   echo "=== No pending changesets; the tree already holds the shipping versions ==="
 fi
 
+# A changelog entry belongs to the versioning step, not to the feature commit.
+# Pre-writing a future version heading makes `changeset version` append the
+# same release a second time. It looks harmless in the source branch and only
+# becomes visible in the release snapshot, so reject duplicate semver headings
+# before any package is packed.
+node - "$WORKSPACE_ROOT" <<'NODE'
+const { readdirSync, readFileSync } = require('node:fs')
+const { join } = require('node:path')
+
+const [, , root] = process.argv
+const changelogs = []
+
+function visit(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'dist') continue
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) visit(path)
+    else if (entry.name === 'CHANGELOG.md') changelogs.push(path)
+  }
+}
+
+visit(join(root, 'packages'))
+let failed = false
+for (const path of changelogs) {
+  const headings = [...readFileSync(path, 'utf8').matchAll(/^## (\d+\.\d+\.\d+(?:[-+][^\s]+)?)\s*$/gm)].map(
+    (match) => match[1],
+  )
+  const duplicates = [...new Set(headings.filter((heading, index) => headings.indexOf(heading) !== index))]
+  if (duplicates.length === 0) continue
+  console.error(`✗ ${path}: duplicate release heading(s): ${duplicates.join(', ')}`)
+  failed = true
+}
+if (failed) process.exit(1)
+console.log(`  ✓ ${changelogs.length} changelogs have unique release headings`)
+NODE
+
 PACKAGE_TABLE="$PACK_DIR/workspaces.tsv"
 node - "$WORKSPACE_ROOT" "$PACKAGE_TABLE" <<'NODE'
 const { execFileSync } = require('node:child_process')
@@ -214,6 +252,43 @@ test "$SAVED_DEPENDENT_COUNT" -eq 0 || {
 
 echo ""
 echo "✅ Consumer install verified for all $DEPENDENT_COUNT SDK-dependent packages"
+
+# ---------------------------------------------------------------------------
+# @namzu/evals documented consumer fixture.
+# ---------------------------------------------------------------------------
+#
+# The suite package deliberately contains data and executable suite modules,
+# not a CLI. Its README composes it with @namzu/cli, so verify that exact
+# packed-package installation instead of accepting two independently
+# installable directories as proof that the documented command works.
+
+echo ""
+echo "=== @namzu/cli + @namzu/evals documented command fixture ==="
+
+CLI_TARBALL=$(find "$PACK_DIR" -maxdepth 1 -name 'namzu-cli-*.tgz' -print -quit)
+test -f "$CLI_TARBALL" || { echo "    ✗ Missing CLI tarball in $PACK_DIR"; exit 1; }
+EVALS_TARBALL=$(find "$PACK_DIR" -maxdepth 1 -name 'namzu-evals-*.tgz' -print -quit)
+test -f "$EVALS_TARBALL" || { echo "    ✗ Missing evals tarball in $PACK_DIR"; exit 1; }
+
+rm -rf node_modules package-lock.json eval-report.json
+npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$CLI_TARBALL" "$EVALS_TARBALL"
+
+test -x node_modules/.bin/namzu || { echo "    ✗ Packed CLI did not install an executable namzu binary"; exit 1; }
+test -d node_modules/@namzu/evals || { echo "    ✗ Packed eval suites did not install"; exit 1; }
+
+./node_modules/.bin/namzu eval --dir node_modules/@namzu/evals --out eval-report.json
+node - <<'NODE'
+const { readFileSync } = require('node:fs')
+
+const report = JSON.parse(readFileSync('eval-report.json', 'utf8'))
+if (!Array.isArray(report.suites) || report.suites.length === 0) {
+  throw new Error('Packed eval command produced no suite reports')
+}
+if (!report.suites.every((entry) => Array.isArray(entry.report?.cases))) {
+  throw new Error('Packed eval command produced an invalid report shape')
+}
+console.log(`    ✓ packed CLI ran ${report.suites.length} packed eval suites`)
+NODE
 
 # ---------------------------------------------------------------------------
 # @namzu/live packed-runtime fixture (ses_022-live-agent-bridge).

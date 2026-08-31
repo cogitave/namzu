@@ -22,7 +22,7 @@ diataxis: reference
 [![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
 
-[Install](#install) · [Compose a live session](#compose-a-live-session) · [Boundaries](#boundaries)
+[Install](#install) · [Compose a live session](#compose-a-live-session) · [Session-owned handles](#session-owned-handles) · [Boundaries](#boundaries)
 
 </div>
 
@@ -32,6 +32,10 @@ diataxis: reference
 conversation history, barge-in, media-driver orchestration and events. Its
 `NamzuModel` sends every language-model turn through `@namzu/sdk`, so tools,
 policy, budgets, cancellation, stores and telemetry keep one owner.
+
+`LiveAgent` can instead receive a custom `LiveModel`. In that composition the
+caller, not the live package, owns model tools, policy, budgets, persistence and
+telemetry. Live history itself is process-local in both cases.
 
 The package contains no room, RTC, speech-provider or deployment dependency.
 Callers adapt their audio source and supply VAD, speech recognition, semantic
@@ -43,7 +47,8 @@ turn detection, speech synthesis and a cancellable audio output.
 pnpm add @namzu/sdk @namzu/live
 ```
 
-`@namzu/sdk` is a peer dependency. Install both.
+`@namzu/sdk` is a peer dependency. Install both. This release supports SDK
+33.1.1 through the 33.x line (`>=33.1.1 <34`) and requires Node.js 20 or newer.
 
 ## Compose a live session
 
@@ -106,6 +111,20 @@ console.log(result.message?.content)
 await session.close()
 ```
 
+## Session-owned handles
+
+`run()` returns a `LiveTurn`; `listen()` returns a `LiveListening`. Both are
+exported as TypeScript interfaces rather than runtime constructors. The session
+creates and tracks the handles returned by these calls together with their work
+and completion promises. A structurally matching caller-created object is not
+attachable to, or recognized by, a session.
+
+Use `LiveTurn.wait()` to await a result and `interrupt()` to stop that turn. Use
+`LiveListening.wait()` to await the ingress pump and `stop()` to stop new audio
+ingress. Natural input EOF flushes the media drivers and waits for audio-originated
+turns; `stop()` does not cancel a response already launched. `session.close()` is
+the operation that interrupts listening and every active turn.
+
 ## Driver contracts
 
 | Driver | What the live runtime drives |
@@ -125,18 +144,22 @@ are errors; they are never accepted and dropped.
 A final transcript timestamps the end of its recognized speech on the same
 source timeline as VAD. The runtime matches it to the containing VAD interval,
 so independently scheduled drivers cannot swap two utterances merely because
-their callbacks arrive in a different order. Ambiguous overlaps are refused.
+their callbacks arrive in a different order. Interval endpoints are inclusive,
+so a final exactly on a boundary shared by two utterances is ambiguous and is
+refused.
 
 ## Boundaries
 
-- Conversation history records completed generated transcripts. It does not
-  claim that a participant heard audio after an output driver accepted it.
+- Conversation history is in memory. It records each accepted user submission
+  immediately and assistant text only after a completed turn. It does not claim
+  that a participant heard audio after an output driver accepted it.
 - VAD pre-roll and hangover, noise cancellation, room transport, telephony and
   worker deployment belong to caller adapters.
 - Local inference and native speech-to-speech can be implemented as drivers;
   they are not bundled or claimed by this package.
-- Register tools in Namzu's `ToolRegistry`. There is no second tool executor in
-  the live runtime.
+- When using `NamzuModel`, register tools in Namzu's `ToolRegistry`. There is no
+  second tool executor in the live runtime. Custom `LiveModel` implementations
+  own their tool semantics themselves.
 
 ## Documentation
 

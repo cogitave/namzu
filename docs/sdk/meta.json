@@ -2,6 +2,10 @@
   "title": "SDK",
   "pages": [
     "architecture",
+    "command-execution-lifetime",
+    "feedback-store-revisions",
+    "session-goals",
+    "topic-store-revisions",
     "runtime",
     "directory",
     "tools",

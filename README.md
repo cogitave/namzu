@@ -2,11 +2,11 @@
 type: Index
 title: Namzu
 description: >-
-  An agent kernel for TypeScript. Runs an agent as a supervised unit of work
-  with an identity, a budget, a permission boundary and a durable record.
-  Ships with a terminal agent built on it. FSL-1.1-MIT, converting to MIT two
-  years after each release.
-tags: [readme, index, typescript, agent-kernel]
+  An open-source agent platform for TypeScript. Ships an operator application,
+  a reusable kernel and optional runtimes for supervised agents with explicit
+  identity, budgets, permissions and pluggable durability. FSL-1.1-MIT,
+  converting to MIT two years after each release.
+tags: [readme, index, typescript, agent-platform]
 timestamp: 2026-08-07T00:00:00Z
 status: active
 diataxis: explanation
@@ -16,7 +16,7 @@ diataxis: explanation
 
 <h1>Namzu</h1>
 
-**An agent kernel for TypeScript.**
+**An open-source agent platform for TypeScript.**
 
 [![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](./LICENSE.md)
 [![npm @namzu/sdk](https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk)](https://www.npmjs.com/package/@namzu/sdk)
@@ -33,15 +33,16 @@ diataxis: explanation
 An agent that works in a demo is a loop around a model call. An agent that
 works in production is that loop plus everything around it — a budget that
 stops it, an identity that attributes it, a boundary it cannot talk its way
-past, a record that survives the process, and a way to shrink a conversation
-that is about to overflow without corrupting it.
+past, a record that can survive the process when durable stores are configured,
+and a way to shrink a conversation that is about to overflow without corrupting
+it.
 
-Namzu is those other things. `@namzu/sdk` runs an agent the way an operating
-system runs a process: it is given an identity and a budget, it is confined,
-it is scheduled, it is checkpointed, and what it did is written down. It
-renders no UI, requires no database, hosts no service, and has no preferred
-model vendor — the drivers are separate packages, one per service, installed
-only when you need one.
+Namzu is the platform for those other things. Its `@namzu/sdk` kernel runs an
+agent the way an operating system runs a process: it is given an identity and a
+budget, scheduled, checkpointed, and optionally confined by the sandbox a host
+supplies. The kernel renders no UI, requires no database, hosts no service, and
+has no preferred model vendor. Direct SDK consumers install only the driver
+packages they use; the CLI bundles its supported set.
 
 `@namzu/cli` is a terminal coding agent built entirely on that kernel, in this
 repository, from the same public API you get. It exists as much to prove the
@@ -457,12 +458,13 @@ is standalone. Nothing in the kernel depends back on any leaf package.
 | `@namzu/sandbox` | Sandbox providers beyond the in-kernel one |
 | `@namzu/telemetry` | The exporter pipeline, kept separate so consumers who emit nothing install nothing |
 | `@namzu/computer-use` | Screenshot, mouse and keyboard control through platform-native tools |
-| `@namzu/live` | Transport-agnostic live sessions with pluggable speech and audio-output drivers |
+| `@namzu/live` | Transport-agnostic live sessions orchestrating caller-supplied speech and audio-output drivers |
 | `@namzu/lsp` | Language-server-backed code navigation and symbol resolution |
 | `@namzu/files` | File registry contracts, with in-memory, local-disk, Azure Blob and HTTP backends. Pre-1.0 |
 | `@namzu/evals` | The kernel's own behaviour suites, runnable against an installed kernel |
 
-Model drivers, one per service, each installed only if you use it:
+Model drivers, one per service. Direct SDK consumers install only what they
+use; the CLI bundles the selected drivers named in its package README:
 
 | Package | Notes |
 |---|---|
@@ -516,8 +518,9 @@ to name it too.
 
 - [`docs/`](./docs/) — the longer-form documentation: the
   [conventions](./docs/conventions/) this repository is written to, and
-  reference pages for the [SDK](./docs/sdk/). Read it here in the repository:
-  there is no documentation site yet.
+  reference pages for the [SDK](./docs/sdk/), [CLI](./docs/cli/),
+  [extension packages](./docs/packages/) and [providers](./docs/providers/).
+  Read it here in the repository: there is no documentation site yet.
 - [`packages/sdk/README.md`](./packages/sdk/README.md) — the kernel's
   subsystem map.
 - `AGENTS.md` — the working contract any coding agent in this repository

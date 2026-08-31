@@ -3,8 +3,10 @@
   "pages": [
     "checkpoint-store-conformance",
     "duplex-run-lifetime",
+    "model-input-modalities",
     "provider-native-replay",
     "provider-stream-idle-bound",
+    "rag-embedding-request-bound",
     "request-rich-content-budget",
     "stored-attachment-resolution"
   ]

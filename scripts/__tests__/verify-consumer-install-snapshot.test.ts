@@ -13,7 +13,7 @@
  * PUBLISH rather than what is in the tree. The restore does `rm -rf
  * .changeset` and untars the snapshot back.
  *
- * The snapshot was taken with `git ls-files`, which lists TRACKED files. An
+ * The snapshot was once taken with `git ls-files`, which lists TRACKED files. An
  * uncommitted changeset is by definition untracked, so it was never in the
  * snapshot and the `rm -rf` was the last thing that happened to it. Running
  * this gate — step 14 of the CI table `AGENTS.md` tells every contributor to
@@ -91,8 +91,7 @@ describe('the snapshot/restore round trip', () => {
 		const source = extract('VERSION_SNAPSHOT=$(mktemp')
 
 		// The specific regression. `git ls-files` over `.changeset/*` is what
-		// dropped untracked changesets, and it reads as correct — it is the
-		// right tool for the manifests two lines above.
+		// dropped untracked changesets, and it reads as correct at first glance.
 		assert.ok(
 			!/git ls-files[^\n]*\.changeset/.test(source),
 			'`.changeset` is snapshotted through `git ls-files` again, which cannot see an uncommitted changeset',
@@ -105,9 +104,10 @@ describe('the snapshot/restore round trip', () => {
 
 	it('still restores the manifests it deliberately rewrites', () => {
 		// The other half of the script's contract, asserted so a fix to the
-		// above cannot be "stop snapshotting anything".
+		// above cannot be "stop snapshotting anything". These are read from disk
+		// too, so a new untracked package survives the local release preview.
 		const source = extract('VERSION_SNAPSHOT=$(mktemp')
-		assert.ok(/git ls-files[^\n]*package\.json/.test(source))
-		assert.ok(/git ls-files[^\n]*CHANGELOG\.md/.test(source))
+		assert.ok(/find packages[\s\S]*-name package\.json/.test(source))
+		assert.ok(/find packages[\s\S]*-name CHANGELOG\.md/.test(source))
 	})
 })

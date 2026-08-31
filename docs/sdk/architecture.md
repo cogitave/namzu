@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-30
+lastReviewed: 2026-09-01
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -18,17 +18,17 @@ tags: [sdk, architecture, explanation]
 
 Most "agent frameworks" today are really application frameworks. They ship chat UIs, picking UI layouts, batteries-included hosted dashboards, vendor-specific fast paths, and integration drivers for a handful of databases. You get something you can demo in an hour, and three months later you own a stack where the same framework dictates your frontend, your database, your observability, and your model vendor.
 
-We think agent software should be layered the way an operating system is. At the bottom there needs to be a **kernel**: something to isolate processes, schedule tool calls, manage memory pressure, propagate signals across a call tree, persist checkpoints so a run can resume after a crash, mediate inter-process communication, and produce an auditable event stream. Above the kernel there is user space — shells, editors, IDEs, voice gateways, web front-ends. The kernel does not care which shell you pick; the shell cannot break the isolation the kernel provides.
+We think agent software should be layered the way an operating system is. At the bottom there needs to be a **kernel**: something to schedule tool calls, manage memory pressure, propagate signals across a call tree, expose durable checkpoint seams, mediate inter-process communication, and produce an auditable event stream. Above the kernel there is user space — shells, editors, IDEs, voice gateways, web front-ends. The kernel does not care which shell you pick; the shell uses the same permission policy and any sandbox boundary its host configured.
 
-**Namzu is the kernel.** It runs agents the way an operating system runs processes. It does not render UI, it does not pick your database, it does not favor one LLM vendor. It gives you a surface — typed, versioned, documented — that any UI, any storage backend, and any model can plug into. The surface is small and stable; the guts underneath are deep.
+**`@namzu/sdk` is the kernel inside the Namzu platform.** It runs agents the way an operating system runs processes. It does not render UI, it does not pick your database, it does not favor one LLM vendor. It gives applications and optional runtimes a surface — typed, versioned, documented — that a UI, storage backend, or model driver can plug into. The surface is small and stable; the guts underneath are deep.
 
 ---
 
-## What Namzu Is
+## What the SDK Kernel Is
 
-Namzu is a single-process TypeScript kernel with the following responsibilities:
+`@namzu/sdk` is a single-process TypeScript kernel with the following responsibilities:
 
-- **Process execution and isolation.** Tools run outside the host process, under OS-level containment whose enforced controls vary by tier — and the kernel states per tier which of filesystem, network and process isolation it actually enforces, refusing to start a run whose required control the host cannot supply rather than silently downgrading it. No container runtime, no daemon, no sidecar. See [The Boundary](#1-the-boundary-sandbox-sandbox) for the table.
+- **Process execution and isolation.** Generic tool handlers are host callbacks. Command and code-execution paths can instead use a host-supplied sandbox whose enforced controls vary by tier — and the kernel states per tier which of filesystem, network and process isolation it actually enforces, refusing to start a run whose required control the host cannot supply rather than silently downgrading it. See [The Boundary](#1-the-boundary-sandbox-sandbox) for the table.
 - **Agent lifecycle.** Parent/child agent spawn with depth tracking, budget splitting, and causal trace linkage. A supervisor can fork a subtree of agents and get their results back, with each child isolated from its siblings.
 - **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Limit checker, task router (cheap model for compaction, expensive for coding), tool tiering (LLM learns to prefer cheaper tools first).
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs can be paused and resumed, aborted cleanly, and emit lifecycle events for every transition.
@@ -50,14 +50,22 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Human-in-the-loop.** Structured plan review, per-tool approval with destructiveness flags, typed decision contracts, checkpoint/resume across sessions.
 - **Plugin system.** Lifecycle-hooked plugin loader with skill, MCP and tool contributions, capability-gated installation, and manifest-driven resolution.
 - **Multi-tenant isolation from day one.** Connector registries, vaults, config, and stores are tenant-scoped. Two organizations can share a process without cross-contamination.
-- **Provider abstraction.** Seven drivers ship today, each its own package installed only if you use it, plus a scriptable mock pre-registered in the kernel. The `LLMProvider` interface is narrow enough that adding another is an afternoon. BYOK everywhere, no hidden hot paths for any vendor. Every run also applies a finite per-chunk silence bound inside retry and fallback, so a request that opened and then stopped producing cannot hold the lifecycle forever.
+- **Provider abstraction.** Dedicated driver packages ship under
+  `packages/providers/`, plus a scriptable mock pre-registered in the kernel.
+  Direct SDK consumers install only the drivers they use; the CLI bundles its
+  selected set. The `LLMProvider` interface stays vendor-neutral. Every run
+  also applies a finite per-chunk silence bound inside retry and fallback, so a
+  request that opened and then stopped producing cannot hold the lifecycle
+  forever.
 - **Telemetry.** OpenTelemetry-native spans and metrics. Cost accounting (input tokens, output tokens, cached tokens, cache write tokens, cache discount) flows from the provider into per-run, per-tenant rollups.
 - **Prompt cache integration.** Hash-based system-prompt caching by agent and project, integrated with provider cache controls, plus cache telemetry in every run.
 - **Live host-owned project policy.** `ProjectInstructionContext` lets a host rebuild a retained instruction snapshot before request one and observe completed registry executions, including nested dispatch. Every callback receives the run signal and accepted message prefix; every returned replacement is committed after the complete tool-result batch and before the next observation starts. Cancellation therefore preserves the accepted prefix and rejects unfinished host work. The snapshot is durable context, not a human continuation: it survives a terminal batch and compaction without forcing another model turn. Provenance is bounded, canonical project-relative `AGENTS.md` paths, so reconstruction can re-read host authority instead of trusting persisted prose.
 - **Vault.** BYOK credentials and secrets, tenant-scoped, pluggable backend.
 - **Topic / Run separation.** A topic can outlive the sessions and runs that work on it; a run remains one execution pass with its own events, checkpoints, usage, and result.
 
-Every one of those bullets points at code that exists today in `src/`. The architecture is deep even where the surface is quiet.
+Every one of those bullets points at code that exists today in
+`packages/sdk/src/` or, where explicitly named, a sibling package. The
+architecture is deep even where the surface is quiet.
 
 ## What Namzu Is Not
 
@@ -120,7 +128,11 @@ Every folder under `src/` maps to a traditional OS concept. This section walks t
 
 ### 1. The Boundary: Sandbox (`sandbox/`)
 
-Tools do not execute in the host process. What that buys you **depends on the tier the host can supply, and the tiers do not all enforce the same controls** — so the kernel keeps an honest table rather than a promise (`sandbox/isolation.ts`):
+A tool definition is a host callback unless its implementation delegates work
+to an execution boundary. The built-in command and code-runtime paths accept a
+host-supplied sandbox provider; what that buys them **depends on the tier the
+host can supply, and the tiers do not all enforce the same controls** — so the
+kernel keeps an honest table rather than a promise (`sandbox/isolation.ts`):
 
 | Environment | Filesystem | Network | Process |
 |---|---|---|---|
@@ -332,7 +344,10 @@ a restart or state read cannot become hidden work.
 
 ### 7. The Capability System: Tools (`tools/`) and Registry (`registry/`)
 
-Tools in Namzu are first-class typed values, not JSON schemas you have to keep in sync with a handler somewhere else. `defineTool()` takes a Zod `inputSchema`, a Zod `outputSchema` (optional), and an `execute` function. It also takes **declarations** the kernel uses for routing and safety:
+Tools in Namzu are first-class typed values. `defineTool()` takes a Zod
+`inputSchema`, an optional JSON Schema `outputSchema` shown to the model, and an
+`execute` function. It also takes **declarations** the kernel uses for routing
+and safety:
 
 - `category` — e.g. `network`, `filesystem`, `compute`, `memory`.
 - `permissions` — e.g. `network_access`, `write_filesystem`. Enforced at dispatch time.
@@ -469,7 +484,7 @@ The kernel does not render a UI for this — it emits events and exposes a typed
 
 ### 15. Providers (`provider/`)
 
-An LLM provider implements a narrow interface: given a typed request, return a typed response (streaming or not) and propagate normalized usage, cost, and cache telemetry. Concrete providers live in dedicated sibling packages — `@namzu/anthropic`, `@namzu/bedrock`, `@namzu/http`, `@namzu/lmstudio`, `@namzu/ollama`, `@namzu/openai`, `@namzu/openrouter` — each calling `ProviderRegistry.register('<vendor>', Class, capabilities)` via a `register<Vendor>()` helper. The kernel itself ships only the `LLMProvider` interface, the `ProviderRegistry`, and a pre-registered `MockLLMProvider` for tests and offline work. `provider/telemetry/` normalizes provider-specific response fields (`cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_discount`, Bedrock equivalents) into a single kernel-wide telemetry shape.
+An LLM provider implements a narrow interface: given a typed request, return a typed response (streaming or not) and propagate normalized usage, cost, and cache telemetry. Concrete providers live in dedicated sibling packages — `@namzu/anthropic`, `@namzu/bedrock`, `@namzu/deepseek`, `@namzu/http`, `@namzu/lmstudio`, `@namzu/ollama`, `@namzu/openai`, `@namzu/openrouter` — each calling `ProviderRegistry.register('<vendor>', Class, capabilities)` via a `register<Vendor>()` helper. The kernel itself ships only the `LLMProvider` interface, the `ProviderRegistry`, and a pre-registered `MockLLMProvider` for tests and offline work. `provider/telemetry/` normalizes provider-specific response fields (`cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_discount`, Bedrock equivalents) into a single kernel-wide telemetry shape.
 
 `ProviderRegistry` is the single entry point. `ProviderRegistry.create({ type, ... })` returns `{ provider, capabilities }`; TypeScript module augmentation from each provider package gives type-narrowed config. Providers are stateless enough to be shared across runs.
 
@@ -553,9 +568,14 @@ in-process side effects remain cooperative and must honor that signal.
 
 Plugins are how a community ecosystem grows around the kernel without the kernel having to ship batteries for every use case.
 
-### 21. Gateway (`gateway/`)
+### 21. Local task scheduling (`scheduler/`)
 
-`gateway/local.ts` is the local-process gateway — a thin translation layer between an external caller (HTTP, WebSocket, stdin, another agent over A2A) and the kernel's run API. Put a real HTTP server in front of it and you have an agent service; wrap it in a CLI and you have an agent shell. The gateway is where your application layer plugs into the kernel.
+`scheduler/local.ts` is the in-process delegation scheduler. It translates a
+child-task request into the agent manager, preserves the parent task context,
+tracks lightweight settled handles after the heavy run state is evicted, and
+delivers each observer's events in order without blocking the child stream.
+External transports remain host concerns built over the kernel's bridge and
+run APIs; there is no kernel-owned gateway directory.
 
 ### 22. Agent Patterns (`agents/`)
 
@@ -602,7 +622,15 @@ Five choices shape every decision in the kernel.
 
 **Deny by default. Fail fast.** Sandboxes deny file I/O by default. Authorization gates deny tool calls by default unless a rule allows them. Limit checkers fail the run the moment a budget is breached. Configuration errors throw at boot, not at the 90-minute mark of a long-running job.
 
-**Dependency direction is sacred.** `@namzu/sdk` is the dependency root. The CLI, capability packages, telemetry, evals and provider drivers may import it; the SDK does not import them, and sibling packages do not import one another. Circular dependencies are a compile error, not a code-review suggestion. This is what keeps the kernel's interface surface small even as its guts grow.
+**Dependency direction is sacred.** `@namzu/sdk` is the dependency root for
+runtime extensions: capability packages, telemetry, evals and provider drivers
+may import it, while the SDK imports none of them. Those leaf packages do not
+import one another. `@namzu/files` is standalone. The CLI is deliberately the
+composition root: it may import the SDK, the standalone file package and the
+selected leaves it ships, but no package imports the CLI. Circular dependencies
+are a compile error, not a code-review suggestion. This keeps the kernel's
+interface surface small while still letting the operator application assemble
+a complete product.
 
 **Convention over surprise.** Every new feature follows a shared pattern language — Registries, Managers, Stores, Runs, Bridges, Providers. You read one subsystem, you can navigate the next one.
 

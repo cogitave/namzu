@@ -9,7 +9,7 @@
 // compose rather than compete: the knowledge format reserves no key it does not
 // define and requires consumers to preserve the rest.
 //
-// Five checks, all fatal:
+// Six checks, all fatal:
 //
 //   FRONTMATTER   a doc in a migrated directory declares every required key,
 //                 and `description` is a real sentence rather than a stub.
@@ -17,6 +17,9 @@
 //                 sentence saying "Status: PROPOSAL" is invisible to every gate.
 //   UID           `uid` is unique across the tree. Identity that collides is
 //                 not identity, and the cross-reference graph is built on it.
+//   NAVIGATION    every concept page beside a `meta.json` is reachable from
+//                 that directory's ordered page list, and every list entry
+//                 resolves to a page or child directory.
 //   RESOURCE      a doc's declared `resource:` path must exist. Documents
 //                 outlive the code they point at.
 //   DRIFT         if a doc's `resource:` has commits NEWER than the doc's own
@@ -50,6 +53,8 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
+
+import { checkDocsNavigation } from './docs-navigation.mjs'
 
 /**
  * Directories migrated to the documentation standard.
@@ -183,6 +188,14 @@ const fail = (...lines) => {
 // keeps the skip correct for genuine listings while making an empty entry
 // impossible to add by accident.
 const isListing = (path) => /\/(index|log|README)\.md$/.test(path)
+
+// A page can satisfy every content check above and still be absent from the
+// generated docs navigation. That happened to the first live-runtime page:
+// `docs/packages/live.md` compiled and passed front matter while
+// `docs/packages/meta.json` simply never named it. Derive the sibling roster
+// from disk and compare it with each navigation file so a new page cannot be
+// published as an unreachable island.
+for (const problem of checkDocsNavigation(root)) fail(problem)
 
 // DRIFT cannot be established without history. Refuse rather than pass.
 let shallow = false

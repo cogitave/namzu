@@ -3,8 +3,8 @@ type: Reference
 title: "@namzu/sdk"
 description: >-
   An agent kernel for TypeScript. Runs an agent as a supervised unit of work
-  with an identity, a budget, a permission boundary and a durable record.
-  Renders no UI, hosts no service, and has no preferred model vendor.
+  with an identity, a budget, a permission boundary and pluggable durable
+  stores. Renders no UI, hosts no service, and has no preferred model vendor.
 tags: [readme, package, sdk, agent-kernel]
 timestamp: 2026-08-21T00:00:00Z
 status: active
@@ -30,13 +30,14 @@ diataxis: reference
 An agent that works in a demo is a loop around a model call. An agent that
 works in production is that loop plus everything around it — a budget that
 stops it, an identity that attributes it, a boundary it cannot talk its way
-past, a record that survives the process, and a way to shrink a conversation
-that is about to overflow without corrupting it.
+past, a record that can survive the process when durable stores are configured,
+and a way to shrink a conversation that is about to overflow without corrupting
+it.
 
-This is those other things. It runs an agent the way an operating system runs
-a process: given an identity and a budget, confined, scheduled, checkpointed,
-and what it did is written down. It renders no UI, requires no database, hosts
-no service, and has no preferred model vendor.
+This is the kernel for those other things. It runs an agent the way an operating
+system runs a process: given an identity and a budget, scheduled, checkpointed,
+and optionally confined by the sandbox a host supplies. It renders no UI,
+requires no database, hosts no service, and has no preferred model vendor.
 
 ## Install
 
@@ -50,6 +51,7 @@ The kernel ships alone. Add a driver for whichever backend you use —
 [`@namzu/anthropic`](https://www.npmjs.com/package/@namzu/anthropic),
 [`@namzu/openai`](https://www.npmjs.com/package/@namzu/openai),
 [`@namzu/bedrock`](https://www.npmjs.com/package/@namzu/bedrock),
+[`@namzu/deepseek`](https://www.npmjs.com/package/@namzu/deepseek),
 [`@namzu/openrouter`](https://www.npmjs.com/package/@namzu/openrouter),
 [`@namzu/ollama`](https://www.npmjs.com/package/@namzu/ollama),
 [`@namzu/lmstudio`](https://www.npmjs.com/package/@namzu/lmstudio),
@@ -106,22 +108,23 @@ const result = await agent.run(
 )
 ```
 
-That run is sandbox-isolated, checkpointed and instrumented, with prompt
-caching, progressive tool disclosure and structured compaction already wired
-in. Those are not features you enable — they are how the kernel runs. Swap the
-`registerOpenRouter()` line for any other driver and everything below it is
-unchanged.
+That run uses the kernel's budget, tool loop, progressive disclosure and
+structured compaction. OS isolation is explicit rather than ambient: supply a
+`sandboxProvider` when the host requires it, and configure durable stores and
+telemetry exporters when the process must outlive or export the in-memory run.
+Swap the `registerOpenRouter()` line for any other driver and everything below
+it is unchanged.
 
 ## What you get
 
 | | |
 |---|---|
-| **Boundary** | tool calls run confined; a permission gate decides before, not after |
+| **Boundary** | a permission gate decides before dispatch; configured sandbox providers add OS confinement |
 | **Budget** | tokens, money, wall clock and iterations, enforced rather than hoped for |
 | **Identity** | tenant → project → topic → session → run, on every record and span |
-| **Durability** | checkpoints a run resumes from, and a record that outlives the process |
+| **Durability** | pluggable run/checkpoint stores can preserve a record beyond the process |
 | **Compaction** | a conversation about to overflow is shrunk without being corrupted |
-| **Observability** | OpenTelemetry spans and metrics, and a log pipeline you own the sink for |
+| **Observability** | telemetry and log seams whose providers and sinks the host owns |
 
 Before a provider receives carried history, the kernel validates tool-call
 chronology. Orphaned and displaced results are removed, abandoned calls receive

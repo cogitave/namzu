@@ -357,7 +357,7 @@ jobs:
         run: pnpm -r build
 
       - name: Docs standard gate
-        run: node tools/check-docs.mjs
+        run: pnpm docs:check
 
       - name: Docs fence gate
         run: node tools/check-doc-fences.mjs

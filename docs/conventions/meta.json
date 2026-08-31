@@ -13,6 +13,7 @@
     "---Tests That Prove Something---",
     "mutation-check-every-test",
     "sound-about-the-wrong-thing",
+    "assert-on-what-only-the-code-could-produce",
     "fixture-must-match-production",
     "a-green-run-on-your-machine",
     "a-check-that-cannot-fail",

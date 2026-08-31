@@ -98,7 +98,7 @@ jobs:
         run: node .github/scripts/verify-public-surface.mjs
 
       - name: Docs standard gate
-        run: node tools/check-docs.mjs
+        run: pnpm docs:check
 
       - name: Docs fence gate
         run: node tools/check-doc-fences.mjs
@@ -120,7 +120,7 @@ jobs:
       # the merged "Version Packages" PR (the one Changesets opens to bump
       # versions + CHANGELOG). For every other main-push the Changesets
       # action only refreshes the Version Packages PR and this gate is
-      # skipped — no need to pack 9 tarballs on unrelated commits.
+      # skipped — no need to pack every publishable package on unrelated commits.
       - name: Pre-publish consumer install check
         if: "${{ startsWith(github.event.head_commit.message, 'chore(release): version packages') }}"
         run: bash .github/scripts/verify-consumer-install.sh

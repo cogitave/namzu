@@ -35,13 +35,13 @@ code changed.
 ## Install
 
 ```bash
-pnpm add -D @namzu/evals
+pnpm add -D @namzu/cli @namzu/evals
 ```
 
 ## Usage
 
 ```bash
-namzu eval --dir node_modules/@namzu/evals --out eval-report.json
+pnpm exec namzu eval --dir node_modules/@namzu/evals --out eval-report.json
 ```
 
 The kernel suites drive a scripted provider and the security suites touch no
