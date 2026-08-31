@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+lastReviewed: 2026-08-31
 resource: packages/sdk/src/bridge/acp/server.ts
 tags: [sdk, bridge, protocol, stdio, permissions]
 ---
@@ -115,6 +115,13 @@ A `session/update` of kind `tool_call` carries a `ToolCallView` from
 shown. No module in the bridge compares a tool name, and a test asserts it:
 a front end that switched on `'edit'` could never give a diff to a tool it
 had not heard of, which is every MCP server's and every plugin's.
+
+The closed view kinds remain `generic`, `diff`, and `terminal`. A generic view
+may additionally carry `presentation: 'activity'`, meaning its label is a
+complete activity rather than an argument summary, or `visibility: 'hidden'`
+on a redundant successful result. Older clients ignore those additive fields
+and still render the label; clients that honor hidden visibility must never
+hide a failed status.
 
 The client-visible command list is `HostCommandRegistry.describe()`
 verbatim, asserted by registering a command the bridge has never heard of

@@ -34,8 +34,7 @@ const ROWS = 24;
 /**
  * The bar pinned to the foot of a full-height column.
  *
- * The spacer is this harness's, not the app's — the app derives its own from
- * the terminal height. What is under test is not who supplies the height but
+ * This harness deliberately owns the full-height column. What is under test is
  * what the bar does with the row it is given: occupy it, and only it.
  */
 function bottomPinned(cwd: string) {

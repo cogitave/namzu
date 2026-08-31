@@ -42,9 +42,11 @@
  */
 
 import { renderedDetailLines } from './Transcript.js'
-import { SAFETY_ROWS, estimateRenderedLines } from './bottom-spacer.js'
 import { terminalDisplayText } from './terminal-display.js'
 import type { TranscriptMessage } from './types.js'
+
+/** Rows kept clear between the redrawable tail and the terminal boundary. */
+export const LIVE_WINDOW_SAFETY_ROWS = 6
 
 /**
  * The most rows the window will ever hold, whatever the terminal's height.
@@ -75,7 +77,7 @@ export interface LiveWindowInput {
 export interface LiveWindow {
 	/** `messages[0, settled)` are in scrollback; the rest are drawn live. */
 	readonly settled: number
-	/** The live rows' estimated height, for the bottom spacer to account for. */
+	/** Conservative estimated height of the rows that remain redrawable. */
 	readonly rows: number
 }
 
@@ -108,19 +110,16 @@ function messageLines(message: TranscriptMessage, hasPrev: boolean, raw: boolean
 }
 
 /**
- * Every line the finalized transcript will print, for a height estimate.
+ * Every line the finalized transcript will print, for the live-window height
+ * estimate and terminal-safety observers.
  *
- * Exported so the wiring is testable rather than only typecheckable. The
- * spacer's own docblock states the asymmetry it depends on: over-count the
- * content and the composer merely floats, under-count it and the composer is
- * pushed off the bottom. The caller used to pass each row's `content` alone,
- * which counted a six-line collapsed tool body as nothing at all — the estimate
- * ran low by six per tool call, in the direction that costs the usability
- * rather than the feature. `/expand` makes it acute: a row whose entire
- * substance is a two-hundred-line body would have been handed over as one line.
+ * Exported so the wiring is testable rather than only typecheckable. The caller
+ * once counted each row's `content` alone, which made a six-line collapsed tool
+ * body look like one line. `/expand` makes that acute: a row whose substance is
+ * a two-hundred-line body must not be admitted to a small redrawable viewport.
  *
  * A pending row is excluded because it is not in the static log yet; the
- * spacer's `liveRows` covers the live region.
+ * pending content is already part of the live region outside this window.
  */
 export function transcriptLines(
 	messages: readonly TranscriptMessage[],
@@ -131,21 +130,68 @@ export function transcriptLines(
 }
 
 /**
+ * Conservative terminal-cell width.
+ *
+ * ASCII is one cell. Every printable non-ASCII code point is charged two: that
+ * deliberately over-counts combining marks and narrow scripts, but never makes
+ * a CJK glyph one cell or relies on UTF-16 string length for terminal geometry.
+ * Over-counting settles a row earlier; under-counting can trigger Ink's
+ * whole-scrollback repaint path.
+ */
+function terminalCellWidth(value: string): number {
+	let cells = 0
+	for (const char of value) {
+		const code = char.codePointAt(0) ?? 0
+		if (char === '\t') cells += 4
+		else if (code >= 0x20 && code !== 0x7f) cells += code <= 0x7e ? 1 : 2
+	}
+	return cells
+}
+
+/**
+ * A deliberate over-count of how many terminal rows source lines occupy.
+ * Unknown width falls back to a narrow terminal; each source line occupies at
+ * least one row, and wrapping is measured in terminal cells rather than code
+ * units.
+ */
+export function estimateRenderedLines(
+	transcript: readonly string[],
+	columns: number | undefined,
+): number {
+	const width = Math.max(20, columns ?? 80)
+	let total = 0
+	for (const entry of transcript) {
+		for (const line of entry.split('\n')) {
+			total += Math.max(1, Math.ceil(terminalCellWidth(line) / width))
+		}
+	}
+	return total
+}
+
+/**
  * Rows added to each windowed row's estimate.
  *
- * `estimateRenderedLines` is deliberately an UNDER-count, because for the
- * bottom spacer counting low leaves more apparent room and the safety margin
- * absorbs the difference. Here the asymmetry runs the other way: under-count a
- * live row and the window takes more of the viewport than it was budgeted, and
- * the price of exceeding the viewport is the whole-session repaint this window
- * exists to stay clear of. Over-count and the window merely holds one row
- * fewer.
+ * Under-count a live row and the window takes more of the viewport than it was
+ * budgeted, and the price of exceeding the viewport is the whole-session
+ * repaint this window exists to stay clear of. Over-count and the window merely
+ * holds one row fewer.
  *
  * Two per row covers what the line estimate cannot see — the rule a code block
  * draws around itself, the blank line markdown puts between blocks — without
  * needing to model any of it.
  */
 const ROW_HEIGHT_ALLOWANCE = 2
+
+/**
+ * Markdown can add a margin between adjacent blocks even when source blocks
+ * are not separated by a blank line. One potential row per non-empty assistant
+ * source line is a conservative ceiling on those vertical margins. Detail and
+ * non-assistant rows render as plain Text and need no such allowance.
+ */
+function markdownHeightAllowance(message: TranscriptMessage, raw: boolean): number {
+	if (raw || message.role !== 'assistant') return 0
+	return message.content.split('\n').filter((line) => line.trim().length > 0).length
+}
 
 /** How tall one row is expected to render, rounded UP. */
 function messageHeight(
@@ -154,7 +200,11 @@ function messageHeight(
 	columns: number | undefined,
 	raw: boolean,
 ): number {
-	return estimateRenderedLines(messageLines(message, hasPrev, raw), columns) + ROW_HEIGHT_ALLOWANCE
+	return (
+		estimateRenderedLines(messageLines(message, hasPrev, raw), columns) +
+		ROW_HEIGHT_ALLOWANCE +
+		markdownHeightAllowance(message, raw)
+	)
 }
 
 /**
@@ -170,7 +220,7 @@ export function liveWindow(input: LiveWindowInput): LiveWindow {
 	const floor = Math.min(Math.max(settled, 0), messages.length)
 
 	if (rows === undefined || !Number.isFinite(rows)) return { settled: messages.length, rows: 0 }
-	const budget = rows - furnitureRows - SAFETY_ROWS
+	const budget = rows - furnitureRows - LIVE_WINDOW_SAFETY_ROWS
 	if (budget < 1) return { settled: messages.length, rows: 0 }
 
 	let height = 0

@@ -138,6 +138,15 @@ export interface ProviderCapabilities {
 	 * treated as capable, same permissive default.
 	 */
 	supportsDocuments?: boolean
+	/**
+	 * Whether the driver maps image blocks returned by tools onto its tool-result
+	 * wire. Separate from `supportsVision`: some protocols admit user image input
+	 * but only text in a function result. Absent keeps the permissive compatibility
+	 * default used by the older flags.
+	 */
+	supportsToolResultImages?: boolean
+	/** Whether the driver maps document blocks returned by tools onto its result wire. */
+	supportsToolResultDocuments?: boolean
 	maxOutputTokens?: number
 }
 

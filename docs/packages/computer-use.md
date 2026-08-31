@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-25
+lastReviewed: 2026-08-31
 resource: packages/computer-use/src/index.ts
 tags: [computer-use, adapters, reference]
 ---
@@ -62,10 +62,18 @@ The tool is a single `computer_use` action with a discriminated-union input:
 { type: 'key';         keys }     // e.g. "ctrl+c", "cmd+shift+t", "Return"
 ```
 
-Screenshots return a short description in `ToolResult.output` and the PNG as an
-image block in `ToolResult.content`, so the provider receives pixels rather
-than base64 text. Destructive actions (click/drag/type/key/scroll) surface as
-`isDestructive === true` so namzu's HITL layer can gate them.
+Screenshots return a short description in `ToolResult.output` and the image as
+an image block in `ToolResult.content`. A driver declaring
+`supportsToolResultImages: true` receives pixels rather than base64 text; an
+incompatible driver produces a capability warning before its next request, or
+a strict run refuses that request. Destructive actions
+(click/drag/type/key/scroll) surface as `isDestructive === true` so namzu's HITL
+layer can gate them.
+
+The built-in presenter turns the model-facing action object into operator text:
+`Capture screenshot`, `Press CTRL+R`, `Type "powershell"`, and coordinate-aware
+pointer labels. Successful `ok` acknowledgements do not consume a second
+transcript row. Screenshot dimensions and every failure are retained.
 
 ## Platform Matrix
 

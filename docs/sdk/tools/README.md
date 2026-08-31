@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-29
+lastReviewed: 2026-08-31
 tags: [computer-use, sdk]
 ---
 
@@ -64,6 +64,14 @@ const summarizeText = defineTool({
 | `maxRetries` | Optional in-loop retry budget for a failed execution (see §7c) |
 | `outputSchema` | Optional JSON Schema of the return shape, appended to the description the model sees |
 | `terminal` | Optional; settle the run with this tool's output instead of looping again (see §7d) |
+| `presentCall` | Optional host-facing call view; a generic view may set `presentation: 'activity'` when its label is already complete |
+| `presentResult` | Optional host-facing result view; a generic successful acknowledgement may set `visibility: 'hidden'` |
+
+Presentation metadata is advisory and backward compatible. A host that does not
+understand it still renders the generic label. A host that does can avoid
+wrapping a human activity in an implementation name and can omit a redundant
+successful acknowledgement. Failures must remain visible even when a presenter
+requested hidden visibility.
 
 If `execute()` throws, the SDK converts that throw into a structured failed tool result instead of leaking an uncaught error through the tool boundary.
 
@@ -501,7 +509,13 @@ const result: ToolResult = {
 }
 ```
 
-The two channels are separate on purpose: a host UI wants the description, the model wants the pixels. Drivers that cannot express non-text results (`@namzu/openai`, `@namzu/ollama`) degrade to an explicit `[image: …]` placeholder rather than dumping base64 into the conversation.
+The two channels are separate on purpose: a host UI wants the description, the
+model wants the pixels. Driver capabilities distinguish user-message images
+from image tool results. The account-routed Responses transport and other
+drivers with `supportsToolResultImages: true` send the actual image block;
+text-only result wires degrade to an explicit `[image: …]` placeholder rather
+than dumping base64 into the conversation. The runtime warns before such a
+degraded request, or refuses it when strict capability mode is enabled.
 
 Failed results are marked on the wire as well — `is_error` on Anthropic, `status: 'error'` on Bedrock — so the model's tool-failure recovery behavior fires instead of relying on prose formatting.
 

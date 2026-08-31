@@ -45,6 +45,27 @@ describe('toAgentEvent carries the stop reason across', () => {
 		},
 	)
 
+	it('preserves that a vision warning came from a tool result', () => {
+		const mapped = toAgentEvent(
+			{
+				type: 'capability_warning',
+				runId,
+				capability: 'vision',
+				contentSource: 'tool-result',
+				providerId: 'text-only',
+				message: 'image tool result will use a text fallback',
+			},
+			presenter,
+		)
+
+		expect(mapped).toEqual({
+			kind: 'capability-warning',
+			capability: 'vision',
+			contentSource: 'tool-result',
+			text: 'image tool result will use a text fallback',
+		})
+	})
+
 	it('carries measured history-repair counts as a non-terminal warning', () => {
 		const mapped = toAgentEvent(
 			{

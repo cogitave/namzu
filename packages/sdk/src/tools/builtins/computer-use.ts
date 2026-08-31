@@ -106,6 +106,38 @@ function buildDescription(host: ComputerUseHost): string {
 	return lines.join(' ')
 }
 
+function pointLabel(point: { readonly x: number; readonly y: number }): string {
+	return `(${point.x}, ${point.y})`
+}
+
+function quotedText(value: string): string {
+	const oneLine = value.replace(/\s+/g, ' ')
+	const visible = oneLine.length > 64 ? `${oneLine.slice(0, 63)}…` : oneLine
+	return JSON.stringify(visible)
+}
+
+/** Human activity text; the raw action union remains the model-facing input. */
+function actionLabel(input: ActionInput): string {
+	switch (input.type) {
+		case 'screenshot':
+			return 'Capture screenshot'
+		case 'cursor_position':
+			return 'Read cursor position'
+		case 'mouse_move':
+			return `Move pointer to ${pointLabel(input.to)}`
+		case 'mouse_click':
+			return `Click ${input.button} at ${pointLabel(input.at)}`
+		case 'mouse_drag':
+			return `Drag ${input.button} from ${pointLabel(input.from)} to ${pointLabel(input.to)}`
+		case 'scroll':
+			return `Scroll ${input.direction} ${input.amount} at ${pointLabel(input.at)}`
+		case 'type_text':
+			return `Type ${quotedText(input.text)}`
+		case 'key':
+			return `Press ${input.keys}`
+	}
+}
+
 function resultToToolResult(result: ComputerUseResult): ToolResult {
 	switch (result.type) {
 		case 'screenshot': {
@@ -198,6 +230,15 @@ export function createComputerUseTool(host: ComputerUseHost): ToolDefinition<Act
 		readOnly: false,
 		destructive: (input: ActionInput) => DESTRUCTIVE_ACTION_TYPES.has(input.type),
 		concurrencySafe: false,
+		presentCall: (input) => ({
+			kind: 'generic',
+			label: actionLabel(input),
+			presentation: 'activity',
+		}),
+		presentResult: (_input, result) =>
+			result.success && result.output.trim().toLowerCase() === 'ok'
+				? { kind: 'generic', label: result.output, visibility: 'hidden' }
+				: undefined,
 
 		async execute(input, _context): Promise<ToolResult> {
 			const required = requiredCapability(input.type)

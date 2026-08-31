@@ -602,7 +602,7 @@ describe('publishing a picker selection', () => {
 		await tick(80)
 
 		harness.stdin.write('\x1b[1;2A')
-		await frameShows(harness.lastFrame, 'does not publish one exact default')
+		await frameShows(harness.lastFrame, 'does not publish one exact')
 		await submit(harness, 'keep provider default')
 		await vi.waitFor(() => expect(efforts).toEqual([undefined]))
 	})

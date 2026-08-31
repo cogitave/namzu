@@ -3,15 +3,11 @@
  *
  * Two claims, and they are the same claim from opposite ends.
  *
- * The bottom spacer decides how many blank rows to put above the composer by
- * estimating how tall the transcript renders. Its own docblock states the
- * asymmetry it lives by: over-count the content and the composer merely floats,
- * under-count it and the composer is pushed off the bottom. The caller passed
- * each row's `content` and nothing else — so a six-line collapsed tool body was
- * measured as zero rows, and the estimate ran low by six on every tool call, in
- * the direction that costs the usability rather than the feature. `/expand`
- * makes that acute rather than novel: it produces a row whose whole substance
- * is its body.
+ * The redrawable tail is bounded by estimated terminal height. Counting each
+ * row's `content` and nothing else makes a six-line collapsed tool body look
+ * like one row and can grow the live region into Ink's whole-history repaint
+ * path. `/expand` makes that acute: it produces a row whose whole substance is
+ * its body.
  *
  * And the count has to come from the renderer, because the renderer is the only
  * thing that knows how much of a body prints. A copy of `COLLAPSE_LINES` kept
@@ -23,8 +19,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { renderedDetailLines } from '../Transcript.js'
-import { estimateRenderedLines } from '../bottom-spacer.js'
-import { transcriptLines } from '../live-window.js'
+import { estimateRenderedLines, transcriptLines } from '../live-window.js'
 import type { TranscriptMessage } from '../types.js'
 
 const body = (n: number) => Array.from({ length: n }, (_, i) => `line-${i + 1}`)
@@ -79,7 +74,7 @@ describe('renderedDetailLines', () => {
 	})
 })
 
-describe('what the spacer is given', () => {
+describe('what the live-window estimator is given', () => {
 	it('includes the body under a tool call, not just the line above it', () => {
 		const lines = transcriptLines([row({ detail: body(12) })])
 		// The call line plus six shown plus the hint.
@@ -112,8 +107,7 @@ describe('what the spacer is given', () => {
 	})
 
 	it('leaves out the row still streaming, which is not in the static log yet', () => {
-		// The live region is covered by the spacer's `liveRows`, so counting a
-		// pending row here would count it twice.
+		// Pending content is already rendered below the finalized live window.
 		expect(transcriptLines([row({ pending: true, detail: body(12) })])).toEqual([])
 	})
 })

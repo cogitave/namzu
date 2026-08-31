@@ -6,7 +6,7 @@ description: >-
   you get. Interactive sessions, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
-timestamp: 2026-08-25T00:00:00Z
+timestamp: 2026-08-31T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -178,6 +178,11 @@ exact project-relative tokens remain editable, and symlinks outside the trusted
 root are not inlined. On
 clean exit the CLI prints a copy-pasteable `namzu resume <id>` command; buffered
 boot and sandbox diagnostics are reserved for crashes.
+
+Tool-authored activity labels keep implementation names and action JSON out of
+the transcript. Desktop actions read as `Capture screenshot`, `Press CTRL+R`
+or coordinate-aware pointer activity. Successful `ok` acknowledgements add no
+second row, while screenshot dimensions and failures remain visible.
 
 Markdown web-link labels are clickable on terminals whose OSC 8 support Namzu
 can identify. Unknown terminals, remote shells and multiplexers retain the

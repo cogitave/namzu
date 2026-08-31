@@ -46,6 +46,8 @@ describe('@namzu/bedrock', () => {
 				supportsFunctionCalling: true,
 				supportsVision: false,
 				supportsDocuments: false,
+				supportsToolResultImages: false,
+				supportsToolResultDocuments: false,
 			})
 		})
 

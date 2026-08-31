@@ -760,7 +760,9 @@ export interface QueryParams {
 	 * attachments against a `supportsVision: false` driver), the runtime
 	 * warns loudly, emits a `capability_warning` run event, and degrades
 	 * explicitly (tool surfaces stripped from prompt + request;
-	 * attachments left unmapped by the driver). `true`: throw instead of
+	 * attachments left unmapped by the driver). The same policy is checked
+	 * immediately before every request for image/document blocks produced by a
+	 * tool, because those do not exist at run setup. `true`: throw instead of
 	 * degrading.
 	 */
 	strictCapabilities?: boolean
@@ -1859,6 +1861,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 	const iterationOrchestrator = new IterationOrchestrator({
 		provider: resilientProvider,
+		providerCapabilities: capabilities,
+		strictCapabilities: params.strictCapabilities === true,
 		servingMember: () => serving.current,
 		runConfig,
 		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),

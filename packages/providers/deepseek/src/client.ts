@@ -38,6 +38,8 @@ export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 	supportsFunctionCalling: true,
 	supportsVision: true,
 	supportsDocuments: false,
+	supportsToolResultImages: true,
+	supportsToolResultDocuments: false,
 }
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'

@@ -35,7 +35,7 @@ import {
 	isCompactionMessage,
 	kernelHostCommands,
 } from '@namzu/sdk'
-import { Box, Text, useApp, useInput, useStdout } from 'ink'
+import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -135,14 +135,13 @@ import {
 	createAgentSession,
 	probeAgentSession,
 } from './agent.js'
-import { bottomSpacerRows } from './bottom-spacer.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { planTurnPublication } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
-import { MAX_LIVE_ROWS, liveWindow, transcriptLines } from './live-window.js'
+import { liveWindow } from './live-window.js'
 import {
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
@@ -477,39 +476,6 @@ interface ActiveTurnInbox {
 	close(): readonly LiveInput[]
 }
 
-interface SpacerLayoutCache {
-	readonly rows: number | undefined
-	readonly columns: number | undefined
-	readonly raw: boolean
-	readonly messageCount: number
-	readonly tail: readonly Pick<TranscriptMessage, 'id' | 'content' | 'meta' | 'detail'>[]
-	readonly spacerRows: number
-}
-
-function sameSpacerLayout(
-	previous: SpacerLayoutCache | null,
-	current: Omit<SpacerLayoutCache, 'spacerRows'>,
-): previous is SpacerLayoutCache {
-	if (
-		previous === null ||
-		previous.rows !== current.rows ||
-		previous.columns !== current.columns ||
-		previous.raw !== current.raw ||
-		previous.messageCount !== current.messageCount ||
-		previous.tail.length !== current.tail.length
-	)
-		return false
-	return current.tail.every((message, index) => {
-		const prior = previous.tail[index]
-		return (
-			prior?.id === message.id &&
-			prior.content === message.content &&
-			prior.meta === message.meta &&
-			prior.detail === message.detail
-		)
-	})
-}
-
 /** Put an undelivered steer back where it occurred among Tab-queued prompts. */
 function mergeUndeliveredLiveInput(
 	queued: readonly QueuedPrompt[],
@@ -565,10 +531,9 @@ function goalRoundPrompt(authority: GoalRoundAuthority): string {
  * Rows the live region occupies apart from the transcript window: the activity
  * line, the composer frame and its padding, the status bar.
  *
- * Counted generously, because over-counting costs a gap under the composer and
- * under-counting costs the composer itself — and, now that a window of live
- * rows sits above this furniture, under-counting also lets that window grow
- * until the renderer gives up on incremental repaint. See `live-window.ts`.
+ * Counted generously because under-counting lets the redrawable transcript
+ * window grow until the renderer gives up on incremental repaint. Over-counting
+ * merely settles one more row into native terminal scrollback.
  */
 const LIVE_FURNITURE_ROWS = 10
 
@@ -594,6 +559,7 @@ export function App({
 	}, [initialCtx])
 	const { exit } = useApp()
 	const { stdout, write: writeStdout } = useStdout()
+	const terminal = useWindowSize()
 	const hyperlinks = terminalSupportsHyperlinks(process.env, stdout.isTTY === true)
 	/**
 	 * The last assistant message id the run reported, for `/feedback`.
@@ -729,8 +695,6 @@ export function App({
 	 * hold the window shut for the length of the next conversation.
 	 */
 	const settledRef = useRef<number>(0)
-	/** Keeps an in-place detail toggle from moving the rows above that detail. */
-	const spacerLayoutRef = useRef<SpacerLayoutCache | null>(null)
 	// Complete prompts waiting for the one queue pump that may start a turn.
 	const [queued, setQueued] = useState<readonly QueuedPrompt[]>([])
 	/** Return-submitted prompts accepted by the active turn but not yet drained by the SDK. */
@@ -2347,54 +2311,22 @@ export function App({
 	}, [activateTrustedProject, pushMessage, runProbe])
 
 	const finalized = messages.filter((m) => !m.pending)
-	// How much of the transcript is still redrawable. Computed here rather than
-	// inside <Transcript> because the same split decides what the bottom spacer
-	// measures: rows in scrollback are content it has to make room for, rows in
-	// the window are part of the live region it is padding above. Two
-	// computations of one split would drift, and the direction they would drift
-	// in is a composer pushed off the screen.
+	// How much of the transcript is still redrawable. The rest belongs to native
+	// terminal scrollback; the live tail stays deliberately small so an activity
+	// tick never repaints the whole conversation.
 	//
 	// A ref, and mutated during render, because the split has to be MONOTONIC:
 	// a row that has been printed to scrollback can never come back, and `max`
 	// is idempotent, so a repeated render reaches the same answer.
 	const window = liveWindow({
 		messages: finalized,
-		rows: stdout.rows,
-		columns: stdout.columns,
+		rows: terminal.rows,
+		columns: terminal.columns,
 		furnitureRows: LIVE_FURNITURE_ROWS,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
 	settledRef.current = window.settled
-
-	// Blank rows above the composer, while the transcript is short enough that
-	// the answer is knowable. `liveRows` is the furniture beneath the transcript
-	// PLUS the live window above it — the window is part of the live region, and
-	// leaving it out would have the spacer padding room that is already taken.
-	const spacerCandidate =
-		phase === 'ready' && permission === null
-			? bottomSpacerRows({
-					rows: stdout.rows,
-					columns: stdout.columns,
-					transcript: transcriptLines(finalized.slice(0, window.settled), rawOutput),
-					liveRows: LIVE_FURNITURE_ROWS + window.rows,
-				})
-			: 0
-	const spacerLayout = {
-		rows: stdout.rows,
-		columns: stdout.columns,
-		raw: rawOutput,
-		messageCount: finalized.length,
-		tail: finalized
-			.slice(-MAX_LIVE_ROWS)
-			.map(({ id, content, meta, detail }) => ({ id, content, meta, detail })),
-	} satisfies Omit<SpacerLayoutCache, 'spacerRows'>
-	const spacerRows =
-		phase === 'ready' && permission === null && sameSpacerLayout(spacerLayoutRef.current, spacerLayout)
-			? spacerLayoutRef.current.spacerRows
-			: spacerCandidate
-	spacerLayoutRef.current =
-		phase === 'ready' && permission === null ? { ...spacerLayout, spacerRows } : null
 
 	// One merged vocabulary for the session: this host's own commands plus
 	// whatever the kernel's registry reports. Built here so `/help`, the
@@ -3088,7 +3020,7 @@ export function App({
 					const tool: RunningTool = {
 						id: event.toolUseId,
 						toolName: event.toolName,
-						label: formatToolCall(event.toolName, event.summary),
+						label: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
 						detail: event.detail,
 					}
@@ -3138,7 +3070,10 @@ export function App({
 						event.isError ? theme.status.error : theme.status.ok,
 						done ? formatElapsed(Date.now() - done.startedAt) : undefined,
 					)
-					if (event.isError || event.summary.length > 0 || (event.detail?.length ?? 0) > 0) {
+					if (
+						event.isError ||
+						(!event.hidden && (event.summary.length > 0 || (event.detail?.length ?? 0) > 0))
+					) {
 						pushMessage(
 							'tool',
 							event.isError ? `failed: ${event.summary}` : event.summary,
@@ -3189,7 +3124,7 @@ export function App({
 				case 'capability-warning':
 					pushMessage(
 						'system',
-						`Capability warning (${event.capability}): ${event.text}`,
+						`Capability warning (${event.capability}${event.contentSource === 'tool-result' ? ' tool result' : ''}): ${event.text}`,
 						false,
 						'⚠',
 					)
@@ -3757,7 +3692,7 @@ export function App({
 									? `Unavailable: ${command.problem}`
 									: command.description,
 							})),
-							windowSize: suggestionWindowSize(stdout.rows),
+							windowSize: suggestionWindowSize(terminal.rows),
 						})
 						return
 					}
@@ -4491,7 +4426,7 @@ export function App({
 			stableExportSource,
 			startFreshConversation,
 			state,
-			stdout.rows,
+			terminal.rows,
 		],
 	)
 	// `applyChoiceSelection` is declared before `handleSubmit` because the
@@ -4959,7 +4894,7 @@ export function App({
 					permission &&
 					(key.upArrow || key.downArrow || key.pageUp || key.pageDown || key.home || key.end)
 				) {
-					const count = permissionReviewRows(permission.review, stdout.columns).length
+					const count = permissionReviewRows(permission.review, terminal.columns).length
 					const maxOffset = Math.max(0, count - PERMISSION_REVIEW_PAGE_ROWS)
 					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
 					const next = key.home
@@ -5237,10 +5172,10 @@ export function App({
 								}
 							/>
 						</TranscriptFrame>
-						{/* Conversation rows flow from the banner downward. The remaining
-						    viewport belongs below the transcript, so the composer can stay near
-						    the terminal bottom without pushing a short conversation down with it. */}
-						{spacerRows > 0 ? <Box height={spacerRows} /> : null}
+						{/* Keep the inline viewport minimal: finalized history flows into native
+						    scrollback, while activity and input follow the visible tail directly.
+						    A viewport-height blank box here creates dead space and makes resize
+						    depend on an estimate of rows Ink has already rendered. */}
 						<LiveActivity
 							activeTools={activeTools}
 							thinking={state === 'thinking' && !messages.some((m) => m.pending)}
@@ -5257,7 +5192,7 @@ export function App({
 								toolCalls={permission.toolCalls}
 								review={permission.review}
 								reviewOffset={permissionReviewOffset}
-								columns={stdout.columns}
+								columns={terminal.columns}
 							/>
 						) : null}
 						{textPrompt ? (
@@ -5418,8 +5353,8 @@ function Banner({
 	readonly permissionMode: PermissionMode
 	readonly cwd: string
 }) {
-	const cols = process.stdout.columns ?? 80
-	const wide = cols >= NAMZU_WORDMARK_MIN_WIDTH
+	const { columns } = useWindowSize()
+	const wide = columns >= NAMZU_WORDMARK_MIN_WIDTH
 	const provider = session?.providerSummary
 	const model = session?.modelSummary
 	const home = process.env.HOME
@@ -5518,8 +5453,10 @@ function ComposerFrame({
 // Tool call label: the tool name title-cased, then its most identifying
 // argument — `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript
 // of forty calls says nothing about which one this was.
-function formatToolCall(toolName: string, summary: string): string {
-	const display = toolName.length > 0 ? toolName[0]?.toUpperCase() + toolName.slice(1) : toolName
+function formatToolCall(toolName: string, summary: string, standalone = false): string {
+	if (standalone) return summary
+	const words = toolName.replace(/[_-]+/g, ' ')
+	const display = words.length > 0 ? words[0]?.toUpperCase() + words.slice(1) : words
 	return summary.length > 0 ? `${display}(${summary})` : display
 }
 

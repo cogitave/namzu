@@ -117,6 +117,8 @@ export interface Screen {
 	press(input: string): void
 	/** Swap the mounted element. Follow with `await waitForRender()`. */
 	rerender(node: ReactElement): void
+	/** Resize the emulated terminal and settle the App's subscribed repaint. */
+	resize(cols: number, rows: number): Promise<void>
 	/**
 	 * Settle: let the reconciler commit, settle the renderer's throttle so its
 	 * pending frame is written now, and drain the emulator's parser. No
@@ -170,8 +172,8 @@ class ScreenStdin extends EventEmitter {
 /** stdout that forwards to the emulator and keeps the tally. */
 class ScreenStdout extends EventEmitter {
 	isTTY = true
-	readonly columns: number
-	readonly rows: number
+	columns: number
+	rows: number
 
 	readonly chunks: string[] = []
 	bytes = 0
@@ -188,6 +190,18 @@ class ScreenStdout extends EventEmitter {
 		super()
 		this.columns = cols
 		this.rows = rows
+	}
+
+	/**
+	 * Update every owner synchronously before notifying subscribers. A listener
+	 * observing `resize` therefore reads the same dimensions from stdout and the
+	 * terminal parser.
+	 */
+	resize(cols: number, rows: number): void {
+		this.columns = cols
+		this.rows = rows
+		this.term.resize(cols, rows)
+		this.emit('resize')
 	}
 
 	/**
@@ -305,11 +319,11 @@ export async function renderToScreen(
 			// `baseY` is where the viewport starts inside the whole buffer; rows
 			// below it are the visible ones and rows above are scrollback.
 			const top = term.buffer.active.baseY
-			return Array.from({ length: rows }, (_, i) => lineAt(top + i))
+			return Array.from({ length: stdout.rows }, (_, i) => lineAt(top + i))
 		},
 		row: (index) => {
 			const top = term.buffer.active.baseY
-			const offset = index < 0 ? rows + index : index
+			const offset = index < 0 ? stdout.rows + index : index
 			return lineAt(top + offset)
 		},
 		scrollback: () => Array.from({ length: term.buffer.active.length }, (_, i) => lineAt(i)),
@@ -323,6 +337,17 @@ export async function renderToScreen(
 		rawMode: () => stdin.isRaw(),
 		press: (input) => stdin.press(input),
 		rerender: (next) => instance.rerender(next),
+		resize: async (nextCols, nextRows) => {
+			if (!Number.isInteger(nextCols) || nextCols < 1) {
+				throw new RangeError(`Screen columns must be a positive integer; received ${nextCols}`)
+			}
+			if (!Number.isInteger(nextRows) || nextRows < 1) {
+				throw new RangeError(`Screen rows must be a positive integer; received ${nextRows}`)
+			}
+			await waitForRender()
+			stdout.resize(nextCols, nextRows)
+			await waitForRender()
+		},
 		waitForRender,
 		unmount: () => {
 			teardown ??= (async () => {

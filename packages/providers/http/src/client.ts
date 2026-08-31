@@ -367,6 +367,8 @@ export const HTTP_CAPABILITIES: ProviderCapabilities = {
 	supportsVision: false,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
+	supportsToolResultImages: false,
+	supportsToolResultDocuments: false,
 }
 
 export class HttpProvider implements LLMProvider {

@@ -5,7 +5,7 @@ description: >-
   Implements the kernel's `LLMProvider` interface for OpenAI API keys and
   account-routed ChatGPT subscription sessions.
 tags: [readme, package, provider, openai]
-timestamp: 2026-08-22T00:00:00Z
+timestamp: 2026-08-31T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -94,6 +94,13 @@ The driver does not discover, refresh or persist credentials; that ownership
 belongs to the host. Namzu CLI can reuse a usable device session owned by the
 Codex CLI, without copying it into Namzu's credential store, or create a
 separate Namzu-owned device login when no external session is available.
+
+The subscription transport maps PNG, JPEG, WebP and GIF inputs and image tool
+results to Responses `input_image` parts, preserving their order with text.
+Documents and unresolved stored references are refused before transport. The
+API-key Chat Completions transport accepts user images and documents but its
+tool-result wire remains text-only; the SDK capability warning makes that
+degradation visible before the affected request.
 
 ## Documentation
 

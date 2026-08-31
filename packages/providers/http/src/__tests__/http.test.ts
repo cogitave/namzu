@@ -103,6 +103,8 @@ describe('@namzu/http — registration', () => {
 			supportsFunctionCalling: true,
 			supportsVision: false,
 			supportsDocuments: false,
+			supportsToolResultImages: false,
+			supportsToolResultDocuments: false,
 		})
 	})
 

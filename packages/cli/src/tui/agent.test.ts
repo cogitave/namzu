@@ -8,6 +8,7 @@ import type {
 	RunId,
 	SessionId,
 	ToolCallSummary,
+	ToolPresenter,
 	ToolUseId,
 } from '@namzu/sdk'
 import {
@@ -142,6 +143,59 @@ describe('toAgentEvent', () => {
 			isError: false,
 			summary: 'multi',
 			detail: ['multi', '  line'],
+		})
+	})
+
+	it('carries authored standalone calls and hidden acknowledgements across the host seam', () => {
+		const authored = {
+			presentCall: () => ({
+				kind: 'generic' as const,
+				label: 'Capture screenshot',
+				presentation: 'activity' as const,
+			}),
+			presentResult: () => ({
+				kind: 'generic' as const,
+				label: 'ok',
+				visibility: 'hidden' as const,
+			}),
+		} satisfies ToolPresenter
+		expect(
+			toAgentEvent(
+				{
+					type: 'tool_executing',
+					toolUseId,
+					toolName: 'desktop_control',
+					input: { type: 'screenshot' },
+					...env,
+				} as unknown as RunEvent,
+				authored,
+			),
+		).toEqual({
+			kind: 'tool-start',
+			toolUseId,
+			toolName: 'desktop_control',
+			summary: 'Capture screenshot',
+			standalone: true,
+		})
+		expect(
+			toAgentEvent(
+				{
+					type: 'tool_completed',
+					toolUseId,
+					toolName: 'desktop_control',
+					result: 'ok',
+					isError: false,
+					...env,
+				} as unknown as RunEvent,
+				authored,
+			),
+		).toEqual({
+			kind: 'tool-end',
+			toolUseId,
+			toolName: 'desktop_control',
+			isError: false,
+			summary: 'ok',
+			hidden: true,
 		})
 	})
 

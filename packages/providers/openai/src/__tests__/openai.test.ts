@@ -48,6 +48,8 @@ describe('@namzu/openai', () => {
 				supportsFunctionCalling: true,
 				supportsVision: true,
 				supportsDocuments: true,
+				supportsToolResultImages: false,
+				supportsToolResultDocuments: false,
 			})
 		})
 

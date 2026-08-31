@@ -811,6 +811,8 @@ export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
 	supportsFunctionCalling: true,
 	supportsVision: true,
 	supportsDocuments: true,
+	supportsToolResultImages: true,
+	supportsToolResultDocuments: false,
 }
 
 export class AnthropicProvider implements LLMProvider {

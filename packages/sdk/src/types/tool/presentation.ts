@@ -11,13 +11,20 @@ import type { ToolResult } from './index.js'
  * the raw arguments and rebuilt the same switch.
  *
  * The tool knows what it is doing; the host knows how its surface renders.
- * These are the three shapes one host had already found it needed, closed
+ * These are the shapes hosts have agreed to render, closed
  * deliberately: an open union would let a tool ask for a rendering no host
  * has, which is a request that fails silently at the far end.
  */
 export type ToolCallView =
 	/** A line of text. What everything that is not a diff or a command gets. */
-	| { readonly kind: 'generic'; readonly label: string }
+	| {
+			readonly kind: 'generic'
+			readonly label: string
+			/** Render this complete authored label without adding the registry name. */
+			readonly presentation?: 'activity'
+			/** A successful result may add no information beyond the completed call row. */
+			readonly visibility?: 'hidden'
+	  }
 	/**
 	 * A change to a document. `path` is optional because not every diff is
 	 * a file — a tool patching a remote record has a before and an after
@@ -32,7 +39,7 @@ export type ToolCallView =
 	/** A command and what it printed. */
 	| { readonly kind: 'terminal'; readonly command?: string; readonly output: string }
 
-/** The same three shapes, for what a call produced. */
+/** The same shapes, for what a call produced. */
 export type ToolResultView = ToolCallView
 
 /**

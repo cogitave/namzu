@@ -78,6 +78,50 @@ describe('createComputerUseTool', () => {
 		expect(tool.description).toContain('keyboard')
 	})
 
+	it('authors human activity labels instead of exposing the action JSON', () => {
+		const { host } = makeHost()
+		const tool = createComputerUseTool(host)
+
+		expect(tool.presentCall?.({ type: 'screenshot' })).toEqual({
+			kind: 'generic',
+			label: 'Capture screenshot',
+			presentation: 'activity',
+		})
+		expect(tool.presentCall?.({ type: 'key', keys: 'CTRL+R' })).toEqual({
+			kind: 'generic',
+			label: 'Press CTRL+R',
+			presentation: 'activity',
+		})
+		expect(
+			tool.presentCall?.({ type: 'mouse_click', at: { x: 50, y: 60 }, button: 'left' }),
+		).toEqual({
+			kind: 'generic',
+			label: 'Click left at (50, 60)',
+			presentation: 'activity',
+		})
+	})
+
+	it('hides only a successful empty acknowledgement result', () => {
+		const { host } = makeHost()
+		const tool = createComputerUseTool(host)
+
+		expect(
+			tool.presentResult?.({ type: 'key', keys: 'ENTER' }, { success: true, output: 'ok' }),
+		).toEqual({ kind: 'generic', label: 'ok', visibility: 'hidden' })
+		expect(
+			tool.presentResult?.(
+				{ type: 'screenshot' },
+				{ success: true, output: 'Screenshot captured (1920x1080, image/png).' },
+			),
+		).toBeUndefined()
+		expect(
+			tool.presentResult?.(
+				{ type: 'key', keys: 'ENTER' },
+				{ success: false, output: 'ok', error: 'failed' },
+			),
+		).toBeUndefined()
+	})
+
 	it('marks click/type/key/drag/scroll as destructive and screenshot/move as not', () => {
 		const { host } = makeHost()
 		const tool = createComputerUseTool(host)

@@ -46,6 +46,8 @@ describe('@namzu/openrouter', () => {
 				supportsFunctionCalling: true,
 				supportsVision: false,
 				supportsDocuments: false,
+				supportsToolResultImages: false,
+				supportsToolResultDocuments: false,
 			})
 		})
 

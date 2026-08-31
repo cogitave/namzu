@@ -45,6 +45,19 @@ const NO_VISION_CAPABILITIES: ProviderCapabilities = {
 	supportsVision: false,
 }
 
+const NO_TOOL_IMAGE_CAPABILITIES: ProviderCapabilities = {
+	supportsTools: true,
+	supportsStreaming: true,
+	supportsFunctionCalling: true,
+	supportsVision: true,
+	supportsDocuments: true,
+	supportsToolResultImages: false,
+	supportsToolResultDocuments: false,
+}
+
+const PNG_1X1 =
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+
 /**
  * A tool that opts in to constrained generation, which is the only thing
  * that makes `enforceToolInputSchema` non-empty on the wire.
@@ -71,6 +84,20 @@ function registerEchoTool(tools: ToolRegistry): void {
 		description: 'Echo the text back.',
 		inputSchema: z.object({ text: z.string() }),
 		execute: async () => ({ success: true, output: 'ok' }),
+	})
+}
+
+function registerScreenshotTool(tools: ToolRegistry): void {
+	tools.register({
+		name: 'shot',
+		description: 'Capture one image.',
+		inputSchema: z.object({}),
+		isReadOnly: () => true,
+		execute: async () => ({
+			success: true,
+			output: 'captured',
+			content: [{ type: 'image' as const, data: PNG_1X1, mediaType: 'image/png' }],
+		}),
 	})
 }
 
@@ -223,6 +250,137 @@ describe('query() capability negotiation', () => {
 		)
 
 		expect(events.some((e) => e.type === 'capability_warning')).toBe(false)
+	})
+
+	it('warns before the request that first carries an unsupported tool image, once', async () => {
+		const order: string[] = []
+		let request = 0
+		const provider = new MockLLMProvider({
+			capabilities: NO_TOOL_IMAGE_CAPABILITIES,
+			turns: [
+				{ toolCalls: [{ id: 'call_shot', name: 'shot', args: {} }] },
+				{ toolCalls: [{ id: 'call_echo', name: 'echo', args: { text: 'continue' } }] },
+				{ text: 'done' },
+			],
+			onRequest: () => order.push(`request-${++request}`),
+		})
+		const tools = new ToolRegistry()
+		registerScreenshotTool(tools)
+		registerEchoTool(tools)
+		const events: RunEvent[] = []
+
+		const base = baseParams(provider, tools, await mkWorkdir())
+		const run = await drainQuery(
+			{
+				...base,
+				runConfig: { ...base.runConfig, maxIterations: 3 },
+				messages: [createUserMessage('inspect the screen')],
+			},
+			(event) => {
+				events.push(event)
+				if (
+					event.type === 'capability_warning' &&
+					event.capability === 'vision' &&
+					event.contentSource === 'tool-result'
+				) {
+					order.push('warning')
+				}
+			},
+		)
+
+		expect(run.status).toBe('completed')
+		expect(provider.requests).toHaveLength(3)
+		expect(order).toEqual(['request-1', 'warning', 'request-2', 'request-3'])
+		expect(
+			events.filter(
+				(event) =>
+					event.type === 'capability_warning' &&
+					event.capability === 'vision' &&
+					event.contentSource === 'tool-result',
+			),
+		).toHaveLength(1)
+	})
+
+	it('does not warn for supported, textual, or already-budgeted tool results', async () => {
+		const cases = [
+			{
+				name: 'supported image',
+				capabilities: { ...NO_TOOL_IMAGE_CAPABILITIES, supportsToolResultImages: true },
+				register: registerScreenshotTool,
+				maxRequestRichContentBytes: undefined,
+			},
+			{
+				name: 'plain text',
+				capabilities: NO_TOOL_IMAGE_CAPABILITIES,
+				register: registerEchoTool,
+				maxRequestRichContentBytes: undefined,
+			},
+			{
+				name: 'budgeted image',
+				capabilities: NO_TOOL_IMAGE_CAPABILITIES,
+				register: registerScreenshotTool,
+				maxRequestRichContentBytes: 1,
+			},
+		] as const
+
+		for (const testCase of cases) {
+			const toolName = testCase.register === registerEchoTool ? 'echo' : 'shot'
+			const args = toolName === 'echo' ? { text: 'hello' } : {}
+			const provider = new MockLLMProvider({
+				capabilities: testCase.capabilities,
+				turns: [{ toolCalls: [{ name: toolName, args }] }, { text: 'done' }],
+			})
+			const tools = new ToolRegistry()
+			testCase.register(tools)
+			const events: RunEvent[] = []
+			const base = baseParams(provider, tools, await mkWorkdir())
+			await drainQuery(
+				{
+					...base,
+					runConfig: {
+						...base.runConfig,
+						maxIterations: 2,
+						...(testCase.maxRequestRichContentBytes !== undefined
+							? { maxRequestRichContentBytes: testCase.maxRequestRichContentBytes }
+							: {}),
+					},
+					messages: [createUserMessage(testCase.name)],
+				},
+				(event) => {
+					events.push(event)
+				},
+			)
+
+			expect(
+				events.some(
+					(event) =>
+						event.type === 'capability_warning' &&
+						event.capability === 'vision' &&
+						event.contentSource === 'tool-result',
+				),
+				testCase.name,
+			).toBe(false)
+		}
+	})
+
+	it('strict capability mode refuses before a second request can carry a tool image', async () => {
+		const provider = new MockLLMProvider({
+			capabilities: NO_TOOL_IMAGE_CAPABILITIES,
+			turns: [{ toolCalls: [{ name: 'shot', args: {} }] }, { text: 'must not run' }],
+		})
+		const tools = new ToolRegistry()
+		registerScreenshotTool(tools)
+		const base = baseParams(provider, tools, await mkWorkdir())
+
+		const run = await drainQuery({
+			...base,
+			runConfig: { ...base.runConfig, maxIterations: 2 },
+			messages: [createUserMessage('inspect')],
+			strictCapabilities: true,
+		})
+		expect(run.status).toBe('failed')
+		expect(run.lastError).toMatch(/cannot map image tool results/)
+		expect(provider.requests).toHaveLength(1)
 	})
 
 	it('strictCapabilities: true throws on a tools mismatch instead of degrading', async () => {

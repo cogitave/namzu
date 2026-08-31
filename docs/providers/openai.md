@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-22T00:00:00Z
-lastReviewed: 2026-08-25
+lastReviewed: 2026-08-31
 resource: packages/providers/openai/src/index.ts
 tags: [provider, openai, reference]
 ---
@@ -28,7 +28,8 @@ provider registrations:
   image and document attachments, and OpenAI-compatible base URLs.
 - `CodexProvider` / `registerCodex()` speaks the account-routed **Responses
   backend** used by a ChatGPT subscription. It takes an OAuth access token plus
-  ChatGPT account id and deliberately declares no image or document support.
+  ChatGPT account id, maps user and tool-result images, and deliberately refuses
+  documents.
 
 Nothing here is a second way to talk to the model. The driver's job is to turn
 the kernel's request into this vendor's request and its response back into
@@ -209,6 +210,8 @@ import { OPENAI_CAPABILITIES } from '@namzu/openai'
 //   supportsFunctionCalling: true,
 //   supportsVision: true,
 //   supportsDocuments: true,
+//   supportsToolResultImages: false,
+//   supportsToolResultDocuments: false,
 // }
 ```
 
@@ -216,7 +219,7 @@ A capability declaration here is about **this driver**, not about the vendor
 API: it answers "does the code map this?" rather than "could it?". The runtime
 negotiates against the constructed instance, and an absent flag is read as
 permissive — so a missing flag is a claim, not an omission, which is why all
-five are stated.
+seven are stated.
 
 What each one is claiming:
 
@@ -256,15 +259,21 @@ import { CODEX_CAPABILITIES } from '@namzu/openai'
 //   supportsTools: true,
 //   supportsStreaming: true,
 //   supportsFunctionCalling: true,
-//   supportsVision: false,
+//   supportsVision: true,
 //   supportsDocuments: false,
+//   supportsToolResultImages: true,
+//   supportsToolResultDocuments: false,
 // }
 ```
 
 The Responses transport maps text messages, function calls and function-call
 outputs, and streams text, reasoning summaries, tool-call boundaries and token
-usage. User image or document attachments refuse before transport instead of
-being dropped.
+usage. PNG, JPEG, WebP and GIF user attachments become ordered `input_image`
+parts. The same formats returned by tools become ordered image parts in the
+function-call output, so a desktop screenshot is visible to the next model turn
+instead of becoming a text marker. User and tool-result documents, unresolved
+stored references, unsupported image media types and omission markers refuse
+before transport instead of being dropped.
 
 Function tools are sent with `strict: false` even when the kernel supplies an
 `enforceToolInputSchema` hint. This is deliberate and matches the Codex

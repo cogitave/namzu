@@ -193,23 +193,6 @@ async function twoCollapsedBlocks() {
 	return harness
 }
 
-/**
- * The longest run of consecutive blank lines in a frame.
- *
- * The bottom spacer is a `<Box height={n} />` and renders as exactly that: n
- * empty rows above the composer. Nothing else in the layout produces a run of
- * them, so this is how much padding was inserted.
- */
-function longestBlankRun(frame: string): number {
-	let best = 0
-	let run = 0
-	for (const line of frame.split('\n')) {
-		run = line.trim().length === 0 ? run + 1 : 0
-		if (run > best) best = run
-	}
-	return best
-}
-
 /** Type a line into the composer and submit it. */
 async function submit(harness: { stdin: { write: (s: string) => void } }, line: string) {
 	// Written separately: Ink delivers one `stdin.write` as ONE keypress, so
@@ -391,46 +374,6 @@ describe('/expand', () => {
 		const frame = harness.lastFrame() ?? ''
 		expect(frame, 'a cleared block was still expandable').toContain('Nothing to expand yet')
 		expect(frame, 'output from a cleared conversation came back').not.toContain('call-line-12')
-	})
-
-	it('stops padding the composer down once the expansion fills the viewport', async () => {
-		// The wiring assertion, and it has to be here rather than on the helper.
-		//
-		// `spacerTranscript` has its own unit tests, and every one of them stays
-		// green if `App` goes back to passing `messages.map(m => m.content)` — the
-		// helper would simply not be called. That is a check that cannot fail
-		// under its own target defect, so this drives the real component and
-		// looks at the real frame.
-		//
-		// What it looks at: the spacer pads blank rows above the composer only
-		// while the transcript is knowably shorter than the terminal. An expanded
-		// twelve-line body on a small terminal is past that point, so the padding
-		// must be gone. If App stops counting bodies, the same transcript measures
-		// a handful of rows and the spacer pads a screenful — pushing the composer
-		// out of view, which is the harm the estimate exists to avoid.
-		const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows')
-		const columns = Object.getOwnPropertyDescriptor(process.stdout, 'columns')
-		// Forty rows, not twenty-four, and the difference is the point. At 24 the
-		// live furniture and safety margin leave so little budget that the
-		// unmeasured transcript ALSO comes out barely padded, and the test passed
-		// the defect by three rows. A tall terminal is where the two answers
-		// diverge: the real estimate is past the viewport and pads nothing, the
-		// content-only one has room to spare and pads a screenful.
-		Object.defineProperty(process.stdout, 'rows', { value: 40, configurable: true })
-		Object.defineProperty(process.stdout, 'columns', { value: 80, configurable: true })
-		try {
-			const harness = await twoCollapsedBlocks()
-			await submit(harness, '/expand 2')
-			await frameShows(harness.lastFrame, 'result-line-12')
-
-			const blankRun = longestBlankRun(harness.lastFrame() ?? '')
-			expect(blankRun, 'the composer was padded down past a full screen').toBeLessThan(4)
-		} finally {
-			if (rows) Object.defineProperty(process.stdout, 'rows', rows)
-			else Reflect.deleteProperty(process.stdout, 'rows')
-			if (columns) Object.defineProperty(process.stdout, 'columns', columns)
-			else Reflect.deleteProperty(process.stdout, 'columns')
-		}
 	})
 
 	it('refuses an argument that is not a number, instead of expanding something', async () => {

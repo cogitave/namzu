@@ -15,6 +15,8 @@ const FULL: ResolvedProviderCapabilities = {
 	supportsFunctionCalling: true,
 	supportsVision: true,
 	supportsDocuments: true,
+	supportsToolResultImages: true,
+	supportsToolResultDocuments: true,
 }
 
 function known(over: Partial<ResolvedProviderCapabilities> = {}): MemberCapabilities {

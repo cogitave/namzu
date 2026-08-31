@@ -28,7 +28,8 @@ describe('Codex provider registration', () => {
 		expect(capabilities).toEqual(CODEX_CAPABILITIES)
 		expect(capabilities).toMatchObject({
 			supportsTools: true,
-			supportsVision: false,
+			supportsVision: true,
+			supportsToolResultImages: true,
 		})
 	})
 
@@ -181,20 +182,197 @@ describe('Codex request projection', () => {
 		expect(EditTool.modelInputSchema).toEqual(sourceSchema)
 	})
 
-	it('refuses attachments rather than silently dropping them', () => {
-		expect(() =>
+	it('maps ordered user and tool images without flattening their bytes into text', () => {
+		expect(
 			toCodexInput(
 				[
 					{
 						role: 'user',
-						content: 'image',
-						attachments: [{ data: 'aA==', mediaType: 'image/png' }],
+						content: 'compare',
+						attachments: [
+							{ data: 'UE5H', mediaType: 'image/png' },
+							{ data: 'SlBFRw==', mediaType: 'image/jpeg' },
+						],
+					},
+					{
+						role: 'tool',
+						toolCallId: 'call_vision',
+						content: [
+							{ type: 'text', text: 'desktop' },
+							{ type: 'image', data: 'V0VCUA==', mediaType: 'image/webp' },
+							{ type: 'text', text: 'after' },
+						],
 					},
 				],
 				ROUTE,
 			),
-		).toThrow(/does not yet admit image or document/)
+		).toEqual([
+			{
+				type: 'message',
+				role: 'user',
+				content: [
+					{ type: 'input_text', text: 'compare' },
+					{ type: 'input_image', detail: 'auto', image_url: 'data:image/png;base64,UE5H' },
+					{
+						type: 'input_image',
+						detail: 'auto',
+						image_url: 'data:image/jpeg;base64,SlBFRw==',
+					},
+				],
+			},
+			{
+				type: 'function_call_output',
+				call_id: 'call_vision',
+				output: [
+					{ type: 'input_text', text: 'desktop' },
+					{
+						type: 'input_image',
+						detail: 'auto',
+						image_url: 'data:image/webp;base64,V0VCUA==',
+					},
+					{ type: 'input_text', text: 'after' },
+				],
+			},
+		])
 	})
+
+	it('refuses rich shapes the subscription wire cannot honestly carry', () => {
+		const user = (attachment: ChatCompletionParams['messages'][number]) =>
+			toCodexInput([attachment], ROUTE)
+		expect(() =>
+			user({
+				role: 'user',
+				content: 'stored',
+				attachments: [{ type: 'stored', ref: 'ref_1', kind: 'image', mediaType: 'image/png' }],
+			}),
+		).toThrow(/unresolved stored attachment/)
+		expect(() =>
+			user({
+				role: 'user',
+				content: 'pdf',
+				attachments: [
+					{ type: 'document', data: 'UERG', mediaType: 'application/pdf', name: 'x.pdf' },
+				],
+			}),
+		).toThrow(/does not support document input/)
+		expect(() =>
+			user({
+				role: 'user',
+				content: 'svg',
+				attachments: [{ data: 'U1ZH', mediaType: 'image/svg+xml' }],
+			}),
+		).toThrow(/image type 'image\/svg\+xml' is not supported/)
+		expect(() =>
+			toCodexInput(
+				[
+					{
+						role: 'tool',
+						toolCallId: 'pdf-result',
+						content: [
+							{
+								type: 'document',
+								data: 'UERG',
+								mediaType: 'application/pdf',
+								name: 'result.pdf',
+							},
+						],
+					},
+				],
+				ROUTE,
+			),
+		).toThrow(/does not support document tool results/)
+		expect(toCodexInput([{ role: 'tool', toolCallId: 'empty', content: [] }], ROUTE)).toEqual([
+			{ type: 'function_call_output', call_id: 'empty', output: '' },
+		])
+	})
+})
+
+it('sends rich user and tool images on the complete subscription request', async () => {
+	const create = vi.fn(async (_request: unknown) =>
+		(async function* () {
+			// Request projection is the observation; no response body is needed.
+		})(),
+	)
+	const provider = new CodexProvider({
+		accessToken: 'secret-access',
+		accountId: 'account-1',
+		model: ROUTE.model,
+	})
+	;(provider as unknown as { client: { responses: { create: typeof create } } }).client = {
+		responses: { create },
+	}
+
+	for await (const _chunk of provider.chatStream({
+		model: ROUTE.model,
+		providerRoute: ROUTE,
+		messages: [
+			{
+				role: 'user',
+				content: 'inspect',
+				attachments: [{ data: 'VVNFUg==', mediaType: 'image/png' }],
+			},
+			{
+				role: 'assistant',
+				content: null,
+				toolCalls: [
+					{
+						id: 'call_screen',
+						type: 'function',
+						function: { name: 'screen', arguments: '{}' },
+					},
+				],
+			},
+			{
+				role: 'tool',
+				toolCallId: 'call_screen',
+				content: [
+					{ type: 'text', text: 'captured' },
+					{ type: 'image', data: 'VE9PTA==', mediaType: 'image/jpeg' },
+				],
+			},
+		],
+	})) {
+		// drain request admission
+	}
+
+	expect(provider.capabilities).toMatchObject({
+		supportsVision: true,
+		supportsToolResultImages: true,
+	})
+	const body = create.mock.calls[0]?.[0] as { input?: unknown[] }
+	expect(body.input).toEqual([
+		{
+			type: 'message',
+			role: 'user',
+			content: [
+				{ type: 'input_text', text: 'inspect' },
+				{
+					type: 'input_image',
+					detail: 'auto',
+					image_url: 'data:image/png;base64,VVNFUg==',
+				},
+			],
+		},
+		{
+			type: 'function_call',
+			call_id: 'call_screen',
+			name: 'screen',
+			arguments: '{}',
+		},
+		{
+			type: 'function_call_output',
+			call_id: 'call_screen',
+			output: [
+				{ type: 'input_text', text: 'captured' },
+				{
+					type: 'input_image',
+					detail: 'auto',
+					image_url: 'data:image/jpeg;base64,VE9PTA==',
+				},
+			],
+		},
+	])
+	expect(JSON.stringify(body)).not.toContain('not renderable by this provider')
 })
 
 it('sends the Codex account-routed Responses wire and streams text, tools and replay state', async () => {

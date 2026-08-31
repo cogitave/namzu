@@ -353,6 +353,8 @@ export const BEDROCK_CAPABILITIES: ProviderCapabilities = {
 	supportsVision: false,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
+	supportsToolResultImages: false,
+	supportsToolResultDocuments: false,
 }
 
 export class BedrockProvider implements LLMProvider {

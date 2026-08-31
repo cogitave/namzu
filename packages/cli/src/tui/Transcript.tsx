@@ -28,7 +28,7 @@ export interface TranscriptProps {
 	 * never redraws it; the rest are drawn live and can still change — which is
 	 * what makes expanding a body already on screen possible at all. The caller
 	 * decides how many that is, because the answer depends on the terminal's
-	 * height and on the spacer's arithmetic; see `live-window.ts`. Passing
+	 * height and the bounded live-region budget; see `live-window.ts`. Passing
 	 * `messages.length` is the everything-is-static behaviour.
 	 *
 	 * It must never decrease for a given `resetKey`. `<Static>` counts what it
@@ -358,13 +358,12 @@ function splitDetail(
 /**
  * Every line a row's body will occupy, hint row included.
  *
- * Exported because the bottom spacer has to estimate how tall a row renders,
+ * Exported because the redrawable tail has to estimate how tall a row renders,
  * and this file is the only place that can answer: it owns `COLLAPSE_LINES` and
- * whether the hint row exists. The spacer previously measured each row from its
- * `content` alone, so a six-line collapsed body counted as nothing and the
- * estimate ran low — which is the direction that pushes the composer off the
- * screen. A copy of the collapse rule kept over there would put it back the
- * first time this number changed.
+ * whether the hint row exists. Measuring `content` alone makes a six-line body
+ * look like one row and lets the live region grow into the whole-history repaint
+ * path. A copy of the collapse rule kept elsewhere would drift the first time
+ * this number changed.
  */
 export function renderedDetailLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
@@ -376,8 +375,8 @@ export function renderedDetailLines(message: TranscriptMessage): readonly string
 	// Indented by the gutter this block actually renders inside: `paddingLeft={1}`
 	// plus the two-column `▏` rule. Those columns are not available to the text,
 	// so measuring a body line against the full terminal width under-counts how
-	// many rows it wraps to — and under-counting is the direction that pushes the
-	// composer off the screen. The prefix is what the estimator measures, so the
+	// many rows it wraps to — and under-counting is the direction that grows the
+	// redrawable region too far. The prefix is what the estimator measures, so the
 	// arithmetic is done by making the string the width it really is.
 	const gutter = '   '
 	const body = shown.map((line) => gutter + line)

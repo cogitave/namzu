@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-25T00:00:00Z
-lastReviewed: 2026-08-29
+lastReviewed: 2026-08-31
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -493,9 +493,11 @@ input burst run the highlighted command. Model, resume, review, skill, copy and
 other finite choice overlays expose the same page and boundary navigation over
 their seven-row windows. Their synchronous cursor is also the Enter authority,
 so a navigation burst cannot apply the previously rendered row. A short transcript flows
-from the banner downward; any unused viewport is padded after the complete
-transcript so the composer remains near the bottom without moving conversation
-rows there.
+from the banner downward and the composer follows its visible tail. Finalized
+history moves into native terminal scrollback; unused terminal rows remain
+below the application instead of becoming a synthetic gap inside the
+conversation. Terminal resize recomputes the live tail from the new row and
+column counts without printing a second copy of settled history.
 
 Interrupting the active turn or switching conversations drops whole queued
 prompts together, so an attachment cannot be stranded and sent somewhere its
@@ -518,10 +520,16 @@ that isolation is active. The separate `sandbox.installed` doctor check retains
 its narrower optional-package meaning.
 
 Provider capability mismatches are transcript events, not log-only diagnostics.
-Unsupported tools, images, and documents are named before the provider degrades
-or refuses the turn, including the provider that made the declaration. This is
-why a PDF or pasted image rejection reads as a capability boundary rather than
-as an unexplained model failure.
+Unsupported tools, user images, user documents, image tool results and document
+tool results are named before the affected provider request degrades or refuses
+the turn, including the provider that made the declaration. This is why a PDF,
+pasted image or desktop screenshot rejection reads as a capability boundary
+rather than as an unexplained model failure.
+
+Tools may author an activity label instead of exposing their registry name and
+input object. Computer-use calls therefore read as `Capture screenshot`, `Press
+WIN` or `Click left at (50, 60)`. A successful side-effect acknowledgement does
+not add a second `ok` row; screenshot dimensions and all failures remain visible.
 
 Imported or resumed history can also contain an interrupted tool batch that a
 provider would reject, or accept in a shape that invites the model to repeat a

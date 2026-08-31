@@ -65,6 +65,7 @@ import {
 	type ToolCallView,
 	type ToolPresenter,
 	ToolRegistry,
+	type ToolResultView,
 	type TopicId,
 	asProjectId,
 	asRunId,
@@ -164,6 +165,8 @@ export type AgentEvent =
 			readonly toolUseId: string
 			readonly toolName: string
 			readonly summary: string
+			/** The tool authored a complete activity label; do not wrap its registry name. */
+			readonly standalone?: boolean
 			/** Diff / content preview shown (collapsible) under the call. */
 			readonly detail?: readonly string[]
 	  }
@@ -181,6 +184,8 @@ export type AgentEvent =
 			readonly toolName: string
 			readonly isError: boolean
 			readonly summary: string
+			/** A successful result intentionally adds no second transcript row. */
+			readonly hidden?: boolean
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
 	  }
@@ -252,6 +257,7 @@ export type AgentEvent =
 	| {
 			readonly kind: 'capability-warning'
 			readonly capability: Extract<RunEvent, { type: 'capability_warning' }>['capability']
+			readonly contentSource?: Extract<RunEvent, { type: 'capability_warning' }>['contentSource']
 			readonly text: string
 	  }
 	| {
@@ -2668,7 +2674,13 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				toolName: event.toolName,
 				...(() => {
 					const view = presenter.presentCall(event.toolName, event.input)
-					return { summary: viewToSummary(view), detail: viewToLines(view) }
+					return {
+						summary: viewToSummary(view),
+						detail: viewToLines(view),
+						...(view.kind === 'generic' && view.presentation === 'activity'
+							? { standalone: true }
+							: {}),
+					}
 				})(),
 			}
 		case 'tool_progress':
@@ -2679,30 +2691,31 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				message: event.message,
 				...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
 			}
-		case 'tool_completed':
+		case 'tool_completed': {
+			const view = presenter.presentResult(
+				event.toolName,
+				{},
+				{
+					success: !event.isError,
+					output: event.result,
+				},
+			)
 			return {
 				kind: 'tool-end',
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				isError: event.isError,
 				summary: firstLine(event.result),
+				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
 				// `tool_completed` carries no input, so the presenter gets an
 				// empty one. A tool whose result rendering depends on its
 				// arguments would need the executing event's input threaded
 				// through; none does yet, and inventing the plumbing for a
 				// caller that does not exist is the declaration this repo
 				// keeps deleting.
-				detail: viewToLines(
-					presenter.presentResult(
-						event.toolName,
-						{},
-						{
-							success: !event.isError,
-							output: event.result,
-						},
-					),
-				),
+				detail: viewToLines(view),
 			}
+		}
 		case 'token_usage_updated':
 			// The context figures are forwarded, not recomputed. They were
 			// dropped here for as long as the status gauge existed, which left
@@ -2730,6 +2743,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			return {
 				kind: 'capability-warning',
 				capability: event.capability,
+				...(event.contentSource ? { contentSource: event.contentSource } : {}),
 				text: event.message,
 			}
 		case 'message_history_repaired': {
@@ -2933,12 +2947,12 @@ function asTree(steps: readonly string[]): string[] {
  * a truncated string. So a tool this host had never heard of — an MCP
  * server's, a plugin's — could not get a diff no matter what it did.
  *
- * The tool now says which of three shapes it wants, and this decides what
+ * The tool now says which admitted shape it wants, and this decides what
  * that looks like in a terminal. Clamping and the `STDOUT:`/`STDERR:`
  * cleanup stay here on purpose: how many rows fit and how a shell labels
  * its streams are properties of this surface, not of the tool.
  */
-export function viewToLines(view: ToolCallView): readonly string[] | undefined {
+export function viewToLines(view: ToolResultView): readonly string[] | undefined {
 	switch (view.kind) {
 		case 'generic':
 			// The label IS the summary row. Repeating it underneath adds a

@@ -10,7 +10,7 @@
  */
 
 import type { MessageAttachment } from '@namzu/sdk'
-import { Box, Text, useInput, useStdout } from 'ink'
+import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
@@ -321,7 +321,7 @@ export function Composer({
 	draftToRestore = null,
 	onDraftRestored,
 }: ComposerProps) {
-	const { stdout } = useStdout()
+	const terminal = useWindowSize()
 	const [value, setValueState] = useState<string>('')
 	const valueRef = useRef('')
 	const [cursor, setCursorState] = useState(0)
@@ -356,7 +356,7 @@ export function Composer({
 		commandSuggestions.length > 0 ? 'command' : fileSuggestions.length > 0 ? 'file' : null
 	const suggestionCount =
 		suggestionKind === 'command' ? commandSuggestions.length : fileSuggestions.length
-	const suggestionWindow = suggestionWindowSize(stdout.rows)
+	const suggestionWindow = suggestionWindowSize(terminal.rows)
 	const selIdx = Math.min(selected, Math.max(0, suggestionCount - 1))
 	const suggestionStart = Math.min(
 		Math.max(0, selIdx - suggestionWindow + 1),

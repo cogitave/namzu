@@ -27,7 +27,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
-import { SAFETY_ROWS } from '../bottom-spacer.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -98,37 +97,15 @@ const { App } = await import('../App.js')
 
 const ctx: TuiContext = { cwd: '/w', version: '0.0.0-test' }
 
-/**
- * The terminal both the emulator and the app are told about.
- *
- * The app sizes its live window from `process.stdout`, so a screen of one size
- * driving an app that believes another would be a fixture unlike production in
- * exactly the dimension under test. Tall enough that the expansion fits without
- * the viewport scrolling, which is what makes a row-index assertion meaningful.
- */
+/** Tall enough that expansion fits without scrolling under the row assertion. */
 const COLS = 100
 const ROWS = 60
-
-const restore: Array<() => void> = []
-
-function pinTerminal(): void {
-	for (const key of ['rows', 'columns'] as const) {
-		const had = Object.getOwnPropertyDescriptor(process.stdout, key)
-		restore.push(() => {
-			if (had) Object.defineProperty(process.stdout, key, had)
-			else Reflect.deleteProperty(process.stdout, key)
-		})
-	}
-	Object.defineProperty(process.stdout, 'rows', { value: ROWS, configurable: true })
-	Object.defineProperty(process.stdout, 'columns', { value: COLS, configurable: true })
-}
 
 const mounted: Screen[] = []
 
 afterEach(async () => {
 	for (const screen of mounted) await screen.unmount()
 	mounted.length = 0
-	for (const undo of restore.splice(0).reverse()) undo()
 	vi.restoreAllMocks()
 })
 
@@ -150,7 +127,6 @@ function rowOf(screen: Screen, text: string): number {
 
 /** Render, run the turn, and stop with one collapsed twelve-line body on screen. */
 async function aCollapsedBody(): Promise<Screen> {
-	pinTerminal()
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: COLS, rows: ROWS, scrollback: 400 })
 	mounted.push(screen)
 	// The composer's placeholder draws from the first frame while the composer
@@ -211,31 +187,31 @@ describe('the expand key, on a body that is still on screen', () => {
 		expect(copies, 'the body was printed a second time instead of reopened').toHaveLength(1)
 	}, 30_000)
 
-	it('leaves the composer near the foot of the screen, not floating above it', async () => {
-		// The spacer's arithmetic, from the other side of the split. Rows in the
-		// window are part of the LIVE REGION the spacer pads above, not content
-		// above it — hand it the whole transcript and it counts the window twice,
-		// pads that much less, and the composer stops sitting where this feature
-		// exists to put it.
-		//
-		// The composer is not asked to be exactly on the bottom row: the spacer holds
-		// back a safety margin by design, and the window's own height is
-		// deliberately over-counted on top of it, because over-padding is what
-		// pushes the composer out of view. The measured float is eleven rows —
-		// the margin plus the allowance on two windowed rows — against
-		// twenty-four when the window is counted twice. The persistent status row
-		// is intentionally absent while idle, so the composer's placeholder sits
-		// two rows above the old measurement point.
+	it('keeps the composer contiguous with a short transcript on a tall terminal', async () => {
 		const screen = await aCollapsedBody()
 
 		const viewport = screen.viewport()
 		const composer = viewport.findIndex((line) => line.includes('Type a message'))
+		const lastTranscript = viewport.findIndex((line) => line.includes('… +6 lines'))
 		expect(composer, 'the composer is not on screen').toBeGreaterThan(-1)
-		const fromBottom = viewport.length - 1 - composer
+		expect(lastTranscript, 'the transcript tail is not on screen').toBeGreaterThan(-1)
 		expect(
-			fromBottom,
-			`the composer floated ${fromBottom} rows above the foot of the screen`,
-		).toBeLessThanOrEqual(SAFETY_ROWS + 8)
+			composer - lastTranscript,
+			'the layout inserted viewport-scaled dead space before the composer',
+		).toBeLessThanOrEqual(4)
+	}, 30_000)
+
+	it('keeps one transcript and a usable composer through tall-short-tall resize', async () => {
+		const screen = await aCollapsedBody()
+		const call = (line: string) => line.includes('✓ Bash(ls)')
+
+		await screen.resize(72, 20)
+		expect(screen.bufferType()).toBe('normal')
+		expect(screen.viewport().join('\n')).toContain('Type a message')
+
+		await screen.resize(COLS, 50)
+		expect(screen.viewport().join('\n')).toContain('Type a message')
+		expect(screen.scrollback().filter(call), 'resize printed a second durable tool row').toHaveLength(1)
 	}, 30_000)
 
 	it('still reaches the rows of the conversation after /clear-screen', async () => {

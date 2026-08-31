@@ -7,6 +7,7 @@ import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { PromptContributionRegistry } from '../../../../prompt/contributions.js'
+import type { ResolvedProviderCapabilities } from '../../../../provider/capabilities.js'
 import type { ServingMember } from '../../../../provider/fallback.js'
 import type { CompletionInbox } from '../../../../scheduler/completion-inbox.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
@@ -44,6 +45,10 @@ import type { ToolGrantSet } from '../../tool-grants.js'
 
 export interface IterationContext {
 	readonly provider: LLMProvider
+	/** Driver-level request shapes negotiated for this run. */
+	readonly providerCapabilities?: ResolvedProviderCapabilities
+	/** Refuse a capability mismatch instead of emitting a warning and degrading. */
+	readonly strictCapabilities?: boolean
 	/**
 	 * Which chain member `provider` will route the NEXT request to.
 	 *

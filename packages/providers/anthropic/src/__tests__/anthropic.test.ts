@@ -48,6 +48,8 @@ describe('@namzu/anthropic', () => {
 				supportsFunctionCalling: true,
 				supportsVision: true,
 				supportsDocuments: true,
+				supportsToolResultImages: true,
+				supportsToolResultDocuments: false,
 			})
 		})
 

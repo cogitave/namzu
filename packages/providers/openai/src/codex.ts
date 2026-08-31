@@ -14,12 +14,16 @@ import {
 	isCallerAbortError,
 	isProviderRequestError,
 	providerVendorError,
-	toolResultToText,
+	toToolResultBlocks,
 } from '@namzu/sdk'
 import OpenAI from 'openai'
 import type {
 	ResponseCreateParamsStreaming,
+	ResponseFunctionCallOutputItemList,
+	ResponseInputImage,
+	ResponseInputImageContent,
 	ResponseInputItem,
+	ResponseInputMessageContentList,
 	ResponseOutputItem,
 	ResponseStreamEvent,
 	Tool,
@@ -31,8 +35,10 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
-	supportsVision: false,
+	supportsVision: true,
 	supportsDocuments: false,
+	supportsToolResultImages: true,
+	supportsToolResultDocuments: false,
 }
 
 const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
@@ -146,6 +152,79 @@ function replayItems(
 	return state.items
 }
 
+const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+
+function codexImage(
+	data: string,
+	mediaType: string,
+	source: 'user attachment' | 'tool result',
+): ResponseInputImage & ResponseInputImageContent {
+	if (!IMAGE_MEDIA_TYPES.has(mediaType)) {
+		throw new Error(
+			`CodexProvider: ${source} image type '${mediaType}' is not supported. Use image/png, image/jpeg, image/webp, or image/gif.`,
+		)
+	}
+	return {
+		type: 'input_image',
+		detail: 'auto',
+		image_url: `data:${mediaType};base64,${data}`,
+	}
+}
+
+function codexUserContent(
+	message: Extract<ChatCompletionParams['messages'][number], { role: 'user' }>,
+): string | ResponseInputMessageContentList {
+	const attachments = message.attachments ?? []
+	if (attachments.length === 0) return message.content
+	const content: ResponseInputMessageContentList = []
+	if (message.content.length > 0) content.push({ type: 'input_text', text: message.content })
+	for (const attachment of attachments) {
+		if (attachment.type === 'stored') {
+			throw new Error(
+				'CodexProvider: an unresolved stored attachment reached the driver. Configure an AttachmentStore so Namzu can resolve its bytes before the model request.',
+			)
+		}
+		if (attachment.type === 'document') {
+			throw new Error(
+				'CodexProvider: this subscription transport does not support document input. Route the turn to a document-capable provider.',
+			)
+		}
+		if (attachment.modelOmission) {
+			throw new Error(
+				'CodexProvider: an image marked for model omission reached the driver without request projection.',
+			)
+		}
+		content.push(codexImage(attachment.data, attachment.mediaType, 'user attachment'))
+	}
+	return content
+}
+
+function codexToolOutput(
+	content: Extract<ChatCompletionParams['messages'][number], { role: 'tool' }>['content'],
+): string | ResponseFunctionCallOutputItemList {
+	if (typeof content === 'string') return content
+	if (content.length === 0) return ''
+	const output: ResponseFunctionCallOutputItemList = []
+	for (const block of toToolResultBlocks(content)) {
+		if (block.type === 'text') {
+			output.push({ type: 'input_text', text: block.text })
+			continue
+		}
+		if (block.type === 'document') {
+			throw new Error(
+				'CodexProvider: this subscription transport does not support document tool results. Route the turn to a provider whose tool-result wire admits documents.',
+			)
+		}
+		if (block.modelOmission) {
+			throw new Error(
+				'CodexProvider: a tool image marked for model omission reached the driver without request projection.',
+			)
+		}
+		output.push(codexImage(block.data, block.mediaType, 'tool result'))
+	}
+	return output
+}
+
 export function toCodexInput(
 	messages: ChatCompletionParams['messages'],
 	targetRoute: ProviderRoute,
@@ -154,19 +233,14 @@ export function toCodexInput(
 	for (const message of messages) {
 		if (message.role === 'system') continue
 		if (message.role === 'user') {
-			if (message.attachments && message.attachments.length > 0) {
-				throw new Error(
-					'CodexProvider: this transport does not yet admit image or document attachments. Remove the attachment or select a provider whose declared capabilities include it.',
-				)
-			}
-			input.push({ type: 'message', role: 'user', content: message.content })
+			input.push({ type: 'message', role: 'user', content: codexUserContent(message) })
 			continue
 		}
 		if (message.role === 'tool') {
 			input.push({
 				type: 'function_call_output',
 				call_id: message.toolCallId,
-				output: toolResultToText(message.content),
+				output: codexToolOutput(message.content),
 			})
 			continue
 		}

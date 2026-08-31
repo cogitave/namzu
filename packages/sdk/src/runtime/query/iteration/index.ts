@@ -7,6 +7,7 @@ import {
 	STRUCTURED_OUTPUT_REPROMPT,
 } from '../../../constants/tools/index.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
+import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
 import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
 import {
@@ -19,8 +20,10 @@ import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import { DELEGATION_TIMEOUT_MS } from '../../../tools/coordinator/index.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
+import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
 import {
+	type Message,
 	createAssistantMessage,
 	createRuntimeContextMessage,
 	createSystemMessage,
@@ -148,6 +151,8 @@ export class IterationOrchestrator {
 	 * one process must not suppress each other's first envelope.
 	 */
 	private lastEnvelopeKey: string | undefined
+	/** Rich tool blocks already reported; durable history is scanned every turn. */
+	private readonly warnedRichToolResults = new Set<string>()
 	/**
 	 * The previous iteration held a `stopWhen` decision open for a worker.
 	 *
@@ -166,6 +171,70 @@ export class IterationOrchestrator {
 
 	constructor(ctx: IterationContext) {
 		this.ctx = ctx
+	}
+
+	/**
+	 * Check the exact post-budget request for tool-result shapes the active driver
+	 * cannot carry. Initial capability negotiation cannot see results produced by
+	 * a later tool turn, so this boundary runs immediately before every provider
+	 * call. Keys are durable call/block coordinates, which prevents old history
+	 * from warning again on every subsequent iteration.
+	 */
+	private async reportUnsupportedToolResults(messages: readonly Message[]): Promise<void> {
+		const capabilities =
+			this.ctx.providerCapabilities ?? resolveProviderCapabilities(this.ctx.provider)
+		const images: string[] = []
+		const documents: string[] = []
+		for (const message of messages) {
+			if (message.role !== 'tool' || !Array.isArray(message.content)) continue
+			for (const [index, block] of message.content.entries()) {
+				const key = `${message.toolCallId}:${index}:${block.type}`
+				if (this.warnedRichToolResults.has(key)) continue
+				if (block.type === 'image' && !capabilities.supportsToolResultImages) {
+					images.push(key)
+				}
+				if (block.type === 'document' && !capabilities.supportsToolResultDocuments) {
+					documents.push(key)
+				}
+			}
+		}
+
+		const report = async (
+			keys: readonly string[],
+			capability: 'vision' | 'documents',
+			label: 'image' | 'document',
+		): Promise<void> => {
+			if (keys.length === 0) return
+			const message = `Provider '${this.ctx.provider.id}' declares it cannot map ${label} tool results, but this request carries ${keys.length} new ${label} block(s). The model will receive the driver's explicit text fallback instead of that content.`
+			if (this.ctx.strictCapabilities) {
+				throw new NamzuError({
+					code: 'capability_unavailable',
+					message,
+					details: {
+						providerId: this.ctx.provider.id,
+						capability,
+						blockCount: keys.length,
+					},
+				})
+			}
+			for (const key of keys) this.warnedRichToolResults.add(key)
+			this.ctx.log.warn('Capability mismatch: the provider cannot map rich tool results', {
+				'namzu.capability.detail': message,
+				[GENAI.SYSTEM]: this.ctx.provider.id,
+				'namzu.runtime.rich_tool_result_count': keys.length,
+			})
+			await this.ctx.emitEvent({
+				type: 'capability_warning',
+				runId: this.ctx.runMgr.id,
+				capability,
+				contentSource: 'tool-result',
+				providerId: this.ctx.provider.id,
+				message,
+			})
+		}
+
+		await report(images, 'vision', 'image')
+		await report(documents, 'documents', 'document')
 	}
 
 	/**
@@ -459,6 +528,8 @@ export class IterationOrchestrator {
 						requestHistory,
 						this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 					)
+					await this.reportUnsupportedToolResults(messages)
+					yield* this.ctx.drainPending()
 
 					// What the model is about to be ASKED, recorded when it
 					// changed. `run_started` carries one system prompt and tool
@@ -1986,6 +2057,7 @@ export class IterationOrchestrator {
 				finalHistory,
 				this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 			)
+			await this.reportUnsupportedToolResults(finalMessages)
 
 			// Same cache discipline as the forced-final iteration: keep the
 			// tools param identical to prior iterations (cache prefix intact,

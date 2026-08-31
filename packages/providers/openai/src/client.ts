@@ -39,6 +39,8 @@ export const OPENAI_CAPABILITIES: ProviderCapabilities = {
 	supportsFunctionCalling: true,
 	supportsVision: true,
 	supportsDocuments: true,
+	supportsToolResultImages: false,
+	supportsToolResultDocuments: false,
 }
 
 const GPT_5_EFFORT = [

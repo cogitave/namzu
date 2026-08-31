@@ -593,13 +593,16 @@ type CoreRunEvent =
 	// run when the request asks for something the provider DRIVER declared
 	// it cannot do — tools registered against a no-tools driver (tool
 	// surfaces stripped so the model is never told about uncallable
-	// tools), image attachments against a no-vision driver, or document
-	// attachments against a no-documents driver. Hosts surface these so
-	// degradation is visible, not silent.
+	// tools), image attachments against a no-vision driver, document
+	// attachments against a no-documents driver, or rich tool blocks against a
+	// result wire that only carries text. Hosts surface these so degradation is
+	// visible, not silent.
 	| {
 			type: 'capability_warning'
 			runId: RunId
 			capability: 'tools' | 'vision' | 'documents'
+			/** Present when the mismatch was produced after a tool executed. */
+			contentSource?: 'tool-result'
 			providerId: string
 			message: string
 	  }

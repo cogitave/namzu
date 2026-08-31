@@ -10,6 +10,8 @@ export interface ResolvedProviderCapabilities {
 	supportsFunctionCalling: boolean
 	supportsVision: boolean
 	supportsDocuments: boolean
+	supportsToolResultImages: boolean
+	supportsToolResultDocuments: boolean
 	maxOutputTokens?: number
 }
 
@@ -25,6 +27,8 @@ export const PERMISSIVE_PROVIDER_CAPABILITIES: ResolvedProviderCapabilities = {
 	supportsFunctionCalling: true,
 	supportsVision: true,
 	supportsDocuments: true,
+	supportsToolResultImages: true,
+	supportsToolResultDocuments: true,
 }
 
 /**
@@ -46,6 +50,12 @@ export function resolveProviderCapabilities(
 		supportsVision: declared?.supportsVision ?? PERMISSIVE_PROVIDER_CAPABILITIES.supportsVision,
 		supportsDocuments:
 			declared?.supportsDocuments ?? PERMISSIVE_PROVIDER_CAPABILITIES.supportsDocuments,
+		supportsToolResultImages:
+			declared?.supportsToolResultImages ??
+			PERMISSIVE_PROVIDER_CAPABILITIES.supportsToolResultImages,
+		supportsToolResultDocuments:
+			declared?.supportsToolResultDocuments ??
+			PERMISSIVE_PROVIDER_CAPABILITIES.supportsToolResultDocuments,
 		maxOutputTokens: declared?.maxOutputTokens,
 	}
 }

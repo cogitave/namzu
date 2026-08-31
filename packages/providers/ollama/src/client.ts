@@ -33,6 +33,8 @@ export const OLLAMA_CAPABILITIES: ProviderCapabilities = {
 	supportsVision: false,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
+	supportsToolResultImages: false,
+	supportsToolResultDocuments: false,
 }
 
 const DEFAULT_HOST = 'http://localhost:11434'

@@ -10,8 +10,13 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { SAFETY_ROWS } from './bottom-spacer.js'
-import { MAX_LIVE_ROWS, liveWindow, transcriptLines } from './live-window.js'
+import {
+	LIVE_WINDOW_SAFETY_ROWS,
+	MAX_LIVE_ROWS,
+	estimateRenderedLines,
+	liveWindow,
+	transcriptLines,
+} from './live-window.js'
 import type { TranscriptMessage } from './types.js'
 
 const FURNITURE = 10
@@ -49,7 +54,7 @@ describe('liveWindow', () => {
 		// Furniture plus the safety margin already exceed the height, so the
 		// budget is negative and the window is empty — which is exactly the
 		// behaviour before there was a window.
-		expect(split(rows(20), FURNITURE + SAFETY_ROWS).settled).toBe(20)
+		expect(split(rows(20), FURNITURE + LIVE_WINDOW_SAFETY_ROWS).settled).toBe(20)
 	})
 
 	it('holds the most recent rows on a terminal with room', () => {
@@ -99,10 +104,21 @@ describe('liveWindow', () => {
 	})
 
 	it('keeps the live region inside the budget it was given', () => {
-		// The number handed to the spacer as `liveRows`, which is what stops the
-		// composer being padded into a live region that is already full.
+		// The retained tail itself must stay below the live-region budget.
 		const { rows: height } = split(rows(200), 60)
-		expect(height).toBeLessThanOrEqual(60 - FURNITURE - SAFETY_ROWS)
+		expect(height).toBeLessThanOrEqual(60 - FURNITURE - LIVE_WINDOW_SAFETY_ROWS)
+	})
+
+	it('measures CJK in terminal cells rather than JavaScript string length', () => {
+		const wide = '界'.repeat(41)
+		expect(wide.length).toBe(41)
+		expect(estimateRenderedLines([wide], 80)).toBe(2)
+	})
+
+	it('refuses a Markdown row whose block margins exhaust the live budget', () => {
+		const blocks = Array.from({ length: 13 }, (_, i) => (i % 2 === 0 ? `# h${i}` : `p${i}`))
+		const message = row({ content: blocks.join('\n') })
+		expect(split([message], 40).settled).toBe(1)
 	})
 
 	it('never reaches back past what has already been printed', () => {
@@ -132,8 +148,7 @@ describe('liveWindow', () => {
 
 describe('transcriptLines', () => {
 	it('leaves out the row still streaming, which is not in the static log yet', () => {
-		// The live region is covered by the spacer's `liveRows`, so counting a
-		// pending row here would count it twice.
+		// Pending content is already rendered below the finalized live window.
 		expect(transcriptLines([row({ pending: true, detail: ['a', 'b'] })])).toEqual([])
 	})
 

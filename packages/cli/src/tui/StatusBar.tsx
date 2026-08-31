@@ -7,7 +7,7 @@
  */
 
 import type { CostInfo } from '@namzu/sdk'
-import { Text, useStdout } from 'ink'
+import { Text, useWindowSize } from 'ink'
 
 import { theme } from './theme.js'
 
@@ -50,13 +50,13 @@ export function StatusBar({
 	usage,
 	context,
 }: StatusBarProps) {
-	const { stdout } = useStdout()
+	const terminal = useWindowSize()
 	const gauge = buildGauge(context)
 	const layout = fitStatusLine({
 		// App gives the footer one cell of horizontal padding on each side. Ink's
 		// stdout width is the whole terminal, so reserve those cells here rather
 		// than letting its final two characters be clipped after fitting succeeds.
-		columns: Math.max(0, (stdout?.columns ?? 80) - 2),
+		columns: Math.max(0, terminal.columns - 2),
 		cwd: shortenCwd(cwd),
 		provider,
 		model,

@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-27
+lastReviewed: 2026-08-31
 tags: [computer-use, sdk]
 ---
 
@@ -370,6 +370,8 @@ A successful call ends the run **only when it is the only call in its turn.** A 
 - it wraps any `ComputerUseHost`
 - it exposes one `computer_use` tool
 - action support depends on the host's frozen capability map
+- screenshots return an image block for drivers that admit image tool results
+- its presenter emits human activity labels and hides only redundant successful `ok` results
 
 This tool is documented in more detail in the computer-use section because it depends on `@namzu/computer-use` or another host implementation.
 
