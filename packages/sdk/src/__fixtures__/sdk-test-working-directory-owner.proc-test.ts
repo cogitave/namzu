@@ -4,7 +4,7 @@ import { realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
+import { promisify, stripVTControlCharacters } from 'node:util'
 import { describe, expect, it } from 'vitest'
 
 const execFileAsync = promisify(execFile)
@@ -112,7 +112,10 @@ describe('SDK test working-directory owner', () => {
 		const root = reportedRoot(result)
 		try {
 			expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0)
-			expect(result.stdout).toMatch(/Test Files\s+1 passed \(1\)/)
+			// Hosted runners may force colour even though this child is captured.
+			// The summary is evidence that the real focused suite ran; ANSI styling
+			// is presentation and must not sit between the observer's words/numbers.
+			expect(stripVTControlCharacters(result.stdout)).toMatch(/Test Files\s+1 passed \(1\)/)
 			expect(existsSync(root)).toBe(false)
 		} finally {
 			await removeLeakedProbe(root)
