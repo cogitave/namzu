@@ -1,5 +1,35 @@
 # Changelog
 
+## 33.1.0
+
+### Minor Changes
+
+- 36248f3: Add separate provider capability declarations for image and document tool
+  results, and warn immediately before a request would degrade newly produced
+  rich tool output. Tool presenters can now mark a generic label as a complete
+  activity and mark a redundant successful acknowledgement as hidden; older
+  hosts continue to render the same generic label.
+
+  The account-routed Responses transport now sends supported user images and
+  image tool results as ordered image input parts. Documents, unresolved stored
+  references, unsupported image media types and unprojected omission markers are
+  refused before transport.
+
+  The interactive transcript now follows the visible conversation tail without
+  a synthetic viewport-height gap, responds to terminal resize, narrates desktop
+  actions with human labels, hides only successful empty acknowledgements, and
+  keeps screenshot dimensions and failures visible.
+
+- a9e8edd: Carry structured failure, provider and remediation metadata on resumable
+  `run_paused` events. Current driver `ProviderRequestError` throttles now retain
+  their retryability, status and retry delay at the terminal run boundary instead
+  of being projected as unknown.
+
+  The CLI exposes a distinct `paused` AgentEvent with checkpoint identity,
+  renders actionable classified interruptions, holds dependent queued work, and
+  prevents `namzu run` or ACP from treating a resumable stop as silent success.
+  `run-stream` forwards the structured pause before its terminating `done` event.
+
 ## 33.0.0
 
 ### Major Changes
