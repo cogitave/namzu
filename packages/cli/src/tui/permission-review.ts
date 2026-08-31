@@ -10,8 +10,8 @@ import { terminalDisplayText } from './terminal-display.js'
  */
 export const MAX_PERMISSION_REVIEW_BYTES = 8_000
 
-/** Physical rows kept visible in the exact-input pager. */
-export const PERMISSION_REVIEW_PAGE_ROWS = 8
+/** Physical rows kept visible without crowding a 24-row terminal. */
+export const PERMISSION_REVIEW_PAGE_ROWS = 6
 
 export interface PermissionReviewCall {
 	readonly id: string
@@ -23,6 +23,13 @@ export interface PermissionReviewCall {
 export type PermissionReviewResult =
 	| { readonly ok: true; readonly text: string; readonly bytes: number }
 	| { readonly ok: false; readonly reason: 'too_large' | 'unrepresentable' }
+
+export interface PermissionReviewSummary {
+	/** Complete, terminal-safe source for the readable pager. */
+	readonly text: string
+	/** True only when the formatter knows every executable input field. */
+	readonly complete: boolean
+}
 
 /** Actionable fail-closed feedback for a TUI review that cannot be exact. */
 export function permissionReviewRefusal(reason: 'too_large' | 'unrepresentable'): string {
@@ -206,6 +213,107 @@ export function buildPermissionReview(
 			reason: error instanceof ReviewLimitError ? 'too_large' : 'unrepresentable',
 		}
 	}
+}
+
+/**
+ * Derive a readable review from the immutable exact envelope.
+ *
+ * This never reads the original tool objects: `buildPermissionReview` has
+ * already rejected getters, prototypes and non-JSON values. A known formatter
+ * is marked complete only when its key set and value types are exhaustive.
+ * Unknown or evolved shapes still get a useful projection, but callers open
+ * the exact envelope by default so a friendly label can never hide a suffix.
+ */
+export function buildPermissionSummary(review: string): PermissionReviewSummary {
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(review)
+	} catch {
+		return { text: review, complete: false }
+	}
+	if (!isRecord(parsed) || !Array.isArray(parsed.calls)) {
+		return { text: review, complete: false }
+	}
+
+	const sections: string[] = []
+	let complete = true
+	for (let index = 0; index < parsed.calls.length; index += 1) {
+		const call = parsed.calls[index]
+		if (
+			!isRecord(call) ||
+			typeof call.name !== 'string' ||
+			typeof call.isDestructive !== 'boolean' ||
+			!Object.hasOwn(call, 'input')
+		) {
+			return { text: review, complete: false }
+		}
+		const readable = summarizeKnownCall(call.name, call.input)
+		complete &&= readable.complete
+		sections.push(
+			[
+				`${index + 1}. ${call.name}${call.isDestructive ? ' · destructive' : ''}`,
+				...readable.lines.map((line) => `   ${line}`),
+			].join('\n'),
+		)
+	}
+
+	return { text: sections.join('\n\n'), complete }
+}
+
+function summarizeKnownCall(
+	name: string,
+	input: unknown,
+): { readonly lines: readonly string[]; readonly complete: boolean } {
+	if (name === 'bash' && isRecord(input)) {
+		const allowed = new Set(['command', 'timeout', 'run_in_background'])
+		const keys = Object.keys(input)
+		const shapeIsKnown =
+			keys.every((key) => allowed.has(key)) &&
+			typeof input.command === 'string' &&
+			(input.timeout === undefined || typeof input.timeout === 'number') &&
+			(input.run_in_background === undefined || typeof input.run_in_background === 'boolean')
+		if (shapeIsKnown) {
+			return {
+				lines: [
+					`$ ${JSON.stringify(input.command)}`,
+					...(input.timeout !== undefined ? [`timeout: ${String(input.timeout)} ms`] : []),
+					...(input.run_in_background !== undefined
+						? [`background: ${input.run_in_background ? 'yes' : 'no'}`]
+						: []),
+				],
+				complete: true,
+			}
+		}
+	}
+
+	if (name === 'Agent' && isRecord(input)) {
+		const allowed = new Set(['description', 'prompt', 'role'])
+		const keys = Object.keys(input)
+		const shapeIsKnown =
+			keys.every((key) => allowed.has(key)) &&
+			typeof input.description === 'string' &&
+			typeof input.prompt === 'string' &&
+			(input.role === undefined || typeof input.role === 'string')
+		if (shapeIsKnown) {
+			return {
+				lines: [
+					`description: ${JSON.stringify(input.description)}`,
+					`prompt: ${JSON.stringify(input.prompt)}`,
+					...(input.role !== undefined ? [`role: ${JSON.stringify(input.role)}`] : []),
+				],
+				complete: true,
+			}
+		}
+	}
+
+	return {
+		lines: [`input: ${JSON.stringify(input)}`],
+		complete: false,
+	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /**

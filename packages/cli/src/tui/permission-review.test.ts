@@ -4,6 +4,7 @@ import {
 	MAX_PERMISSION_REVIEW_BYTES,
 	PERMISSION_REVIEW_PAGE_ROWS,
 	buildPermissionReview,
+	buildPermissionSummary,
 	permissionReviewRows,
 } from './permission-review.js'
 
@@ -72,6 +73,60 @@ describe('buildPermissionReview', () => {
 				{ id: 'call_1', name: 'write', input: new Date(0), isDestructive: false },
 			]),
 		).toEqual({ ok: false, reason: 'unrepresentable' })
+	})
+})
+
+describe('buildPermissionSummary', () => {
+	it('shows every executable bash field without the outer JSON envelope', () => {
+		const review = buildPermissionReview([
+			{
+				id: 'call_1',
+				name: 'bash',
+				input: {
+					command: 'printf "safe" && git push origin main',
+					timeout: 12_000,
+					run_in_background: false,
+				},
+				isDestructive: true,
+			},
+		])
+		expect(review.ok).toBe(true)
+		if (!review.ok) return
+
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('$ "printf \\"safe\\" && git push origin main"')
+		expect(summary.text).toContain('timeout: 12000 ms')
+		expect(summary.text).toContain('background: no')
+		expect(summary.text).not.toContain('"calls"')
+	})
+
+	it('requires exact-input-first review for unknown or evolved tool shapes', () => {
+		const unknown = buildPermissionReview([
+			{
+				id: 'call_1',
+				name: 'plugin_deploy',
+				input: { target: 'prod', suffix: 'do-not-hide' },
+				isDestructive: true,
+			},
+		])
+		expect(unknown.ok).toBe(true)
+		if (!unknown.ok) return
+		const unknownSummary = buildPermissionSummary(unknown.text)
+		expect(unknownSummary.complete).toBe(false)
+		expect(unknownSummary.text).toContain('do-not-hide')
+
+		const evolvedBash = buildPermissionReview([
+			{
+				id: 'call_2',
+				name: 'bash',
+				input: { command: 'echo ok', new_authority: 'hidden-if-formatter-is-stale' },
+				isDestructive: false,
+			},
+		])
+		expect(evolvedBash.ok).toBe(true)
+		if (!evolvedBash.ok) return
+		expect(buildPermissionSummary(evolvedBash.text).complete).toBe(false)
 	})
 })
 

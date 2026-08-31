@@ -37,6 +37,35 @@ async function waitUntil(screen: Awaited<ReturnType<typeof renderToScreen>>, che
 }
 
 describe('the composer on a production-shaped terminal', () => {
+	it('reports only actionable empty/non-empty transitions to its parent', async () => {
+		const transitions: boolean[] = []
+		const screen = await renderToScreen(
+			<Composer
+				history={[]}
+				onSubmit={vi.fn()}
+				onDraftPresenceChange={(present) => transitions.push(present)}
+			/>,
+			{ cols: 100, rows: 16 },
+		)
+		try {
+			screen.press('   ')
+			await screen.waitForRender()
+			expect(transitions).toEqual([])
+
+			screen.press('x')
+			await screen.waitForRender()
+			screen.press('yz')
+			await screen.waitForRender()
+			expect(transitions).toEqual([true])
+
+			screen.press('\x1b')
+			await waitUntil(screen, () => transitions.length === 2)
+			expect(transitions).toEqual([true, false])
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('uses spare terminal height for more slash commands without growing unbounded', async () => {
 		expect(suggestionWindowSize(undefined)).toBe(6)
 		expect(suggestionWindowSize(24)).toBe(6)

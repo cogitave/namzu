@@ -1,6 +1,7 @@
 import type { TaskId } from '../ids/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { CancelCause } from '../run/cancel-cause.js'
+import type { RunEventListener } from '../run/events.js'
 import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentTaskState } from './task.js'
 
@@ -27,6 +28,18 @@ export interface TaskHandle {
 export type SiblingFailurePolicy = 'continue' | 'cancel-siblings'
 
 export interface CreateTaskOptions {
+	/**
+	 * Observe events from this one delegated run when the scheduler can expose
+	 * them.
+	 *
+	 * The built-in local scheduler supports this without replacing its
+	 * scheduler-wide listener. Delivery is observational and must not
+	 * backpressure or decide the child run; a remote/custom scheduler may omit
+	 * it when that transport has no event stream. Callers must therefore settle
+	 * their task view from the returned {@link TaskHandle} as well.
+	 */
+	readonly onEvent?: RunEventListener
+
 	/**
 	 * Span the spawned run should hang off — normally the executing tool's
 	 * own span, so the delegation shows up inside the turn that asked for

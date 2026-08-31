@@ -453,10 +453,15 @@ describe('the two composer destinations', () => {
 			expect(firstPromptRow).toBeLessThan(14)
 			const composerRow = screen.viewport().findIndex((line) => line.includes('Type a message'))
 			expect(composerRow).toBeGreaterThan(firstPromptRow)
+			expect(screen.viewport().join('\n')).not.toContain('enter steer')
 
 			// Alt+V belongs to clipboard attachment, independently of computer-use.
 			screen.press('\x1bv')
-			await screen.waitForRender()
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('enter steer'),
+				'active-turn controls did not appear for an attached image draft',
+			)
 			await typeAndPress(screen, 'also inspect this', '\r')
 			await waitUntil(
 				screen,

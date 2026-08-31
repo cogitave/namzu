@@ -49,6 +49,8 @@ import {
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 
+import { SubagentActivityMonitor, type SubagentActivitySource } from './activity.js'
+
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 
 const SUBAGENT_PROMPT = [
@@ -95,6 +97,8 @@ export interface SubagentRuntime {
 	readonly gateway: TaskScheduler
 	readonly agentTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
+	/** Live, bounded observation of children created by this CLI session. */
+	readonly activity: SubagentActivitySource
 	/** Stop every child still owned by this parent session. Idempotent. */
 	close(): Promise<void>
 }
@@ -178,6 +182,7 @@ export async function createSubagentRuntime(
 	}
 
 	const gateway = new LocalTaskScheduler(manager, taskContext, opts.onEvent)
+	const activity = new SubagentActivityMonitor()
 
 	// Dynamic `Agent` tool: the model passes an optional `role` (the persona /
 	// system prompt) and we register + spawn a fresh specialist for it at call
@@ -217,7 +222,11 @@ export async function createSubagentRuntime(
 		destructive: false,
 		concurrencySafe: true,
 		async execute(input, context) {
-			const { prompt, role } = input as { prompt: string; role?: string }
+			const { description, prompt, role } = input as {
+				description: string
+				prompt: string
+				role?: string
+			}
 			let agentId = GENERAL_PURPOSE_SUBAGENT
 			const persona = typeof role === 'string' ? role.trim() : ''
 			const dynamic = persona.length > 0
@@ -225,6 +234,7 @@ export async function createSubagentRuntime(
 				agentId = `dyn-${++dynCounter}`
 				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
 			}
+			const tracker = activity.begin({ agentId, description, prompt })
 			try {
 				const completed = await runBlockingAgentTask({
 					gateway,
@@ -239,8 +249,10 @@ export async function createSubagentRuntime(
 						// a delegation trace exists to record — who dispatched whom
 						// — is the thing that goes missing.
 						...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
+						onEvent: tracker.onEvent,
 					},
 				})
+				tracker.settle(completed)
 				const runStatus = completed.result?.status
 				const succeeded =
 					completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
@@ -261,6 +273,9 @@ export async function createSubagentRuntime(
 					success: true,
 					output: resultText || '(sub-agent returned no text)',
 				}
+			} catch (error) {
+				tracker.fail(error)
+				throw error
 			} finally {
 				// A per-call dynamic specialist is single-use — drop its definition
 				// (and retained persona string) so long sessions don't leak `dyn-N`
@@ -281,11 +296,18 @@ export async function createSubagentRuntime(
 				taskContext.parentAbortController.abort(new RunCancelled('parent'))
 			}
 			manager.dispose()
+			activity.close()
 		})
 		return closePromise
 	}
 
-	return { gateway, agentTool, allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT], close }
+	return {
+		gateway,
+		agentTool,
+		allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT],
+		activity,
+		close,
+	}
 }
 
 interface BlockingAgentTaskInput {

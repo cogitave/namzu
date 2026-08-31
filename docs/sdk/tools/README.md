@@ -675,6 +675,14 @@ Child progress is already visible without this: a subagent's run events
 reach the same `RunEventListener` the parent was given, stamped with
 lineage depth, so a host sees the worker working rather than a silence.
 
+The built-in local scheduler can also project one delegation without filtering
+the scheduler-wide stream. Pass `CreateTaskOptions.onEvent` to observe that
+task's events; the two listeners are isolated, never awaited, and a throw or
+rejection from either cannot backpressure or stop the child. This hook is
+observational and optional for custom or remote schedulers whose transport has
+no child event stream, so a host must still settle its view from the returned
+`TaskHandle`.
+
 `buildAgentTool({ terminal: true })` sets it on the built-in `Agent`
 delegation tool. Off by default — an agent that delegates as one step of a
 longer plan needs the loop to continue.

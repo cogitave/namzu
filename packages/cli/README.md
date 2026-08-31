@@ -109,8 +109,8 @@ sign-in action.
 Bare `/help` opens the session's complete command vocabulary as a keyboard
 palette; selecting a row runs that command through the same dispatcher as a
 typed slash command. Refused project command files remain visible with their
-reason. Bare `/effort`, `/permissions`, `/feedback`, `/skills`, and `/review` open finite
-keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
+reason. Bare `/agent`, `/effort`, `/permissions`, `/feedback`, `/skills`, and
+`/review` open finite keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
 `/title` remains an alias and `/title clear` removes the chosen name. The review
 chooser can target a base branch, uncommitted work, or a recent commit; choosing
 custom instructions restores `/review ` to the composer. When both Namzu-owned
@@ -123,11 +123,21 @@ command is the active completion ahead of longer names with the same prefix.
 conversation read-only and exits without advertising it as resumable. Its
 history remains on disk for inspection.
 
-When a tool batch needs consent, the TUI reviews the whole prepared JSON input,
-not a shortened command or file preview. Arrows, PageUp/PageDown and Home/End
-page through a fixed eight physical rows, including long single-line values.
+When a tool batch needs consent, the TUI derives a readable operation only from
+the immutable prepared JSON. Known, exhaustively formatted calls start in that
+view; unknown or evolved shapes start on the exact envelope. `d` switches
+between them without deciding the prompt. Arrows, PageUp/PageDown and Home/End
+page through six physical content rows, including long single-line values.
 The complete batch is refused above 8,000 UTF-8 bytes or when it cannot be
-represented exactly; approval never covers hidden or truncated input.
+represented exactly; approval never covers hidden or truncated input, and
+Enter never approves it.
+
+Delegated work stays attached to the parent turn while `/agent` opens a bounded
+list of active and recent children. Enter inspects one child's live projected
+transcript, Escape returns to the list, and `q` returns to the parent. Selection
+is tied to the child's stable identity, so a completion that reorders the list
+does not move the operator to another run. Parent output that settles while a
+child is open is published once on return.
 
 `/skill` remains an alias, `/skills <name>` activates directly, and
 `/skills list` prints the roster. Long model and resume lists

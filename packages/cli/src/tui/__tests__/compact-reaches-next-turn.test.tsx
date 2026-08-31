@@ -376,7 +376,7 @@ it('restores a persisted compaction summary as model history', async () => {
 	).toBe(true)
 })
 
-it('publishes the new status and summary only after durable compaction settles', async () => {
+it('publishes the summary only after durable compaction settles without footer telemetry', async () => {
 	reportContextUsage = true
 	holdReplacement = true
 	compactionUsage = {
@@ -391,16 +391,12 @@ it('publishes the new status and summary only after durable compaction settles',
 	await waitForScreen(screen, () => fullScreen(screen).includes('Connected to a-provider'))
 
 	await submitToScreen(screen, 'question before durable compaction')
-	await waitForScreen(
-		screen,
-		() => fullScreen(screen).includes('answer-1') && visibleScreen(screen).includes('95%'),
-	)
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
+	expect(visibleScreen(screen)).not.toContain('95%')
 
 	await submitToScreen(screen, '/compact')
 	await waitForScreen(screen, () => replaceEntered === 1)
-	expect(visibleScreen(screen), 'the old measurement vanished before its history changed').toContain(
-		'95%',
-	)
+	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(fullScreen(screen)).toContain('question before durable compaction')
 	expect(fullScreen(screen)).toContain('answer-1')
 	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
@@ -408,12 +404,10 @@ it('publishes the new status and summary only after durable compaction settles',
 	releaseReplacement()
 	await waitForScreen(screen, () => fullScreen(screen).includes('Compacted 1 earlier message'))
 	expect(fullScreen(screen)).toContain('Verifier used 1,234 tokens.')
-	expect(visibleScreen(screen), 'the gauge still described the superseded history').not.toContain(
-		'95%',
-	)
+	expect(visibleScreen(screen)).not.toContain('95%')
 })
 
-it('never clears the old status while a durable replacement is pending or rejected', async () => {
+it('keeps footer telemetry quiet while a durable replacement is pending or rejected', async () => {
 	reportContextUsage = true
 	holdReplacement = true
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
@@ -421,25 +415,20 @@ it('never clears the old status while a durable replacement is pending or reject
 	await waitForScreen(screen, () => fullScreen(screen).includes('Connected to a-provider'))
 
 	await submitToScreen(screen, 'question before rejected compaction')
-	await waitForScreen(
-		screen,
-		() => fullScreen(screen).includes('answer-1') && visibleScreen(screen).includes('95%'),
-	)
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
 	await submitToScreen(screen, '/compact')
 	await waitForScreen(screen, () => replaceEntered === 1)
-	expect(visibleScreen(screen)).toContain('95%')
+	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
 
 	rejectReplacement(new Error('REPLACEMENT_DID_NOT_LAND'))
 	await waitForScreen(screen, () => fullScreen(screen).includes('REPLACEMENT_DID_NOT_LAND'))
-	expect(visibleScreen(screen), 'a rejected publication erased the still-current gauge').toContain(
-		'95%',
-	)
+	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(fullScreen(screen)).toContain('question before rejected compaction')
 	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
 })
 
-it('keeps the current status when compaction has nothing to replace', async () => {
+it('keeps footer telemetry quiet when compaction has nothing to replace', async () => {
 	reportContextUsage = true
 	compactReturnsNull = true
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
@@ -447,21 +436,16 @@ it('keeps the current status when compaction has nothing to replace', async () =
 	await waitForScreen(screen, () => fullScreen(screen).includes('Connected to a-provider'))
 
 	await submitToScreen(screen, 'short conversation')
-	await waitForScreen(
-		screen,
-		() => fullScreen(screen).includes('answer-1') && visibleScreen(screen).includes('95%'),
-	)
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
 	await submitToScreen(screen, '/compact')
 	await waitForScreen(screen, () => fullScreen(screen).includes('adding a summary would save no messages'))
 
-	expect(visibleScreen(screen), 'a no-op changed the measurement of unchanged history').toContain(
-		'95%',
-	)
+	expect(visibleScreen(screen)).not.toContain('95%')
 	expect(replaceEntered).toBe(0)
 	expect(fullScreen(screen)).not.toContain('Compacted 1 earlier message')
 })
 
-it('shows automatic compaction before the next provider settles and keeps the new gauge on failure', async () => {
+it('shows automatic compaction before the next provider settles without footer telemetry', async () => {
 	reportContextUsage = true
 	reportAutomaticCompaction = true
 	holdAutomaticFailure()
@@ -473,28 +457,17 @@ it('shows automatic compaction before the next provider settles and keeps the ne
 	await waitForScreen(screen, () => fullScreen(screen).includes('Connected to a-provider'))
 
 	await submitToScreen(screen, 'fill the context')
-	await waitForScreen(
-		screen,
-		() => fullScreen(screen).includes('answer-1') && visibleScreen(screen).includes('95%'),
-	)
+	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
 	await submitToScreen(screen, 'continue after automatic compaction')
-	await waitForScreen(
-		screen,
-		() =>
-			fullScreen(screen).includes('context compacted') && visibleScreen(screen).includes('~20%'),
-	)
+	await waitForScreen(screen, () => fullScreen(screen).includes('context compacted'))
 
 	expect(fullScreen(screen)).not.toContain('NEXT_PROVIDER_FAILED')
-	expect(
-		visibleScreen(screen),
-		'the pre-compaction gauge survived the committed edit',
-	).not.toContain('95%')
+	expect(visibleScreen(screen)).not.toContain('95%')
+	expect(visibleScreen(screen)).not.toContain('~20%')
 
 	releaseAutomaticFailure()
 	await waitForScreen(screen, () => fullScreen(screen).includes('NEXT_PROVIDER_FAILED'))
-	expect(visibleScreen(screen), 'a provider failure restored the superseded gauge').toContain(
-		'~20%',
-	)
+	expect(visibleScreen(screen)).not.toContain('~20%')
 })
 
 it('keeps the live history unchanged when its durable replacement fails', async () => {

@@ -78,7 +78,6 @@ import {
 	createComputerUseTool,
 	createMemoryPromoter,
 	createToolPresenter,
-	genericLabel,
 	getBuiltinTools,
 	isTrustedReadOnly,
 	query,
@@ -136,6 +135,7 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
+import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
@@ -510,6 +510,8 @@ export interface AgentSession {
 	 * the runtime to find out.
 	 */
 	readonly agentIds: readonly string[]
+	/** Children created in this process, available for the TUI's observational view. */
+	readonly subagents?: SubagentActivitySource
 	/**
 	 * Things about this session's configuration the operator must be told, every
 	 * launch — today, an accepted capability disagreement in the provider chain,
@@ -1429,11 +1431,6 @@ export async function createAgentSession(
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	let subagentGateway: TaskScheduler | undefined
 	let subagentRuntime: SubagentRuntime | undefined
-	// Buffer of the in-flight sub-agent's tool steps. The gateway streams the
-	// child's events here while the parent's `Agent` tool call blocks; runTurn
-	// drains it onto the `Agent` result as a `├─/└─` tree. Scoped per `Agent`
-	// call (cleared when one starts).
-	const childSteps: string[] = []
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
 	// dispatch to. A roster reported from the request rather than the result
@@ -1489,11 +1486,6 @@ export async function createAgentSession(
 				return buildToolRegistry(cwd).registry
 			},
 			authorizationGate: gateFor(options.rules),
-			onEvent: (e) => {
-				if (e.type === 'tool_executing') {
-					childSteps.push(`${e.toolName}(${genericLabel(e.input)})`)
-				}
-			},
 		})
 		subagentRuntime = sub
 		registry.register([sub.agentTool])
@@ -1649,6 +1641,7 @@ export async function createAgentSession(
 				.map((t) => t.name)
 				.filter((name) => !goalToolNames.has(name)),
 		agentIds: allowedAgentIds,
+		...(subagentRuntime ? { subagents: subagentRuntime.activity } : {}),
 		get instructionFiles() {
 			return projectInstructions.instructionFiles
 		},
@@ -1768,7 +1761,6 @@ export async function createAgentSession(
 							opts: { ...opts, signal },
 							taskGateway: subagentGateway,
 							onRunEvent: options.onRunEvent,
-							childSteps,
 							...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 							...(options.sandbox?.teardownTimeoutMs !== undefined
 								? {
@@ -2353,7 +2345,6 @@ interface RunTurnParams {
 	readonly taskGateway: TaskScheduler | undefined
 	/** See {@link AgentSessionOptions.onRunEvent}. */
 	readonly onRunEvent: ((event: RunEvent) => void) | undefined
-	readonly childSteps: string[]
 	/**
 	 * Where this turn's commands run. Absent means the host process, which
 	 * is what every turn did before the CLI built one.
@@ -2385,7 +2376,6 @@ async function* runTurn({
 	projectInstructionContext,
 	opts,
 	taskGateway,
-	childSteps,
 	sandboxProvider,
 	sandboxTeardownTimeoutMs,
 	onRunEvent,
@@ -2489,24 +2479,6 @@ async function* runTurn({
 				}
 				const mapped = toAgentEvent(event, presenter)
 				if (!mapped) continue
-				// On an `Agent` delegation finishing, attach the sub-agent's tool
-				// steps (collected via the gateway while the call blocked) as a
-				// `├─/└─` tree under its result, then reset for the next delegation.
-				// (Don't clear on tool_executing: the parent's events can be buffered
-				// and pulled only after the child already ran, which would wipe it.)
-				if (
-					event.type === 'tool_completed' &&
-					event.toolName === 'Agent' &&
-					childSteps.length > 0 &&
-					mapped.kind === 'tool-end'
-				) {
-					yield {
-						...mapped,
-						detail: [...(mapped.detail ?? []), ...asTree(childSteps)],
-					}
-					childSteps.length = 0
-					continue
-				}
 				yield mapped
 			}
 		} finally {
@@ -2963,11 +2935,6 @@ function describeFallback(event: {
 		`${status} ${why} (${event.code}). ` +
 		`${name(event.toIndex, event.toProviderId, event.toModel)} — is serving the rest of this turn.`
 	)
-}
-
-/** Render a sub-agent's tool steps as a `├─/└─` tree for the Agent result. */
-function asTree(steps: readonly string[]): string[] {
-	return steps.map((s, i) => `${i === steps.length - 1 ? '└─' : '├─'} ${s}`)
 }
 
 /**

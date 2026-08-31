@@ -387,6 +387,12 @@ describe('/cost', () => {
 	})
 })
 
+describe('/agent', () => {
+	it('opens the host-owned child-run observer', () => {
+		expect(runSlash('/agent', context())).toEqual({ kind: 'agent-picker' })
+	})
+})
+
 describe('/permissions', () => {
 	it('opens the finite chooser when no mode is typed', () => {
 		expect(runSlash('/permissions', context())).toEqual({

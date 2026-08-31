@@ -28,6 +28,14 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
  */
 const GATEWAY_TASK_LEDGER_CAP = 1_000
 
+interface ObserverDelivery {
+	busy: boolean
+	readonly queue: Array<{
+		readonly event: Parameters<RunEventListener>[0]
+		readonly observer: 'scheduler' | 'task'
+	}>
+}
+
 export class LocalTaskScheduler implements TaskScheduler {
 	private agentManager: AgentManagerContract
 	private taskContext: AgentTaskContext
@@ -56,6 +64,15 @@ export class LocalTaskScheduler implements TaskScheduler {
 	private siblingFailurePolicy: SiblingFailurePolicy = 'continue'
 	/** See {@link onTaskProgress}. */
 	private readonly progressListeners = new Set<(taskId: TaskId) => void>()
+	/**
+	 * One non-blocking delivery chain per observer.
+	 *
+	 * Child streaming never awaits these promises, but a listener still sees
+	 * its own events in source order. Keeping the chains separate also means a
+	 * slow exporter cannot hold up a task-specific screen (or another task's
+	 * screen) that uses a different callback.
+	 */
+	private readonly observerDeliveries = new WeakMap<RunEventListener, ObserverDelivery>()
 	/** Raw, unresolved — kept as the caller handed it so each of the two log
 	 * sites below resolves it independently via `resolveLogger`, rather than
 	 * this constructor baking in ONE `.child()` binding both would then share
@@ -150,7 +167,15 @@ export class LocalTaskScheduler implements TaskScheduler {
 			// tool's own description tells the model to use — the event loop
 			// interleaves and three of the four died. Found by running one.
 			(event) => {
-				this.listener?.(event)
+				// A scheduler-wide observer and this task's observer are independent.
+				// Either may throw or reject: observation is not authority over the
+				// child, and one broken screen/export must neither stop the run nor
+				// suppress the other observer. Async listeners are deliberately not
+				// awaited, so a slow renderer cannot backpressure model streaming.
+				this.deliverEvent(this.listener, event, 'scheduler')
+				if (options.onEvent !== this.listener) {
+					this.deliverEvent(options.onEvent, event, 'task')
+				}
 				// No id yet means nothing is waiting on this task: the caller
 				// does not hold the handle, so an idle bound cannot be running
 				// against it. There is no progress to report to anyone.
@@ -188,6 +213,67 @@ export class LocalTaskScheduler implements TaskScheduler {
 			})
 
 		return toHandle(task)
+	}
+
+	private deliverEvent(
+		listener: RunEventListener | undefined,
+		event: Parameters<RunEventListener>[0],
+		observer: 'scheduler' | 'task',
+	): void {
+		if (!listener) return
+
+		// Each observer receives its own value graph. RunEvent is readonly at the
+		// type boundary, but a JavaScript consumer can still mutate an object it
+		// was handed; that must not forge what the next independent observer sees.
+		const snapshot = structuredClone(event)
+		let delivery = this.observerDeliveries.get(listener)
+		if (!delivery) {
+			delivery = { busy: false, queue: [] }
+			this.observerDeliveries.set(listener, delivery)
+		}
+		delivery.queue.push({ event: snapshot, observer })
+		this.drainObserver(listener, delivery)
+	}
+
+	private drainObserver(listener: RunEventListener, delivery: ObserverDelivery): void {
+		if (delivery.busy) return
+		while (delivery.queue.length > 0) {
+			const next = delivery.queue.shift()
+			if (!next) return
+			try {
+				const pending = listener(next.event)
+				if (!pending) continue
+				delivery.busy = true
+				void pending.then(
+					() => {
+						delivery.busy = false
+						this.drainObserver(listener, delivery)
+					},
+					(error) => {
+						this.reportObserverFailure(next.event.type, next.observer, error)
+						delivery.busy = false
+						this.drainObserver(listener, delivery)
+					},
+				)
+				return
+			} catch (error) {
+				this.reportObserverFailure(next.event.type, next.observer, error)
+			}
+		}
+	}
+
+	private reportObserverFailure(
+		eventType: Parameters<RunEventListener>[0]['type'],
+		observer: 'scheduler' | 'task',
+		error: unknown,
+	): void {
+		resolveLogger(this.log)
+			.child({ [SCOPE_ATTRIBUTE]: 'scheduler/local' })
+			.warn('Task event observer failed', {
+				'namzu.event.type': eventType,
+				'namzu.scheduler.observer': observer,
+				'exception.message': toErrorMessage(error),
+			})
 	}
 
 	/**

@@ -71,6 +71,12 @@ export interface ComposerProps {
 	readonly draftToRestore?: ComposerDraft | null
 	/** Lets App clear the one-shot value without racing the local state update. */
 	readonly onDraftRestored?: (token: number) => void
+	/**
+	 * Reports only empty ↔ actionable transitions, never text or cursor changes.
+	 * App uses this to reveal active-turn controls without re-rendering the
+	 * transcript on every keypress.
+	 */
+	readonly onDraftPresenceChange?: (hasDraft: boolean) => void
 }
 
 /** Return addresses the active turn; Tab deliberately addresses the follow-up queue. */
@@ -93,7 +99,9 @@ const PASTE_THRESHOLD = 80
 // the real cursor rather than assuming every edit happens at the end.
 const COMPOSER_DISPLAY_CODE_UNITS = 2048
 const COMPOSER_DISPLAY_LINES = 8
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const graphemeSegmenter = new Intl.Segmenter(undefined, {
+	granularity: 'grapheme',
+})
 
 interface ComposerDisplay {
 	readonly before: string
@@ -295,7 +303,10 @@ function deletePreviousWordAt(
 	cursor: number,
 ): { readonly value: string; readonly cursor: number } {
 	const start = previousWordBoundary(source, cursor)
-	return { value: source.slice(0, start) + source.slice(cursor), cursor: start }
+	return {
+		value: source.slice(0, start) + source.slice(cursor),
+		cursor: start,
+	}
 }
 
 function deleteNextWordAt(
@@ -320,6 +331,7 @@ export function Composer({
 	onEditPrevious,
 	draftToRestore = null,
 	onDraftRestored,
+	onDraftPresenceChange,
 }: ComposerProps) {
 	const terminal = useWindowSize()
 	const [value, setValueState] = useState<string>('')
@@ -328,7 +340,10 @@ export function Composer({
 	const cursorRef = useRef(0)
 	const [, setHistoryIndexState] = useState<number>(-1)
 	const historyIndexRef = useRef(-1)
-	const historyDraftRef = useRef<{ readonly value: string; readonly cursor: number } | null>(null)
+	const historyDraftRef = useRef<{
+		readonly value: string
+		readonly cursor: number
+	} | null>(null)
 	const [historySearch, setHistorySearchState] = useState<HistorySearchState | null>(null)
 	const historySearchRef = useRef<HistorySearchState | null>(null)
 	const verticalColumnRef = useRef<number | null>(null)
@@ -343,6 +358,17 @@ export function Composer({
 	const [attachments, setAttachments] = useState<readonly MessageAttachment[]>([])
 	const [editPreviousArmed, setEditPreviousArmed] = useState(false)
 	const restoredTokenRef = useRef<number | null>(null)
+	const draftPresenceRef = useRef(false)
+
+	useEffect(() => {
+		const hasDraft =
+			value.trim().length > 0 ||
+			pastes.some((paste) => paste.trim().length > 0) ||
+			attachments.length > 0
+		if (hasDraft === draftPresenceRef.current) return
+		draftPresenceRef.current = hasDraft
+		onDraftPresenceChange?.(hasDraft)
+	}, [attachments.length, onDraftPresenceChange, pastes, value])
 
 	// Keep the complete match set. The six-row limit belongs to the rendered
 	// window, not to navigation: slicing here made every later command
@@ -475,10 +501,7 @@ export function Composer({
 					? liveCommandSuggestions.length
 					: liveFileSuggestions.length
 			const hasLiveSuggestions = liveSuggestionKind !== null
-			const liveSelection = Math.min(
-				selectedRef.current,
-				Math.max(0, liveSuggestionCount - 1),
-			)
+			const liveSelection = Math.min(selectedRef.current, Math.max(0, liveSuggestionCount - 1))
 			const acceptSuggestion = (): boolean => {
 				if (liveSuggestionKind === 'command') {
 					editBuffer(`/${liveCommandSuggestions[liveSelection]?.name ?? ''} `)
@@ -547,7 +570,10 @@ export function Composer({
 					const query = valueRef.current
 					const normalizedQuery = query.toLowerCase()
 					search = {
-						draft: browsedHistoryDraft ?? { value: query, cursor: cursorRef.current },
+						draft: browsedHistoryDraft ?? {
+							value: query,
+							cursor: cursorRef.current,
+						},
 						query,
 						matches: [...history]
 							.reverse()
@@ -626,19 +652,13 @@ export function Composer({
 				}
 				const position = cursorRef.current
 				const previous = previousGraphemeBoundary(valueRef.current, position)
-				editBuffer(
-					valueRef.current.slice(0, previous) + valueRef.current.slice(position),
-					previous,
-				)
+				editBuffer(valueRef.current.slice(0, previous) + valueRef.current.slice(position), previous)
 				return
 			}
 			if (key.delete || (key.ctrl && input === 'd')) {
 				const position = cursorRef.current
 				const next = nextGraphemeBoundary(valueRef.current, position)
-				editBuffer(
-					valueRef.current.slice(0, position) + valueRef.current.slice(next),
-					position,
-				)
+				editBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(next), position)
 				return
 			}
 			if ((key.leftArrow && (key.meta || key.ctrl)) || (key.meta && input === 'b')) {
@@ -672,12 +692,9 @@ export function Composer({
 			if (hasLiveSuggestions && (key.home || key.end || key.pageUp || key.pageDown)) {
 				if (key.home) setSelectedIndex(0)
 				else if (key.end) setSelectedIndex(liveSuggestionCount - 1)
-				else if (key.pageUp)
-					setSelectedIndex((index) => Math.max(0, index - suggestionWindow))
+				else if (key.pageUp) setSelectedIndex((index) => Math.max(0, index - suggestionWindow))
 				else
-					setSelectedIndex((index) =>
-						Math.min(liveSuggestionCount - 1, index + suggestionWindow),
-					)
+					setSelectedIndex((index) => Math.min(liveSuggestionCount - 1, index + suggestionWindow))
 				return
 			}
 			if (key.home || (key.ctrl && input === 'a')) {
@@ -714,7 +731,10 @@ export function Composer({
 				verticalColumnRef.current = null
 				if (history.length === 0) return
 				if (historyIndexRef.current < 0) {
-					historyDraftRef.current = { value: valueRef.current, cursor: cursorRef.current }
+					historyDraftRef.current = {
+						value: valueRef.current,
+						cursor: cursorRef.current,
+					}
 				}
 				const next = Math.min(historyIndexRef.current + 1, history.length - 1)
 				setHistoryIndex(next)
@@ -937,8 +957,8 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{commandSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter run · Tab
-						 complete
+						{selIdx + 1}/{commandSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter run ·
+						Tab complete
 					</Text>
 				</Box>
 			) : suggestionKind === 'file' ? (
@@ -956,8 +976,7 @@ export function Composer({
 						)
 					})}
 					<Text color={theme.text.muted}>
-						{selIdx + 1}/{fileSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter/Tab
-						 insert
+						{selIdx + 1}/{fileSuggestions.length} · ↑↓ navigate · PgUp/PgDn jump · Enter/Tab insert
 					</Text>
 				</Box>
 			) : null}

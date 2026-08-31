@@ -38,6 +38,7 @@ const decisions: PermissionDecision[] = []
 const permissionModes: unknown[] = []
 const turnSignals: Array<AbortSignal | undefined> = []
 let toolExecutions = 0
+let requestedToolInput: unknown = { command: 'rm -rf build' }
 
 /**
  * The clock the settle window is measured against, driven by the test.
@@ -143,7 +144,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 							{
 								id: 'call-1',
 								name: 'bash',
-								input: { command: 'rm -rf build' },
+								input: requestedToolInput,
 								isDestructive: true,
 							},
 						],
@@ -238,6 +239,7 @@ beforeEach(() => {
 	permissionModes.length = 0
 	turnSignals.length = 0
 	toolExecutions = 0
+	requestedToolInput = { command: 'rm -rf build' }
 	permissionDelayMs = 30
 	nowMs = 1_000_000
 	vi.spyOn(Date, 'now').mockImplementation(() => nowMs)
@@ -342,6 +344,53 @@ describe('the permission prompt', () => {
 		expect(frame, 'named the key without naming what makes it different').toContain(
 			'stop the turn',
 		)
+	})
+
+	it('toggles the immutable exact envelope without deciding the prompt', async () => {
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		expect(lastFrame()).toContain('Prepared operation')
+		expect(lastFrame()).not.toContain('"calls"')
+
+		stdin.write('d')
+		await tick(100)
+		expect(lastFrame()).toContain('Exact prepared input')
+		expect(lastFrame()).toContain('"calls"')
+		expect(decisions).toEqual([])
+
+		stdin.write('d')
+		await tick(100)
+		expect(lastFrame()).toContain('Prepared operation')
+		expect(decisions).toEqual([])
+	})
+
+	it('opens an evolved shape exact-first and keeps its hidden suffix reachable', async () => {
+		requestedToolInput = {
+			command: 'echo safe',
+			futureOption: 'x'.repeat(1_200),
+			exactSuffix: 'EVOLVED_SUFFIX_REACHABLE',
+		}
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		expect(lastFrame()).toContain('Exact prepared input')
+		expect(lastFrame()).toContain('"calls"')
+
+		stdin.write('d')
+		await tick(100)
+		expect(lastFrame()).toContain('Prepared operation')
+		expect(decisions).toEqual([])
+		stdin.write('d')
+		await tick(100)
+		expect(lastFrame()).toContain('Exact prepared input')
+
+		for (
+			let page = 0;
+			page < 30 && !(lastFrame() ?? '').includes('EVOLVED_SUFFIX_REACHABLE');
+			page += 1
+		) {
+			stdin.write('\x1b[6~')
+			await tick(30)
+		}
+		expect(lastFrame()).toContain('EVOLVED_SUFFIX_REACHABLE')
+		expect(decisions, 'view/paging keys decided consent').toEqual([])
 	})
 
 	it('ctrl+c does what the overlay now says it does', async () => {

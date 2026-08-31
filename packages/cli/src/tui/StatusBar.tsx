@@ -6,24 +6,9 @@
  * its columns first so a deep path cannot erase the key that exits a prompt.
  */
 
-import type { CostInfo } from '@namzu/sdk'
 import { Text, useWindowSize } from 'ink'
 
 import { theme } from './theme.js'
-
-/**
- * How full the context is, as the kernel reported it — never derived here.
- *
- * Every field is optional because the kernel omits all four when a run
- * resolved no window, and a partial pair is not something to patch up with a
- * default. See {@link buildGauge} for what is done with that.
- */
-export interface ContextFill {
-	readonly tokens?: number
-	readonly windowTokens?: number
-	readonly measuredBy?: 'provider' | 'estimate'
-	readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
-}
 
 export interface StatusBarProps {
 	readonly cwd: string
@@ -34,24 +19,10 @@ export interface StatusBarProps {
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	readonly hint?: string
-	readonly usage?: { totalTokens: number; cost: CostInfo } | null
-	/** Kernel-reported context fill — drives the gauge. */
-	readonly context?: ContextFill | null
 }
 
-export function StatusBar({
-	cwd,
-	provider,
-	model,
-	effort,
-	goal,
-	state,
-	hint,
-	usage,
-	context,
-}: StatusBarProps) {
+export function StatusBar({ cwd, provider, model, effort, goal, state, hint }: StatusBarProps) {
 	const terminal = useWindowSize()
-	const gauge = buildGauge(context)
 	const layout = fitStatusLine({
 		// App gives the footer one cell of horizontal padding on each side. Ink's
 		// stdout width is the whole terminal, so reserve those cells here rather
@@ -61,9 +32,6 @@ export function StatusBar({
 		provider,
 		model,
 		effort: model ? (effort ?? 'default') : null,
-		usage: usage && usage.totalTokens > 0 ? formatUsage(usage) : null,
-		context: gauge ? `ctx ${gauge.bar} ${gauge.approximate ? '~' : ''}${gauge.pct}%` : null,
-		stateLabel: stateGlyph(state),
 		hint,
 		goal,
 	})
@@ -87,19 +55,6 @@ export function StatusBar({
 	)
 }
 
-function stateGlyph(state: StatusBarProps['state']): string | null {
-	switch (state) {
-		case 'idle':
-			return null
-		case 'thinking':
-			return '◐ thinking'
-		case 'tool':
-			return '◑ tool'
-		case 'awaiting-permission':
-			return '◓ approve?'
-	}
-}
-
 function colorForState(state: StatusBarProps['state']): string {
 	switch (state) {
 		case 'idle':
@@ -109,66 +64,6 @@ function colorForState(state: StatusBarProps['state']): string {
 		case 'tool':
 		case 'awaiting-permission':
 			return theme.status.warn
-	}
-}
-
-function formatUsage(usage: { totalTokens: number; cost: CostInfo }): string {
-	const tok =
-		usage.totalTokens >= 1000
-			? `${(usage.totalTokens / 1000).toFixed(1)}k tok`
-			: `${usage.totalTokens} tok`
-	// The bar has room for a figure, not for a sentence, so the unknown case
-	// gets a mark rather than an explanation and `/cost` carries the words.
-	//
-	// Showing tokens alone — what this did for any total not above zero — is
-	// the same claim the `/cost` page was making in longer form: an operator
-	// reads a missing cost as no cost. `$?` is deliberately not a number,
-	// because the one thing that must not happen here is a figure standing in
-	// for a figure nobody has.
-	if (usage.cost.unpricedTokens > 0) return `${tok} · $?`
-	return usage.cost.totalCost > 0 ? `${tok} · $${usage.cost.totalCost.toFixed(2)}` : tok
-}
-
-const GAUGE_WIDTH = 8
-
-export interface ContextGauge {
-	readonly bar: string
-	readonly pct: number
-	readonly color: string
-	/** Renders a `~` before the percentage. See below for when. */
-	readonly approximate: boolean
-}
-
-/**
- * Build an 8-cell context-fill bar, greener when empty → red as it fills.
- *
- * Returns null unless BOTH terms arrived. The kernel omits them together when
- * a run resolved no window, and there is no window to substitute: the guess
- * that used to stand in here was a two-branch match on the model name, which
- * is the thing this gauge now exists without. A ratio nobody can ground is not
- * an approximation of anything, so the caller shows the spend alone instead.
- *
- * `approximate` keys off BOTH terms, not just the measured one. The kernel
- * ships each with its own provenance, and a fraction is only as sound as its
- * weaker half — an exact prompt count over an ASSUMED 128k window is a guess
- * with a precise-looking numerator, and marking only the numerator would
- * repeat, one level down, the error of presenting an inference as a reading.
- */
-export function buildGauge(context: ContextFill | null | undefined): ContextGauge | null {
-	if (!context) return null
-	const { tokens, windowTokens } = context
-	if (tokens === undefined || windowTokens === undefined) return null
-	if (!(windowTokens > 0)) return null
-	const clamped = Math.max(0, Math.min(1, tokens / windowTokens))
-	const filled = Math.round(clamped * GAUGE_WIDTH)
-	const bar = '█'.repeat(filled) + '░'.repeat(GAUGE_WIDTH - filled)
-	const color =
-		clamped < 0.7 ? theme.status.ok : clamped < 0.9 ? theme.status.warn : theme.status.error
-	return {
-		bar,
-		pct: Math.round(clamped * 100),
-		color,
-		approximate: context.measuredBy !== 'provider' || context.windowSource === 'default',
 	}
 }
 
@@ -222,26 +117,11 @@ export function fitStatusLine(input: {
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
-	readonly usage: string | null
-	readonly context: string | null
-	readonly stateLabel: string | null
 	readonly hint?: string | undefined
 	readonly goal?: string | null | undefined
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
-	const ambient = [input.context, input.usage, input.stateLabel].filter((value): value is string =>
-		Boolean(value),
-	)
-	const interaction = [input.stateLabel, input.hint]
-		.filter((value): value is string => Boolean(value))
-		.join(' · ')
-	let right = input.hint
-		? [input.context, input.usage, interaction]
-				.filter((value): value is string => Boolean(value))
-				.join(' · ')
-		: input.goal
-			? input.goal
-			: ambient.join(' · ')
+	let right = input.hint ?? input.goal ?? ''
 	if (right.length > columns) right = shortenRightToFit(right, columns)
 
 	const primarySource = input.model ?? input.provider

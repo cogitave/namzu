@@ -96,12 +96,20 @@ import type {
 	ConversationTurnOutcome,
 	ConversationTurnStartedRecord,
 } from '../integrations/sessions/turn-evidence.js'
+import type { SubagentActivity } from '../integrations/subagents/activity.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
+import {
+	AgentPicker,
+	AgentTranscript,
+	agentPickerPageSize,
+	agentTranscriptPageSize,
+	maxAgentTranscriptTailOffset,
+} from './AgentExplorer.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import {
 	Composer,
@@ -113,18 +121,11 @@ import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
-import {
-	PERMISSION_REVIEW_PAGE_ROWS,
-	buildPermissionReview,
-	permissionReviewRefusal,
-	permissionReviewRows,
-} from './permission-review.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
-import { type ContextFill, StatusBar } from './StatusBar.js'
+import { StatusBar } from './StatusBar.js'
 import { TextPrompt } from './TextPrompt.js'
 import { Transcript, willCollapse } from './Transcript.js'
-import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
 	type AgentEvent,
@@ -141,8 +142,8 @@ import { planTurnPublication } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
+import { editDraftInExternalEditor } from './external-editor.js'
 import { liveWindow } from './live-window.js'
-import { describeRunInterruption } from './run-interruption.js'
 import {
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
@@ -160,6 +161,15 @@ import {
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
+	PERMISSION_REVIEW_PAGE_ROWS,
+	buildPermissionReview,
+	buildPermissionSummary,
+	permissionReviewRefusal,
+	permissionReviewRows,
+} from './permission-review.js'
+import { describeRunInterruption } from './run-interruption.js'
+import { moveSelection } from './selection-window.js'
+import {
 	type CommandPickerEntry,
 	type SlashContext,
 	baseBranchReviewPrompt,
@@ -172,11 +182,10 @@ import {
 	runSlash,
 } from './slashCommands.js'
 import { splitCompleteBlocks } from './stream-blocks.js'
-import { moveSelection } from './selection-window.js'
+import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { useSelectionIndex } from './use-selection-index.js'
-import { editDraftInExternalEditor } from './external-editor.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
 	type ReviewCommit,
@@ -192,7 +201,10 @@ export interface AppProps {
 	readonly externalEditor?: ExternalEditorAdapter
 }
 
-type PendingPermission = PermissionRequest & { readonly review: string }
+type PendingPermission = PermissionRequest & {
+	readonly review: string
+	readonly summary: ReturnType<typeof buildPermissionSummary>
+}
 
 export type ExternalEditorAdapter = (request: {
 	readonly seed: string
@@ -202,6 +214,13 @@ export type ExternalEditorAdapter = (request: {
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
 type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive'
+type AgentSurface =
+	| { readonly kind: 'picker'; readonly selectedId: string }
+	| {
+			readonly kind: 'transcript'
+			readonly selectedId: string
+			readonly tailOffset: number
+	  }
 type PendingExternalEditor = {
 	readonly token: object
 	readonly seed: string
@@ -651,6 +670,12 @@ export function App({
 	const [permission, setPermission] = useState<PendingPermission | null>(null)
 	const [permissionReviewOffset, setPermissionReviewOffsetState] = useState(0)
 	const permissionReviewOffsetRef = useRef(0)
+	const [permissionDetailsOpen, setPermissionDetailsOpenState] = useState(false)
+	const permissionDetailsOpenRef = useRef(false)
+	const setPermissionDetailsOpen = useCallback((next: boolean) => {
+		permissionDetailsOpenRef.current = next
+		setPermissionDetailsOpenState(next)
+	}, [])
 	const setPermissionReviewOffset = useCallback((next: number) => {
 		permissionReviewOffsetRef.current = next
 		setPermissionReviewOffsetState(next)
@@ -686,10 +711,6 @@ export function App({
 		totalTokens: number
 		cost: CostInfo
 	} | null>(null)
-	// Context fill, straight from the kernel and held apart from `usage` —
-	// they are different quantities and conflating them is what made the
-	// gauge climb with turn count instead of with context.
-	const [context, setContext] = useState<ContextFill | null>(null)
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
@@ -769,6 +790,7 @@ export function App({
 	/** `/copy` owns this exact response snapshot until selection or cancellation. */
 	const [copyPicker, setCopyPickerState] = useState<CopyPickerState | null>(null)
 	const copyPickerRef = useRef<CopyPickerState | null>(null)
+	const copyPickerCommittedRef = useRef<CopyPickerState | null>(null)
 	const {
 		selection: selectedCopy,
 		selectionRef: selectedCopyRef,
@@ -776,8 +798,12 @@ export function App({
 	} = useSelectionIndex(0)
 	const setCopyPicker = useCallback((next: CopyPickerState | null) => {
 		copyPickerRef.current = next
+		if (next === null) copyPickerCommittedRef.current = null
 		setCopyPickerState(next)
 	}, [])
+	useEffect(() => {
+		copyPickerCommittedRef.current = copyPicker
+	}, [copyPicker])
 	/** Finite slash-command choice owned synchronously until apply or cancel. */
 	const [choicePicker, setChoicePickerState] = useState<ChoicePickerState | null>(null)
 	const choicePickerRef = useRef<ChoicePickerState | null>(null)
@@ -810,7 +836,38 @@ export function App({
 		setTextPromptState(next)
 	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
+	const [composerHasDraft, setComposerHasDraft] = useState(false)
 	const composerDraftTokenRef = useRef(0)
+	/** Bounded child-run projection published by the current AgentSession. */
+	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
+	const subagentsRef = useRef<readonly SubagentActivity[]>([])
+	const [agentSurface, setAgentSurfaceState] = useState<AgentSurface | null>(null)
+	const agentSurfaceRef = useRef<AgentSurface | null>(null)
+	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
+	const setAgentSurface = useCallback((next: AgentSurface | null) => {
+		const wasVisible = agentSurfaceCommittedRef.current !== null
+		agentSurfaceRef.current = next
+		if (next === null) agentSurfaceCommittedRef.current = null
+		// Only opening the surface needs a paint fence. Once the operator has
+		// seen it, navigation may update the state object several times in one
+		// terminal input burst; those updates remain actionable immediately.
+		else if (wasVisible) agentSurfaceCommittedRef.current = next
+		setAgentSurfaceState(next)
+	}, [])
+	useEffect(() => {
+		agentSurfaceCommittedRef.current = agentSurface
+	}, [agentSurface])
+	const replaceSubagents = useCallback(
+		(next: readonly SubagentActivity[]) => {
+			subagentsRef.current = next
+			setSubagentsState(next)
+			const surface = agentSurfaceRef.current
+			if (surface && !next.some((agent) => agent.viewId === surface.selectedId)) {
+				setAgentSurface(null)
+			}
+		},
+		[setAgentSurface],
+	)
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
@@ -850,6 +907,22 @@ export function App({
 	 * server's child process outlives the object that opened it.
 	 */
 	const previousSessionRef = useRef<AgentSession | null>(null)
+	useEffect(() => {
+		const source = session?.subagents
+		setAgentSurface(null)
+		if (!source) {
+			replaceSubagents([])
+			return
+		}
+		const refresh = () => replaceSubagents(source.getSnapshot())
+		refresh()
+		return source.subscribe(refresh)
+	}, [replaceSubagents, session, setAgentSurface])
+	const resetSubagentActivity = useCallback(() => {
+		session?.subagents?.reset()
+		setAgentSurface(null)
+		replaceSubagents([])
+	}, [replaceSubagents, session, setAgentSurface])
 	// Source of truth for in-flight tools (the event loop runs across renders, so
 	// a ref avoids stale state); `activeTools` mirrors it for rendering.
 	const activeToolsRef = useRef<readonly RunningTool[]>([])
@@ -949,8 +1022,9 @@ export function App({
 		null,
 	)
 	/** Host editor operation; it owns terminal input until its child settles. */
-	const [externalEditorRequest, setExternalEditorRequest] =
-		useState<PendingExternalEditor | null>(null)
+	const [externalEditorRequest, setExternalEditorRequest] = useState<PendingExternalEditor | null>(
+		null,
+	)
 	const externalEditorRequestRef = useRef<PendingExternalEditor | null>(null)
 	const externalEditorStartedRef = useRef<object | null>(null)
 	/** Closes the same-tick input window while a verified export reads disk. */
@@ -1000,7 +1074,9 @@ export function App({
 				conversationMutationRef.current !== null
 			) {
 				return Promise.reject(
-					new Error('wait for the active turn, queue, compaction, or conversation change to settle'),
+					new Error(
+						'wait for the active turn, queue, compaction, or conversation change to settle',
+					),
 				)
 			}
 			if (externalEditorRequestRef.current) {
@@ -1630,10 +1706,10 @@ export function App({
 							return
 						}
 						advanceQueueContinuation()
-							enqueueQueued({
-								kind: 'human',
-								text: baseBranchReviewPrompt(mergeBase),
-							})
+						enqueueQueued({
+							kind: 'human',
+							text: baseBranchReviewPrompt(mergeBase),
+						})
 						setChoicePicker(null)
 					} finally {
 						if (reviewChoiceInFlightRef.current === operation) {
@@ -1919,10 +1995,7 @@ export function App({
 			const mentionLoadOwner = {}
 			mentionLoadOwnerRef.current = mentionLoadOwner
 			void listMentionableFiles(activeCtx.cwd, appLifetime.signal).then((files) => {
-				if (
-					!appLifetime.signal.aborted &&
-					mentionLoadOwnerRef.current === mentionLoadOwner
-				)
+				if (!appLifetime.signal.aborted && mentionLoadOwnerRef.current === mentionLoadOwner)
 					setMentionCandidates(files)
 			})
 			setCurrentProvider(primaryProvider(prefs).id)
@@ -2336,7 +2409,12 @@ export function App({
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
-	settledRef.current = window.settled
+	// A child view is a redrawable overlay above the parent's native scrollback.
+	// Freeze the parent's Static floor while it is open; otherwise a parent turn
+	// settling in the background prints through the child screen. Returning
+	// advances the floor once and emits those finalized rows exactly once.
+	if (agentSurface === null) settledRef.current = window.settled
+	const renderedSettled = agentSurface === null ? window.settled : settledRef.current
 
 	// One merged vocabulary for the session: this host's own commands plus
 	// whatever the kernel's registry reports. Built here so `/help`, the
@@ -2424,14 +2502,18 @@ export function App({
 
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
-	const resolvePermission = useCallback((decision: PermissionDecision) => {
-		const resolve = permissionResolveRef.current
-		permissionResolveRef.current = null
-		permissionOpenedAtRef.current = null
-		setPermissionReviewOffset(0)
-		setPermission(null)
-		if (resolve) resolve(decision)
-	}, [setPermissionReviewOffset])
+	const resolvePermission = useCallback(
+		(decision: PermissionDecision) => {
+			const resolve = permissionResolveRef.current
+			permissionResolveRef.current = null
+			permissionOpenedAtRef.current = null
+			setPermissionReviewOffset(0)
+			setPermissionDetailsOpen(false)
+			setPermission(null)
+			if (resolve) resolve(decision)
+		},
+		[setPermissionDetailsOpen, setPermissionReviewOffset],
+	)
 
 	/**
 	 * Stop the running turn, and hand the screen back in a usable state.
@@ -2548,6 +2630,7 @@ export function App({
 			goalActivation.clear()
 			wakeGoalDriver()
 			conversationGenRef.current += 1
+			resetSubagentActivity()
 			activeTurnTokenRef.current = null
 			resetTranscript()
 			setMessages(restored)
@@ -2583,6 +2666,7 @@ export function App({
 			interruptTurn,
 			nextId,
 			pushMessage,
+			resetSubagentActivity,
 			resetTranscript,
 			wakeGoalDriver,
 		],
@@ -2625,11 +2709,11 @@ export function App({
 				goalActivation.clear()
 				wakeGoalDriver()
 				conversationGenRef.current += 1
+				resetSubagentActivity()
 				activeTurnTokenRef.current = null
 				modelHistoryRef.current = []
 				lastAssistantMessage.current = null
 				lastCompletedOutputRef.current = null
-				setContext(null)
 				if (sourceScope && targetSessionId) sourceScope.sessionId = targetSessionId
 
 				if (clearScreen) {
@@ -2672,7 +2756,15 @@ export function App({
 				setConversationMutation(null)
 			}
 		},
-		[discardQueued, goalActivation, interruptTurn, pushMessage, resetTranscript, wakeGoalDriver],
+		[
+			discardQueued,
+			goalActivation,
+			interruptTurn,
+			pushMessage,
+			resetSubagentActivity,
+			resetTranscript,
+			wakeGoalDriver,
+		],
 	)
 
 	/**
@@ -2823,6 +2915,7 @@ export function App({
 			// The transcript on screen is already the fork's history, so nothing
 			// is reloaded or reset. Only where the NEXT turn is written changes.
 			scope.sessionId = forked.id
+			resetSubagentActivity()
 			goalActivation.clear()
 			wakeGoalDriver()
 			pushMessage(
@@ -2835,7 +2928,14 @@ export function App({
 			conversationMutationRef.current = null
 			setConversationMutation(null)
 		}
-	}, [ensureSessions, goalActivation, hasUnsettledTurn, pushMessage, wakeGoalDriver])
+	}, [
+		ensureSessions,
+		goalActivation,
+		hasUnsettledTurn,
+		pushMessage,
+		resetSubagentActivity,
+		wakeGoalDriver,
+	])
 
 	/** Open the durable prompt picker after the composer's second empty Esc. */
 	const openPromptEditor = useCallback(() => {
@@ -2908,6 +3008,7 @@ export function App({
 					.map((prompt) => prompt.displayText)
 
 				conversationGenRef.current += 1
+				resetSubagentActivity()
 				activeTurnTokenRef.current = null
 				goalActivation.clear()
 				wakeGoalDriver()
@@ -2954,6 +3055,7 @@ export function App({
 			hasUnsettledTurn,
 			nextId,
 			pushMessage,
+			resetSubagentActivity,
 			resetTranscript,
 			wakeGoalDriver,
 		],
@@ -2970,16 +3072,18 @@ export function App({
 					feedback: permissionReviewRefusal(review.reason),
 				})
 			}
+			const summary = buildPermissionSummary(review.text)
 			return new Promise<PermissionDecision>((resolve) => {
 				permissionResolveRef.current = resolve
 				permissionOpenedAtRef.current = Date.now()
 				setPermissionReviewOffset(0)
-				setPermission({ ...req, review: review.text })
+				setPermissionDetailsOpen(!summary.complete)
+				setPermission({ ...req, review: review.text, summary })
 				setState('awaiting-permission')
 				sendTerminalNotification({ kind: 'approval-required' })
 			})
 		},
-		[sendTerminalNotification, setPermissionReviewOffset],
+		[sendTerminalNotification, setPermissionDetailsOpen, setPermissionReviewOffset],
 	)
 
 	// Render one agent event onto the transcript. Shared by the local turn loop
@@ -3097,20 +3201,6 @@ export function App({
 				}
 				case 'usage':
 					setUsage({ totalTokens: event.totalTokens, cost: event.cost })
-					// Mirrored verbatim, absences included. A run that reports no
-					// window clears the gauge rather than leaving the last one up:
-					// a stale bar is read as current, and this bar's whole defect
-					// was being read as something it was not.
-					setContext({
-						...(event.contextTokens !== undefined ? { tokens: event.contextTokens } : {}),
-						...(event.contextWindowTokens !== undefined
-							? { windowTokens: event.contextWindowTokens }
-							: {}),
-						...(event.contextMeasuredBy !== undefined
-							? { measuredBy: event.contextMeasuredBy }
-							: {}),
-						...(event.windowSource !== undefined ? { windowSource: event.windowSource } : {}),
-					})
 					break
 				case 'task':
 					pushMessage('tool', event.subject, false, event.status === 'completed' ? '☑' : '☐')
@@ -3717,6 +3807,21 @@ export function App({
 						})
 						return
 					}
+					case 'agent-picker': {
+						const agents = subagentsRef.current
+						if (agents.length === 0) {
+							pushMessage(
+								'system',
+								'No delegated agents are available in this conversation yet. When an Agent tool starts one, /agent opens its live activity and retained transcript.',
+							)
+							return
+						}
+						setAgentSurface({
+							kind: 'picker',
+							selectedId: agents[0]?.viewId ?? '',
+						})
+						return
+					}
 					case 'clear-screen':
 						setMessages([])
 						resetTranscript()
@@ -4292,11 +4397,6 @@ export function App({
 									await replaceConversation(sessions, destination, result.messages)
 								}
 								modelHistoryRef.current = result.messages
-								// The old gauge measured the history that was just replaced.
-								// Clear it only after the durable projection and live model
-								// history agree; until then the old measurement is still the
-								// truthful one. The next run publishes a fresh measurement.
-								setContext(null)
 
 								// How many user/assistant turns survived the pass.
 								// `keepRecentRows` explains why the transcript is trimmed
@@ -4844,13 +4944,7 @@ export function App({
 						moveSelection(
 							index,
 							editList.length,
-							key.home
-								? 'first'
-								: key.end
-									? 'last'
-									: key.pageUp
-										? 'previous-page'
-										: 'next-page',
+							key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 						),
 					)
 					return
@@ -4881,13 +4975,7 @@ export function App({
 						moveSelection(
 							index,
 							resumeList.length,
-							key.home
-								? 'first'
-								: key.end
-									? 'last'
-									: key.pageUp
-										? 'previous-page'
-										: 'next-page',
+							key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 						),
 					)
 				} else if (key.upArrow)
@@ -4927,11 +5015,20 @@ export function App({
 			}
 			// A pending permission prompt owns the keyboard: y/n/a decide it.
 			if (permissionResolveRef.current) {
+				const ch = input.toLowerCase()
+				if (permission && ch === 'd') {
+					setPermissionReviewOffset(0)
+					setPermissionDetailsOpen(!permissionDetailsOpenRef.current)
+					return
+				}
 				if (
 					permission &&
 					(key.upArrow || key.downArrow || key.pageUp || key.pageDown || key.home || key.end)
 				) {
-					const count = permissionReviewRows(permission.review, terminal.columns).length
+					const source = permissionDetailsOpenRef.current
+						? permission.review
+						: permission.summary.text
+					const count = permissionReviewRows(source, terminal.columns).length
 					const maxOffset = Math.max(0, count - PERMISSION_REVIEW_PAGE_ROWS)
 					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
 					const next = key.home
@@ -4948,7 +5045,6 @@ export function App({
 					setPermissionReviewOffset(next)
 					return
 				}
-				const ch = input.toLowerCase()
 				// Refusing is never deferred or gated — it is the direction a
 				// mistake is recoverable in, so it answers on the first press.
 				if (key.ctrl && input === 'c') {
@@ -4969,6 +5065,87 @@ export function App({
 				if (!approvalIsDeliberate(permissionOpenedAtRef.current, Date.now())) return
 				if (ch === 'y') resolvePermission({ kind: 'approve' })
 				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
+				return
+			}
+			// Child observation owns navigation, but never outranks consent: the
+			// permission branch above preempts it if a child or parent call asks.
+			const agentView = agentSurfaceRef.current
+			if (agentView) {
+				// The Return that opened `/agent` cannot also drill into the
+				// highlighted child before the list has appeared on screen.
+				if (agentSurfaceCommittedRef.current !== agentView) return
+				const agents = subagentsRef.current
+				const index = Math.max(
+					0,
+					agents.findIndex((agent) => agent.viewId === agentView.selectedId),
+				)
+				const selected = agents[index]
+				if (!selected) {
+					setAgentSurface(null)
+					return
+				}
+				if (agentView.kind === 'picker') {
+					if (key.escape || (key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+						setAgentSurface(null)
+						return
+					}
+					if (key.return) {
+						setAgentSurface({
+							kind: 'transcript',
+							selectedId: selected.viewId,
+							tailOffset: 0,
+						})
+						return
+					}
+					if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
+						const movement = key.home
+							? 'first'
+							: key.end
+								? 'last'
+								: key.pageUp
+									? 'previous-page'
+									: key.pageDown
+										? 'next-page'
+										: key.upArrow
+											? 'previous'
+											: 'next'
+						const next = moveSelection(
+							index,
+							agents.length,
+							movement,
+							agentPickerPageSize(terminal.rows),
+						)
+						const target = agents[next]
+						if (target) setAgentSurface({ kind: 'picker', selectedId: target.viewId })
+					}
+					return
+				}
+
+				if (input.toLowerCase() === 'q' || (key.ctrl && input === 'c')) {
+					setAgentSurface(null)
+					return
+				}
+				if (key.escape) {
+					setAgentSurface({ kind: 'picker', selectedId: selected.viewId })
+					return
+				}
+				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
+					const page = agentTranscriptPageSize(terminal.rows)
+					const max = maxAgentTranscriptTailOffset(selected, terminal.rows, terminal.columns)
+					const offset = Math.min(agentView.tailOffset, max)
+					const next = key.home
+						? max
+						: key.end
+							? 0
+							: key.pageUp
+								? Math.min(max, offset + page)
+								: key.pageDown
+									? Math.max(0, offset - page)
+									: key.upArrow
+										? Math.min(max, offset + 1)
+										: Math.max(0, offset - 1)
+					setAgentSurface({ ...agentView, tailOffset: next })
+				}
 				return
 			}
 			// A host-owned text prompt has its own input hook. This synchronous ref
@@ -4997,13 +5174,7 @@ export function App({
 						moveSelection(
 							index,
 							options.length,
-							key.home
-								? 'first'
-								: key.end
-									? 'last'
-									: key.pageUp
-										? 'previous-page'
-										: 'next-page',
+							key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 							pageSize,
 						),
 					)
@@ -5031,6 +5202,9 @@ export function App({
 			// stays above it in this handler so an approval request that arrives
 			// while the picker is open cannot have its keys stolen by the chooser.
 			if (copyPickerRef.current) {
+				// The Return that submitted `/copy` is an ownership fence, not a
+				// selection made against a picker the operator has not seen yet.
+				if (copyPickerCommittedRef.current !== copyPickerRef.current) return
 				const targets = copyPickerRef.current.targets
 				if (key.escape || (key.ctrl && input === 'c')) {
 					setCopyPicker(null)
@@ -5041,13 +5215,7 @@ export function App({
 						moveSelection(
 							index,
 							targets.length,
-							key.home
-								? 'first'
-								: key.end
-									? 'last'
-									: key.pageUp
-										? 'previous-page'
-										: 'next-page',
+							key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 						),
 					)
 					return
@@ -5162,8 +5330,61 @@ export function App({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
+	const liveSubagentCount = subagents.filter(
+		(agent) => agent.status === 'starting' || agent.status === 'working',
+	).length
+	const selectedSubagent = agentSurface
+		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
+		: undefined
 	const lifecycleOwnsViewport =
-		phase === 'trust' || phase === 'resume' || phase === 'edit' || phase === 'picker'
+		phase === 'trust' ||
+		phase === 'resume' ||
+		phase === 'edit' ||
+		phase === 'picker' ||
+		agentSurface !== null
+	const statusGoal =
+		phase === 'ready' &&
+		state === 'idle' &&
+		conversationMutation === null &&
+		!compacting &&
+		permission === null &&
+		textPrompt === null &&
+		choicePicker === null &&
+		copyPicker === null &&
+		agentSurface === null
+			? goalStatusLabel(goalStatus)
+			: null
+	const statusHint =
+		conversationMutation === 'fork'
+			? 'forking conversation — input is paused'
+			: conversationMutation === 'edit'
+				? 'branching before prompt — input is paused'
+				: conversationMutation === 'archive'
+					? 'archiving conversation — input is paused'
+					: conversationMutation === 'new'
+						? 'starting a fresh conversation — input is paused'
+						: compacting
+							? 'compacting conversation — input is paused'
+							: permission
+								? hintForPhase(phase, state, session?.hasProvider === true)
+								: agentSurface?.kind === 'picker'
+									? 'agent list — enter inspect · esc return'
+									: agentSurface?.kind === 'transcript'
+										? 'observing agent — esc agents · q parent'
+										: textPrompt
+											? 'name editor open — enter save · esc cancel'
+											: choicePicker
+												? 'choice open — ↑↓ / 1–9 select · enter apply · esc cancel'
+												: copyPicker
+													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
+													: goalStatus && phase === 'ready' && state === 'idle'
+														? undefined
+														: hintForPhase(
+																phase,
+																state,
+																session?.hasProvider === true,
+																composerHasDraft,
+															)
 	return (
 		<Box flexDirection="column" display={externalEditorRequest ? 'none' : 'flex'}>
 			<Box flexDirection="column" paddingX={1}>
@@ -5173,7 +5394,7 @@ export function App({
 							messages={finalized}
 							pending={messages.find((m) => m.pending) ?? null}
 							state={state}
-							settled={window.settled}
+							settled={renderedSettled}
 							resetKey={resetKey}
 							raw={rawOutput}
 							hyperlinks={hyperlinks}
@@ -5218,10 +5439,15 @@ export function App({
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
-						<LiveActivity
-							activeTools={activeTools}
-							thinking={state === 'thinking' && !messages.some((m) => m.pending)}
-						/>
+						{agentSurface === null ? (
+							<LiveActivity
+								activeTools={activeTools}
+								working={state === 'thinking' || state === 'tool'}
+								agentCount={liveSubagentCount}
+								interruptible={abortRef.current !== null}
+								animate={stdout.isTTY === true}
+							/>
+						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the
 						    operator was part-way through typing — text, paste chips
@@ -5233,8 +5459,24 @@ export function App({
 							<PermissionOverlay
 								toolCalls={permission.toolCalls}
 								review={permission.review}
+								summary={permission.summary}
+								detailsOpen={permissionDetailsOpen}
 								reviewOffset={permissionReviewOffset}
 								columns={terminal.columns}
+							/>
+						) : null}
+						{permission === null && agentSurface?.kind === 'picker' ? (
+							<AgentPicker
+								agents={subagents}
+								selectedId={agentSurface.selectedId}
+								terminalRows={terminal.rows}
+							/>
+						) : permission === null && agentSurface?.kind === 'transcript' && selectedSubagent ? (
+							<AgentTranscript
+								agent={selectedSubagent}
+								tailOffset={agentSurface.tailOffset}
+								terminalRows={terminal.rows}
+								terminalColumns={terminal.columns}
 							/>
 						) : null}
 						{textPrompt ? (
@@ -5244,21 +5486,19 @@ export function App({
 								placeholder={textPrompt.placeholder}
 								initialValue={textPrompt.initialValue}
 								emptyNotice={textPrompt.emptyNotice}
-								hidden={permission !== null}
+								hidden={permission !== null || agentSurface !== null}
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
 							/>
-						) : permission === null && choicePicker ? (
+						) : permission === null && agentSurface === null && choicePicker ? (
 							<ChoicePicker
 								title={choicePicker.title}
 								notice={choicePicker.notice}
 								options={choicePicker.options}
 								selected={selectedChoice}
-								windowSize={
-									choicePicker.kind === 'command' ? choicePicker.windowSize : undefined
-								}
+								windowSize={choicePicker.kind === 'command' ? choicePicker.windowSize : undefined}
 							/>
-						) : permission === null && copyPicker ? (
+						) : permission === null && agentSurface === null && copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
 						<ComposerFrame
@@ -5268,15 +5508,22 @@ export function App({
 								conversationMutation === null &&
 								textPrompt === null &&
 								choicePicker === null &&
-								copyPicker === null
+								copyPicker === null &&
+								agentSurface === null
 							}
-							hidden={permission !== null || choicePicker !== null || copyPicker !== null}
+							hidden={
+								permission !== null ||
+								choicePicker !== null ||
+								copyPicker !== null ||
+								agentSurface !== null
+							}
 						>
 							{pendingSteers.length > 0 &&
 							permission === null &&
 							textPrompt === null &&
 							choicePicker === null &&
-							copyPicker === null ? (
+							copyPicker === null &&
+							agentSurface === null ? (
 								<Box paddingX={1}>
 									<Text color={theme.accent.user}>
 										↳ {pendingSteers.length} message
@@ -5289,15 +5536,16 @@ export function App({
 							permission === null &&
 							textPrompt === null &&
 							choicePicker === null &&
-							copyPicker === null ? (
+							copyPicker === null &&
+							agentSurface === null ? (
 								<Box paddingX={1}>
 									<Text color={theme.text.muted}>
 										{queuePause ? '⏸' : '⏎'} {queued.length} message
 										{queued.length > 1 ? 's' : ''} queued —{' '}
 										{queuePause
-										? queuePause.outcome === 'paused'
-											? 'held after a resumable run paused; wait for recovery, change model, or send a message to release it'
-											: `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
+											? queuePause.outcome === 'paused'
+												? 'held after a resumable run paused; wait for recovery, change model, or send a message to release it'
+												: `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
 											: 'sending when ready'}
 									</Text>
 								</Box>
@@ -5308,13 +5556,15 @@ export function App({
 									state === 'awaiting-permission' ||
 									compacting ||
 									conversationMutation !== null ||
-									externalEditorRequest !== null
+									externalEditorRequest !== null ||
+									agentSurface !== null
 								}
 								hidden={
 									permission !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
-									copyPicker !== null
+									copyPicker !== null ||
+									agentSurface !== null
 								}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
@@ -5328,6 +5578,7 @@ export function App({
 								onDraftRestored={(token) =>
 									setComposerDraft((draft) => (draft?.token === token ? null : draft))
 								}
+								onDraftPresenceChange={setComposerHasDraft}
 								userCommands={userCommands}
 								mentionCandidates={mentionCandidates}
 								history={history}
@@ -5341,44 +5592,9 @@ export function App({
 						provider={session?.providerSummary ?? null}
 						model={session?.modelSummary ?? null}
 						effort={reasoningEffort ?? 'default'}
-						goal={
-							phase === 'ready' &&
-							state === 'idle' &&
-							conversationMutation === null &&
-							!compacting &&
-							permission === null &&
-							textPrompt === null &&
-							choicePicker === null &&
-							copyPicker === null
-								? goalStatusLabel(goalStatus)
-								: null
-						}
+						goal={statusGoal}
 						state={state}
-							hint={
-								conversationMutation === 'fork'
-									? 'forking conversation — input is paused'
-									: conversationMutation === 'edit'
-										? 'branching before prompt — input is paused'
-										: conversationMutation === 'archive'
-											? 'archiving conversation — input is paused'
-										: conversationMutation === 'new'
-										? 'starting a fresh conversation — input is paused'
-										: compacting
-											? 'compacting conversation — input is paused'
-											: permission
-												? hintForPhase(phase, state, session?.hasProvider === true)
-												: textPrompt
-													? 'name editor open — enter save · esc cancel'
-													: choicePicker
-														? 'choice open — ↑↓ / 1–9 select · enter apply · esc cancel'
-														: copyPicker
-															? 'copy target open — ↑↓ / 1–9 select · esc cancel'
-															: goalStatus && phase === 'ready' && state === 'idle'
-																? undefined
-																: hintForPhase(phase, state, session?.hasProvider === true)
-						}
-						usage={usage}
-						context={context}
+						hint={statusHint}
 					/>
 				</Box>
 			</Box>
@@ -5509,6 +5725,8 @@ function hintForPhase(
 	state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission',
 	/** Whether there is a working session behind the picker to go back to. */
 	canReturn = false,
+	/** Whether the active-turn composer contains text, a paste, or an attachment. */
+	hasDraft = false,
 ): string {
 	// Enter is absent because Enter grants nothing here, deliberately — see the
 	// trust branch in the key handler above.
@@ -5528,7 +5746,7 @@ function hintForPhase(
 	// Enter is absent because Enter decides nothing here, deliberately — see the
 	// permission gate in the key handler above.
 	if (state === 'awaiting-permission') return 'y approve · n / esc reject · a approve all'
-	if (state !== 'idle') return 'enter steer · tab queue · esc interrupt'
+	if (state !== 'idle') return hasDraft ? 'enter steer · tab queue · esc interrupt' : ''
 	// The composer already points to /help. Keeping the complete key legend in
 	// every idle frame made ordinary conversation read like a permanent setup
 	// screen; only state-specific actions belong in the footer.

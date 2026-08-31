@@ -76,7 +76,7 @@ Inside the session, grouped by the question each one answers:
 
 | | |
 |---|---|
-| **What is going on** | `/status`, `/pwd`, `/debug-config`, `/cost`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
+| **What is going on** | `/status`, `/pwd`, `/debug-config`, `/cost`, `/agent`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
 | **This conversation** | `/resume`, `/rename`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/archive`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
@@ -139,6 +139,24 @@ and the built-in safety gate remain authoritative in every mode. `--yolo` (the
 mode; it does not permanently remove the prompt boundary, and `/permissions
 prompt` can narrow the same live session without reconnecting its provider or
 tools.
+
+When prompt mode asks about a prepared tool batch, known call shapes begin with
+an exhaustive readable operation derived from the immutable exact envelope.
+Unknown or newly evolved shapes begin on the exact envelope instead. `d`
+switches between the two projections without approving or rejecting; arrows,
+page keys and Home/End make every physical row reachable. Six content rows are
+kept visible so the decision keys remain on screen in a 24-row terminal. `y`
+runs once, `a` approves subsequent undecided calls for the session, `n` or
+Escape declines while allowing the turn to continue, and Ctrl+C declines and
+stops the turn. Enter has no approval meaning.
+
+Bare `/agent` opens the current conversation's bounded list of active and
+recent delegated runs. The list shows lifecycle state and latest activity;
+Enter opens a bounded live projection of the selected child, Escape returns to
+the list, and `q` returns to the parent transcript. Selection follows a stable
+child identity when completions reorder the list. Observing a child never adds
+its private events to the parent's model history, and parent rows that settle
+while observation is open are emitted exactly once after returning.
 
 Bare `/effort` opens a finite chooser containing the provider default and the
 exact levels accepted by every usable member of the current provider/model

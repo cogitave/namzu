@@ -7,7 +7,7 @@ import { LiveActivity } from '../LiveActivity.js'
 import { PermissionOverlay } from '../PermissionOverlay.js'
 import { Transcript, renderedDetailLines } from '../Transcript.js'
 import { transcriptLines } from '../live-window.js'
-import { buildPermissionReview } from '../permission-review.js'
+import { buildPermissionReview, buildPermissionSummary } from '../permission-review.js'
 import type { TranscriptMessage } from '../types.js'
 
 const BEL = String.fromCodePoint(0x07)
@@ -70,8 +70,15 @@ it('projects the exact permission input before an operator decides', () => {
 	expect(review.ok).toBe(true)
 	if (!review.ok) return
 	const original = structuredClone(toolCalls)
+	const summary = buildPermissionSummary(review.text)
 	const harness = render(
-		<PermissionOverlay toolCalls={toolCalls} review={review.text} columns={120} />,
+		<PermissionOverlay
+			toolCalls={toolCalls}
+			review={review.text}
+			summary={summary}
+			detailsOpen
+			columns={120}
+		/>,
 	)
 	try {
 		const frame = harness.lastFrame() ?? ''
@@ -88,7 +95,7 @@ it('projects the exact permission input before an operator decides', () => {
 it('projects the in-flight tool label before it becomes a transcript row', () => {
 	const tools = Object.freeze([Object.freeze({ id: 'call', label: unsafe, startedAt: Date.now() })])
 	const original = structuredClone(tools)
-	const harness = render(<LiveActivity activeTools={tools} thinking={false} />)
+	const harness = render(<LiveActivity activeTools={tools} working={false} animate={false} />)
 	try {
 		expectSafe(harness.lastFrame() ?? '')
 		expect(tools).toEqual(original)

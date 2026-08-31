@@ -207,6 +207,26 @@ it('sends the exact raw Markdown and keeps it after /clear-screen', async () => 
 	expect(requested).toEqual([raw, raw])
 })
 
+it('requires the copy picker to paint before Return can select from it', async () => {
+	const raw = 'paint-boundary response'
+	turns = [{ text: raw }]
+	const harness = await mountReady()
+
+	await submit(harness, 'answer me')
+	await waitUntil(() => sendCalls === 1)
+	await tick(80)
+	harness.stdin.write('/copy')
+	await tick()
+	harness.stdin.write('\r')
+	harness.stdin.write('\r')
+	await frameShows(harness, 'Copy from response')
+	expect(requested).toEqual([])
+
+	harness.stdin.write('\r')
+	await waitUntil(() => requested.length === 1)
+	expect(requested).toEqual([raw])
+})
+
 it('uses the previous completed answer while the next one is still streaming', async () => {
 	turns = [
 		{ text: 'FIRST FINISHED', stopReason: 'end_turn' },

@@ -197,6 +197,10 @@ it('escapes permission, live-tool and transcript output while preserving the req
 	expect(painted(screen)).toContain(LINK_LABEL)
 	expect(painted(screen)).not.toContain(`(${LINK_TARGET})`)
 	expect(painted(screen)).toContain(`local (${LOCAL_TARGET})`)
+	for (let page = 0; page < 20 && !painted(screen).includes(PERMISSION_VISIBLE); page += 1) {
+		screen.press('\u001b[6~')
+		await screen.waitForRender()
+	}
 	expect(painted(screen)).toContain(PERMISSION_VISIBLE)
 	expectNoAgentControls(screen)
 	expect(REQUEST).toEqual(REQUEST_SOURCE)
@@ -234,7 +238,7 @@ it('pages a single long JSON string by physical rows in a narrow terminal', asyn
 	expect(
 		firstRows
 			.slice(firstStart + 1, firstEnd)
-			.filter((row) => /^\s*│\s+[│↳]/u.test(row)).length,
+			.filter((row) => /^\s*[›↳]/u.test(row)).length,
 	).toBe(PERMISSION_REVIEW_PAGE_ROWS)
 
 	for (let page = 0; page < 20 && !screen.viewport().join('\n').includes(suffix); page += 1) {
@@ -250,10 +254,15 @@ it('pages a single long JSON string by physical rows in a narrow terminal', asyn
 	expect(
 		lastRows
 			.slice(lastStart + 1, lastEnd)
-			.filter((row) => /^\s*│\s+[│↳]/u.test(row)).length,
+			.filter((row) => /^\s*[›↳]/u.test(row)).length,
 	).toBe(PERMISSION_REVIEW_PAGE_ROWS)
-	const commandCloseRow = lastRows.find((row) => row.includes('",'))
-	expect(commandCloseRow).toMatch(/",\s*│\s*$/u)
+	let commandCloseRow = lastRows.find((row) => row.includes('",'))
+	for (let row = 0; row < 20 && !commandCloseRow; row += 1) {
+		screen.press('\u001b[A')
+		await screen.waitForRender()
+		commandCloseRow = screen.viewport().find((visibleRow) => visibleRow.includes('",'))
+	}
+	expect(commandCloseRow).toBeDefined()
 	expect(activeRequest.toolCalls[0]?.input).toEqual({
 		command: 'x'.repeat(480),
 		tail: suffix,
