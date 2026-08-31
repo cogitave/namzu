@@ -171,6 +171,12 @@ generation to the schema instead of validating after the fact.
 Zod validation still runs on every tool call either way — strict generation
 narrows what the model can emit; it does not replace the check.
 
+Every custom tool reaches the Messages wire as a root object schema. When a
+renderer expresses an object-only union with `anyOf` or `oneOf`, the driver adds
+that required root fact while preserving every branch. A union containing a
+primitive branch is refused locally with the tool name instead of being
+silently narrowed or failing the whole remote request.
+
 The kernel refuses a schema outside the strict subset at registration rather
 than sending it, because the vendor rejects the whole request when one keyword
 is unexpressible and the turn dies before a token is produced.
