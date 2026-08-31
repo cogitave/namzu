@@ -1,5 +1,11 @@
 # Changelog
 
+## 33.1.1
+
+### Patch Changes
+
+- adebe83: Publish `computer_use` through a flat provider-safe model schema while retaining its discriminated runtime validation. Anthropic now rejects root `anyOf`, `oneOf`, and `allOf` tool schemas locally with the offending tool name instead of sending a request that fails with HTTP 400. The CLI receives both fixes and keeps provider-chain diagnostics scoped to their requested home instead of leaking credentials from the process user's home.
+
 ## 33.1.0
 
 ### Minor Changes
