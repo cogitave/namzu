@@ -105,11 +105,16 @@ jobs:
 
       - name: publint (package.json shape)
         run: |
-          for pkg in sdk telemetry computer-use providers/anthropic providers/bedrock providers/http providers/lmstudio providers/ollama providers/openai providers/openrouter; do
-            echo "::group::publint packages/$pkg"
-            npx -y publint@latest packages/$pkg
+          pnpm list -r --depth -1 --json \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const r of JSON.parse(s))if(r.name&&r.path&&r.private!==true&&r.name!=='namzu')console.log(require('path').relative(process.cwd(),r.path))})" \
+            | sort > /tmp/publint-targets.txt
+          test -s /tmp/publint-targets.txt || { echo "no publishable packages found — the enumeration broke, which would pass this step by checking nothing"; exit 1; }
+          echo "publint targets:"; cat /tmp/publint-targets.txt
+          while read -r pkg; do
+            echo "::group::publint $pkg"
+            npx -y publint@latest "$pkg"
             echo "::endgroup::"
-          done
+          done < /tmp/publint-targets.txt
 
       # Pre-publish consumer install check. Runs only when this commit is
       # the merged "Version Packages" PR (the one Changesets opens to bump

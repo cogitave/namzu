@@ -286,6 +286,56 @@
       "deprecated": []
     }
   },
+  "@namzu/live": {
+    ".": {
+      "runtime": [
+        "LiveAgent",
+        "LiveError",
+        "LiveListening",
+        "LiveSession",
+        "LiveTurn",
+        "NamzuModel"
+      ],
+      "declared": [
+        "AudioFrame",
+        "AudioOutput",
+        "LiveAgent",
+        "LiveAgentOptions",
+        "LiveError",
+        "LiveErrorCode",
+        "LiveEventListener",
+        "LiveListenOptions",
+        "LiveListening",
+        "LiveMessage",
+        "LiveModel",
+        "LiveModelEvent",
+        "LiveModelTurn",
+        "LiveRunOptions",
+        "LiveSession",
+        "LiveSessionEvent",
+        "LiveSessionOptions",
+        "LiveSessionState",
+        "LiveTurn",
+        "LiveTurnResult",
+        "LiveUsage",
+        "MediaDriverContext",
+        "NamzuModel",
+        "NamzuModelOptions",
+        "NamzuQueryConfig",
+        "PcmFormat",
+        "SpeechRecognizer",
+        "SpeechSynthesisContext",
+        "SpeechSynthesizer",
+        "SynthesizedAudio",
+        "TranscriptEvent",
+        "TurnDetectionContext",
+        "TurnDetector",
+        "VoiceActivityDetector",
+        "VoiceActivityEvent"
+      ],
+      "deprecated": []
+    }
+  },
   "@namzu/lmstudio": {
     ".": {
       "runtime": [

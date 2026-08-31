@@ -88,10 +88,13 @@ if [ -n "$PENDING_CHANGESETS" ]; then
   VERSION_SNAPSHOT=$(mktemp -d -t namzu-preversion.XXXXXX)
   (
     cd "$WORKSPACE_ROOT"
-    # `git ls-files` for the MANIFESTS: it finds every tracked manifest and
-    # changelog wherever a package lives, so a new package directory does not
-    # silently fall outside the snapshot and survive the restore.
-    git ls-files -z 'packages/**/package.json' 'packages/**/CHANGELOG.md' \
+    # Snapshot files from DISK rather than the index. A package can be new and
+    # therefore untracked when this local gate runs; its version must still be
+    # restored after the release preview. Ignore dependency trees so their
+    # nested manifests never become part of repository state.
+    find packages \
+      -path '*/node_modules' -prune -o \
+      -type f \( -name package.json -o -name CHANGELOG.md \) -print0 \
       | tar --null -cf - -T -
   ) | (cd "$VERSION_SNAPSHOT" && tar xf -)
   # `.changeset/` is snapshotted from DISK, not from the index, and that is
@@ -109,84 +112,97 @@ if [ -n "$PENDING_CHANGESETS" ]; then
   fi
 
   pnpm --dir "$WORKSPACE_ROOT" exec changeset version
-  echo ""
-  echo "  Shipping versions:"
-  node -e '
-    const {readFileSync, existsSync} = require("fs")
-    for (const dir of process.argv.slice(1)) {
-      // A glob over `packages/providers/*` also catches the loose files
-      // that live beside the package directories, so ask for the manifest
-      // rather than assuming every match is a package.
-      const manifest = dir + "/package.json"
-      if (!existsSync(manifest)) continue
-      const pkg = JSON.parse(readFileSync(manifest, "utf8"))
-      const peer = (pkg.peerDependencies || {})["@namzu/sdk"]
-      console.log("   ", pkg.name.padEnd(22), pkg.version.padEnd(10), peer ? `peer @namzu/sdk ${peer}` : "")
-    }
-  ' "$WORKSPACE_ROOT/packages/sdk" "$WORKSPACE_ROOT"/packages/providers/*
-  echo ""
 else
   echo "=== No pending changesets; the tree already holds the shipping versions ==="
 fi
 
-echo "=== Packing publishable Namzu packages ==="
-PUBLISHABLE=(
-  sdk
-  sandbox
-  telemetry
-  computer-use
-  providers/anthropic
-  providers/bedrock
-  providers/http
-  providers/lmstudio
-  providers/ollama
-  providers/openai
-  providers/openrouter
+PACKAGE_TABLE="$PACK_DIR/workspaces.tsv"
+node - "$WORKSPACE_ROOT" "$PACKAGE_TABLE" <<'NODE'
+const { execFileSync } = require('node:child_process')
+const { readFileSync, writeFileSync } = require('node:fs')
+const path = require('node:path')
+
+const [, , root, output] = process.argv
+const workspaces = JSON.parse(execFileSync(
+  'pnpm',
+  ['--dir', root, 'list', '--recursive', '--depth', '-1', '--json'],
+  { encoding: 'utf8' },
+))
+
+const rows = workspaces
+  .filter((workspace) => workspace.path !== root && workspace.name?.startsWith('@namzu/') && workspace.private !== true)
+  .map((workspace) => {
+    const manifest = JSON.parse(readFileSync(path.join(workspace.path, 'package.json'), 'utf8'))
+    const sdkRange = manifest.peerDependencies?.['@namzu/sdk'] ?? manifest.dependencies?.['@namzu/sdk'] ?? ''
+    return {
+      name: manifest.name,
+      packagePath: path.relative(root, workspace.path),
+      version: manifest.version,
+      sdkRange,
+      sdkDependent: sdkRange !== '',
+      sdkRelation: manifest.peerDependencies?.['@namzu/sdk'] ? 'peer' : sdkRange ? 'dependency' : '',
+    }
+  })
+  .sort((left, right) => left.name.localeCompare(right.name))
+
+writeFileSync(
+  output,
+  rows.map((row) => `${row.name}\t${row.packagePath}\t${row.sdkDependent ? '1' : '0'}`).join('\n') + '\n',
 )
 
-for pkg_path in "${PUBLISHABLE[@]}"; do
-  pkg_name=$(basename "$pkg_path")
-  echo "  • @namzu/${pkg_name}"
-  pnpm --dir "$WORKSPACE_ROOT" --filter "@namzu/${pkg_name}" pack --pack-destination "$PACK_DIR" >/dev/null
-done
+console.log('')
+console.log('  Shipping versions:')
+for (const row of rows) {
+  const relation = row.sdkRange ? `${row.sdkRelation} @namzu/sdk ${row.sdkRange}` : ''
+  console.log('   ', row.name.padEnd(22), row.version.padEnd(10), relation)
+}
+console.log('')
+NODE
+
+echo "=== Packing publishable Namzu packages ==="
+while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
+  echo "  • $pkg_name"
+  pnpm --dir "$WORKSPACE_ROOT" --filter "$pkg_name" pack --pack-destination "$PACK_DIR" >/dev/null
+done < "$PACKAGE_TABLE"
 
 SDK_TARBALL=$(ls "$PACK_DIR"/namzu-sdk-*.tgz | head -1)
 test -f "$SDK_TARBALL" || { echo "✗ Missing SDK tarball in $PACK_DIR"; exit 1; }
 TELEMETRY_TARBALL=$(ls "$PACK_DIR"/namzu-telemetry-*.tgz | head -1)
 test -f "$TELEMETRY_TARBALL" || { echo "✗ Missing telemetry tarball in $PACK_DIR"; exit 1; }
-echo "  ✓ Packed $(ls "$PACK_DIR" | wc -l | tr -d ' ') tarballs → $PACK_DIR"
+PACKED_COUNT=$(find "$PACK_DIR" -maxdepth 1 -name '*.tgz' | wc -l | tr -d ' ')
+echo "  ✓ Packed $PACKED_COUNT tarballs → $PACK_DIR"
 
 echo ""
 echo "=== Consumer install dry-run (SDK + each dependent) ==="
 cd "$CONSUMER_DIR"
 npm init -y >/dev/null
 
-# All dependents of SDK: 7 providers + computer-use + sandbox. They all
-# declare SDK in peerDependencies at ">=0.1.6 <1.0.0"; the install will
-# fail with ERESOLVE if any of the bumped versions falls outside that
-# range. `sandbox` was added in ses_005 alongside the multi-mount layout
-# work — its peer-range drift would block Vandal-side migration.
-# Quoted because they are literal values, not prose. Shell quoting says
-# exactly what a TypeScript string literal says, and the name audit reads it
-# that way — these are this workspace's own package names, which is identity.
-DEPENDENTS=('anthropic' 'bedrock' 'computer-use' 'http' 'lmstudio' 'ollama' 'openai' 'openrouter' 'sandbox')
+# Discover dependents from the shipping manifests rather than maintaining a
+# second package list. That makes a newly added leaf package part of this gate
+# on its first local run, before it has even been staged.
+DEPENDENT_COUNT=0
+while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
+  if [ "$sdk_dependent" != "1" ] || [ "$pkg_name" = "@namzu/sdk" ]; then
+    continue
+  fi
 
-for dep in "${DEPENDENTS[@]}"; do
+  dep=${pkg_name#@namzu/}
   echo ""
-  echo "  → @namzu/${dep} + @namzu/sdk"
+  echo "  → $pkg_name + @namzu/sdk"
   TARBALL=$(ls "$PACK_DIR"/namzu-${dep}-*.tgz | head -1)
   test -f "$TARBALL" || { echo "    ✗ Missing tarball for $dep"; exit 1; }
 
   rm -rf node_modules package-lock.json
   npm install --no-fund --no-audit --silent "$SDK_TARBALL" "$TARBALL"
 
-  test -d "node_modules/@namzu/${dep}" || { echo "    ✗ @namzu/${dep} did not install"; exit 1; }
+  test -d "node_modules/$pkg_name" || { echo "    ✗ $pkg_name did not install"; exit 1; }
   test -d "node_modules/@namzu/sdk" || { echo "    ✗ @namzu/sdk did not install"; exit 1; }
   echo "    ✓ resolved"
-done
+  DEPENDENT_COUNT=$((DEPENDENT_COUNT + 1))
+done < "$PACKAGE_TABLE"
 
 echo ""
-echo "✅ Consumer install verified for all 9 SDK-dependent packages"
+echo "✅ Consumer install verified for all $DEPENDENT_COUNT SDK-dependent packages"
 
 # ---------------------------------------------------------------------------
 # @namzu/sandbox public-surface fixture (ses_005-sandbox-multi-mount-layout).

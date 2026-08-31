@@ -456,6 +456,7 @@ back.
 | `@namzu/sandbox` | Sandbox providers beyond the in-kernel one |
 | `@namzu/telemetry` | The exporter pipeline, kept separate so consumers who emit nothing install nothing |
 | `@namzu/computer-use` | Screenshot, mouse and keyboard control through platform-native tools |
+| `@namzu/live` | Transport-agnostic live sessions with pluggable speech and audio-output drivers |
 | `@namzu/files` | File registry contracts, with in-memory, local-disk, Azure Blob and HTTP backends. Pre-1.0 |
 | `@namzu/evals` | The kernel's own behaviour suites, runnable against an installed kernel |
 
