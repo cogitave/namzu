@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+	createComputerUseTool,
 	findDraft07Only,
 	findStrictSchemaViolations,
 	getBuiltinTools,
 	renderToolSchema,
 	toSchemaDialect,
 } from '@namzu/sdk'
+import type { ComputerUseHost } from '@namzu/sdk'
 
 /**
  * The test that would have caught both outages.
@@ -103,7 +105,20 @@ function wireTool(name: string, schema: Record<string, unknown>, strict: boolean
 }
 
 describe.skipIf(!KEY)('every shipped tool is expressible on this wire', () => {
-	const tools = getBuiltinTools()
+	const computerUseHost = {
+		id: 'wire-contract-desktop',
+		capabilities: {
+			displayServer: 'x11',
+			screenshot: true,
+			mouse: true,
+			keyboard: true,
+			cursorPosition: true,
+			clipboard: true,
+		},
+		getDisplayGeometry: async () => ({ width: 1, height: 1, scaleFactor: 1 }),
+		execute: async () => ({ type: 'ok' as const }),
+	} satisfies ComputerUseHost
+	const tools = [...getBuiltinTools(), createComputerUseTool(computerUseHost)]
 
 	it('offers all of them in one request, the way a real run does', async () => {
 		// One request with the whole toolset, because that is the shape that

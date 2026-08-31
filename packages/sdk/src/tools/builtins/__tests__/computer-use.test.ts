@@ -1,4 +1,6 @@
+import { Validator } from 'jsonschema'
 import { describe, expect, it } from 'vitest'
+import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type {
 	ComputerUseAction,
 	ComputerUseCapabilities,
@@ -63,6 +65,22 @@ function makeContext(): ToolContext {
 }
 
 describe('createComputerUseTool', () => {
+	const validActions = [
+		{ type: 'screenshot' },
+		{ type: 'cursor_position' },
+		{ type: 'mouse_move', to: { x: 10, y: 20 } },
+		{ type: 'mouse_click', at: { x: 10, y: 20 }, button: 'left' },
+		{
+			type: 'mouse_drag',
+			from: { x: 10, y: 20 },
+			to: { x: 30, y: 40 },
+			button: 'right',
+		},
+		{ type: 'scroll', at: { x: 10, y: 20 }, direction: 'down', amount: 3 },
+		{ type: 'type_text', text: 'hello' },
+		{ type: 'key', keys: 'CTRL+R' },
+	] as const satisfies readonly ComputerUseAction[]
+
 	it('exposes the canonical tool name', () => {
 		expect(COMPUTER_USE_TOOL_NAME).toBe('computer_use')
 		const { host } = makeHost()
@@ -76,6 +94,97 @@ describe('createComputerUseTool', () => {
 		expect(tool.description).toContain('darwin')
 		expect(tool.description.toLowerCase()).toContain('unavailable')
 		expect(tool.description).toContain('keyboard')
+	})
+
+	it('offers every runtime action through one flat provider-safe model schema', () => {
+		const { host } = makeHost()
+		const tool = createComputerUseTool(host)
+		const schema = tool.modelInputSchema
+		const validator = new Validator()
+
+		expect(schema).toMatchObject({
+			type: 'object',
+			required: ['type'],
+			additionalProperties: false,
+		})
+		expect(schema).not.toHaveProperty('anyOf')
+		expect(schema).not.toHaveProperty('oneOf')
+		expect(schema).not.toHaveProperty('allOf')
+		expect(tool.enforceModelInput).not.toBe(true)
+
+		for (const action of validActions) {
+			expect(validator.validate(action, schema ?? {}).valid, action.type).toBe(true)
+			expect(tool.inputSchema.safeParse(action).success, action.type).toBe(true)
+		}
+	})
+
+	it('describes every action field without weakening the runtime discriminated union', () => {
+		const { host, calls } = makeHost()
+		const tool = createComputerUseTool(host)
+		const registry = new ToolRegistry()
+		registry.register(tool)
+		const schema = tool.modelInputSchema as {
+			properties: Record<string, Record<string, unknown>>
+		}
+		const properties = schema.properties
+
+		expect(Object.keys(properties)).toEqual([
+			'type',
+			'to',
+			'at',
+			'from',
+			'button',
+			'direction',
+			'amount',
+			'text',
+			'keys',
+		])
+		expect(properties.type?.enum).toEqual(validActions.map((action) => action.type))
+		expect(properties.button?.enum).toEqual(['left', 'right', 'middle'])
+		expect(properties.direction?.enum).toEqual(['up', 'down', 'left', 'right'])
+		expect(properties.amount?.type).toBe('integer')
+		for (const name of ['to', 'at', 'from']) {
+			expect(properties[name]).toEqual({
+				type: 'object',
+				properties: {
+					x: { type: 'integer' },
+					y: { type: 'integer' },
+				},
+				required: ['x', 'y'],
+				additionalProperties: false,
+			})
+		}
+		expect(tool.validationErrorHint).toMatch(/mouse_move.*to/i)
+		expect(tool.validationErrorHint).toMatch(/scroll.*at.*direction.*amount/i)
+
+		const incompleteActions = [
+			{ type: 'mouse_move' },
+			{ type: 'mouse_click', at: { x: 1, y: 2 } },
+			{ type: 'mouse_drag', from: { x: 1, y: 2 }, to: { x: 3, y: 4 } },
+			{ type: 'scroll', at: { x: 1, y: 2 }, direction: 'down' },
+			{ type: 'type_text' },
+			{ type: 'key' },
+		]
+		for (const action of incompleteActions) {
+			expect(tool.inputSchema.safeParse(action).success, action.type).toBe(false)
+			expect(registry.prepareExecution(COMPUTER_USE_TOOL_NAME, action).success, action.type).toBe(
+				false,
+			)
+		}
+		expect(calls).toHaveLength(0)
+	})
+
+	it('dispatches all eight runtime-valid actions unchanged', async () => {
+		const { host, calls } = makeHost()
+		const tool = createComputerUseTool(host)
+
+		for (const action of validActions) {
+			const parsed = tool.inputSchema.parse(action)
+			const result = await tool.execute(parsed, makeContext())
+			expect(result.success, action.type).toBe(true)
+		}
+
+		expect(calls).toEqual(validActions)
 	})
 
 	it('authors human activity labels instead of exposing the action JSON', () => {

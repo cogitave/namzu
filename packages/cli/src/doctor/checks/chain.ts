@@ -106,6 +106,7 @@ export async function describeProviderChain(
 	try {
 		detected = await discoverProviders({
 			...(options.env ? { env: options.env } : {}),
+			...(options.home ? { home: options.home } : {}),
 			...(options.skipProbes ? { skipProbes: true } : {}),
 		})
 	} catch (err) {

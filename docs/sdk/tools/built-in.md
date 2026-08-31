@@ -370,6 +370,9 @@ A successful call ends the run **only when it is the only call in its turn.** A 
 - it wraps any `ComputerUseHost`
 - it exposes one `computer_use` tool
 - action support depends on the host's frozen capability map
+- its model-facing schema is one flat root object accepted by custom-tool wires;
+  the runtime discriminated union remains authoritative for each action's
+  required fields
 - screenshots return an image block for drivers that admit image tool results
 - its presenter emits human activity labels and hides only redundant successful `ok` results
 

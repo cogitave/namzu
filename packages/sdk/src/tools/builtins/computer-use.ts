@@ -44,6 +44,60 @@ const actionSchema = z.discriminatedUnion('type', [
 ])
 
 /**
+ * The provider-facing shape is deliberately flat.
+ *
+ * The runtime schema above is the authoritative contract: it knows which
+ * fields each action requires. Rendering that discriminated union produces a
+ * root `anyOf`, however, and some custom-tool wires reject root combinators
+ * even when every branch is an object. A model can still see every field and
+ * every action here; incomplete combinations are rejected by `actionSchema`
+ * before the host is called, with the recovery hint below.
+ */
+const pointModelInputSchema = {
+	type: 'object',
+	properties: {
+		x: { type: 'integer' },
+		y: { type: 'integer' },
+	},
+	required: ['x', 'y'],
+	additionalProperties: false,
+} as const
+
+const modelInputSchema: Record<string, unknown> = {
+	type: 'object',
+	properties: {
+		type: {
+			type: 'string',
+			enum: [
+				'screenshot',
+				'cursor_position',
+				'mouse_move',
+				'mouse_click',
+				'mouse_drag',
+				'scroll',
+				'type_text',
+				'key',
+			],
+			description:
+				'Desktop action. screenshot and cursor_position need no other fields; mouse_move needs to; mouse_click needs at and button; mouse_drag needs from, to, and button; scroll needs at, direction, and amount; type_text needs text; key needs keys.',
+		},
+		to: pointModelInputSchema,
+		at: pointModelInputSchema,
+		from: pointModelInputSchema,
+		button: { type: 'string', enum: ['left', 'right', 'middle'] },
+		direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
+		amount: { type: 'integer', description: 'Positive integer scroll distance.' },
+		text: { type: 'string', description: 'Literal text to type.' },
+		keys: {
+			type: 'string',
+			description: 'Key or key chord to press, for example ENTER or CTRL+R.',
+		},
+	},
+	required: ['type'],
+	additionalProperties: false,
+}
+
+/**
  * The tool's input, inferred from its schema.
  *
  * Exported because `createComputerUseTool` returns a `ToolDefinition<ActionInput>`
@@ -225,6 +279,9 @@ export function createComputerUseTool(host: ComputerUseHost): ToolDefinition<Act
 		name: COMPUTER_USE_TOOL_NAME,
 		description: buildDescription(host),
 		inputSchema: actionSchema,
+		modelInputSchema: structuredClone(modelInputSchema),
+		validationErrorHint:
+			'Action requirements: mouse_move needs "to"; mouse_click needs "at" and "button"; mouse_drag needs "from", "to", and "button"; scroll needs "at", "direction", and positive "amount"; type_text needs "text"; key needs "keys".',
 		category: 'custom',
 		permissions: [],
 		readOnly: false,

@@ -569,30 +569,31 @@ const ROOTED_OBJECT_TOOL_SCHEMAS = new WeakMap<object, Record<string, unknown>>(
 
 /**
  * The Messages wire requires a custom tool's input schema to carry a root
- * `type: "object"`. Tool arguments are objects too, but a rendered Zod union
- * expresses that fact on each branch and leaves the composite root as only
- * `anyOf`. Preserve the union and add the redundant root fact at this wire
- * boundary; doing it in the shared renderer would force every provider to
- * speak a constraint only this wire requires.
+ * `type: "object"` and rejects `anyOf`, `oneOf`, or `allOf` at that root.
+ * Adding `type` beside a rendered discriminated union does not make the union
+ * acceptable: the wire rejects the whole request before the model runs.
  *
- * A composite containing a primitive is different. Adding an object root to
- * that schema would silently remove a branch, so refuse it locally with the
- * tool name instead of paying for a provider 400 or changing its contract.
+ * Tool authors that need a conditional runtime shape provide a flat
+ * `modelInputSchema` and keep branch-specific validation in `inputSchema`.
+ * Refuse an unrepresentable root locally with the tool name rather than
+ * paying for a provider 400 or silently changing the tool contract.
  */
 function objectToolInputSchema(toolName: string, schema: unknown): Record<string, unknown> {
 	if (schema === undefined) return EMPTY_OBJECT_TOOL_SCHEMA
 	if (!isSchemaObject(schema)) {
 		throw new Error(`Tool "${toolName}" input schema must be a JSON object schema.`)
 	}
+	for (const keyword of ['anyOf', 'oneOf', 'allOf'] as const) {
+		if (Object.hasOwn(schema, keyword)) {
+			throw new Error(
+				`Tool "${toolName}" model-facing input schema cannot use root keyword "${keyword}" on Anthropic. Define a flat object in ToolDefinition.modelInputSchema and validate conditional branch requirements when the tool executes.`,
+			)
+		}
+	}
 	if (schema.type === 'object') return schema
 	if (schema.type !== undefined) {
 		throw new Error(
 			`Tool "${toolName}" input schema must describe an object; received root type ${JSON.stringify(schema.type)}.`,
-		)
-	}
-	if (!hasObjectOnlyAlternatives(schema)) {
-		throw new Error(
-			`Tool "${toolName}" input schema must describe an object on every union branch.`,
 		)
 	}
 
@@ -607,17 +608,6 @@ function objectToolInputSchema(toolName: string, schema: unknown): Record<string
 
 function isSchemaObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function hasObjectOnlyAlternatives(schema: Record<string, unknown>): boolean {
-	for (const keyword of ['anyOf', 'oneOf'] as const) {
-		const alternatives = schema[keyword]
-		if (alternatives === undefined) continue
-		if (!Array.isArray(alternatives) || alternatives.length === 0) return false
-		if (!alternatives.every((branch) => isSchemaObject(branch) && branch.type === 'object'))
-			return false
-	}
-	return true
 }
 
 function shouldUseStrictToolInputs(

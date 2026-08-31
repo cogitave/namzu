@@ -172,10 +172,15 @@ Zod validation still runs on every tool call either way — strict generation
 narrows what the model can emit; it does not replace the check.
 
 Every custom tool reaches the Messages wire as a root object schema. When a
-renderer expresses an object-only union with `anyOf` or `oneOf`, the driver adds
-that required root fact while preserving every branch. A union containing a
-primitive branch is refused locally with the tool name instead of being
-silently narrowed or failing the whole remote request.
+renderer expresses a conditional input as root `anyOf`, `oneOf`, or `allOf`,
+adding `type: "object"` beside it is not sufficient: the Messages wire rejects
+the whole request. The driver therefore refuses every root combinator locally,
+names the tool and keyword, and points the author to `modelInputSchema`.
+
+Use a flat object `modelInputSchema` for the fields a model may emit and keep
+branch-specific required-field checks in the runtime `inputSchema`. Nested
+combinators remain available, subject to the strict subset below; this rule is
+only about the custom input schema's root.
 
 The kernel refuses a schema outside the strict subset at registration rather
 than sending it, because the vendor rejects the whole request when one keyword

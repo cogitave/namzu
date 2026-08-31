@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ToolRegistry } from '@namzu/sdk'
+import type { LLMToolSchema, ToolRegistry } from '@namzu/sdk'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
@@ -49,12 +49,19 @@ vi.mock('@namzu/computer-use', () => ({
 }))
 
 let queryToolNames: readonly string[] = []
+let queryTools: readonly LLMToolSchema[] = []
+let enforcedToolNames: readonly string[] = []
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
 		query: (params: { tools: ToolRegistry }) => {
-			queryToolNames = params.tools.getCallableTools().map((tool) => tool.name)
+			queryTools = params.tools.toLLMTools()
+			queryToolNames = queryTools.map((tool) => tool.function.name)
+			enforcedToolNames = params.tools
+				.getCallableTools()
+				.filter((tool) => tool.enforceModelInput === true)
+				.map((tool) => tool.name)
 			return (async function* () {})()
 		},
 	}
@@ -67,6 +74,7 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 			name: 'Agent',
 			description: 'stub',
 			inputSchema: { type: 'object', properties: {} },
+			modelInputSchema: { type: 'object', properties: {}, additionalProperties: false },
 			execute: async () => ({ success: true, output: '' }),
 		},
 		allowedAgentIds: [],
@@ -79,6 +87,8 @@ const open: Array<{ close(): Promise<void> }> = []
 beforeEach(() => {
 	workDir = mkdtempSync(join(tmpdir(), 'namzu-computer-use-'))
 	queryToolNames = []
+	queryTools = []
+	enforcedToolNames = []
 	desktop.failInitialize = false
 	desktop.initialize.mockReset().mockResolvedValue(undefined)
 	desktop.dispose.mockReset().mockResolvedValue(undefined)
@@ -131,7 +141,31 @@ describe('computer use session reachability', () => {
 			// drain the real session adapter into the mocked kernel boundary
 		}
 
-		expect(queryToolNames).toContain('computer_use')
+		expect(queryToolNames).toEqual([
+			'bash',
+			'edit',
+			'glob',
+			'grep',
+			'job',
+			'read',
+			'write',
+			'search_memory',
+			'read_memory',
+			'save_memory',
+			'computer_use',
+			'search_tools',
+			'Agent',
+		])
+		const computerUse = queryTools[10]?.function.parameters
+		expect(computerUse).toMatchObject({
+			type: 'object',
+			required: ['type'],
+			additionalProperties: false,
+		})
+		expect(computerUse).not.toHaveProperty('anyOf')
+		expect(computerUse).not.toHaveProperty('oneOf')
+		expect(computerUse).not.toHaveProperty('allOf')
+		expect(enforcedToolNames).not.toContain('computer_use')
 		await session.close()
 		expect(desktop.dispose).toHaveBeenCalledTimes(1)
 	})

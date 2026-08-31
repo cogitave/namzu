@@ -1,8 +1,8 @@
 import {
 	DuplicateProviderError,
 	ProviderRegistry,
+	ToolRegistry,
 	createComputerUseTool,
-	renderToolSchema,
 } from '@namzu/sdk'
 import type { ChatCompletionParams, ComputerUseHost, LLMToolSchema } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -182,7 +182,7 @@ describe('AnthropicProvider — buildCreateParams', () => {
 		},
 	]
 
-	it('roots the actual computer-use union without moving it in the CLI tool roster', () => {
+	it('sends the actual computer-use model schema without moving it in the CLI tool roster', () => {
 		const host = {
 			id: 'test-desktop',
 			capabilities: {
@@ -196,7 +196,11 @@ describe('AnthropicProvider — buildCreateParams', () => {
 			getDisplayGeometry: async () => ({ width: 1, height: 1, scaleFactor: 1 }),
 			execute: async () => ({ type: 'ok' as const }),
 		} satisfies ComputerUseHost
-		const sourceSchema = renderToolSchema(createComputerUseTool(host).inputSchema)
+		const registry = new ToolRegistry()
+		registry.register(createComputerUseTool(host))
+		const registeredComputerUse = registry.toLLMTools()[0]
+		if (!registeredComputerUse) throw new Error('computer_use did not reach the model tool catalog')
+		const sourceSchema = registeredComputerUse.function.parameters
 		const names = [
 			'bash',
 			'edit',
@@ -230,14 +234,18 @@ describe('AnthropicProvider — buildCreateParams', () => {
 
 		expect(body.tools?.map((tool) => tool.name)).toEqual(names)
 		const computerUse = body.tools?.[10]?.input_schema as Record<string, unknown>
-		expect(sourceSchema).not.toHaveProperty('type')
+		expect(sourceSchema).toMatchObject({ type: 'object', required: ['type'] })
 		expect(computerUse.type).toBe('object')
-		expect(computerUse.anyOf).toHaveLength(8)
+		expect(computerUse).not.toHaveProperty('anyOf')
+		expect(computerUse).not.toHaveProperty('oneOf')
+		expect(computerUse).not.toHaveProperty('allOf')
 		expect(
-			(computerUse.anyOf as Record<string, unknown>[]).map(
-				(branch) =>
-					((branch.properties as Record<string, unknown>).type as Record<string, unknown>).const,
-			),
+			(
+				(computerUse.properties as Record<string, Record<string, unknown>>).type as Record<
+					string,
+					unknown
+				>
+			).enum,
 		).toEqual([
 			'screenshot',
 			'cursor_position',
@@ -253,25 +261,58 @@ describe('AnthropicProvider — buildCreateParams', () => {
 		])
 	})
 
-	it('refuses a non-object union before it reaches the provider wire', () => {
-		expect(() =>
-			buildParams(makeProvider(), {
-				model: 'claude-sonnet-4-6',
-				messages: [{ role: 'user', content: 'hello' }],
-				tools: [
-					{
-						type: 'function',
-						function: {
-							name: 'mixed_input',
-							description: 'Mixed input',
-							parameters: {
-								anyOf: [{ type: 'object' }, { type: 'string' }],
+	it.each(['anyOf', 'oneOf', 'allOf'] as const)(
+		'refuses a root %s before it reaches the provider wire, even beside type object',
+		(keyword) => {
+			for (const withType of [false, true]) {
+				expect(() =>
+					buildParams(makeProvider(), {
+						model: 'claude-sonnet-4-6',
+						messages: [{ role: 'user', content: 'hello' }],
+						tools: [
+							{
+								type: 'function',
+								function: {
+									name: 'root_union',
+									description: 'Root union',
+									parameters: {
+										...(withType ? { type: 'object' } : {}),
+										[keyword]: [{ type: 'object' }],
+									},
+								},
+							},
+						],
+					}),
+				).toThrow(new RegExp(`root_union.*${keyword}.*modelInputSchema`, 'i'))
+			}
+		},
+	)
+
+	it('allows nested combinators because only the custom input root is forbidden', () => {
+		const body = buildParams(makeProvider(), {
+			model: 'claude-sonnet-4-6',
+			messages: [{ role: 'user', content: 'hello' }],
+			tools: [
+				{
+					type: 'function',
+					function: {
+						name: 'nested_union',
+						description: 'Nested union',
+						parameters: {
+							type: 'object',
+							properties: {
+								value: { anyOf: [{ type: 'integer' }, { const: 'end' }] },
 							},
 						},
 					},
-				],
-			}),
-		).toThrow(/mixed_input.*object/i)
+				},
+			],
+		})
+
+		expect(body.tools?.[0]?.input_schema).toMatchObject({
+			type: 'object',
+			properties: { value: { anyOf: [{ type: 'integer' }, { const: 'end' }] } },
+		})
 	})
 
 	describe('tool_choice mapping', () => {
