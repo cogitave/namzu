@@ -150,13 +150,18 @@ runs once, `a` approves subsequent undecided calls for the session, `n` or
 Escape declines while allowing the turn to continue, and Ctrl+C declines and
 stops the turn. Enter has no approval meaning.
 
-Bare `/agent` opens the current conversation's bounded list of active and
-recent delegated runs. The list shows lifecycle state and latest activity;
-Enter opens a bounded live projection of the selected child, Escape returns to
-the list, and `q` returns to the parent transcript. Selection follows a stable
-child identity when completions reorder the list. Observing a child never adds
-its private events to the parent's model history, and parent rows that settle
-while observation is open are emitted exactly once after returning.
+Bare `/agent` opens the current conversation's bounded delegated-work cockpit.
+The phase rail groups related Agent calls by their display-only workflow and
+phase annotations; it does not imply scheduler dependencies, barriers or
+serial execution. The agent pane shows lifecycle state and latest activity for
+the selected phase. Left/Right changes panes, arrows navigate, and Enter opens
+a bounded live projection of the selected child. Escape returns and `q` closes
+the cockpit. Selection follows monitor-owned phase and child identities when
+completions reorder the list or the terminal crosses its responsive breakpoint;
+if retention removes the selected child, selection falls back within its phase
+before moving to another phase. Observing a child never adds its private events
+to the parent's model history, and parent rows that settle while observation
+is open are emitted exactly once after returning.
 
 Bare `/effort` opens a finite chooser containing the provider default and the
 exact levels accepted by every usable member of the current provider/model

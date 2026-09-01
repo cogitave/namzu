@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import {
-	AgentPicker,
+	AgentCockpit,
 	AgentTranscript,
+	agentPhases,
 	agentTranscriptPage,
 	agentTranscriptRows,
 	maxAgentTranscriptTailOffset,
@@ -128,6 +129,18 @@ function agent(
 		agentId: input.agentId ?? 'general-purpose',
 		description: input.description ?? input.viewId,
 		prompt: input.prompt ?? `prompt for ${input.viewId}`,
+		workflowId: input.workflowId ?? 'run-parent',
+		phaseId:
+			input.phaseId ??
+			JSON.stringify([
+				input.workflowId ?? 'run-parent',
+				input.workflow ?? 'Delegated work',
+				input.phase ?? 'Work',
+			]),
+		workflow: input.workflow ?? 'Delegated work',
+		phase: input.phase ?? 'Work',
+		...(input.phaseOrder !== undefined ? { phaseOrder: input.phaseOrder } : {}),
+		phaseSequence: input.phaseSequence ?? 1,
 		status: input.status ?? 'working',
 		startedAt: input.startedAt ?? 1,
 		transcript: input.transcript ?? [],
@@ -283,6 +296,108 @@ describe('/agent', () => {
 		expect(screen.viewport().join('\n')).toContain('Alpha audit')
 	})
 
+	it('moves from the phase rail into a child transcript through the production App', async () => {
+		activity.set([
+			agent({
+				viewId: 'research-api',
+				description: 'API research',
+				workflow: 'Basicbox research',
+				phase: 'Research',
+				phaseOrder: 0,
+			}),
+			agent({
+				viewId: 'verify-contract',
+				description: 'Contract critic',
+				workflow: 'Basicbox research',
+				phase: 'Verify',
+				phaseOrder: 1,
+				transcript: [
+					{ id: 'critic-evidence', kind: 'assistant', text: 'verification evidence' },
+				],
+			}),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+
+		await submit(screen, '/agent')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Phases · 1/2'),
+			'phase rail missing',
+		)
+		screen.press('\x1b[D')
+		screen.press('\x1b[B')
+		screen.press('\x1b[C')
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('verification evidence'),
+			'phase selection did not reach the selected child transcript',
+		)
+		expect(screen.viewport().join('\n')).toContain('Contract critic')
+	})
+
+	it('keeps the selected child while the mounted cockpit crosses its responsive breakpoint', async () => {
+		activity.set([
+			agent({ viewId: 'agent-alpha', description: 'Alpha' }),
+			agent({
+				viewId: 'agent-beta',
+				description: 'Beta',
+				transcript: [{ id: 'beta-proof', kind: 'assistant', text: 'beta survives resize' }],
+			}),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await submit(screen, '/agent')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'cockpit missing')
+
+		screen.press('\x1b[B')
+		await screen.resize(60, 28)
+		expect(screen.viewport().join('\n')).toContain('Phases · 1/1')
+		expect(screen.viewport().join('\n')).toContain('Beta')
+		await screen.resize(110, 28)
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('beta survives resize'),
+			'resize lost the selected child',
+		)
+	})
+
+	it('falls back inside the selected phase when retention removes its selected child', async () => {
+		const alpha = agent({
+			viewId: 'agent-alpha',
+			description: 'Alpha fallback',
+			transcript: [{ id: 'alpha-proof', kind: 'assistant', text: 'fallback evidence' }],
+		})
+		const beta = agent({ viewId: 'agent-beta', description: 'Beta pruned' })
+		activity.set([alpha, beta])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await submit(screen, '/agent')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Beta pruned'), 'cockpit missing')
+		screen.press('\x1b[B')
+
+		activity.set([alpha])
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Alpha fallback'),
+			'cockpit closed instead of choosing a fallback',
+		)
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('fallback evidence'),
+			'fallback child did not remain inspectable',
+		)
+	})
+
 	it('freezes parent scrollback while observing and publishes it once on return', async () => {
 		activity.set([
 			agent({
@@ -326,6 +441,103 @@ describe('/agent', () => {
 })
 
 describe('agent explorer projection', () => {
+	it('groups agents by explicit workflow phase and preserves declared order', () => {
+		const phases = agentPhases([
+			agent({
+				viewId: 'critic',
+				workflow: 'Release readiness',
+				phase: 'Critic',
+				phaseOrder: 2,
+				startedAt: 3,
+			}),
+			agent({
+				viewId: 'research-a',
+				workflow: 'Release readiness',
+				phase: 'Research',
+				phaseOrder: 0,
+				startedAt: 1,
+			}),
+			agent({
+				viewId: 'research-b',
+				workflow: 'Release readiness',
+				phase: 'Research',
+				phaseOrder: 0,
+				startedAt: 2,
+			}),
+		])
+
+		expect(phases.map((phase) => [phase.name, phase.agents.length])).toEqual([
+			['Research', 2],
+			['Critic', 1],
+		])
+	})
+
+	it('keeps both cockpit panes visible on a narrow terminal', () => {
+		const research = agent({
+			viewId: 'research',
+			workflow: 'Narrow workflow',
+			phase: 'Research',
+			phaseOrder: 0,
+			description: 'Research worker',
+		})
+		const cockpit = render(
+			<AgentCockpit
+				agents={[research]}
+				selectedPhaseId={research.phaseId}
+				selectedId={research.viewId}
+				focus="phases"
+				terminalRows={20}
+				terminalColumns={60}
+			/>,
+		)
+		try {
+			expect(cockpit.lastFrame()).toContain('Phases · 1/1')
+			expect(cockpit.lastFrame()).toContain('Agents · 1/1')
+			expect(cockpit.lastFrame()).toContain('Research worker')
+		} finally {
+			cockpit.unmount()
+		}
+	})
+
+	it('surfaces failed and cancelled children in phase summaries', () => {
+		const failed = agent({
+			viewId: 'failed',
+			status: 'failed',
+			completedAt: 2,
+		})
+		const working = agent({ viewId: 'working' })
+		const cancelled = agent({
+			viewId: 'cancelled',
+			workflowId: 'run-two',
+			phaseId: 'phase-two',
+			status: 'cancelled',
+			completedAt: 2,
+		})
+		const completed = agent({
+			viewId: 'completed',
+			workflowId: 'run-two',
+			phaseId: 'phase-two',
+			status: 'completed',
+			completedAt: 2,
+		})
+		const cockpit = render(
+			<AgentCockpit
+				agents={[failed, working, cancelled, completed]}
+				selectedPhaseId={failed.phaseId}
+				selectedId={failed.viewId}
+				focus="phases"
+				terminalRows={24}
+				terminalColumns={120}
+			/>,
+		)
+		try {
+			expect(cockpit.lastFrame()).toContain('failed 1')
+			expect(cockpit.lastFrame()).toContain('cancelled 1')
+		} finally {
+			cockpit.unmount()
+		}
+	})
+
 	it('ticks elapsed time even when the child emits no events', async () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(10_000)
@@ -334,7 +546,16 @@ describe('agent explorer projection', () => {
 			description: 'Silent',
 			startedAt: 0,
 		})
-		const picker = render(<AgentPicker agents={[silent]} selectedId="silent" terminalRows={24} />)
+		const picker = render(
+			<AgentCockpit
+				agents={[silent]}
+				selectedPhaseId={silent.phaseId}
+				selectedId="silent"
+				focus="agents"
+				terminalRows={24}
+				terminalColumns={100}
+			/>,
+		)
 		const transcript = render(
 			<AgentTranscript agent={silent} tailOffset={0} terminalRows={24} terminalColumns={80} />,
 		)

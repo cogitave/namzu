@@ -74,7 +74,13 @@ async function buildAgentTool(
 		...extra,
 	})
 
-	return { agentTool: runtime.agentTool, created, registered }
+	return {
+		agentTool: runtime.agentTool,
+		activity: runtime.activity,
+		close: runtime.close,
+		created,
+		registered,
+	}
 }
 
 afterEach(() => {
@@ -82,6 +88,52 @@ afterEach(() => {
 })
 
 describe('the Agent tool parents a delegated run to the turn that asked for it', () => {
+	it('carries parsed cockpit annotations through the production tool into activity', async () => {
+		const { agentTool, activity, close } = await buildAgentTool()
+		try {
+			const parsed = agentTool.inputSchema.parse({
+				description: 'API research',
+				prompt: 'inspect provider APIs',
+				workflow: 'Basicbox research',
+				phase: 'Research',
+				phase_order: 1,
+			})
+			await agentTool.execute(parsed, toolContext())
+
+			expect(activity.getSnapshot()[0]).toMatchObject({
+				workflowId: 'run_test',
+				workflow: 'Basicbox research',
+				phase: 'Research',
+				phaseOrder: 1,
+				phaseSequence: 1,
+			})
+		} finally {
+			await close()
+		}
+	})
+
+	it('rejects cockpit annotations the bounded monitor cannot represent exactly', async () => {
+		const { agentTool, close } = await buildAgentTool()
+		try {
+			expect(
+				agentTool.inputSchema.safeParse({
+					description: 'audit',
+					prompt: 'inspect',
+					workflow: 'w'.repeat(241),
+				}),
+			).toMatchObject({ success: false })
+			expect(
+				agentTool.inputSchema.safeParse({
+					description: 'audit',
+					prompt: 'inspect',
+					phase_order: 10_001,
+				}),
+			).toMatchObject({ success: false })
+		} finally {
+			await close()
+		}
+	})
+
 	it('passes the executing tool span through to the child run', async () => {
 		const { agentTool, created } = await buildAgentTool()
 

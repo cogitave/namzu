@@ -133,11 +133,15 @@ represented exactly; approval never covers hidden or truncated input, and
 Enter never approves it.
 
 Delegated work stays attached to the parent turn while `/agent` opens a bounded
-list of active and recent children. Enter inspects one child's live projected
-transcript, Escape returns to the list, and `q` returns to the parent. Selection
-is tied to the child's stable identity, so a completion that reorders the list
-does not move the operator to another run. Parent output that settles while a
-child is open is published once on return.
+cockpit of active and recent children. Related calls may declare display-only
+workflow and phase annotations; the cockpit shows ordered phases beside the
+selected phase's agents without claiming that labels create scheduler barriers
+or dependencies. Left/Right moves between panes, arrows navigate, and Enter
+inspects one child's live projected transcript. Escape returns and `q` closes
+the cockpit. Selection is tied to monitor-owned phase and child identities, so
+completion reordering, responsive layout changes, and retention fallback do not
+silently move the operator to an unrelated run. Parent output that settles
+while a child is open is published once on return.
 
 `/skill` remains an alias, `/skills <name>` activates directly, and
 `/skills list` prints the roster. Long model and resume lists

@@ -21,6 +21,67 @@ afterEach(() => {
 })
 
 describe('the CLI sub-agent activity monitor', () => {
+	it('retains bounded workflow metadata and uses explicit defaults instead of lifecycle guesses', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({
+			agentId: 'researcher',
+			description: 'inspect',
+			prompt: 'inspect it',
+			workflow: '  Release readiness  ',
+			phase: '  Verify  ',
+			phaseOrder: 2,
+		})
+		monitor.begin({
+			agentId: 'worker',
+			description: 'work',
+			prompt: 'do it',
+			phaseOrder: -1,
+		})
+
+		expect(monitor.getSnapshot()).toEqual([
+			expect.objectContaining({
+				workflow: 'Release readiness',
+				phase: 'Verify',
+				phaseOrder: 2,
+			}),
+			expect.objectContaining({
+				workflow: 'Delegated work',
+				phase: 'Work',
+			}),
+		])
+		expect(monitor.getSnapshot()[1]).not.toHaveProperty('phaseOrder')
+	})
+
+	it('keeps the first phase order and identity when a later sibling conflicts', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({
+			agentId: 'a',
+			description: 'a',
+			prompt: 'a',
+			workflowId: 'run-parent',
+			workflow: 'Audit',
+			phase: 'Verify',
+			phaseOrder: 2,
+		})
+		monitor.begin({
+			agentId: 'b',
+			description: 'b',
+			prompt: 'b',
+			workflowId: 'run-parent',
+			workflow: 'Audit',
+			phase: 'Verify',
+			phaseOrder: 0,
+		})
+
+		const snapshot = monitor.getSnapshot()
+		expect(snapshot.map((entry) => [entry.phaseId, entry.phaseOrder, entry.phaseSequence])).toEqual(
+			[
+				['phase-1', 2, 1],
+				['phase-1', 2, 1],
+			],
+		)
+	})
+
 	it('owns events that arrive before the scheduler returns a handle', () => {
 		const monitor = new SubagentActivityMonitor()
 		const tracker = monitor.begin({

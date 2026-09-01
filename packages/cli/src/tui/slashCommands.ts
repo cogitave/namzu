@@ -51,7 +51,7 @@ export type SlashAction =
 	/** Choose and dispatch one exact command from the session's live vocabulary. */
 	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
 	/** Observe child runs retained by this TUI conversation. */
-	| { kind: 'agent-picker' }
+	| { kind: 'agent-cockpit' }
 	| { kind: 'exit' }
 	/** Empty only the rendered terminal transcript; model context is unchanged. */
 	| { kind: 'clear-screen' }
@@ -539,8 +539,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'agent',
-		description: 'Inspect active and recently completed delegated agents.',
-		action: () => ({ kind: 'agent-picker' }),
+		description: 'Follow delegated workflows by phase and inspect each agent live.',
+		action: () => ({ kind: 'agent-cockpit' }),
 	},
 	{
 		name: 'feedback',

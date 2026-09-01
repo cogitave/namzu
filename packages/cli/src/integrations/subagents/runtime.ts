@@ -51,7 +51,12 @@ import {
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 
-import { SubagentActivityMonitor, type SubagentActivitySource } from './activity.js'
+import {
+	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
+	MAX_AGENT_PHASE_ORDER,
+	SubagentActivityMonitor,
+	type SubagentActivitySource,
+} from './activity.js'
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 
@@ -211,7 +216,10 @@ export async function createSubagentRuntime(
 			'is and how to behave (e.g. "You are a security auditor; flag vulnerabilities and rate severity"). ' +
 			'Omit `role` for a general-purpose sub-agent. The sub-agent runs in its own context with its own ' +
 			'tools and cannot see this conversation — put everything it needs in `prompt`. Call this multiple ' +
-			'times in one response to run specialists in parallel.',
+			'times in one response to run specialists in parallel. When coordinating several specialists, give ' +
+			'them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow ' +
+			'the work in the agent cockpit. These fields are display annotations only; they do not create ' +
+			'dependencies, barriers, or serial execution.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -228,6 +236,25 @@ export async function createSubagentRuntime(
 					description:
 						'Optional persona / system prompt that defines this specialist sub-agent. Omit for general-purpose.',
 				},
+				workflow: {
+					type: 'string',
+					maxLength: MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
+					description:
+						'Optional short workflow label shared by related delegated tasks (for example, "Release audit").',
+				},
+				phase: {
+					type: 'string',
+					maxLength: MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
+					description:
+						'Optional workflow phase shown in the agent cockpit (for example, "Research" or "Verify").',
+				},
+				phase_order: {
+					type: 'integer',
+					minimum: 0,
+					maximum: MAX_AGENT_PHASE_ORDER,
+					description:
+						'Optional zero-based display order for the phase. Tasks in the same phase should use the same value.',
+				},
 			},
 			required: ['description', 'prompt'],
 		}),
@@ -237,10 +264,13 @@ export async function createSubagentRuntime(
 		destructive: false,
 		concurrencySafe: true,
 		async execute(input, context) {
-			const { description, prompt, role } = input as {
+			const { description, prompt, role, workflow, phase, phase_order } = input as {
 				description: string
 				prompt: string
 				role?: string
+				workflow?: string
+				phase?: string
+				phase_order?: number
 			}
 			let agentId = GENERAL_PURPOSE_SUBAGENT
 			const persona = typeof role === 'string' ? role.trim() : ''
@@ -249,7 +279,15 @@ export async function createSubagentRuntime(
 				agentId = `dyn-${++dynCounter}`
 				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
 			}
-			const tracker = activity.begin({ agentId, description, prompt })
+			const tracker = activity.begin({
+				agentId,
+				description,
+				prompt,
+				workflowId: String(context.runId),
+				workflow,
+				phase,
+				phaseOrder: phase_order,
+			})
 			// The child is a separate run, but its human authority belongs to the
 			// parent turn that invoked Agent. `drainQuery` deliberately auto-approves
 			// when a handler is omitted for headless SDK callers; omission here would

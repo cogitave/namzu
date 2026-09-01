@@ -389,7 +389,7 @@ describe('/cost', () => {
 
 describe('/agent', () => {
 	it('opens the host-owned child-run observer', () => {
-		expect(runSlash('/agent', context())).toEqual({ kind: 'agent-picker' })
+		expect(runSlash('/agent', context())).toEqual({ kind: 'agent-cockpit' })
 	})
 })
 

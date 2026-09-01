@@ -4,8 +4,13 @@ const MAX_RETAINED_AGENTS = 80
 const MAX_TRANSCRIPT_ROWS = 120
 const MAX_ROW_CODE_UNITS = 2_048
 const MAX_PROMPT_CODE_UNITS = 4_096
-const MAX_LABEL_CODE_UNITS = 240
+export const MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS = 240
+export const MAX_AGENT_PHASE_ORDER = 10_000
+const MAX_IDENTITY_LABEL_CODE_UNITS = 4_096
 const NOTIFY_INTERVAL_MS = 100
+
+export const DEFAULT_AGENT_WORKFLOW = 'Delegated work'
+export const DEFAULT_AGENT_PHASE = 'Work'
 
 export type SubagentActivityStatus = 'starting' | 'working' | 'completed' | 'failed' | 'cancelled'
 
@@ -36,6 +41,14 @@ export interface SubagentActivity {
 	readonly agentId: string
 	readonly description: string
 	readonly prompt: string
+	/** Parent run identity; display labels never serve as orchestration identity. */
+	readonly workflowId: string
+	/** Monitor-owned phase identity, stable even when display labels collide. */
+	readonly phaseId: string
+	readonly workflow: string
+	readonly phase: string
+	readonly phaseOrder?: number
+	readonly phaseSequence: number
 	readonly status: SubagentActivityStatus
 	readonly startedAt: number
 	readonly completedAt?: number
@@ -66,6 +79,12 @@ interface MutableActivity {
 	agentId: string
 	description: string
 	prompt: string
+	workflowId: string
+	phaseId: string
+	workflow: string
+	phase: string
+	phaseOrder?: number
+	phaseSequence: number
 	status: SubagentActivityStatus
 	startedAt: number
 	completedAt?: number
@@ -84,6 +103,11 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	private readonly listeners = new Set<() => void>()
 	private epoch = 0
 	private counter = 0
+	private phaseCounter = 0
+	private readonly phases = new Map<
+		string,
+		{ readonly id: string; readonly order?: number; readonly sequence: number }
+	>()
 	private notifyTimer: ReturnType<typeof setTimeout> | undefined
 	private closed = false
 
@@ -91,16 +115,49 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		readonly agentId: string
 		readonly description: string
 		readonly prompt: string
+		readonly workflowId?: string
+		readonly workflow?: string
+		readonly phase?: string
+		readonly phaseOrder?: number
 	}): SubagentActivityTracker {
 		const epoch = this.epoch
 		const viewId = `agent-${++this.counter}`
+		const workflowId = normalizedLabel(input.workflowId, 'session', MAX_IDENTITY_LABEL_CODE_UNITS)
+		const workflowIdentity = normalizedLabel(
+			input.workflow,
+			DEFAULT_AGENT_WORKFLOW,
+			MAX_IDENTITY_LABEL_CODE_UNITS,
+		)
+		const phaseIdentity = normalizedLabel(
+			input.phase,
+			DEFAULT_AGENT_PHASE,
+			MAX_IDENTITY_LABEL_CODE_UNITS,
+		)
+		const phaseKey = JSON.stringify([workflowId, workflowIdentity, phaseIdentity])
+		let phaseDefinition = this.phases.get(phaseKey)
+		if (!phaseDefinition) {
+			const sequence = ++this.phaseCounter
+			const order = normalizedPhaseOrder(input.phaseOrder)
+			phaseDefinition = {
+				id: `phase-${sequence}`,
+				...(order !== undefined ? { order } : {}),
+				sequence,
+			}
+			this.phases.set(phaseKey, phaseDefinition)
+		}
 		const record: MutableActivity = {
 			epoch,
 			order: this.counter,
 			viewId,
-			agentId: bounded(input.agentId, MAX_LABEL_CODE_UNITS),
-			description: bounded(input.description, MAX_LABEL_CODE_UNITS),
+			agentId: bounded(input.agentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
+			description: bounded(input.description, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			prompt: bounded(input.prompt, MAX_PROMPT_CODE_UNITS),
+			workflowId,
+			phaseId: phaseDefinition.id,
+			workflow: bounded(workflowIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
+			phase: bounded(phaseIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
+			...(phaseDefinition.order !== undefined ? { phaseOrder: phaseDefinition.order } : {}),
+			phaseSequence: phaseDefinition.sequence,
 			status: 'starting',
 			startedAt: Date.now(),
 			rows: [],
@@ -125,7 +182,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				const owned = current()
 				if (!owned) return
 				owned.taskId = String(handle.taskId)
-				owned.agentId = bounded(handle.agentId, MAX_LABEL_CODE_UNITS)
+				owned.agentId = bounded(handle.agentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 				owned.status = statusOf(handle)
 				owned.completedAt = handle.completedAt ?? Date.now()
 				owned.latestActivity = terminalLabel(owned.status)
@@ -173,6 +230,12 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					agentId: record.agentId,
 					description: record.description,
 					prompt: record.prompt,
+					workflowId: record.workflowId,
+					phaseId: record.phaseId,
+					workflow: record.workflow,
+					phase: record.phase,
+					...(record.phaseOrder !== undefined ? { phaseOrder: record.phaseOrder } : {}),
+					phaseSequence: record.phaseSequence,
 					status: record.status,
 					startedAt: record.startedAt,
 					...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
@@ -190,6 +253,8 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	reset(): void {
 		this.epoch += 1
 		this.records.clear()
+		this.phases.clear()
+		this.phaseCounter = 0
 		this.clearNotifyTimer()
 		this.notifyNow()
 	}
@@ -198,6 +263,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		if (this.closed) return
 		this.closed = true
 		this.records.clear()
+		this.phases.clear()
 		this.clearNotifyTimer()
 		this.notifyNow()
 		this.listeners.clear()
@@ -245,7 +311,7 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 	switch (event.type) {
 		case 'agent_pending':
 			record.taskId = String(event.taskId)
-			record.agentId = bounded(event.childAgentId, MAX_LABEL_CODE_UNITS)
+			record.agentId = bounded(event.childAgentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 			record.latestActivity = 'Starting'
 			return
 		case 'run_started':
@@ -275,7 +341,7 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 		case 'tool_executing': {
 			record.status = 'working'
 			const label = `${event.toolName}(${genericLabel(event.input)})`
-			record.latestActivity = bounded(label, MAX_LABEL_CODE_UNITS)
+			record.latestActivity = bounded(label, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 			pushRow(record, {
 				id: `${record.viewId}:tool:${event.toolUseId}`,
 				kind: 'tool',
@@ -294,7 +360,7 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 				...row,
 				detail: bounded(event.message, MAX_ROW_CODE_UNITS),
 			}
-			record.latestActivity = bounded(event.message, MAX_LABEL_CODE_UNITS)
+			record.latestActivity = bounded(event.message, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 			return
 		}
 		case 'tool_completed': {
@@ -389,6 +455,29 @@ function bounded(value: string, max: number): string {
 	if (value.length <= max) return value
 	const suffix = '… [clipped]'
 	return `${value.slice(0, Math.max(0, max - suffix.length))}${suffix}`
+}
+
+function normalizedLabel(value: string | undefined, fallback: string, max: number): string {
+	const raw = typeof value === 'string' ? value.trim() : ''
+	let label = ''
+	for (const point of raw) {
+		const codePoint = point.codePointAt(0) ?? 0
+		if (point === '\n' || point === '\r' || point === '\t') label += ' '
+		else if (codePoint >= 0x20 && codePoint !== 0x7f) label += point
+	}
+	label = label.replace(/ +/g, ' ').trim()
+	return bounded(label || fallback, max)
+}
+
+function normalizedPhaseOrder(value: number | undefined): number | undefined {
+	if (
+		typeof value !== 'number' ||
+		!Number.isSafeInteger(value) ||
+		value < 0 ||
+		value > MAX_AGENT_PHASE_ORDER
+	)
+		return undefined
+	return value
 }
 
 function appendBounded(current: string, delta: string): string {

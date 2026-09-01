@@ -106,9 +106,13 @@ import type { PermissionMode } from '../permissions/mode.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
-	AgentPicker,
+	AgentCockpit,
 	AgentTranscript,
+	type AgentCockpitFocus,
+	agentCockpitIsWide,
 	agentPickerPageSize,
+	agentPhasePageSize,
+	agentPhases,
 	agentTranscriptPageSize,
 	maxAgentTranscriptTailOffset,
 } from './AgentExplorer.js'
@@ -217,10 +221,17 @@ export type ExternalEditorAdapter = (request: {
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
 type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive' | 'materialize'
 type AgentSurface =
-	| { readonly kind: 'picker'; readonly selectedId: string }
+	| {
+			readonly kind: 'cockpit'
+			readonly selectedPhaseId: string
+			readonly selectedId: string
+			readonly focus: AgentCockpitFocus
+	  }
 	| {
 			readonly kind: 'transcript'
 			readonly selectedId: string
+			readonly selectedPhaseId: string
+			readonly returnFocus: AgentCockpitFocus
 			readonly tailOffset: number
 	  }
 type PendingExternalEditor = {
@@ -868,9 +879,21 @@ export function App({
 			subagentsRef.current = next
 			setSubagentsState(next)
 			const surface = agentSurfaceRef.current
-			if (surface && !next.some((agent) => agent.viewId === surface.selectedId)) {
+			if (!surface || next.some((agent) => agent.viewId === surface.selectedId)) return
+			const phases = agentPhases(next)
+			const fallbackPhase =
+				phases.find((phase) => phase.id === surface.selectedPhaseId) ?? phases[0]
+			const fallbackAgent = fallbackPhase?.agents[0]
+			if (!fallbackPhase || !fallbackAgent) {
 				setAgentSurface(null)
+				return
 			}
+			setAgentSurface({
+				kind: 'cockpit',
+				selectedPhaseId: fallbackPhase.id,
+				selectedId: fallbackAgent.viewId,
+				focus: surface.kind === 'cockpit' ? surface.focus : surface.returnFocus,
+			})
 		},
 		[setAgentSurface],
 	)
@@ -3911,7 +3934,7 @@ export function App({
 						})
 						return
 					}
-					case 'agent-picker': {
+					case 'agent-cockpit': {
 						const agents = subagentsRef.current
 						if (agents.length === 0) {
 							pushMessage(
@@ -3920,9 +3943,14 @@ export function App({
 							)
 							return
 						}
+						const firstPhase = agentPhases(agents)[0]
+						const firstAgent = firstPhase?.agents[0]
+						if (!firstPhase || !firstAgent) return
 						setAgentSurface({
-							kind: 'picker',
-							selectedId: agents[0]?.viewId ?? '',
+							kind: 'cockpit',
+							selectedPhaseId: firstPhase.id,
+							selectedId: firstAgent.viewId,
+							focus: 'agents',
 						})
 						return
 					}
@@ -5187,24 +5215,48 @@ export function App({
 				// highlighted child before the list has appeared on screen.
 				if (agentSurfaceCommittedRef.current !== agentView) return
 				const agents = subagentsRef.current
-				const index = Math.max(
-					0,
-					agents.findIndex((agent) => agent.viewId === agentView.selectedId),
-				)
-				const selected = agents[index]
-				if (!selected) {
-					setAgentSurface(null)
-					return
-				}
-				if (agentView.kind === 'picker') {
+				if (agentView.kind === 'cockpit') {
+					const phases = agentPhases(agents)
+					const phaseIndex = Math.max(
+						0,
+						phases.findIndex((phase) => phase.id === agentView.selectedPhaseId),
+					)
+					const phase = phases[phaseIndex]
+					const phaseAgents = phase?.agents ?? []
+					const agentIndex = Math.max(
+						0,
+						phaseAgents.findIndex((agent) => agent.viewId === agentView.selectedId),
+					)
+					const selected = phaseAgents[agentIndex]
+					if (!phase || !selected) {
+						setAgentSurface(null)
+						return
+					}
 					if (key.escape || (key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
 						setAgentSurface(null)
 						return
 					}
+					if (key.leftArrow || key.rightArrow || key.tab) {
+						const focus = key.leftArrow
+							? 'phases'
+							: key.rightArrow
+								? 'agents'
+								: agentView.focus === 'phases'
+									? 'agents'
+									: 'phases'
+						setAgentSurface({ ...agentView, focus })
+						return
+					}
 					if (key.return) {
+						if (agentView.focus === 'phases') {
+							setAgentSurface({ ...agentView, focus: 'agents' })
+							return
+						}
 						setAgentSurface({
 							kind: 'transcript',
+							selectedPhaseId: phase.id,
 							selectedId: selected.viewId,
+							returnFocus: agentView.focus,
 							tailOffset: 0,
 						})
 						return
@@ -5221,15 +5273,42 @@ export function App({
 										: key.upArrow
 											? 'previous'
 											: 'next'
-						const next = moveSelection(
-							index,
-							agents.length,
-							movement,
-							agentPickerPageSize(terminal.rows),
-						)
-						const target = agents[next]
-						if (target) setAgentSurface({ kind: 'picker', selectedId: target.viewId })
+						if (agentView.focus === 'phases') {
+							const next = moveSelection(
+								phaseIndex,
+								phases.length,
+								movement,
+								agentPhasePageSize(terminal.rows, agentCockpitIsWide(terminal.columns)),
+							)
+							const targetPhase = phases[next]
+							const targetAgent = targetPhase?.agents[0]
+							if (targetPhase && targetAgent) {
+								setAgentSurface({
+									...agentView,
+									selectedPhaseId: targetPhase.id,
+									selectedId: targetAgent.viewId,
+								})
+							}
+						} else {
+							const next = moveSelection(
+								agentIndex,
+								phaseAgents.length,
+								movement,
+								agentPickerPageSize(
+									terminal.rows,
+									agentCockpitIsWide(terminal.columns),
+								),
+							)
+							const target = phaseAgents[next]
+							if (target) setAgentSurface({ ...agentView, selectedId: target.viewId })
+						}
 					}
+					return
+				}
+
+				const selected = agents.find((agent) => agent.viewId === agentView.selectedId)
+				if (!selected) {
+					setAgentSurface(null)
 					return
 				}
 
@@ -5238,7 +5317,12 @@ export function App({
 					return
 				}
 				if (key.escape) {
-					setAgentSurface({ kind: 'picker', selectedId: selected.viewId })
+					setAgentSurface({
+						kind: 'cockpit',
+						selectedPhaseId: agentView.selectedPhaseId,
+						selectedId: selected.viewId,
+						focus: agentView.returnFocus,
+					})
 					return
 				}
 				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
@@ -5479,8 +5563,10 @@ export function App({
 							? 'compacting conversation — input is paused'
 							: permission
 								? hintForPhase(phase, state, session?.hasProvider === true)
-								: agentSurface?.kind === 'picker'
-									? 'agent list — enter inspect · esc return'
+								: agentSurface?.kind === 'cockpit'
+									? agentSurface.focus === 'phases'
+										? 'agent phases — enter agents · esc return'
+										: 'agents — enter inspect · left phases · esc return'
 									: agentSurface?.kind === 'transcript'
 										? 'observing agent — esc agents · q parent'
 										: textPrompt
@@ -5577,11 +5663,14 @@ export function App({
 								columns={terminal.columns}
 							/>
 						) : null}
-						{permission === null && agentSurface?.kind === 'picker' ? (
-							<AgentPicker
+						{permission === null && agentSurface?.kind === 'cockpit' ? (
+							<AgentCockpit
 								agents={subagents}
+								selectedPhaseId={agentSurface.selectedPhaseId}
 								selectedId={agentSurface.selectedId}
+								focus={agentSurface.focus}
 								terminalRows={terminal.rows}
+								terminalColumns={terminal.columns}
 							/>
 						) : permission === null && agentSurface?.kind === 'transcript' && selectedSubagent ? (
 							<AgentTranscript

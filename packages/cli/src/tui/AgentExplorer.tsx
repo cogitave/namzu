@@ -12,72 +12,278 @@ import { theme } from './theme.js'
 
 const MAX_PICKER_ROWS = 9
 const MAX_TRANSCRIPT_ROWS = 12
+const COCKPIT_FRAME_COLUMNS = 4
+const WIDE_COCKPIT_INNER_COLUMNS = 84
 
-export interface AgentPickerProps {
+export type AgentCockpitFocus = 'phases' | 'agents'
+
+export interface AgentPhase {
+	readonly id: string
+	readonly workflowId: string
+	readonly workflow: string
+	readonly name: string
+	readonly order?: number
+	readonly sequence: number
+	readonly startedAt: number
+	readonly status: SubagentActivityStatus
 	readonly agents: readonly SubagentActivity[]
-	readonly selectedId: string
-	readonly terminalRows: number
 }
 
-/** Live child-run chooser. App owns input and keeps selection by stable view id. */
-export function AgentPicker({ agents, selectedId, terminalRows }: AgentPickerProps) {
-	const selected = Math.max(
+export interface AgentCockpitProps {
+	readonly agents: readonly SubagentActivity[]
+	readonly selectedPhaseId: string
+	readonly selectedId: string
+	readonly focus: AgentCockpitFocus
+	readonly terminalRows: number
+	readonly terminalColumns: number
+}
+
+/**
+ * Live workflow projection. App owns input; this component renders only the
+ * bounded scheduler state it receives and never invents orchestration state.
+ */
+export function AgentCockpit({
+	agents,
+	selectedPhaseId,
+	selectedId,
+	focus,
+	terminalRows,
+	terminalColumns,
+}: AgentCockpitProps) {
+	const phases = agentPhases(agents)
+	const selectedPhaseIndex = Math.max(
 		0,
-		agents.findIndex((agent) => agent.viewId === selectedId),
+		phases.findIndex((phase) => phase.id === selectedPhaseId),
 	)
-	const pageSize = agentPickerPageSize(terminalRows)
-	const { start, items } = selectionWindow(agents, selected, pageSize)
+	const selectedPhase = phases[selectedPhaseIndex]
+	const phaseAgents = selectedPhase?.agents ?? []
+	const selectedAgentIndex = Math.max(
+		0,
+		phaseAgents.findIndex((agent) => agent.viewId === selectedId),
+	)
 	const now = useLiveNow(agents.some((agent) => agent.completedAt === undefined))
+	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
+	const wide = agentCockpitIsWide(terminalColumns)
 
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
-				<Text color={theme.accent.user} bold>
-					Agents
+				<Text color={theme.accent.user} bold wrap="truncate-end">
+					{selectedPhase?.workflow ?? 'Delegated work'}
 				</Text>
 				<Text color={theme.text.muted}>
-					{agents.length === 0 ? '0/0' : `${selected + 1}/${agents.length}`}
+					{active} active · {agents.length} total
 				</Text>
 			</Box>
-			<Text color={theme.text.muted}>Observe delegated work without leaving the parent run.</Text>
-			<Box flexDirection="column" paddingTop={1}>
-				{items.map((agent, visibleIndex) => {
-					const index = start + visibleIndex
-					const active = agent.viewId === selectedId
-					const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
-					return (
-						<Box key={agent.viewId}>
-							<Box width={3} flexShrink={0}>
-								<Text color={active ? theme.accent.user : theme.text.muted}>
-									{active ? '›' : ' '} {statusGlyph(agent.status)}
-								</Text>
-							</Box>
-							<Box width={28} flexShrink={0}>
-								<Text
-									color={active ? theme.text.primary : theme.text.secondary}
-									bold={active}
-									wrap="truncate-end"
-								>
-									{oneLine(agent.description || agent.agentId)}
-								</Text>
-							</Box>
-							<Box flexGrow={1}>
-								<Text color={statusColor(agent.status)} wrap="truncate-end">
-									{statusLabel(agent.status)} · {elapsed}
-									{agent.latestActivity ? ` · ${oneLine(agent.latestActivity)}` : ''}
-								</Text>
-							</Box>
-						</Box>
-					)
-				})}
+			<Text color={theme.text.muted}>Live delegated work · select a phase, then inspect a child.</Text>
+			<Box flexDirection={wide ? 'row' : 'column'} paddingTop={1}>
+				<Box
+					flexDirection="column"
+					width={wide ? Math.max(28, Math.min(42, Math.floor(terminalColumns * 0.32))) : undefined}
+					marginRight={wide ? 2 : 0}
+				>
+					<PhasePane
+						phases={phases}
+						selected={selectedPhaseIndex}
+						focused={focus === 'phases'}
+						pageSize={agentPhasePageSize(terminalRows, wide)}
+					/>
+				</Box>
+				<Box flexDirection="column" flexGrow={1} paddingTop={wide ? 0 : 1}>
+					<AgentPane
+						agents={phaseAgents}
+						selected={selectedAgentIndex}
+						focused={focus === 'agents'}
+						pageSize={agentPickerPageSize(terminalRows, wide)}
+						now={now}
+						wide={wide}
+					/>
+				</Box>
 			</Box>
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
-					↑↓ navigate · PgUp/PgDn jump · enter inspect · esc return
+					←→ pane · ↑↓ navigate · PgUp/PgDn jump · enter select · esc return
 				</Text>
 			</Box>
 		</Box>
 	)
+}
+
+function PhasePane({
+	phases,
+	selected,
+	focused,
+	pageSize,
+}: {
+	readonly phases: readonly AgentPhase[]
+	readonly selected: number
+	readonly focused: boolean
+	readonly pageSize: number
+}) {
+	const { start, items } = selectionWindow(phases, selected, pageSize)
+	const multipleWorkflows = new Set(phases.map((phase) => phase.workflowId)).size > 1
+	return (
+		<>
+			<Text color={focused ? theme.accent.user : theme.text.secondary} bold>
+				Phases {phases.length > 0 ? `· ${selected + 1}/${phases.length}` : ''}
+			</Text>
+			{items.map((phase, visibleIndex) => {
+				const active = start + visibleIndex === selected
+				return (
+					<Box key={phase.id}>
+						<Box width={3} flexShrink={0}>
+							<Text color={active && focused ? theme.accent.user : theme.text.muted}>
+								{active ? '›' : ' '} {statusGlyph(phase.status)}
+							</Text>
+						</Box>
+						<Box flexGrow={1} flexShrink={1}>
+							<Text
+								color={active ? theme.text.primary : theme.text.secondary}
+								bold={active && focused}
+								wrap="truncate-end"
+							>
+								{phase.order !== undefined ? `${phase.order + 1} ` : ''}
+								{oneLine(multipleWorkflows ? `${phase.workflow} / ${phase.name}` : phase.name)}
+							</Text>
+						</Box>
+						<Box flexShrink={0} marginLeft={1}>
+							<Text color={statusColor(phase.status)}>{phaseProgress(phase)}</Text>
+						</Box>
+					</Box>
+				)
+			})}
+		</>
+	)
+}
+
+function AgentPane({
+	agents,
+	selected,
+	focused,
+	pageSize,
+	now,
+	wide,
+}: {
+	readonly agents: readonly SubagentActivity[]
+	readonly selected: number
+	readonly focused: boolean
+	readonly pageSize: number
+	readonly now: number
+	readonly wide: boolean
+}) {
+	const { start, items } = selectionWindow(agents, selected, pageSize)
+	return (
+		<>
+			<Text color={focused ? theme.accent.user : theme.text.secondary} bold>
+				Agents {agents.length > 0 ? `· ${selected + 1}/${agents.length}` : ''}
+			</Text>
+			{items.map((agent, visibleIndex) => {
+				const active = start + visibleIndex === selected
+				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
+				return (
+					<Box key={agent.viewId}>
+						<Box width={3} flexShrink={0}>
+							<Text color={active && focused ? theme.accent.user : theme.text.muted}>
+								{active ? '›' : ' '} {statusGlyph(agent.status)}
+							</Text>
+						</Box>
+						<Box width={wide ? 28 : undefined} flexGrow={wide ? 0 : 1} flexShrink={wide ? 0 : 1}>
+							<Text
+								color={active ? theme.text.primary : theme.text.secondary}
+								bold={active && focused}
+								wrap="truncate-end"
+							>
+								{oneLine(agent.description || agent.agentId)}
+							</Text>
+						</Box>
+						<Box flexGrow={wide ? 1 : 0}>
+							<Text color={statusColor(agent.status)} wrap="truncate-end">
+								{wide ? `${statusLabel(agent.status)} · ` : ' · '}
+								{elapsed}
+								{agent.latestActivity ? ` · ${oneLine(agent.latestActivity)}` : ''}
+							</Text>
+						</Box>
+					</Box>
+				)
+			})}
+		</>
+	)
+}
+
+export function agentCockpitIsWide(terminalColumns: number): boolean {
+	return Math.max(0, terminalColumns - COCKPIT_FRAME_COLUMNS) >= WIDE_COCKPIT_INNER_COLUMNS
+}
+
+export function agentPhases(agents: readonly SubagentActivity[]): readonly AgentPhase[] {
+	const records = new Map<
+		string,
+		{
+			workflowId: string
+			workflow: string
+			name: string
+			order?: number
+			sequence: number
+			startedAt: number
+			agents: SubagentActivity[]
+		}
+	>()
+	const workflowStartedAt = new Map<string, number>()
+	for (const agent of agents) {
+		const id = agent.phaseId
+		const current = records.get(id)
+		if (current) {
+			current.startedAt = Math.min(current.startedAt, agent.startedAt)
+			current.agents.push(agent)
+		} else {
+			records.set(id, {
+				workflowId: agent.workflowId,
+				workflow: agent.workflow,
+				name: agent.phase,
+				...(agent.phaseOrder !== undefined ? { order: agent.phaseOrder } : {}),
+				sequence: agent.phaseSequence,
+				startedAt: agent.startedAt,
+				agents: [agent],
+			})
+		}
+		workflowStartedAt.set(
+			agent.workflowId,
+			Math.min(workflowStartedAt.get(agent.workflowId) ?? agent.startedAt, agent.startedAt),
+		)
+	}
+	return [...records.entries()]
+		.map(([id, phase]) => ({
+			id,
+			workflowId: phase.workflowId,
+			workflow: phase.workflow,
+			name: phase.name,
+			...(phase.order !== undefined ? { order: phase.order } : {}),
+			sequence: phase.sequence,
+			startedAt: phase.startedAt,
+			status: phaseStatus(phase.agents),
+			agents: phase.agents,
+		}))
+		.sort((left, right) => {
+			const workflowOrder =
+				(workflowStartedAt.get(left.workflowId) ?? left.startedAt) -
+				(workflowStartedAt.get(right.workflowId) ?? right.startedAt)
+			if (workflowOrder !== 0) return workflowOrder
+			const workflowName = left.workflow.localeCompare(right.workflow)
+			if (workflowName !== 0) return workflowName
+			if (left.order !== right.order) {
+				if (left.order === undefined) return 1
+				if (right.order === undefined) return -1
+				return left.order - right.order
+			}
+			if (left.sequence !== right.sequence) return left.sequence - right.sequence
+			return left.name.localeCompare(right.name)
+		})
+}
+
+export function agentPhasePageSize(terminalRows: number, wide = true): number {
+	const available = Math.max(2, terminalRows - 10)
+	return wide
+		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
+		: Math.max(1, Math.min(4, Math.floor(available * 0.4)))
 }
 
 export interface AgentTranscriptProps {
@@ -138,8 +344,11 @@ export function AgentTranscript({
 	)
 }
 
-export function agentPickerPageSize(terminalRows: number): number {
-	return Math.max(3, Math.min(MAX_PICKER_ROWS, terminalRows - 10))
+export function agentPickerPageSize(terminalRows: number, wide = true): number {
+	const available = Math.max(2, terminalRows - 10)
+	return wide
+		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
+		: Math.max(1, Math.min(MAX_PICKER_ROWS, available - agentPhasePageSize(terminalRows, false)))
 }
 
 export function agentTranscriptPageSize(terminalRows: number): number {
@@ -249,6 +458,29 @@ export function agentTranscriptRows(
 
 function oneLine(text: string): string {
 	return terminalDisplayText(text).replace(/\r?\n/g, ' ↵ ').replace(/\t/g, ' ⇥ ')
+}
+
+function phaseStatus(agents: readonly SubagentActivity[]): SubagentActivityStatus {
+	if (agents.some((agent) => agent.status === 'failed')) return 'failed'
+	if (agents.some((agent) => agent.status === 'working')) return 'working'
+	if (agents.some((agent) => agent.status === 'starting')) return 'starting'
+	if (agents.some((agent) => agent.status === 'cancelled')) return 'cancelled'
+	return 'completed'
+}
+
+function phaseProgress(phase: AgentPhase): string {
+	const completed = phase.agents.filter((agent) => isTerminalStatus(agent.status)).length
+	const failed = phase.agents.filter((agent) => agent.status === 'failed').length
+	const cancelled = phase.agents.filter((agent) => agent.status === 'cancelled').length
+	return [
+		`${completed}/${phase.agents.length}`,
+		...(failed > 0 ? [`failed ${failed}`] : []),
+		...(cancelled > 0 ? [`cancelled ${cancelled}`] : []),
+	].join(' · ')
+}
+
+function isTerminalStatus(status: SubagentActivityStatus): boolean {
+	return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
 
 function statusGlyph(status: SubagentActivityStatus): string {
