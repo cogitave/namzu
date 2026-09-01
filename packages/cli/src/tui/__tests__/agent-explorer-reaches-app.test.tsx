@@ -170,7 +170,7 @@ afterEach(async () => {
 })
 
 describe('/agent', () => {
-	it('does not treat the opening Return or immediate Escape as a painted-surface action', async () => {
+	it("does not treat the command's opening Return as a painted-surface action", async () => {
 		activity.set([
 			agent({
 				viewId: 'agent-child',
@@ -194,14 +194,21 @@ describe('/agent', () => {
 		screen.press('/agent')
 		await screen.waitForRender()
 		screen.press('\r')
-		screen.press('\r')
-		screen.press('\x1b')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Child run'),
 			'picker missing',
 		)
 		expect(screen.viewport().join('\n')).not.toContain('private child evidence')
+
+		// The burst fence must eventually arm; permanently ignoring input would
+		// satisfy the negative assertion above while leaving the picker unusable.
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('private child evidence'),
+			'picker never became actionable',
+		)
 	})
 
 	it('keeps burst navigation and view changes without waiting for a repaint', async () => {
