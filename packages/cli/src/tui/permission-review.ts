@@ -31,6 +31,13 @@ export interface PermissionReviewSummary {
 	readonly complete: boolean
 }
 
+interface ReadableCallSummary {
+	readonly lines: readonly string[]
+	readonly complete: boolean
+	/** Short batch-row label; the full value remains in `lines`. */
+	readonly label?: string
+}
+
 /** Actionable fail-closed feedback for a TUI review that cannot be exact. */
 export function permissionReviewRefusal(reason: 'too_large' | 'unrepresentable'): string {
 	return reason === 'too_large'
@@ -235,7 +242,11 @@ export function buildPermissionSummary(review: string): PermissionReviewSummary 
 		return { text: review, complete: false }
 	}
 
-	const sections: string[] = []
+	const calls: Array<{
+		readonly name: string
+		readonly isDestructive: boolean
+		readonly readable: ReadableCallSummary
+	}> = []
 	let complete = true
 	for (let index = 0; index < parsed.calls.length; index += 1) {
 		const call = parsed.calls[index]
@@ -249,21 +260,41 @@ export function buildPermissionSummary(review: string): PermissionReviewSummary 
 		}
 		const readable = summarizeKnownCall(call.name, call.input)
 		complete &&= readable.complete
-		sections.push(
-			[
-				`${index + 1}. ${call.name}${call.isDestructive ? ' · destructive' : ''}`,
-				...readable.lines.map((line) => `   ${line}`),
-			].join('\n'),
-		)
+		calls.push({ name: call.name, isDestructive: call.isDestructive, readable })
 	}
 
-	return { text: sections.join('\n\n'), complete }
+	if (
+		complete &&
+		calls.length > 1 &&
+		calls.every((call) => call.name === 'Agent' && call.readable.label !== undefined)
+	) {
+		const overview = calls.map((call, index) => `${index + 1}. ${call.readable.label as string}`)
+		const details = calls.map((call, index) =>
+			[
+				`${index + 1}. ${call.readable.label as string}`,
+				...call.readable.lines.map((line) => `   ${line}`),
+			].join('\n'),
+		)
+		return {
+			text: [...overview, '', 'Task details', '', ...details].join('\n'),
+			complete: true,
+		}
+	}
+
+	return {
+		text: calls
+			.map((call, index) =>
+				[
+					`${index + 1}. ${call.name}${call.isDestructive ? ' · destructive' : ''}`,
+					...call.readable.lines.map((line) => `   ${line}`),
+				].join('\n'),
+			)
+			.join('\n\n'),
+		complete,
+	}
 }
 
-function summarizeKnownCall(
-	name: string,
-	input: unknown,
-): { readonly lines: readonly string[]; readonly complete: boolean } {
+function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 	if (name === 'bash' && isRecord(input)) {
 		const allowed = new Set(['command', 'timeout', 'run_in_background'])
 		const keys = Object.keys(input)
@@ -287,21 +318,39 @@ function summarizeKnownCall(
 	}
 
 	if (name === 'Agent' && isRecord(input)) {
-		const allowed = new Set(['description', 'prompt', 'role'])
+		const allowed = new Set(['description', 'prompt', 'role', 'workflow', 'phase', 'phase_order'])
 		const keys = Object.keys(input)
 		const shapeIsKnown =
 			keys.every((key) => allowed.has(key)) &&
 			typeof input.description === 'string' &&
 			typeof input.prompt === 'string' &&
-			(input.role === undefined || typeof input.role === 'string')
+			(input.role === undefined || typeof input.role === 'string') &&
+			(input.workflow === undefined || typeof input.workflow === 'string') &&
+			(input.phase === undefined || typeof input.phase === 'string') &&
+			(input.phase_order === undefined ||
+				(typeof input.phase_order === 'number' && Number.isSafeInteger(input.phase_order)))
 		if (shapeIsKnown) {
+			const known = input as {
+				description: string
+				prompt: string
+				role?: string
+				workflow?: string
+				phase?: string
+				phase_order?: number
+			}
 			return {
 				lines: [
-					`description: ${JSON.stringify(input.description)}`,
-					`prompt: ${JSON.stringify(input.prompt)}`,
-					...(input.role !== undefined ? [`role: ${JSON.stringify(input.role)}`] : []),
+					...readableField('Task', known.description),
+					...readableField('Instructions', known.prompt),
+					...(known.role !== undefined ? readableField('Specialist', known.role) : []),
+					...(known.workflow !== undefined ? readableField('Workflow', known.workflow) : []),
+					...(known.phase !== undefined ? readableField('Phase', known.phase) : []),
+					...(known.phase_order !== undefined
+						? [`Phase order: ${String(known.phase_order + 1)}`]
+						: []),
 				],
 				complete: true,
+				label: oneLine(known.description),
 			}
 		}
 	}
@@ -310,6 +359,18 @@ function summarizeKnownCall(
 		lines: [`input: ${JSON.stringify(input)}`],
 		complete: false,
 	}
+}
+
+function oneLine(value: string): string {
+	return value.replace(/\s+/gu, ' ').trim() || '(untitled task)'
+}
+
+/** Keep multi-line model input readable without making continuation lines look like new fields. */
+function readableField(label: string, value: string): readonly string[] {
+	const lines = value.split('\n')
+	return lines.map((line, index) =>
+		index === 0 ? `${label}: ${line}` : `${' '.repeat(label.length + 2)}${line}`,
+	)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

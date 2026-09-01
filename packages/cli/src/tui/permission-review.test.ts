@@ -101,6 +101,44 @@ describe('buildPermissionSummary', () => {
 		expect(summary.text).not.toContain('"calls"')
 	})
 
+	it('keeps a phased parallel Agent batch readable instead of opening its wire envelope', () => {
+		const review = buildPermissionReview(
+			['API research', 'Security review', 'UX critique', 'Delivery plan'].map(
+				(description, index) => ({
+					id: `call_${index}`,
+					name: 'Agent',
+					input: {
+						description,
+						prompt: `Complete ${description.toLowerCase()} and report evidence.`,
+						role: 'Focused reviewer',
+						workflow: 'Product review',
+						phase: 'Research',
+						phase_order: 0,
+					},
+					isDestructive: false,
+				}),
+			),
+		)
+		expect(review.ok).toBe(true)
+		if (!review.ok) return
+
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.complete).toBe(true)
+		expect(summary.text.split('\n').slice(0, 4)).toEqual([
+			'1. API research',
+			'2. Security review',
+			'3. UX critique',
+			'4. Delivery plan',
+		])
+		expect(summary.text).toContain('Task: API research')
+		expect(summary.text).toContain('Instructions: Complete api research and report evidence.')
+		expect(summary.text).toContain('Workflow: Product review')
+		expect(summary.text).toContain('Phase order: 1')
+		expect(summary.text).toContain('Task: Delivery plan')
+		expect(summary.text).not.toContain('call_0')
+		expect(summary.text).not.toContain('"calls"')
+	})
+
 	it('requires exact-input-first review for unknown or evolved tool shapes', () => {
 		const unknown = buildPermissionReview([
 			{

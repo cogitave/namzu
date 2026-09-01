@@ -39,6 +39,9 @@ const permissionModes: unknown[] = []
 const turnSignals: Array<AbortSignal | undefined> = []
 let toolExecutions = 0
 let requestedToolInput: unknown = { command: 'rm -rf build' }
+let holdAfterPermissionDecision = false
+let releasePermissionHandoff: () => void = () => {}
+let permissionHandoff = Promise.resolve()
 
 /**
  * The clock the settle window is measured against, driven by the test.
@@ -156,6 +159,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 						if (decision.kind === 'approve' || decision.kind === 'approve-all') {
 							toolExecutions += 1
 						}
+						if (holdAfterPermissionDecision) await permissionHandoff
 					}
 				},
 			}
@@ -240,12 +244,17 @@ beforeEach(() => {
 	turnSignals.length = 0
 	toolExecutions = 0
 	requestedToolInput = { command: 'rm -rf build' }
+	holdAfterPermissionDecision = false
+	permissionHandoff = new Promise<void>((resolve) => {
+		releasePermissionHandoff = resolve
+	})
 	permissionDelayMs = 30
 	nowMs = 1_000_000
 	vi.spyOn(Date, 'now').mockImplementation(() => nowMs)
 })
 
 afterEach(() => {
+	releasePermissionHandoff()
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
 	vi.restoreAllMocks()
@@ -299,6 +308,21 @@ describe('the permission prompt', () => {
 		await decisionSettles()
 
 		expect(decisions).toEqual([{ kind: 'approve' }])
+	})
+
+	it('shows Working during the hand-off instead of retaining a dead approval footer', async () => {
+		holdAfterPermissionDecision = true
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+
+		settle()
+		stdin.write('y')
+		await decisionSettles()
+		await tick(100)
+
+		const frame = lastFrame() ?? ''
+		expect(frame).toContain('Working')
+		expect(frame).not.toContain('wants to run')
+		expect(frame).not.toContain('y approve')
 	})
 
 	it('rejects on esc immediately, without waiting out the guard', async () => {

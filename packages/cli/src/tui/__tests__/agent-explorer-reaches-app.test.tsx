@@ -183,6 +183,30 @@ afterEach(async () => {
 })
 
 describe('/agent', () => {
+	it('opens live delegated work with ctrl+t while the parent remains active', async () => {
+		activity.set([
+			agent({ viewId: 'agent-alpha', description: 'Alpha audit' }),
+			agent({ viewId: 'agent-beta', description: 'Beta build' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+
+		await submit(screen, 'start parent')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('ctrl+t to view'),
+			'live child shortcut missing',
+		)
+		screen.press('\x14')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Alpha audit'),
+			'ctrl+t did not open the agent cockpit',
+		)
+		expect(painted(screen)).not.toContain('parent finished')
+	})
+
 	it("does not treat the command's opening Return as a painted-surface action", async () => {
 		activity.set([
 			agent({

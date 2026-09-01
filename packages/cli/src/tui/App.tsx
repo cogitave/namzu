@@ -897,6 +897,19 @@ export function App({
 		},
 		[setAgentSurface],
 	)
+	const openAgentCockpit = useCallback((): boolean => {
+		const agents = subagentsRef.current
+		const firstPhase = agentPhases(agents)[0]
+		const firstAgent = firstPhase?.agents[0]
+		if (!firstPhase || !firstAgent) return false
+		setAgentSurface({
+			kind: 'cockpit',
+			selectedPhaseId: firstPhase.id,
+			selectedId: firstAgent.viewId,
+			focus: 'agents',
+		})
+		return true
+	}, [setAgentSurface])
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
@@ -2612,7 +2625,16 @@ export function App({
 			setPermissionReviewOffset(0)
 			setPermissionDetailsOpen(false)
 			setPermission(null)
-			if (resolve) resolve(decision)
+			if (resolve) {
+				// The provider resumes asynchronously after the decision. Leaving the
+				// old state in place during that hand-off painted an empty `…` row and
+				// the now-invalid approval footer, so a four-agent batch looked frozen
+				// precisely while its children were starting. The turn is working from
+				// the instant consent resolves; the next tool event will refine this to
+				// `tool`, and the ordinary turn finalizer owns the transition to idle.
+				setState('thinking')
+				resolve(decision)
+			}
 		},
 		[setPermissionDetailsOpen, setPermissionReviewOffset],
 	)
@@ -3938,23 +3960,12 @@ export function App({
 						return
 					}
 					case 'agent-cockpit': {
-						const agents = subagentsRef.current
-						if (agents.length === 0) {
+						if (!openAgentCockpit()) {
 							pushMessage(
 								'system',
 								'No delegated agents are available in this conversation yet. When an Agent tool starts one, /agent opens its live activity and retained transcript.',
 							)
-							return
 						}
-						const firstPhase = agentPhases(agents)[0]
-						const firstAgent = firstPhase?.agents[0]
-						if (!firstPhase || !firstAgent) return
-						setAgentSurface({
-							kind: 'cockpit',
-							selectedPhaseId: firstPhase.id,
-							selectedId: firstAgent.viewId,
-							focus: 'agents',
-						})
 						return
 					}
 					case 'clear-screen':
@@ -4705,6 +4716,7 @@ export function App({
 			exitWithSummary,
 			hasUnsettledTurn,
 			nextId,
+			openAgentCockpit,
 			pushMessage,
 			rawOutput,
 			removeStoredCredential,
@@ -5221,6 +5233,11 @@ export function App({
 				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
 				return
 			}
+			// The active child count already advertises this key beside Working.
+			// Open the same retained cockpit as `/agent`; Enter then drills into a
+			// child's transcript. Keep the shortcut below consent so it can never
+			// hide an approval that owns the keyboard.
+			if (key.ctrl && input === 't' && openAgentCockpit()) return
 			// Child observation owns navigation, but never outranks consent: the
 			// permission branch above preempts it if a child or parent call asks.
 			const agentView = agentSurfaceRef.current

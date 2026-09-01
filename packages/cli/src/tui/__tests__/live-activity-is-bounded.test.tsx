@@ -12,7 +12,7 @@ describe('the redrawable Working region', () => {
 			const frame = quiet.lastFrame() ?? ''
 			expect(frame).toContain('Working')
 			expect(frame).toContain('2 agents')
-			expect(frame).toContain('/agent to view')
+			expect(frame).toContain('ctrl+t to view')
 			expect(frame).not.toContain('esc to interrupt')
 		} finally {
 			quiet.unmount()

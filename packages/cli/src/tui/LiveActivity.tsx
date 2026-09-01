@@ -65,7 +65,7 @@ export function LiveActivity({
 					{' ('}
 					{elapsed}
 					{agentCount > 0
-						? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'} · /agent to view`
+						? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'} · ctrl+t to view`
 						: ''}
 					{interruptible ? ' · esc to interrupt' : ''})
 				</Text>

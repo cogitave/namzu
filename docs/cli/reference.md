@@ -150,7 +150,7 @@ runs once, `a` approves subsequent undecided calls for the session, `n` or
 Escape declines while allowing the turn to continue, and Ctrl+C declines and
 stops the turn. Enter has no approval meaning.
 
-Bare `/agent` opens the current conversation's bounded delegated-work cockpit.
+Bare `/agent` and Ctrl+T open the current conversation's bounded delegated-work cockpit.
 The phase rail groups related Agent calls by their display-only workflow and
 phase annotations; it does not imply scheduler dependencies, barriers or
 serial execution. The agent pane shows lifecycle state and latest activity for
@@ -162,6 +162,12 @@ if retention removes the selected child, selection falls back within its phase
 before moving to another phase. Observing a child never adds its private events
 to the parent's model history, and parent rows that settle while observation
 is open are emitted exactly once after returning.
+
+When one model response proposes several Agent calls, the permission screen's
+first page lists every child task before the detailed instructions. The exact
+prepared batch remains available with `d`. Resolving the prompt returns the
+screen to Working immediately; once children exist, that row shows their count
+and advertises Ctrl+T rather than leaving the obsolete approval footer visible.
 
 Bare `/effort` opens a finite chooser containing the provider default and the
 exact levels accepted by every usable member of the current provider/model

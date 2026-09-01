@@ -92,6 +92,49 @@ it('projects the exact permission input before an operator decides', () => {
 	}
 })
 
+it('names a parallel Agent batch as delegated work instead of exposing tool protocol', () => {
+	const toolCalls = Object.freeze(
+		['Research APIs', 'Audit security', 'Review UX', 'Plan delivery'].map((description, index) =>
+			Object.freeze({
+				id: `call-${index}`,
+				name: 'Agent',
+				input: Object.freeze({
+					description,
+					prompt: `Complete ${description.toLowerCase()}.`,
+					workflow: 'Product review',
+					phase: 'Research',
+					phase_order: 0,
+				}),
+				isDestructive: false,
+			}),
+		),
+	)
+	const review = buildPermissionReview(toolCalls)
+	expect(review.ok).toBe(true)
+	if (!review.ok) return
+	const summary = buildPermissionSummary(review.text)
+	const harness = render(
+		<PermissionOverlay
+			toolCalls={toolCalls}
+			review={review.text}
+			summary={summary}
+			detailsOpen={false}
+			columns={120}
+		/>,
+	)
+	try {
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('namzu wants to start 4 agents')
+		expect(frame).toContain('Delegated work')
+		expect(frame).toContain('1. Research APIs')
+		expect(frame).toContain('start 4 agents')
+		expect(frame).not.toContain('"calls"')
+		expect(frame).not.toContain('call-0')
+	} finally {
+		harness.unmount()
+	}
+})
+
 it('projects the in-flight tool label before it becomes a transcript row', () => {
 	const tools = Object.freeze([Object.freeze({ id: 'call', label: unsafe, startedAt: Date.now() })])
 	const original = structuredClone(tools)

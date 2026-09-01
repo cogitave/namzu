@@ -151,8 +151,16 @@ The complete batch is refused above 8,000 UTF-8 bytes or when it cannot be
 represented exactly; approval never covers hidden or truncated input, and
 Enter never approves it.
 
-Delegated work stays attached to the parent turn while `/agent` opens a bounded
-cockpit of active and recent children. Related calls may declare display-only
+A parallel Agent batch is named as delegated work rather than exposed as a raw
+tool envelope. Its first page lists every child task, later pages retain the
+complete readable instructions, and `d` still opens the exact prepared input.
+After a decision, the prompt hands off immediately to the live Working row; it
+does not retain approval keys while the children are starting.
+
+Delegated work stays attached to the parent turn while `/agent` or Ctrl+T opens
+a bounded cockpit of active and recent children. While children start, the live
+Working row shows their count and advertises Ctrl+T; Enter from the cockpit opens
+the selected child's retained transcript. Related calls may declare display-only
 workflow and phase annotations; the cockpit shows ordered phases beside the
 selected phase's agents without claiming that labels create scheduler barriers
 or dependencies. Left/Right moves between panes, arrows navigate, and Enter

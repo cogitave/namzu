@@ -40,6 +40,8 @@ export function PermissionOverlay({
 	const first = rows.length === 0 ? 0 : offset + 1
 	const last = Math.min(rows.length, offset + PERMISSION_REVIEW_PAGE_ROWS)
 	const noun = toolCalls.length === 1 ? 'this tool' : `these ${toolCalls.length} tools`
+	const agentBatch = toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')
+	const agentNoun = `${toolCalls.length} agent${toolCalls.length === 1 ? '' : 's'}`
 
 	return (
 		<Box
@@ -54,10 +56,10 @@ export function PermissionOverlay({
 			marginTop={1}
 		>
 			<Text color={theme.status.warn} bold>
-				namzu wants to run {noun}
+				{agentBatch ? `namzu wants to start ${agentNoun}` : `namzu wants to run ${noun}`}
 			</Text>
 			<Text color={theme.text.muted}>
-				{detailsOpen ? 'Exact prepared input' : 'Prepared operation'} · rows {first}-{last}/
+				{detailsOpen ? 'Exact prepared input' : agentBatch ? 'Delegated work' : 'Prepared operation'} · rows {first}-{last}/
 				{rows.length}
 			</Text>
 			<Box
@@ -80,11 +82,11 @@ export function PermissionOverlay({
 					<Text color={theme.status.ok} bold>
 						y
 					</Text>{' '}
-					run once ·{' '}
+					{agentBatch ? `start ${agentNoun}` : 'run once'} ·{' '}
 					<Text color={theme.accent.user} bold>
 						a
 					</Text>{' '}
-					approve all for this session ·{' '}
+					{agentBatch ? 'allow all tools this session' : 'approve all for this session'} ·{' '}
 					<Text color={theme.text.primary} bold>
 						d
 					</Text>{' '}
@@ -94,7 +96,7 @@ export function PermissionOverlay({
 					<Text color={theme.status.error} bold>
 						n / esc
 					</Text>{' '}
-					decline, and the agent tries something else ·{' '}
+					{agentBatch ? "don't start; revise the plan" : 'decline, and the agent tries something else'} ·{' '}
 					<Text color={theme.status.error} bold>
 						ctrl+c
 					</Text>{' '}
