@@ -473,6 +473,9 @@ export interface SandboxCreateConfig {
 	readonly maxProcesses?: number
 }
 
+/** Workspace-root contracts a provider can enforce honestly. */
+export type SandboxWorkspaceMode = 'ephemeral' | 'working-directory'
+
 /**
  * Tier-specific layout types ({@link ContainerSandboxLayout}, future
  * `MicroVMSandboxLayout`, etc.) are intentionally NOT fields on
@@ -497,6 +500,15 @@ export interface SandboxProvider {
 	readonly id: string
 	readonly name: string
 	readonly environment: SandboxEnvironment
+	/**
+	 * Root modes this provider actually implements.
+	 *
+	 * Optional for legacy providers using the ephemeral default. The kernel
+	 * refuses an explicit `working-directory` request unless that mode is
+	 * advertised; accepting `workingDirectory` and ignoring it would report a
+	 * boundary around a project the provider never mounted.
+	 */
+	readonly workspaceModes?: readonly SandboxWorkspaceMode[]
 	create(config?: SandboxCreateConfig): Promise<Sandbox>
 }
 

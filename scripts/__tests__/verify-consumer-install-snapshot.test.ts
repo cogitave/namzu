@@ -111,3 +111,13 @@ describe('the snapshot/restore round trip', () => {
 		assert.ok(/find packages[\s\S]*-name CHANGELOG\.md/.test(source))
 	})
 })
+
+describe('the live minimum-SDK fixture', () => {
+	it('uses the packed SDK when the lower bound is the release being gated', () => {
+		const source = extract('SHIPPING_SDK_VERSION=')
+
+		assert.match(source, /if \[ "\$LIVE_MINIMUM_SDK" = "\$SHIPPING_SDK_VERSION" \]/)
+		assert.match(source, /minimum is the shipping SDK; packed fixture above covers it/)
+		assert.match(source, /else[\s\S]*"@namzu\/sdk@\$LIVE_MINIMUM_SDK"/)
+	})
+})

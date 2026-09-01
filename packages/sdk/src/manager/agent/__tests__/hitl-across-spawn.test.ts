@@ -284,4 +284,15 @@ describe('a child built by a configBuilder inherits it too', () => {
 
 		expect(h.seen[0]?.resumeHandler).toBe(childHandler)
 	})
+
+	it('cannot discard an explicit workspace boundary', async () => {
+		const h = await harness()
+
+		await h.spawn(h.context(), {
+			agentId: 'built-worker',
+			configOverrides: { sandbox: { workspace: 'working-directory' } },
+		})
+
+		expect(h.seen[0]?.sandbox).toEqual({ workspace: 'working-directory' })
+	})
 })

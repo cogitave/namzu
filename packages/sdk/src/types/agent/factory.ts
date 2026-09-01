@@ -53,6 +53,7 @@ export interface AgentFactoryOptions {
 	maxResponseTokens?: number
 	env?: Record<string, string>
 	permissionMode?: 'plan' | 'auto'
+	sandbox?: BaseAgentConfig['sandbox']
 
 	systemPrompt?: string
 

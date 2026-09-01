@@ -31,6 +31,8 @@ describe('the sandbox for a run', () => {
 		const resolved = resolveSandbox(stubLogger(), undefined)
 
 		expect(resolved.provider).toBeDefined()
+		expect(resolved.workspace).toBe('working-directory')
+		expect(resolved.notice).toMatch(/persist across turns/i)
 	})
 
 	it('is on when the config names only an isolation requirement', () => {
@@ -47,6 +49,14 @@ describe('the sandbox for a run', () => {
 		// A refusal a reader cannot act on is a dead end. The notice names
 		// the setting to change.
 		expect(resolved.notice).toContain('sandbox.enabled')
+		expect(resolved.workspace).toBe('host')
+	})
+
+	it('names an explicit disposable workspace honestly', () => {
+		const resolved = resolveSandbox(stubLogger(), { workspace: 'ephemeral' })
+
+		expect(resolved.workspace).toBe('ephemeral')
+		expect(resolved.notice).toMatch(/removed at teardown/i)
 	})
 
 	it('always produces a notice, including when it is on', () => {

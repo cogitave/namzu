@@ -209,6 +209,14 @@ export interface SandboxConfig {
 	 */
 	readonly requireIsolation?: readonly ('filesystem' | 'network' | 'process')[]
 	/**
+	 * Filesystem tree exposed as the sandbox root.
+	 *
+	 * The coding CLI defaults to `working-directory`: every turn gets a fresh
+	 * process boundary over the same caller-owned project. `ephemeral` opts into
+	 * a disposable empty tree for one-shot work.
+	 */
+	readonly workspace?: 'working-directory' | 'ephemeral'
+	/**
 	 * How long a completed or cancelled run waits for sandbox teardown.
 	 * Defaults to 30 seconds. Set to `0` to preserve the former unbounded wait.
 	 */

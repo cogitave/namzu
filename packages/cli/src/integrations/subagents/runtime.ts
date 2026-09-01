@@ -31,12 +31,14 @@ import {
 	type ProjectInstructionContext,
 	ReactiveAgent,
 	type ReactiveAgentConfig,
+	type ResumeHandler,
 	RunCancelled,
 	type RunEvent,
 	type SandboxProvider,
 	SessionSummaryMaterializer,
 	type TaskHandle,
 	type TaskScheduler,
+	type ToolContext,
 	type ToolDefinition,
 	type ToolRegistryContract,
 	TopicManager,
@@ -68,11 +70,18 @@ const SUBAGENT_PROMPT = [
 export interface SubagentRuntimeOptions {
 	readonly cwd: string
 	readonly model: string
+	/** Root every child allocation at the session workspace or a fresh temp tree. */
+	readonly sandboxWorkspace?: 'working-directory' | 'ephemeral'
 	/** Construct a fresh provider for the sub-agent (current credential). */
 	readonly buildProvider: () => LLMProvider
 	/** Build the sub-agent's tool registry (its own working set). */
 	readonly buildTools: () => ToolRegistryContract
 	readonly authorizationGate?: AuthorizationGateConfig
+	/**
+	 * Resolve the interactive authority owned by the parent run that invoked
+	 * the Agent tool. Absent means the child has no human review channel.
+	 */
+	readonly resolveResumeHandler?: (runId: ToolContext['runId']) => ResumeHandler | undefined
 	/** Use the same execution boundary the parent session reports. */
 	readonly sandboxProvider?: SandboxProvider
 	/** Bound child teardown with the parent's operator-selected value. */
@@ -235,6 +244,11 @@ export async function createSubagentRuntime(
 				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
 			}
 			const tracker = activity.begin({ agentId, description, prompt })
+			const resumeHandler = opts.resolveResumeHandler?.(context.runId)
+			const configOverrides = {
+				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+				...(resumeHandler ? { resumeHandler } : {}),
+			}
 			try {
 				const completed = await runBlockingAgentTask({
 					gateway,
@@ -249,6 +263,7 @@ export async function createSubagentRuntime(
 						// a delegation trace exists to record — who dispatched whom
 						// — is the thing that goes missing.
 						...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
+						...(Object.keys(configOverrides).length > 0 ? { configOverrides } : {}),
 						onEvent: tracker.onEvent,
 					},
 				})
@@ -423,6 +438,9 @@ function buildDefinition(
 					: {}),
 				...(opts.authorizationGate ? { authorizationGate: opts.authorizationGate } : {}),
 				...(opts.sandboxProvider ? { sandboxProvider: opts.sandboxProvider } : {}),
+				...(opts.sandboxProvider && opts.sandboxWorkspace
+					? { sandbox: { workspace: opts.sandboxWorkspace } }
+					: {}),
 				...(opts.sandboxTeardownTimeoutMs !== undefined
 					? { sandboxTeardownTimeoutMs: opts.sandboxTeardownTimeoutMs }
 					: {}),

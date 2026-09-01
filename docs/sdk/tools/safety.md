@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-29
+lastReviewed: 2026-09-01
 tags: [computer-use, sdk]
 ---
 
@@ -310,6 +310,18 @@ Several built-in tools are sandbox-aware:
 When a sandbox is present in `ToolContext`, those tools route through sandbox APIs instead of touching the host environment directly.
 
 This is why the sandbox is a real operational layer and not just a documentation concept.
+
+The workspace and the sandbox handle have separate lifetimes. A run configured
+with `sandbox.workspace: 'working-directory'` receives a fresh handle rooted at
+the caller's canonical project directory; handle teardown leaves that directory
+intact for the next run. The default direct-SDK mode is `ephemeral`, where the
+provider owns and removes a temporary root. Providers must advertise
+`working-directory` support before the kernel passes them a host path.
+
+Local sandbox file operations resolve existing symlinks before accepting a
+path. Lexically safe paths such as `notes/file` are still refused when `notes`
+links outside the sandbox root. This protects `read`, `write`, directory listing
+and an execution subdirectory from the same escape shape.
 
 The local sandbox launches a fresh child environment rather than copying the
 host's. On POSIX it inherits only the existing path, home, shell, locale and

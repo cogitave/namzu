@@ -66,6 +66,8 @@ export interface RunAgentOptions extends AgentIdentity {
 	tools?: ToolRegistryContract
 	/** Execute sandbox-aware tools inside this provider's boundary. */
 	sandboxProvider?: SandboxProvider
+	/** What a supplied sandbox is rooted at and its per-run limits. */
+	sandbox?: import('../types/run/config.js').AgentRunConfig['sandbox']
 	/** Sandbox teardown wait; defaults to 30 seconds and `0` is unbounded. */
 	sandboxTeardownTimeoutMs?: number
 
@@ -266,6 +268,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			workingDirectory: options.workingDirectory ?? process.cwd(),
 			runConfig: {
 				model: options.model,
+				...(options.sandbox ? { sandbox: options.sandbox } : {}),
 				maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
 				tokenBudget: options.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
 				timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,

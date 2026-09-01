@@ -584,6 +584,7 @@ const CONFIG_READERS: ConfigReaders = {
 		const raw = v as {
 			enabled?: unknown
 			requireIsolation?: unknown
+			workspace?: unknown
 			teardownTimeoutMs?: unknown
 		}
 		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
@@ -604,6 +605,17 @@ const CONFIG_READERS: ConfigReaders = {
 			)
 		}
 		if (
+			raw.workspace !== undefined &&
+			raw.workspace !== 'working-directory' &&
+			raw.workspace !== 'ephemeral'
+		) {
+			return invalidConfigValue(
+				context,
+				['workspace'],
+				'must be one of "working-directory" or "ephemeral"',
+			)
+		}
+		if (
 			raw.teardownTimeoutMs !== undefined &&
 			(!Number.isInteger(raw.teardownTimeoutMs) ||
 				(raw.teardownTimeoutMs as number) < 0 ||
@@ -621,6 +633,9 @@ const CONFIG_READERS: ConfigReaders = {
 				? {
 						requireIsolation: requireIsolation as readonly ('filesystem' | 'network' | 'process')[],
 					}
+				: {}),
+			...(raw.workspace !== undefined
+				? { workspace: raw.workspace as 'working-directory' | 'ephemeral' }
 				: {}),
 			...(raw.teardownTimeoutMs !== undefined
 				? { teardownTimeoutMs: raw.teardownTimeoutMs as number }

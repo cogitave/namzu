@@ -434,14 +434,23 @@ case "$LIVE_MINIMUM_SDK" in
   *) echo "    ✗ Could not derive live's minimum SDK from peer range: $LIVE_SDK_RANGE"; exit 1 ;;
 esac
 echo "    → packed live + minimum supported SDK $LIVE_MINIMUM_SDK"
-rm -rf node_modules package-lock.json
-npm install --no-fund --no-audit --no-save --silent "$LIVE_TARBALL" "@namzu/sdk@$LIVE_MINIMUM_SDK"
-INSTALLED_LIVE_MINIMUM_SDK=$(node -p "require('./node_modules/@namzu/sdk/package.json').version")
-test "$INSTALLED_LIVE_MINIMUM_SDK" = "$LIVE_MINIMUM_SDK" || {
-  echo "    ✗ Expected minimum SDK $LIVE_MINIMUM_SDK, installed $INSTALLED_LIVE_MINIMUM_SDK"
-  exit 1
-}
-node assert-live-runtime.mjs
+SHIPPING_SDK_VERSION=$(node -p "require('$WORKSPACE_ROOT/packages/sdk/package.json').version")
+if [ "$LIVE_MINIMUM_SDK" = "$SHIPPING_SDK_VERSION" ]; then
+  # A package cannot be downloaded from the registry before this release has
+  # published it. The shipping-tarball fixture immediately above already ran
+  # this exact lower bound, so requiring the registry copy here creates a
+  # bootstrap deadlock: the pre-publish gate waits for the publish it gates.
+  echo "    ✓ minimum is the shipping SDK; packed fixture above covers it"
+else
+  rm -rf node_modules package-lock.json
+  npm install --no-fund --no-audit --no-save --silent "$LIVE_TARBALL" "@namzu/sdk@$LIVE_MINIMUM_SDK"
+  INSTALLED_LIVE_MINIMUM_SDK=$(node -p "require('./node_modules/@namzu/sdk/package.json').version")
+  test "$INSTALLED_LIVE_MINIMUM_SDK" = "$LIVE_MINIMUM_SDK" || {
+    echo "    ✗ Expected minimum SDK $LIVE_MINIMUM_SDK, installed $INSTALLED_LIVE_MINIMUM_SDK"
+    exit 1
+  }
+  node assert-live-runtime.mjs
+fi
 
 # ---------------------------------------------------------------------------
 # @namzu/sandbox public-surface fixture (ses_005-sandbox-multi-mount-layout).

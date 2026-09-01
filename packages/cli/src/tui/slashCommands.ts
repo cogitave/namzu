@@ -1201,6 +1201,13 @@ export function renderStatus(ctx: SlashContext): string {
 	} else if (sandbox) {
 		lines.push('  Required by config: nothing — this host decides what you get.')
 	}
+	if (sandbox?.workspace === 'working-directory') {
+		lines.push('  Workspace: real project files — changes persist across turns.')
+	} else if (sandbox?.workspace === 'ephemeral') {
+		lines.push('  Workspace: disposable per run — changes are removed at teardown.')
+	} else if (sandbox?.workspace === 'host') {
+		lines.push('  Workspace: real project files on the host.')
+	}
 	lines.push('')
 
 	lines.push('When it stops to ask')

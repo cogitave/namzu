@@ -547,6 +547,10 @@ export function createSandboxProvider(config: SandboxProviderConfig): SandboxPro
 		id,
 		name,
 		environment: 'basic',
+		// This provider's workspace comes from the construction-time container
+		// or microVM layout. A host cwd passed per run is not that mount and must
+		// never be claimed as one.
+		workspaceModes: ['ephemeral'],
 		async create(perCall?: SandboxCreateConfig): Promise<Sandbox> {
 			return await backend.create({
 				...(perCall?.signal !== undefined ? { signal: perCall.signal } : {}),

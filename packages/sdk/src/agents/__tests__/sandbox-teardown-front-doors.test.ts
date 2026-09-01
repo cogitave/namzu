@@ -6,12 +6,19 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
+import type { PipelineAgentConfig } from '../../types/agent/pipeline.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SupervisorAgentConfig } from '../../types/agent/supervisor.js'
 import type { SandboxId, SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
-import type { Sandbox, SandboxDestroyOptions, SandboxProvider } from '../../types/sandbox/index.js'
+import type {
+	Sandbox,
+	SandboxCreateConfig,
+	SandboxDestroyOptions,
+	SandboxProvider,
+} from '../../types/sandbox/index.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
+import { PipelineAgent } from '../PipelineAgent.js'
 import { ReactiveAgent } from '../ReactiveAgent.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
 import { runAgent } from '../runAgent.js'
@@ -63,6 +70,42 @@ function heldSandboxProvider(observe: (signal: AbortSignal) => void): SandboxPro
 		name: 'Held teardown',
 		environment: 'basic',
 		create: async () => sandbox,
+	}
+}
+
+function recordingWorkspaceProvider(): {
+	readonly provider: SandboxProvider
+	readonly seen: SandboxCreateConfig[]
+} {
+	const seen: SandboxCreateConfig[] = []
+	return {
+		seen,
+		provider: {
+			id: 'recording-workspace',
+			name: 'Recording workspace',
+			environment: 'basic',
+			workspaceModes: ['ephemeral', 'working-directory'],
+			create: async (config = {}) => {
+				seen.push(config)
+				return {
+					id: 'sbx_workspace_front' as SandboxId,
+					status: 'ready',
+					rootDir: config.workingDirectory ?? '/ephemeral',
+					environment: 'basic',
+					exec: async () => ({
+						stdout: '',
+						stderr: '',
+						exitCode: 0,
+						durationMs: 0,
+						timedOut: false,
+					}),
+					writeFile: async () => {},
+					readFile: async () => Buffer.alloc(0),
+					listFiles: async () => [],
+					destroy: async () => {},
+				} as Sandbox
+			},
+		},
 	}
 }
 
@@ -173,5 +216,101 @@ describe('agent front doors preserve the sandbox teardown bound', () => {
 		expect(result.status).toBe('completed')
 		expect(teardownSignal?.aborted).toBe(true)
 		expect(teardownSignal?.reason).toMatchObject({ name: 'TimeoutError' })
+	})
+})
+
+describe('agent front doors preserve the sandbox workspace choice', () => {
+	it('PipelineAgent refuses a boundary it cannot enforce around callbacks', async () => {
+		const agent = new PipelineAgent({
+			id: 'pipeline-sandbox-workspace-front',
+			name: 'Pipeline Sandbox Workspace Front',
+			version: '1',
+			category: 'test',
+			description: 'sandbox refusal reachability probe',
+		})
+
+		await expect(
+			agent.run({ messages: [createUserMessage('go')], workingDirectory: process.cwd() }, {
+				model: 'unused',
+				tokenBudget: 100,
+				timeoutMs: 1_000,
+				steps: [{ name: 'step', execute: async () => 'done' }],
+				sandbox: { workspace: 'working-directory' },
+			} satisfies PipelineAgentConfig),
+		).rejects.toThrow(/cannot enforce a run-level sandbox/)
+	})
+
+	it('runAgent roots the provider at its working directory', async () => {
+		const workingDirectory = await directory()
+		const { provider, seen } = recordingWorkspaceProvider()
+
+		await runAgent({
+			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
+			model: 'mock-model',
+			prompt: 'go',
+			sandboxProvider: provider,
+			sandbox: { workspace: 'working-directory' },
+			workingDirectory,
+		})
+
+		expect(seen).toHaveLength(1)
+		expect(seen[0]?.workingDirectory).toBe(workingDirectory)
+	})
+
+	it('ReactiveAgent roots the provider at its working directory', async () => {
+		const workingDirectory = await directory()
+		const { provider: sandboxProvider, seen } = recordingWorkspaceProvider()
+		const agent = new ReactiveAgent({
+			id: 'reactive-sandbox-workspace-front',
+			name: 'Reactive Sandbox Workspace Front',
+			version: '1',
+			category: 'test',
+			description: 'sandbox workspace reachability probe',
+		})
+
+		await agent.run({ messages: [createUserMessage('go')], workingDirectory }, {
+			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
+			tools: new ToolRegistry(),
+			sandboxProvider,
+			sandbox: { workspace: 'working-directory' },
+			model: 'mock-model',
+			tokenBudget: 100_000,
+			timeoutMs: 5_000,
+			maxIterations: 1,
+			...scope,
+		} satisfies ReactiveAgentConfig)
+
+		expect(seen).toHaveLength(1)
+		expect(seen[0]?.workingDirectory).toBe(workingDirectory)
+	})
+
+	it('SupervisorAgent roots the provider at its working directory', async () => {
+		const workingDirectory = await directory()
+		const { provider: sandboxProvider, seen } = recordingWorkspaceProvider()
+		const agent = new SupervisorAgent({
+			id: 'supervisor-sandbox-workspace-front',
+			name: 'Supervisor Sandbox Workspace Front',
+			version: '1',
+			category: 'test',
+			description: 'sandbox workspace reachability probe',
+		})
+
+		await agent.run({ messages: [createUserMessage('go')], workingDirectory }, {
+			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
+			agentIds: [],
+			allowDelegation: false,
+			agentManager: { sendMessage: async () => ({}) } as never,
+			systemPrompt: 'Answer directly.',
+			sandboxProvider,
+			sandbox: { workspace: 'working-directory' },
+			model: 'mock-model',
+			tokenBudget: 100_000,
+			timeoutMs: 5_000,
+			maxIterations: 1,
+			...scope,
+		} satisfies SupervisorAgentConfig)
+
+		expect(seen).toHaveLength(1)
+		expect(seen[0]?.workingDirectory).toBe(workingDirectory)
 	})
 })

@@ -204,6 +204,12 @@ session. In particular, `sandbox yes` describes the local runtime provider that
 will execute tools; it is independent of the optional-package installation row
 reported by `namzu doctor`.
 
+The coding session defaults that provider to the canonical working directory.
+Each turn owns and tears down a fresh sandbox handle, while the caller-owned
+project files survive and remain visible to later turns and delegated agents.
+Set `sandbox.workspace` to `ephemeral` only when a disposable per-run tree is
+the intended behavior; `/status` reports which mode is active.
+
 Ctrl+L clears only the rendered terminal transcript while idle. It preserves
 model context, durable conversation history and copy/export targets, matching
 `/clear-screen`; an active turn keeps its visible output and reports that the

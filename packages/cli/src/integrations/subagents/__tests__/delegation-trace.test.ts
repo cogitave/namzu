@@ -7,6 +7,7 @@ import {
 	LocalTaskScheduler,
 	type ProjectInstructionContext,
 	type ReactiveAgentConfig,
+	type ResumeHandler,
 	type SandboxProvider,
 	type ToolContext,
 	createProjectInstructionMessage,
@@ -44,7 +45,9 @@ async function buildAgentTool(
 	extra: {
 		projectInstructionContext?: () => ProjectInstructionContext
 		sandboxProvider?: SandboxProvider
+		sandboxWorkspace?: 'working-directory' | 'ephemeral'
 		sandboxTeardownTimeoutMs?: number
+		resolveResumeHandler?: (runId: ToolContext['runId']) => ResumeHandler | undefined
 	} = {},
 ) {
 	const created: Record<string, unknown>[] = []
@@ -190,6 +193,47 @@ describe('a sub-agent is bound by the project it works in', () => {
 			| { projectInstructionContext?: ProjectInstructionContext }
 			| undefined
 		expect(config?.projectInstructionContext).toBeUndefined()
+	})
+})
+
+describe('a sub-agent shares the session workspace policy', () => {
+	it('carries working-directory into the child agent config', async () => {
+		const sandboxProvider = {} as SandboxProvider
+		const { registered } = await buildAgentTool({
+			sandboxProvider,
+			sandboxWorkspace: 'working-directory',
+		})
+		const general = registered.find((definition) => definition.info.id === GENERAL_PURPOSE_SUBAGENT)
+
+		const config = (await general?.configBuilder?.({})) as ReactiveAgentConfig | undefined
+
+		expect(config?.sandboxProvider).toBe(sandboxProvider)
+		expect(config?.sandbox).toEqual({ workspace: 'working-directory' })
+	})
+})
+
+describe('a sub-agent shares the parent run review channel', () => {
+	it('passes only the handler belonging to the run that invoked Agent', async () => {
+		const handler = vi.fn() as ResumeHandler
+		const { agentTool, created } = await buildAgentTool({
+			resolveResumeHandler: (runId) => (String(runId) === 'run_test' ? handler : undefined),
+		})
+
+		await agentTool.execute({ description: 'audit', prompt: 'do a thing' }, toolContext())
+
+		expect(
+			(created[0]?.configOverrides as { resumeHandler?: ResumeHandler } | undefined)?.resumeHandler,
+		).toBe(handler)
+	})
+
+	it('does not invent a review channel when the parent run owns none', async () => {
+		const { agentTool, created } = await buildAgentTool({
+			resolveResumeHandler: () => undefined,
+		})
+
+		await agentTool.execute({ description: 'audit', prompt: 'do a thing' }, toolContext())
+
+		expect(created[0]).not.toHaveProperty('configOverrides')
 	})
 })
 

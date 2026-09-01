@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-30T00:00:00Z
-lastReviewed: 2026-08-30
+lastReviewed: 2026-09-01
 resource: packages/sandbox/src/index.ts
 tags: [sandbox, isolation, reference]
 ---
@@ -119,6 +119,13 @@ Either object goes to the kernel as `sandboxProvider` — the field is on
 `QueryParams` (so `query` and `drainQuery` take it), `runAgent`, and the
 Reactive/Supervisor agent configs. The kernel calls `provider.create()` before
 the iteration loop and `sandbox.destroy()` when the run ends.
+
+These backends advertise only the `ephemeral` workspace mode. Their writable
+tree is the construction-time container or guest layout; a per-run host
+`workingDirectory` is not that mount and is deliberately refused by the kernel
+instead of being accepted and ignored. Use the SDK's local provider when a
+coding session must expose the caller's existing project directory, or construct
+one package provider per task with that task's host paths in `layout`.
 
 Both calls carry lifecycle authority. `SandboxCreateConfig.signal` is a fused
 operation signal carrying run cancellation and the run's remaining wall-clock

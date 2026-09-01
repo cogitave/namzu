@@ -2396,6 +2396,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						details: { workspace: 'working-directory' },
 					})
 				}
+				if (rootAtCwd && !params.sandboxProvider.workspaceModes?.includes('working-directory')) {
+					throw new NamzuError({
+						code: 'invalid_config',
+						message: `Sandbox provider '${params.sandboxProvider.id}' does not advertise working-directory workspace support. Refusing instead of passing a project path the provider may ignore.`,
+						details: {
+							providerId: params.sandboxProvider.id,
+							workspace: 'working-directory',
+						},
+					})
+				}
 				const acquisition = await acquireSandbox({
 					provider: params.sandboxProvider,
 					config: {

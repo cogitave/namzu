@@ -110,7 +110,10 @@ const result = await agent.run(
 
 That run uses the kernel's budget, tool loop, progressive disclosure and
 structured compaction. OS isolation is explicit rather than ambient: supply a
-`sandboxProvider` when the host requires it, and configure durable stores and
+`sandboxProvider` when the host requires it. Direct SDK runs use a disposable
+sandbox workspace unless `sandbox: { workspace: 'working-directory' }` is
+selected and the provider advertises support for rooting itself at the run's
+declared working directory. Configure durable stores and
 telemetry exporters when the process must outlive or export the in-memory run.
 Swap the `registerOpenRouter()` line for any other driver and everything below
 it is unchanged.

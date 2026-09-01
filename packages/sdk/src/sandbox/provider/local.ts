@@ -10,7 +10,7 @@ import {
 	stat,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, parse, resolve } from 'node:path'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 
@@ -25,6 +25,7 @@ import {
 // registry needs the same one, and a near-copy would reproduce in the copy
 // every bug the original's comment was written to record.
 import { killTree } from '../../process/kill-tree.js'
+import { resolveWithinReal } from '../../tools/paths.js'
 import type { SandboxId } from '../../types/ids/index.js'
 import type {
 	Sandbox,
@@ -48,19 +49,6 @@ import {
 } from '../../utils/process-environment.js'
 import { assertIsolation, describeIsolation } from '../isolation.js'
 import type { PtyLoader } from '../terminal.js'
-
-// ---------------------------------------------------------------------------
-// Path safety
-// ---------------------------------------------------------------------------
-
-function assertInsideSandbox(sandboxRoot: string, targetPath: string): string {
-	const resolved = resolve(sandboxRoot, targetPath)
-	const rel = relative(sandboxRoot, resolved)
-	if (rel.startsWith('..') || isAbsolute(rel)) {
-		throw new Error(`Path escapes sandbox: ${targetPath}`)
-	}
-	return resolved
-}
 
 // ---------------------------------------------------------------------------
 // Platform detection
@@ -289,7 +277,7 @@ export function buildLimitedSpawn(request: LimitedSpawnRequest): {
 		case 'macos-seatbelt':
 			return {
 				spawnCommand: requiredWrapper(request),
-				spawnArgs: ['-p', buildSeatbeltProfile(rootDir), '--', ...inner],
+				spawnArgs: [...buildSeatbeltArgs(rootDir), '--', ...inner],
 			}
 
 		case 'basic': {
@@ -332,10 +320,7 @@ function detectEnvironment(): DetectedEnvironment {
 
 	if (platform === 'darwin') {
 		const seatbelt = resolveTrustedWrapper('sandbox-exec')
-		if (
-			seatbelt !== undefined &&
-			probeSandboxSpawn(seatbelt, ['-p', buildSeatbeltProfile(tmpdir())])
-		) {
+		if (seatbelt !== undefined && probeSandboxSpawn(seatbelt, buildSeatbeltArgs(tmpdir()))) {
 			return { environment: 'macos-seatbelt', wrapperCommand: seatbelt }
 		}
 	}
@@ -465,9 +450,7 @@ const BWRAP_SYSTEM_PATHS: readonly string[] = [
 	'/opt',
 ]
 
-function buildSeatbeltProfile(sandboxRoot: string): string {
-	const root = canonicalizePath(sandboxRoot)
-
+function buildSeatbeltProfile(): string {
 	return [
 		'(version 1)',
 		'(deny default)',
@@ -479,8 +462,8 @@ function buildSeatbeltProfile(sandboxRoot: string): string {
 		'(allow signal (target same-sandbox))',
 
 		// --- Sandbox workspace — full read/write ---
-		`(allow file-read* (subpath "${root}"))`,
-		`(allow file-write* (subpath "${root}"))`,
+		'(allow file-read* (subpath (param "NAMZU_SANDBOX_ROOT")))',
+		'(allow file-write* (subpath (param "NAMZU_SANDBOX_ROOT")))',
 
 		// --- Root path literal — dyld needs this for path resolution ---
 		'(allow file-read* (literal "/"))',
@@ -547,6 +530,18 @@ function buildSeatbeltProfile(sandboxRoot: string): string {
 	].join('\n')
 }
 
+/**
+ * Keep caller-controlled paths out of SBPL source entirely.
+ *
+ * `sandbox-exec -Dname=value` binds an opaque argv value to `(param "name")`;
+ * quotes, newlines, and parentheses in a legal Unix directory name therefore
+ * remain path bytes instead of becoming policy syntax. This is the same
+ * parameter boundary used by Codex's seatbelt builder.
+ */
+function buildSeatbeltArgs(sandboxRoot: string): string[] {
+	return ['-p', buildSeatbeltProfile(), `-DNAMZU_SANDBOX_ROOT=${canonicalizePath(sandboxRoot)}`]
+}
+
 // ---------------------------------------------------------------------------
 // Environment building
 // ---------------------------------------------------------------------------
@@ -610,6 +605,7 @@ class LocalSandbox implements Sandbox {
 		rootDir: string,
 		environment: SandboxEnvironment,
 		private readonly wrapperCommand: string | undefined,
+		private readonly removeRootOnDestroy: boolean,
 		config: SandboxCreateConfig,
 		log: Logger,
 	) {
@@ -618,7 +614,10 @@ class LocalSandbox implements Sandbox {
 		this.environment = environment
 		this.config = config
 		this._status = 'ready'
-		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'sandbox/provider/local', [NAMZU.SANDBOX_ID]: id })
+		this.log = log.child({
+			[SCOPE_ATTRIBUTE]: 'sandbox/provider/local',
+			[NAMZU.SANDBOX_ID]: id,
+		})
 
 		this.log.info('Sandbox created', {
 			'namzu.sandbox.root_dir': rootDir,
@@ -641,7 +640,7 @@ class LocalSandbox implements Sandbox {
 		const env = buildSafeEnv(this.config.env, opts?.env)
 		const timeout = opts?.timeout ?? this.config.timeoutMs ?? SANDBOX_DEFAULT_TIMEOUT_MS
 
-		const cwd = opts?.cwd ? assertInsideSandbox(this.rootDir, opts.cwd) : this.rootDir
+		const cwd = opts?.cwd ? await resolveWithinReal(this.rootDir, opts.cwd) : this.rootDir
 
 		const { spawnCommand, spawnArgs, bwrapInfoFd, bwrapBlockFd } = this.buildSpawnArgs(
 			command,
@@ -690,7 +689,7 @@ class LocalSandbox implements Sandbox {
 			throw new Error(`Sandbox ${this.id} is destroyed`)
 		}
 
-		const resolved = assertInsideSandbox(this.rootDir, path)
+		const resolved = await resolveWithinReal(this.rootDir, path)
 		await mkdir(dirname(resolved), { recursive: true })
 
 		// Convention 8: Atomic write (write-tmp-rename)
@@ -706,7 +705,7 @@ class LocalSandbox implements Sandbox {
 			throw new Error(`Sandbox ${this.id} is destroyed`)
 		}
 
-		const resolved = assertInsideSandbox(this.rootDir, path)
+		const resolved = await resolveWithinReal(this.rootDir, path)
 		return fsReadFile(resolved)
 	}
 
@@ -715,7 +714,7 @@ class LocalSandbox implements Sandbox {
 			throw new Error(`Sandbox ${this.id} is destroyed`)
 		}
 
-		const resolved = assertInsideSandbox(this.rootDir, rootPath)
+		const resolved = await resolveWithinReal(this.rootDir, rootPath)
 		const root = await stat(resolved).catch(() => null)
 		if (!root || !root.isDirectory()) return []
 
@@ -746,7 +745,12 @@ class LocalSandbox implements Sandbox {
 		}
 
 		this._status = 'destroyed'
-		await rm(this.rootDir, { recursive: true, force: true })
+		// A generated temp root belongs to this allocation. A working-directory
+		// root belongs to the caller. Conflating those lifetimes turns normal run
+		// teardown into recursive deletion of the project the run just edited.
+		if (this.removeRootOnDestroy) {
+			await rm(this.rootDir, { recursive: true, force: true })
+		}
 
 		this.log.info('Sandbox destroyed', { 'namzu.sandbox.id': this.id })
 	}
@@ -974,6 +978,7 @@ export interface LocalSandboxProviderOptions {
 export class LocalSandboxProvider implements SandboxProvider {
 	readonly id = 'local'
 	readonly name = 'Local Sandbox'
+	readonly workspaceModes = ['ephemeral', 'working-directory'] as const
 	readonly environment: SandboxEnvironment
 
 	private readonly log: Logger
@@ -1016,25 +1021,59 @@ export class LocalSandboxProvider implements SandboxProvider {
 	async create(config?: SandboxCreateConfig): Promise<Sandbox> {
 		config?.signal?.throwIfAborted()
 		const id = generateSandboxId()
+		let rootDir: string
+		let removeRootOnDestroy: boolean
 
-		// mkdtemp is in node:fs/promises but requires an async import-style usage.
-		// We use the same pattern: create a unique dir under os.tmpdir().
-		const { mkdtemp } = await import('node:fs/promises')
-		const rawDir = await mkdtemp(join(tmpdir(), SANDBOX_TEMP_DIR_PREFIX))
+		if (config?.workingDirectory !== undefined) {
+			const requested = resolve(config.workingDirectory)
+			let entry: Awaited<ReturnType<typeof stat>>
+			try {
+				entry = await stat(requested)
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+					throw new Error(`Sandbox workingDirectory does not exist: ${requested}`, {
+						cause: error,
+					})
+				}
+				throw new Error(`Sandbox workingDirectory could not be inspected: ${requested}`, {
+					cause: error,
+				})
+			}
+			if (!entry.isDirectory()) {
+				throw new Error(`Sandbox workingDirectory is not a directory: ${requested}`)
+			}
+			// The caller owns this tree. The sandbox handle may be per run, but the
+			// workspace survives every handle created for the session.
+			rootDir = canonicalizePath(requested)
+			if (rootDir === parse(rootDir).root) {
+				throw new Error(
+					`Sandbox workingDirectory cannot be a filesystem root: ${rootDir}. Choose a project directory so filesystem confinement has a boundary.`,
+				)
+			}
+			removeRootOnDestroy = false
+		} else {
+			// No workspace was named: this allocation owns a fresh temporary root.
+			const { mkdtemp } = await import('node:fs/promises')
+			const rawDir = await mkdtemp(join(tmpdir(), SANDBOX_TEMP_DIR_PREFIX))
+			rootDir = canonicalizePath(rawDir)
+			removeRootOnDestroy = true
+		}
 		if (config?.signal?.aborted) {
-			await rm(rawDir, { recursive: true, force: true })
+			if (removeRootOnDestroy) await rm(rootDir, { recursive: true, force: true })
 			throw config.signal.reason
 		}
-		// Canonicalize — macOS symlinks like /var → /private/var must be resolved
-		const rootDir = canonicalizePath(rawDir)
 
-		this.log.info('Creating sandbox', { 'namzu.sandbox.id': id, 'namzu.sandbox.root_dir': rootDir })
+		this.log.info('Creating sandbox', {
+			'namzu.sandbox.id': id,
+			'namzu.sandbox.root_dir': rootDir,
+		})
 
 		return new LocalSandbox(
 			id,
 			rootDir,
 			this.environment,
 			this.wrapperCommand,
+			removeRootOnDestroy,
 			config ?? {},
 			this.log,
 		)

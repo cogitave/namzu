@@ -1041,7 +1041,7 @@ valid.
 | `profiles` | name → config mapping | Select with `--profile` or `NAMZU_PROFILE`; a profile cannot contain `profiles` or executable `plugins` |
 | `mcpServers` | name → `{ command, args }` or `{ url }` | Tools arrive prefixed with the server's name. HTTP URLs must name the final endpoint; redirects are refused so credentials and tool arguments cannot leave it |
 | `plugins` | `{ enabled?, autoDiscovery?, allowedScopes?, hookTimeoutMs? }` | Default off. Exact `enabled: true` admits executable bundles; scopes are `project` / `user` and hook timeouts are positive integer milliseconds |
-| `sandbox` | `{ enabled?, requireIsolation?, teardownTimeoutMs? }` | `enabled` defaults to **on**. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start. `teardownTimeoutMs` defaults to `30000`; `0` restores the former unbounded wait |
+| `sandbox` | `{ enabled?, workspace?, requireIsolation?, teardownTimeoutMs? }` | `enabled` defaults to **on**. `workspace` defaults to `working-directory`; set `ephemeral` for a disposable empty tree. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start. `teardownTimeoutMs` defaults to `30000`; `0` restores the former unbounded wait |
 | `telemetry` | `{ sessionExport?: { destination, eventTypes?, redactors? } }` | Writes run events to a JSONL file. `redactors: []` means no redaction and has to be written to mean it |
 | `tui` | `{ notifications?, notificationMethod? }` | Interactive notifications; events are `turn-settled` / `approval-required`, method is `osc9` / `bel` |
 
@@ -1052,11 +1052,16 @@ are likewise file-only because enabling them imports executable code. Separately
 `NAMZU_LOG_LEVEL` and `NAMZU_LOG_FORMAT` govern the log records on stderr rather
 than this config, and `--verbose` / `--quiet` on the command line beat them.
 
-The resolved sandbox is session-scoped: ordinary turns, delegated child agents
-and durable resumes use the same provider and teardown bound. Delegating or
-resuming a run therefore cannot drop from the session's isolation boundary to
-host execution. Set `sandbox.enabled` to `false` only when host execution is the
-intended policy for every path.
+The resolved sandbox policy is session-scoped: ordinary turns, delegated child
+agents and durable resumes use the same provider, workspace mode and teardown
+bound. A sandbox handle is still run-scoped and is destroyed after that run.
+Under the default `working-directory` mode, the handle exposes the canonical
+project directory and destroying it does not remove caller-owned files; a later
+turn sees the earlier turn's writes. `ephemeral` gives every run a provider-owned
+temporary root which is removed at teardown. Delegating or resuming a run cannot
+drop from the session's isolation boundary to host execution. Set
+`sandbox.enabled` to `false` only when host execution is the intended policy for
+every path.
 
 ```json
 {
@@ -1072,6 +1077,7 @@ intended policy for every path.
     "allowedScopes": ["project"]
   },
   "sandbox": {
+    "workspace": "working-directory",
     "requireIsolation": ["filesystem", "network"],
     "teardownTimeoutMs": 30000
   }

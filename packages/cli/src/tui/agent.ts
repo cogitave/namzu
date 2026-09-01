@@ -78,6 +78,7 @@ import {
 	createComputerUseTool,
 	createMemoryPromoter,
 	createToolPresenter,
+	generateRunId,
 	getBuiltinTools,
 	isTrustedReadOnly,
 	query,
@@ -87,7 +88,8 @@ import {
 
 import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
-import { join } from 'node:path'
+import { realpath, stat } from 'node:fs/promises'
+import { join, parse, resolve } from 'node:path'
 import type { PluginConfig, SandboxConfig } from '../config/schema.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
@@ -1038,7 +1040,31 @@ export async function createAgentSession(
 	options: AgentSessionOptions = {},
 ): Promise<AgentSession> {
 	const scope = options.scope ?? mintScope()
-	const cwd = options.cwd ?? process.cwd()
+	const requestedCwd = resolve(options.cwd ?? process.cwd())
+	let cwd: string
+	try {
+		const entry = await stat(requestedCwd)
+		if (!entry.isDirectory()) {
+			return emptySession(`Working directory is not a directory: ${requestedCwd}`, 'invocation')
+		}
+		cwd = await realpath(requestedCwd)
+	} catch (error) {
+		return emptySession(
+			`Working directory is unavailable: ${requestedCwd} — ${describeError(error)}`,
+			'invocation',
+		)
+	}
+	const sandboxWorkspace = options.sandbox?.workspace ?? 'working-directory'
+	if (
+		options.sandbox?.enabled !== false &&
+		sandboxWorkspace === 'working-directory' &&
+		cwd === parse(cwd).root
+	) {
+		return emptySession(
+			`Working-directory sandboxing refuses filesystem root ${cwd}; choose a project directory so confinement has a boundary, or explicitly select an ephemeral workspace.`,
+			'invocation',
+		)
+	}
 	// The head serves; the tail is fallen over to, in order, when it cannot.
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -1378,6 +1404,10 @@ export async function createAgentSession(
 	// `buildToolRegistry` directly below, so they never receive these tools.
 	// Per-send denial further keeps the schemas out of ordinary human turns.
 	const goalAuthorities = new Map<RunId, GoalRoundAuthority>()
+	// A child is created after the parent query has started, from inside its
+	// Agent tool. Keying the review channel by the executing run keeps two
+	// concurrent sends from borrowing each other's prompt or approval latch.
+	const delegatedResumeHandlers = new Map<RunId, ResumeHandler>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
 		registry.register(
@@ -1440,6 +1470,8 @@ export async function createAgentSession(
 		const sub = await createSubagentRuntime({
 			cwd,
 			model,
+			sandboxWorkspace,
+			resolveResumeHandler: (runId) => delegatedResumeHandlers.get(runId),
 			...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 			...(options.sandbox?.teardownTimeoutMs !== undefined
 				? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
@@ -1616,6 +1648,7 @@ export async function createAgentSession(
 			...(sandbox.environment ? { environment: sandbox.environment } : {}),
 			enforced: sandbox.enforced,
 			required: sandbox.required,
+			workspace: sandbox.workspace,
 		},
 		providerSummary: entry.label,
 		modelSummary: model,
@@ -1679,102 +1712,120 @@ export async function createAgentSession(
 		send: (messages, opts) =>
 			operations.stream(opts?.signal, (signal) =>
 				(async function* () {
-					// Renew a lapsed OAuth token before the turn runs (no-op for valid
-					// tokens and non-subscription credentials).
-					await prepareProviderCredential(signal)
-					// namzu identity first (so it establishes who the agent is even when
-					// the credential layer prepends whatever prefix its token requires),
-					// then memory and per-turn extra context. Project instructions are a
-					// separate retained user-context snapshot prepared by the controller;
-					// that is what lets nested scopes be replaced and persisted safely.
-					//
-					// The environment block is read fresh every turn because both facts in it
-					// can change WHILE the session
-					// runs — midnight passes, and the agent checks out a branch itself.
-					// Its text only changes when a fact changes, so it costs a prompt-cache
-					// miss exactly when a hit would have been a stale claim.
-					const pluginSkills = pluginRuntime
-						? await currentPluginSkills(pluginRuntime.skills)
-						: undefined
-					const memoryPrompt = composeMemoryPrompt(readMemory())
-					const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
-					const systemPrompt =
-						[NAMZU_IDENTITY, environmentPrompt, memoryPrompt, opts?.extraSystem]
-							.filter((s): s is string => Boolean(s))
-							.join('\n\n') || undefined
-					let capturedAuthority: GoalRoundAuthority | undefined
-					if (opts?.goalRound) {
-						if (!opts.runId) throw new Error('A goal round requires a caller-reserved runId.')
-						if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
-						if (
-							opts.goalRound.sessionId !== scope.sessionId ||
-							opts.goalRound.tenantId !== scope.tenantId
-						) {
-							throw new Error('Goal-round authority does not belong to this agent session scope.')
-						}
-						const current = await options.sessionGoals.getGoal(scope.sessionId, scope.tenantId)
-						if (
-							!current ||
-							current.phase !== 'active' ||
-							current.id !== opts.goalRound.id ||
-							current.revision !== opts.goalRound.revision ||
-							current.objective !== opts.goalRound.objective ||
-							current.roundsAdmitted !== opts.goalRound.round ||
-							current.maxGoalRounds !== opts.goalRound.maxGoalRounds
-						) {
-							throw new Error('Goal-round authority is stale or does not match the durable goal.')
-						}
-						if (goalAuthorities.has(opts.runId)) {
-							throw new Error(`Run ${opts.runId} already owns goal-round authority.`)
-						}
-						capturedAuthority = Object.freeze({ ...opts.goalRound })
-						goalAuthorities.set(opts.runId, capturedAuthority)
+					const runId = opts?.runId ?? generateRunId()
+					const turnOpts: SendOptions = { ...opts, runId, signal }
+					const resumeHandler = makeResumeHandler(
+						approval,
+						opts?.onPermission,
+						opts?.permissionMode ?? options.permissionMode,
+						(name, input) => isPromptExempt(registry, name, input),
+					)
+					if (delegatedResumeHandlers.has(runId)) {
+						throw new Error(`Run ${runId} already owns a delegated review channel.`)
 					}
+					delegatedResumeHandlers.set(runId, resumeHandler)
 					try {
-						yield* runTurn({
-							provider,
-							// Constructed HERE, per turn, and that is not an optimisation to
-							// undo. `refreshTokenIfNeeded` above replaces the head's client
-							// object when an OAuth token rotates, so a member list built once at
-							// session creation would hand the kernel a client holding a token
-							// that expired hours ago — and a chain whose own members are stale
-							// is a fallback that fails for the reason the fallback exists to
-							// survive. Building a driver is a client object, not a request.
-							fallbackProviders: fallbackPlan.build(currentToken),
-							model,
-							tools: registry,
-							pluginManager: pluginRuntime?.manager,
-							skillRegistry: pluginRuntime?.skills,
-							skills: pluginSkills,
-							scope,
-							workingDirectory: cwd,
-							rules: options.rules,
-							permissionMode: opts?.permissionMode ?? options.permissionMode,
-							reviewAnswer: options.reviewAnswer,
-							maxAnswerReviews: options.maxAnswerReviews,
-							promoteMemory,
-							approval,
-							taskStore,
-							systemPrompt,
-							messages,
-							projectInstructionContext: projectInstructions.createRunContext(),
-							opts: { ...opts, signal },
-							taskGateway: subagentGateway,
-							onRunEvent: options.onRunEvent,
-							...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
-							...(options.sandbox?.teardownTimeoutMs !== undefined
-								? {
-										sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs,
-									}
-								: {}),
-						})
+						// Renew a lapsed OAuth token before the turn runs (no-op for valid
+						// tokens and non-subscription credentials).
+						await prepareProviderCredential(signal)
+						// namzu identity first (so it establishes who the agent is even when
+						// the credential layer prepends whatever prefix its token requires),
+						// then memory and per-turn extra context. Project instructions are a
+						// separate retained user-context snapshot prepared by the controller;
+						// that is what lets nested scopes be replaced and persisted safely.
+						//
+						// The environment block is read fresh every turn because both facts in it
+						// can change WHILE the session
+						// runs — midnight passes, and the agent checks out a branch itself.
+						// Its text only changes when a fact changes, so it costs a prompt-cache
+						// miss exactly when a hit would have been a stale claim.
+						const pluginSkills = pluginRuntime
+							? await currentPluginSkills(pluginRuntime.skills)
+							: undefined
+						const memoryPrompt = composeMemoryPrompt(readMemory())
+						const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
+						const systemPrompt =
+							[NAMZU_IDENTITY, environmentPrompt, memoryPrompt, opts?.extraSystem]
+								.filter((s): s is string => Boolean(s))
+								.join('\n\n') || undefined
+						let capturedAuthority: GoalRoundAuthority | undefined
+						if (opts?.goalRound) {
+							if (!opts.runId) throw new Error('A goal round requires a caller-reserved runId.')
+							if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
+							if (
+								opts.goalRound.sessionId !== scope.sessionId ||
+								opts.goalRound.tenantId !== scope.tenantId
+							) {
+								throw new Error('Goal-round authority does not belong to this agent session scope.')
+							}
+							const current = await options.sessionGoals.getGoal(scope.sessionId, scope.tenantId)
+							if (
+								!current ||
+								current.phase !== 'active' ||
+								current.id !== opts.goalRound.id ||
+								current.revision !== opts.goalRound.revision ||
+								current.objective !== opts.goalRound.objective ||
+								current.roundsAdmitted !== opts.goalRound.round ||
+								current.maxGoalRounds !== opts.goalRound.maxGoalRounds
+							) {
+								throw new Error('Goal-round authority is stale or does not match the durable goal.')
+							}
+							if (goalAuthorities.has(opts.runId)) {
+								throw new Error(`Run ${opts.runId} already owns goal-round authority.`)
+							}
+							capturedAuthority = Object.freeze({ ...opts.goalRound })
+							goalAuthorities.set(opts.runId, capturedAuthority)
+						}
+						try {
+							yield* runTurn({
+								provider,
+								// Constructed HERE, per turn, and that is not an optimisation to
+								// undo. `refreshTokenIfNeeded` above replaces the head's client
+								// object when an OAuth token rotates, so a member list built once at
+								// session creation would hand the kernel a client holding a token
+								// that expired hours ago — and a chain whose own members are stale
+								// is a fallback that fails for the reason the fallback exists to
+								// survive. Building a driver is a client object, not a request.
+								fallbackProviders: fallbackPlan.build(currentToken),
+								model,
+								tools: registry,
+								pluginManager: pluginRuntime?.manager,
+								skillRegistry: pluginRuntime?.skills,
+								skills: pluginSkills,
+								scope,
+								workingDirectory: cwd,
+								sandboxWorkspace,
+								rules: options.rules,
+								reviewAnswer: options.reviewAnswer,
+								maxAnswerReviews: options.maxAnswerReviews,
+								promoteMemory,
+								taskStore,
+								systemPrompt,
+								messages,
+								projectInstructionContext: projectInstructions.createRunContext(),
+								opts: turnOpts,
+								resumeHandler,
+								taskGateway: subagentGateway,
+								onRunEvent: options.onRunEvent,
+								...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
+								...(options.sandbox?.teardownTimeoutMs !== undefined
+									? {
+											sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs,
+										}
+									: {}),
+							})
+						} finally {
+							if (
+								opts?.runId &&
+								capturedAuthority &&
+								goalAuthorities.get(opts.runId) === capturedAuthority
+							) {
+								goalAuthorities.delete(opts.runId)
+							}
+						}
 					} finally {
-						if (
-							opts?.runId &&
-							capturedAuthority &&
-							goalAuthorities.get(opts.runId) === capturedAuthority
-						) {
-							goalAuthorities.delete(opts.runId)
+						if (delegatedResumeHandlers.get(runId) === resumeHandler) {
+							delegatedResumeHandlers.delete(runId)
 						}
 					}
 				})(),
@@ -1796,64 +1847,79 @@ export async function createAgentSession(
 						.filter((s): s is string => Boolean(s))
 						.join('\n\n') || undefined
 
-				return resumeRun({
-					provider,
-					fallbackProviders: fallbackPlan.build(currentToken),
-					tools: registry,
-					pluginManager: pluginRuntime?.manager,
-					skillRegistry: pluginRuntime?.skills,
-					skills: pluginSkills,
-					taskStore,
-					...(subagentGateway ? { taskGateway: subagentGateway } : {}),
-					authorizationGate: gateFor(options.rules),
-					compactionConfig: COMPACTION_CONFIG,
-					projectInstructionContext: projectInstructions.createRunContext(),
-					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
-					...(options.sandbox?.teardownTimeoutMs !== undefined
-						? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
-						: {}),
-					// NOT `emergencySave`, unlike a turn. The manager is a singleton
-					// whose `attach` detaches whoever held it before, so a caller
-					// resuming several runs in one process would leave only the last
-					// one covered — and would look covered. A turn owns its process
-					// end to end; a drainer does not.
-					runConfig: {
-						model,
-						timeoutMs: 600_000,
-						tokenBudget: 1_000_000,
-						maxIterations: 50,
-						maxResponseTokens: 8192,
-						permissionMode: 'auto',
-					},
-					agentId: 'namzu',
-					agentName: 'namzu',
-					...(systemPrompt ? { systemPrompt } : {}),
-					workingDirectory: cwd,
-					// No `onPermission`: there is nobody at a drainer's terminal, so a
-					// prompt would block the pass forever on a run nobody is watching.
-					// The gate's deny rules still apply.
-					// One presenter for the whole stream, built from the registry this
-					// scope already holds. It was the absence of the registry HERE that
-					// forced presentation to be name matching: `toAgentEvent` was pure
-					// over a `RunEvent` and could not ask a tool anything.
-					resumeHandler: makeResumeHandler(approval, undefined, options.permissionMode, (n, i) =>
-						isPromptExempt(registry, n, i),
-					),
-					signal: ownedSignal,
-					// Attribution comes from the ENTRY, not from this session: the run
-					// belongs to whoever started it, and stamping the drainer's ids onto
-					// it would file another tenant's work under this one.
-					tenantId: entry.tenantId,
-					projectId: entry.projectId,
-					sessionId: entry.sessionId,
-					// …except the topic, which no checkpoint records — see
-					// `RunStateScope`. This one is the drainer's, and honestly so:
-					// supplied here rather than pretended to have been recovered.
-					topicId: scope.topicId,
-					scope: { ...entry, topicId: scope.topicId },
-					checkpointStore,
-					...(claimFence !== undefined ? { claimFence } : {}),
-				})
+				const resumeHandler = makeResumeHandler(
+					approval,
+					undefined,
+					options.permissionMode,
+					(name, input) => isPromptExempt(registry, name, input),
+				)
+				if (delegatedResumeHandlers.has(entry.runId)) {
+					throw new Error(`Run ${entry.runId} already owns a delegated review channel.`)
+				}
+				delegatedResumeHandlers.set(entry.runId, resumeHandler)
+				try {
+					return await resumeRun({
+						provider,
+						fallbackProviders: fallbackPlan.build(currentToken),
+						tools: registry,
+						pluginManager: pluginRuntime?.manager,
+						skillRegistry: pluginRuntime?.skills,
+						skills: pluginSkills,
+						taskStore,
+						...(subagentGateway ? { taskGateway: subagentGateway } : {}),
+						authorizationGate: gateFor(options.rules),
+						compactionConfig: COMPACTION_CONFIG,
+						projectInstructionContext: projectInstructions.createRunContext(),
+						...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
+						...(options.sandbox?.teardownTimeoutMs !== undefined
+							? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
+							: {}),
+						// NOT `emergencySave`, unlike a turn. The manager is a singleton
+						// whose `attach` detaches whoever held it before, so a caller
+						// resuming several runs in one process would leave only the last
+						// one covered — and would look covered. A turn owns its process
+						// end to end; a drainer does not.
+						runConfig: {
+							model,
+							...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
+							timeoutMs: 600_000,
+							tokenBudget: 1_000_000,
+							maxIterations: 50,
+							maxResponseTokens: 8192,
+							permissionMode: 'auto',
+						},
+						agentId: 'namzu',
+						agentName: 'namzu',
+						...(systemPrompt ? { systemPrompt } : {}),
+						workingDirectory: cwd,
+						// No `onPermission`: there is nobody at a drainer's terminal, so a
+						// prompt would block the pass forever on a run nobody is watching.
+						// The gate's deny rules still apply.
+						// One presenter for the whole stream, built from the registry this
+						// scope already holds. It was the absence of the registry HERE that
+						// forced presentation to be name matching: `toAgentEvent` was pure
+						// over a `RunEvent` and could not ask a tool anything.
+						resumeHandler,
+						signal: ownedSignal,
+						// Attribution comes from the ENTRY, not from this session: the run
+						// belongs to whoever started it, and stamping the drainer's ids onto
+						// it would file another tenant's work under this one.
+						tenantId: entry.tenantId,
+						projectId: entry.projectId,
+						sessionId: entry.sessionId,
+						// …except the topic, which no checkpoint records — see
+						// `RunStateScope`. This one is the drainer's, and honestly so:
+						// supplied here rather than pretended to have been recovered.
+						topicId: scope.topicId,
+						scope: { ...entry, topicId: scope.topicId },
+						checkpointStore,
+						...(claimFence !== undefined ? { claimFence } : {}),
+					})
+				} finally {
+					if (delegatedResumeHandlers.get(entry.runId) === resumeHandler) {
+						delegatedResumeHandlers.delete(entry.runId)
+					}
+				}
 			}),
 	}
 }
@@ -2328,15 +2394,17 @@ interface RunTurnParams {
 	readonly scope: RunScope
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
+	/** The project tree a sandboxed turn is rooted at. */
+	readonly sandboxWorkspace: 'working-directory' | 'ephemeral'
 	/** Operator rules for this run, already compiled. */
 	readonly rules: readonly AuthorizationRule[] | undefined
-	readonly permissionMode: PermissionMode | undefined
 	/** Standing verdict on the answer this turn settles with. See {@link AgentSessionOptions}. */
 	readonly reviewAnswer: ReviewAnswer | undefined
 	readonly maxAnswerReviews: number | undefined
 	/** What this run should leave behind when it settles. */
 	readonly promoteMemory: PromoteMemory
-	readonly approval: { all: boolean }
+	/** Exact interactive authority shared with children launched by this run. */
+	readonly resumeHandler: ResumeHandler
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
 	readonly messages: readonly Message[]
@@ -2364,12 +2432,12 @@ async function* runTurn({
 	skills,
 	scope,
 	workingDirectory,
+	sandboxWorkspace,
 	rules,
-	permissionMode,
 	reviewAnswer,
 	maxAnswerReviews,
 	promoteMemory,
-	approval,
+	resumeHandler,
 	taskStore,
 	systemPrompt,
 	messages,
@@ -2417,6 +2485,7 @@ async function* runTurn({
 			emergencySave: true,
 			runConfig: {
 				model,
+				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				timeoutMs: 600_000,
 				tokenBudget: 1_000_000,
@@ -2444,12 +2513,7 @@ async function* runTurn({
 			// The exemption reads `tools` at decision time, so it sees the task
 			// tools `query()` registers deferred below and any tool server that
 			// connected after this session was built.
-			resumeHandler: makeResumeHandler(
-				approval,
-				opts?.onPermission,
-				permissionMode,
-				(name, input) => isPromptExempt(tools, name, input),
-			),
+			resumeHandler,
 			signal,
 			...scope,
 		})

@@ -12,7 +12,7 @@
 
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
@@ -103,7 +103,9 @@ describe('createAgentSession runs where it is told to', () => {
 
 	it('passes the caller-supplied cwd to the run, not the process directory', async () => {
 		const { createAgentSession } = await import('../agent.js')
-		const session = await createAgentSession(prefs, detectedAnthropic(), { cwd: workDir })
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd: workDir,
+		})
 		expect(session.hasProvider).toBe(true)
 
 		for await (const _ of session.send([
@@ -115,6 +117,25 @@ describe('createAgentSession runs where it is told to', () => {
 		expect(queryCalls).toHaveLength(1)
 		expect(queryCalls[0].workingDirectory).toBe(workDir)
 		expect(queryCalls[0].workingDirectory).not.toBe(process.cwd())
+		expect(queryCalls[0]).toMatchObject({
+			runConfig: { sandbox: { workspace: 'working-directory' } },
+		})
+	})
+
+	it('keeps an explicit ephemeral workspace choice', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd: workDir,
+			sandbox: { workspace: 'ephemeral' },
+		})
+
+		for await (const _ of session.send([{ role: 'user', content: 'hello', timestamp: 0 }])) {
+			// drained; the assertion is on the run configuration
+		}
+
+		expect(queryCalls[0]).toMatchObject({
+			runConfig: { sandbox: { workspace: 'ephemeral' } },
+		})
 	})
 
 	it('falls back to the process directory when no cwd is supplied', async () => {
@@ -126,5 +147,29 @@ describe('createAgentSession runs where it is told to', () => {
 		}
 
 		expect(queryCalls[0].workingDirectory).toBe(process.cwd())
+	})
+
+	it('refuses a missing cwd before announcing a usable session', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const missing = join(workDir, 'missing')
+
+		const session = await createAgentSession(prefs, detectedAnthropic(), { cwd: missing })
+
+		expect(session.hasProvider).toBe(false)
+		expect(session.errorKind).toBe('invocation')
+		expect(session.errorHint).toContain('Working directory is unavailable')
+		expect(queryCalls).toHaveLength(0)
+	})
+
+	it('refuses to call a filesystem root a confined workspace', async () => {
+		const { createAgentSession } = await import('../agent.js')
+
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd: parse(workDir).root,
+		})
+
+		expect(session.hasProvider).toBe(false)
+		expect(session.errorHint).toContain('refuses filesystem root')
+		expect(queryCalls).toHaveLength(0)
 	})
 })

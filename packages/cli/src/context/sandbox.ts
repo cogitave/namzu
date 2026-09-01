@@ -51,6 +51,11 @@ export interface SandboxSummary {
 	 * survives moving machines.
 	 */
 	readonly required: readonly SandboxIsolationControl[]
+	/**
+	 * Where writes land. Optional only for embedded/older session adapters.
+	 * `working-directory` survives turn teardown; `ephemeral` does not.
+	 */
+	readonly workspace?: 'host' | 'working-directory' | 'ephemeral'
 }
 
 export interface ResolvedSandbox extends SandboxSummary {
@@ -74,12 +79,18 @@ export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): 
 	if (config?.enabled === false) {
 		return {
 			notice:
-				"Sandbox off by configuration: commands run in this process, with this shell's environment. Remove `sandbox.enabled: false` to turn it back on.",
+				"Sandbox off by configuration: commands run in this process, with this shell's environment, against the real working directory. Remove `sandbox.enabled: false` to turn it back on.",
 			unconfined: true,
 			enforced: [],
 			required: (config?.requireIsolation ?? []) as readonly SandboxIsolationControl[],
+			workspace: 'host',
 		}
 	}
+	const workspace = config?.workspace ?? 'working-directory'
+	const workspaceNotice =
+		workspace === 'working-directory'
+			? 'The real working directory is mounted; changes persist across turns.'
+			: 'Each run receives a disposable workspace; changes are removed at teardown.'
 
 	const required = (config?.requireIsolation ?? []) as readonly SandboxIsolationControl[]
 	// Constructing with the requirement is what makes `requireIsolation`
@@ -98,11 +109,12 @@ export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): 
 		// no sandbox and is emphatically not protection.
 		return {
 			provider,
-			notice: `Sandbox on (${provider.environment}), but this platform enforces none of ${SANDBOX_ISOLATION_CONTROLS.join(', ')} — commands are not confined. Name what you need under \`sandbox.requireIsolation\` to be refused instead of surprised.`,
+			notice: `Sandbox on (${provider.environment}), but this platform enforces none of ${SANDBOX_ISOLATION_CONTROLS.join(', ')} — commands are not confined. ${workspaceNotice} Name what you need under \`sandbox.requireIsolation\` to be refused instead of surprised.`,
 			unconfined: true,
 			environment: provider.environment,
 			enforced: [],
 			required,
+			workspace,
 		}
 	}
 
@@ -110,12 +122,13 @@ export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): 
 		provider,
 		notice:
 			missing.length === 0
-				? `Sandbox on (${provider.environment}): enforcing ${enforced.join(', ')}.`
-				: `Sandbox on (${provider.environment}): enforcing ${enforced.join(', ')}; NOT enforcing ${missing.join(', ')}.`,
+				? `Sandbox on (${provider.environment}): enforcing ${enforced.join(', ')}. ${workspaceNotice}`
+				: `Sandbox on (${provider.environment}): enforcing ${enforced.join(', ')}; NOT enforcing ${missing.join(', ')}. ${workspaceNotice}`,
 		unconfined: false,
 		environment: provider.environment,
 		enforced,
 		required,
+		workspace,
 	}
 }
 

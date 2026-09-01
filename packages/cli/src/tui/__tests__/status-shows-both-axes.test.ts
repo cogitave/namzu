@@ -74,6 +74,34 @@ describe('/status puts both axes on one page', () => {
 		expect(rendered).toContain('filesystem, network')
 	})
 
+	it('says whether project edits survive turn teardown', () => {
+		const persistent = renderStatus(
+			context({
+				sandbox: {
+					unconfined: false,
+					environment: 'linux-bwrap',
+					enforced: ['filesystem'],
+					required: [],
+					workspace: 'working-directory',
+				},
+			}),
+		)
+		const disposable = renderStatus(
+			context({
+				sandbox: {
+					unconfined: false,
+					environment: 'linux-bwrap',
+					enforced: ['filesystem'],
+					required: [],
+					workspace: 'ephemeral',
+				},
+			}),
+		)
+
+		expect(persistent).toMatch(/real project files.*persist across turns/i)
+		expect(disposable).toMatch(/disposable per run.*removed at teardown/i)
+	})
+
 	it('says plainly that an unconfined run is unconfined', () => {
 		// Not softened by the tier name. A tier that enforces nothing is the
 		// absence of a sandbox, not a weaker one, and the page that reports it

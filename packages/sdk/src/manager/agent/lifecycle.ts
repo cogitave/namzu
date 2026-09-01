@@ -386,6 +386,12 @@ export class AgentManager {
 			// key, the same direction it already wins for `model` and `effort`.
 			const inheritedEnv = mergeEnv(childConfig.env, options.configOverrides?.env)
 			if (inheritedEnv) childConfig.env = inheritedEnv
+			// A builder may ignore a newly-added factory option. The requested root
+			// policy is an execution boundary, so stamp an explicit child override
+			// after the builder rather than silently falling back to ephemeral.
+			if (options.configOverrides?.sandbox) {
+				childConfig.sandbox = options.configOverrides.sandbox
+			}
 		} else {
 			this.log.warn('No configBuilder, using bare config', {
 				[GENAI.AGENT_ID]: options.agentId,
@@ -408,6 +414,7 @@ export class AgentManager {
 				thinking: options.configOverrides?.thinking,
 				effort: options.configOverrides?.effort,
 				env: options.configOverrides?.env,
+				sandbox: options.configOverrides?.sandbox,
 				sessionId: spawnRecord.childSessionId,
 				topicId: context.topicId,
 				projectId: context.projectId,

@@ -151,7 +151,19 @@ Detection runs the real confinement rather than asking a binary its version: a h
 
 This matters because the failure it guards against is silent. If a run requires a control the host cannot enforce, `assertIsolation` **refuses to start it** rather than proceeding at a weaker tier: a security control that is accepted and then quietly not applied is worse than one that was never offered, because the caller stops looking. Use `isolationOf`, `missingIsolation` and `describeIsolation` to ask what you are actually getting before you rely on it.
 
-The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) lets you supply a stronger provider without touching the rest of the kernel. The kernel enforces memory, timeout, and max-process limits on top of whatever the sandbox gives you.
+The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) lets you supply a stronger provider without touching the rest of the kernel. A provider advertises the workspace modes it actually implements. `ephemeral` is the compatibility default; an explicit `working-directory` request is refused unless the provider advertises that it honours the supplied path. This prevents a remote or layout-owned backend from accepting a host directory it never mounted. The kernel enforces memory, timeout, and max-process limits on top of whatever the sandbox gives you.
+
+A sandbox handle and its workspace can have different owners. The kernel creates
+one handle for one run and always tears that handle down. With no working
+directory request, the local provider creates and owns a temporary root and
+removes it at teardown. With `sandbox.workspace: 'working-directory'`, the
+caller owns the canonical project tree; the local provider confines each new
+handle to that same tree and never deletes it. Two turns therefore get separate
+process boundaries while sharing the session's durable project files. Missing,
+non-directory and filesystem-root workspaces are refused before a process is
+created. Local file APIs canonicalize existing symlinks before checking the
+boundary, so a repository link cannot turn a sandbox-relative read, write or
+execution directory into a host escape.
 
 Sandbox lifetime belongs to the run, including the waits at both ends. Creation
 receives a fused signal carrying run cancellation and the remaining wall-clock
@@ -167,8 +179,11 @@ protocol needs a client-owned reconciliation key or a fleet reaper.
 Teardown does not reuse the already-aborted run signal. `Sandbox.destroy`
 receives a fresh signal and `sandboxTeardownTimeoutMs` independently bounds how
 long the run waits; the default is 30 seconds and `0` explicitly restores the
-former unbounded wait. The same provider and option are carried by `runAgent`
-and Reactive/Supervisor agent configs. `sandbox_destroyed` reaches event consumers only after teardown
+former unbounded wait. The same provider, workspace choice and option are
+carried by `runAgent` and Reactive/Supervisor agent configs. A `PipelineAgent`
+runs arbitrary developer-authored callbacks rather than sandbox-aware tools and
+therefore refuses a run-level sandbox setting it cannot enforce.
+`sandbox_destroyed` reaches event consumers only after teardown
 actually settles; a failure or deadline is logged without retracting the run's
 answer or reporting a destruction that was not established.
 

@@ -16,15 +16,14 @@ import { drainQuery } from '../index.js'
 /**
  * The sandbox could not confine the directory it was wanted for.
  *
- * `SandboxCreateConfig.workingDirectory` existed and the local provider
- * honoured it, and the kernel never set it: `drainQuery` built the sandbox
- * from three timeout/limit fields and dropped the run's own `cwd`. So a
- * consumer configuring a sandbox through `runConfig.sandbox` always got a
- * temp directory, whatever the run was working on — the finding's own
- * title, still true after the provider was fixed.
+ * `SandboxCreateConfig.workingDirectory` existed, the local provider ignored
+ * it, and the kernel never set it: `drainQuery` built the sandbox from three
+ * timeout/limit fields and dropped the run's own `cwd`. So a consumer
+ * configuring a sandbox through `runConfig.sandbox` always got a temp
+ * directory, whatever the run was working on.
  *
- * The default stays ephemeral. Changing it would be a major and would
- * quietly point every existing sandboxed run at real files.
+ * The direct SDK default stays ephemeral. Changing that would be a major and
+ * would quietly point every existing embedded sandboxed run at real files.
  */
 
 const dirs: string[] = []
@@ -35,9 +34,18 @@ afterEach(async () => {
 })
 
 /** Records what `create()` was asked for; runs nothing. */
-function recordingProvider(): { provider: SandboxProvider; seen: SandboxCreateConfig[] } {
+function recordingProvider(options: { workingDirectory?: boolean } = { workingDirectory: true }): {
+	provider: SandboxProvider
+	seen: SandboxCreateConfig[]
+} {
 	const seen: SandboxCreateConfig[] = []
 	const provider = {
+		id: 'recording',
+		name: 'Recording sandbox',
+		environment: 'basic' as const,
+		...(options.workingDirectory
+			? { workspaceModes: ['ephemeral', 'working-directory'] as const }
+			: { workspaceModes: ['ephemeral'] as const }),
 		create: async (config: SandboxCreateConfig) => {
 			seen.push(config)
 			return {
@@ -166,5 +174,36 @@ describe('what a sandbox is rooted at', () => {
 
 		expect(failed.status).toBe('failed')
 		expect(seen, 'create() ran before the refusal').toHaveLength(0)
+	})
+
+	it('refuses a provider that would ignore the requested working directory', async () => {
+		const { provider, seen } = recordingProvider({ workingDirectory: false })
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-sbxroot-'))
+		dirs.push(workingDirectory)
+
+		const failed = await drainQuery({
+			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
+			tools: new ToolRegistry(),
+			sandboxProvider: provider,
+			runConfig: {
+				model: 'mock-model',
+				timeoutMs: 20_000,
+				tokenBudget: 100_000,
+				maxIterations: 2,
+				sandbox: { workspace: 'working-directory' },
+			},
+			workingDirectory,
+			agentId: 'agent_s',
+			agentName: 'Sandboxed',
+			messages: [createUserMessage('go')],
+			sessionId: 'ses_s' as SessionId,
+			topicId: 'top_s' as TopicId,
+			projectId: 'prj_s' as ProjectId,
+			tenantId: 'tnt_s' as TenantId,
+		})
+
+		expect(failed.status).toBe('failed')
+		expect(failed.lastError).toMatch(/does not advertise working-directory/)
+		expect(seen).toHaveLength(0)
 	})
 })

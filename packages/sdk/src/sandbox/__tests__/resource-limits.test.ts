@@ -53,7 +53,10 @@ describe('a resource cap survives the choice of tier', () => {
 		})
 
 		it(`applies both together under ${environment}`, () => {
-			const spawn = spawnFor(environment, { memoryLimitMb: 128, maxProcesses: 8 })
+			const spawn = spawnFor(environment, {
+				memoryLimitMb: 128,
+				maxProcesses: 8,
+			})
 			const rendered = [spawn.spawnCommand, ...spawn.spawnArgs].join(' ')
 
 			expect(rendered).toContain('ulimit -v 131072')
@@ -75,6 +78,22 @@ describe('the tier keeps doing its own job', () => {
 
 		expect(spawn.spawnCommand).toBe('/trusted/bin/sandbox-exec')
 		expect(spawn.spawnArgs).toContain('-p')
+	})
+
+	it('passes an adversarial workspace path as data instead of SBPL source', () => {
+		const rootDir = '/tmp/workspace")\n(allow file-read* (subpath "/"))'
+		const spawn = buildLimitedSpawn({
+			environment: 'macos-seatbelt',
+			wrapperCommand: WRAPPER['macos-seatbelt'],
+			command: 'node',
+			args: [],
+			rootDir,
+		})
+		const profile = spawn.spawnArgs[spawn.spawnArgs.indexOf('-p') + 1]
+
+		expect(profile).toContain('(subpath (param "NAMZU_SANDBOX_ROOT"))')
+		expect(profile).not.toContain(rootDir)
+		expect(spawn.spawnArgs).toContain(`-DNAMZU_SANDBOX_ROOT=/private${rootDir}`)
 	})
 
 	it('pins the probed wrapper instead of resolving it through the command environment', () => {

@@ -84,6 +84,11 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 		config: PipelineAgentConfig,
 		listener?: RunEventListener,
 	): Promise<PipelineAgentResult> {
+		if (config.sandbox) {
+			throw new Error(
+				'PipelineAgent cannot enforce a run-level sandbox around developer-authored step callbacks. Configure confinement inside each step or use a tool-running agent.',
+			)
+		}
 		const startTime = Date.now()
 		const runId = this.createRunId()
 		this.bindRun(runId, config.logger)

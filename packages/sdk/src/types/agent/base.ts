@@ -32,6 +32,15 @@ export interface BaseAgentConfig {
 	permissionMode?: PermissionMode
 
 	/**
+	 * Run-level sandbox limits and workspace ownership.
+	 *
+	 * A provider alone only says HOW commands are confined. This field says
+	 * WHAT it is rooted at; `working-directory` makes sandbox-aware tools act
+	 * on the run's declared workspace instead of a disposable empty tree.
+	 */
+	sandbox?: import('../run/config.js').AgentRunConfig['sandbox']
+
+	/**
 	 * The tools this run may use, narrowing whatever its registry holds.
 	 *
 	 * `allowedTools` existed on `QueryParams` and on `ToolContext` and
