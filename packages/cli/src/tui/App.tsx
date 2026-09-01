@@ -107,12 +107,14 @@ import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/st
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
 	AgentCockpit,
-	AgentTranscript,
 	type AgentCockpitFocus,
+	AgentTaskPanel,
+	AgentTranscript,
+	activeSubagentCohorts,
 	agentCockpitIsWide,
-	agentPickerPageSize,
 	agentPhasePageSize,
 	agentPhases,
+	agentPickerPageSize,
 	agentTranscriptPageSize,
 	maxAgentTranscriptTailOffset,
 } from './AgentExplorer.js'
@@ -473,6 +475,7 @@ export function projectConversation(
 /** A running tool tracked internally: the live row's fields plus what we need
  *  to commit it on completion (the tool name for matching, the call-time diff). */
 type RunningTool = ActiveTool & {
+	readonly runId?: string
 	readonly toolName: string
 	readonly detail?: readonly string[]
 }
@@ -730,7 +733,7 @@ export function App({
 	} | null>(null)
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
-	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
+	const [activeTools, setActiveTools] = useState<readonly RunningTool[]>([])
 	// Bumped to reset the <Static> transcript log (on /clear, /clear-screen and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
 	/**
@@ -879,8 +882,14 @@ export function App({
 			subagentsRef.current = next
 			setSubagentsState(next)
 			const surface = agentSurfaceRef.current
-			if (!surface || next.some((agent) => agent.viewId === surface.selectedId)) return
-			const phases = agentPhases(next)
+			if (!surface) return
+			const activeCohorts = activeSubagentCohorts(next)
+			if (activeCohorts.length === 0) {
+				setAgentSurface(null)
+				return
+			}
+			if (activeCohorts.some((agent) => agent.viewId === surface.selectedId)) return
+			const phases = agentPhases(activeCohorts)
 			const fallbackPhase =
 				phases.find((phase) => phase.id === surface.selectedPhaseId) ?? phases[0]
 			const fallbackAgent = fallbackPhase?.agents[0]
@@ -898,7 +907,7 @@ export function App({
 		[setAgentSurface],
 	)
 	const openAgentCockpit = useCallback((): boolean => {
-		const agents = subagentsRef.current
+		const agents = activeSubagentCohorts(subagentsRef.current)
 		const firstPhase = agentPhases(agents)[0]
 		const firstAgent = firstPhase?.agents[0]
 		if (!firstPhase || !firstAgent) return false
@@ -3266,6 +3275,7 @@ export function App({
 					setState('tool')
 					const tool: RunningTool = {
 						id: event.toolUseId,
+						...(event.runId ? { runId: event.runId } : {}),
 						toolName: event.toolName,
 						label: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
@@ -3277,7 +3287,11 @@ export function App({
 				}
 				case 'tool-progress': {
 					const running = activeToolsRef.current
-					const index = running.findIndex((tool) => tool.id === event.toolUseId)
+					const index = running.findIndex(
+						(tool) =>
+							tool.id === event.toolUseId &&
+							(event.runId === undefined || tool.runId === event.runId),
+					)
 					// A terminal event may already have removed this call. Never recreate
 					// a live row from late diagnostic state.
 					if (index < 0) break
@@ -3302,11 +3316,31 @@ export function App({
 					// active tool" — under parallel calls that mis-attributes a
 					// result to the wrong call. If no id matches, render the
 					// completion on its own (label from the end event itself).
-					const i = running.findIndex((t) => t.id === event.toolUseId)
+					const i = running.findIndex(
+						(tool) =>
+							tool.id === event.toolUseId &&
+							(event.runId === undefined || tool.runId === event.runId),
+					)
 					const done = i >= 0 ? running[i] : undefined
 					if (i >= 0) {
 						activeToolsRef.current = [...running.slice(0, i), ...running.slice(i + 1)]
 						setActiveTools(activeToolsRef.current)
+					}
+					const representedSuccessfulAgent =
+						!event.isError &&
+						event.toolName.toLowerCase() === 'agent' &&
+						subagentsRef.current.some(
+							(agent) =>
+								agent.toolUseId === event.toolUseId &&
+								(event.runId === undefined || agent.workflowId === event.runId),
+						)
+					if (representedSuccessfulAgent) {
+						// The automatic panel already owned this successful child from
+						// start through settlement. Re-emitting its internal Agent call as
+						// a transcript tool row after the panel closes is duplicate protocol,
+						// not useful history. Failures remain durable transcript rows.
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
 					}
 					pushMessage(
 						'tool',
@@ -3963,7 +3997,7 @@ export function App({
 						if (!openAgentCockpit()) {
 							pushMessage(
 								'system',
-								'No delegated agents are available in this conversation yet. When an Agent tool starts one, /agent opens its live activity and retained transcript.',
+								'No delegated agents are active. When an Agent tool starts one, its live activity appears below the composer and this view can inspect it.',
 							)
 						}
 						return
@@ -5237,7 +5271,13 @@ export function App({
 			// Open the same retained cockpit as `/agent`; Enter then drills into a
 			// child's transcript. Keep the shortcut below consent so it can never
 			// hide an approval that owns the keyboard.
-			if (key.ctrl && input === 't' && openAgentCockpit()) return
+			if (key.ctrl && input === 't') {
+				if (agentSurfaceRef.current) {
+					setAgentSurface(null)
+					return
+				}
+				if (openAgentCockpit()) return
+			}
 			// Child observation owns navigation, but never outranks consent: the
 			// permission branch above preempts it if a child or parent call asks.
 			const agentView = agentSurfaceRef.current
@@ -5245,7 +5285,7 @@ export function App({
 				// The Return that opened `/agent` cannot also drill into the
 				// highlighted child before the list has appeared on screen.
 				if (agentSurfaceCommittedRef.current !== agentView) return
-				const agents = subagentsRef.current
+				const agents = activeSubagentCohorts(subagentsRef.current)
 				if (agentView.kind === 'cockpit') {
 					const phases = agentPhases(agents)
 					const phaseIndex = Math.max(
@@ -5557,11 +5597,28 @@ export function App({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
-	const liveSubagentCount = subagents.filter(
-		(agent) => agent.status === 'starting' || agent.status === 'working',
-	).length
+	const liveSubagents = activeSubagentCohorts(subagents)
+	const representedSubagentTools = new Set(
+		subagents
+			.filter((agent) => agent.toolUseId !== undefined)
+			.map((agent) => JSON.stringify([agent.workflowId, agent.toolUseId])),
+	)
+	const representedUnscopedSubagentToolUseIds = new Set(
+		subagents.map((agent) => agent.toolUseId).filter((id): id is string => id !== undefined),
+	)
+	// Keep the exact parent Agent row suppressed through the child-settled →
+	// tool-end hand-off. The monitor publishes terminal state synchronously,
+	// while the provider event that removes the generic tool row arrives on the
+	// next tick; filtering only live children made that raw row flash back.
+	const visibleActiveTools = activeTools.filter(
+		(tool) =>
+			tool.toolName.toLowerCase() !== 'agent' ||
+			!(tool.runId
+				? representedSubagentTools.has(JSON.stringify([tool.runId, tool.id]))
+				: representedUnscopedSubagentToolUseIds.has(tool.id)),
+	)
 	const selectedSubagent = agentSurface
-		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
+		? liveSubagents.find((agent) => agent.viewId === agentSurface.selectedId)
 		: undefined
 	const lifecycleOwnsViewport =
 		phase === 'trust' ||
@@ -5670,9 +5727,8 @@ export function App({
 						    depend on an estimate of rows Ink has already rendered. */}
 						{agentSurface === null ? (
 							<LiveActivity
-								activeTools={activeTools}
+								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
-								agentCount={liveSubagentCount}
 								interruptible={abortRef.current !== null}
 								animate={stdout.isTTY === true}
 							/>
@@ -5692,23 +5748,6 @@ export function App({
 								detailsOpen={permissionDetailsOpen}
 								reviewOffset={permissionReviewOffset}
 								columns={terminal.columns}
-							/>
-						) : null}
-						{permission === null && agentSurface?.kind === 'cockpit' ? (
-							<AgentCockpit
-								agents={subagents}
-								selectedPhaseId={agentSurface.selectedPhaseId}
-								selectedId={agentSurface.selectedId}
-								focus={agentSurface.focus}
-								terminalRows={terminal.rows}
-								terminalColumns={terminal.columns}
-							/>
-						) : permission === null && agentSurface?.kind === 'transcript' && selectedSubagent ? (
-							<AgentTranscript
-								agent={selectedSubagent}
-								tailOffset={agentSurface.tailOffset}
-								terminalRows={terminal.rows}
-								terminalColumns={terminal.columns}
 							/>
 						) : null}
 						{textPrompt ? (
@@ -5743,12 +5782,7 @@ export function App({
 								copyPicker === null &&
 								agentSurface === null
 							}
-							hidden={
-								permission !== null ||
-								choicePicker !== null ||
-								copyPicker !== null ||
-								agentSurface !== null
-							}
+							hidden={permission !== null || choicePicker !== null || copyPicker !== null}
 						>
 							{pendingSteers.length > 0 &&
 							permission === null &&
@@ -5795,8 +5829,7 @@ export function App({
 									permission !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
-									copyPicker !== null ||
-									agentSurface !== null
+									copyPicker !== null
 								}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
@@ -5811,11 +5844,35 @@ export function App({
 									setComposerDraft((draft) => (draft?.token === token ? null : draft))
 								}
 								onDraftPresenceChange={setComposerHasDraft}
+								onOpenAgentPanel={openAgentCockpit}
 								userCommands={userCommands}
 								mentionCandidates={mentionCandidates}
 								history={history}
 							/>
 						</ComposerFrame>
+						{permission === null && agentSurface === null && liveSubagents.length > 0 ? (
+							<AgentTaskPanel
+								agents={liveSubagents}
+								terminalRows={terminal.rows}
+								terminalColumns={terminal.columns}
+							/>
+						) : permission === null && agentSurface?.kind === 'cockpit' ? (
+							<AgentCockpit
+								agents={liveSubagents}
+								selectedPhaseId={agentSurface.selectedPhaseId}
+								selectedId={agentSurface.selectedId}
+								focus={agentSurface.focus}
+								terminalRows={terminal.rows}
+								terminalColumns={terminal.columns}
+							/>
+						) : permission === null && agentSurface?.kind === 'transcript' && selectedSubagent ? (
+							<AgentTranscript
+								agent={selectedSubagent}
+								tailOffset={agentSurface.tailOffset}
+								terminalRows={terminal.rows}
+								terminalColumns={terminal.columns}
+							/>
+						) : null}
 					</>
 				)}
 				<Box paddingTop={1}>

@@ -128,8 +128,8 @@ sign-in action.
 Bare `/help` opens the session's complete command vocabulary as a keyboard
 palette; selecting a row runs that command through the same dispatcher as a
 typed slash command. Refused project command files remain visible with their
-reason. Bare `/agent`, `/effort`, `/permissions`, `/feedback`, `/skills`, and
-`/review` open finite keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
+reason. Bare `/effort`, `/permissions`, `/feedback`, `/skills`, and `/review`
+open finite keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
 `/title` remains an alias and `/title clear` removes the chosen name. The review
 chooser can target a base branch, uncommitted work, or a recent commit; choosing
 custom instructions restores `/review ` to the composer. When both Namzu-owned
@@ -157,18 +157,28 @@ complete readable instructions, and `d` still opens the exact prepared input.
 After a decision, the prompt hands off immediately to the live Working row; it
 does not retain approval keys while the children are starting.
 
-Delegated work stays attached to the parent turn while `/agent` or Ctrl+T opens
-a bounded cockpit of active and recent children. While children start, the live
-Working row shows their count and advertises Ctrl+T; Enter from the cockpit opens
-the selected child's retained transcript. Related calls may declare display-only
-workflow and phase annotations; the cockpit shows ordered phases beside the
-selected phase's agents without claiming that labels create scheduler barriers
+Delegated work appears automatically in a compact panel directly below the
+composer. It shows each active child, elapsed time, current tool or a bounded
+assistant preview; private reasoning text never reaches the panel. A completed
+sibling remains beside its cohort while another sibling is still running, and
+the panel disappears as soon as the cohort settles. The number of rows contracts
+with terminal height so the composer and footer remain visible. The matching raw
+`Agent` tool row is suppressed by its exact tool-call identity rather than by
+parsing its label.
+
+Down from an empty composer or Ctrl+T opens the bounded phase-and-agent inspector;
+Enter opens the selected child's live projected transcript. Related calls may declare
+display-only workflow and phase annotations without creating scheduler barriers
 or dependencies. Left/Right moves between panes, arrows navigate, and Enter
 inspects one child's live projected transcript. Escape returns and `q` closes
-the cockpit. Selection is tied to monitor-owned phase and child identities, so
-completion reordering, responsive layout changes, and retention fallback do not
-silently move the operator to an unrelated run. Parent output that settles
-while a child is open is published once on return.
+the inspector. Selection is tied to monitor-owned phase, batch and child
+identities, so a later delegation wave cannot revive completed rows from an
+earlier one. The historical `/agent` spelling remains an executable compatibility
+alias but is no longer advertised in the palette. Parent output that settles
+while a child is open is published once when the active cohort returns control.
+Interactive Agent calls, their child allocations and the parent turn share a
+one-hour upper deadline instead of the generic two-minute tool limit; operator
+cancellation remains the normal way to stop work that is no longer wanted.
 
 `/skill` remains an alias, `/skills <name>` activates directly, and
 `/skills list` prints the roster. Long model and resume lists

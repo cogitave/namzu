@@ -222,7 +222,11 @@ describe('it is bounded', () => {
 
 		const running = run('return await call("slow", {})', {
 			allowedCalls: ['slow'],
-			timeoutMs: 80,
+			// The deadline must measure an admitted call, not whether a fresh V8
+			// worker received its first scheduling slice within 80 ms on a loaded
+			// CI host. 500 ms remains a hard, short production deadline while
+			// leaving worker startup outside the assertion's race window.
+			timeoutMs: 500,
 			onHostCall: async (_request, operation) => {
 				start(operation.signal)
 				return await held
@@ -233,7 +237,7 @@ describe('it is bounded', () => {
 
 		expect(result.outcome).toEqual({ status: 'timed-out' })
 		expect(signal.aborted).toBe(true)
-		expect(signal.reason).toEqual(new Error('Code runtime exceeded 80ms'))
+		expect(signal.reason).toEqual(new Error('Code runtime exceeded 500ms'))
 		expect(result.calls).toEqual([])
 
 		// A late non-cooperative completion cannot rewrite the result snapshot.
@@ -380,7 +384,10 @@ describe('output is kept as it happens, not batched until the end', () => {
 			timeoutMs: 10_000,
 			signal: controller.signal,
 		})
-		setTimeout(() => controller.abort(), 80)
+		// Give the newly-created worker time to publish its progress before
+		// cancellation. The contract under test is retained output, not an
+		// 80 ms worker-start benchmark.
+		setTimeout(() => controller.abort(), 500)
 		const result = await running
 
 		expect(result.outcome).toEqual({ status: 'cancelled' })

@@ -41,6 +41,10 @@ export interface SubagentActivity {
 	readonly agentId: string
 	readonly description: string
 	readonly prompt: string
+	/** Direct tool batch that launched this concurrent sibling cohort. */
+	readonly batchId: string
+	/** Exact parent Agent tool call, used to suppress only its generic row. */
+	readonly toolUseId?: string
 	/** Parent run identity; display labels never serve as orchestration identity. */
 	readonly workflowId: string
 	/** Monitor-owned phase identity, stable even when display labels collide. */
@@ -79,6 +83,8 @@ interface MutableActivity {
 	agentId: string
 	description: string
 	prompt: string
+	batchId: string
+	toolUseId?: string
 	workflowId: string
 	phaseId: string
 	workflow: string
@@ -103,6 +109,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	private readonly listeners = new Set<() => void>()
 	private epoch = 0
 	private counter = 0
+	private fallbackBatchCounter = 0
 	private phaseCounter = 0
 	private readonly phases = new Map<
 		string,
@@ -115,6 +122,8 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		readonly agentId: string
 		readonly description: string
 		readonly prompt: string
+		readonly batchId?: string
+		readonly toolUseId?: string
 		readonly workflowId?: string
 		readonly workflow?: string
 		readonly phase?: string
@@ -123,6 +132,10 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		const epoch = this.epoch
 		const viewId = `agent-${++this.counter}`
 		const workflowId = normalizedLabel(input.workflowId, 'session', MAX_IDENTITY_LABEL_CODE_UNITS)
+		const requestedBatchId = input.batchId?.trim()
+		const batchId = requestedBatchId
+			? bounded(requestedBatchId, MAX_IDENTITY_LABEL_CODE_UNITS)
+			: this.fallbackBatchId(workflowId)
 		const workflowIdentity = normalizedLabel(
 			input.workflow,
 			DEFAULT_AGENT_WORKFLOW,
@@ -133,7 +146,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			DEFAULT_AGENT_PHASE,
 			MAX_IDENTITY_LABEL_CODE_UNITS,
 		)
-		const phaseKey = JSON.stringify([workflowId, workflowIdentity, phaseIdentity])
+		const phaseKey = JSON.stringify([workflowId, batchId, workflowIdentity, phaseIdentity])
 		let phaseDefinition = this.phases.get(phaseKey)
 		if (!phaseDefinition) {
 			const sequence = ++this.phaseCounter
@@ -152,6 +165,10 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			agentId: bounded(input.agentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			description: bounded(input.description, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			prompt: bounded(input.prompt, MAX_PROMPT_CODE_UNITS),
+			batchId,
+			...(input.toolUseId
+				? { toolUseId: bounded(input.toolUseId, MAX_IDENTITY_LABEL_CODE_UNITS) }
+				: {}),
 			workflowId,
 			phaseId: phaseDefinition.id,
 			workflow: bounded(workflowIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
@@ -230,6 +247,8 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					agentId: record.agentId,
 					description: record.description,
 					prompt: record.prompt,
+					batchId: record.batchId,
+					...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
 					workflowId: record.workflowId,
 					phaseId: record.phaseId,
 					workflow: record.workflow,
@@ -267,6 +286,13 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		this.clearNotifyTimer()
 		this.notifyNow()
 		this.listeners.clear()
+	}
+
+	private fallbackBatchId(workflowId: string): string {
+		for (const record of this.records.values()) {
+			if (record.workflowId === workflowId && !isTerminal(record.status)) return record.batchId
+		}
+		return `batch-${++this.fallbackBatchCounter}`
 	}
 
 	private prune(): void {
@@ -319,9 +345,17 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 			record.status = 'working'
 			record.latestActivity = 'Working'
 			return
+		case 'reasoning_started':
+		case 'reasoning_delta':
+			record.status = 'working'
+			record.latestActivity = 'Thinking'
+			return
+		case 'reasoning_completed':
+			record.status = 'working'
+			record.latestActivity = 'Working'
+			return
 		case 'text_delta': {
 			record.status = 'working'
-			record.latestActivity = 'Answering'
 			const id = `${record.viewId}:assistant:${event.messageId ?? event.runId}`
 			const current = record.rows.at(-1)
 			if (current?.kind === 'assistant' && current.id === id) {
@@ -336,6 +370,12 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 					text: bounded(event.text, MAX_ROW_CODE_UNITS),
 				})
 			}
+			const assistant = record.rows.at(-1)
+			const preview = assistant?.kind === 'assistant' ? oneLine(assistant.text) : ''
+			record.latestActivity = bounded(
+				preview ? `Answering · ${preview}` : 'Answering',
+				MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
+			)
 			return
 		}
 		case 'tool_executing': {
@@ -420,6 +460,14 @@ function pushRow(record: MutableActivity, row: SubagentTranscriptRow): void {
 	if (record.rows.length > MAX_TRANSCRIPT_ROWS) {
 		record.rows.splice(0, record.rows.length - MAX_TRANSCRIPT_ROWS)
 	}
+}
+
+function oneLine(value: string): string {
+	return value
+		.replace(/[\r\n]+/g, ' ')
+		.replace(/\t/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
 }
 
 function statusOf(handle: TaskHandle): SubagentActivityStatus {

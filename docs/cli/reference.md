@@ -76,7 +76,7 @@ Inside the session, grouped by the question each one answers:
 
 | | |
 |---|---|
-| **What is going on** | `/status`, `/pwd`, `/debug-config`, `/cost`, `/agent`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
+| **What is going on** | `/status`, `/pwd`, `/debug-config`, `/cost`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
 | **What changed** | `/diff`, `/review`, `/expand` |
 | **This conversation** | `/resume`, `/rename`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/archive`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
 | **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
@@ -150,24 +150,34 @@ runs once, `a` approves subsequent undecided calls for the session, `n` or
 Escape declines while allowing the turn to continue, and Ctrl+C declines and
 stops the turn. Enter has no approval meaning.
 
-Bare `/agent` and Ctrl+T open the current conversation's bounded delegated-work cockpit.
+Active delegated work appears automatically below the composer. The compact
+panel shows lifecycle, elapsed time, current tool activity and a bounded public
+assistant preview for up to four children; its row budget shrinks with terminal
+height. Private reasoning is never projected. A completed sibling remains while
+another child in the same model-issued batch is live, then the complete panel
+disappears. Later batches in the same parent run have a different identity and
+cannot revive terminal rows from an earlier wave. The generic `Agent` tool row
+is hidden only when its exact tool-call id is represented by a child row.
+
+Down from an empty composer or Ctrl+T opens the bounded delegated-work inspector.
 The phase rail groups related Agent calls by their display-only workflow and
-phase annotations; it does not imply scheduler dependencies, barriers or
-serial execution. The agent pane shows lifecycle state and latest activity for
-the selected phase. Left/Right changes panes, arrows navigate, and Enter opens
-a bounded live projection of the selected child. Escape returns and `q` closes
-the cockpit. Selection follows monitor-owned phase and child identities when
-completions reorder the list or the terminal crosses its responsive breakpoint;
-if retention removes the selected child, selection falls back within its phase
-before moving to another phase. Observing a child never adds its private events
-to the parent's model history, and parent rows that settle while observation
-is open are emitted exactly once after returning.
+phase annotations; it does not imply scheduler dependencies, barriers or serial
+execution. The agent pane shows lifecycle state and latest activity for the
+selected phase. Left/Right changes panes, arrows navigate, and Enter opens a
+bounded live projection of the selected child. Escape returns and `q` closes
+the inspector. The composer remains mounted, preserving its exact draft through
+inspection; the inspector closes when its last active cohort settles. The old
+`/agent` command remains executable for compatibility but is omitted from help
+and autocomplete. Observing a child never adds private events to the parent's
+model history, and parent rows that settle while observation is open are emitted
+exactly once after returning.
 
 When one model response proposes several Agent calls, the permission screen's
 first page lists every child task before the detailed instructions. The exact
 prepared batch remains available with `d`. Resolving the prompt returns the
-screen to Working immediately; once children exist, that row shows their count
-and advertises Ctrl+T rather than leaving the obsolete approval footer visible.
+screen to Working immediately; once children exist, the automatic delegated-work
+panel replaces the matching raw Agent rows rather than leaving the obsolete
+approval footer visible.
 
 Bare `/effort` opens a finite chooser containing the provider default and the
 exact levels accepted by every usable member of the current provider/model
@@ -366,7 +376,10 @@ the exact child as parent-caused, including a child whose session construction
 has not finished yet. Replacing or closing the interactive session also aborts
 every remaining child before plugin, MCP and computer-use resources
 are released. A late, non-cooperative child response therefore cannot resume
-tool execution after the parent has settled.
+tool execution after the parent has settled. The interactive Agent tool, child
+allocation and parent run share a one-hour upper deadline rather than the
+generic two-minute tool limit; cancellation remains the primary lifecycle
+control.
 
 Automatic compaction updates that same gauge at the moment the kernel commits
 its edit, before it starts the next model request. The cumulative token and cost

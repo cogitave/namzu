@@ -82,6 +82,64 @@ describe('the CLI sub-agent activity monitor', () => {
 		)
 	})
 
+	it('groups concurrent direct calls by batch and never revives a settled earlier wave', () => {
+		const monitor = new SubagentActivityMonitor()
+		const first = monitor.begin({
+			agentId: 'a',
+			description: 'first',
+			prompt: 'first',
+			workflowId: 'run-parent',
+		})
+		const second = monitor.begin({
+			agentId: 'b',
+			description: 'second',
+			prompt: 'second',
+			workflowId: 'run-parent',
+		})
+		const firstBatch = monitor.getSnapshot().map((entry) => entry.batchId)
+		expect(new Set(firstBatch).size).toBe(1)
+
+		first.settle(handle())
+		second.settle(handle())
+		monitor.begin({
+			agentId: 'c',
+			description: 'third',
+			prompt: 'third',
+			workflowId: 'run-parent',
+		})
+
+		const snapshot = monitor.getSnapshot()
+		expect(snapshot.find((entry) => entry.description === 'third')?.batchId).not.toBe(firstBatch[0])
+	})
+
+	it('shows a bounded assistant preview but never exposes reasoning text', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({
+			agentId: 'worker',
+			description: 'preview',
+			prompt: 'preview',
+		})
+		tracker.onEvent({
+			type: 'reasoning_delta',
+			runId,
+			iteration: 1,
+			messageId: 'reasoning' as never,
+			blockIndex: 0,
+			text: 'private-chain-of-thought-marker',
+		})
+		expect(monitor.getSnapshot()[0]?.latestActivity).toBe('Thinking')
+		expect(JSON.stringify(monitor.getSnapshot())).not.toContain('private-chain-of-thought-marker')
+
+		tracker.onEvent({
+			type: 'text_delta',
+			runId,
+			iteration: 1,
+			messageId: 'answer' as never,
+			text: 'public interim result',
+		})
+		expect(monitor.getSnapshot()[0]?.latestActivity).toContain('public interim result')
+	})
+
 	it('owns events that arrive before the scheduler returns a handle', () => {
 		const monitor = new SubagentActivityMonitor()
 		const tracker = monitor.begin({

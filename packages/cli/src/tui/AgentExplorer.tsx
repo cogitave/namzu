@@ -15,6 +15,96 @@ const MAX_TRANSCRIPT_ROWS = 12
 const COCKPIT_FRAME_COLUMNS = 4
 const WIDE_COCKPIT_INNER_COLUMNS = 84
 
+export interface AgentTaskPanelProps {
+	readonly agents: readonly SubagentActivity[]
+	readonly terminalRows: number
+	readonly terminalColumns: number
+}
+
+/**
+ * Compact, automatic view of every cohort that still owns live work.
+ *
+ * This is intentionally not a modal: the composer remains mounted directly
+ * above it and the operator can keep typing while children run. Completed
+ * siblings remain until their last live sibling settles, then the whole
+ * cohort leaves this projection together.
+ */
+export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentTaskPanelProps) {
+	const now = useLiveNow(true)
+	const pageSize = agentTaskPanelPageSize(terminalRows)
+	const visible = agents.slice(0, pageSize)
+	const hidden = agents.length - visible.length
+	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
+	const workflows = [...new Set(agents.map((agent) => agent.workflow))]
+	const title = workflows.length === 1 ? (workflows[0] ?? 'Delegated work') : 'Delegated work'
+	const narrow = terminalColumns < 64
+
+	return (
+		<Box flexDirection="column" borderStyle="single" borderColor={theme.border.focus} paddingX={1}>
+			<Box>
+				<Box flexGrow={1} flexShrink={1}>
+					<Text color={theme.accent.user} bold wrap="truncate-end">
+						{terminalDisplayText(title)}
+					</Text>
+				</Box>
+				<Box flexShrink={0} marginLeft={1}>
+					<Text color={theme.text.muted}>
+						{narrow
+							? `${active}/${agents.length}${hidden > 0 ? ` +${hidden}` : ''}`
+							: `${active} active · ${agents.length} total${hidden > 0 ? ` · +${hidden} more` : ''} · ↓ / ctrl+t`}
+					</Text>
+				</Box>
+			</Box>
+			{visible.map((agent) => {
+				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
+				return (
+					<Box key={agent.viewId}>
+						<Box width={narrow ? 2 : 3} flexShrink={0}>
+							<Text color={statusColor(agent.status)}>{statusGlyph(agent.status)}</Text>
+						</Box>
+						<Box width={narrow ? undefined : 28} flexGrow={narrow ? 1 : 0} flexShrink={1}>
+							<Text color={theme.text.primary} wrap="truncate-end">
+								{oneLine(agent.description || agent.agentId)}
+							</Text>
+						</Box>
+						<Box flexGrow={narrow ? 0 : 1} flexShrink={1} marginLeft={1}>
+							<Text color={statusColor(agent.status)} wrap="truncate-end">
+								{elapsed}
+								{!narrow && agent.latestActivity
+									? ` · ${oneLine(agent.latestActivity)}`
+									: ''}
+							</Text>
+						</Box>
+					</Box>
+				)
+			})}
+		</Box>
+	)
+}
+
+/** Rows the compact panel may spend without crowding the composer/footer. */
+export function agentTaskPanelPageSize(terminalRows: number | undefined): number {
+	if (terminalRows === undefined || !Number.isFinite(terminalRows)) return 2
+	return Math.max(1, Math.min(4, Math.floor((terminalRows - 12) / 3)))
+}
+
+/**
+ * Live cohorts plus their already-settled siblings. Terminal cohorts are
+ * retained by the monitor for explicit history but never reappear here.
+ */
+export function activeSubagentCohorts(
+	agents: readonly SubagentActivity[],
+): readonly SubagentActivity[] {
+	const activeCohorts = new Set(
+		agents.filter((agent) => !isTerminalStatus(agent.status)).map(agentCohortKey),
+	)
+	return agents.filter((agent) => activeCohorts.has(agentCohortKey(agent)))
+}
+
+function agentCohortKey(agent: SubagentActivity): string {
+	return JSON.stringify([agent.workflowId, agent.batchId])
+}
+
 export type AgentCockpitFocus = 'phases' | 'agents'
 
 export interface AgentPhase {
@@ -64,6 +154,8 @@ export function AgentCockpit({
 	const now = useLiveNow(agents.some((agent) => agent.completedAt === undefined))
 	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
 	const wide = agentCockpitIsWide(terminalColumns)
+	const compact = terminalRows < 20
+	const sideBySide = wide || compact
 
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
@@ -75,34 +167,44 @@ export function AgentCockpit({
 					{active} active · {agents.length} total
 				</Text>
 			</Box>
-			<Text color={theme.text.muted}>Live delegated work · select a phase, then inspect a child.</Text>
-			<Box flexDirection={wide ? 'row' : 'column'} paddingTop={1}>
+			{compact ? null : (
+				<Text color={theme.text.muted}>Live delegated work · select a phase, then inspect a child.</Text>
+			)}
+			<Box flexDirection={sideBySide ? 'row' : 'column'} paddingTop={compact ? 0 : 1}>
 				<Box
 					flexDirection="column"
-					width={wide ? Math.max(28, Math.min(42, Math.floor(terminalColumns * 0.32))) : undefined}
-					marginRight={wide ? 2 : 0}
+					width={
+						sideBySide
+							? compact
+								? Math.max(18, Math.min(26, Math.floor(terminalColumns * 0.4)))
+								: Math.max(28, Math.min(42, Math.floor(terminalColumns * 0.32)))
+							: undefined
+					}
+					marginRight={sideBySide ? 2 : 0}
 				>
 					<PhasePane
 						phases={phases}
 						selected={selectedPhaseIndex}
 						focused={focus === 'phases'}
-						pageSize={agentPhasePageSize(terminalRows, wide)}
+						pageSize={compact ? 1 : agentPhasePageSize(terminalRows, wide)}
 					/>
 				</Box>
-				<Box flexDirection="column" flexGrow={1} paddingTop={wide ? 0 : 1}>
+				<Box flexDirection="column" flexGrow={1} paddingTop={sideBySide ? 0 : 1}>
 					<AgentPane
 						agents={phaseAgents}
 						selected={selectedAgentIndex}
 						focused={focus === 'agents'}
-						pageSize={agentPickerPageSize(terminalRows, wide)}
+						pageSize={compact ? 1 : agentPickerPageSize(terminalRows, wide)}
 						now={now}
 						wide={wide}
 					/>
 				</Box>
 			</Box>
-			<Box paddingTop={1}>
+			<Box paddingTop={compact ? 0 : 1}>
 				<Text color={theme.text.muted}>
-					←→ pane · ↑↓ navigate · PgUp/PgDn jump · enter select · esc return
+					{compact
+						? '←→ pane · ↑↓ navigate · enter select · esc return'
+						: '←→ pane · ↑↓ navigate · PgUp/PgDn jump · enter select · esc return'}
 				</Text>
 			</Box>
 		</Box>

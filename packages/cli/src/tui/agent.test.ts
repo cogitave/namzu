@@ -87,6 +87,7 @@ describe('toAgentEvent', () => {
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-start',
+			runId,
 			toolUseId,
 			toolName: 'bash',
 			summary: 'ls -la /tmp',
@@ -103,6 +104,7 @@ describe('toAgentEvent', () => {
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-start',
+			runId,
 			toolUseId,
 			toolName: 'read',
 			summary: '/etc/hosts',
@@ -120,6 +122,7 @@ describe('toAgentEvent', () => {
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-progress',
+			runId,
 			toolUseId,
 			toolName: 'bash',
 			message: 'compiled 40/120 files',
@@ -139,6 +142,7 @@ describe('toAgentEvent', () => {
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-end',
+			runId,
 			toolUseId,
 			toolName: 'bash',
 			isError: false,
@@ -174,6 +178,7 @@ describe('toAgentEvent', () => {
 			),
 		).toEqual({
 			kind: 'tool-start',
+			runId,
 			toolUseId,
 			toolName: 'desktop_control',
 			summary: 'Capture screenshot',
@@ -193,6 +198,7 @@ describe('toAgentEvent', () => {
 			),
 		).toEqual({
 			kind: 'tool-end',
+			runId,
 			toolUseId,
 			toolName: 'desktop_control',
 			isError: false,

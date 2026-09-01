@@ -77,6 +77,8 @@ export interface ComposerProps {
 	 * transcript on every keypress.
 	 */
 	readonly onDraftPresenceChange?: (hasDraft: boolean) => void
+	/** Empty-composer ↓ opens the currently active delegated-work panel. */
+	readonly onOpenAgentPanel?: () => boolean
 }
 
 /** Return addresses the active turn; Tab deliberately addresses the follow-up queue. */
@@ -332,6 +334,7 @@ export function Composer({
 	draftToRestore = null,
 	onDraftRestored,
 	onDraftPresenceChange,
+	onOpenAgentPanel,
 }: ComposerProps) {
 	const terminal = useWindowSize()
 	const [value, setValueState] = useState<string>('')
@@ -759,7 +762,12 @@ export function Composer({
 					return
 				}
 				verticalColumnRef.current = null
-				if (historyIndexRef.current < 0) return
+				if (historyIndexRef.current < 0) {
+					if (valueRef.current.length === 0 && pastes.length === 0 && attachments.length === 0) {
+						onOpenAgentPanel?.()
+					}
+					return
+				}
 				if (historyIndexRef.current === 0) {
 					const draft = historyDraftRef.current
 					historyDraftRef.current = null

@@ -58,6 +58,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
+import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from './policy.js'
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 
@@ -183,13 +184,17 @@ export async function createSubagentRuntime(
 	)
 
 	const topicManager = new TopicManager({ topicStore, sessionStore: store })
-	const manager = new AgentManager(registry, undefined, {
-		sessionStore: store,
-		summaryMaterializer: materializer,
-		workspaceRegistry: new WorkspaceBackendRegistry(),
-		capacity: new DefaultCapacityValidator(store),
-		topicManager,
-	})
+	const manager = new AgentManager(
+		registry,
+		{ childTimeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS },
+		{
+			sessionStore: store,
+			summaryMaterializer: materializer,
+			workspaceRegistry: new WorkspaceBackendRegistry(),
+			capacity: new DefaultCapacityValidator(store),
+			topicManager,
+		},
+	)
 
 	const taskContext: AgentTaskContext = {
 		parentRunId: asRunId('run_namzu-cli'),
@@ -266,6 +271,7 @@ export async function createSubagentRuntime(
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 		async execute(input, context) {
 			const { description, prompt, role, workflow, phase, phase_order } = input as {
 				description: string
@@ -286,6 +292,8 @@ export async function createSubagentRuntime(
 				agentId,
 				description,
 				prompt,
+				batchId: context.toolBatchId,
+				toolUseId: context.toolUseId,
 				workflowId: String(context.runId),
 				workflow,
 				phase,
@@ -481,7 +489,7 @@ function buildDefinition(
 			return {
 				model: options.model ?? opts.model,
 				tokenBudget: options.tokenBudget ?? 200_000,
-				timeoutMs: options.timeoutMs ?? 600_000,
+				timeoutMs: options.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 				maxIterations: 40,
 				provider: opts.buildProvider(),
 				tools: opts.buildTools(),

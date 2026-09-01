@@ -317,6 +317,8 @@ export interface SlashContext {
 export interface SlashCommand {
 	readonly name: string
 	readonly description: string
+	/** Compatibility-only commands remain executable but stay out of discovery UI. */
+	readonly discoverable?: false
 	readonly action: (ctx: SlashContext, args: readonly string[]) => SlashAction
 }
 
@@ -363,7 +365,9 @@ export function matchSlashCommands(
 		action: () => ({ kind: 'none' }) as const,
 	}))
 
-	const matches = [...builtins, ...own].filter((command) => command.name.startsWith(prefix))
+	const matches = [...builtins.filter((command) => command.discoverable !== false), ...own].filter(
+		(command) => command.name.startsWith(prefix),
+	)
 	if (prefix.length === 0) return matches
 	const exact = matches.findIndex((command) => command.name === prefix)
 	if (exact <= 0) return matches
@@ -524,10 +528,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			return {
 				kind: 'command-picker',
 				commands: [
-					...(ctx.builtins ?? CLI_LOCAL_COMMANDS).map((command) => ({
-						name: command.name,
-						description: command.description,
-					})),
+					...(ctx.builtins ?? CLI_LOCAL_COMMANDS)
+						.filter((command) => command.discoverable !== false)
+						.map((command) => ({
+							name: command.name,
+							description: command.description,
+						})),
 					...ctx.userCommands.map((command) => ({
 						name: command.name,
 						description: command.description,
@@ -539,7 +545,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'agent',
-		description: 'Follow delegated workflows by phase and inspect each agent live.',
+		description: 'Compatibility alias for the automatic delegated-work panel.',
+		discoverable: false,
 		action: () => ({ kind: 'agent-cockpit' }),
 	},
 	{

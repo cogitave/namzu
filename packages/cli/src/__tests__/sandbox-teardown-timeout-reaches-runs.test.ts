@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
+import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy.js'
 
 const queryCalls: Record<string, unknown>[] = []
 const resumeCalls: Record<string, unknown>[] = []
@@ -102,9 +103,15 @@ it('passes sandbox.teardownTimeoutMs to live and resumed kernel runs', async () 
 	expect(queryCalls).toHaveLength(1)
 	expect(queryCalls[0]?.sandboxTeardownTimeoutMs).toBe(37)
 	expect(queryCalls[0]?.sandboxProvider).toBeDefined()
+	expect((queryCalls[0]?.runConfig as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(
+		CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+	)
 	expect(resumeCalls).toHaveLength(1)
 	expect(resumeCalls[0]?.sandboxTeardownTimeoutMs).toBe(37)
 	expect(resumeCalls[0]?.sandboxProvider).toBe(queryCalls[0]?.sandboxProvider)
+	expect((resumeCalls[0]?.runConfig as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(
+		CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+	)
 	expect(subagentOptions).toHaveLength(1)
 	expect(subagentOptions[0]?.sandboxTeardownTimeoutMs).toBe(37)
 	expect(subagentOptions[0]?.sandboxProvider).toBe(queryCalls[0]?.sandboxProvider)

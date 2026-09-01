@@ -174,6 +174,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 
 const { App } = await import('../App.js')
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms))
+// A full-package run exercises several mounted Ink applications concurrently.
+// Wait on observable ownership instead of making a four-second CPU-load claim.
+const RENDER_WAIT_MS = 10_000
 let mounted: { unmount: () => void } | undefined
 
 beforeEach(async () => {
@@ -189,7 +192,7 @@ afterEach(() => {
 
 async function waitFor(frame: () => string | undefined, text: string): Promise<void> {
 	const started = performance.now()
-	while (!(frame() ?? '').includes(text) && performance.now() - started < 4_000) await tick()
+	while (!(frame() ?? '').includes(text) && performance.now() - started < RENDER_WAIT_MS) await tick()
 	expect(frame()).toContain(text)
 }
 
@@ -205,7 +208,10 @@ async function waitForComposerInput(harness: {
 }): Promise<void> {
 	const probe = 'composer-ready-probe'
 	const started = performance.now()
-	while (!(harness.lastFrame() ?? '').includes(probe) && performance.now() - started < 4_000) {
+	while (
+		!(harness.lastFrame() ?? '').includes(probe) &&
+		performance.now() - started < RENDER_WAIT_MS
+	) {
 		harness.stdin.write(probe)
 		await tick(250)
 	}

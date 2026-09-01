@@ -1,18 +1,45 @@
-import type { Message } from '@namzu/sdk'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import {
+	type CreateTaskOptions,
+	InMemoryCheckpointStore,
+	InMemoryRunStore,
+	type LLMProvider,
+	LocalTaskScheduler,
+	type Message,
+	MockLLMProvider,
+	type ProjectId,
+	type RunEvent,
+	type SessionId,
+	type TaskHandle,
+	type TenantId,
+	type ToolContext,
+	ToolRegistry,
+	type TopicId,
+	createToolPresenter,
+	query,
+} from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
+import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
 import {
 	AgentCockpit,
+	AgentTaskPanel,
 	AgentTranscript,
+	activeSubagentCohorts,
 	agentPhases,
+	agentTaskPanelPageSize,
 	agentTranscriptPage,
 	agentTranscriptRows,
 	maxAgentTranscriptTailOffset,
 } from '../AgentExplorer.js'
-import type { AgentEvent, AgentSession } from '../agent.js'
+import { type AgentEvent, type AgentSession, toAgentEvent } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -25,17 +52,32 @@ const PREFS: Preferences = {
 const activity = vi.hoisted(() => {
 	let snapshot: readonly unknown[] = []
 	const listeners = new Set<() => void>()
+	let delegated:
+		| {
+				getSnapshot: () => readonly unknown[]
+				subscribe: (listener: () => void) => () => void
+				reset: () => void
+		  }
+		| undefined
 	return {
 		source: {
-			getSnapshot: () => snapshot,
+			getSnapshot: () => delegated?.getSnapshot() ?? snapshot,
 			subscribe: (listener: () => void) => {
+				if (delegated) return delegated.subscribe(listener)
 				listeners.add(listener)
 				return () => listeners.delete(listener)
 			},
 			reset: () => {
+				if (delegated) {
+					delegated.reset()
+					return
+				}
 				snapshot = []
 				for (const listener of listeners) listener()
 			},
+		},
+		delegate: (source: typeof delegated) => {
+			delegated = source
 		},
 		set: (next: readonly unknown[]) => {
 			snapshot = next
@@ -46,6 +88,9 @@ const activity = vi.hoisted(() => {
 
 let releaseParent: () => void = () => {}
 let parentGate = Promise.resolve()
+const sendOverride: {
+	current?: (messages: readonly Message[]) => AsyncIterable<AgentEvent>
+} = vi.hoisted(() => ({}))
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -108,6 +153,46 @@ vi.mock('../agent.js', async (importOriginal) => {
 			},
 			close: async () => {},
 			send: async function* (messages: readonly Message[]): AsyncIterable<AgentEvent> {
+				if (sendOverride.current) {
+					yield* sendOverride.current(messages)
+					return
+				}
+				if (JSON.stringify(messages).includes('reused tool id')) {
+					yield {
+						kind: 'tool-start',
+						runId: 'run-next',
+						toolUseId: 'matched-agent',
+						toolName: 'Bash',
+						summary: 'echo still visible',
+					}
+					await parentGate
+					yield { kind: 'done', stopReason: 'end_turn' }
+					return
+				}
+				if (JSON.stringify(messages).includes('tool row correlation')) {
+					yield {
+						kind: 'tool-start',
+						toolUseId: 'matched-agent',
+						toolName: 'Agent',
+						summary: 'Matched child',
+					}
+					yield {
+						kind: 'tool-start',
+						toolUseId: 'unmatched-agent',
+						toolName: 'Agent',
+						summary: 'Unmatched child',
+					}
+					yield {
+						kind: 'tool-start',
+						toolUseId: 'unrelated-tool',
+						toolName: 'Bash',
+						summary: 'Agent(looks similar)',
+						standalone: true,
+					}
+					await parentGate
+					yield { kind: 'done', stopReason: 'end_turn' }
+					return
+				}
 				await parentGate
 				yield { kind: 'delta', text: 'parent finished\n\n' }
 				yield { kind: 'done', stopReason: 'end_turn' }
@@ -129,6 +214,8 @@ function agent(
 		agentId: input.agentId ?? 'general-purpose',
 		description: input.description ?? input.viewId,
 		prompt: input.prompt ?? `prompt for ${input.viewId}`,
+		batchId: input.batchId ?? 'batch-live',
+		...(input.toolUseId ? { toolUseId: input.toolUseId } : {}),
 		workflowId: input.workflowId ?? 'run-parent',
 		phaseId:
 			input.phaseId ??
@@ -170,6 +257,8 @@ async function submit(screen: Screen, text: string): Promise<void> {
 }
 
 beforeEach(() => {
+	delete sendOverride.current
+	activity.delegate(undefined)
 	activity.set([])
 	parentGate = new Promise<void>((resolve) => {
 		releaseParent = resolve
@@ -180,22 +269,457 @@ afterEach(async () => {
 	releaseParent()
 	await mounted?.unmount()
 	mounted = null
+	vi.restoreAllMocks()
 })
 
 describe('/agent', () => {
+	it('suppresses only the generic Agent row correlated to a visible child', async () => {
+		activity.set([
+			agent({
+				viewId: 'correlated-child',
+				description: 'Correlated child',
+				toolUseId: 'matched-agent',
+			}),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await submit(screen, 'tool row correlation')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Unmatched child'),
+			'unmatched Agent tool row disappeared',
+		)
+		const frame = screen.viewport().join('\n')
+		expect(frame).not.toContain('Matched child')
+		expect(frame).toContain('Agent(looks similar)')
+
+		activity.set([
+			agent({
+				viewId: 'correlated-child',
+				description: 'Correlated child',
+				toolUseId: 'matched-agent',
+				status: 'completed',
+				completedAt: 30,
+			}),
+		])
+		await screen.waitForRender()
+		const handoffFrame = screen.viewport().join('\n')
+		expect(handoffFrame).not.toContain('Matched child')
+		expect(handoffFrame).toContain('Unmatched child')
+	})
+
+	it('does not hide another run tool that reuses a terminal child call id', async () => {
+		activity.set([
+			agent({
+				viewId: 'old-child',
+				workflowId: 'run-old',
+				toolUseId: 'matched-agent',
+				status: 'completed',
+				completedAt: 30,
+			}),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await submit(screen, 'reused tool id')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('echo still visible'),
+			'reused Bash call id was hidden by an old Agent record',
+		)
+	})
+
+	it('renders the real Agent runtime lifecycle for four concurrent children', async () => {
+		const created: CreateTaskOptions[] = []
+		const completions = new Map<string, (handle: TaskHandle) => void>()
+		vi.spyOn(LocalTaskScheduler.prototype, 'createTask').mockImplementation(async (options) => {
+			const taskId = `task-${created.length}`
+			created.push(options)
+			return {
+				taskId,
+				agentId: options.agentId,
+				state: 'running',
+				createdAt: Date.now(),
+			} as unknown as TaskHandle
+		})
+		vi.spyOn(LocalTaskScheduler.prototype, 'waitForTask').mockImplementation(
+			(taskId) =>
+				new Promise<TaskHandle>((resolve) => {
+					completions.set(String(taskId), resolve)
+				}),
+		)
+		const runtime = await createSubagentRuntime({
+			cwd: '/tmp',
+			model: 'test-model',
+			buildProvider: () => ({}) as LLMProvider,
+			buildTools: () => ({}) as never,
+		})
+		try {
+			activity.delegate(runtime.activity)
+			const screen = await renderToScreen(<App ctx={ctx} />, {
+				cols: 110,
+				rows: 28,
+			})
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+
+			const executions = Array.from({ length: 4 }, (_, index) =>
+				runtime.agentTool.execute(
+					{
+						description: `Runtime child ${index + 1}`,
+						prompt: `Inspect area ${index + 1}`,
+					},
+					{
+						runId: 'run-parent',
+						workingDirectory: '/tmp',
+						abortSignal: new AbortController().signal,
+						env: {},
+						log: () => {},
+						toolUseId: `agent-call-${index + 1}`,
+						toolBatchId: 'agent-wave-one',
+					} as unknown as ToolContext,
+				),
+			)
+			await waitUntil(
+				screen,
+				() => created.length === 4,
+				'real runtime did not create four children',
+			)
+			for (let index = 0; index < created.length; index += 1) {
+				created[index]?.onEvent?.({
+					type: 'run_started',
+					runId: `run-child-${index}`,
+				} as unknown as RunEvent)
+			}
+			created[0]?.onEvent?.({
+				type: 'reasoning_delta',
+				runId: 'run-child-0',
+				iteration: 1,
+				messageId: 'reasoning' as never,
+				blockIndex: 0,
+				text: 'private reasoning must stay hidden',
+			} as unknown as RunEvent)
+			created[0]?.onEvent?.({
+				type: 'text_delta',
+				runId: 'run-child-0',
+				iteration: 1,
+				messageId: 'answer' as never,
+				text: 'public live finding',
+			} as unknown as RunEvent)
+			// Child deltas are intentionally coalesced for 100 ms so a token stream
+			// cannot make Ink repaint per token. Wait past that production boundary.
+			await new Promise<void>((resolve) => setTimeout(resolve, 120))
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('public live finding'),
+				'interim child answer did not reach the automatic panel',
+			)
+			completions.get('task-0')?.({
+				taskId: 'task-0',
+				agentId: 'general-purpose',
+				state: 'completed',
+				createdAt: Date.now(),
+				completedAt: Date.now(),
+				result: { status: 'completed', result: 'first done' },
+			} as unknown as TaskHandle)
+
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('3 active · 4 total'),
+				'completed sibling did not remain beside its live cohort',
+			)
+			const liveFrame = screen.viewport().join('\n')
+			expect(liveFrame).toContain('3 active · 4 total')
+			expect(liveFrame).not.toContain('private reasoning must stay hidden')
+
+			for (let index = 1; index < 4; index += 1) {
+				completions.get(`task-${index}`)?.({
+					taskId: `task-${index}`,
+					agentId: 'general-purpose',
+					state: 'completed',
+					createdAt: Date.now(),
+					completedAt: Date.now(),
+					result: { status: 'completed', result: `child ${index + 1} done` },
+				} as unknown as TaskHandle)
+			}
+			await Promise.all(executions)
+			await waitUntil(
+				screen,
+				() => !screen.viewport().join('\n').includes('Runtime child'),
+				'settled runtime cohort remained visible',
+			)
+			expect(screen.viewport().join('\n')).toContain('Type a message')
+		} finally {
+			await runtime.close()
+		}
+	})
+
+	it('drives a real parent query through four concurrent Agent calls into the mounted panel', async () => {
+		const work = mkdtempSync(join(tmpdir(), 'namzu-live-agents-'))
+		const childRequestStartedAt: number[] = []
+		let reportAllChildrenStarted: () => void = () => {}
+		const allChildrenStarted = new Promise<void>((resolve) => {
+			reportAllChildrenStarted = resolve
+		})
+		let releaseChildren: () => void = () => {}
+		const allowChildrenToComplete = new Promise<void>((resolve) => {
+			releaseChildren = resolve
+		})
+		const runtime = await createSubagentRuntime({
+			cwd: work,
+			model: 'mock-model',
+			buildProvider: () => {
+				const child = new MockLLMProvider({ responseText: 'child completed' })
+				return {
+					id: child.id,
+					name: child.name,
+					capabilities: child.capabilities,
+					chatStream: async function* (params) {
+						childRequestStartedAt.push(Date.now())
+						if (childRequestStartedAt.length === 4) reportAllChildrenStarted()
+						await allowChildrenToComplete
+						yield* child.chatStream(params)
+					},
+					listModels: () => child.listModels(),
+					healthCheck: () => child.healthCheck(),
+				} satisfies LLMProvider
+			},
+			buildTools: () => new ToolRegistry(),
+		})
+		try {
+			const tools = new ToolRegistry()
+			tools.register(runtime.agentTool)
+			const presenter = createToolPresenter(tools)
+			const parent = new MockLLMProvider({
+				turns: [
+					{
+						toolCalls: Array.from({ length: 4 }, (_, index) => ({
+							id: `agent-real-${index + 1}`,
+							name: 'Agent',
+							args: {
+								description: `Production child ${index + 1}`,
+								prompt: `Inspect production seam ${index + 1}`,
+								workflow: 'Production fan-out',
+								phase: 'Review',
+							},
+						})),
+					},
+					{ text: 'parent completed' },
+				],
+			})
+			sendOverride.current = async function* (messages) {
+				const events = query({
+					provider: parent,
+					tools,
+					runConfig: {
+						model: 'mock-model',
+						tokenBudget: 100_000,
+						timeoutMs: 5_000,
+						maxIterations: 4,
+						permissionMode: 'auto',
+					},
+					agentId: 'namzu-test',
+					agentName: 'namzu-test',
+					workingDirectory: work,
+					messages: [...messages],
+					resumeHandler: async () => ({ action: 'approve_tools' }),
+					sessionId: 'ses_live_agents' as SessionId,
+					topicId: 'top_live_agents' as TopicId,
+					projectId: 'prj_live_agents' as ProjectId,
+					tenantId: 'ten_live_agents' as TenantId,
+					runStore: new InMemoryRunStore(),
+					checkpointStore: new InMemoryCheckpointStore(),
+				})
+				for await (const event of events) {
+					const projected = toAgentEvent(event, presenter)
+					if (projected) yield projected
+				}
+			}
+			activity.delegate(runtime.activity)
+			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+			mounted = screen
+			await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+
+			await submit(screen, 'production executor fan-out')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('4 active · 4 total'),
+				'real query fan-out did not reach the automatic panel',
+			)
+			await expect(allChildrenStarted).resolves.toBeUndefined()
+			releaseChildren()
+			await waitUntil(
+				screen,
+				() => painted(screen).includes('parent completed'),
+				'real parent query did not settle',
+			)
+
+			expect(parent.requests).toHaveLength(2)
+			expect(childRequestStartedAt).toHaveLength(4)
+			// Each child blocks until all four have entered its provider. A serial
+			// scheduler can never reach this assertion; no wall-clock threshold is
+			// involved.
+			expect(screen.writes().join('')).not.toContain('Agent(Production child')
+			expect(screen.viewport().join('\n')).not.toContain('Production fan-out')
+		} finally {
+			releaseChildren()
+			delete sendOverride.current
+			await runtime.close()
+			removeTempDir(work)
+		}
+	})
+
+	it('shows active children automatically and preserves a draft through inspect and completion', async () => {
+		const alpha = agent({
+			viewId: 'agent-alpha',
+			description: 'Alpha audit',
+			latestActivity: 'Answering · interim evidence',
+		})
+		const beta = agent({ viewId: 'agent-beta', description: 'Beta build' })
+		activity.set([alpha, beta])
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('interim evidence'),
+			'automatic agent panel missing',
+		)
+
+		screen.press('draft survives')
+		screen.press('\x14')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Phases'),
+			'cockpit missing',
+		)
+		expect(screen.viewport().join('\n')).toContain('draft survives')
+		screen.press('\x14')
+		await waitUntil(
+			screen,
+			() => !screen.viewport().join('\n').includes('Phases'),
+			'cockpit did not close',
+		)
+		expect(screen.viewport().join('\n')).toContain('draft survives')
+
+		activity.set([
+			{
+				...alpha,
+				status: 'completed',
+				completedAt: 20,
+				latestActivity: 'Completed',
+			},
+			{
+				...beta,
+				status: 'completed',
+				completedAt: 21,
+				latestActivity: 'Completed',
+			},
+		])
+		await waitUntil(
+			screen,
+			() => !screen.viewport().join('\n').includes('Alpha audit'),
+			'settled cohort remained docked',
+		)
+		expect(screen.viewport().join('\n')).toContain('draft survives')
+	})
+
+	it('opens the active roster with down from a truly empty composer', async () => {
+		activity.set([agent({ viewId: 'agent-down', description: 'Down-select child' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Phases'),
+			'down did not focus delegated work',
+		)
+	})
+
+	it('keeps the composer and footer reachable while a short viewport bounds the roster', async () => {
+		activity.set(
+			Array.from({ length: 6 }, (_, index) =>
+				agent({ viewId: `short-${index}`, description: `Short worker ${index}` }),
+			),
+		)
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 90, rows: 14 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Type a message')
+		expect(frame).toContain('model')
+		expect(frame).toContain('Short worker 0')
+		expect(frame).not.toContain('Short worker 1')
+		expect(frame).toContain('+5 more')
+	})
+
+	it('keeps a narrow viewport single-line even with long workflow activity', async () => {
+		activity.set([
+			agent({
+				viewId: 'narrow-worker',
+				description: 'A deliberately long delegated task description',
+				workflow: 'A deliberately long workflow title that must not wrap',
+				latestActivity: 'Answering · a deliberately long public preview that must not wrap',
+			}),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 14 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Type a message')
+		expect(frame).toContain('model')
+		expect(frame).toContain('1/1')
+		expect(frame).not.toContain('public preview')
+		expect(screen.viewport()).toHaveLength(14)
+	})
+
+	it('keeps the inspector, composer draft and status inside a short viewport', async () => {
+		activity.set([agent({ viewId: 'short-inspector', description: 'Short inspector child' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 60, rows: 14 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		screen.press('draft remains visible')
+		screen.press('\x14')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Phases'),
+			'short inspector did not open',
+		)
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Phases')
+		expect(frame).toContain('Agents')
+		expect(frame).toContain('draft remains visible')
+		expect(frame).toContain('model')
+		expect(screen.viewport()).toHaveLength(14)
+	})
+
 	it('opens live delegated work with ctrl+t while the parent remains active', async () => {
 		activity.set([
 			agent({ viewId: 'agent-alpha', description: 'Alpha audit' }),
 			agent({ viewId: 'agent-beta', description: 'Beta build' }),
 		])
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
 
 		await submit(screen, 'start parent')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('ctrl+t to view'),
+			() => screen.viewport().join('\n').includes('↓ / ctrl+t'),
 			'live child shortcut missing',
 		)
 		screen.press('\x14')
@@ -336,7 +860,11 @@ describe('/agent', () => {
 				phase: 'Verify',
 				phaseOrder: 1,
 				transcript: [
-					{ id: 'critic-evidence', kind: 'assistant', text: 'verification evidence' },
+					{
+						id: 'critic-evidence',
+						kind: 'assistant',
+						text: 'verification evidence',
+					},
 				],
 			}),
 		])
@@ -374,7 +902,10 @@ describe('/agent', () => {
 				transcript: [{ id: 'beta-proof', kind: 'assistant', text: 'beta survives resize' }],
 			}),
 		])
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
 		await submit(screen, '/agent')
@@ -401,11 +932,18 @@ describe('/agent', () => {
 		})
 		const beta = agent({ viewId: 'agent-beta', description: 'Beta pruned' })
 		activity.set([alpha, beta])
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		const screen = await renderToScreen(<App ctx={ctx} />, {
+			cols: 110,
+			rows: 28,
+		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
 		await submit(screen, '/agent')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Beta pruned'), 'cockpit missing')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Beta pruned'),
+			'cockpit missing',
+		)
 		screen.press('\x1b[B')
 
 		activity.set([alpha])
@@ -422,14 +960,13 @@ describe('/agent', () => {
 		)
 	})
 
-	it('freezes parent scrollback while observing and publishes it once on return', async () => {
-		activity.set([
-			agent({
-				viewId: 'agent-child',
-				description: 'Child run',
-				transcript: [{ id: 'child-row', kind: 'assistant', text: 'child is working' }],
-			}),
-		])
+	it('returns to the parent once the observed cohort settles and publishes it once', async () => {
+		const child = agent({
+			viewId: 'agent-child',
+			description: 'Child run',
+			transcript: [{ id: 'child-row', kind: 'assistant', text: 'child is working' }],
+		})
+		activity.set([child])
 		const screen = await renderToScreen(<App ctx={ctx} />, {
 			cols: 110,
 			rows: 28,
@@ -447,24 +984,81 @@ describe('/agent', () => {
 		)
 
 		releaseParent()
-		await waitUntil(
-			screen,
-			() => screen.viewport().join('\n').includes('Child run'),
-			'child screen disappeared',
-		)
-		expect(painted(screen)).not.toContain('parent finished')
-
-		screen.press('q')
+		activity.set([
+			{
+				...child,
+				status: 'completed',
+				completedAt: 30,
+				latestActivity: 'Completed',
+			},
+		])
 		await waitUntil(
 			screen,
 			() => painted(screen).includes('parent finished'),
-			'parent result missing',
+			'parent result missing after the child cohort settled',
 		)
+		expect(screen.viewport().join('\n')).not.toContain('Child run')
 		expect(painted(screen).match(/parent finished/g)).toHaveLength(1)
 	})
 })
 
 describe('agent explorer projection', () => {
+	it('keeps completed siblings only while their own batch still has live work', () => {
+		const old = agent({
+			viewId: 'old',
+			batchId: 'wave-one',
+			status: 'completed',
+			completedAt: 2,
+		})
+		const doneSibling = agent({
+			viewId: 'done-sibling',
+			batchId: 'wave-two',
+			status: 'completed',
+			completedAt: 3,
+		})
+		const liveSibling = agent({ viewId: 'live-sibling', batchId: 'wave-two' })
+		expect(
+			activeSubagentCohorts([old, doneSibling, liveSibling]).map((entry) => entry.viewId),
+		).toEqual(['done-sibling', 'live-sibling'])
+	})
+
+	it('does not revive a terminal cohort when another run reuses its provider batch id', () => {
+		const old = agent({
+			viewId: 'old-run',
+			workflowId: 'run-old',
+			batchId: 'provider-call-1',
+			status: 'completed',
+			completedAt: 2,
+		})
+		const current = agent({
+			viewId: 'current-run',
+			workflowId: 'run-current',
+			batchId: 'provider-call-1',
+		})
+
+		expect(activeSubagentCohorts([old, current]).map((entry) => entry.viewId)).toEqual([
+			'current-run',
+		])
+	})
+
+	it('bounds automatic agent rows from the terminal height', () => {
+		expect(agentTaskPanelPageSize(15)).toBe(1)
+		expect(agentTaskPanelPageSize(30)).toBe(4)
+		const agents = Array.from({ length: 6 }, (_, index) =>
+			agent({ viewId: `agent-${index}`, description: `Worker ${index}` }),
+		)
+		const panel = render(
+			<AgentTaskPanel agents={agents} terminalRows={15} terminalColumns={90} />,
+		)
+		try {
+			expect(panel.lastFrame()).toContain('Worker 0')
+			expect(panel.lastFrame()).not.toContain('Worker 1')
+			expect(panel.lastFrame()).toContain('+5 more')
+		} finally {
+			panel.unmount()
+		}
+	})
+
 	it('groups agents by explicit workflow phase and preserves declared order', () => {
 		const phases = agentPhases([
 			agent({

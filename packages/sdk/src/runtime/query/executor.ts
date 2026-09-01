@@ -749,6 +749,14 @@ export class ToolExecutor {
 			observations.push(observation)
 		}
 		const baseContext = this.buildToolContext(recordObservation)
+		// A model response is the ownership boundary for concurrent siblings.
+		// Scope the first call id to its durable run: custom providers are not
+		// required to make call ids globally unique, so the raw id alone could
+		// collide with a later run retained by a host-side activity monitor.
+		const firstToolUseId = toolCalls[0]?.id
+		const toolBatchId = firstToolUseId
+			? JSON.stringify([String(baseContext.runId), firstToolUseId])
+			: undefined
 
 		// Respect each tool's `concurrencySafe` flag. Read-only tools
 		// (ls/grep/glob/…) run in parallel; tools that mutate shared state
@@ -807,6 +815,7 @@ export class ToolExecutor {
 			const ctx: ToolContext = {
 				...baseContext,
 				toolUseId: toolCall.id,
+				...(toolBatchId ? { toolBatchId } : {}),
 				source: { kind: 'direct' },
 				// Overridden per call, so a nested dispatch can name the call
 				// that made it. The base context has no `toolUseId`, and a
@@ -1029,8 +1038,10 @@ export class ToolExecutor {
 			return { success: false, output: '', error: reason }
 		}
 
+		const { toolBatchId: directBatch, ...contextWithoutDirectBatch } = context
+		void directBatch
 		const childContext: ToolContext = {
-			...context,
+			...contextWithoutDirectBatch,
 			abortSignal: signal,
 			toolUseId: nestedId,
 			source,

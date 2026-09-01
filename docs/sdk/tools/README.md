@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-31
+lastReviewed: 2026-09-01
 tags: [computer-use, sdk]
 ---
 
@@ -248,6 +248,7 @@ in schema property names, enum/const values, or regex patterns.
 | `report` | Say how far along you are, for a host rendering a live view |
 | `requestPause` | Raise a durable pause and wait for a human (see §3a) |
 | `toolUseId` | Identify this exact execution, including a child dispatched by another tool |
+| `toolBatchId` | Group direct sibling calls from the same model response without conflating later waves or provider call-id reuse across runs |
 | `source` | Distinguish a model-direct, nested, or `run_code` invocation |
 | `dispatchTool` | Invoke another granted tool through this invocation's bounded registry and authorization path |
 

@@ -97,6 +97,52 @@ function lateTool(onExecute: () => void) {
 }
 
 describe('nested dispatch authority', () => {
+	it('does not inherit the model-direct sibling batch identity', async () => {
+		let directBatch: string | undefined
+		let nestedBatch: string | undefined
+		const tools = new ToolRegistry()
+		tools.register(
+			parentTool(
+				'dispatch_child',
+				async (context) => {
+					directBatch = context.toolBatchId
+					return (
+						(await context.dispatchTool?.('capture_nested_context', {})) ?? {
+							success: false,
+							output: '',
+						}
+					)
+				},
+				1_000,
+			),
+		)
+		tools.register(
+			defineTool({
+				name: 'capture_nested_context',
+				description: 'capture nested tool context',
+				inputSchema: z.object({}),
+				category: 'custom',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async (_input, context) => {
+					nestedBatch = context.toolBatchId
+					return { success: true, output: 'captured' }
+				},
+			}),
+		)
+		const provider = new MockLLMProvider({
+			turns: [{ toolCalls: [call('parent', 'dispatch_child', {})] }, { text: 'done' }],
+		})
+
+		await drainQuery(params(provider, tools), () => {})
+
+		expect(directBatch).toBeDefined()
+		expect(JSON.parse(directBatch ?? '[]')).toEqual([expect.any(String), 'parent'])
+		expect(nestedBatch).toBeUndefined()
+	})
+
 	it('cannot be retained and used after a successful parent call settles', async () => {
 		let retained: ToolContext['dispatchTool']
 		let effects = 0

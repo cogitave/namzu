@@ -376,6 +376,19 @@ export interface ToolContext {
 	toolUseId?: string
 
 	/**
+	 * Stable, run-scoped identity shared by every direct tool call the model
+	 * issued in the same response batch.
+	 *
+	 * `toolUseId` answers "which call is this?"; this answers "which sibling
+	 * calls were launched together?". Hosts use it to keep a concurrent group
+	 * visible while one sibling is still running without accidentally reviving
+	 * terminal work from an older batch or another run whose provider reused a
+	 * call id. Optional because a host may invoke a tool directly, outside the
+	 * query executor.
+	 */
+	toolBatchId?: string
+
+	/**
 	 * How this execution entered the tool registry.
 	 *
 	 * Present on executor-owned calls. Optional because a host may invoke a

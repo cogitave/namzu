@@ -141,6 +141,7 @@ import {
 } from '../integrations/providers/index.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
+import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
@@ -166,6 +167,8 @@ export type AgentEvent =
 	  }
 	| {
 			readonly kind: 'tool-start'
+			/** Run-scopes provider tool ids, which are not globally unique. */
+			readonly runId?: string
 			/** SDK tool-use id — stable across this call's start/end (for tracking). */
 			readonly toolUseId: string
 			readonly toolName: string
@@ -177,6 +180,7 @@ export type AgentEvent =
 	  }
 	| {
 			readonly kind: 'tool-progress'
+			readonly runId?: string
 			readonly toolUseId: string
 			readonly toolName: string
 			/** Bounded latest-state text from the executing tool. */
@@ -185,6 +189,7 @@ export type AgentEvent =
 	  }
 	| {
 			readonly kind: 'tool-end'
+			readonly runId?: string
 			readonly toolUseId: string
 			readonly toolName: string
 			readonly isError: boolean
@@ -1961,7 +1966,7 @@ export async function createAgentSession(
 						runConfig: {
 							model,
 							...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
-							timeoutMs: 600_000,
+							timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 							tokenBudget: 1_000_000,
 							maxIterations: 50,
 							maxResponseTokens: 8192,
@@ -2570,7 +2575,7 @@ async function* runTurn({
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
-				timeoutMs: 600_000,
+				timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 				tokenBudget: 1_000_000,
 				maxIterations: 50,
 				maxResponseTokens: 8192,
@@ -2804,6 +2809,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 		case 'tool_executing':
 			return {
 				kind: 'tool-start',
+				runId: event.runId,
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				...(() => {
@@ -2820,6 +2826,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 		case 'tool_progress':
 			return {
 				kind: 'tool-progress',
+				runId: event.runId,
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				message: event.message,
@@ -2840,6 +2847,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				view.kind === 'terminal' && detail?.[0] === summary ? detail.slice(1) : detail
 			return {
 				kind: 'tool-end',
+				runId: event.runId,
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				isError: event.isError,

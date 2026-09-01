@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	type AgentDefinition,
+	AgentManager,
 	AgentRegistry,
 	type LLMProvider,
 	LocalTaskScheduler,
@@ -14,6 +15,7 @@ import {
 	createProjectInstructionMessage,
 } from '@namzu/sdk'
 
+import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../policy.js'
 import { GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
 
 /**
@@ -79,6 +81,7 @@ async function buildAgentTool(
 		activity: runtime.activity,
 		close: runtime.close,
 		created,
+		gateway: runtime.gateway,
 		registered,
 	}
 }
@@ -106,6 +109,47 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 				phase: 'Research',
 				phaseOrder: 1,
 				phaseSequence: 1,
+			})
+		} finally {
+			await close()
+		}
+	})
+
+	it('aligns the tool, scheduler and child run on the interactive deadline', async () => {
+		const { agentTool, close, gateway, registered } = await buildAgentTool()
+		try {
+			expect(agentTool.timeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+			expect(agentTool.timeoutMs).toBeGreaterThan(120_000)
+
+			const manager = Object.values(gateway as unknown as Record<string, unknown>).find(
+				(value) => value instanceof AgentManager,
+			) as { config?: { childTimeoutMs?: number } } | undefined
+			expect(manager?.config?.childTimeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+
+			const general = registered.find(
+				(definition) => definition.info.id === GENERAL_PURPOSE_SUBAGENT,
+			)
+			const config = (await general?.configBuilder?.({})) as ReactiveAgentConfig | undefined
+			expect(config?.timeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+		} finally {
+			await close()
+		}
+	})
+
+	it('correlates the child with its exact parent call and concurrent batch', async () => {
+		const { agentTool, activity, close } = await buildAgentTool()
+		try {
+			await agentTool.execute(
+				{ description: 'audit', prompt: 'inspect' },
+				{
+					...toolContext(),
+					toolUseId: 'call-agent-a',
+					toolBatchId: 'batch-agent-wave',
+				},
+			)
+			expect(activity.getSnapshot()[0]).toMatchObject({
+				toolUseId: 'call-agent-a',
+				batchId: 'batch-agent-wave',
 			})
 		} finally {
 			await close()

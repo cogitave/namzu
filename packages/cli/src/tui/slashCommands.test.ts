@@ -85,7 +85,10 @@ const ctxWithTools: SlashContext = context({
 
 describe('matchSlashCommands', () => {
 	it('returns all commands for a bare slash', () => {
-		expect(matchSlashCommands('/')).toEqual(CLI_LOCAL_COMMANDS)
+		expect(matchSlashCommands('/')).toEqual(
+			CLI_LOCAL_COMMANDS.filter((command) => command.discoverable !== false),
+		)
+		expect(matchSlashCommands('/agent')).toEqual([])
 	})
 
 	it('filters by name prefix (case-insensitive)', () => {
@@ -178,7 +181,9 @@ describe('runSlash', () => {
 		expect(r?.kind).toBe('command-picker')
 		if (r?.kind === 'command-picker') {
 			expect(r.commands.map((command) => command.name)).toEqual(
-				CLI_LOCAL_COMMANDS.map((command) => command.name),
+				CLI_LOCAL_COMMANDS.filter((command) => command.discoverable !== false).map(
+					(command) => command.name,
+				),
 			)
 		}
 	})
@@ -388,8 +393,13 @@ describe('/cost', () => {
 })
 
 describe('/agent', () => {
-	it('opens the host-owned child-run observer', () => {
+	it('keeps the old command executable without advertising it', () => {
 		expect(runSlash('/agent', context())).toEqual({ kind: 'agent-cockpit' })
+		const help = runSlash('/help', context())
+		expect(help?.kind).toBe('command-picker')
+		if (help?.kind === 'command-picker') {
+			expect(help.commands.map((command) => command.name)).not.toContain('agent')
+		}
 	})
 })
 
