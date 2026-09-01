@@ -48,13 +48,15 @@ describe('runDoctorCommand', () => {
 		// broke out to column 0, so the report looked like it had ended and the
 		// members read as stray output from something else.
 		const home = mkdtempSync(join(tmpdir(), 'namzu-doctor-'))
-		mkdirSync(join(home, '.namzu'), { recursive: true })
+		const appHome = join(home, 'application-state')
+		mkdirSync(appHome, { recursive: true })
 		writeFileSync(
-			join(home, '.namzu', 'preferences.json'),
+			join(appHome, 'preferences.json'),
 			JSON.stringify({ version: 3, providers: [{ id: 'anthropic' }, { id: 'openai' }] }),
 		)
 		vi.stubEnv('HOME', home)
 		vi.stubEnv('USERPROFILE', home)
+		vi.stubEnv('NAMZU_HOME', appHome)
 
 		await runDoctorCommand(['--category', 'providers'])
 

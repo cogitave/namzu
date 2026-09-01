@@ -3,7 +3,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type Message, createUserMessage } from '@namzu/sdk'
+import { type Message, createUserMessage, generateSessionId } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -201,7 +201,18 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 			alternatives: [],
 		} as DetectedProvider,
 	]
-	const firstSession = await createAgentSession(preferences, detected, { cwd })
+	const sessions = await openSessions(cwd)
+	const sessionOptions = () => ({
+		cwd,
+		scope: {
+			sessionId: generateSessionId(),
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+		},
+		...(sessions.backend === 'central' ? { stateRoot: sessions.root } : {}),
+	})
+	const firstSession = await createAgentSession(preferences, detected, sessionOptions())
 	let produced: readonly Message[] | undefined
 	try {
 		for await (const _event of firstSession.send([createUserMessage('use a tool')], {
@@ -216,7 +227,6 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 	}
 	if (!produced) throw new Error('the first session did not publish its conversation')
 
-	const sessions = await openSessions(cwd)
 	const conversationId = await startConversation(sessions)
 	await appendMessages(sessions, conversationId, produced)
 	const loaded = await loadConversation(sessions, conversationId)
@@ -240,7 +250,7 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 		},
 	})
 
-	const resumedSession = await createAgentSession(preferences, detected, { cwd })
+	const resumedSession = await createAgentSession(preferences, detected, sessionOptions())
 	try {
 		for await (const _event of resumedSession.send([
 			...loaded,
@@ -255,7 +265,7 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 	const switchedSession = await createAgentSession(
 		{ ...preferences, providers: [{ id: 'deepseek', model: 'deepseek-v4-pro' }] },
 		detected,
-		{ cwd },
+		sessionOptions(),
 	)
 	try {
 		for await (const _event of switchedSession.send([

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,12 +8,14 @@ import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
+import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { ReactiveAgent } from '../ReactiveAgent.js'
+import { SupervisorAgent } from '../SupervisorAgent.js'
 
 /**
  * `ReactiveAgent` is the entry point consumers actually use — it is what
@@ -74,13 +77,36 @@ async function baseConfig(provider: MockLLMProvider, tools: ToolRegistry) {
 }
 
 describe('ReactiveAgent forwards the loop-control seams', () => {
+	it('reaches an injected durable layout without touching the cwd fallback', async () => {
+		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
+		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
+		const stateRoot = await mkdtemp(join(tmpdir(), 'namzu-reach-state-'))
+		dirs.push(stateRoot)
+
+		const result = await agent().run(
+			{ messages: [createUserMessage('go')], workingDirectory },
+			{ ...config, pathBuilder: new DefaultPathBuilder(stateRoot) },
+		)
+
+		const runPath = new DefaultPathBuilder(stateRoot).runDir(
+			config.projectId as ProjectId,
+			config.sessionId as SessionId,
+			result.runId,
+		)
+		expect(existsSync(runPath)).toBe(true)
+		expect(existsSync(join(workingDirectory, '.namzu'))).toBe(false)
+	})
+
 	it('reaches an output guardrail', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'raw answer' }] })
 		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
 
 		const result = await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
-			{ ...config, outputGuardrails: [() => ({ action: 'rewrite', output: 'cleaned' })] },
+			{
+				...config,
+				outputGuardrails: [() => ({ action: 'rewrite', output: 'cleaned' })],
+			},
 		)
 
 		expect(result.result).toBe('cleaned')
@@ -135,7 +161,10 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 
 		const result = await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
-			{ ...config, inputGuardrails: [() => ({ action: 'block', reason: 'no' })] },
+			{
+				...config,
+				inputGuardrails: [() => ({ action: 'block', reason: 'no' })],
+			},
 		)
 
 		expect(provider.requests).toHaveLength(0)
@@ -162,6 +191,60 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 		)
 
 		expect(onStepFinish).toHaveBeenCalled()
+	})
+})
+
+describe('SupervisorAgent forwards the durable layout seam', () => {
+	it('writes its run only below the injected path builder', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-supervisor-reach-'))
+		const stateRoot = await mkdtemp(join(tmpdir(), 'namzu-supervisor-state-'))
+		dirs.push(workingDirectory, stateRoot)
+		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
+		const supervisor = new SupervisorAgent({
+			id: 'supervisor_reach',
+			name: 'Supervisor reach',
+			version: '1.0.0',
+			category: 'test',
+			description: 'durable layout reachability probe',
+		})
+		const manager = {
+			sendMessage: vi.fn(async () => ({
+				taskId: 'task_none',
+				status: 'completed',
+			})),
+			await: vi.fn(async () => undefined),
+			cancel: vi.fn(),
+			dispose: vi.fn(),
+			on: vi.fn(),
+			off: vi.fn(),
+		}
+
+		const result = await supervisor.run({ messages: [createUserMessage('go')], workingDirectory }, {
+			provider,
+			agentIds: ['worker'],
+			agentManager: manager,
+			tools: new ToolRegistry(),
+			model: 'mock-model',
+			tokenBudget: 100_000,
+			timeoutMs: 10_000,
+			maxIterations: 2,
+			sessionId: 'ses_supervisor_reach' as SessionId,
+			topicId: 'top_supervisor_reach' as TopicId,
+			projectId: 'prj_supervisor_reach' as ProjectId,
+			tenantId: 'tnt_supervisor_reach' as TenantId,
+			pathBuilder: new DefaultPathBuilder(stateRoot),
+		} as never)
+
+		expect(
+			existsSync(
+				new DefaultPathBuilder(stateRoot).runDir(
+					'prj_supervisor_reach' as ProjectId,
+					'ses_supervisor_reach' as SessionId,
+					result.runId,
+				),
+			),
+		).toBe(true)
+		expect(existsSync(join(workingDirectory, '.namzu'))).toBe(false)
 	})
 })
 

@@ -134,6 +134,7 @@ describe('toAgentEvent', () => {
 			toolName: 'bash',
 			result: 'multi\n  line  ',
 			isError: false,
+			durationMs: 3_041,
 			...env,
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
@@ -142,7 +143,8 @@ describe('toAgentEvent', () => {
 			toolName: 'bash',
 			isError: false,
 			summary: 'multi',
-			detail: ['multi', '  line'],
+			durationMs: 3_041,
+			detail: ['  line'],
 		})
 	})
 

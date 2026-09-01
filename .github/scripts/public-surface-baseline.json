@@ -2122,6 +2122,7 @@
         "ParkState",
         "ParkSummary",
         "ParsedFrontmatter",
+        "PathBuilder",
         "PendingDecision",
         "PermissionMode",
         "PermissionPreset",

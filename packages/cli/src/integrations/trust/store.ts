@@ -9,10 +9,10 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 
 import { canonicalProjectPath } from '../../permissions/canonical-project.js'
+import { namzuHomePath } from '../state/home.js'
 
 const DIR_MODE = 0o700
 const FILE_MODE = 0o600
@@ -34,11 +34,11 @@ interface TrustFile {
 	readonly trusted: string[]
 }
 
-export function trustFilePath(home: string = homedir()): string {
-	return join(home, '.namzu', 'trust.json')
+export function trustFilePath(home?: string): string {
+	return join(namzuHomePath(home), 'trust.json')
 }
 
-export function readTrustedDirs(home: string = homedir()): string[] {
+export function readTrustedDirs(home?: string): string[] {
 	try {
 		const parsed = JSON.parse(readFileSync(trustFilePath(home), 'utf8')) as Partial<TrustFile>
 		return Array.isArray(parsed.trusted) ? parsed.trusted.filter((d) => typeof d === 'string') : []
@@ -48,7 +48,7 @@ export function readTrustedDirs(home: string = homedir()): string[] {
 }
 
 /** True when `dir` or any ancestor is in the trusted list. */
-export function isTrusted(dir: string, home: string = homedir()): boolean {
+export function isTrusted(dir: string, home?: string): boolean {
 	let target: string
 	try {
 		target = canonicalProjectPath(dir)
@@ -65,7 +65,7 @@ export function isTrusted(dir: string, home: string = homedir()): boolean {
 }
 
 /** Add `dir` to the trusted list (idempotent). */
-export function trustDir(dir: string, home: string = homedir()): void {
+export function trustDir(dir: string, home?: string): void {
 	const target = canonicalProjectPath(dir)
 	const current = readTrustedDirs(home)
 	if (current.map(canonicalStoredPath).includes(target)) return

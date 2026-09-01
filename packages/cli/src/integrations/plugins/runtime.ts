@@ -1,5 +1,3 @@
-import { homedir } from 'node:os'
-
 import {
 	PluginLifecycleManager,
 	PluginRegistry,
@@ -11,6 +9,7 @@ import {
 
 import type { PluginConfig, PluginScope } from '../../config/schema.js'
 import { cliLogger } from '../../logging.js'
+import { resolveNamzuHome } from '../state/home.js'
 
 export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
@@ -38,13 +37,14 @@ export async function createCliPluginRuntime(
 	if (config?.enabled !== true) return undefined
 
 	const log = cliLogger()
+	const userRoot = resolveNamzuHome()
 	const plugins = new PluginRegistry()
 	const skills = new SkillRegistry(log)
 	const manager = new PluginLifecycleManager({
 		pluginRegistry: plugins,
 		toolRegistry: tools,
 		skillRegistry: skills,
-		scopeRoots: { project: cwd, user: homedir() },
+		scopeRoots: { project: cwd, user: userRoot },
 		log,
 		...(config.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 	})
@@ -53,6 +53,7 @@ export async function createCliPluginRuntime(
 		enabled: true,
 		autoDiscovery: config.autoDiscovery ?? true,
 		allowedScopes,
+		userRoot,
 		log,
 	})
 	const installed: Awaited<ReturnType<PluginLifecycleManager['install']>>[] = []

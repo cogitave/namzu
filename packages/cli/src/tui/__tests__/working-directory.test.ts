@@ -10,13 +10,20 @@
  * string in every assertion. These two do.
  */
 
-import { lstatSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
-import { getBuiltinTools } from '@namzu/sdk'
+import {
+	type ToolRegistry,
+	asProjectId,
+	asSessionId,
+	asTenantId,
+	asTopicId,
+	getBuiltinTools,
+} from '@namzu/sdk'
 import type { RunId, ToolContext } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
@@ -38,15 +45,18 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 })
 
 let workDir: string
+let stateRoot: string
 
 beforeEach(() => {
 	queryCalls.length = 0
 	workDir = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+	stateRoot = mkdtempSync(join(tmpdir(), 'namzu-state-'))
 	writeFileSync(join(workDir, 'notes.txt'), 'a file that only exists in the --cwd\n')
 })
 
 afterEach(() => {
 	removeTempDir(workDir)
+	removeTempDir(stateRoot)
 })
 
 function toolContext(workingDirectory: string): ToolContext {
@@ -101,18 +111,89 @@ describe('createAgentSession runs where it is told to', () => {
 		]
 	}
 
+	function scope() {
+		return {
+			sessionId: asSessionId('ses_working-directory-test'),
+			topicId: asTopicId('top_working-directory-test'),
+			projectId: asProjectId('prj_working-directory-test'),
+			tenantId: asTenantId('tnt_working-directory-test'),
+		}
+	}
+
 	it.runIf(process.platform !== 'win32')(
-		'protects generated memory and task partitions in a shareable project root',
+		'protects central generated state without creating a local runtime tree',
 		async () => {
 			const { createAgentSession } = await import('../agent.js')
-			const session = await createAgentSession(prefs, detectedAnthropic(), { cwd: workDir })
+			const session = await createAgentSession(prefs, detectedAnthropic(), {
+				cwd: workDir,
+				stateRoot,
+				scope: scope(),
+			})
+			const projectRoot = join(stateRoot, 'projects', 'prj_working-directory-test')
 
 			expect(session.hasProvider).toBe(true)
-			expect(lstatSync(join(workDir, '.namzu', 'memory')).mode & 0o777).toBe(0o700)
-			expect(lstatSync(join(workDir, '.namzu', 'tenants')).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(stateRoot, 'projects')).mode & 0o777).toBe(0o700)
+			expect(lstatSync(projectRoot).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(projectRoot, 'memory')).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(projectRoot, 'tenants')).mode & 0o777).toBe(0o700)
+			expect(existsSync(join(workDir, '.namzu'))).toBe(false)
 			await session.close()
 		},
 	)
+
+	it.runIf(process.platform !== 'win32')(
+		'does not advertise host background jobs inside the default sandbox',
+		async () => {
+			const { createAgentSession } = await import('../agent.js')
+			const session = await createAgentSession(prefs, detectedAnthropic(), {
+				cwd: workDir,
+				stateRoot,
+				scope: scope(),
+			})
+
+			for await (const _ of session.send([{ role: 'user', content: 'inspect', timestamp: 0 }])) {
+				// The query mock captures the exact registry shown to the provider.
+			}
+			const registry = queryCalls[0]?.tools as ToolRegistry
+			const tools = registry.getCallableTools()
+			const bash = tools.find((tool) => tool.name === 'bash')
+
+			expect(session.sandbox.unconfined).toBe(false)
+			expect(tools.map((tool) => tool.name)).not.toContain('job')
+			expect(
+				bash?.inputSchema.parse({
+					command: 'sleep 1',
+					run_in_background: true,
+				}),
+			).not.toHaveProperty('run_in_background')
+			expect(JSON.stringify(bash?.modelInputSchema)).not.toContain('run_in_background')
+			expect(bash?.description).toMatch(/foreground|serialized/i)
+			await session.close()
+		},
+	)
+
+	it('keeps background jobs reachable when sandboxing is explicitly disabled', async () => {
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd: workDir,
+			stateRoot,
+			scope: scope(),
+			sandbox: { enabled: false },
+		})
+
+		for await (const _ of session.send([{ role: 'user', content: 'inspect', timestamp: 0 }])) {
+			// The query mock captures the exact registry shown to the provider.
+		}
+		const registry = queryCalls[0]?.tools as ToolRegistry
+		const tools = registry.getCallableTools()
+		const bash = tools.find((tool) => tool.name === 'bash')
+
+		expect(tools.map((tool) => tool.name)).toContain('job')
+		expect(bash?.inputSchema.parse({ command: 'sleep 1', run_in_background: true })).toMatchObject({
+			run_in_background: true,
+		})
+		await session.close()
+	})
 
 	it('passes the caller-supplied cwd to the run, not the process directory', async () => {
 		const { createAgentSession } = await import('../agent.js')
@@ -166,7 +247,9 @@ describe('createAgentSession runs where it is told to', () => {
 		const { createAgentSession } = await import('../agent.js')
 		const missing = join(workDir, 'missing')
 
-		const session = await createAgentSession(prefs, detectedAnthropic(), { cwd: missing })
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd: missing,
+		})
 
 		expect(session.hasProvider).toBe(false)
 		expect(session.errorKind).toBe('invocation')

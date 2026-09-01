@@ -1,21 +1,35 @@
 /**
  * Conversation persistence for the TUI, built on the SDK's session
- * hierarchy (`DiskSessionStore`) — no parallel store. Each cwd is one
- * "project" (a `cli.json` pointer keeps its id stable across launches),
- * every conversation is a Session under a fixed CLI thread, and the
- * conversation's messages are appended to the session as turns complete.
+ * hierarchy (`DiskSessionStore`) — no parallel store. Each canonical cwd is
+ * one Project (an immutable root binding keeps its id stable across launches),
+ * every conversation is a Session under a fixed CLI Topic, and the
+ * conversation's messages are appended to the Session as turns complete.
  *
  * This is what powers `/resume`: list recent sessions, load a chosen
- * session's messages, and keep chatting in it. The session store roots at
- * `<cwd>/.namzu`, the same root `query()` writes its runs under, so a
- * session's `session.json` and its `runs/` live in one place.
+ * session's messages, and keep chatting in it. New workspaces bind their
+ * canonical working directory to one Project below the application home;
+ * existing project-local stores remain readable through the legacy route.
  */
 
 import { randomBytes } from 'node:crypto'
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import {
+	chmodSync,
+	closeSync,
+	fsyncSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	readdirSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs'
+import { realpath } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
+	DefaultPathBuilder,
 	DiskSessionGoalStore,
 	DiskSessionStore,
 	type Message,
@@ -33,6 +47,7 @@ import {
 	requireOpenProject,
 } from '@namzu/sdk'
 import { restrictToOwner } from '../providers/credential-store.js'
+import { resolveNamzuHome } from '../state/home.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import {
 	type ConversationLineageTurn,
@@ -53,8 +68,14 @@ export interface CliSessions {
 	readonly projectId: ProjectId
 	readonly topicId: TopicId
 	readonly tenantId: TenantId
-	/** Absolute path of the cwd's `.namzu` root (where pointers live). */
+	/** Absolute hierarchy root used by the SDK path builder. */
 	readonly root: string
+	/** Generated state owned by this Project inside {@link root}. */
+	readonly projectStateRoot: string
+	/** CLI-only sidecars for this Project. Legacy stores use their old root. */
+	readonly controlRoot: string
+	/** Which durable backend was selected by the state-routing decision. */
+	readonly backend: 'central' | 'legacy'
 	/**
 	 * CLI-only turn/run correlation. Optional for embedded test doubles and
 	 * pre-feature hosts; {@link openSessions} always supplies it.
@@ -84,42 +105,189 @@ export interface RecentConversation {
  * the other helpers. Throws only on unexpected store errors; callers treat
  * failures as "persistence unavailable" and run without it.
  */
-export async function openSessions(cwd: string): Promise<CliSessions> {
-	const root = join(cwd, '.namzu')
+export interface OpenSessionsOptions {
+	/** Exact central hierarchy root; test/embedding seam. */
+	readonly stateRoot?: string
+	/** OS-home and environment seams used by the application-home resolver. */
+	readonly home?: string
+	readonly env?: NodeJS.ProcessEnv
+}
+
+type LegacyRoute =
+	| { readonly kind: 'none' }
+	| {
+			readonly kind: 'valid'
+			readonly root: string
+			readonly projectId: ProjectId
+	  }
+	| { readonly kind: 'refuse'; readonly detail: string }
+
+const AUTHORED_LOCAL_ENTRIES = new Set(['commands', 'config.yaml', 'plugins', 'skills'])
+
+async function inspectLegacyRoute(
+	localRoot: string,
+	options: { readonly allowApplicationHomeEntries?: boolean } = {},
+): Promise<LegacyRoute> {
+	try {
+		const rootEntry = lstatSync(localRoot)
+		if (rootEntry.isSymbolicLink() || !rootEntry.isDirectory()) {
+			return {
+				kind: 'refuse',
+				detail: `${localRoot} is not a real directory.`,
+			}
+		}
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'none' }
+		return {
+			kind: 'refuse',
+			detail: `${localRoot} cannot be inspected: ${error instanceof Error ? error.message : String(error)}`,
+		}
+	}
+
+	const pointerPath = join(localRoot, 'cli.json')
+	let raw: unknown
+	try {
+		raw = JSON.parse(readFileSync(pointerPath, 'utf8'))
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+			// When the working directory is the OS home, the project-local path
+			// and the application home are the same directory. Its ordinary config
+			// and generated partitions are not evidence of an unbound legacy
+			// project. A present cli.json is still inspected below; only the
+			// no-pointer classification is relaxed for this natural overlap.
+			if (options.allowApplicationHomeEntries) return { kind: 'none' }
+			const unclassified = readdirSync(localRoot).filter(
+				(name) => !AUTHORED_LOCAL_ENTRIES.has(name),
+			)
+			return unclassified.length === 0
+				? { kind: 'none' }
+				: {
+						kind: 'refuse',
+						detail: `${localRoot} contains legacy or unknown generated entries (${unclassified.join(', ')}) but no cli.json binding.`,
+					}
+		}
+		return {
+			kind: 'refuse',
+			detail: `${pointerPath} is not valid JSON; refusing to hide recoverable local history behind a new central Project.`,
+		}
+	}
+
+	const projectIdValue =
+		typeof raw === 'object' && raw !== null && 'projectId' in raw
+			? (raw as { projectId?: unknown }).projectId
+			: undefined
+	if (typeof projectIdValue !== 'string' || !projectIdValue.startsWith('prj_')) {
+		return {
+			kind: 'refuse',
+			detail: `${pointerPath} does not contain a valid Project id.`,
+		}
+	}
+	const projectId = asProjectId(projectIdValue)
+	try {
+		const legacyStore = new DiskSessionStore({ rootDir: localRoot })
+		const project = await legacyStore.getProject(projectId, TENANT)
+		if (!project) {
+			return {
+				kind: 'refuse',
+				detail: `${pointerPath} points to ${projectId}, but that local Project record is missing.`,
+			}
+		}
+		const workingDirectory = resolve(localRoot, '..')
+		if (project.rootPath !== undefined && project.rootPath !== workingDirectory) {
+			return {
+				kind: 'refuse',
+				detail: `${pointerPath} points to ${projectId}, but that Project is bound to ${project.rootPath} instead of ${workingDirectory}.`,
+			}
+		}
+		return { kind: 'valid', root: localRoot, projectId }
+	} catch (error) {
+		return {
+			kind: 'refuse',
+			detail: `The legacy Project selected by ${pointerPath} cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+		}
+	}
+}
+
+/**
+ * Select one durable backend for the canonical working directory.
+ *
+ * A valid legacy store remains authoritative until a separately leased data
+ * migration exists. A split or corrupt estate refuses; it never turns missing
+ * metadata into an apparently empty new history.
+ */
+export async function openSessions(
+	cwd: string,
+	options: OpenSessionsOptions = {},
+): Promise<CliSessions> {
+	const workingDirectory = await realpath(resolve(cwd))
+	const centralRoot = resolve(
+		options.stateRoot ??
+			resolveNamzuHome({
+				...(options.home !== undefined ? { home: options.home } : {}),
+				...(options.env !== undefined ? { env: options.env } : {}),
+			}),
+	)
+	const localRoot = join(workingDirectory, '.namzu')
+	const overlaps = centralRoot === localRoot
+	const legacy = await inspectLegacyRoute(localRoot, {
+		allowApplicationHomeEntries: overlaps,
+	})
+	if (legacy.kind === 'refuse') {
+		throw new Error(`${legacy.detail} Run \`namzu state\` for a read-only inventory.`)
+	}
+
+	const centralStore = new DiskSessionStore({ rootDir: centralRoot })
+	const centralProject = await centralStore.findProjectByRootPath(workingDirectory, TENANT)
+	if (
+		legacy.kind === 'valid' &&
+		centralProject &&
+		(!overlaps || centralProject.id !== legacy.projectId)
+	) {
+		throw new Error(
+			`Both legacy state at ${localRoot} and central state at ${centralRoot} are bound to this workspace. Refusing to choose between split histories; run \`namzu state\` for the two inventories.`,
+		)
+	}
+
+	let root: string
+	let store: DiskSessionStore
+	let projectId: ProjectId
+	let backend: CliSessions['backend']
+	if (legacy.kind === 'valid') {
+		root = legacy.root
+		store = new DiskSessionStore({ rootDir: root })
+		projectId = legacy.projectId
+		backend = 'legacy'
+		ensurePrivateStateDirectory(root, 'projects')
+		ensurePrivateStateDirectory(root, 'goals')
+	} else {
+		root = centralRoot
+		ensurePrivateStateDirectory(root, 'projects')
+		ensurePrivateStateDirectory(root, 'goals')
+		store = centralStore
+		let project = centralProject
+		if (!project) {
+			try {
+				project = await store.createProject(
+					{ tenantId: TENANT, name: 'namzu CLI', rootPath: workingDirectory },
+					TENANT,
+				)
+			} catch (error) {
+				// Another process may have won the immutable root binding between our
+				// lookup and publication. Re-read; every other failure stays a failure.
+				project = await store.findProjectByRootPath(workingDirectory, TENANT)
+				if (!project) throw error
+			}
+		}
+		projectId = project.id
+		backend = 'central'
+	}
+
+	const projectStateRoot = new DefaultPathBuilder(root).projectDir(projectId)
+	const controlRoot = backend === 'central' ? join(projectStateRoot, 'cli') : root
+	if (backend === 'central') ensurePrivateStateDirectory(projectStateRoot, 'cli')
 	// The root also holds authored project commands/plugins and may legitimately
 	// be shareable. Generated conversation and goal state is not: make those
 	// partitions the owner-only privacy boundary before any store writes.
-	ensurePrivateStateDirectory(root, 'projects')
-	ensurePrivateStateDirectory(root, 'goals')
-	const store = new DiskSessionStore({ rootDir: root })
-	const pointerPath = join(root, 'cli.json')
-
-	let projectId: ProjectId | undefined
-	try {
-		const ptr = JSON.parse(readFileSync(pointerPath, 'utf8')) as {
-			projectId?: string
-		}
-		// Prefix-checked, and a bad pointer is treated exactly like a stale one:
-		// the next lines already drop a projectId whose directory is gone, so a
-		// hand-edited `cli.json` takes the same path instead of carrying a
-		// non-id into a store lookup.
-		if (typeof ptr.projectId === 'string' && ptr.projectId.startsWith('prj_')) {
-			projectId = asProjectId(ptr.projectId)
-		}
-	} catch {
-		// no pointer yet
-	}
-	if (projectId && !(await store.getProject(projectId, TENANT))) {
-		projectId = undefined // pointer is stale (dir wiped)
-	}
-	if (!projectId) {
-		const project = await store.createProject({ tenantId: TENANT, name: 'namzu CLI' }, TENANT)
-		projectId = project.id
-		mkdirSync(root, { recursive: true })
-		writeFileSync(pointerPath, `${JSON.stringify({ projectId }, null, 2)}\n`, {
-			mode: 0o600,
-		})
-	}
 	return {
 		store,
 		goals: new DiskSessionGoalStore({ rootDir: root, sessions: store }),
@@ -127,6 +295,9 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 		topicId: THREAD,
 		tenantId: TENANT,
 		root,
+		projectStateRoot,
+		controlRoot,
+		backend,
 		turnEvidence: new DiskConversationEvidence({ root, projectId }),
 	}
 }
@@ -135,13 +306,95 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 // namzu conversation id, so reopening that session resumes the same
 // transcript. Kept as a small JSON pointer beside cli.json.
 const DESKTOP_MAP = 'desktop-sessions.json'
+const DESKTOP_MAP_LOCK = `${DESKTOP_MAP}.lock`
+const DESKTOP_MAP_LOCK_TIMEOUT_MS = 5_000
+const DESKTOP_MAP_LOCK_POLL_MS = 10
 
 function readDesktopMap(root: string): Record<string, string> {
+	const path = join(root, DESKTOP_MAP)
+	let raw: unknown
 	try {
-		const raw = JSON.parse(readFileSync(join(root, DESKTOP_MAP), 'utf8'))
-		return raw && typeof raw === 'object' ? (raw as Record<string, string>) : {}
-	} catch {
-		return {}
+		raw = JSON.parse(readFileSync(path, 'utf8'))
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+		throw new Error(
+			`Cannot read ${path}; refusing to replace an existing desktop-session map: ${error instanceof Error ? error.message : String(error)}`,
+		)
+	}
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+		throw new Error(
+			`Cannot read ${path}; its top level must be an object. Refusing to replace the existing desktop-session map.`,
+		)
+	}
+	const map: Record<string, string> = {}
+	for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+		if (typeof value !== 'string' || !value.startsWith('ses_')) {
+			throw new Error(
+				`Cannot read ${path}; desktop session ${JSON.stringify(key)} does not name a Session id. Refusing to replace the existing map.`,
+			)
+		}
+		// Validate the full branded-id grammar instead of accepting only a
+		// prefix that happens to look right.
+		asSessionId(value)
+		map[key] = value
+	}
+	return map
+}
+
+function wait(ms: number): Promise<void> {
+	return new Promise((resolveWait) => setTimeout(resolveWait, ms))
+}
+
+/**
+ * Hold one process-wide lease while mutating the shared desktop map.
+ *
+ * `open(..., "wx")` is the filesystem's exclusive-create primitive, so two
+ * Namzu processes cannot both perform a stale read-modify-write. A crashed
+ * owner deliberately leaves a lock behind: guessing that it is stale and
+ * deleting it automatically would reintroduce the race this lease prevents.
+ */
+async function acquireDesktopMapLock(root: string): Promise<() => void> {
+	mkdirSync(root, { recursive: true })
+	const path = join(root, DESKTOP_MAP_LOCK)
+	const token = `${process.pid}:${randomBytes(12).toString('hex')}`
+	const deadline = Date.now() + DESKTOP_MAP_LOCK_TIMEOUT_MS
+	for (;;) {
+		let descriptor: number | undefined
+		try {
+			descriptor = openSync(path, 'wx', 0o600)
+			writeFileSync(descriptor, `${token}\n`, 'utf8')
+			fsyncSync(descriptor)
+			closeSync(descriptor)
+			descriptor = undefined
+			if (process.platform !== 'win32') chmodSync(path, 0o600)
+			restrictToOwner(path)
+			return () => {
+				try {
+					if (readFileSync(path, 'utf8').trim() === token) rmSync(path, { force: true })
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+				}
+			}
+		} catch (error) {
+			if (descriptor !== undefined) closeSync(descriptor)
+			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+				// We may have created the path and then failed to initialize it. It
+				// cannot be mistaken for somebody else's lock because exclusive
+				// create succeeded in this branch.
+				try {
+					if (readFileSync(path, 'utf8').trim() === token) rmSync(path, { force: true })
+				} catch {
+					// Preserve the original acquisition error.
+				}
+				throw error
+			}
+			if (Date.now() >= deadline) {
+				throw new Error(
+					`Timed out waiting for ${path}. Another Namzu process may be updating desktop session bindings. If no Namzu process is running, inspect and remove this stale lock manually.`,
+				)
+			}
+			await wait(DESKTOP_MAP_LOCK_POLL_MS)
+		}
 	}
 }
 
@@ -152,24 +405,53 @@ function readDesktopMap(root: string): Record<string, string> {
  * the mapped id was wiped.
  */
 export async function resolveConversation(s: CliSessions, key: string): Promise<SessionId> {
-	const map = readDesktopMap(s.root)
+	const existing = await resolveExistingConversation(s, key, readDesktopMap(s.controlRoot))
+	if (existing) {
+		await requireWritableConversation(s, existing, 'continue keyed conversation')
+		return existing
+	}
+
+	const release = await acquireDesktopMapLock(s.controlRoot)
+	try {
+		// A different process may have published this key while we waited.
+		const map = readDesktopMap(s.controlRoot)
+		const winner = await resolveExistingConversation(s, key, map)
+		if (winner) {
+			await requireWritableConversation(s, winner, 'continue keyed conversation')
+			return winner
+		}
+		const id = await startConversation(s)
+		map[key] = id
+		writePrivateJson(s.controlRoot, DESKTOP_MAP, map)
+		return id
+	} finally {
+		release()
+	}
+}
+
+/** Read an external-session binding without creating or widening its scope. */
+export async function findMappedConversation(
+	s: CliSessions,
+	key: string,
+): Promise<SessionId | null> {
+	return await resolveExistingConversation(s, key, readDesktopMap(s.controlRoot))
+}
+
+async function resolveExistingConversation(
+	s: CliSessions,
+	key: string,
+	map: Readonly<Record<string, string>>,
+): Promise<SessionId | null> {
 	const existing = map[key]
 	// Same treatment as the project pointer above: a mapped id that is not an
-	// id is indistinguishable from one whose session was wiped, and this
-	// function already knows what to do about that — mint a fresh one.
+	// id is indistinguishable from one whose session was wiped. The read-only
+	// caller reports no binding; the writable caller may then mint a fresh one.
 	if (existing?.startsWith('ses_')) {
 		const mapped = asSessionId(existing)
 		const session = await s.store.getSession(mapped, s.tenantId)
-		if (session) {
-			await requireWritableConversation(s, mapped, 'continue keyed conversation')
-			return mapped
-		}
+		if (session?.projectId === s.projectId && session.topicId === s.topicId) return mapped
 	}
-	const id = await startConversation(s)
-	map[key] = id
-	mkdirSync(s.root, { recursive: true })
-	writeFileSync(join(s.root, DESKTOP_MAP), `${JSON.stringify(map, null, 2)}\n`, { mode: 0o600 })
-	return id
+	return null
 }
 
 /**
@@ -299,13 +581,13 @@ export async function replaceConversation(
 ): Promise<void> {
 	await requireWritableConversation(s, sessionId, 'replace conversation history')
 	const existing = await loadConversation(s, sessionId)
-	const titles = readTitles(s.root)
+	const titles = readTitles(s.controlRoot)
 	if (titles[sessionId as string] === undefined) {
 		titles[sessionId as string] = {
 			title: conversationTitle(existing),
 			named: false,
 		}
-		writeTitles(s.root, titles)
+		writeTitles(s.controlRoot, titles)
 	}
 	await s.store.replaceMessages(sessionId, messages, s.tenantId)
 }
@@ -338,12 +620,12 @@ export async function loadResumableConversation(
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
 	await requireOpenProject(s.store, s.projectId, s.tenantId, 'list resumable conversations')
 	const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
-	const titles = readTitles(s.root)
+	const titles = readTitles(s.controlRoot)
 	const out: RecentConversation[] = []
 	for (const sess of sessions) {
-		// The CLI topic id is intentionally stable, so a store root that contains
+		// The CLI Topic id is intentionally stable, so a store root that contains
 		// an older Project can contain the same topic id more than once. The cwd's
-		// cli.json pointer — `s.projectId` — is the authority; topic membership
+		// selected Project — `s.projectId` — is the authority; Topic membership
 		// alone is not. Archived Session records are tombstones, not resume rows.
 		if (sess.projectId !== s.projectId || sess.status === 'archived') continue
 		const messages = await s.store.loadMessages(sess.id, s.tenantId)
@@ -417,11 +699,16 @@ function readTitles(root: string): Record<string, StoredTitle> {
 }
 
 function writeTitles(root: string, titles: Readonly<Record<string, StoredTitle>>): void {
+	writePrivateJson(root, TITLES_FILE, titles)
+}
+
+/** Crash-safe publication for the small CLI sidecars scoped to one Project. */
+function writePrivateJson(root: string, filename: string, value: unknown): void {
 	mkdirSync(root, { recursive: true })
-	const path = titlesPath(root)
+	const path = join(root, filename)
 	const temporary = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
 	try {
-		writeFileSync(temporary, `${JSON.stringify(titles, null, 2)}\n`, {
+		writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, {
 			encoding: 'utf-8',
 			flag: 'wx',
 			mode: 0o600,
@@ -436,7 +723,7 @@ function writeTitles(root: string, titles: Readonly<Record<string, StoredTitle>>
 
 /** The name a person gave this conversation, or `undefined`. */
 export function titleOf(s: CliSessions, sessionId: SessionId): string | undefined {
-	const stored = readTitles(s.root)[sessionId as string]
+	const stored = readTitles(s.controlRoot)[sessionId as string]
 	return stored?.named ? stored.title : undefined
 }
 
@@ -448,11 +735,11 @@ export function titleOf(s: CliSessions, sessionId: SessionId): string | undefine
  * show a blank row that reads as a conversation with nothing in it.
  */
 export function setTitle(s: CliSessions, sessionId: SessionId, title: string): void {
-	const titles = readTitles(s.root)
+	const titles = readTitles(s.controlRoot)
 	const trimmed = title.trim()
 	if (trimmed === '') delete titles[sessionId as string]
 	else titles[sessionId as string] = { title: trimmed, named: true }
-	writeTitles(s.root, titles)
+	writeTitles(s.controlRoot, titles)
 }
 
 /**
@@ -556,7 +843,8 @@ async function writeFork(
 		| { readonly kind: 'all' }
 		| { readonly kind: 'before-user'; readonly userOrdinal: number },
 ): Promise<{ id: SessionId; title: string }> {
-	const source = readTitles(s.root)[sourceId as string]?.title ?? conversationTitle(sourceMessages)
+	const source =
+		readTitles(s.controlRoot)[sourceId as string]?.title ?? conversationTitle(sourceMessages)
 	const origin = await forkOrigin(s, sourceId, sourceMessages, copiedMessages.length, boundary)
 	const id = await createConversation(s)
 	// The copied model context is published as one replacement record and read
@@ -572,7 +860,7 @@ async function writeFork(
 	await s.turnEvidence?.recordOrigin(id, origin)
 	const title = nextForkName(
 		Object.fromEntries(
-			Object.entries(readTitles(s.root)).map(([key, value]) => [key, value.title]),
+			Object.entries(readTitles(s.controlRoot)).map(([key, value]) => [key, value.title]),
 		),
 		source,
 	)

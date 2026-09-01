@@ -48,12 +48,14 @@ describe('naming a conversation', () => {
 			// `mode` is ignored when a direct write replaces an existing file. Seed
 			// the old permissive shape so the assertion proves upgrade behaviour,
 			// not only the first-write default.
-			writeFileSync(join(s.root, 'titles.json'), '{}\n', { mode: 0o644 })
+			writeFileSync(join(s.controlRoot, 'titles.json'), '{}\n', {
+				mode: 0o644,
+			})
 			setTitle(s, id, 'private title')
 
 			expect(lstatSync(join(s.root, 'projects')).mode & 0o777).toBe(0o700)
 			expect(lstatSync(join(s.root, 'goals')).mode & 0o777).toBe(0o700)
-			expect(lstatSync(join(s.root, 'titles.json')).mode & 0o777).toBe(0o600)
+			expect(lstatSync(join(s.controlRoot, 'titles.json')).mode & 0o777).toBe(0o600)
 		},
 	)
 
@@ -151,7 +153,7 @@ describe('naming a conversation', () => {
 		const s = await project()
 		const id = await startConversation(s)
 		await appendMessages(s, id, [said('user', 'still listed')])
-		writeFileSync(join(s.root, 'titles.json'), '{ this is not json', 'utf-8')
+		writeFileSync(join(s.controlRoot, 'titles.json'), '{ this is not json', 'utf-8')
 
 		const [row] = await listRecent(s)
 
@@ -163,7 +165,7 @@ describe('naming a conversation', () => {
 		const id = await startConversation(s)
 		await appendMessages(s, id, [said('user', 'still listed')])
 		writeFileSync(
-			join(s.root, 'titles.json'),
+			join(s.controlRoot, 'titles.json'),
 			JSON.stringify({ [id]: { not: 'a string' } }),
 			'utf-8',
 		)
@@ -177,7 +179,7 @@ describe('naming a conversation', () => {
 		const id = await startConversation(s)
 		await appendMessages(s, id, [said('user', 'opening')])
 		writeFileSync(
-			join(s.root, 'titles.json'),
+			join(s.controlRoot, 'titles.json'),
 			JSON.stringify({ [id]: 'legacy chosen name' }),
 			'utf-8',
 		)
@@ -219,7 +221,10 @@ describe('forking a conversation', () => {
 		await expect(forkConversation(s, source)).rejects.toThrow(/exact copied history/i)
 
 		const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
-		const partial = sessions.find((session) => session.id !== source)
+		const partial = sessions.find(
+			(session) =>
+				session.id !== source && session.projectId === s.projectId && session.topicId === s.topicId,
+		)
 		if (!partial) throw new Error('fixture expected the interrupted fork session')
 		expect(await loadConversation(s, partial.id)).toEqual([messages[0]])
 		expect(await s.turnEvidence?.read(partial.id)).toEqual({

@@ -1972,43 +1972,39 @@ export function App({
 	}, [])
 
 	// Open the SDK session store and select the durable conversation once.
-	// Ordinary startup remains best-effort; an explicit `namzu resume <id>` is
-	// exact and therefore refuses instead of silently widening to a fresh chat.
-	const ensureSessions = useCallback(async (): Promise<RunScope | undefined> => {
+	// This is an admission gate for every startup, not optional persistence: a
+	// corrupt or split estate must not silently widen into cwd-local state and
+	// let the model run against a different history than the operator selected.
+	const ensureSessions = useCallback(async (): Promise<RunScope> => {
 		if (scopeRef.current) return scopeRef.current
 		const requestedConversationId = initialConversationIdRef.current
-		try {
-			const sessions = await openSessions(ctxRef.current.cwd)
-			let sessionId: SessionId
-			if (requestedConversationId) {
-				const restored = await loadResumableConversation(sessions, requestedConversationId)
-				sessionId = asSessionId(requestedConversationId)
-				modelHistoryRef.current = restored
-				setMessages(projectConversation(restored, nextId))
-				setHistory(promptHistoryFromConversation(restored))
-				const persistedOutput = latestAssistantOutput(restored)
-				lastCompletedOutputRef.current = persistedOutput
-					? { text: persistedOutput, provenance: 'persisted' }
-					: null
-				initialConversationIdRef.current = undefined
-				conversationMaterializedRef.current = true
-			} else {
-				// Provider/tool startup needs stable project/tenant/topic ids, not a
-				// durable conversation. The cursor is replaced on first admitted use.
-				sessionId = generateSessionId()
-			}
-			sessionsRef.current = sessions
-			scopeRef.current = {
-				sessionId,
-				topicId: sessions.topicId,
-				projectId: sessions.projectId,
-				tenantId: sessions.tenantId,
-			}
-			return scopeRef.current
-		} catch (error) {
-			if (requestedConversationId) throw error
-			return undefined
+		const sessions = await openSessions(ctxRef.current.cwd)
+		let sessionId: SessionId
+		if (requestedConversationId) {
+			const restored = await loadResumableConversation(sessions, requestedConversationId)
+			sessionId = asSessionId(requestedConversationId)
+			modelHistoryRef.current = restored
+			setMessages(projectConversation(restored, nextId))
+			setHistory(promptHistoryFromConversation(restored))
+			const persistedOutput = latestAssistantOutput(restored)
+			lastCompletedOutputRef.current = persistedOutput
+				? { text: persistedOutput, provenance: 'persisted' }
+				: null
+			initialConversationIdRef.current = undefined
+			conversationMaterializedRef.current = true
+		} else {
+			// Provider/tool startup needs stable project/tenant/topic ids, not a
+			// durable conversation. The cursor is replaced on first admitted use.
+			sessionId = generateSessionId()
 		}
+		sessionsRef.current = sessions
+		scopeRef.current = {
+			sessionId,
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+		}
+		return scopeRef.current
 	}, [nextId])
 
 	/** Publish the provisional conversation exactly once, at first durable use. */
@@ -2054,6 +2050,9 @@ export function App({
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				...(sessionsRef.current?.backend === 'central'
+					? { stateRoot: sessionsRef.current.root }
+					: {}),
 				enableComputerUse: true,
 				rules: activeCtx.rules,
 				...(sessionsRef.current ? { sessionGoals: sessionsRef.current.goals } : {}),
@@ -3294,7 +3293,11 @@ export function App({
 						event.isError ? '✗' : '✓',
 						done?.detail,
 						event.isError ? theme.status.error : theme.status.ok,
-						done ? formatElapsed(Date.now() - done.startedAt) : undefined,
+						event.durationMs !== undefined
+							? formatElapsed(event.durationMs)
+							: done
+								? formatElapsed(Date.now() - done.startedAt)
+								: undefined,
 					)
 					if (
 						event.isError ||

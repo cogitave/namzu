@@ -1,4 +1,5 @@
 import type { ProjectInstructionContext } from '../../runtime/query/project-instructions.js'
+import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import type { Logger } from '../../utils/logger.js'
 import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
@@ -30,6 +31,15 @@ export interface BaseAgentConfig {
 	maxResponseTokens?: number
 	costLimitUsd?: number
 	permissionMode?: PermissionMode
+
+	/**
+	 * Durable run/checkpoint layout for this agent invocation.
+	 *
+	 * Absent preserves the kernel default rooted at the run's working
+	 * directory. Hosts with a central application home pass one builder here;
+	 * every concrete agent forwards it to the same `query()` boundary.
+	 */
+	pathBuilder?: PathBuilder
 
 	/**
 	 * Run-level sandbox limits and workspace ownership.

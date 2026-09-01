@@ -17,6 +17,7 @@ import type { CommandContext } from '../types.js'
 
 const drainRuns = vi.fn()
 const constructedStores: unknown[] = []
+const agentSpies = vi.hoisted(() => ({ createAgentSession: vi.fn() }))
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
@@ -52,13 +53,14 @@ const resumeDurable = vi.fn(async (_params: { entry: { runId: string }; claimFen
 const sessionStub = fakeAgentSession({
 	resumeDurable: resumeDurable as unknown as ReturnType<typeof fakeAgentSession>['resumeDurable'],
 })
+agentSpies.createAgentSession.mockResolvedValue(sessionStub)
 
 vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
 		preferences: { version: 3, providers: [{ id: 'mock' }], subagents: { active: [] } },
 		detected: [],
 	})),
-	createAgentSession: vi.fn(async () => sessionStub),
+	createAgentSession: agentSpies.createAgentSession,
 }))
 
 const { drainCommand, parseDrainFlags, resolveDrainScope } = await import('../drain.js')
@@ -205,6 +207,7 @@ describe('the command refuses before it opens anything', () => {
 describe('the drain is actually reached', () => {
 	it('drains the scope the operator named, under a holder and a lease', async () => {
 		drainRuns.mockClear()
+		agentSpies.createAgentSession.mockClear()
 		drainsOneRun()
 		const { ctx } = contextCapturing()
 
@@ -220,6 +223,16 @@ describe('the drain is actually reached', () => {
 			holder: 'w_one',
 			ttlMs: 1000,
 			maxConcurrent: 3,
+		})
+		expect(agentSpies.createAgentSession).toHaveBeenCalledTimes(1)
+		expect(agentSpies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({
+			stateRoot: process.env.NAMZU_HOME,
+			scope: {
+				tenantId: 'tnt_x',
+				projectId: 'prj_x',
+				sessionId: 'ses_x',
+				topicId: 'top_namzu-cli',
+			},
 		})
 	})
 

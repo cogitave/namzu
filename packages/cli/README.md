@@ -80,9 +80,18 @@ same package back before reporting success. It refuses local checkouts and
 unknown package-manager layouts instead of guessing at another binary on
 `PATH`; update those with the package manager that installed them.
 
-`namzu state` inventories the current workspace's `.namzu` tree and the
-user-level `~/.namzu` tree without loading either config cascade or constructing
-a store. It reports authored/configuration/runtime/control bytes, canonical
+Generated CLI state now lives below the application home: `~/.namzu` by
+default, or the existing real directory named by `NAMZU_HOME`. The canonical
+working directory is bound to one Project there, so every Bash, Write and Edit
+in a session sees the same caller-owned workspace while transcripts, runs,
+memory and tasks survive process and sandbox-handle teardown. A project-local
+`.namzu` is reserved for authored `commands`, `plugins` and `skills`. A valid
+older project-local runtime remains authoritative; corrupt or split local and
+central histories refuse instead of opening an apparently empty conversation.
+
+`namzu state` inventories the current workspace's legacy `.namzu` tree and the
+resolved application-home tree without loading either config cascade or
+changing either tree. It reports authored/configuration/runtime/control bytes, canonical
 sessions and runs, raw checkpoint and emergency-save files, attachment pairs,
 privacy boundaries, and project binding health. JSON and YAML use the global
 `--format` flag. The snapshot is best-effort and unlocked: origin-only sessions
@@ -223,6 +232,11 @@ Each turn owns and tears down a fresh sandbox handle, while the caller-owned
 project files survive and remain visible to later turns and delegated agents.
 Set `sandbox.workspace` to `ephemeral` only when a disposable per-run tree is
 the intended behavior; `/status` reports which mode is active.
+
+The default sandbox exposes Bash as a foreground, serialized operation. It does
+not advertise the background-job tool or a `run_in_background` input that the
+sandbox cannot preserve. Use delegated agents for independent concurrent work;
+turning the sandbox off restores the host background-job capability.
 
 Ctrl+L clears only the rendered terminal transcript while idle. It preserves
 model context, durable conversation history and copy/export targets, matching

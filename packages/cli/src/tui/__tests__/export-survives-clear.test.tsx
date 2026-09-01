@@ -45,6 +45,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 		): Promise<AgentSession> => {
 			const scope = options.scope
 			if (!scope) throw new Error('fixture requires a durable scope')
+			const stateRoot = options.stateRoot ?? join(root, '.namzu')
 			return {
 				hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
@@ -73,7 +74,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					const runId = sendOptions?.runId
 					if (!runId) throw new Error('App did not reserve a run id')
 					const evidencePath = join(
-						new DefaultPathBuilder(join(root, '.namzu')).sessionDir(
+						new DefaultPathBuilder(stateRoot).sessionDir(
 							scope.projectId,
 							scope.sessionId,
 						),
@@ -92,7 +93,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					])
 					const result = createToolMessage('durable tool result', toolUseId)
 					const last = createAssistantMessage('Done.')
-					const runDir = new DefaultPathBuilder(join(root, '.namzu')).runDir(
+					const runDir = new DefaultPathBuilder(stateRoot).runDir(
 						scope.projectId,
 						scope.sessionId,
 						runId,

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, symlink } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -7,6 +7,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ProjectRootPathTakenError } from '../../../session/errors.js'
 import type { TenantId } from '../../../types/ids/index.js'
 import type { SessionStore } from '../../../types/session/store.js'
+import { rootPathIndexKey } from '../canonical-path.js'
 import { DiskSessionStore } from '../disk.js'
 import { InMemorySessionStore } from '../memory.js'
 
@@ -134,7 +135,7 @@ for (const factory of factories) {
 }
 
 describe('DiskSessionStore — the lookup does not scan', () => {
-	it('answers from one index file, not by opening every project.json', async () => {
+	it('answers from one per-root binding, not by opening every project.json', async () => {
 		// The property that makes this usable at all. A scan opens every
 		// project a host has ever made to answer a question about one
 		// directory, and gets slower forever. Asserted structurally, because
@@ -155,7 +156,101 @@ describe('DiskSessionStore — the lookup does not scan', () => {
 
 		const entries = await readdir(join(rootDir, 'projects'))
 
-		expect(entries).toContain('root-path-index.json')
+		expect(entries).toContain('.root-path-index')
 		expect((await store.findProjectByRootPath(target, TENANT_A))?.id).toBe(wanted.id)
+	})
+
+	it('publishes exactly one Project when two store instances race for one root', async () => {
+		const rootDir = await temp('namzu-root-race-store-')
+		const boundRoot = await temp('namzu-root-race-workspace-')
+		const first = new DiskSessionStore({ rootDir })
+		const second = new DiskSessionStore({ rootDir })
+
+		const outcomes = await Promise.allSettled([
+			first.createProject({ tenantId: TENANT_A, name: 'first', rootPath: boundRoot }, TENANT_A),
+			second.createProject({ tenantId: TENANT_A, name: 'second', rootPath: boundRoot }, TENANT_A),
+		])
+		const fulfilled = outcomes.filter((outcome) => outcome.status === 'fulfilled')
+		const rejected = outcomes.filter((outcome) => outcome.status === 'rejected')
+
+		expect(fulfilled).toHaveLength(1)
+		expect(rejected).toHaveLength(1)
+		expect(rejected[0]?.reason).toBeInstanceOf(ProjectRootPathTakenError)
+		const winner = await first.findProjectByRootPath(boundRoot, TENANT_A)
+		expect(winner?.id).toBe(fulfilled[0]?.status === 'fulfilled' ? fulfilled[0].value.id : '')
+	})
+
+	it('does not lose either binding when different roots publish concurrently', async () => {
+		const rootDir = await temp('namzu-root-parallel-store-')
+		const rootA = await temp('namzu-root-parallel-a-')
+		const rootB = await temp('namzu-root-parallel-b-')
+		const first = new DiskSessionStore({ rootDir })
+		const second = new DiskSessionStore({ rootDir })
+
+		const [projectA, projectB] = await Promise.all([
+			first.createProject({ tenantId: TENANT_A, name: 'a', rootPath: rootA }, TENANT_A),
+			second.createProject({ tenantId: TENANT_A, name: 'b', rootPath: rootB }, TENANT_A),
+		])
+
+		expect((await first.findProjectByRootPath(rootA, TENANT_A))?.id).toBe(projectA.id)
+		expect((await second.findProjectByRootPath(rootB, TENANT_A))?.id).toBe(projectB.id)
+	})
+
+	it('refuses an immutable binding whose Project record declares a different root', async () => {
+		const rootDir = await temp('namzu-root-integrity-store-')
+		const boundRoot = await temp('namzu-root-integrity-workspace-')
+		const otherRoot = await temp('namzu-root-integrity-other-')
+		const store = new DiskSessionStore({ rootDir })
+		const project = await store.createProject(
+			{ tenantId: TENANT_A, name: 'bound', rootPath: boundRoot },
+			TENANT_A,
+		)
+		const projectPath = join(rootDir, 'projects', project.id, 'project.json')
+		const record = JSON.parse(await readFile(projectPath, 'utf8')) as Record<string, unknown>
+		await writeFile(projectPath, `${JSON.stringify({ ...record, rootPath: otherRoot })}\n`)
+
+		await expect(store.findProjectByRootPath(boundRoot, TENANT_A)).rejects.toThrow(
+			/Project declares/i,
+		)
+	})
+
+	it('refuses an immutable binding whose Project record is missing', async () => {
+		const rootDir = await temp('namzu-root-dangling-store-')
+		const boundRoot = await temp('namzu-root-dangling-workspace-')
+		const store = new DiskSessionStore({ rootDir })
+		const project = await store.createProject(
+			{ tenantId: TENANT_A, name: 'bound', rootPath: boundRoot },
+			TENANT_A,
+		)
+		await rm(join(rootDir, 'projects', project.id), { recursive: true })
+
+		await expect(store.findProjectByRootPath(boundRoot, TENANT_A)).rejects.toThrow(
+			/points to missing Project/i,
+		)
+	})
+
+	it('refuses disagreement between immutable and legacy root indexes', async () => {
+		const rootDir = await temp('namzu-root-conflict-store-')
+		const boundRoot = await temp('namzu-root-conflict-workspace-')
+		const store = new DiskSessionStore({ rootDir })
+		await store.createProject(
+			{ tenantId: TENANT_A, name: 'immutable', rootPath: boundRoot },
+			TENANT_A,
+		)
+		const legacyTarget = await store.createProject(
+			{ tenantId: TENANT_A, name: 'legacy-target' },
+			TENANT_A,
+		)
+		await writeFile(
+			join(rootDir, 'projects', 'root-path-index.json'),
+			`${JSON.stringify({
+				[rootPathIndexKey(boundRoot, TENANT_A)]: legacyTarget.id,
+				schemaVersion: 4,
+			})}\n`,
+		)
+
+		await expect(store.findProjectByRootPath(boundRoot, TENANT_A)).rejects.toThrow(
+			/Conflicting Project root-path bindings/i,
+		)
 	})
 })

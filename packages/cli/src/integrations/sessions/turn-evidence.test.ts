@@ -288,7 +288,7 @@ describe('CLI turn evidence', () => {
 		const sessions = await openSessions(root)
 		const sessionId = await startConversation(sessions)
 		const path = join(
-			new DefaultPathBuilder(join(root, '.namzu')).sessionDir(sessions.projectId, sessionId),
+			new DefaultPathBuilder(sessions.root).sessionDir(sessions.projectId, sessionId),
 			'turns.jsonl',
 		)
 		await appendFile(path, '{"format":"namzu.cli-turn-evidence.v1"', 'utf-8')

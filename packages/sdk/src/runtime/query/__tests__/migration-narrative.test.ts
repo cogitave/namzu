@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +13,7 @@ import {
 	MIGRATION_VERSION,
 	writeMarker,
 } from '../../../session/migration/index.js'
+import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -121,5 +123,19 @@ describe('the boot-time filesystem migration reaches a log through a real query(
 		expect(migrationRecords).toHaveLength(1)
 		expect(migrationRecords[0]?.severityText).toBe('debug')
 		expect(migrationRecords[0]?.attributes['namzu.migration.kind']).toBe('already_migrated')
+	})
+
+	it('an injected path builder owns migration and leaves the cwd fallback untouched', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-migration-cwd-'))
+		const applicationRoot = await mkdtemp(join(tmpdir(), 'namzu-migration-home-'))
+		dirs.push(workingDirectory, applicationRoot)
+
+		await drainQuery({
+			...baseParams(workingDirectory, 'custom-root'),
+			pathBuilder: new DefaultPathBuilder(applicationRoot),
+		})
+
+		expect(existsSync(join(applicationRoot, MARKER_REL_PATH))).toBe(true)
+		expect(existsSync(join(workingDirectory, '.namzu'))).toBe(false)
 	})
 })

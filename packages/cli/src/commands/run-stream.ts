@@ -8,8 +8,9 @@
  * live: the equivalent of the TUI, driven from another runtime.
  *
  * History: with `--session <key>` the turn is bound to a persisted
- * conversation in the cwd's `.namzu` store (keyed by the embedder's own
- * session id), so prior turns are loaded as context and the kernel's exact
+ * conversation in the central application-home Project associated with the
+ * canonical cwd (keyed by the embedder's own session id), so prior turns are
+ * loaded as context and the kernel's exact
  * settled conversation projection is published — including opaque reasoning
  * and complete tool turns, excluding its fresh per-run system floor. That's
  * what lets a reopened session show and replay its past messages (`namzu
@@ -57,13 +58,14 @@
  * asked for rather than achieving it.
  */
 
-import { type Message, jsonLinesSink } from '@namzu/sdk'
+import { type Message, type SessionId, generateSessionId, jsonLinesSink } from '@namzu/sdk'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
 	appendMessages,
+	findMappedConversation,
 	loadConversation,
 	openSessions,
 	replaceConversation,
@@ -218,18 +220,25 @@ export const runStreamCommand: CommandDef = {
 		}
 		const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
 
-		// Resolve the persisted conversation (if a session key was given) so we
-		// load prior turns as context and can append this turn afterward. Falls
-		// back to stdin-supplied history when running stateless.
-		let cli: Awaited<ReturnType<typeof openSessions>> | null = null
-		let conversationId: string | null = null
+		// Resolve the workspace's central Project for every run. A session key
+		// additionally binds a durable conversation; without one, stdin history
+		// remains stateless and no Session record is created.
+		let cli: Awaited<ReturnType<typeof openSessions>>
+		let conversationId: SessionId | null = null
 		let prior: Message[] = []
-		if (sessionKey) {
-			try {
-				cli = await openSessions(cwd)
+		if (!sessionKey) {
+			const parsed = parsePriorMessages(await readStdin())
+			if (!parsed.ok) return fail(`invalid stdin history: ${parsed.error}`)
+			prior = [...parsed.messages]
+		}
+		try {
+			cli = await openSessions(cwd)
+			if (sessionKey) {
 				conversationId = await resolveConversation(cli, sessionKey)
-				prior = await loadConversation(cli, conversationId as never)
-			} catch (err) {
+				prior = await loadConversation(cli, conversationId)
+			}
+		} catch (err) {
+			if (sessionKey) {
 				// Refused, not run stateless.
 				//
 				// This used to set `cli = null` and fall through to the branch
@@ -261,13 +270,10 @@ export const runStreamCommand: CommandDef = {
 					`could not open conversation "${sessionKey}": ${err instanceof Error ? err.message : String(err)}. Nothing ran, because continuing the wrong history is worse than not continuing. Drop --session to run this turn stateless.`,
 				)
 			}
+			return refuse(
+				`could not open workspace state: ${err instanceof Error ? err.message : String(err)}. Nothing ran, because generated state could not be bound to this working directory.`,
+			)
 		}
-		if (!cli) {
-			const parsed = parsePriorMessages(await readStdin())
-			if (!parsed.ok) return fail(`invalid stdin history: ${parsed.error}`)
-			prior = [...parsed.messages]
-		}
-
 		// Always NDJSON on stderr, regardless of --log-format/NAMZU_LOG_FORMAT
 		// — this is the machine-read channel §6.6 of the logging design
 		// describes, and stdout's own protocol is unaffected by anything the
@@ -316,6 +322,13 @@ export const runStreamCommand: CommandDef = {
 		const gate = buildGate(flags, cwd)
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
+			scope: {
+				sessionId: conversationId ?? generateSessionId(),
+				topicId: cli.topicId,
+				projectId: cli.projectId,
+				tenantId: cli.tenantId,
+			},
+			...(cli.backend === 'central' ? { stateRoot: cli.root } : {}),
 			rules: permissions.rules,
 			// The operator's --gate commands, as a standing condition on the
 			// answer. Spread rather than passed as undefined so a run without
@@ -414,14 +427,14 @@ export const runStreamCommand: CommandDef = {
 		// a failure would be wrong. The consequence is named, not just the fault,
 		// because "could not persist" alone does not tell a host that its own
 		// later reads are now incomplete.
-		if (cli && conversationId) {
+		if (conversationId) {
 			try {
 				if (conversationMessages) {
 					const publication = planTurnPublication(prior, userMessage, conversationMessages)
 					if (publication.kind === 'replace') {
-						await replaceConversation(cli, conversationId as never, publication.messages)
+						await replaceConversation(cli, conversationId, publication.messages)
 					} else {
-						await appendMessages(cli, conversationId as never, publication.messages)
+						await appendMessages(cli, conversationId, publication.messages)
 					}
 				} else {
 					const assistant: Message = {
@@ -429,7 +442,7 @@ export const runStreamCommand: CommandDef = {
 						content: assistantText,
 						timestamp: Date.now(),
 					} as Message
-					await appendMessages(cli, conversationId as never, [userMessage, assistant])
+					await appendMessages(cli, conversationId, [userMessage, assistant])
 				}
 			} catch (err) {
 				write({
@@ -465,7 +478,7 @@ export const historyCommand: CommandDef = {
 			return 0
 		}
 		try {
-			// `--cwd` is in this command's help too, and picks the `.namzu` store
+			// `--cwd` is in this command's help too, and picks the central Project
 			// the session is read from. Reading the process's own directory
 			// instead means a host asking about a session in another checkout is
 			// told `[]` — indistinguishable from a session with no messages.
@@ -477,7 +490,7 @@ export const historyCommand: CommandDef = {
 			const cli = await openSessions(resolved.cwd)
 			const map = await import('../integrations/sessions/store.js')
 			// Resolve WITHOUT creating: only emit history for an existing mapping.
-			const existing = await resolveExisting(cli, key)
+			const existing = await findMappedConversation(cli, key)
 			if (!existing) {
 				process.stdout.write('[]\n')
 				return 0
@@ -590,23 +603,4 @@ export const providersJSONCommand: CommandDef = {
 		}
 		return 0
 	},
-}
-
-/** Look up an existing desktop-key → conversation mapping without creating one. */
-async function resolveExisting(
-	cli: Awaited<ReturnType<typeof openSessions>>,
-	key: string,
-): Promise<string | null> {
-	const { readFileSync } = await import('node:fs')
-	const { join } = await import('node:path')
-	try {
-		const raw = JSON.parse(readFileSync(join(cli.root, 'desktop-sessions.json'), 'utf8'))
-		const id = raw?.[key]
-		if (typeof id === 'string' && (await cli.store.getSession(id as never, cli.tenantId))) {
-			return id
-		}
-	} catch {
-		// no map / wiped
-	}
-	return null
 }

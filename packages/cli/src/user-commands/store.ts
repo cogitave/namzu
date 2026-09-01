@@ -29,9 +29,10 @@
  */
 
 import { readFileSync, readdirSync, realpathSync } from 'node:fs'
-import { homedir, platform } from 'node:os'
+import { platform } from 'node:os'
 import { join, resolve } from 'node:path'
 import { parseFrontmatter } from '@namzu/sdk'
+import { namzuHomePath } from '../integrations/state/home.js'
 
 export type UserCommandSource = 'user' | 'project'
 
@@ -57,8 +58,8 @@ export interface UserCommand {
 /** The token a template uses to receive what followed the command. */
 export const ARGUMENTS_TOKEN = '$ARGUMENTS'
 
-export function userCommandsDir(home: string = homedir()): string {
-	return join(home, '.namzu', 'commands')
+export function userCommandsDir(home?: string): string {
+	return join(namzuHomePath(home), 'commands')
 }
 
 export function projectCommandsDir(cwd: string = process.cwd()): string {

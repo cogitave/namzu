@@ -12,6 +12,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { DiskSessionStore, UNKNOWN_TENANT_ID } from '@namzu/sdk'
+
 import { inspectNamzuState } from './report.js'
 
 const roots: string[] = []
@@ -184,6 +186,43 @@ describe('read-only state inventory', () => {
 		})
 		expect(readdirSync(cwd)).toEqual(beforeProject)
 		expect(readdirSync(home)).toEqual(beforeHome)
+	})
+
+	it('classifies project-local skills as authored input rather than unknown runtime state', async () => {
+		const cwd = temporary('authored-skills')
+		const home = temporary('authored-skills-home')
+		mkdirSync(join(cwd, '.namzu', 'skills', 'review'), { recursive: true })
+		writeFileSync(join(cwd, '.namzu', 'skills', 'review', 'SKILL.md'), '# Review\n')
+
+		const report = await inspectNamzuState({ cwd, home })
+		const project = report.roots.find((root) => root.roles.includes('project'))
+
+		expect(project?.categories.authored).toMatchObject({ files: 1 })
+		expect(project?.categories.unknown).toEqual({ files: 0, logicalBytes: 0 })
+		expect(report.projectBinding).toMatchObject({ status: 'uninitialized' })
+	})
+
+	it('honors NAMZU_HOME and reports the central Project bound to this workspace', async () => {
+		const cwd = temporary('central-project')
+		const home = temporary('central-os-home')
+		const stateRoot = temporary('central-override')
+		const project = await new DiskSessionStore({ rootDir: stateRoot }).createProject(
+			{ tenantId: UNKNOWN_TENANT_ID, name: 'central', rootPath: cwd },
+			UNKNOWN_TENANT_ID,
+		)
+
+		const report = await inspectNamzuState({
+			cwd,
+			home,
+			env: { NAMZU_HOME: stateRoot },
+		})
+
+		expect(report.scopeRoots.user).toBe(stateRoot)
+		expect(report.projectBinding).toMatchObject({
+			status: 'bound',
+			projectId: project.id,
+		})
+		expect(readdirSync(cwd)).toEqual([])
 	})
 
 	it('does not follow a symlink outside the state root and marks the snapshot incomplete', async () => {

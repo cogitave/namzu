@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import type { BlobStore } from '@namzu/files'
 import { LocalFsBlobStore } from '@namzu/files/local'
 import type { AttachmentStore, StoredBytes } from '@namzu/sdk'
+import { namzuHomePath } from '../state/home.js'
 
 /**
  * The CLI's attachment store, content-addressed, over a real blob driver.
@@ -26,8 +26,8 @@ import type { AttachmentStore, StoredBytes } from '@namzu/sdk'
  */
 
 /** `<home>/.namzu/attachments`, beside the credential store. */
-export function attachmentsDir(home: string = homedir()): string {
-	return join(home, '.namzu', 'attachments')
+export function attachmentsDir(home?: string): string {
+	return join(namzuHomePath(home), 'attachments')
 }
 
 export interface BlobAttachmentStoreOptions {

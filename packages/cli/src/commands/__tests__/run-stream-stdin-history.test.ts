@@ -42,9 +42,13 @@ vi.mock('../../tui/agent.js', () => ({
 }))
 
 vi.mock('../../integrations/sessions/store.js', () => ({
-	openSessions: vi.fn(async () => {
-		throw new Error('stateless fixture must not open a session store')
-	}),
+	openSessions: vi.fn(async () => ({
+		root: '/state',
+		backend: 'central',
+		topicId: 'top_stateless',
+		projectId: 'prj_stateless',
+		tenantId: 'tnt_stateless',
+	})),
 	resolveConversation: vi.fn(),
 	loadConversation: vi.fn(),
 	appendMessages: vi.fn(),
@@ -138,6 +142,14 @@ describe('run-stream stateless history admission', () => {
 
 		expect(result.code).toBe(0)
 		expect(constructed).toHaveLength(1)
+		expect((constructed[0] as unknown[])[2]).toMatchObject({
+			stateRoot: '/state',
+			scope: {
+				topicId: 'top_stateless',
+				projectId: 'prj_stateless',
+				tenantId: 'tnt_stateless',
+			},
+		})
 		expect(sent).toHaveLength(1)
 		expect(sent[0]?.slice(0, -1)).toEqual(prior)
 		expect(sent[0]?.at(-1)).toMatchObject({ role: 'user', content: 'next question' })

@@ -213,6 +213,12 @@ export interface PluginDiscoveryOptions {
 	readonly autoDiscovery?: boolean
 	/** Which locations may be scanned. Absent means both. */
 	readonly allowedScopes?: readonly PluginScope[]
+	/**
+	 * Exact user application root. When supplied, user plugins live under its
+	 * `plugins/` child. Absent preserves the historical `~/.namzu/plugins`
+	 * lookup for SDK callers that do not own an application-home resolver.
+	 */
+	readonly userRoot?: string
 	/** Threaded into both `discoverPlugins` calls below. */
 	readonly log?: Logger
 }
@@ -260,7 +266,8 @@ export async function discoverAllPluginDirs(
 	const mayScan = (scope: PluginScope): boolean => !scopes || scopes.includes(scope)
 
 	const projectRoot = workingDirectory ?? process.cwd()
-	const userRoot = homedir()
+	const userRoot = options?.userRoot ?? homedir()
+	const userPluginDir = options?.userRoot ? 'plugins' : USER_PLUGIN_DIR
 	const sharedRoot = await samePhysicalDirectory(projectRoot, userRoot)
 
 	const [project, user] = await Promise.all([
@@ -268,7 +275,7 @@ export async function discoverAllPluginDirs(
 			? discoverScopedPlugins(projectRoot, PROJECT_PLUGIN_DIR, 'project', options?.log)
 			: Promise.resolve([]),
 		mayScan('user')
-			? discoverScopedPlugins(userRoot, USER_PLUGIN_DIR, 'user', options?.log)
+			? discoverScopedPlugins(userRoot, userPluginDir, 'user', options?.log)
 			: Promise.resolve([]),
 	])
 

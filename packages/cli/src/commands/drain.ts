@@ -28,6 +28,7 @@ import {
 	asProjectId,
 	asSessionId,
 	asTenantId,
+	asTopicId,
 	drainRuns,
 } from '@namzu/sdk'
 import type { DurableRunEntry, ProjectId, SessionId, TenantId } from '@namzu/sdk'
@@ -35,6 +36,7 @@ import type { DurableRunEntry, ProjectId, SessionId, TenantId } from '@namzu/sdk
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
 import { contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions } from '../permissions/rules.js'
@@ -301,9 +303,29 @@ export const drainCommand: CommandDef = {
 				: `permissions.${diagnostic.tool}`
 			ctx.formatter.error({ message: `${where}: ${diagnostic.message}` })
 		}
+		let stateRoot: string
+		try {
+			stateRoot = resolveNamzuHome()
+		} catch (error) {
+			ctx.formatter.error({
+				message: `application state is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+			})
+			return 1
+		}
 
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
+			scope: {
+				// The checkpoint queue is already exactly scoped by the required
+				// flags below. Constructing the provider under a random CLI Project
+				// and Session would create generated state for a scope the operator
+				// never named, then resume the run under a different one.
+				sessionId: scope.sessionId,
+				topicId: asTopicId('top_namzu-cli'),
+				projectId: scope.projectId,
+				tenantId: scope.tenantId,
+			},
+			stateRoot,
 			rules: permissions.rules,
 			permissionMode: 'auto',
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),

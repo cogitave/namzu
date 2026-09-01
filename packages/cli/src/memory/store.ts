@@ -11,21 +11,22 @@
  */
 
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+
+import { namzuHomePath } from '../integrations/state/home.js'
 
 const DIR_MODE = 0o700
 const FILE_MODE = 0o600
 
-export function memoryDir(home: string = homedir()): string {
-	return join(home, '.namzu')
+export function memoryDir(home?: string): string {
+	return namzuHomePath(home)
 }
 
-export function userFilePath(home: string = homedir()): string {
+export function userFilePath(home?: string): string {
 	return join(memoryDir(home), 'USER.md')
 }
 
-export function memoryFilePath(home: string = homedir()): string {
+export function memoryFilePath(home?: string): string {
 	return join(memoryDir(home), 'MEMORY.md')
 }
 
@@ -44,7 +45,7 @@ function readIfPresent(path: string): string | null {
 }
 
 /** Read USER.md + MEMORY.md, returning null for absent/empty files. */
-export function readMemory(home: string = homedir()): MemoryContent {
+export function readMemory(home?: string): MemoryContent {
 	return {
 		user: readIfPresent(userFilePath(home)),
 		memory: readIfPresent(memoryFilePath(home)),
@@ -75,7 +76,7 @@ export function composeMemoryPrompt(content: MemoryContent): string | null {
 }
 
 /** Append a fact to MEMORY.md as a markdown bullet, creating the file. */
-export function appendMemory(text: string, home: string = homedir()): void {
+export function appendMemory(text: string, home?: string): void {
 	const trimmed = text.trim()
 	if (trimmed.length === 0) return
 	const path = memoryFilePath(home)

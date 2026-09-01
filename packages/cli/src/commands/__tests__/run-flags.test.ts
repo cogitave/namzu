@@ -24,9 +24,18 @@ import type { CommandContext } from '../types.js'
 const seen: {
 	prompt: string | null
 	cwd: string | undefined
+	stateRoot: string | undefined
+	scope: Record<string, unknown> | undefined
 	provider: string | undefined
 	model: string | undefined
-} = { prompt: null, cwd: undefined, provider: undefined, model: undefined }
+} = {
+	prompt: null,
+	cwd: undefined,
+	stateRoot: undefined,
+	scope: undefined,
+	provider: undefined,
+	model: undefined,
+}
 
 /**
  * What the stubbed session reports about project instructions.
@@ -64,9 +73,11 @@ vi.mock('../../tui/agent.js', () => ({
 		async (
 			prefs: { providers?: readonly { id?: string; model?: string }[] },
 			_detected: unknown,
-			opts?: { cwd?: string },
+			opts?: { cwd?: string; stateRoot?: string; scope?: Record<string, unknown> },
 		) => {
 			seen.cwd = opts?.cwd
+			seen.stateRoot = opts?.stateRoot
+			seen.scope = opts?.scope
 			// The head of the chain is what runs, so it is what this file asserts
 			// on. Reading a flat `prefs.provider` here is how this fixture went
 			// stale against production once already.
@@ -116,6 +127,8 @@ async function run(
 ): Promise<{ code: number; errors: string[] }> {
 	seen.prompt = null
 	seen.cwd = undefined
+	seen.stateRoot = undefined
+	seen.scope = undefined
 	seen.provider = undefined
 	seen.model = undefined
 	instructions.loaded = []
@@ -134,6 +147,13 @@ describe('namzu run reads its options instead of reciting them', () => {
 
 			expect(code).toBe(0)
 			expect(seen.cwd).toBe(elsewhere)
+			expect(seen.stateRoot).toBe(process.env.NAMZU_HOME)
+			expect(seen.scope).toMatchObject({
+				topicId: 'top_namzu-cli',
+				projectId: expect.stringMatching(/^prj_/),
+				tenantId: 'tnt_unknown_legacy',
+				sessionId: expect.stringMatching(/^ses_/),
+			})
 			// The whole point: the flag was previously the first two words the
 			// model was asked to act on.
 			expect(seen.prompt).toBe('fix the test')

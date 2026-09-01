@@ -21,6 +21,7 @@
  * path lives in Phase 7 of the overall roadmap.
  */
 
+import { createHash } from 'node:crypto'
 import { appendFile, mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -58,11 +59,10 @@ import {
 	generateSubSessionId,
 } from '../../utils/id.js'
 import { DiskRecordStore } from '../kv/record-store.js'
-//  and  directly, for the append-only `messages.jsonl` path
-// alone: each line there is a whole record carrying its own stamp, because a
-// log is written by many builds over its lifetime and its lines can
-// legitimately differ in version. Every RECORD read and write goes through
-// `records` above instead.
+import {
+	DiskRevisionRecordStore,
+	type RevisionedRecordLocation,
+} from '../kv/revision-record-store.js'
 // `migrate` and `stamp` are imported directly for the append-only
 // `messages.jsonl` path ALONE: each line there is a whole record carrying
 // its own stamp, because a log is written by many builds over its lifetime
@@ -131,6 +131,24 @@ export function migrateSessionStoreMessageRecordKind(
  * removes.
  */
 const records = new DiskRecordStore<unknown>(SCHEMA)
+
+interface RootPathBinding {
+	readonly canonicalPath: string
+	readonly tenantId: string
+	readonly projectId: ProjectId
+	readonly storageRevision: number
+}
+
+interface BoundProject {
+	readonly projectId: ProjectId
+	readonly source: 'immutable' | 'legacy'
+}
+
+const rootPathBindings = new DiskRevisionRecordStore<RootPathBinding>(
+	SCHEMA,
+	'project root-path binding',
+	(record) => record.storageRevision,
+)
 
 /**
  * v2 → v3: NZ-TOPIC-04 narrows the Topic id prefix from `thd_` to `top_`.
@@ -333,9 +351,9 @@ export class DiskSessionStore implements SessionStore {
 		const rootPath =
 			params.rootPath === undefined ? undefined : await canonicalizePath(params.rootPath)
 		if (rootPath !== undefined) {
-			const existing = await this.findProjectByRootPath(rootPath, tenantId)
+			const existing = await this.boundProjectId(rootPath, tenantId)
 			if (existing) {
-				throw new ProjectRootPathTakenError({ rootPath, existingProjectId: existing.id })
+				throw new ProjectRootPathTakenError({ rootPath, existingProjectId: existing.projectId })
 			}
 		}
 
@@ -358,8 +376,33 @@ export class DiskSessionStore implements SessionStore {
 		const dir = join(this.rootDir, 'projects', project.id)
 		await mkdir(dir, { recursive: true })
 		await records.write(join(dir, 'project.json'), serializeProject(project))
+		if (rootPath !== undefined) {
+			try {
+				await this.publishRootPathBinding(rootPath, tenantId, project.id)
+			} catch (error) {
+				let cleanupError: unknown
+				try {
+					await rm(dir, { recursive: true })
+				} catch (cause) {
+					cleanupError = cause
+				}
+				const winner = await this.boundProjectId(rootPath, tenantId)
+				if (cleanupError) {
+					throw new AggregateError(
+						[error, cleanupError],
+						`Project root binding failed and its unpublished candidate ${project.id} could not be removed.`,
+					)
+				}
+				if (winner) {
+					throw new ProjectRootPathTakenError({
+						rootPath,
+						existingProjectId: winner.projectId,
+					})
+				}
+				throw error
+			}
+		}
 		this.projectIndex.set(project.id, { projectId: project.id, path: dir })
-		if (rootPath !== undefined) await this.writeRootPathIndex(rootPath, tenantId, project.id)
 		return project
 	}
 
@@ -370,28 +413,87 @@ export class DiskSessionStore implements SessionStore {
 	 */
 	async findProjectByRootPath(rootPath: string, tenantId: TenantId): Promise<Project | null> {
 		const canonical = await canonicalizePath(rootPath)
+		const bound = await this.boundProjectId(canonical, tenantId)
+		if (!bound) return null
+		const project = await this.getProject(bound.projectId, tenantId)
+		if (!project) {
+			throw new Error(
+				`Project root-path binding for ${canonical} points to missing Project ${bound.projectId}.`,
+			)
+		}
+		if (
+			(bound.source === 'immutable' && project.rootPath !== canonical) ||
+			(bound.source === 'legacy' &&
+				project.rootPath !== undefined &&
+				project.rootPath !== canonical)
+		) {
+			throw new Error(
+				`Project root-path binding for ${canonical} points to ${bound.projectId}, but that Project declares ${project.rootPath ?? 'no rootPath'}.`,
+			)
+		}
+		return project
+	}
+
+	private async boundProjectId(rootPath: string, tenantId: TenantId): Promise<BoundProject | null> {
+		const binding = await rootPathBindings.read(this.rootPathBindingLocation(rootPath, tenantId))
+		if (binding) {
+			if (binding.canonicalPath !== rootPath || binding.tenantId !== tenantId) {
+				throw new Error(
+					`Project root-path binding hash collision or corruption for ${rootPath}; stored identity does not match the lookup.`,
+				)
+			}
+		}
+
+		// Read compatibility for stores written before per-root immutable bindings.
+		// New writes never touch this shared JSON object: its read-modify-write
+		// publication loses entries when two processes create different Projects.
 		const index = await records.read<Record<string, ProjectId>>(this.rootPathIndexPath())
-		// Tenant is part of the KEY, not a filter applied after the lookup.
-		// Two tenants may bind projects to the same path on a shared machine,
-		// and a path-only key would hand one of them the other's project.
-		const projectId = index?.[rootPathIndexKey(canonical, tenantId)]
-		if (!projectId) return null
-		return await this.getProject(projectId, tenantId)
+		const legacyProjectId = index?.[rootPathIndexKey(rootPath, tenantId)]
+		if (binding && legacyProjectId && binding.projectId !== legacyProjectId) {
+			throw new Error(
+				`Conflicting Project root-path bindings for ${rootPath}: immutable binding names ${binding.projectId}, legacy index names ${legacyProjectId}.`,
+			)
+		}
+		if (binding) return { projectId: binding.projectId, source: 'immutable' }
+		return legacyProjectId ? { projectId: legacyProjectId, source: 'legacy' } : null
 	}
 
 	private rootPathIndexPath(): string {
 		return join(this.rootDir, 'projects', 'root-path-index.json')
 	}
 
-	private async writeRootPathIndex(
+	private rootPathBindingLocation(rootPath: string, tenantId: TenantId): RevisionedRecordLocation {
+		const key = rootPathIndexKey(rootPath, tenantId)
+		const digest = createHash('sha256').update(key).digest('hex')
+		const root = join(this.rootDir, 'projects', '.root-path-index', digest.slice(0, 2))
+		return {
+			legacyPath: join(root, `${digest.slice(2)}.json`),
+			revisionsDir: join(root, `${digest.slice(2)}.revisions`),
+		}
+	}
+
+	private async publishRootPathBinding(
 		rootPath: string,
 		tenantId: TenantId,
 		projectId: ProjectId,
 	): Promise<void> {
-		const path = this.rootPathIndexPath()
-		const index = (await records.read<Record<string, ProjectId>>(path)) ?? {}
-		index[rootPathIndexKey(rootPath, tenantId)] = projectId
-		await records.write(path, index)
+		await rootPathBindings.transact(this.rootPathBindingLocation(rootPath, tenantId), (current) => {
+			if (current) {
+				throw new ProjectRootPathTakenError({
+					rootPath,
+					existingProjectId: current.projectId,
+				})
+			}
+			return {
+				record: {
+					canonicalPath: rootPath,
+					tenantId,
+					projectId,
+					storageRevision: 1,
+				},
+				result: undefined,
+			}
+		})
 	}
 
 	async getProject(projectId: ProjectId, tenantId: TenantId): Promise<Project | null> {

@@ -17,6 +17,19 @@
  * Only set when unset, so a contributor debugging a specific test with
  * `NAMZU_LOG_LEVEL=debug pnpm test` gets what they asked for.
  */
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 if (process.env.NAMZU_LOG_LEVEL === undefined) {
 	process.env.NAMZU_LOG_LEVEL = 'silent'
+}
+
+// Production now routes generated state through NAMZU_HOME. Give every test
+// worker an owned application home so a command-level test can never inspect
+// or mutate the developer's real sessions merely because it exercises the
+// production entry point. Preserve an explicit value for tests that launch
+// this suite under a deliberately chosen state root.
+if (process.env.NAMZU_HOME === undefined) {
+	process.env.NAMZU_HOME = mkdtempSync(join(tmpdir(), 'namzu-cli-tests-'))
 }

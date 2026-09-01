@@ -399,6 +399,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					...(config.workingMemoryProvider
 						? { workingMemoryProvider: config.workingMemoryProvider }
 						: {}),
+					...(config.pathBuilder ? { pathBuilder: config.pathBuilder } : {}),
 				},
 				listener,
 			)

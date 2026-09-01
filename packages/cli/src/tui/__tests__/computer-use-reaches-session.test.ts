@@ -146,7 +146,6 @@ describe('computer use session reachability', () => {
 			'edit',
 			'glob',
 			'grep',
-			'job',
 			'read',
 			'write',
 			'search_memory',
@@ -156,7 +155,7 @@ describe('computer use session reachability', () => {
 			'search_tools',
 			'Agent',
 		])
-		const computerUse = queryTools[10]?.function.parameters
+		const computerUse = queryTools[9]?.function.parameters
 		expect(computerUse).toMatchObject({
 			type: 'object',
 			required: ['type'],

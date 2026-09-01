@@ -58,9 +58,10 @@ import {
 	writeFileSync,
 	writeSync,
 } from 'node:fs'
-import { homedir, platform, tmpdir } from 'node:os'
+import { platform, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { namzuHomePath } from '../state/home.js'
 import type { AgentOAuthCredential } from './keychain.js'
 
 const FILE_MODE = 0o600
@@ -94,8 +95,8 @@ interface CredentialDocument {
 	readonly codexSubscription?: StoredCodexCredential
 }
 
-export function credentialsPath(home: string = homedir()): string {
-	return join(home, '.namzu', 'credentials.json')
+export function credentialsPath(home?: string): string {
+	return join(namzuHomePath(home), 'credentials.json')
 }
 
 /**
@@ -107,18 +108,16 @@ export function credentialsPath(home: string = homedir()): string {
  * absence from the reader's point of view, and the login path is what tells
  * the operator to try again.
  */
-export function readStoredSubscriptionCredential(
-	home: string = homedir(),
-): AgentOAuthCredential | null {
+export function readStoredSubscriptionCredential(home?: string): AgentOAuthCredential | null {
 	return readCredentialDocument(home)?.subscription ?? null
 }
 
 /** The Namzu-owned ChatGPT/Codex subscription, if one was obtained here. */
-export function readStoredCodexCredential(home: string = homedir()): StoredCodexCredential | null {
+export function readStoredCodexCredential(home?: string): StoredCodexCredential | null {
 	return readCredentialDocument(home)?.codexSubscription ?? null
 }
 
-function readCredentialDocument(home: string): CredentialDocument | null {
+function readCredentialDocument(home?: string): CredentialDocument | null {
 	let raw: string
 	try {
 		raw = readFileSync(credentialsPath(home), 'utf8')
@@ -181,7 +180,7 @@ function parseCredential(value: unknown): AgentOAuthCredential | null {
  */
 export function writeStoredSubscriptionCredential(
 	cred: AgentOAuthCredential,
-	home: string = homedir(),
+	home?: string,
 ): string {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
@@ -194,10 +193,7 @@ export function writeStoredSubscriptionCredential(
 	})
 }
 
-export function writeStoredCodexCredential(
-	cred: StoredCodexCredential,
-	home: string = homedir(),
-): string {
+export function writeStoredCodexCredential(cred: StoredCodexCredential, home?: string): string {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
 	return withCredentialStoreLock(path, () => {
@@ -216,7 +212,7 @@ export function writeStoredCodexCredential(
 export function replaceStoredCodexCredential(
 	expected: StoredCodexCredential,
 	replacement: StoredCodexCredential,
-	home: string = homedir(),
+	home?: string,
 ): ConditionalCodexCredentialWrite {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
@@ -248,7 +244,7 @@ export function replaceStoredCodexCredential(
 export function replaceStoredSubscriptionCredential(
 	expected: AgentOAuthCredential,
 	replacement: AgentOAuthCredential,
-	home: string = homedir(),
+	home?: string,
 ): ConditionalCredentialWrite {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
@@ -327,7 +323,7 @@ function serializeDocument(document: CredentialDocument): Record<string, unknown
 }
 
 /** Remove the stored credential. Absence is success. */
-export function clearStoredSubscriptionCredential(home: string = homedir()): void {
+export function clearStoredSubscriptionCredential(home?: string): void {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
 	withCredentialStoreLock(path, () => {
@@ -347,7 +343,7 @@ export function clearStoredSubscriptionCredential(home: string = homedir()): voi
 }
 
 /** Remove only the Namzu-owned Codex subscription; borrowed harness auth is untouched. */
-export function clearStoredCodexCredential(home: string = homedir()): void {
+export function clearStoredCodexCredential(home?: string): void {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
 	withCredentialStoreLock(path, () => {
@@ -364,7 +360,7 @@ export function clearStoredCodexCredential(home: string = homedir()): void {
 }
 
 /** Remove every credential Namzu owns in one store mutation. */
-export function clearAllStoredCredentials(home: string = homedir()): void {
+export function clearAllStoredCredentials(home?: string): void {
 	const path = credentialsPath(home)
 	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
 	withCredentialStoreLock(path, () => rmSync(path, { force: true }))

@@ -28,6 +28,7 @@ import {
 	InMemoryTopicStore,
 	type LLMProvider,
 	LocalTaskScheduler,
+	type PathBuilder,
 	type ProjectInstructionContext,
 	ReactiveAgent,
 	type ReactiveAgentConfig,
@@ -75,6 +76,8 @@ const SUBAGENT_PROMPT = [
 export interface SubagentRuntimeOptions {
 	readonly cwd: string
 	readonly model: string
+	/** Durable layout for child runs; omitted preserves the SDK default. */
+	readonly pathBuilder?: PathBuilder
 	/** Root every child allocation at the session workspace or a fresh temp tree. */
 	readonly sandboxWorkspace?: 'working-directory' | 'ephemeral'
 	/** Construct a fresh provider for the sub-agent (current credential). */
@@ -494,6 +497,7 @@ function buildDefinition(
 				...(opts.sandboxTeardownTimeoutMs !== undefined
 					? { sandboxTeardownTimeoutMs: opts.sandboxTeardownTimeoutMs }
 					: {}),
+				...(opts.pathBuilder ? { pathBuilder: opts.pathBuilder } : {}),
 			}
 		},
 	}

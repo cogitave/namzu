@@ -40,9 +40,9 @@
 
 import { randomBytes } from 'node:crypto'
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { namzuHomePath } from '../state/home.js'
 import { PROVIDER_REGISTRY, type ProviderId, unsupportedProviderMessage } from './registry.js'
 
 const FILE_MODE = 0o600
@@ -134,11 +134,11 @@ export function primaryProvider(prefs: Preferences): ProviderChoice {
 	return first
 }
 
-export function preferencesPath(home: string = homedir()): string {
-	return join(home, '.namzu', 'preferences.json')
+export function preferencesPath(home?: string): string {
+	return join(namzuHomePath(home), 'preferences.json')
 }
 
-export function readPreferences(home: string = homedir()): ReadResult {
+export function readPreferences(home?: string): ReadResult {
 	const path = preferencesPath(home)
 	let raw: string
 	try {
@@ -197,7 +197,7 @@ export function readPreferences(home: string = homedir()): ReadResult {
 	return { status: 'ok', prefs: parsed }
 }
 
-export function writePreferences(prefs: Preferences, home: string = homedir()): void {
+export function writePreferences(prefs: Preferences, home?: string): void {
 	if (prefs.version !== PREFERENCES_FILE_VERSION) {
 		throw new PreferencesError(
 			`unsupported preferences version: ${String(prefs.version)} (expected ${PREFERENCES_FILE_VERSION})`,

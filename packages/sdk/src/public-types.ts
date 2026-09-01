@@ -192,6 +192,7 @@ export type {
 } from './tools/coordinator/index.js'
 
 export type {
+	PathBuilder,
 	RegisterSharedRunPlanInput,
 	SharedRunWorkspaceConfig,
 } from './session/workspace/index.js'

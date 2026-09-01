@@ -288,7 +288,7 @@ already the collision-resistant portion.
 Resume authority comes from the current workspace, not from the globally
 locatable session id or the fixed CLI topic id. The picker and `--continue`
 therefore list only non-archived sessions under the Project selected by this
-directory's `.namzu/cli.json`; stale Projects under the same store root cannot
+canonical directory's application-home binding; stale Projects under the same store root cannot
 contribute rows. Exact `--resume <id>` resolves that durable id directly rather
 than requiring it to fit inside the 50-row recent index, but applies the same
 Project and archive checks. A closed Project or archived Session remains
@@ -856,6 +856,20 @@ retry or resume. Neither surface reports a silent success.
 
 ## Configuration
 
+Generated state is separate from project configuration. By default it lives at
+`~/.namzu`; `NAMZU_HOME` may select another existing, real, non-root directory.
+Each canonical working directory is bound to one tenant-scoped Project below
+that hierarchy. Conversations, runs, memory, tasks and CLI sidecars use that
+Project on interactive, headless and drain surfaces, while filesystem tools
+continue to operate on the caller-owned working directory.
+
+A project-local `.namzu` is for authored `commands`, `plugins` and `skills`.
+When an older installation already has a valid generated-state tree there,
+Namzu keeps using it until an explicit migration exists. A malformed legacy
+tree, or both a legacy and central Project bound to the same workspace, refuses
+with a state-inventory remedy instead of choosing one history or silently
+starting another. Merely opening a Project does not create a local `.namzu`.
+
 Highest precedence first:
 
 1. `/etc/namzu/config.json` — the machine's, if an administrator installed one
@@ -864,7 +878,7 @@ Highest precedence first:
 3. `NAMZU_*` environment variables
 4. A selected profile, from whichever files declare it
 5. `./namzu.config.json` — the project's
-6. `~/.namzu/config.yaml` — the user's
+6. `$NAMZU_HOME/config.yaml` — the user's (`~/.namzu/config.yaml` by default)
 7. Built-in defaults (`format: 'text'`, `quiet: false`)
 
 Resolution has a trust boundary as well as a precedence order. Before an
@@ -1089,6 +1103,12 @@ temporary root which is removed at teardown. Delegating or resuming a run cannot
 drop from the session's isolation boundary to host execution. Set
 `sandbox.enabled` to `false` only when host execution is the intended policy for
 every path.
+
+Because the sandbox cannot preserve host background-job handles, its Bash tool
+is foreground-only and serialized: neither the background-job tool nor a
+`run_in_background` field is advertised to the model. Independent work belongs
+in delegated agents. With sandbox execution explicitly disabled, the host
+background-job capability is available again.
 
 ```json
 {

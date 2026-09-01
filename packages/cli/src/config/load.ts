@@ -6,7 +6,7 @@
  *   2. Environment variables prefixed `NAMZU_`
  *   3. Project config: `./namzu.config.json` (TS variant added in a later
  *      milestone when a build step is justified)
- *   4. User config: `~/.namzu/config.yaml`
+ *   4. User config: `$NAMZU_HOME/config.yaml` (`~/.namzu/config.yaml` by default)
  *   5. Built-in defaults from `schema.ts`
  *
  * This module owns steps 2–5. CLI-flag merging happens in `cli.ts`, where
@@ -23,12 +23,12 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { parse as yamlParse } from 'yaml'
 
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
 import { isFormatName } from '../output/index.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
@@ -171,11 +171,13 @@ function resolveConfigWithProvenance(
 	config: NamzuCliConfig
 	provenance: ConfigProvenance
 } {
-	const home = opts.home ?? homedir()
 	const cwd = opts.cwd ?? process.cwd()
 	const env = opts.env ?? process.env
 
-	const userPath = join(home, '.namzu', 'config.yaml')
+	const userPath = join(
+		resolveNamzuHome({ ...(opts.home ? { home: opts.home } : {}), env }),
+		'config.yaml',
+	)
 	const projectPath = resolve(cwd, 'namzu.config.json')
 
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH

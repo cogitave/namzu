@@ -18,7 +18,7 @@
 
 import { relative } from 'node:path'
 
-import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE } from '@namzu/sdk'
+import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, asSessionId, generateSessionId } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
@@ -336,8 +336,36 @@ export const runCommand: CommandDef = {
 				return 1
 			}
 		}
+		let sessions: Awaited<ReturnType<typeof openSessions>>
+		try {
+			sessions = await openSessions(cwd)
+		} catch (error) {
+			await sessionExport?.shutdown()
+			ctx.formatter.error({
+				message: `workspace state is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+			})
+			return 1
+		}
+		const resume = await resolveResume(
+			sessions,
+			{ continueLast: flags.continueLast, sessionId: flags.resume },
+			cwd,
+		)
+		if (resume.kind === 'error') {
+			ctx.formatter.error({ message: resume.message })
+			await sessionExport?.shutdown()
+			return EXIT_USAGE
+		}
+		const prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
+			scope: {
+				sessionId: resume.kind === 'resumed' ? asSessionId(resume.sessionId) : generateSessionId(),
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				tenantId: sessions.tenantId,
+			},
+			...(sessions.backend === 'central' ? { stateRoot: sessions.root } : {}),
 			rules: permissions.rules,
 			...(sessionExport ? { onRunEvent: sessionExport.listener } : {}),
 			// The operator's --gate commands, as a standing condition on the
@@ -406,32 +434,6 @@ export const runCommand: CommandDef = {
 
 		const extraSystem = await loadSkillsContext(cwd, flags.skills)
 
-		// A conversation the TUI could reopen could not be reopened from a
-		// script: the store, the reader and the picker all existed and only the
-		// entry point was missing.
-		let sessions: Awaited<ReturnType<typeof openSessions>> | null = null
-		if (flags.continueLast || flags.resume) {
-			try {
-				sessions = await openSessions(cwd)
-			} catch {
-				sessions = null // reported by resolveResume, which knows what was asked for
-			}
-		}
-		const resume = await resolveResume(
-			sessions,
-			{ continueLast: flags.continueLast, sessionId: flags.resume },
-			cwd,
-		)
-		if (resume.kind === 'error') {
-			// Refused, never silently started fresh. Someone who asked for a
-			// specific conversation and got a new one that looks the same finds
-			// out several turns later, having already acted on it.
-			ctx.formatter.error({ message: resume.message })
-			await session.close()
-			await sessionExport?.shutdown()
-			return EXIT_USAGE
-		}
-		const prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
 		if (resume.kind === 'resumed') {
 			ctx.formatter.info(`resuming ${resume.sessionId} · ${prior.length} messages`)
 		}

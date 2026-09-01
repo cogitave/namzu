@@ -537,7 +537,8 @@ export interface QueryParams {
 	/**
 	 * Optional path layout override. Defaults to a {@link DefaultPathBuilder}
 	 * rooted at `{workingDirectory}/.namzu`. First-call filesystem migration
-	 * runs on this same entry point.
+	 * runs against this builder's root too, so an injected layout never touches
+	 * the fallback working-directory store as a side effect.
 	 */
 	pathBuilder?: PathBuilder
 
@@ -1045,8 +1046,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// `NOOP_FILESYSTEM_MIGRATION_SINK` (see `context.ts`), so any other path
 	// that reaches `ensureMigrated` keeps today's silent behaviour.
 	const cwdForMigration = params.workingDirectory ?? process.cwd()
+	const migrationRoot = params.pathBuilder?.rootDir() ?? join(cwdForMigration, '.namzu')
 	const migrationResult = await RunContextFactory.ensureMigrated(
-		`${cwdForMigration}/.namzu`,
+		migrationRoot,
 		new DefaultFilesystemMigrator(loggingMigrationSink(log)),
 	)
 	// `loggingMigrationSink` only ever hears about `kind: 'migrated'` — the

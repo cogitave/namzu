@@ -3,12 +3,14 @@ import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 
+import { DiskSessionStore, UNKNOWN_TENANT_ID } from '@namzu/sdk'
+
 const MAX_METADATA_BYTES = 4 * 1024 * 1024
 const MAX_ORIGIN_BYTES = 64 * 1024
 const MAX_REPORTED_ISSUES = 100
 const MAX_ENTRIES = 100_000
 
-const AUTHORED_TOP_LEVEL = new Set(['commands', 'plugins'])
+const AUTHORED_TOP_LEVEL = new Set(['commands', 'plugins', 'skills'])
 const CONFIG_TOP_LEVEL = new Set([
 	'config.yaml',
 	'credentials.json',
@@ -115,6 +117,7 @@ export type ProjectBinding =
 			readonly projectId: string
 			readonly detail: string
 	  }
+	| { readonly status: 'split'; readonly detail: string }
 	| { readonly status: 'unknown'; readonly detail: string }
 
 export interface StateRootReport {
@@ -191,6 +194,7 @@ interface RootCollection {
 export interface InspectNamzuStateOptions {
 	readonly cwd?: string
 	readonly home?: string
+	readonly env?: NodeJS.ProcessEnv
 	readonly platform?: NodeJS.Platform
 	readonly uid?: number
 	/** Internal test seam; the production command uses the bounded default. */
@@ -198,11 +202,11 @@ export interface InspectNamzuStateOptions {
 }
 
 /**
- * Inspect Namzu's filesystem estate without constructing a store or changing it.
+ * Inspect Namzu's filesystem estate without changing it.
  *
- * Store constructors are intentionally absent here. Several of them create or
- * heal paths while opening, which would make a report about an untouched tree
- * change the tree it claims to describe.
+ * Collection uses direct bounded filesystem reads. The one store object below
+ * is used only for its read-only root-binding lookup; it does not create or
+ * heal paths. A report about an untouched tree must leave that tree untouched.
  */
 export async function inspectNamzuState(
 	options: InspectNamzuStateOptions = {},
@@ -210,7 +214,13 @@ export async function inspectNamzuState(
 	const cwd = await canonicalBase(options.cwd ?? process.cwd())
 	const home = await canonicalBase(options.home ?? homedir())
 	const projectRoot = join(cwd, '.namzu')
-	const userRoot = join(home, '.namzu')
+	const environment = options.env ?? (options.home !== undefined ? {} : process.env)
+	const configuredHome = environment.NAMZU_HOME
+	const userRoot = await canonicalBase(
+		configuredHome === undefined || configuredHome.length === 0
+			? join(home, '.namzu')
+			: configuredHome,
+	)
 	const overlap = projectRoot === userRoot
 	const specs: Array<{ path: string; roles: Array<'project' | 'user'> }> = overlap
 		? [{ path: projectRoot, roles: ['project', 'user'] }]
@@ -246,7 +256,9 @@ export async function inspectNamzuState(
 	const projectConfigPath = join(cwd, 'namzu.config.json')
 	const projectConfig = await inspectOneRegularFile(projectConfigPath)
 	const projectCollection = collections.get(projectRoot) as RootCollection
-	const projectBinding = await inspectProjectBinding(projectCollection, cwd)
+	const localBinding = await inspectProjectBinding(projectCollection, cwd)
+	const centralBinding = await inspectCentralProjectBinding(userRoot, cwd)
+	const projectBinding = combineProjectBindings(localBinding, centralBinding, projectRoot, userRoot)
 
 	return {
 		version: 1,
@@ -269,6 +281,55 @@ export async function inspectNamzuState(
 			logicalBytes: projectConfig.logicalBytes,
 		},
 		projectBinding,
+	}
+}
+
+function combineProjectBindings(
+	local: ProjectBinding,
+	central: ProjectBinding,
+	localRoot: string,
+	centralRoot: string,
+): ProjectBinding {
+	if (localRoot === centralRoot) {
+		return central.status === 'uninitialized' ? local : central
+	}
+	if (local.status === 'uninitialized') return central
+	if (central.status === 'uninitialized') return local
+	if (central.status === 'unknown') return central
+	if (central.status === 'bound') {
+		return {
+			status: 'split',
+			detail: `Project-local state at ${localRoot} and central state at ${centralRoot} both claim this workspace. Namzu refuses to choose between them.`,
+		}
+	}
+	return local
+}
+
+async function inspectCentralProjectBinding(
+	centralRoot: string,
+	canonicalCwd: string,
+): Promise<ProjectBinding> {
+	try {
+		const project = await new DiskSessionStore({ rootDir: centralRoot }).findProjectByRootPath(
+			canonicalCwd,
+			UNKNOWN_TENANT_ID,
+		)
+		if (!project) {
+			return {
+				status: 'uninitialized',
+				detail: 'No central Project is bound to this working directory.',
+			}
+		}
+		return {
+			status: 'bound',
+			projectId: project.id,
+			detail: `Central Project ${project.id} is bound to this working directory.`,
+		}
+	} catch (error) {
+		return {
+			status: 'unknown',
+			detail: `The central Project binding could not be read safely: ${errorMessage(error)}`,
+		}
 	}
 }
 

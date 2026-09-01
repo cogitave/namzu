@@ -229,6 +229,7 @@ describe('the check is reachable, not merely correct', () => {
 		writePrefs({ version: 3, providers: [{ id: 'anthropic' }] })
 		vi.stubEnv('HOME', home)
 		vi.stubEnv('USERPROFILE', home)
+		vi.stubEnv('NAMZU_HOME', '')
 		expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
 
 		const r = await providerChainCheck.run({
@@ -238,5 +239,29 @@ describe('the check is reachable, not merely correct', () => {
 		})
 
 		expect(r.status).toBe('pass')
+	})
+
+	it('reads the production preferences from NAMZU_HOME instead of forcing the OS-home default', async () => {
+		const appHome = join(home, 'application-state')
+		mkdirSync(appHome, { recursive: true })
+		writeFileSync(
+			join(appHome, 'preferences.json'),
+			JSON.stringify({ version: 3, providers: [{ id: 'anthropic' }] }),
+		)
+		// Keep the OS home pointed somewhere with no `.namzu/preferences.json`.
+		// The old check passed `homedir()` explicitly and therefore reported this
+		// as skipped even though every other production surface saw NAMZU_HOME.
+		vi.stubEnv('HOME', home)
+		vi.stubEnv('USERPROFILE', home)
+		vi.stubEnv('NAMZU_HOME', appHome)
+
+		const result = await providerChainCheck.run({
+			cwd: process.cwd(),
+			env: { ANTHROPIC_API_KEY: 'only-on-the-doctor-context' },
+			projectRoot: null,
+		})
+
+		expect(result.status).toBe('pass')
+		expect(result.message ?? '').toContain('1 provider configured')
 	})
 })

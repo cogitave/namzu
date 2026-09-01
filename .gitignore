@@ -17,8 +17,16 @@ coverage/
 .work/
 docs.local/
 
-# Runtime state
-.namzu/
+# Generated runtime state is central. A repository-local .namzu directory is
+# reserved for authored project inputs; ignore everything by default so an
+# unknown future state writer cannot become commit-visible accidentally.
+**/.namzu/*
+!**/.namzu/commands/
+!**/.namzu/commands/**
+!**/.namzu/plugins/
+!**/.namzu/plugins/**
+!**/.namzu/skills/
+!**/.namzu/skills/**
 
 # Local-only packages (not yet published; un-ignore when ready for release)
 packages/contracts/

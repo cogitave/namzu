@@ -27,6 +27,7 @@ import {
 	type CheckpointStore,
 	type CompactionResult,
 	type CostInfo,
+	DefaultPathBuilder,
 	DiskMemoryStore,
 	DiskTaskStore,
 	type DurableRunEntry,
@@ -63,6 +64,7 @@ import {
 	type TenantId,
 	type ToolCallSummary,
 	type ToolCallView,
+	type ToolDefinition,
 	type ToolPresenter,
 	ToolRegistry,
 	type ToolResultView,
@@ -187,6 +189,8 @@ export type AgentEvent =
 			readonly toolName: string
 			readonly isError: boolean
 			readonly summary: string
+			/** Kernel-measured execution time; independent of host event buffering. */
+			readonly durationMs?: number
 			/** A successful result intentionally adds no second transcript row. */
 			readonly hidden?: boolean
 			/** Output lines shown (collapsible) under the result. */
@@ -906,6 +910,7 @@ const NAMZU_IDENTITY = [
 	'CRITICAL — never fabricate. Only claim to have done something if you actually did it through a tool call in THIS turn:',
 	'- Never say you ran a command, wrote/edited a file, delegated to a sub-agent, or researched something unless the corresponding tool call actually ran and returned.',
 	'- Never invent file paths, command output, URLs, research findings, or results. If you announce an action ("running…", "delegating…"), you MUST immediately make the tool call — do not narrate an action and then skip it.',
+	'- Bash calls are serialized because they may mutate the same workspace. Never claim two Bash calls ran in parallel unless one command itself produced timestamped proof of overlap. Delegate genuinely independent work through the Agent tool instead.',
 	'- If a capability or tool is unavailable (e.g. no web access, a tool is missing, a sub-agent failed), say so plainly and stop — do not improvise a fake result.',
 	'- When you delegate with the `Agent` tool, report only what the sub-agent actually returned in its tool result; if it wrote files, verify with a tool before claiming paths.',
 	'- A reply from a tool that delegates to ANOTHER agent (a connector that runs another agent, an A2A `tasks/send`, a remote peer) is that agent\'s unverified CLAIM, not fact — another model can hallucinate. If it says it ran a command, wrote a file, or "here is the output", treat that as narrative and confirm it yourself with a deterministic tool (a real shell like `bash.run`, a file read) before reporting it as done. Distinguish such conversational agent calls from deterministic tools, and never present another agent\'s prose as your own verified result.',
@@ -927,18 +932,61 @@ interface BuiltTools {
 	readonly memoryStore: DiskMemoryStore
 }
 
-function buildToolRegistry(cwd: string): BuiltTools {
+function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
+	const fullSchema = tool.inputSchema as typeof tool.inputSchema & {
+		omit(mask: {
+			readonly run_in_background: true
+		}): ToolDefinition['inputSchema']
+	}
+	return {
+		...tool,
+		description:
+			'Executes one bash command in the foreground and returns stdout/stderr. Calls are serialized because shell commands may mutate the same workspace. Use the Agent tool for genuinely independent parallel work.',
+		inputSchema: fullSchema.omit({ run_in_background: true }),
+		modelInputSchema: {
+			type: 'object',
+			properties: {
+				command: {
+					type: 'string',
+					minLength: 1,
+					description: 'The non-empty bash command to execute in the foreground.',
+				},
+				timeout: {
+					type: 'number',
+					exclusiveMinimum: 0,
+					description:
+						'Command timeout in milliseconds. Use a larger foreground timeout for long builds; background jobs are unavailable inside this sandbox.',
+				},
+			},
+			required: ['command'],
+			additionalProperties: false,
+		},
+	}
+}
+
+function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
+	return getBuiltinTools().flatMap((tool) => {
+		if (EXCLUDED_BUILTINS.has(tool.name)) return []
+		if (backgroundJobs) return [tool]
+		if (tool.name === 'job') return []
+		return [tool.name === 'bash' ? foregroundOnlyBash(tool) : tool]
+	})
+}
+
+function buildToolRegistry(
+	cwd: string,
+	projectStateRoot = join(cwd, '.namzu'),
+	backgroundJobs = true,
+): BuiltTools {
 	const registry = new ToolRegistry()
-	registry.register(getBuiltinTools().filter((t) => !EXCLUDED_BUILTINS.has(t.name)))
+	registry.register(builtinTools(backgroundJobs))
 	// SDK memory: the agent gets search_memory / read_memory / save_memory over
-	// a structured store at `<cwd>/.namzu/memory` — the WORKING DIRECTORY, not
-	// the home directory. Two comments here used to say `~/.namzu`, which made
-	// `save_memory` look like it touched only namzu's own state and was part of
-	// why it sat on the no-prompt list; it writes into the user's project.
+	// a structured store in this Project's generated-state directory. CLI
+	// surfaces inject the central application-home hierarchy; embedded callers
+	// that omit it retain the historical `<cwd>/.namzu` layout.
 	// Separate from the user-curated MEMORY.md that is injected into the prompt.
-	const stateRoot = join(cwd, '.namzu')
-	ensurePrivateStateDirectory(stateRoot, 'memory')
-	const memoryStore = new DiskMemoryStore({ baseDir: stateRoot })
+	ensurePrivateStateDirectory(projectStateRoot, 'memory')
+	const memoryStore = new DiskMemoryStore({ baseDir: projectStateRoot })
 	// Search through the store's async boundary. Its concrete index is lazy:
 	// handing `getIndex()` to the synchronous overload before the first store
 	// read makes a new process report every persisted memory as absent.
@@ -966,8 +1014,8 @@ export interface AgentSessionOptions {
 	readonly scope?: RunScope
 	/**
 	 * The directory the agent works in: what every filesystem tool resolves a
-	 * relative path against, where sub-agents run, and where the task and
-	 * memory stores put `.namzu`. Defaults to the process's own directory.
+	 * relative path against and where sub-agents run. Generated task and memory
+	 * state follows {@link stateRoot}. Defaults to the process's own directory.
 	 *
 	 * Taken as an argument rather than read from `process.cwd()` at each of
 	 * those four points, which is what let `--cwd` reach the session store and
@@ -976,6 +1024,12 @@ export interface AgentSessionOptions {
 	 * having looked in the wrong place.
 	 */
 	readonly cwd?: string
+	/**
+	 * Injected SDK hierarchy root for this host session. When present, runs use
+	 * this exact path builder and generated memory/tasks live inside the scoped
+	 * Project. Absent preserves the embedded API's historical cwd-local layout.
+	 */
+	readonly stateRoot?: string
 	/**
 	 * Operator-authored tool rules, already compiled to the kernel's vocabulary.
 	 *
@@ -1068,13 +1122,20 @@ export async function createAgentSession(
 			'invocation',
 		)
 	}
+	const hierarchyRoot = resolve(options.stateRoot ?? join(cwd, '.namzu'))
+	const pathBuilder = new DefaultPathBuilder(hierarchyRoot)
+	let projectStateRoot = hierarchyRoot
 	try {
+		if (options.stateRoot) {
+			const projectsRoot = ensurePrivateStateDirectory(hierarchyRoot, 'projects')
+			projectStateRoot = ensurePrivateStateDirectory(projectsRoot, scope.projectId)
+		}
 		// Refuse an aliased or otherwise unsafe generated-state root before any
 		// provider, sandbox or plugin runtime is constructed. Project-authored
 		// `.namzu` content may coexist here, but generated memory must never be
 		// redirected outside the trusted working directory through an ancestor
 		// symlink.
-		ensurePrivateStateDirectory(join(cwd, '.namzu'), 'memory')
+		ensurePrivateStateDirectory(projectStateRoot, 'memory')
 	} catch (error) {
 		return emptySession(`Project state is unavailable: ${describeError(error)}`, 'environment')
 	}
@@ -1392,7 +1453,8 @@ export async function createAgentSession(
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.SANDBOX_RESOLVED,
 		'namzu.sandbox.unconfined': sandbox.unconfined,
 	})
-	const { registry, memoryStore } = buildToolRegistry(cwd)
+	const backgroundJobs = sandbox.provider === undefined
+	const { registry, memoryStore } = buildToolRegistry(cwd, projectStateRoot, backgroundJobs)
 	// Package presence is not tool reachability. The CLI used to probe and
 	// report @namzu/computer-use without ever constructing its host or mounting
 	// SDK's computer_use definition, so even an installed, healthy package was
@@ -1483,6 +1545,7 @@ export async function createAgentSession(
 		const sub = await createSubagentRuntime({
 			cwd,
 			model,
+			pathBuilder: new DefaultPathBuilder(join(projectStateRoot, 'subagents')),
 			sandboxWorkspace,
 			resolveResumeHandler: (runId) => delegatedResumeHandlers.get(runId),
 			...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
@@ -1528,7 +1591,7 @@ export async function createAgentSession(
 				// delegation, and a parent that delegated six times would leave
 				// seven accounts of one piece of work for the next run to read.
 				// The parent's settle is the one that speaks for the whole task.
-				return buildToolRegistry(cwd).registry
+				return buildToolRegistry(cwd, projectStateRoot, backgroundJobs).registry
 			},
 			authorizationGate: gateFor(options.rules),
 		})
@@ -1562,10 +1625,9 @@ export async function createAgentSession(
 	// It is also why `toolNames` below reads the registry rather than a list
 	// captured on this line. The count at connect time is unchanged; what
 	// changes is that asking again later gets a later answer.
-	const stateRoot = join(cwd, '.namzu')
-	ensurePrivateStateDirectory(stateRoot, 'tenants')
+	ensurePrivateStateDirectory(projectStateRoot, 'tenants')
 	const taskStore: TaskStore = new DiskTaskStore({
-		baseDir: stateRoot,
+		baseDir: projectStateRoot,
 		defaultRunId: asRunId('run_namzu-cli'),
 		tenantId: scope.tenantId,
 	})
@@ -1808,6 +1870,7 @@ export async function createAgentSession(
 								skillRegistry: pluginRuntime?.skills,
 								skills: pluginSkills,
 								scope,
+								pathBuilder,
 								workingDirectory: cwd,
 								sandboxWorkspace,
 								rules: options.rules,
@@ -1885,6 +1948,7 @@ export async function createAgentSession(
 						authorizationGate: gateFor(options.rules),
 						compactionConfig: COMPACTION_CONFIG,
 						projectInstructionContext: projectInstructions.createRunContext(),
+						pathBuilder,
 						...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 						...(options.sandbox?.teardownTimeoutMs !== undefined
 							? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
@@ -2361,9 +2425,8 @@ function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 const COMPACTION_CONFIG = {
 	strategy: 'structured' as const,
 	// On, and this is the CLI making a choice rather than taking a default.
-	// A local session's transcript is the only record of what was compacted
-	// away, and `<cwd>/.namzu` is the operator's own disk — the size trade
-	// this costs is theirs to see and theirs to turn off.
+	// A session's transcript is the only record of what was compacted away;
+	// the size trade this costs is the operator's to see and turn off.
 	recordShedHistory: true,
 	triggerThreshold: 0.7,
 	resetThreshold: 0.4,
@@ -2407,6 +2470,8 @@ interface RunTurnParams {
 	readonly skillRegistry: SkillRegistry | undefined
 	readonly skills: Skill[] | undefined
 	readonly scope: RunScope
+	/** Exact durable layout shared by turns, resume, and boot migration. */
+	readonly pathBuilder: DefaultPathBuilder
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
 	/** The project tree a sandboxed turn is rooted at. */
@@ -2446,6 +2511,7 @@ async function* runTurn({
 	skillRegistry,
 	skills,
 	scope,
+	pathBuilder,
 	workingDirectory,
 	sandboxWorkspace,
 	rules,
@@ -2472,6 +2538,7 @@ async function* runTurn({
 	try {
 		const events = query({
 			provider,
+			pathBuilder,
 			...(opts?.runId ? { runId: opts.runId } : {}),
 			// Omitted rather than empty when there is no tail. `query` treats the
 			// two the same, but an absent option reads as "this run has no chain"
@@ -2496,7 +2563,8 @@ async function* runTurn({
 			compactionConfig: COMPACTION_CONFIG,
 			// The CLI owns its process end to end, so it can safely hand the
 			// termination path to the kernel: a Ctrl-C mid-run now leaves a
-			// dump under .namzu/emergency/ instead of losing the turn.
+			// dump under the injected hierarchy's emergency partition instead of
+			// losing the turn.
 			emergencySave: true,
 			runConfig: {
 				model,
@@ -2766,12 +2834,17 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 					output: event.result,
 				},
 			)
+			const summary = firstLine(event.result)
+			const detail = viewToLines(view)
+			const withoutRepeatedSummary =
+				view.kind === 'terminal' && detail?.[0] === summary ? detail.slice(1) : detail
 			return {
 				kind: 'tool-end',
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				isError: event.isError,
-				summary: firstLine(event.result),
+				summary,
+				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
 				// `tool_completed` carries no input, so the presenter gets an
 				// empty one. A tool whose result rendering depends on its
@@ -2779,7 +2852,9 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				// through; none does yet, and inventing the plumbing for a
 				// caller that does not exist is the declaration this repo
 				// keeps deleting.
-				detail: viewToLines(view),
+				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
+					? { detail: withoutRepeatedSummary }
+					: {}),
 			}
 		}
 		case 'token_usage_updated':
@@ -2890,10 +2965,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// so this one says what IT cost rather than claiming the total.
 			return {
 				kind: 'context',
-				text:
-					`cleared ${event.clearedCount} oversized tool result${event.clearedCount === 1 ? '' : 's'}` +
-					` (~${event.reclaimedTokens.toLocaleString()} tokens)` +
-					(event.reliefWasEnough ? '' : ' — not enough, compacting'),
+				text: `cleared ${event.clearedCount} oversized tool result${event.clearedCount === 1 ? '' : 's'} (~${event.reclaimedTokens.toLocaleString()} tokens)${event.reliefWasEnough ? '' : ' — not enough, compacting'}`,
 				shed: true,
 			}
 		case 'compaction_failed':

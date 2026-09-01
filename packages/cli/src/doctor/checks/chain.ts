@@ -1,5 +1,3 @@
-import { homedir } from 'node:os'
-
 import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 import {
@@ -12,7 +10,7 @@ import { resolveChainCapabilities } from '../../integrations/providers/register.
 import { PROVIDER_REGISTRY } from '../../integrations/providers/registry.js'
 
 export interface ProviderChainCheckOptions {
-	/** Where `.namzu/preferences.json` lives. Defaults to the real home. */
+	/** Explicit OS home seam. Production defaults honor `NAMZU_HOME`. */
 	readonly home?: string
 	readonly env?: DiscoverOptions['env']
 	/** Skip localhost probes. Off in production: a local server being up is the answer. */
@@ -63,12 +61,11 @@ export interface ProviderChainCheckOptions {
 export async function describeProviderChain(
 	options: ProviderChainCheckOptions = {},
 ): Promise<DoctorCheckResult> {
-	const home = options.home ?? homedir()
-	const path = preferencesPath(home)
+	const path = preferencesPath(options.home)
 
 	let read: ReturnType<typeof readPreferences>
 	try {
-		read = readPreferences(home)
+		read = readPreferences(options.home)
 	} catch (err) {
 		return {
 			status: 'fail',

@@ -85,6 +85,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					toolName: 'bash',
 					summary: 'ok',
 					isError: false,
+					durationMs: 3_041,
 					detail: RESULT_DETAIL,
 				} as AgentEvent
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
@@ -199,6 +200,12 @@ describe('the expand key, on a body that is still on screen', () => {
 			composer - lastTranscript,
 			'the layout inserted viewport-scaled dead space before the composer',
 		).toBeLessThanOrEqual(4)
+	}, 30_000)
+
+	it('renders the measured tool duration carried by the run event', async () => {
+		const screen = await aCollapsedBody()
+
+		expect(screen.viewport().join('\n')).toContain('✓ Bash(ls) · 3.0s')
 	}, 30_000)
 
 	it('keeps one transcript and a usable composer through tall-short-tall resize', async () => {

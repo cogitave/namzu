@@ -18,13 +18,19 @@
  * fire on.
  */
 
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
-import { ProjectManager, type TenantId, UNKNOWN_TENANT_ID, createUserMessage } from '@namzu/sdk'
+import {
+	DefaultPathBuilder,
+	ProjectManager,
+	type TenantId,
+	UNKNOWN_TENANT_ID,
+	createUserMessage,
+} from '@namzu/sdk'
 
 import {
 	appendMessages,
@@ -124,7 +130,7 @@ describe('a workspace its owner has closed', () => {
 		expect(await loadConversation(later, id)).toHaveLength(1)
 	})
 
-	it('keeps the fixed CLI topic scoped to the project selected by cli.json', async () => {
+	it('keeps the fixed CLI topic scoped to the selected project', async () => {
 		const old = await openSessions(cwd)
 		const oldId = await startConversation(old)
 		await appendMessages(old, oldId, [createUserMessage('belongs to old project')])
@@ -132,12 +138,14 @@ describe('a workspace its owner has closed', () => {
 			{ tenantId: old.tenantId, name: 'current project' },
 			old.tenantId,
 		)
-		writeFileSync(
-			join(old.root, 'cli.json'),
-			`${JSON.stringify({ projectId: currentProject.id }, null, 2)}\n`,
-			'utf-8',
-		)
-		const current = await openSessions(cwd)
+		const currentProjectRoot = new DefaultPathBuilder(old.root).projectDir(currentProject.id)
+		const current = {
+			...old,
+			projectId: currentProject.id,
+			projectStateRoot: currentProjectRoot,
+			controlRoot: join(currentProjectRoot, 'cli'),
+			turnEvidence: undefined,
+		}
 		const currentId = await startConversation(current)
 		await appendMessages(current, currentId, [createUserMessage('belongs to current project')])
 

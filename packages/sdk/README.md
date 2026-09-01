@@ -164,6 +164,13 @@ predicate cannot strand the update. Canonical project-relative `AGENTS.md`
 provenance survives compaction and lets a reconstructed host re-read disk
 authority rather than trusting persisted policy text.
 
+High-level `ReactiveAgent` and `SupervisorAgent` configurations also accept a
+`pathBuilder`. Supplying one makes runs, checkpoints, emergency saves, memory
+and task state use that exact durable hierarchy instead of falling back to the
+working directory. `DiskSessionStore` can bind a Project to a canonical
+`rootPath`; the binding is tenant-scoped, immutable and published safely when
+multiple processes race to open the same workspace.
+
 `TopicManager` is the lifecycle authority for the durable subject above a
 session. Supply it to agent and handoff dependencies as `topicManager`; spawn
 and handoff then share the same archived-topic gate. Hosts can distinguish

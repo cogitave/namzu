@@ -5,7 +5,8 @@
  * (`name`, `description`) and a markdown body. Skills are discovered from
  * two roots:
  *   - user:    `~/.namzu/skills/<name>/SKILL.md`
- *   - project: `<cwd>/skills/<name>/SKILL.md`
+ *   - project: `<cwd>/.namzu/skills/<name>/SKILL.md`
+ *   - legacy project: `<cwd>/skills/<name>/SKILL.md`
  *
  * Project skills shadow user skills with the same name. The TUI lists them
  * (`/skills`) and activates one (`/skill <name>`) by injecting its body
@@ -13,9 +14,9 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parseFrontmatter } from '@namzu/sdk'
+import { namzuHomePath } from '../integrations/state/home.js'
 
 export type SkillSource = 'user' | 'project'
 
@@ -36,11 +37,15 @@ export interface SkillInfo {
 	readonly problem?: string
 }
 
-export function userSkillsDir(home: string = homedir()): string {
-	return join(home, '.namzu', 'skills')
+export function userSkillsDir(home?: string): string {
+	return join(namzuHomePath(home), 'skills')
 }
 
 export function projectSkillsDir(cwd: string = process.cwd()): string {
+	return join(cwd, '.namzu', 'skills')
+}
+
+function legacyProjectSkillsDir(cwd: string = process.cwd()): string {
 	return join(cwd, 'skills')
 }
 
@@ -144,9 +149,11 @@ function readSkillsFrom(dir: string, source: SkillSource): SkillInfo[] {
  */
 export function discoverSkills(opts: { home?: string; cwd?: string } = {}): SkillInfo[] {
 	const user = readSkillsFrom(userSkillsDir(opts.home), 'user')
+	const legacyProject = readSkillsFrom(legacyProjectSkillsDir(opts.cwd), 'project')
 	const project = readSkillsFrom(projectSkillsDir(opts.cwd), 'project')
 	const byName = new Map<string, SkillInfo>()
 	for (const s of user) byName.set(s.name, s)
+	for (const s of legacyProject) byName.set(s.name, s)
 	for (const s of project) byName.set(s.name, s) // project wins
 	return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
