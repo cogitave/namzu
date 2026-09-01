@@ -4348,6 +4348,13 @@ export function App({
 						const goalCommand = slash.name === 'goal'
 						if (goalCommand) goalCommandInFlightRef.current = true
 						void (async () => {
+							let goalCommandReleased = false
+							const releaseGoalCommand = () => {
+								if (!goalCommand || goalCommandReleased) return
+								goalCommandReleased = true
+								goalCommandInFlightRef.current = false
+								wakeGoalDriver()
+							}
 							try {
 								if (goalCommand) await materializeConversation()
 								const durableSessions = sessionsRef.current
@@ -4371,6 +4378,13 @@ export function App({
 								const outcome = await registry.dispatch(
 									`/${slash.name} ${slash.args.join(' ')}`.trim(),
 								)
+								// The dispatch result is the durable boundary. Release the input
+								// gate before publishing that result: once the operator can see a
+								// completed `/goal` row, the next goal command must be admissible.
+								// Keeping the gate until `finally` left one render-sized window in
+								// which a visible success was followed by "still reaching durable
+								// state" when the operator immediately typed `/goal resume`.
+								releaseGoalCommand()
 								// A late readout from the conversation just left must not be
 								// painted as state of the one now on screen.
 								if (conversationGenRef.current !== generation) return
@@ -4387,10 +4401,7 @@ export function App({
 									`Could not run /${slash.name}: ${error instanceof Error ? error.message : String(error)}`,
 								)
 							} finally {
-								if (goalCommand) {
-									goalCommandInFlightRef.current = false
-									wakeGoalDriver()
-								}
+								releaseGoalCommand()
 							}
 						})()
 						return
