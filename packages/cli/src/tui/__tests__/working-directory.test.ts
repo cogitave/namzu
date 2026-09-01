@@ -158,7 +158,11 @@ describe('createAgentSession runs where it is told to', () => {
 			const tools = registry.getCallableTools()
 			const bash = tools.find((tool) => tool.name === 'bash')
 
-			expect(session.sandbox.unconfined).toBe(false)
+			// Whether this host actually enforces an isolation control is a
+			// platform fact. The default sandbox can be attached and honestly
+			// report `unconfined` on a host whose kernel offers no supported tier;
+			// background-job reachability must not depend on pretending otherwise.
+			expect(session.sandbox.workspace).toBe('working-directory')
 			expect(tools.map((tool) => tool.name)).not.toContain('job')
 			expect(
 				bash?.inputSchema.parse({
@@ -199,6 +203,7 @@ describe('createAgentSession runs where it is told to', () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(prefs, detectedAnthropic(), {
 			cwd: workDir,
+			stateRoot,
 		})
 		expect(session.hasProvider).toBe(true)
 
@@ -214,6 +219,10 @@ describe('createAgentSession runs where it is told to', () => {
 		expect(queryCalls[0]).toMatchObject({
 			runConfig: { sandbox: { workspace: 'working-directory' } },
 		})
+		// Keep this cwd-routing test from manufacturing an unrelated legacy
+		// store in the directory whose file-tool behavior it is measuring. CLI
+		// command surfaces obtain this exact root from openSessions.
+		expect(existsSync(join(workDir, '.namzu'))).toBe(false)
 	})
 
 	it('keeps an explicit ephemeral workspace choice', async () => {
@@ -234,7 +243,7 @@ describe('createAgentSession runs where it is told to', () => {
 
 	it('falls back to the process directory when no cwd is supplied', async () => {
 		const { createAgentSession } = await import('../agent.js')
-		const session = await createAgentSession(prefs, detectedAnthropic())
+		const session = await createAgentSession(prefs, detectedAnthropic(), { stateRoot })
 
 		for await (const _ of session.send([{ role: 'user', content: 'hello', timestamp: 0 }])) {
 			// drained

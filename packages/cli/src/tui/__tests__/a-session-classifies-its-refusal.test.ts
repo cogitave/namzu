@@ -27,9 +27,17 @@ function prefs(id: string): Preferences {
 	return { version: 3, providers: [{ id: id as ProviderId }], subagents: { active: [] } }
 }
 
+function ownedStateRoot(): string {
+	const root = process.env.NAMZU_HOME
+	if (!root) throw new Error('CLI test setup did not provide an owned NAMZU_HOME')
+	return root
+}
+
 describe('a session that could not be built', () => {
 	it('calls an unknown provider id an invocation failure', async () => {
-		const session = await createAgentSession(prefs('not-a-provider'), [])
+		const session = await createAgentSession(prefs('not-a-provider'), [], {
+			stateRoot: ownedStateRoot(),
+		})
 		expect(session.hasProvider).toBe(false)
 		expect(session.errorKind).toBe('invocation')
 		// And still says it in words, because a person reads the event too.
@@ -39,7 +47,9 @@ describe('a session that could not be built', () => {
 	it('calls a missing credential an environment failure', async () => {
 		// A real provider, asked for with nothing detected. Nothing the caller
 		// sends conjures a credential.
-		const session = await createAgentSession(prefs('anthropic'), [])
+		const session = await createAgentSession(prefs('anthropic'), [], {
+			stateRoot: ownedStateRoot(),
+		})
 		expect(session.hasProvider).toBe(false)
 		expect(session.errorKind).toBe('environment')
 	})
@@ -48,7 +58,9 @@ describe('a session that could not be built', () => {
 		// The field is about a refusal. A session with a provider AND a kind would
 		// describe nothing real, and a reader checking the kind first would be
 		// answered about a session that works.
-		const session = await createAgentSession(prefs('not-a-provider'), [])
+		const session = await createAgentSession(prefs('not-a-provider'), [], {
+			stateRoot: ownedStateRoot(),
+		})
 		expect(session.errorKind !== null).toBe(!session.hasProvider)
 	})
 })
