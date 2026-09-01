@@ -1,5 +1,11 @@
 # @namzu/cli
 
+## 17.0.1
+
+### Patch Changes
+
+- a686817: Present parallel delegated work as named tasks instead of a raw internal tool envelope. After approval, the TUI now returns immediately to a visible Working state, shows the active child count, and lets Ctrl+T open the delegated-work cockpit.
+
 ## 17.0.0
 
 ### Major Changes
