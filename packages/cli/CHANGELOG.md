@@ -1,5 +1,19 @@
 # @namzu/cli
 
+## 16.1.0
+
+### Minor Changes
+
+- 1dea1fa: Replace the flat delegated-agent picker with a responsive workflow cockpit that groups model-declared display annotations into stable phases, preserves selection across live lifecycle changes and retention fallback, and drills into each child's bounded live transcript.
+- af49e28: Add a recovery-safe `namzu state` command that inventories project and user state without loading configuration, opening stores, following symbolic links, or changing files, and reports bounded record health, storage categories, recovery artifacts, attachment pairs, privacy boundaries, and project binding status in text, JSON, or YAML.
+
+### Patch Changes
+
+- bc947c1: Delay durable CLI conversation creation until the first admitted message or explicit conversation operation, preserve user-owned command and plugin scope when the working directory is the home directory, validate feedback against the canonical session run ledger, protect generated project-state partitions with owner-only permissions, and fail closed when a delegated run loses its parent review channel.
+- 05f5f0b: Release the durable goal-command input gate before showing its completed result, so an operator can immediately follow a visible goal status with `/goal resume` without a false in-flight refusal.
+- Updated dependencies [bc947c1]
+  - @namzu/sdk@34.0.1
+
 ## 16.0.0
 
 ### Major Changes
