@@ -38,7 +38,14 @@ const decisions: PermissionDecision[] = []
 const permissionModes: unknown[] = []
 const turnSignals: Array<AbortSignal | undefined> = []
 let toolExecutions = 0
-let requestedToolInput: unknown = { command: 'rm -rf build' }
+let requestedToolCalls: PermissionRequest['toolCalls'] = [
+	{
+		id: 'call-1',
+		name: 'bash',
+		input: { command: 'rm -rf build' },
+		isDestructive: true,
+	},
+]
 let holdAfterPermissionDecision = false
 let releasePermissionHandoff: () => void = () => {}
 let permissionHandoff = Promise.resolve()
@@ -143,14 +150,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					}
 					if (opts?.permissionMode === 'strict') return
 					const req: PermissionRequest = {
-						toolCalls: [
-							{
-								id: 'call-1',
-								name: 'bash',
-								input: requestedToolInput,
-								isDestructive: true,
-							},
-						],
+						toolCalls: requestedToolCalls,
 					}
 					const decision = await opts?.onPermission?.(req)
 					if (decision) {
@@ -228,10 +228,10 @@ async function promptOpenWithDraftInFlight() {
 	// with "the prompt never opened" — a flake in the setup, reported as a
 	// failure of whatever the test was actually about.
 	const started = performance.now()
-	while (!(harness.lastFrame() ?? '').includes('wants to run') && performance.now() - started < 3_000) {
+	while (!(harness.lastFrame() ?? '').includes('wants to ') && performance.now() - started < 3_000) {
 		await tick(20)
 	}
-	expect(harness.lastFrame(), 'the prompt never opened').toContain('wants to run')
+	expect(harness.lastFrame(), 'the prompt never opened').toContain('wants to ')
 	return harness
 }
 
@@ -243,7 +243,14 @@ beforeEach(() => {
 	permissionModes.length = 0
 	turnSignals.length = 0
 	toolExecutions = 0
-	requestedToolInput = { command: 'rm -rf build' }
+	requestedToolCalls = [
+		{
+			id: 'call-1',
+			name: 'bash',
+			input: { command: 'rm -rf build' },
+			isDestructive: true,
+		},
+	]
 	holdAfterPermissionDecision = false
 	permissionHandoff = new Promise<void>((resolve) => {
 		releasePermissionHandoff = resolve
@@ -325,6 +332,43 @@ describe('the permission prompt', () => {
 		expect(frame).not.toContain('y approve')
 	})
 
+	it('runs the four-agent approval path as named work and hands it to Working', async () => {
+		requestedToolCalls = ['API research', 'Security review', 'UX critique', 'Delivery plan'].map(
+			(description, index) => ({
+				id: `agent-call-${index}`,
+				name: 'Agent',
+				input: {
+					description,
+					prompt: `Complete ${description.toLowerCase()} and report evidence.`,
+					role: 'Focused reviewer',
+					workflow: 'Product review',
+					phase: 'Research',
+					phase_order: 0,
+				},
+				isDestructive: false,
+			}),
+		)
+		holdAfterPermissionDecision = true
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		const approval = lastFrame() ?? ''
+
+		expect(approval).toContain('namzu wants to start 4 agents')
+		expect(approval).toContain('1. API research')
+		expect(approval).toContain('4. Delivery plan')
+		expect(approval).not.toContain('"calls"')
+		expect(approval).not.toContain('agent-call-0')
+
+		settle()
+		stdin.write('y')
+		await decisionSettles()
+		await tick(100)
+
+		const working = lastFrame() ?? ''
+		expect(working).toContain('Working')
+		expect(working).not.toContain('wants to start')
+		expect(working).not.toContain('y approve')
+	})
+
 	it('rejects on esc immediately, without waiting out the guard', async () => {
 		// Refusal is not deferred: it is the recoverable direction, and a reject
 		// key that ignored the first press would read as a frozen prompt.
@@ -388,11 +432,18 @@ describe('the permission prompt', () => {
 	})
 
 	it('opens an evolved shape exact-first and keeps its hidden suffix reachable', async () => {
-		requestedToolInput = {
-			command: 'echo safe',
-			futureOption: 'x'.repeat(1_200),
-			exactSuffix: 'EVOLVED_SUFFIX_REACHABLE',
-		}
+		requestedToolCalls = [
+			{
+				id: 'call-1',
+				name: 'bash',
+				input: {
+					command: 'echo safe',
+					futureOption: 'x'.repeat(1_200),
+					exactSuffix: 'EVOLVED_SUFFIX_REACHABLE',
+				},
+				isDestructive: true,
+			},
+		]
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
 		expect(lastFrame()).toContain('Exact prepared input')
 		expect(lastFrame()).toContain('"calls"')
