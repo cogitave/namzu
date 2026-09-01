@@ -1,5 +1,33 @@
 # @namzu/cli
 
+## 16.0.0
+
+### Major Changes
+
+- 4c31053: The coding CLI now runs sandbox-aware tools against the canonical project directory by default, and project changes survive individual turn and child-run teardown. Set `sandbox.workspace` to `ephemeral` to retain the previous disposable per-run workspace behavior.
+
+  The SDK now honours `SandboxCreateConfig.workingDirectory` in `LocalSandboxProvider`, carries run-level sandbox workspace policy through `runAgent`, reactive, supervisor, and delegated-agent entry points, and requires providers to advertise `working-directory` support before receiving a host project path. Custom providers used with `sandbox.workspace: 'working-directory'` must add that mode to `workspaceModes`; omit the workspace mode to retain ephemeral behavior. `PipelineAgent` refuses this setting because arbitrary developer callbacks cannot be confined by the tool sandbox.
+
+  The optional sandbox package now advertises its construction-time container and guest layouts as ephemeral-only instead of accepting a per-run host directory it cannot mount.
+
+### Minor Changes
+
+- 7347b8d: Expose optional per-task delegated-run events without replacing the scheduler-wide observer.
+
+  Add a bounded `/agent` child-run observer, contextual Working activity, a quiet footer, and readable source-preserving tool approvals to the interactive CLI.
+
+### Patch Changes
+
+- Updated dependencies [ad1bab9]
+- Updated dependencies [7347b8d]
+- Updated dependencies [4c31053]
+  - @namzu/sdk@34.0.0
+  - @namzu/computer-use@1.4.0
+  - @namzu/anthropic@4.0.4
+  - @namzu/ollama@2.2.2
+  - @namzu/openai@2.1.0
+  - @namzu/openrouter@2.3.2
+
 ## 15.1.2
 
 ### Patch Changes

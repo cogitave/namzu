@@ -1,5 +1,12 @@
 # @namzu/evals
 
+## 0.3.1
+
+### Patch Changes
+
+- ad1bab9: Install the CLI package that provides the documented `namzu eval` binary and
+  show the package-manager-safe invocation.
+
 ## 0.3.0
 
 ### Minor Changes
