@@ -46,6 +46,7 @@ let withSession = true
 let emptyDetection = false
 let exited = false
 let probeCalls = 0
+let startConversationCalls = 0
 const archivedConversationIds: string[] = []
 let detectedProviders: readonly DetectedProvider[]
 let writePrefs = vi.fn()
@@ -146,7 +147,10 @@ vi.mock('../../integrations/updates.js', () => ({
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't' }),
-	startConversation: async () => 'conv',
+	startConversation: async () => {
+		startConversationCalls += 1
+		return 'conv'
+	},
 	archiveConversation: async (_sessions: unknown, sessionId: string) => {
 		archivedConversationIds.push(sessionId)
 	},
@@ -268,6 +272,7 @@ beforeEach(() => {
 	withSession = true
 	emptyDetection = false
 	probeCalls = 0
+	startConversationCalls = 0
 	archivedConversationIds.length = 0
 	detectedProviders = DETECTED
 	writePrefs = vi.fn()
@@ -1080,12 +1085,29 @@ describe('Ctrl+C in the picker', () => {
 })
 
 describe('Ctrl+C from a ready conversation', () => {
+	it('does not invent a resume id before any conversation has started', async () => {
+		const summaries: TuiExitSummary[] = []
+		const harness = render(<App ctx={ctx} onExitSummary={(summary) => summaries.push(summary)} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+
+		harness.stdin.write('\x03')
+		await frameShows(harness.lastFrame, 'Press Ctrl+C again to exit')
+		harness.stdin.write('\x03')
+		await exitedWithin()
+
+		expect(summaries).toEqual([{}])
+		expect(startConversationCalls).toBe(0)
+	})
+
 	it('hands the durable conversation id to the shell summary before exiting', async () => {
 		const summaries: TuiExitSummary[] = []
 		const harness = render(<App ctx={ctx} onExitSummary={(summary) => summaries.push(summary)} />)
 		mounted.push(harness)
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
+		await submit(harness, 'start a conversation')
+		await frameShows(harness.lastFrame, 'start a conversation')
 
 		harness.stdin.write('\x03')
 		await frameShows(harness.lastFrame, 'Press Ctrl+C again to exit')
@@ -1093,6 +1115,7 @@ describe('Ctrl+C from a ready conversation', () => {
 		await exitedWithin()
 
 		expect(summaries).toEqual([{ conversationId: 'conv' }])
+		expect(startConversationCalls).toBe(1)
 	})
 
 	it('archives only after an explicit destructive confirmation and exits without a resume hint', async () => {
@@ -1101,6 +1124,8 @@ describe('Ctrl+C from a ready conversation', () => {
 		mounted.push(harness)
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
+		await submit(harness, 'start a conversation')
+		await frameShows(harness.lastFrame, 'start a conversation')
 
 		await submit(harness, '/archive')
 		await frameShows(harness.lastFrame, 'Archive this conversation?')

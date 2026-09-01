@@ -28,9 +28,9 @@
  * would be guessing where they belong.
  */
 
-import { readFileSync, readdirSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { readFileSync, readdirSync, realpathSync } from 'node:fs'
+import { homedir, platform } from 'node:os'
+import { join, resolve } from 'node:path'
 import { parseFrontmatter } from '@namzu/sdk'
 
 export type UserCommandSource = 'user' | 'project'
@@ -127,8 +127,16 @@ export function discoverUserCommands(
 	opts: { home?: string; cwd?: string; reserved?: readonly string[] } = {},
 ): UserCommand[] {
 	const reserved = new Set(opts.reserved ?? [])
-	const user = readCommandsFrom(userCommandsDir(opts.home), 'user')
-	const project = readCommandsFrom(projectCommandsDir(opts.cwd), 'project')
+	const userDir = userCommandsDir(opts.home)
+	const projectDir = projectCommandsDir(opts.cwd)
+	const user = readCommandsFrom(userDir, 'user')
+	// `$HOME/.namzu/commands` does not become project-authored merely because a
+	// session starts in `$HOME`. Besides mislabelling the picker, the old second
+	// read let the project-precedence pass overwrite the same command as
+	// `source: project`. Resolve symlinks too so spelling cannot change scope.
+	const project = samePhysicalDirectory(userDir, projectDir)
+		? []
+		: readCommandsFrom(projectDir, 'project')
 
 	const byName = new Map<string, UserCommand>()
 	for (const c of user) byName.set(c.name, c)
@@ -141,6 +149,19 @@ export function discoverUserCommands(
 				: c,
 		)
 		.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function samePhysicalDirectory(left: string, right: string): boolean {
+	const canonical = (path: string): string => {
+		let value: string
+		try {
+			value = realpathSync(path)
+		} catch {
+			value = resolve(path)
+		}
+		return platform() === 'win32' ? value.toLocaleLowerCase('en-US') : value
+	}
+	return canonical(left) === canonical(right)
 }
 
 export type HeadlessExpansion =

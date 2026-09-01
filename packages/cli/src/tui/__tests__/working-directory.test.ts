@@ -10,7 +10,7 @@
  * string in every assertion. These two do.
  */
 
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -100,6 +100,19 @@ describe('createAgentSession runs where it is told to', () => {
 			} as unknown as DetectedProvider,
 		]
 	}
+
+	it.runIf(process.platform !== 'win32')(
+		'protects generated memory and task partitions in a shareable project root',
+		async () => {
+			const { createAgentSession } = await import('../agent.js')
+			const session = await createAgentSession(prefs, detectedAnthropic(), { cwd: workDir })
+
+			expect(session.hasProvider).toBe(true)
+			expect(lstatSync(join(workDir, '.namzu', 'memory')).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(workDir, '.namzu', 'tenants')).mode & 0o777).toBe(0o700)
+			await session.close()
+		},
+	)
 
 	it('passes the caller-supplied cwd to the run, not the process directory', async () => {
 		const { createAgentSession } = await import('../agent.js')

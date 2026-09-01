@@ -165,11 +165,11 @@ it('reopens the exact tool/reasoning history and sends it next turn', async () =
 	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
 	mounted.push(harness)
 	await until(() => scope?.sessionId !== undefined, 'the durable conversation never became ready')
-	const sessionId = scope?.sessionId
-	if (!sessionId) throw new Error('fixture requires the active session id')
 
 	await submit(harness, 'first question')
 	await until(() => sent.length === 1, 'the first turn never reached the session')
+	const sessionId = scope?.sessionId
+	if (!sessionId) throw new Error('fixture requires the active session id')
 	await until(
 		() => harness.frames.join('\n').includes('VISIBLE ANSWER'),
 		'the visible answer never reached the transcript',
@@ -226,10 +226,11 @@ it('atomically replaces a prefix changed by in-run compaction', async () => {
 	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
 	mounted.push(harness)
 	await until(() => scope?.sessionId !== undefined, 'the durable conversation never became ready')
-	const sessionId = scope?.sessionId
-	if (!sessionId) throw new Error('fixture requires the active session id')
 
 	await submit(harness, 'compact this turn')
+	await until(() => sent.length === 1, 'the compacting turn never reached the session')
+	const sessionId = scope?.sessionId
+	if (!sessionId) throw new Error('fixture requires the active session id')
 	const sessions = await openSessions(root)
 	let durable: readonly Message[] = []
 	await vi.waitFor(

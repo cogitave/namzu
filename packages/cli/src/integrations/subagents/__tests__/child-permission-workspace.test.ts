@@ -116,4 +116,43 @@ describe('a delegated write uses the parent run authority', () => {
 			}
 		},
 	)
+
+	it('refuses a reviewed write when the parent review channel is missing', async () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-child-unowned-review-'))
+		workdirs.push(cwd)
+		const runtime = await createSubagentRuntime({
+			cwd,
+			model: 'mock-model',
+			buildProvider: () =>
+				new MockLLMProvider({
+					turns: [
+						{
+							toolCalls: [
+								{
+									id: 'call_unowned_child_write',
+									name: 'write',
+									args: { path: 'must-not-exist.txt', content: 'unsafe' },
+								},
+							],
+						},
+					],
+				}),
+			buildTools: childTools,
+			authorizationGate: reviewGate,
+			resolveResumeHandler: () => undefined,
+			sandboxProvider: new LocalSandboxProvider(NOOP_LOGGER),
+			sandboxWorkspace: 'working-directory',
+		})
+
+		try {
+			const result = await runtime.agentTool.execute(
+				{ description: 'write marker', prompt: 'write the marker file' },
+				context(),
+			)
+			expect(result.success).toBe(false)
+			expect(existsSync(join(cwd, 'must-not-exist.txt'))).toBe(false)
+		} finally {
+			await runtime.close()
+		}
+	})
 })

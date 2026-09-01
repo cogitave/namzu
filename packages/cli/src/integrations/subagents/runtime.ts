@@ -112,6 +112,12 @@ export interface SubagentRuntime {
 	close(): Promise<void>
 }
 
+/** A delegated run may never inherit the SDK's headless auto-approval fallback. */
+const refuseUnownedChildReview: ResumeHandler = async () => ({
+	action: 'abort',
+	reason: 'The parent run no longer owns an interactive review channel for this sub-agent.',
+})
+
 /**
  * Stand up the AgentManager + gateway + `Agent` tool. Returns the tool to
  * register on the parent and the gateway to pass to `query({ taskGateway })`.
@@ -244,10 +250,16 @@ export async function createSubagentRuntime(
 				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
 			}
 			const tracker = activity.begin({ agentId, description, prompt })
-			const resumeHandler = opts.resolveResumeHandler?.(context.runId)
+			// The child is a separate run, but its human authority belongs to the
+			// parent turn that invoked Agent. `drainQuery` deliberately auto-approves
+			// when a handler is omitted for headless SDK callers; omission here would
+			// therefore turn a missing/stale parent mapping into permission to mutate
+			// the real project. Always install a handler, and abort if ownership can no
+			// longer be proved.
+			const resumeHandler = opts.resolveResumeHandler?.(context.runId) ?? refuseUnownedChildReview
 			const configOverrides = {
 				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
-				...(resumeHandler ? { resumeHandler } : {}),
+				resumeHandler,
 			}
 			try {
 				const completed = await runBlockingAgentTask({
@@ -263,7 +275,7 @@ export async function createSubagentRuntime(
 						// a delegation trace exists to record — who dispatched whom
 						// — is the thing that goes missing.
 						...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
-						...(Object.keys(configOverrides).length > 0 ? { configOverrides } : {}),
+						configOverrides,
 						onEvent: tracker.onEvent,
 					},
 				})

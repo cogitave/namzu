@@ -234,11 +234,11 @@ async function renderApp(root: string) {
 it('/clear isolates provider context and durable history while keeping the source resumable', async () => {
 	const root = await cwd()
 	const harness = await renderApp(root)
-	const sourceSession = sharedScope?.sessionId
-	if (!sourceSession) throw new Error('fixture requires a durable source conversation')
 
 	await submit(harness, 'FIRST_PRIVATE_FACT')
 	await until(() => sends.length === 1, 'the first turn never reached the provider')
+	const sourceSession = sharedScope?.sessionId
+	if (!sourceSession) throw new Error('fixture requires a durable source conversation')
 	await until(
 		asyncFlag(async () =>
 			(await durableConversations(root)).some((m) => textOf(m).includes('FIRST_PRIVATE_FACT')),
@@ -307,10 +307,10 @@ it('/new keeps the old display but resets model and copy targets', async () => {
 it('leaves the current context and running turn intact when the durable target cannot be created', async () => {
 	const root = await cwd()
 	const harness = await renderApp(root)
-	const sourceSession = sharedScope?.sessionId
 
 	await submit(harness, 'HOLD_RUNNING_FAIL_TARGET')
 	await until(() => sends.length === 1, 'the source turn never reached the provider')
+	const sourceSession = sharedScope?.sessionId
 	failFreshStart = true
 	await submit(harness, '/clear')
 	await until(
@@ -340,11 +340,11 @@ it('does not admit an old turn to session.send after clear crosses its durable-s
 	holdFirstEvidenceStart = true
 	const root = await cwd()
 	const harness = await renderApp(root)
-	const sourceSession = sharedScope?.sessionId
-	if (!sourceSession) throw new Error('fixture requires a durable source conversation')
 
 	await submit(harness, 'HELD_BEFORE_PROVIDER')
 	await evidenceReached
+	const sourceSession = sharedScope?.sessionId
+	if (!sourceSession) throw new Error('fixture requires a durable source conversation')
 	expect(sends).toHaveLength(0)
 
 	await submit(harness, '/clear')
@@ -378,10 +378,10 @@ it('does not admit an old turn to session.send after clear crosses its durable-s
 it('fences late events and persistence from a running turn after /clear', async () => {
 	const root = await cwd()
 	const harness = await renderApp(root)
-	const sourceSession = sharedScope?.sessionId
 
 	await submit(harness, 'HOLD_RUNNING')
 	await until(() => sends.length === 1, 'the running turn never reached the provider')
+	const sourceSession = sharedScope?.sessionId
 	await submit(harness, '/clear')
 	await until(
 		() => sharedScope?.sessionId !== sourceSession,

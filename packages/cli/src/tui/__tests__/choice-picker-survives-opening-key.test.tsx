@@ -20,7 +20,10 @@ const PREFS: Preferences = {
 	subagents: { active: [] },
 }
 
-const feedback = vi.hoisted(() => ({ writes: [] as Record<string, unknown>[] }))
+const feedback = vi.hoisted(() => ({
+	configs: [] as Record<string, unknown>[],
+	writes: [] as Record<string, unknown>[],
+}))
 const skillLoads = vi.hoisted(() => [] as string[])
 const reviewPrompts = vi.hoisted(() => [] as string[])
 const reviewRepository = vi.hoisted(() => ({
@@ -42,6 +45,10 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	return {
 		...actual,
 		DiskMessageFeedbackStore: class {
+			constructor(config: Record<string, unknown>) {
+				feedback.configs.push(config)
+			}
+
 			async listMessageFeedback() {
 				return []
 			}
@@ -112,8 +119,13 @@ vi.mock('../../integrations/updates.js', () => ({
 	checkUpdates: async () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
-	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
-	startConversation: async () => 'conv',
+	openSessions: async () => ({
+		tenantId: 'tnt_feedback',
+		projectId: 'prj_feedback',
+		topicId: 'top_feedback',
+		root: '/tmp/.namzu',
+	}),
+	startConversation: async () => 'ses_feedback',
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	replaceConversation: async () => {},
@@ -194,6 +206,7 @@ afterEach(async () => {
 	await mounted?.unmount()
 	mounted = null
 	feedback.writes.length = 0
+	feedback.configs.length = 0
 	skillLoads.length = 0
 	reviewPrompts.length = 0
 	credentials.primary = true
@@ -274,6 +287,12 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 			messageId: 'msg_feedback',
 			rating: 'good',
 		}),
+	])
+	expect(feedback.configs).toEqual([
+		{
+			rootDir: '/tmp/.namzu/projects/prj_feedback/sessions/ses_feedback/feedback',
+			runsDir: '/tmp/.namzu/projects/prj_feedback/sessions/ses_feedback/runs',
+		},
 	])
 })
 

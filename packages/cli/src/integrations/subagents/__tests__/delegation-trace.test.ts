@@ -10,6 +10,7 @@ import {
 	type ResumeHandler,
 	type SandboxProvider,
 	type ToolContext,
+	asRunId,
 	createProjectInstructionMessage,
 } from '@namzu/sdk'
 
@@ -226,14 +227,29 @@ describe('a sub-agent shares the parent run review channel', () => {
 		).toBe(handler)
 	})
 
-	it('does not invent a review channel when the parent run owns none', async () => {
+	it('installs a fail-closed review channel when the parent run owns none', async () => {
 		const { agentTool, created } = await buildAgentTool({
 			resolveResumeHandler: () => undefined,
 		})
 
 		await agentTool.execute({ description: 'audit', prompt: 'do a thing' }, toolContext())
 
-		expect(created[0]).not.toHaveProperty('configOverrides')
+		const handler = (created[0]?.configOverrides as { resumeHandler?: ResumeHandler } | undefined)
+			?.resumeHandler
+		expect(handler).toBeTypeOf('function')
+		await expect(
+			handler?.({
+				type: 'tool_review',
+				runId: asRunId('run_child'),
+				checkpointId: 'chk_child' as never,
+				toolCalls: [],
+			}),
+		).resolves.toEqual(
+			expect.objectContaining({
+				action: 'abort',
+				reason: expect.stringMatching(/no longer owns an interactive review channel/i),
+			}),
+		)
 	})
 })
 

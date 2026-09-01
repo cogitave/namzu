@@ -88,6 +88,23 @@ describe('a scope the host did not allow is not scanned', () => {
 	})
 })
 
+describe('a working directory that is the user home', () => {
+	it.each([
+		{ allowedScopes: ['project'] as const, project: 0, user: 0 },
+		{ allowedScopes: ['user'] as const, project: 0, user: 1 },
+		{ allowedScopes: ['project', 'user'] as const, project: 0, user: 1 },
+	])(
+		'classifies the shared directory as user state for $allowedScopes',
+		async ({ allowedScopes, project, user }) => {
+			const { discoverAllPluginDirs } = await import('../loader.js')
+			const found = await discoverAllPluginDirs(home, { allowedScopes })
+
+			expect(found.project).toHaveLength(project)
+			expect(found.user).toHaveLength(user)
+		},
+	)
+})
+
 describe('the runtime switches turn discovery off', () => {
 	it('discovers nothing when the plugin runtime is disabled', async () => {
 		const found = await discover({ enabled: false })

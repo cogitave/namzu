@@ -221,9 +221,9 @@ it('continues across admitted rounds, completes through run authority, and persi
 	}
 
 	const { root, harness } = await mountedApp('namzu-goal-app-rounds-')
-	const sessionId = scope!.sessionId
 	await submit(harness, '/goal finish the verified release')
 	await until(() => calls.length === 2, 'the second admitted round never reached session.send')
+	const sessionId = scope!.sessionId
 
 	const sessions = await openSessions(root)
 	await untilAsync(
@@ -318,9 +318,9 @@ it('keeps a human prompt ahead of a goal admission that returns later', async ()
 	}
 
 	const { root, harness } = await mountedApp('namzu-goal-app-fifo-')
-	const sessionId = scope!.sessionId
 	await submit(harness, '/goal finish after the operator prompt')
 	await admissionEntered.promise
+	const sessionId = scope!.sessionId
 	await submit(harness, 'operator work one')
 	await humanStarted.promise
 	await submit(harness, 'operator work two')
@@ -364,9 +364,9 @@ it('does not start an admitted old-conversation round after /new crosses the bou
 	}
 
 	const { harness } = await mountedApp('namzu-goal-app-switch-')
-	const source = scope!.sessionId
 	await submit(harness, '/goal stay in the source conversation')
 	await admissionEntered.promise
+	const source = scope!.sessionId
 	await submit(harness, '/new')
 	await until(() => scope?.sessionId !== source, 'the conversation did not switch')
 	releaseAdmission.resolve()
@@ -393,9 +393,9 @@ it('rechecks ownership after durable evidence and before creating the provider g
 	}
 
 	const { harness } = await mountedApp('namzu-goal-app-pregenerator-')
-	const source = scope!.sessionId
 	await submit(harness, '/goal stop before provider creation')
 	await evidenceEntered.promise
+	const source = scope!.sessionId
 	await submit(harness, '/new')
 	await until(() => scope?.sessionId !== source, 'the conversation did not switch during evidence')
 	releaseEvidence.resolve()
@@ -482,12 +482,12 @@ it('durably blocks at the configured cap instead of starting an unbounded turn',
 	}
 
 	const { root, harness } = await mountedApp('namzu-goal-app-cap-')
-	const sessionId = scope!.sessionId
 	await submit(harness, '/goal stop at the cap')
 	await until(
 		() => harness.frames.join('\n').includes('Goal blocked after 1 admitted round'),
 		'the exhausted goal was not durably blocked',
 	)
+	const sessionId = scope!.sessionId
 	await tick(100)
 	expect(sends).toBe(1)
 	const sessions = await openSessions(root)
@@ -509,12 +509,12 @@ it('fails closed when goal-turn evidence cannot be published', async () => {
 	}
 
 	const { root, harness } = await mountedApp('namzu-goal-app-evidence-')
-	const sessionId = scope!.sessionId
 	await submit(harness, '/goal require durable evidence')
 	await until(
 		() => harness.frames.join('\n').includes('durable evidence could not be recorded'),
 		'the evidence refusal did not reach the operator',
 	)
+	const sessionId = scope!.sessionId
 	expect(sends).toBe(0)
 	const sessions = await openSessions(root)
 	expect(await sessions.goals.getGoal(sessionId, sessions.tenantId)).toMatchObject({

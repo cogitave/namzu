@@ -128,10 +128,18 @@ async function openExportChooser(screen: Screen): Promise<void> {
 	expect(exportState.projectionCalls).toEqual([])
 }
 
+async function startConversation(screen: Screen): Promise<void> {
+	screen.press('materialize this conversation')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('materialize this conversation'))
+}
+
 it('chooses a file, prefills its session filename, and writes the verified projection', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 24 })
 	mounted = screen
 	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await startConversation(screen)
 	await openExportChooser(screen)
 
 	let output = painted(screen)
@@ -161,6 +169,7 @@ it('sends the same verified projection as one truthful OSC 52 clipboard request'
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 24 })
 	mounted = screen
 	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await startConversation(screen)
 	await openExportChooser(screen)
 
 	screen.press('\r')

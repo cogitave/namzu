@@ -11,7 +11,8 @@
  * session's `session.json` and its `runs/` live in one place.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
@@ -31,6 +32,8 @@ import {
 	asTopicId,
 	requireOpenProject,
 } from '@namzu/sdk'
+import { restrictToOwner } from '../providers/credential-store.js'
+import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import {
 	type ConversationLineageTurn,
 	type ConversationOrigin,
@@ -83,6 +86,11 @@ export interface RecentConversation {
  */
 export async function openSessions(cwd: string): Promise<CliSessions> {
 	const root = join(cwd, '.namzu')
+	// The root also holds authored project commands/plugins and may legitimately
+	// be shareable. Generated conversation and goal state is not: make those
+	// partitions the owner-only privacy boundary before any store writes.
+	ensurePrivateStateDirectory(root, 'projects')
+	ensurePrivateStateDirectory(root, 'goals')
 	const store = new DiskSessionStore({ rootDir: root })
 	const pointerPath = join(root, 'cli.json')
 
@@ -410,7 +418,20 @@ function readTitles(root: string): Record<string, StoredTitle> {
 
 function writeTitles(root: string, titles: Readonly<Record<string, StoredTitle>>): void {
 	mkdirSync(root, { recursive: true })
-	writeFileSync(titlesPath(root), `${JSON.stringify(titles, null, 2)}\n`, 'utf-8')
+	const path = titlesPath(root)
+	const temporary = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
+	try {
+		writeFileSync(temporary, `${JSON.stringify(titles, null, 2)}\n`, {
+			encoding: 'utf-8',
+			flag: 'wx',
+			mode: 0o600,
+		})
+		if (process.platform !== 'win32') chmodSync(temporary, 0o600)
+		restrictToOwner(temporary)
+		renameSync(temporary, path)
+	} finally {
+		rmSync(temporary, { force: true })
+	}
 }
 
 /** The name a person gave this conversation, or `undefined`. */

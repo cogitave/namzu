@@ -14,6 +14,7 @@
 import { join, relative } from 'node:path'
 import {
 	type CostInfo,
+	DefaultPathBuilder,
 	DiskMessageFeedbackStore,
 	type GoalRoundAuthority,
 	GoalRoundLimitError,
@@ -32,6 +33,7 @@ import {
 	createAssistantMessage,
 	createUserMessage,
 	generateRunId,
+	generateSessionId,
 	isCompactionMessage,
 	kernelHostCommands,
 } from '@namzu/sdk'
@@ -213,7 +215,7 @@ export type ExternalEditorAdapter = (request: {
 }) => Promise<string>
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
-type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive'
+type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive' | 'materialize'
 type AgentSurface =
 	| { readonly kind: 'picker'; readonly selectedId: string }
 	| {
@@ -288,6 +290,7 @@ type ChoicePickerState =
 			readonly notice?: string
 			readonly runId: string
 			readonly messageId: string
+			readonly sessionId: SessionId
 			readonly values: readonly ('good' | 'bad')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
@@ -346,6 +349,8 @@ type StreamState = {
 	completed: boolean
 	/** Exact durable run outcome; notification wording is intentionally coarser. */
 	outcome: ConversationTurnOutcome | null
+	/** Durable conversation whose run evidence this stream writes. */
+	sessionId: SessionId | null
 	/** More precise queue copy when a resumable SDK run stopped. */
 	queuePauseOutcome?: QueuePauseOutcome
 	/** Terminal notice earned by this turn, or null when it was interrupted. */
@@ -593,6 +598,7 @@ export function App({
 	const lastAssistantMessage = useRef<{
 		runId: string
 		messageId: string
+		sessionId: SessionId
 	} | null>(null)
 	/**
 	 * The latest assistant text available to `/copy`, with what proves it.
@@ -953,9 +959,19 @@ export function App({
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
+	/**
+	 * A provider session can be ready before a person has started a conversation.
+	 * The scope still needs a mutable session cursor, but its generated id is
+	 * provisional until the first admitted prompt or an explicit conversation
+	 * operation publishes the durable Session.
+	 */
+	const conversationMaterializedRef = useRef(false)
+	const materializationRef = useRef<Promise<RunScope | undefined> | null>(null)
 	const exitWithSummary = useCallback(() => {
 		onExitSummary?.({
-			...(scopeRef.current?.sessionId ? { conversationId: scopeRef.current.sessionId } : {}),
+			...(conversationMaterializedRef.current && scopeRef.current?.sessionId
+				? { conversationId: scopeRef.current.sessionId }
+				: {}),
 		})
 		exit()
 	}, [exit, onExitSummary])
@@ -1313,12 +1329,30 @@ export function App({
 	)
 
 	const recordFeedback = useCallback(
-		(runIdValue: string, messageIdValue: string, rating: 'good' | 'bad', note?: string) => {
-			// Written under the same `<cwd>/.namzu` root the runs live in, so a
-			// rating and the transcript it judges travel together.
+		(
+			sessionId: SessionId,
+			runIdValue: string,
+			messageIdValue: string,
+			rating: 'good' | 'bad',
+			note?: string,
+		) => {
+			const sessions = sessionsRef.current
+			if (!sessions) {
+				pushMessage('system', 'Could not record feedback: conversation persistence is unavailable.')
+				return
+			}
+			// Run evidence is session-scoped in the canonical store. The old flat
+			// `<cwd>/.namzu/runs` lookup never existed after the hierarchy migration,
+			// so the feedback store correctly refused every TUI rating as unverifiable.
+			// Bind both trees to the exact conversation captured with the streamed
+			// message; `/resume` may change the active scope before a delayed click.
+			const sessionDir = new DefaultPathBuilder(sessions.root).sessionDir(
+				sessions.projectId,
+				sessionId,
+			)
 			const store = new DiskMessageFeedbackStore({
-				rootDir: join(ctx.cwd, '.namzu', 'feedback'),
-				runsDir: join(ctx.cwd, '.namzu', 'runs'),
+				rootDir: join(sessionDir, 'feedback'),
+				runsDir: join(sessionDir, 'runs'),
 			})
 			const runId = runIdValue as RunId
 			const messageId = messageIdValue as MessageId
@@ -1345,7 +1379,7 @@ export function App({
 				}
 			})()
 		},
-		[ctx.cwd, pushMessage],
+		[pushMessage],
 	)
 
 	const activateSkill = useCallback(
@@ -1405,10 +1439,12 @@ export function App({
 		if (conversationMutationRef.current) return
 		const sessions = sessionsRef.current
 		const sessionId = scopeRef.current?.sessionId
-		if (!sessions || !sessionId) {
+		if (!sessions || !sessionId || !conversationMaterializedRef.current) {
 			pushMessage(
 				'system',
-				'Cannot archive this conversation because durable session persistence is unavailable.',
+				!conversationMaterializedRef.current
+					? 'There is no conversation to archive yet — send a message first.'
+					: 'Cannot archive this conversation because durable session persistence is unavailable.',
 			)
 			return
 		}
@@ -1473,10 +1509,12 @@ export function App({
 	} | null => {
 		const sessions = sessionsRef.current
 		const sessionId = scopeRef.current?.sessionId
-		if (!sessions || !sessionId) {
+		if (!sessions || !sessionId || !conversationMaterializedRef.current) {
 			pushMessage(
 				'system',
-				'Cannot export this conversation because durable session persistence is unavailable.',
+				!conversationMaterializedRef.current
+					? 'There is no conversation to export yet — send a message first.'
+					: 'Cannot export this conversation because durable session persistence is unavailable.',
 			)
 			return null
 		}
@@ -1772,7 +1810,12 @@ export function App({
 				return
 			}
 			if (picker.kind === 'feedback-rating') {
-				recordFeedback(picker.runId, picker.messageId, value as 'good' | 'bad')
+				recordFeedback(
+					picker.sessionId,
+					picker.runId,
+					picker.messageId,
+					value as 'good' | 'bad',
+				)
 				return
 			}
 			if (picker.kind === 'skill') {
@@ -1913,7 +1956,7 @@ export function App({
 		const requestedConversationId = initialConversationIdRef.current
 		try {
 			const sessions = await openSessions(ctxRef.current.cwd)
-			let sessionId
+			let sessionId: SessionId
 			if (requestedConversationId) {
 				const restored = await loadResumableConversation(sessions, requestedConversationId)
 				sessionId = asSessionId(requestedConversationId)
@@ -1925,8 +1968,11 @@ export function App({
 					? { text: persistedOutput, provenance: 'persisted' }
 					: null
 				initialConversationIdRef.current = undefined
+				conversationMaterializedRef.current = true
 			} else {
-				sessionId = await startConversation(sessions)
+				// Provider/tool startup needs stable project/tenant/topic ids, not a
+				// durable conversation. The cursor is replaced on first admitted use.
+				sessionId = generateSessionId()
 			}
 			sessionsRef.current = sessions
 			scopeRef.current = {
@@ -1941,6 +1987,40 @@ export function App({
 			return undefined
 		}
 	}, [nextId])
+
+	/** Publish the provisional conversation exactly once, at first durable use. */
+	const materializeConversation = useCallback(async (): Promise<RunScope | undefined> => {
+		const existing = await ensureSessions()
+		if (!existing) return undefined
+		if (conversationMaterializedRef.current) return existing
+		if (materializationRef.current) return materializationRef.current
+
+		const pending = (async (): Promise<RunScope | undefined> => {
+			const sessions = sessionsRef.current
+			const scope = scopeRef.current
+			if (!sessions || !scope) return undefined
+			conversationMutationRef.current = 'materialize'
+			try {
+				const sessionId = await startConversation(sessions)
+				if (scopeRef.current !== scope || conversationMaterializedRef.current) {
+					throw new Error('the active conversation changed while its first session was published')
+				}
+				scope.sessionId = sessionId
+				conversationMaterializedRef.current = true
+				return scope
+			} finally {
+				if (conversationMutationRef.current === 'materialize') {
+					conversationMutationRef.current = null
+				}
+			}
+		})()
+		materializationRef.current = pending
+		try {
+			return await pending
+		} finally {
+			if (materializationRef.current === pending) materializationRef.current = null
+		}
+	}, [ensureSessions])
 
 	const hydrateSession = useCallback(
 		async (prefs: Preferences, detectedNow: readonly DetectedProvider[], signal?: AbortSignal) => {
@@ -2636,11 +2716,16 @@ export function App({
 			setMessages(restored)
 			modelHistoryRef.current = msgs
 			setHistory((previous) => [...previous, ...promptHistoryFromConversation(msgs)])
+			// Persisted conversation rows do not carry the live run/message identity
+			// required by feedback validation. Do not leave the answer from the
+			// conversation we just exited as a hidden `/feedback` target.
+			lastAssistantMessage.current = null
 			const persistedOutput = latestAssistantOutput(msgs)
 			lastCompletedOutputRef.current = persistedOutput
 				? { text: persistedOutput, provenance: 'persisted' }
 				: null
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
+			conversationMaterializedRef.current = true
 			pushMessage('system', `Resumed: ${conv.title}`)
 			if (discardedQueued > 0) {
 				pushMessage(
@@ -2714,7 +2799,10 @@ export function App({
 				modelHistoryRef.current = []
 				lastAssistantMessage.current = null
 				lastCompletedOutputRef.current = null
-				if (sourceScope && targetSessionId) sourceScope.sessionId = targetSessionId
+				if (sourceScope && targetSessionId) {
+					sourceScope.sessionId = targetSessionId
+					conversationMaterializedRef.current = true
+				}
 
 				if (clearScreen) {
 					setMessages([])
@@ -2777,8 +2865,8 @@ export function App({
 	 */
 	const doTitle = useCallback(
 		async (title: string, clear: boolean) => {
-			const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
-			const scope = scopeRef.current
+			const scope = await materializeConversation()
+			const sessions = sessionsRef.current
 			if (!sessions || !scope) {
 				pushMessage('system', 'Conversation history is unavailable in this folder.')
 				return
@@ -2812,7 +2900,7 @@ export function App({
 				)
 			}
 		},
-		[ensureSessions, pushMessage, setTextPrompt],
+		[materializeConversation, pushMessage, setTextPrompt],
 	)
 
 	const submitTextPrompt = useCallback(
@@ -2900,8 +2988,8 @@ export function App({
 		conversationMutationRef.current = 'fork'
 		setConversationMutation('fork')
 		try {
-			const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
-			const scope = scopeRef.current
+			const scope = await materializeConversation()
+			const sessions = sessionsRef.current
 			if (!sessions || !scope) {
 				pushMessage('system', 'Conversation history is unavailable in this folder.')
 				return
@@ -2929,9 +3017,9 @@ export function App({
 			setConversationMutation(null)
 		}
 	}, [
-		ensureSessions,
 		goalActivation,
 		hasUnsettledTurn,
+		materializeConversation,
 		pushMessage,
 		resetSubagentActivity,
 		wakeGoalDriver,
@@ -3109,10 +3197,11 @@ export function App({
 			switch (event.kind) {
 				case 'delta': {
 					setState('thinking')
-					if (event.messageId && event.runId) {
+					if (event.messageId && event.runId && st.sessionId) {
 						lastAssistantMessage.current = {
 							runId: event.runId,
 							messageId: event.messageId,
+							sessionId: st.sessionId,
 						}
 					}
 					st.text += event.text
@@ -3292,13 +3381,24 @@ export function App({
 			// state idle while the admission read was pending let a second submit
 			// start beside it and broke the queue's FIFO ownership.
 			setState('thinking')
+			let durableScope: RunScope | undefined
+			try {
+				durableScope = await materializeConversation()
+			} catch (error) {
+				pushMessage(
+					'system',
+					`Conversation persistence could not start: ${error instanceof Error ? error.message : String(error)}. This turn will continue in memory and cannot be resumed.`,
+				)
+			}
 			// A conversation can be closed outside this App after it was opened or
 			// resumed. Re-check at the actual turn boundary, before expanding file
 			// mentions, recording run evidence, or creating a provider iterator.
 			// The persistence helpers repeat the same check at their own boundary;
 			// neither read is claimed to serialize a concurrent archive (that needs
 			// a store-level lease shared with ProjectManager).
-			const destination = scopeRef.current?.sessionId ?? null
+			const destination = conversationMaterializedRef.current
+				? (durableScope?.sessionId ?? scopeRef.current?.sessionId ?? null)
+				: null
 			const turnSessions = sessionsRef.current
 			if (turnSessions && destination) {
 				try {
@@ -3371,6 +3471,7 @@ export function App({
 				pending: '',
 				completed: false,
 				outcome: null,
+				sessionId: destination,
 				notification: null,
 			}
 			const ac = new AbortController()
@@ -3729,6 +3830,7 @@ export function App({
 			finalizeMessage,
 			flushStream,
 			goalActivation,
+			materializeConversation,
 			onPermission,
 			pushMessage,
 			replaceQueued,
@@ -3765,8 +3867,10 @@ export function App({
 						? 'forked'
 						: conversationMutationRef.current === 'edit'
 							? 'branched for prompt editing'
-							: conversationMutationRef.current === 'archive'
-								? 'archived'
+						: conversationMutationRef.current === 'archive'
+							? 'archived'
+							: conversationMutationRef.current === 'materialize'
+								? 'initialized'
 								: 'moved to a fresh conversation'
 				pushMessage(
 					'system',
@@ -4212,29 +4316,30 @@ export function App({
 						// THIS session can answer from. The descriptors used for
 						// the merge above carry no store — they are names — so the
 						// registry is rebuilt here with the live one.
-						const durableSessions = sessionsRef.current
-						const runScope = scopeRef.current
 						const generation = conversationGenRef.current
 						const goalCommand = slash.name === 'goal'
 						if (goalCommand) goalCommandInFlightRef.current = true
-						const registry = new HostCommandRegistry()
-						registry.register(
-							kernelHostCommands({
-								allowedAgentIds: session?.agentIds ?? [],
-								...(durableSessions && runScope
-									? {
-											goal: {
-												store: durableSessions.goals,
-												sessionId: runScope.sessionId,
-												tenantId: durableSessions.tenantId,
-												activation: goalActivation,
-											},
-										}
-									: {}),
-							}),
-						)
 						void (async () => {
 							try {
+								if (goalCommand) await materializeConversation()
+								const durableSessions = sessionsRef.current
+								const runScope = scopeRef.current
+								const registry = new HostCommandRegistry()
+								registry.register(
+									kernelHostCommands({
+										allowedAgentIds: session?.agentIds ?? [],
+										...(durableSessions && runScope && conversationMaterializedRef.current
+											? {
+													goal: {
+														store: durableSessions.goals,
+														sessionId: runScope.sessionId,
+														tenantId: durableSessions.tenantId,
+														activation: goalActivation,
+													},
+												}
+											: {}),
+									}),
+								)
 								const outcome = await registry.dispatch(
 									`/${slash.name} ${slash.args.join(' ')}`.trim(),
 								)
@@ -4275,6 +4380,7 @@ export function App({
 							title: 'Rate the latest answer',
 							runId: target.runId,
 							messageId: target.messageId,
+							sessionId: target.sessionId,
 							values,
 							options: [
 								{
@@ -4292,7 +4398,13 @@ export function App({
 							pushMessage('system', 'Nothing to rate yet.')
 							return
 						}
-						recordFeedback(target.runId, slash.messageId, slash.rating, slash.note)
+						recordFeedback(
+							target.sessionId,
+							target.runId,
+							slash.messageId,
+							slash.rating,
+							slash.note,
+						)
 						return
 					}
 					case 'review': {

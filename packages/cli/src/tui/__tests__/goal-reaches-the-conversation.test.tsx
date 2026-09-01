@@ -132,8 +132,6 @@ it('writes /goal to the active Session and admits automatic work only there', as
 	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
 	mounted.push(harness)
 	await until(() => scope?.sessionId !== undefined, 'the durable conversation never became ready')
-	const source = scope?.sessionId
-	if (!source) throw new Error('fixture requires a source conversation')
 
 	await submit(harness, '/goal finish the durable release')
 	await until(
@@ -141,6 +139,8 @@ it('writes /goal to the active Session and admits automatic work only there', as
 		'the direct goal result never reached the transcript',
 	)
 	await until(() => sends === 1, 'the armed goal never admitted its automatic turn')
+	const source = scope?.sessionId
+	if (!source) throw new Error('fixture requires a source conversation')
 	const reopened = await openSessions(root)
 	await vi.waitFor(
 		async () => {
@@ -186,11 +186,11 @@ it('does not let a later conversation command overtake a pending durable goal wr
 	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
 	mounted.push(harness)
 	await until(() => scope?.sessionId !== undefined, 'the durable conversation never became ready')
-	const source = scope?.sessionId
-	if (!source) throw new Error('fixture requires a source conversation')
 
 	await submit(harness, '/goal ordered before new')
 	await entered.promise
+	const source = scope?.sessionId
+	if (!source) throw new Error('fixture requires a source conversation')
 	await submit(harness, '/new')
 	expect(scope?.sessionId).toBe(source)
 	expect(harness.frames.join('\n')).toContain('A goal command is still reaching durable session state')

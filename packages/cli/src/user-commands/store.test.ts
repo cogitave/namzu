@@ -56,6 +56,16 @@ describe('discoverUserCommands', () => {
 		expect(found[0]?.source).toBe('project')
 	})
 
+	it('keeps commands under the home directory in user scope when home is the cwd', () => {
+		write(home, 'review.md', 'user version')
+
+		const found = discoverUserCommands({ home, cwd: home })
+
+		expect(found).toHaveLength(1)
+		expect(found[0]?.template).toBe('user version')
+		expect(found[0]?.source).toBe('user')
+	})
+
 	it('refuses a broken file without losing the others', () => {
 		// The `SkillInfo.problem` pattern: one bad file must not empty the list,
 		// and its author has to be told why it never ran.

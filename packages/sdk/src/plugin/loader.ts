@@ -1,6 +1,6 @@
-import { lstat, readFile, readdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
+import { homedir, platform } from 'node:os'
+import { join, resolve } from 'node:path'
 import {
 	PLUGIN_MANIFEST_FILENAME,
 	PROJECT_PLUGIN_DIR,
@@ -261,9 +261,10 @@ export async function discoverAllPluginDirs(
 
 	const projectRoot = workingDirectory ?? process.cwd()
 	const userRoot = homedir()
+	const sharedRoot = await samePhysicalDirectory(projectRoot, userRoot)
 
 	const [project, user] = await Promise.all([
-		mayScan('project')
+		mayScan('project') && !sharedRoot
 			? discoverScopedPlugins(projectRoot, PROJECT_PLUGIN_DIR, 'project', options?.log)
 			: Promise.resolve([]),
 		mayScan('user')
@@ -275,7 +276,30 @@ export async function discoverAllPluginDirs(
 		'namzu.plugin.project_count': project.length,
 		'namzu.plugin.user_count': user.length,
 		...(scopes ? { 'namzu.plugin.allowed_scopes': scopes } : {}),
+		...(sharedRoot ? { 'namzu.plugin.shared_user_project_root': true } : {}),
 	})
 
 	return { project, user }
+}
+
+/**
+ * Whether two scope roots name the same directory, including through a
+ * symlink. When home is the working directory, `.namzu/plugins` is user state:
+ * treating the same bytes as project state would let a project-only trust
+ * policy admit user-owned executable code, while scanning both installs it
+ * twice. Missing roots fall back to normalized absolute names; discovery will
+ * independently report them empty.
+ */
+async function samePhysicalDirectory(left: string, right: string): Promise<boolean> {
+	const canonical = async (path: string): Promise<string> => {
+		let value: string
+		try {
+			value = await realpath(path)
+		} catch {
+			value = resolve(path)
+		}
+		return platform() === 'win32' ? value.toLocaleLowerCase('en-US') : value
+	}
+	const [a, b] = await Promise.all([canonical(left), canonical(right)])
+	return a === b
 }

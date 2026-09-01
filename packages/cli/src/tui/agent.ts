@@ -137,6 +137,7 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
+import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
@@ -935,7 +936,9 @@ function buildToolRegistry(cwd: string): BuiltTools {
 	// `save_memory` look like it touched only namzu's own state and was part of
 	// why it sat on the no-prompt list; it writes into the user's project.
 	// Separate from the user-curated MEMORY.md that is injected into the prompt.
-	const memoryStore = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+	const stateRoot = join(cwd, '.namzu')
+	ensurePrivateStateDirectory(stateRoot, 'memory')
+	const memoryStore = new DiskMemoryStore({ baseDir: stateRoot })
 	// Search through the store's async boundary. Its concrete index is lazy:
 	// handing `getIndex()` to the synchronous overload before the first store
 	// read makes a new process report every persisted memory as absent.
@@ -1064,6 +1067,16 @@ export async function createAgentSession(
 			`Working-directory sandboxing refuses filesystem root ${cwd}; choose a project directory so confinement has a boundary, or explicitly select an ephemeral workspace.`,
 			'invocation',
 		)
+	}
+	try {
+		// Refuse an aliased or otherwise unsafe generated-state root before any
+		// provider, sandbox or plugin runtime is constructed. Project-authored
+		// `.namzu` content may coexist here, but generated memory must never be
+		// redirected outside the trusted working directory through an ancestor
+		// symlink.
+		ensurePrivateStateDirectory(join(cwd, '.namzu'), 'memory')
+	} catch (error) {
+		return emptySession(`Project state is unavailable: ${describeError(error)}`, 'environment')
 	}
 	// The head serves; the tail is fallen over to, in order, when it cannot.
 	const primary = primaryProvider(prefs)
@@ -1549,8 +1562,10 @@ export async function createAgentSession(
 	// It is also why `toolNames` below reads the registry rather than a list
 	// captured on this line. The count at connect time is unchanged; what
 	// changes is that asking again later gets a later answer.
+	const stateRoot = join(cwd, '.namzu')
+	ensurePrivateStateDirectory(stateRoot, 'tenants')
 	const taskStore: TaskStore = new DiskTaskStore({
-		baseDir: join(cwd, '.namzu'),
+		baseDir: stateRoot,
 		defaultRunId: asRunId('run_namzu-cli'),
 		tenantId: scope.tenantId,
 	})

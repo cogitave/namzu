@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type Message, createProjectInstructionMessage, createUserMessage } from '@namzu/sdk'
@@ -40,6 +40,23 @@ function said(role: 'user' | 'assistant', content: string): Message {
 }
 
 describe('naming a conversation', () => {
+	it.runIf(process.platform !== 'win32')(
+		'keeps generated state private without hiding authored project state',
+		async () => {
+			const s = await project()
+			const id = await startConversation(s)
+			// `mode` is ignored when a direct write replaces an existing file. Seed
+			// the old permissive shape so the assertion proves upgrade behaviour,
+			// not only the first-write default.
+			writeFileSync(join(s.root, 'titles.json'), '{}\n', { mode: 0o644 })
+			setTitle(s, id, 'private title')
+
+			expect(lstatSync(join(s.root, 'projects')).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(s.root, 'goals')).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(s.root, 'titles.json')).mode & 0o777).toBe(0o600)
+		},
+	)
+
 	it('reports no name before one is given', async () => {
 		const s = await project()
 		const id = await startConversation(s)

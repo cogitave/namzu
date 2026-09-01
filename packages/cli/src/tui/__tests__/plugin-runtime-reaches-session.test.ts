@@ -165,10 +165,10 @@ describe('the CLI owns a real plugin runtime', () => {
 			roots.push(cwd, outside)
 			const externalPlugin = join(outside, 'plugins', 'outside-plugin')
 			await mkdir(externalPlugin, { recursive: true })
-			// If discovery crosses the link, this invalid manifest makes session
-			// construction refuse. A healthy session therefore proves the outside
-			// manifest was never admitted, rather than merely proving its tools were
-			// filtered after the read.
+			// Generated state and executable project extensions share the `.namzu`
+			// ancestor. The runtime must refuse that ancestor when it is redirected
+			// outside the trusted cwd; silently treating it as healthy would let both
+			// state writes and plugin discovery cross the trust boundary.
 			await writeFile(join(externalPlugin, 'plugin.json'), '{"outside":"was read"}', 'utf8')
 			await symlink(outside, join(cwd, '.namzu'), 'dir')
 
@@ -177,8 +177,9 @@ describe('the CLI owns a real plugin runtime', () => {
 				plugins: { enabled: true, allowedScopes: ['project'] },
 			})
 			try {
-				expect(session.hasProvider, String(session.errorHint ?? '')).toBe(true)
-				expect(String(session.errorHint ?? '')).not.toMatch(/plugin runtime/i)
+				expect(session.hasProvider).toBe(false)
+				expect(String(session.errorHint ?? '')).toMatch(/state root must be a real directory/i)
+				expect(String(session.errorHint ?? '')).not.toContain(outside)
 			} finally {
 				await session.close()
 			}
