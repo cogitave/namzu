@@ -688,6 +688,7 @@ refuses rather than choosing one lookalike source turn.
 | `namzu skills-json` | The skills discovered for a working directory, as JSON |
 | `namzu providers-json` | Providers and their per-provider models, as JSON |
 | `namzu doctor` | Health checks against this machine |
+| `namzu state [report]` | Read-only inventory of project-local and user-level Namzu state |
 | `namzu upgrade [--check]` | Check for or install the registry's latest CLI version in the npm-global prefix that owns the running package |
 | `namzu login <claude\|codex>` / `namzu logout [claude\|codex\|all]` | Store a Namzu-owned provider subscription credential, or remove one/all Namzu-owned subscription credentials |
 | `namzu drain` | Continue runs another process left behind — one pass, then exit |
@@ -701,6 +702,27 @@ pins the registry's exact version in that prefix, then reads the same package
 back before reporting success. A checkout or unrecognized package-manager
 layout is refused instead of guessing from `PATH`. The interactive update
 notice points to this command when npm reports a newer release.
+
+`namzu state` is the recovery-safe state front door. It does not load the user
+or project config cascade, so malformed config can be part of the report instead
+of preventing the report. It walks the current workspace's `.namzu` tree and
+the user-level `~/.namzu` tree without following symbolic links or constructing
+a store—store constructors may create or heal paths merely by opening them.
+The report separates authored input, configuration, generated runtime, control,
+transient and unknown bytes; validates canonical Session and run records within
+a bounded metadata budget; and counts raw checkpoint files, emergency saves and
+content-addressed attachment pairs.
+
+The snapshot is `best-effort-unlocked`: no writer lease is taken, so a concurrent
+process may change state after a count is observed. Unreadable, changing,
+oversized or unsupported metadata makes the report incomplete rather than
+silently becoming zero. An origin-only Session count is deliberately named a
+candidate count. It excludes known messages, runs, goals, titles, desktop
+bindings, fork references and sub-session links, but is not declared safe to
+delete because the scan has no writer lease. `namzu state` performs no repair,
+move, permission change, pruning or deletion. Use `namzu --format json state` or
+`namzu --format yaml state` for structured output; unknown state subcommands are
+refused.
 
 Options that belong to the program rather than to a command go **before** the
 subcommand: `-f, --format text|json|yaml`, `-q, --quiet`, `-v, --verbose`,

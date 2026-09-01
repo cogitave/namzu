@@ -6,7 +6,7 @@ description: >-
   you get. Interactive sessions, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
-timestamp: 2026-08-31T00:00:00Z
+timestamp: 2026-09-01T00:00:00Z
 status: active
 diataxis: reference
 -->
@@ -65,6 +65,7 @@ optional capabilities that `namzu doctor` probes for.
 namzu                       # interactive session in the current directory
 namzu resume ses_...        # reopen the exact interactive conversation printed on exit
 namzu doctor                # what this host can actually do, and what is missing
+namzu state                 # read-only inventory of local and user runtime state
 namzu upgrade --check       # check npm without changing the installation
 namzu upgrade               # update this active npm-global installation
 namzu login claude          # create a Namzu-owned Claude subscription session
@@ -78,6 +79,15 @@ actually running, installs the exact registry version there, and reads that
 same package back before reporting success. It refuses local checkouts and
 unknown package-manager layouts instead of guessing at another binary on
 `PATH`; update those with the package manager that installed them.
+
+`namzu state` inventories the current workspace's `.namzu` tree and the
+user-level `~/.namzu` tree without loading either config cascade or constructing
+a store. It reports authored/configuration/runtime/control bytes, canonical
+sessions and runs, raw checkpoint and emergency-save files, attachment pairs,
+privacy boundaries, and project binding health. JSON and YAML use the global
+`--format` flag. The snapshot is best-effort and unlocked: origin-only sessions
+are candidates for investigation, never an automatic deletion claim, and the
+command does not repair, move, chmod, or delete anything.
 
 Desktop control is separate from attaching a clipboard image. Ctrl+V/Alt+V
 adds an image to the current prompt; the TUI's `computer_use` tool lets the

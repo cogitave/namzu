@@ -28,6 +28,7 @@ import {
 import { runCommand } from './commands/run.js'
 import { serveCommand } from './commands/serve.js'
 import { skillsCommand } from './commands/skills.js'
+import { stateCommand } from './commands/state.js'
 import type { CommandContext } from './commands/types.js'
 import { upgradeCommand } from './commands/upgrade.js'
 import {
@@ -208,6 +209,39 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		getBootstrapContext()
 		return getTrustedContext(process.cwd())
 	}
+	let recoveryCtx: CommandContext | null = null
+	const getRecoveryContext = (): CommandContext => {
+		if (recoveryCtx) return recoveryCtx
+		const globalOpts = program.opts<{
+			format?: string
+			quiet?: boolean
+			verbose?: boolean
+			logFormat?: string
+		}>()
+		const format: FormatName = (() => {
+			if (globalOpts.format === undefined) return 'text'
+			if (isFormatName(globalOpts.format)) return globalOpts.format
+			throw new Error(`Commander admitted an invalid --format value: ${globalOpts.format}`)
+		})()
+		const quiet = globalOpts.quiet ?? false
+		const logging: ResolvedLogging = {
+			level: resolveLogLevel({
+				verbose: globalOpts.verbose,
+				quiet: globalOpts.quiet,
+			}),
+			format: resolveLogFormat({ logFormat: globalOpts.logFormat }),
+		}
+		// A recovery inventory has to work when ~/.namzu/config.yaml is the
+		// damaged object being inspected. It therefore derives presentation only
+		// from already-parsed global flags and never enters either config cascade.
+		installCliLogging(createStderrSink(logging.format), logging.level)
+		recoveryCtx = {
+			formatter: createFormatter(format, { quiet }),
+			config: { format, quiet },
+			logging,
+		}
+		return recoveryCtx
+	}
 
 	for (const def of [
 		acpCommand,
@@ -224,17 +258,20 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		providersJSONCommand,
 		upgradeCommand,
 		serveCommand,
+		stateCommand,
 	]) {
 		registerAll(program, [def], {
 			getContext:
-				def === acpCommand ||
-				def === runCommand ||
-				def === runStreamCommand ||
-				def === drainCommand ||
-				def === skillsCommand ||
-				def === upgradeCommand
-					? getBootstrapContext
-					: getContext,
+				def === stateCommand
+					? getRecoveryContext
+					: def === acpCommand ||
+							def === runCommand ||
+							def === runStreamCommand ||
+							def === drainCommand ||
+							def === skillsCommand ||
+							def === upgradeCommand
+						? getBootstrapContext
+						: getContext,
 			setExitCode,
 		})
 	}
