@@ -1574,6 +1574,30 @@ export async function createAgentSession(
 		} catch (error) {
 			computerUseError = error instanceof Error ? error : new Error(String(error))
 			await candidate.dispose().catch(() => {})
+			// Mounted anyway, with every capability false and the reason on it.
+			// A tool that is absent is a tool the model reasons about from the
+			// wrong premise; a tool that says "this desktop did not answer, and
+			// why" is one call the model reads once and does not repeat.
+			registry.register(
+				createComputerUseTool({
+					id: candidate.id,
+					capabilities: {
+						...candidate.capabilities,
+						screenshot: false,
+						mouse: false,
+						keyboard: false,
+						cursorPosition: false,
+						clipboard: false,
+						unavailableReason: describeError(computerUseError),
+					},
+					getDisplayGeometry: async () => {
+						throw computerUseError
+					},
+					execute: async () => {
+						throw computerUseError
+					},
+				}),
+			)
 		}
 	}
 	// Registered only on the main session path. Sub-agents call

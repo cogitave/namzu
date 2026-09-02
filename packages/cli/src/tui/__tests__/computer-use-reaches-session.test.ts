@@ -169,11 +169,18 @@ describe('computer use session reachability', () => {
 		expect(desktop.dispose).toHaveBeenCalledTimes(1)
 	})
 
-	it('withholds an adapter that cannot initialize and tells the operator why', async () => {
+	it('keeps an adapter that cannot initialize on the roster, unavailable, and says why to both', async () => {
+		// The tool stays: a tool that is absent is one the model reasons about
+		// from the wrong premise, while one that says "this desktop did not
+		// answer, and why" is a result it reads once. The operator is told the
+		// same thing in the notices.
 		desktop.failInitialize = true
 		const session = await createSession(true)
 
-		expect(session.toolNames()).not.toContain('computer_use')
+		// What the tool says about itself is the kernel's and pinned there
+		// (`tools/builtins/__tests__/computer-use.test.ts`); this proves it is
+		// on the roster at all.
+		expect(session.toolNames()).toContain('computer_use')
 		expect(session.configNotices).toContain(
 			'Computer use is unavailable on this device: desktop bridge unavailable',
 		)

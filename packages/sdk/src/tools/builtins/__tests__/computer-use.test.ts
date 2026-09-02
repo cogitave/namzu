@@ -413,3 +413,33 @@ describe('createComputerUseTool', () => {
 		expect(() => tool.inputSchema.parse({ type: 'scroll', at: { x: 0, y: 0 } })).toThrow()
 	})
 })
+
+describe('a desktop that did not answer', () => {
+	it('says why in the description and in every refusal', async () => {
+		const host = {
+			id: 'unavailable-host',
+			capabilities: {
+				displayServer: 'win32' as const,
+				screenshot: false,
+				mouse: false,
+				keyboard: false,
+				cursorPosition: false,
+				clipboard: false,
+				unavailableReason: 'the desktop did not answer: CopyFromScreen: The handle is invalid.',
+			},
+			getDisplayGeometry: async () => {
+				throw new Error('unreachable')
+			},
+			execute: async () => {
+				throw new Error('unreachable')
+			},
+		}
+		const tool = createComputerUseTool(host)
+		expect(tool.description).toContain('the desktop did not answer')
+		expect(tool.description).toContain('Do not retry')
+		const result = await tool.execute({ type: 'screenshot' }, {} as never)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('the desktop did not answer')
+		expect(result.error).toContain('Do not retry; tell the user.')
+	})
+})

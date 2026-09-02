@@ -30,6 +30,14 @@ export interface ComputerUseCapabilities {
 	readonly keyboard: boolean
 	readonly cursorPosition: boolean
 	readonly clipboard: boolean
+	/**
+	 * Why every flag above is false, when a host loaded but the desktop did
+	 * not answer — a WSL process with PowerShell and no interactive Windows
+	 * session, an ssh session with no display. Present, the tool stays
+	 * mounted and says this in its description and in every refusal, so the
+	 * model reads the reason once and does not try again.
+	 */
+	readonly unavailableReason?: string
 }
 
 // ---------------------------------------------------------------------------

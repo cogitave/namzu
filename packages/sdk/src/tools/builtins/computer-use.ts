@@ -152,7 +152,11 @@ function buildDescription(host: ComputerUseHost): string {
 		`Available actions: ${available.join('; ') || 'none'}.`,
 	]
 	if (unavailable.length > 0) {
-		lines.push(`Unavailable on this host: ${unavailable.join(', ')}.`)
+		lines.push(
+			caps.unavailableReason
+				? `Unavailable on this host: ${unavailable.join(', ')} — ${caps.unavailableReason} Do not retry; tell the user.`
+				: `Unavailable on this host: ${unavailable.join(', ')}.`,
+		)
 	}
 	lines.push(
 		'Coordinates are in logical pixels from the top-left of the primary display. Call getDisplayGeometry through screenshot output before clicking to confirm bounds.',
@@ -303,7 +307,7 @@ export function createComputerUseTool(host: ComputerUseHost): ToolDefinition<Act
 				return {
 					success: false,
 					output: '',
-					error: `computer_use: action "${input.type}" requires capability "${required}" which is not available on this host (displayServer=${host.capabilities.displayServer}).`,
+					error: `computer_use: action "${input.type}" requires capability "${required}" which is not available on this host (displayServer=${host.capabilities.displayServer}).${host.capabilities.unavailableReason ? ` ${host.capabilities.unavailableReason} Do not retry; tell the user.` : ''}`,
 				}
 			}
 			try {
