@@ -123,7 +123,12 @@ describe('Shift+Tab in the composer', () => {
 		)
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameStopsShowing(harness.lastFrame, '⏵⏵ accept edits on')
+		await frameShows(harness.lastFrame, '⏸ plan mode on · read-only')
+		expect(harness.lastFrame() ?? '').toContain('Permission mode changed to plan')
+
+		harness.stdin.write(SHIFT_TAB)
+		await frameStopsShowing(harness.lastFrame, 'plan mode on')
+		expect(harness.lastFrame() ?? '').not.toContain('accept edits on')
 		expect(harness.lastFrame() ?? '').toContain('Permission mode changed to prompt')
 	})
 

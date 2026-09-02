@@ -43,6 +43,14 @@ export type PermissionMode =
 	 */
 	| 'accept-edits'
 	/**
+	 * Read and think, do not act. A call that only reads is approved; a call
+	 * that would change anything is refused with feedback telling the model
+	 * to present its plan instead. The operator reads the plan and switches
+	 * mode to have it carried out — the switch IS the approval, which is why
+	 * this is a permission mode rather than a separate screen.
+	 */
+	| 'plan'
+	/**
 	 * Refuse it. Nothing runs unless a rule allowed it by name or pattern.
 	 *
 	 * The mode that did not exist before: an unattended run could previously
@@ -57,7 +65,12 @@ export const PERMISSION_MODES: readonly PermissionMode[] = [
 	'accept-edits',
 	'auto',
 	'strict',
+	'plan',
 ]
+
+/** What the model is told when a call is refused under `plan`. */
+export const PLAN_MODE_REFUSAL =
+	'Refused: plan mode is read-only. Explore with the reading tools, then present the plan as your reply — what you would change, in which files, and in what order. The user will switch out of plan mode to have it carried out.'
 
 /** The tools `accept-edits` approves without asking. Everything else prompts. */
 export const ACCEPT_EDITS_TOOLS: ReadonlySet<string> = new Set(['edit', 'write'])

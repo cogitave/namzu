@@ -20,6 +20,7 @@ import {
 	getBuiltinTools,
 } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
+import { PLAN_MODE_REFUSAL } from '../permissions/mode.js'
 
 import {
 	type PermissionDecision,
@@ -600,6 +601,27 @@ describe('makeResumeHandler under accept-edits', () => {
 		)
 		const decision = await handler(toolReview([tc({ name: 'read' }), tc({ name: 'edit' })]))
 		expect(decision).toEqual({ action: 'approve_tools' })
+		expect(onPermission).not.toHaveBeenCalled()
+	})
+})
+
+describe('makeResumeHandler under plan', () => {
+	it('approves a read-only batch without asking', async () => {
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler({ all: false }, onPermission, 'plan', exemptNames('read'))
+		const decision = await handler(toolReview([tc({ name: 'read' })]))
+		expect(decision).toEqual({ action: 'approve_tools' })
+		expect(onPermission).not.toHaveBeenCalled()
+	})
+
+	it('refuses anything that would change state, and tells the model to present the plan', async () => {
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler({ all: false }, onPermission, 'plan', exemptNames('read'))
+		for (const name of ['edit', 'write', 'bash']) {
+			const decision = await handler(toolReview([tc({ name: 'read' }), tc({ name })]))
+			expect(decision).toEqual({ action: 'reject_tools', feedback: PLAN_MODE_REFUSAL })
+		}
+		// Never a prompt: the operator chose plan mode so as not to be asked.
 		expect(onPermission).not.toHaveBeenCalled()
 	})
 })

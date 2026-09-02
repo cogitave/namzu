@@ -237,3 +237,19 @@ describe('the task tools', () => {
 		})
 	})
 })
+
+describe('plan mode', () => {
+	it('adds the plan-mode block to the prompt only for a turn run under plan', async () => {
+		const session = await openSessionIn(repo)
+		const messages: Message[] = [{ role: 'user', content: 'hi', timestamp: 0 }]
+		for await (const _ of session.send(messages, { permissionMode: 'plan' })) {
+			// drain
+		}
+		for await (const _ of session.send(messages, { permissionMode: 'prompt' })) {
+			// drain
+		}
+		expect(queryCalls.length).toBe(2)
+		expect(String(queryCalls[0]?.systemPrompt ?? '')).toContain('## Plan mode')
+		expect(String(queryCalls[1]?.systemPrompt ?? '')).not.toContain('## Plan mode')
+	})
+})

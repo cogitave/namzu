@@ -25,7 +25,7 @@ describe('resolving the mode from flag, alias and terminal', () => {
 	it('refuses a mode it does not know, and names the ones it does', () => {
 		const result = resolvePermissionMode({ flag: 'yolo', interactive: false })
 
-		expect('error' in result && result.error).toContain('prompt, accept-edits, auto, strict')
+		expect('error' in result && result.error).toContain('prompt, accept-edits, auto, strict, plan')
 	})
 
 	it('maps the bypass aliases to auto', () => {
@@ -157,6 +157,13 @@ describe('accept-edits', () => {
 		expect(resolvePermissionMode({ flag: 'accept-edits', interactive: true })).toEqual({
 			mode: 'accept-edits',
 		})
-		expect(PERMISSION_MODES).toEqual(['prompt', 'accept-edits', 'auto', 'strict'])
+		expect(PERMISSION_MODES).toEqual(['prompt', 'accept-edits', 'auto', 'strict', 'plan'])
+	})
+})
+
+describe('plan', () => {
+	it('is a mode the flag accepts', () => {
+		expect(isPermissionMode('plan')).toBe(true)
+		expect(resolvePermissionMode({ flag: 'plan', interactive: true })).toEqual({ mode: 'plan' })
 	})
 })

@@ -929,9 +929,11 @@ export function Composer({
 					<Text color={permissionMode === 'strict' ? theme.status.warn : theme.accent.user}>
 						{permissionMode === 'accept-edits'
 							? '⏵⏵ accept edits on'
-							: permissionMode === 'auto'
-								? '⏵⏵ auto-approve on'
-								: '⏸ strict: undecided calls refused'}
+							: permissionMode === 'plan'
+								? '⏸ plan mode on · read-only'
+								: permissionMode === 'auto'
+									? '⏵⏵ auto-approve on'
+									: '⏸ strict: undecided calls refused'}
 					</Text>
 					{onCycleMode ? <Text color={theme.text.muted}> (shift+tab to cycle)</Text> : null}
 				</Box>

@@ -95,7 +95,11 @@ import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve } from 'node:path'
 import type { PluginConfig, SandboxConfig } from '../config/schema.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
-import { NAMZU_DELEGATION_DOCTRINE, NAMZU_WORKING_DOCTRINE } from '../context/doctrine.js'
+import {
+	NAMZU_DELEGATION_DOCTRINE,
+	NAMZU_PLAN_MODE_DOCTRINE,
+	NAMZU_WORKING_DOCTRINE,
+} from '../context/doctrine.js'
 import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
 import { ProjectInstructionTracker } from '../context/project-tracker.js'
 import {
@@ -148,7 +152,7 @@ import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
-import { ACCEPT_EDITS_TOOLS, type PermissionMode } from '../permissions/mode.js'
+import { ACCEPT_EDITS_TOOLS, PLAN_MODE_REFUSAL, type PermissionMode } from '../permissions/mode.js'
 import { projectRunConversation } from './conversation-history.js'
 
 export type AgentEvent =
@@ -1868,6 +1872,10 @@ export async function createAgentSession(
 								NAMZU_IDENTITY,
 								NAMZU_WORKING_DOCTRINE,
 								NAMZU_DELEGATION_DOCTRINE,
+								// Present only while the turn runs under `plan`. A mode change
+								// is rare, so the cached prefix it re-keys is a price paid once
+								// per switch rather than once per turn.
+								opts?.permissionMode === 'plan' ? NAMZU_PLAN_MODE_DOCTRINE : undefined,
 								environmentPrompt,
 								memoryPrompt,
 								opts?.extraSystem,
@@ -2770,6 +2778,12 @@ export function makeResumeHandler(
 			)
 		) {
 			return { action: 'approve_tools' }
+		}
+		// Reads were already approved above (they are exempt). Anything that
+		// reached here would change something, and plan mode's answer to that
+		// is the same every time: not now, tell the user what you would do.
+		if (mode === 'plan') {
+			return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
 		}
 		if (mode === 'strict') {
 			return {

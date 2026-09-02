@@ -160,14 +160,20 @@ its exact device credential envelope, `Codex` from its exact `auth.json` envelop
 before a provider can be selected.
 
 Bare `/permissions` opens a finite chooser for the effective tool-review mode;
-`/permissions prompt`, `/permissions accept-edits`, `/permissions auto`, and
-`/permissions strict` remain scriptable forms. They select how
-otherwise-undecided calls are handled on later turns: ask the operator, approve
-file edits and writes without asking while everything else still asks, approve
-automatically, or reject automatically. **Shift+Tab** in the composer toggles
-between `prompt` and `accept-edits` — the two an operator reaches for on reflex;
-`auto` and `strict` are chosen by name — and the composer shows the mode
-beside the input whenever it is not `prompt`. `accept-edits` approves a batch
+`/permissions prompt`, `/permissions accept-edits`, `/permissions plan`,
+`/permissions auto`, and `/permissions strict` remain scriptable forms. They
+select how otherwise-undecided calls are handled on later turns: ask the
+operator, approve file edits and writes without asking while everything else
+still asks, refuse everything that would change state so the agent explores
+and presents a plan, approve automatically, or reject automatically.
+**Shift+Tab** in the composer cycles `prompt` → `accept-edits` → `plan` →
+`prompt` — the three an operator reaches for on reflex; `auto` and `strict`
+are chosen by name — and the composer shows the mode beside the input whenever
+it is not `prompt`. Under `plan` the system prompt carries a plan-mode block
+telling the agent to read and think, then reply with what it would change, in
+which files and in what order; a refused call says the same thing back to it.
+Leaving plan mode is the approval: switch the mode and ask for the plan to be
+carried out. `accept-edits` approves a batch
 only when every call in it is a non-destructive `edit` or `write` (or a tool
 that never prompts): one shell command in the batch and the whole batch asks,
 because the batch is reviewed as a unit. A change is accepted only while the
@@ -862,7 +868,7 @@ than read aloud to the model, which is the worst available response to a typo.
 | `--resume <id>` | Resume that conversation and no other (`run`) |
 | `--gate <command>` | Must exit `0` before the run may settle. Repeatable; they run in order and stop at the first failure |
 | `--gate-retries <n>` | Fix attempts a failing gate allows. Default `3` |
-| `--permission-mode <m>` | `prompt`, `accept-edits`, `auto` or `strict` — what happens to a call no rule decided. `auto` when there is nobody to ask |
+| `--permission-mode <m>` | `prompt`, `accept-edits`, `plan`, `auto` or `strict` — what happens to a call no rule decided. `auto` when there is nobody to ask |
 | `--trust` | Accept this working directory for this run only |
 | `--yolo` | Alias of `--dangerously-skip-permissions`: resolves undecided calls to `auto`. It does **not** imply `--trust` |
 | `--` | End of options; everything after it is the prompt verbatim |

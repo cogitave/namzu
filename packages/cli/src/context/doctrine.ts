@@ -63,6 +63,17 @@ export const NAMZU_WORKING_DOCTRINE = `## How you work
 - Keep the final reply short and specific: what changed, what was verified, what is left. Do not restate the transcript.`
 
 /**
+ * Added to the parent's prompt only while the session is in `plan` mode.
+ * Says what the permission layer will enforce anyway, so the model plans
+ * instead of discovering the boundary one refused call at a time.
+ */
+export const NAMZU_PLAN_MODE_DOCTRINE = `## Plan mode
+
+You are in plan mode. Read, search and think; do not change anything. \`read\`, \`grep\`, \`glob\` and the other read-only tools work as usual, and you may keep a task list. Any \`edit\`, \`write\` or shell command that changes state will be refused, so do not attempt one.
+
+When you have understood the task, reply with the plan: what you would change, in which files, in what order, and what you would verify. Be concrete — name files and functions — and short enough to read in one screen. Then stop and wait; the user will leave plan mode to have the plan carried out, and that switch is their approval.`
+
+/**
  * Parent-only: rules about `task_create` / `task_update` and `Agent`, which a
  * delegated sub-agent does not have. See the module comment for the split.
  */
