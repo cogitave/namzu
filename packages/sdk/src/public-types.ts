@@ -176,6 +176,13 @@ export type {
 
 export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
 export type {
+	AgentDefinitionRoot,
+	AgentFileDefinition,
+	DiscoverAgentDefinitionsOptions,
+	DiscoveredAgentDefinitions,
+	SkippedAgentFile,
+} from './agents/file-definitions.js'
+export type {
 	ShellHookEntry,
 	ShellHookEvent,
 	ShellHookInput,

@@ -1626,7 +1626,7 @@ export async function createAgentSession(
 		// Agents the project or user defined in files. A file that cannot be
 		// loaded is named with its reason rather than silently absent: "namzu
 		// ignored my reviewer" and "namzu never saw it" call for opposite fixes.
-		const discovered = discoverAgentDefinitions({ cwd })
+		const discovered = await discoverAgentDefinitions({ cwd })
 		for (const skipped of discovered.skipped) {
 			cliLogger().warn('agent definition skipped', {
 				'namzu.agent.definition.path': skipped.path,

@@ -15,6 +15,7 @@
 import {
 	type ActorRef,
 	type AgentDefinition,
+	type AgentFileDefinition,
 	AgentManager,
 	AgentRegistry,
 	type AgentTaskContext,
@@ -24,6 +25,9 @@ import {
 	type Agent as CoreAgent,
 	type CreateTaskOptions,
 	DefaultCapacityValidator,
+	EXPLORE_AGENT_DESCRIPTION,
+	EXPLORE_AGENT_ID,
+	EXPLORE_AGENT_PROMPT,
 	InMemorySessionStore,
 	InMemoryTopicStore,
 	type LLMProvider,
@@ -41,7 +45,6 @@ import {
 	type TaskScheduler,
 	type ToolContext,
 	type ToolDefinition,
-	ToolRegistry,
 	type ToolRegistryContract,
 	TopicManager,
 	WorkspaceBackendRegistry,
@@ -50,6 +53,8 @@ import {
 	asTenantId,
 	asUserId,
 	defineTool,
+	filterReadOnlyTools,
+	filterToolsNamed,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 
@@ -60,67 +65,30 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
-import type { AgentFileDefinition } from './definitions.js'
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from './policy.js'
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 /**
- * A sub-agent that can only look.
- *
- * "Find where X is defined", "which files reference Y", "how does Z work" are
- * the delegations a parent makes most, and every one of them ran with
- * `write`, `edit` and `bash` in the child's roster — so a lookup needed the
- * same approvals as a change, and an operator in `accept-edits` mode was
- * still asked about a child's shell command that only wanted to `cat`. This
- * definition's registry is the parent's working set filtered to tools that
- * declare themselves read-only, so a child that cannot change anything is
- * never asked whether it may.
+ * The kernel's read-only delegate, with this application's doctrine under
+ * its prompt. Roster and prompt come from `@namzu/sdk`; what is added here is
+ * the same working rules every namzu child gets.
  */
-export const EXPLORE_SUBAGENT = 'explore'
+export const EXPLORE_SUBAGENT = EXPLORE_AGENT_ID
 
-const EXPLORE_PROMPT = [
-	'You are a read-only sub-agent dispatched by namzu to find things out: where something is defined, which files reference it, how a piece of code works, what a directory contains.',
-	'You cannot see the parent conversation — work only from the prompt you were given.',
-	'You have reading and searching tools only. You cannot edit, write or run commands, and you must not describe a change as made.',
-	'Search broadly first, then read what matters. Report file paths with line numbers, quote the relevant lines, and say plainly what you did not find.',
-	'End with a concise answer the parent can act on; do not ask the parent questions.',
-	'',
-	NAMZU_WORKING_DOCTRINE,
-].join('\n')
-
-/**
- * The parent's roster, minus everything that can change state.
- *
- * Decided by each tool's own `isReadOnly` with no input — the declaration
- * `defineTool` records — rather than by a name list here, so a new read-only
- * builtin joins the explore roster without this file learning its name and
- * a tool that stops being read-only leaves it the same way.
- */
-function readOnlyToolsFrom(source: ToolRegistryContract): ToolRegistryContract {
-	const filtered = new ToolRegistry()
-	for (const tool of source.getAll()) {
-		if (tool.isReadOnly?.(undefined as never) === true) filtered.register(tool)
-	}
-	return filtered
-}
+const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_WORKING_DOCTRINE].join('\n')
 
 /**
  * A file-defined agent's roster: the parent's working set, kept to the
  * file's `tools` allowlist when there is one, and to read-only tools when
- * the file says `readOnly: true`. Intersection, never union — a name in the
- * file that the parent does not carry is simply not there.
+ * the file says `readOnly: true`. Intersection, never union.
  */
 function fileAgentTools(
 	definition: AgentFileDefinition,
 	opts: SubagentRuntimeOptions,
 ): () => ToolRegistryContract {
 	return () => {
-		const source = definition.readOnly ? readOnlyToolsFrom(opts.buildTools()) : opts.buildTools()
-		if (!definition.tools) return source
-		const allowed = new Set(definition.tools)
-		const filtered = new ToolRegistry()
-		for (const tool of source.getAll()) if (allowed.has(tool.name)) filtered.register(tool)
-		return filtered
+		const source = definition.readOnly ? filterReadOnlyTools(opts.buildTools()) : opts.buildTools()
+		return definition.tools ? filterToolsNamed(source, definition.tools) : source
 	}
 }
 
@@ -256,12 +224,8 @@ export async function createSubagentRuntime(
 		),
 	)
 	registry.register(
-		buildDefinition(
-			EXPLORE_SUBAGENT,
-			'A read-only sub-agent for finding files, symbols and answers.',
-			EXPLORE_PROMPT,
-			opts,
-			() => readOnlyToolsFrom(opts.buildTools()),
+		buildDefinition(EXPLORE_SUBAGENT, EXPLORE_AGENT_DESCRIPTION, EXPLORE_PROMPT, opts, () =>
+			filterReadOnlyTools(opts.buildTools()),
 		),
 	)
 	// Agents a project or user defined in a file, each a type of its own.
@@ -422,7 +386,7 @@ export async function createSubagentRuntime(
 						fileAgent
 							? fileAgentTools(fileAgent, opts)
 							: explore
-								? () => readOnlyToolsFrom(opts.buildTools())
+								? () => filterReadOnlyTools(opts.buildTools())
 								: opts.buildTools,
 						fileAgent?.model ?? opts.model,
 					),

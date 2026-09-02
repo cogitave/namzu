@@ -441,6 +441,14 @@ export {
 	DEFAULT_TIMEOUT_MS,
 	DEFAULT_TOKEN_BUDGET,
 	SupervisorAgent,
+	DEFAULT_RESERVED_AGENT_NAMES,
+	discoverAgentDefinitions,
+	EXPLORE_AGENT_DESCRIPTION,
+	EXPLORE_AGENT_ID,
+	EXPLORE_AGENT_PROMPT,
+	MAX_AGENT_FILE_CHARS,
+	parseAgentFile,
+	parseAgentMarkdown,
 } from './agents/index.js'
 
 // ─── registries, stores, managers, plugin, gateway ───────────────────────

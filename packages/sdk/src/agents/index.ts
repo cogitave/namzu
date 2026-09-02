@@ -17,3 +17,18 @@ export {
 	DEFAULT_TOKEN_BUDGET,
 } from './runAgent.js'
 export type { AgentIdentity, RunAgentOptions, RunAgentResult } from './runAgent.js'
+export {
+	DEFAULT_RESERVED_AGENT_NAMES,
+	MAX_AGENT_FILE_CHARS,
+	discoverAgentDefinitions,
+	parseAgentFile,
+	parseAgentMarkdown,
+} from './file-definitions.js'
+export type {
+	AgentDefinitionRoot,
+	AgentFileDefinition,
+	DiscoverAgentDefinitionsOptions,
+	DiscoveredAgentDefinitions,
+	SkippedAgentFile,
+} from './file-definitions.js'
+export { EXPLORE_AGENT_DESCRIPTION, EXPLORE_AGENT_ID, EXPLORE_AGENT_PROMPT } from './explore.js'
