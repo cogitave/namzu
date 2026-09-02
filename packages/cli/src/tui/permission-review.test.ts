@@ -139,21 +139,50 @@ describe('buildPermissionSummary', () => {
 		expect(summary.text).not.toContain('"calls"')
 	})
 
-	it('requires exact-input-first review for unknown or evolved tool shapes', () => {
+	it('shows a tool no formatter knows key by key, complete, with nothing hidden', () => {
 		const unknown = buildPermissionReview([
 			{
 				id: 'call_1',
 				name: 'plugin_deploy',
-				input: { target: 'prod', suffix: 'do-not-hide' },
+				input: { target: 'prod', suffix: 'do-not-hide', nested: { flag: true }, note: 'a\nb' },
 				isDestructive: true,
 			},
 		])
 		expect(unknown.ok).toBe(true)
 		if (!unknown.ok) return
 		const unknownSummary = buildPermissionSummary(unknown.text)
-		expect(unknownSummary.complete).toBe(false)
-		expect(unknownSummary.text).toContain('do-not-hide')
+		expect(unknownSummary.complete).toBe(true)
+		expect(unknownSummary.text).toContain('1. plugin_deploy · destructive')
+		expect(unknownSummary.text).toContain('   target: "prod"')
+		expect(unknownSummary.text).toContain('   suffix: "do-not-hide"')
+		expect(unknownSummary.text).toContain('   nested: {"flag":true}')
+		// A newline inside a value stays escaped, so it cannot pose as a key.
+		expect(unknownSummary.text).toContain('   note: "a\\nb"')
+	})
 
+	it('keeps a batch readable when a read rides along with a shell call', () => {
+		const batch = buildPermissionReview([
+			{ id: 'call_1', name: 'read', input: { path: 'src/slug.mjs' }, isDestructive: false },
+			{ id: 'call_2', name: 'bash', input: { command: 'npm test' }, isDestructive: false },
+		])
+		expect(batch.ok).toBe(true)
+		if (!batch.ok) return
+		const summary = buildPermissionSummary(batch.text)
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('1. read\n   path: "src/slug.mjs"')
+		expect(summary.text).toContain('2. bash\n   $ "npm test"')
+	})
+
+	it('opens exact-first for a tool whose name is not a plain token', () => {
+		const odd = buildPermissionReview([
+			{ id: 'call_1', name: 'bash\u0007', input: { command: 'echo' }, isDestructive: true },
+		])
+		expect(odd.ok).toBe(true)
+		if (!odd.ok) return
+		expect(buildPermissionSummary(odd.text).complete).toBe(false)
+	})
+
+	it('requires exact-input-first review for an evolved shape of a tool it formats', () => {
 		const evolvedBash = buildPermissionReview([
 			{
 				id: 'call_2',

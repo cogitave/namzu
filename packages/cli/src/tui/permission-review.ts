@@ -226,10 +226,15 @@ export function buildPermissionReview(
  * Derive a readable review from the immutable exact envelope.
  *
  * This never reads the original tool objects: `buildPermissionReview` has
- * already rejected getters, prototypes and non-JSON values. A known formatter
- * is marked complete only when its key set and value types are exhaustive.
- * Unknown or evolved shapes still get a useful projection, but callers open
- * the exact envelope by default so a friendly label can never hide a suffix.
+ * already rejected getters, prototypes and non-JSON values. A summary is
+ * `complete` when it shows every key of every call, and callers open the
+ * readable view by default only then — so a friendly label can never hide a
+ * suffix. Two ways to be complete: a formatter below whose key set and value
+ * types are exhaustive, or, for a tool no formatter here knows (`read`,
+ * `grep`, a connected server's tool), every key with its full JSON-escaped
+ * value. A tool that HAS a formatter but arrives in a shape it does not know
+ * is the one case that opens exact-first: the formatter is stale, and a
+ * reader should see that rather than a projection that happens to be right.
  */
 export function buildPermissionSummary(review: string): PermissionReviewSummary {
 	let parsed: unknown
@@ -398,11 +403,38 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 		}
 	}
 
-	return {
-		lines: [`input: ${JSON.stringify(input)}`],
-		complete: false,
+	if (FORMATTED_TOOLS.has(name)) {
+		// A shape this file formats, in a form it does not know: the formatter
+		// is stale. Exact-first, so nobody reads a projection that merely
+		// happens to be right.
+		return { lines: [`input: ${JSON.stringify(input)}`], complete: false }
 	}
+
+	// A name that is not a plain token — a control character, a bidi mark —
+	// is the kind of thing the exact view exists to expose. Exact-first.
+	if (!PLAIN_TOOL_NAME.test(name)) {
+		return { lines: [`input: ${JSON.stringify(input)}`], complete: false }
+	}
+
+	// No formatter, so nothing can be stale: every key, every value, escaped
+	// so a value cannot pose as a key or drive the terminal.
+	if (isRecord(input)) {
+		const keys = Object.keys(input)
+		return {
+			lines:
+				keys.length === 0
+					? ['(no input)']
+					: keys.map((key) => `${key}: ${JSON.stringify(input[key])}`),
+			complete: true,
+		}
+	}
+	return { lines: [`input: ${JSON.stringify(input)}`], complete: true }
 }
+
+const PLAIN_TOOL_NAME = /^[\w.:-]+$/u
+
+/** The tools with a formatter above; an evolved shape of one opens exact-first. */
+const FORMATTED_TOOLS: ReadonlySet<string> = new Set(['bash', 'edit', 'write', 'Agent'])
 
 function oneLine(value: string): string {
 	return value.replace(/\s+/gu, ' ').trim() || '(untitled task)'
