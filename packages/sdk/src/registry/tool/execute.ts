@@ -5,6 +5,7 @@ import { recordToolCall } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
+import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
 import type {
 	LLMToolSchema,
 	PreparedToolExecution,
@@ -674,7 +675,9 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				if (mode === 'plan') {
 					const isReadOnly = isTrustedReadOnly(tool, finalInput)
 					if (!isReadOnly) {
-						const msg = `plan mode: non-read-only tool "${toolName}" blocked`
+						// The same words the review-time policy uses, so the model gets one
+						// instruction whichever door refused it.
+						const msg = `plan mode: non-read-only tool "${toolName}" blocked. ${PLAN_MODE_REFUSAL}`
 						span.setAttributes({
 							[NAMZU.TOOL_SUCCESS]: false,
 							[NAMZU.TOOL_ERROR]: msg,

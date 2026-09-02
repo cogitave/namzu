@@ -25,6 +25,7 @@ import type { ToolRegistry } from '../../registry/tool/execute.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { HITLResumeDecision, ResumeHandler, ToolCallSummary } from '../../types/hitl/index.js'
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
+import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
 
 export type ReviewMode =
 	/** Ask a person. The default when a `prompt` is supplied. */
@@ -72,9 +73,7 @@ export function isReviewMode(value: unknown): value is ReviewMode {
 	return typeof value === 'string' && (REVIEW_MODES as readonly string[]).includes(value)
 }
 
-/** What the model is told when a call is refused under `plan`. */
-export const PLAN_MODE_REFUSAL =
-	'Refused: plan mode is read-only. Explore with the reading tools, then present the plan as your reply — what you would change, in which files, and in what order. The user will switch out of plan mode to have it carried out.'
+export { PLAN_MODE_REFUSAL }
 
 /** What the model is told when a call is refused under `strict`. */
 export const STRICT_MODE_REFUSAL =

@@ -8,4 +8,6 @@ The review policy: what a run does with the calls no rule decided.
 - **`isReviewExempt(registry, name, input)`** — the calls that skip review: a trusted read-only declaration or one of `REVIEW_EXEMPT_WRITES` (`task_create`, `task_update`, `update_goal`); never a `network` tool, never a tool the registry does not know. **`batchNeedsReview(toolCalls, exempt)`** — the batch rule.
 - Types `ReviewMode`, `ToolReviewRequest`, `ToolReviewAnswer`, `ToolReviewPrompt`, `ReviewPolicyOptions`, `ReviewExemption`; constants `REVIEW_MODES`, `ACCEPT_EDITS_TOOLS`.
 
-Nothing existing changed. The kernel's `permissionMode: 'plan'` stays the execution-time floor; `createReviewPolicy({ mode: 'plan' })` is the review-time counterpart that gives the model feedback instead of an error.
+Two small alignments ride along: the kernel's execution-time plan-mode refusal now carries the same guidance text as the review-time one (`PLAN_MODE_REFUSAL`, exported from the permission types), and `ApiPermissionMode` is the kernel's `PermissionMode` rather than a second copy of the union.
+
+Nothing else existing changed. The kernel's `permissionMode: 'plan'` stays the execution-time floor; `createReviewPolicy({ mode: 'plan' })` is the review-time counterpart that gives the model feedback instead of an error.

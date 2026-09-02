@@ -1,6 +1,7 @@
 import type { AgentCapabilities, AgentType } from '../types/agent/base.js'
 import type { ProjectId, RunId, SessionId } from '../types/ids/index.js'
 import type { MessageRole } from '../types/message/index.js'
+import type { PermissionMode } from '../types/permission/index.js'
 import type { StopReason } from '../types/run/events.js'
 
 export type { MessageRole, StopReason, AgentType, AgentCapabilities }
@@ -106,7 +107,8 @@ export interface RunHierarchyNode {
 	children: RunHierarchyNode[]
 }
 
-export type ApiPermissionMode = 'plan' | 'auto'
+/** The wire name for the kernel's `PermissionMode`; one union, not a second copy of it. */
+export type ApiPermissionMode = PermissionMode
 
 export interface RunConfig {
 	model?: string
