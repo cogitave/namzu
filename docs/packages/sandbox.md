@@ -281,9 +281,9 @@ type EgressPolicy =
 ```
 
 **Omitting `defaultEgress` is not `deny-all`.** No policy reaches the backend at
-all: the container keeps whatever network you named, and the microVM
-orchestrator receives no allowlist, which it reads as unrestricted. If you want
-nothing to leave, say so.
+all: the container keeps whatever network you named, while the microVM
+orchestrator receives no network-policy field and keeps its deployment's legacy
+behavior. If you want nothing to leave, say so.
 
 Every backend takes the same shape and they do **not** all enforce every
 variant. A backend that cannot enforce one throws rather than accepting it
@@ -293,7 +293,7 @@ quietly:
 |---|---|---|---|---|
 | `container:docker`, `container:runsc` | Enforced by an `--internal` network, checked against the daemon rather than trusted. Impossible under `hostReachability: 'host-port'`, and refused. | The configured network, unfiltered. | Enforced at a loopback egress proxy the backend starts and tears down with the sandbox. | Same, and `resolve()` is called per request so a rotating allowlist is honoured. |
 | `container:aci-standby-pool` | Refused | Refused | Refused | Refused |
-| `microvm:self-hosted` | An explicitly empty allowlist is forwarded | No allowlist is forwarded | The allowlist is forwarded | `resolve()` is called and its result forwarded |
+| `microvm:self-hosted` | `{ mode: 'none' }` is forwarded | `{ mode: 'open' }` is forwarded | `{ mode: 'allowlist', allowedHosts }` is forwarded | `resolve()` is called and its result forwarded as an allowlist policy |
 
 Three rows, three versions of the same lesson.
 
@@ -304,11 +304,11 @@ failure found later — its claim API rejects every property override except a
 config map, so an egress policy, a memory cap, a process cap and environment
 variables had nowhere to ride through, and all four were accepted and dropped.
 Set them on the container group profile the pool is built from. The microVM row
-is a third variant: `allow-all` and `resolver` both used to encode as an omitted
-allowlist, so one encoding carried two opposite intentions and the callback that
-produces the tenant-scoped list was never called anywhere. Whichever way the
-orchestrator reads an omitted field, one of the two was always mis-enforced —
-and the one that failed **open** was the one whose entire purpose is restriction.
+is a third variant: `allow-all` and an absent policy once both encoded as an
+omitted allowlist, so a deployment whose legacy omission meant no NIC could not
+distinguish a development workspace requesting public package access. Explicit
+policy objects now preserve each intent; an owner-run host that cannot enforce
+one must refuse it.
 
 ### The network has to be able to carry the policy
 

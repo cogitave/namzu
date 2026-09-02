@@ -184,11 +184,11 @@ interface OrchestratorCreateRequest {
 	readonly maxProcesses?: number
 	readonly timeoutMs?: number
 	/**
-	 * Resolved egress allowlist for the run, materialised by the host
-	 * into per-VM nftables rules (deny-all default). The backend just
-	 * forwards the resolved hostnames; it does not own the firewall.
+	 * Explicit guest-network intent. Omitted only when the caller supplied no
+	 * egress policy, preserving the legacy no-NIC create body. The owner-run
+	 * host either enforces this exact shape or rejects it.
 	 */
-	readonly egressAllowlist?: readonly string[]
+	readonly networkPolicy?: OrchestratorNetworkPolicy
 	/**
 	 * Per-agent captured snapshot to resume (layered on the base golden).
 	 * Optional + additive: omitted from the POST body when undefined (the
@@ -199,6 +199,12 @@ interface OrchestratorCreateRequest {
 	 */
 	readonly agentSnapshot?: AgentSnapshotRef
 }
+
+/** Network policy carried on the owned orchestrator create wire. */
+export type OrchestratorNetworkPolicy =
+	| { readonly mode: 'none' }
+	| { readonly mode: 'open' }
+	| { readonly mode: 'allowlist'; readonly allowedHosts: readonly string[] }
 
 /**
  * Orchestrator `create` response. Carries the sandbox id, the
@@ -359,7 +365,7 @@ async function spawnFirecrackerSandbox(
 ): Promise<Sandbox> {
 	options.signal?.throwIfAborted()
 	const endpoint = config.orchestratorEndpoint
-	const egressAllowlist = await resolveEgressAllowlist(options)
+	const networkPolicy = await resolveNetworkPolicy(options)
 	options.signal?.throwIfAborted()
 	const createBody: OrchestratorCreateRequest = {
 		...(config.template !== undefined ? { template: config.template } : {}),
@@ -367,10 +373,9 @@ async function spawnFirecrackerSandbox(
 		...(options.memoryLimitMb !== undefined ? { memoryLimitMb: options.memoryLimitMb } : {}),
 		...(options.maxProcesses !== undefined ? { maxProcesses: options.maxProcesses } : {}),
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-		// Resolved once. It used to be called twice — harmless for the pure
-		// kinds, and once the resolver variant actually runs its callback,
-		// twice means two round-trips and two chances to disagree.
-		...(egressAllowlist !== undefined ? { egressAllowlist } : {}),
+		// Resolved once. The explicit discriminator keeps a caller that supplied
+		// `allow-all` distinct from a legacy caller that supplied no policy.
+		...(networkPolicy !== undefined ? { networkPolicy } : {}),
 	}
 
 	let created: OrchestratorCreateResponse | undefined
@@ -622,44 +627,33 @@ async function spawnFirecrackerSandbox(
 // ---------------------------------------------------------------------------
 
 /**
- * Materialise an egress policy into the allowlist the orchestrator turns
- * into firewall rules.
- *
- * Omitting the field means "no allowlist to apply", which the orchestrator
- * reads as unrestricted. That makes omission the encoding for `allow-all`
- * and ONLY for `allow-all`.
- *
- * `resolver` used to be omitted too, so two opposite intentions shared one
- * encoding and the tenant-scoped allowlist the variant exists for was
- * silently absent — with the callback that would have produced it never
- * called anywhere in the repo. Whichever way the orchestrator reads an
- * omitted field, one of the two variants was always mis-enforced, and the
- * one that failed open was the one whose entire purpose is restriction.
+ * Materialise a caller-supplied egress policy into an explicit orchestrator
+ * network policy. Omission means exactly one thing: the caller supplied no
+ * policy, so an older owner-run host keeps its historical no-NIC behaviour.
+ * `allow-all` therefore travels as `{mode:'open'}` rather than sharing the
+ * omitted encoding with legacy callers.
  *
  * The switch is exhaustive on purpose: a new variant should fail to
  * compile here rather than fall through to "unrestricted".
  */
-export async function resolveEgressAllowlist(
+export async function resolveNetworkPolicy(
 	options: SandboxBackendOptions,
-): Promise<readonly string[] | undefined> {
+): Promise<OrchestratorNetworkPolicy | undefined> {
 	const egress = options.egress
 	if (!egress) return undefined
 
 	switch (egress.kind) {
 		case 'allow-all':
-			// The one intent omission is allowed to mean.
-			return undefined
+			return { mode: 'open' }
 		case 'deny-all':
-			// Explicitly empty, not absent.
-			return []
+			return { mode: 'none' }
 		case 'static':
-			return egress.allowedHosts
+			return { mode: 'allowlist', allowedHosts: egress.allowedHosts }
 		case 'resolver': {
-			// The callback exists to produce this list. Calling it is the
-			// whole feature; an empty result is a real deny-all and travels
-			// as one rather than collapsing back to omission.
+			// The callback exists to produce this list. An empty result remains
+			// an explicit allowlist and can be enforced as deny-all by the host.
 			const resolved = await egress.resolve()
-			return resolved
+			return { mode: 'allowlist', allowedHosts: resolved }
 		}
 		default: {
 			const exhaustive: never = egress
