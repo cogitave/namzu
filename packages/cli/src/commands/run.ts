@@ -45,59 +45,8 @@ import {
 	resolveWorkingDirectory,
 	unknownOptionMessage,
 } from './run-flags.js'
+import { readStdin } from './stdin.js'
 import type { CommandDef } from './types.js'
-
-/**
- * How long to wait for the FIRST byte of piped input when the prompt was
- * already given as an argument.
- *
- * Once a byte arrives the read runs to end-of-input with no deadline, so a
- * slow or large producer is never truncated. The bound only covers the case
- * where nothing is coming at all.
- *
- * It exists because "is anything being piped in?" is not answerable without
- * reading: on Windows a real pipe, an inherited-but-idle pipe, and a test
- * runner's stdin are indistinguishable to `fstat` — all three report neither
- * FIFO nor file. Measured. So a command that unconditionally waited for
- * end-of-input would hang forever whenever stdin was open and silent, which is
- * the ordinary state of a CI step or a test process. Waiting a quarter second
- * is invisible to a person and instant for a pipe that has data ready.
- */
-const FIRST_BYTE_DEADLINE_MS = 250
-
-async function readStdin(opts: { readonly deadline?: boolean } = {}): Promise<string> {
-	// Capture once. Tests and embedded hosts can replace the process getter;
-	// registration, observation and cleanup must still concern one stream.
-	const input = process.stdin
-	if (input.isTTY) return ''
-	const chunks: Buffer[] = []
-	const collect = async (): Promise<void> => {
-		for await (const chunk of input) chunks.push(chunk as Buffer)
-	}
-	if (!opts.deadline) {
-		await collect()
-		return Buffer.concat(chunks).toString('utf8')
-	}
-	let timer: NodeJS.Timeout | undefined
-	let settleFirstByte: (() => void) | undefined
-	const firstByte = new Promise<void>((resolve) => {
-		settleFirstByte = resolve
-		timer = setTimeout(settleFirstByte, FIRST_BYTE_DEADLINE_MS)
-		input.once('readable', settleFirstByte)
-		input.once('end', settleFirstByte)
-	})
-	try {
-		await firstByte
-	} finally {
-		if (timer) clearTimeout(timer)
-		if (settleFirstByte) {
-			input.removeListener('readable', settleFirstByte)
-			input.removeListener('end', settleFirstByte)
-		}
-	}
-	if (input.readableEnded || input.readableLength > 0) await collect()
-	return Buffer.concat(chunks).toString('utf8')
-}
 
 /**
  * The prompt, from the arguments and the pipe together.

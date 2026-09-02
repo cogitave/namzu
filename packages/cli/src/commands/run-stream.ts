@@ -87,14 +87,8 @@ import {
 	resolveWorkingDirectory,
 	unknownOptionMessage,
 } from './run-flags.js'
+import { readStdin } from './stdin.js'
 import type { CommandDef } from './types.js'
-
-async function readStdin(): Promise<string> {
-	if (process.stdin.isTTY) return ''
-	const chunks: Buffer[] = []
-	for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
-	return Buffer.concat(chunks).toString('utf8')
-}
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
 	const first = detected[0]
@@ -227,7 +221,7 @@ export const runStreamCommand: CommandDef = {
 		let conversationId: SessionId | null = null
 		let prior: Message[] = []
 		if (!sessionKey) {
-			const parsed = parsePriorMessages(await readStdin())
+			const parsed = parsePriorMessages(await readStdin({ deadline: true }))
 			if (!parsed.ok) return fail(`invalid stdin history: ${parsed.error}`)
 			prior = [...parsed.messages]
 		}

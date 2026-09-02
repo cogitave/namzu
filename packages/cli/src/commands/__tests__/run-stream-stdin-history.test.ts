@@ -1,5 +1,6 @@
 /** Stateless stdin history reaches the real command boundary intact or not at all. */
 
+import { PassThrough, Readable } from 'node:stream'
 import type { Message } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -58,15 +59,23 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 const { runStreamCommand } = await import('../run-stream.js')
 const ctx = { config: {} } as unknown as CommandContext
 
-function stdin(raw: string): void {
-	vi.spyOn(process.stdin, Symbol.asyncIterator).mockImplementation(() =>
-		(async function* () {
-			yield Buffer.from(raw)
-		})(),
-	)
+let realStdin: PropertyDescriptor | undefined
+
+/**
+ * A real readable in place of stdin, not a patched iterator: the reader
+ * waits for the first byte or end-of-input before it iterates, so a mock
+ * that only answers the iterator never reaches it.
+ */
+function stdin(raw: string | Readable): void {
+	realStdin ??= Object.getOwnPropertyDescriptor(process, 'stdin')
+	const fake = typeof raw === 'string' ? Readable.from([Buffer.from(raw)]) : raw
+	Object.defineProperty(process, 'stdin', {
+		configurable: true,
+		get: () => Object.assign(fake, { isTTY: false }),
+	})
 }
 
-async function run(raw: string): Promise<{ code: number; events: unknown[] }> {
+async function run(raw: string | Readable): Promise<{ code: number; events: unknown[] }> {
 	stdin(raw)
 	const lines: string[] = []
 	vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
@@ -88,6 +97,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.restoreAllMocks()
+	if (realStdin) Object.defineProperty(process, 'stdin', realStdin)
 })
 
 describe('run-stream stateless history admission', () => {
@@ -191,5 +201,19 @@ describe('run-stream stateless history admission', () => {
 		expect(probeAgentSession).not.toHaveBeenCalled()
 		expect(constructed).toEqual([])
 		expect(sent).toEqual([])
+	})
+})
+
+describe('run-stream and a pipe that never closes', () => {
+	it('starts the run after the first-byte deadline instead of waiting for end-of-input', async () => {
+		const silent = new PassThrough()
+		try {
+			const { code, events } = await run(silent)
+			expect(code).toBe(0)
+			expect(events.some((e) => (e as { kind: string }).kind === 'error')).toBe(false)
+			expect(sent.at(-1)?.map((m) => m.role)).toEqual(['user'])
+		} finally {
+			silent.destroy()
+		}
 	})
 })
