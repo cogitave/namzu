@@ -25,6 +25,7 @@ import {
 	type AuthorizationRule,
 	BOOT_EVENT_NAMES,
 	type CheckpointStore,
+	type CompactionConfig,
 	type CompactionResult,
 	type CostInfo,
 	DefaultPathBuilder,
@@ -100,7 +101,13 @@ import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve } from 'node:path'
-import type { HooksConfig, PluginConfig, SandboxConfig, WebConfig } from '../config/schema.js'
+import type {
+	CompactionCliConfig,
+	HooksConfig,
+	PluginConfig,
+	SandboxConfig,
+	WebConfig,
+} from '../config/schema.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
@@ -1155,6 +1162,8 @@ export interface AgentSessionOptions {
 	readonly askUser?: boolean
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
 	readonly hooks?: HooksConfig
+	/** See `NamzuCliConfig.compaction`. Absent means the kernel's structured strategy. */
+	readonly compaction?: CompactionCliConfig
 	/**
 	 * Where this session's run events are recorded, if anywhere.
 	 *
@@ -1875,7 +1884,7 @@ export async function createAgentSession(
 				await prepareProviderCredential(signal)
 				return compactNow({
 					messages,
-					config: COMPACTION_CONFIG,
+					config: compactionConfigFor(options.compaction),
 					provider,
 					model,
 					signal,
@@ -2030,6 +2039,7 @@ export async function createAgentSession(
 						try {
 							yield* runTurn({
 								provider,
+								compactionConfig: compactionConfigFor(options.compaction),
 								// Constructed HERE, per turn, and that is not an optimisation to
 								// undo. `refreshTokenIfNeeded` above replaces the head's client
 								// object when an OAuth token rotates, so a member list built once at
@@ -2145,7 +2155,7 @@ export async function createAgentSession(
 						},
 						...(subagentGateway ? { taskGateway: subagentGateway } : {}),
 						authorizationGate: gateFor(options.rules),
-						compactionConfig: COMPACTION_CONFIG,
+						compactionConfig: compactionConfigFor(options.compaction),
 						projectInstructionContext: projectInstructions.createRunContext(),
 						pathBuilder,
 						...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
@@ -2651,6 +2661,17 @@ const COMPACTION_CONFIG = {
 	maxCharsPerTask: 400,
 }
 
+/** The shipped configuration with the strategy the project chose, if it chose one. */
+function compactionConfigFor(compaction: CompactionCliConfig | undefined): CompactionConfig {
+	return {
+		...COMPACTION_CONFIG,
+		strategy: compaction?.strategy ?? COMPACTION_CONFIG.strategy,
+		...(compaction?.contextWindowTokens !== undefined
+			? { contextWindowTokens: compaction.contextWindowTokens }
+			: {}),
+	}
+}
+
 /**
  * Named rather than positional: the parameters are eleven long and four of
  * them are strings, so `workingDirectory` and `systemPrompt` would sit next
@@ -2658,6 +2679,8 @@ const COMPACTION_CONFIG = {
  */
 interface RunTurnParams {
 	readonly provider: LLMProvider
+	/** The kernel's compaction configuration for this session, strategy included. */
+	readonly compactionConfig: CompactionConfig
 	/**
 	 * The chain's tail for THIS turn. Empty means no failover, which is what a
 	 * one-member chain means and what every chain meant before this existed.
@@ -2714,6 +2737,7 @@ interface RunTurnParams {
 
 async function* runTurn({
 	provider,
+	compactionConfig,
 	fallbackProviders,
 	model,
 	tools,
@@ -2773,7 +2797,7 @@ async function* runTurn({
 			...(sandboxProvider ? { sandboxProvider } : {}),
 			...(sandboxTeardownTimeoutMs !== undefined ? { sandboxTeardownTimeoutMs } : {}),
 			authorizationGate: gateFor(rules),
-			compactionConfig: COMPACTION_CONFIG,
+			compactionConfig,
 			// The CLI owns its process end to end, so it can safely hand the
 			// termination path to the kernel: a Ctrl-C mid-run now leaves a
 			// dump under the injected hierarchy's emergency partition instead of
@@ -3098,7 +3122,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// so this one says what IT cost rather than claiming the total.
 			return {
 				kind: 'context',
-				text: `cleared ${event.clearedCount} oversized tool result${event.clearedCount === 1 ? '' : 's'} (~${event.reclaimedTokens.toLocaleString()} tokens)${event.reliefWasEnough ? '' : ' — not enough, compacting'}`,
+				text: `cleared ${event.clearedCount} tool result${event.clearedCount === 1 ? '' : 's'}${event.stubbedCount ? `, stubbed ${event.stubbedCount} narration${event.stubbedCount === 1 ? '' : 's'}` : ''} (~${event.reclaimedTokens.toLocaleString()} tokens)${event.reliefWasEnough ? '' : ' — not enough, compacting'}`,
 				shed: true,
 			}
 		case 'compaction_failed':

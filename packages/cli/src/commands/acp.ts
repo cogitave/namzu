@@ -215,6 +215,7 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.plugins ? { plugins: projectCtx.config.plugins } : {}),
 					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
 					...(projectCtx.config.hooks ? { hooks: projectCtx.config.hooks } : {}),
+					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
 					onRunEvent: (event) => routeOwner.current?.route?.(event),
 				})

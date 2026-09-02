@@ -308,6 +308,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
 					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),
+					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
 				}

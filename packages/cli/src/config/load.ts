@@ -34,6 +34,7 @@ import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import { configMetadataLiteral } from './debug.js'
 import type {
+	CompactionCliConfig,
 	PluginConfig,
 	ProfileConfig,
 	ProfilesConfig,
@@ -522,6 +523,36 @@ const CONFIG_READERS: ConfigReaders = {
 		if (isConfigMapping(v)) return v as McpServersConfig
 		return invalidConfigValue(context, [], 'must be a mapping of server names')
 	},
+	compaction: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as { strategy?: unknown; contextWindowTokens?: unknown }
+		for (const key of Object.keys(v)) {
+			if (key !== 'strategy' && key !== 'contextWindowTokens') {
+				return invalidConfigValue(context, [key], 'is not a compaction key')
+			}
+		}
+		if (
+			raw.strategy !== undefined &&
+			raw.strategy !== 'structured' &&
+			raw.strategy !== 'salience'
+		) {
+			return invalidConfigValue(context, ['strategy'], 'must be `structured` or `salience`')
+		}
+		if (
+			raw.contextWindowTokens !== undefined &&
+			(typeof raw.contextWindowTokens !== 'number' ||
+				!Number.isInteger(raw.contextWindowTokens) ||
+				raw.contextWindowTokens <= 0)
+		) {
+			return invalidConfigValue(context, ['contextWindowTokens'], 'must be a positive integer')
+		}
+		return {
+			...(raw.strategy !== undefined ? { strategy: raw.strategy } : {}),
+			...(raw.contextWindowTokens !== undefined
+				? { contextWindowTokens: raw.contextWindowTokens }
+				: {}),
+		} as CompactionCliConfig
+	},
 	hooks: (v, context) => {
 		if (!isConfigMapping(v))
 			return invalidConfigValue(context, [], 'must be a mapping of event → list')
@@ -871,6 +902,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// A hook runs a command with the operator's authority; the file is the only
 	// place one may be declared.
 	hooks: undefined,
+	// A strategy is a property of a project's runs, declared where they are reviewed.
+	compaction: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`
 	// in a shell profile would start exporting conversation content with
 	// nothing in the config file to show for it — the disclosure would be

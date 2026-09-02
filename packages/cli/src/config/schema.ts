@@ -55,6 +55,23 @@ export type HookEvent = ShellHookEvent
 export type HookEntry = ShellHookEntry
 export type HooksConfig = ShellHooksConfig
 
+/** See `NamzuCliConfig.compaction`. */
+export interface CompactionCliConfig {
+	/**
+	 * Which context-management strategy the kernel runs. `structured` is the
+	 * kernel's default; `salience` scores every message and holds the
+	 * context near half the window (see the SDK's compaction module).
+	 */
+	readonly strategy?: 'structured' | 'salience'
+	/**
+	 * The model's context window, in tokens, when the kernel's table for the
+	 * model is wrong or a project wants compaction to run earlier than the
+	 * real window would make it. Absent means the kernel resolves it from
+	 * the model, which is right for almost every project.
+	 */
+	readonly contextWindowTokens?: number
+}
+
 /** See `NamzuCliConfig.web`. */
 export interface WebConfig {
 	/** Mount `web_fetch` over the guarded provider. Default `false`. */
@@ -166,6 +183,12 @@ export interface NamzuCliConfig {
 	 * (`@namzu/sdk` `plugin/shell-hook`); this key is only where it is read.
 	 */
 	readonly hooks?: HooksConfig
+	/**
+	 * How the kernel keeps a long conversation inside the model's window.
+	 * File-only: a strategy is a property of a project's runs, not of a
+	 * shell. Absent means the kernel's `structured` strategy.
+	 */
+	readonly compaction?: CompactionCliConfig
 	/**
 	 * Observability this CLI turns on for itself.
 	 *

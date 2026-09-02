@@ -8,6 +8,7 @@ import type { AuthorizationRule } from '@namzu/sdk'
 
 import type { ConfigDebugSnapshot } from '../config/debug.js'
 import type {
+	CompactionCliConfig,
 	HooksConfig,
 	PluginConfig,
 	SandboxConfig,
@@ -94,6 +95,7 @@ export interface TuiContext {
 	readonly web?: WebConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
+	readonly compaction?: CompactionCliConfig
 	/**
 	 * Isolation config, by the same reasoning as the two above: it belongs
 	 * to the user, not to a command, so it has to reach the session

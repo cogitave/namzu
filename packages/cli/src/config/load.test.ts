@@ -584,3 +584,34 @@ describe('hooks', () => {
 		expect(loadConfig({ home, cwd: tmpdir(), env: { NAMZU_HOOKS: 'x' } }).hooks).toBeUndefined()
 	})
 })
+
+describe('compaction', () => {
+	it('reads the strategy and a window override, and refuses what it does not know', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'config.yaml'),
+			'compaction:\n  strategy: salience\n  contextWindowTokens: 20000\n',
+		)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({
+			strategy: 'salience',
+			contextWindowTokens: 20000,
+		})
+
+		for (const [bad, path] of [
+			['compaction:\n  strategy: clever\n', 'compaction.strategy'],
+			['compaction:\n  contextWindowTokens: many\n', 'compaction.contextWindowTokens'],
+			['compaction:\n  softTarget: 0.5\n', 'compaction.softTarget'],
+		]) {
+			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
+			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)
+		}
+	})
+
+	it('is not settable from the environment', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-'))
+		expect(
+			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_COMPACTION: 'salience' } }).compaction,
+		).toBeUndefined()
+	})
+})
