@@ -346,12 +346,21 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 	}
 
 	if (name === 'Agent' && isRecord(input)) {
-		const allowed = new Set(['description', 'prompt', 'role', 'workflow', 'phase', 'phase_order'])
+		const allowed = new Set([
+			'description',
+			'prompt',
+			'subagent_type',
+			'role',
+			'workflow',
+			'phase',
+			'phase_order',
+		])
 		const keys = Object.keys(input)
 		const shapeIsKnown =
 			keys.every((key) => allowed.has(key)) &&
 			typeof input.description === 'string' &&
 			typeof input.prompt === 'string' &&
+			(input.subagent_type === undefined || typeof input.subagent_type === 'string') &&
 			(input.role === undefined || typeof input.role === 'string') &&
 			(input.workflow === undefined || typeof input.workflow === 'string') &&
 			(input.phase === undefined || typeof input.phase === 'string') &&
@@ -361,6 +370,7 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			const known = input as {
 				description: string
 				prompt: string
+				subagent_type?: string
 				role?: string
 				workflow?: string
 				phase?: string
@@ -369,6 +379,11 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			return {
 				lines: [
 					...readableField('Task', known.description),
+					...(known.subagent_type !== undefined
+						? [
+								`Type: ${known.subagent_type}${known.subagent_type === 'explore' ? ' (read-only)' : ''}`,
+							]
+						: []),
 					...readableField('Instructions', known.prompt),
 					...(known.role !== undefined ? readableField('Specialist', known.role) : []),
 					...(known.workflow !== undefined ? readableField('Workflow', known.workflow) : []),

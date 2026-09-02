@@ -41,6 +41,7 @@ import {
 	type TaskScheduler,
 	type ToolContext,
 	type ToolDefinition,
+	ToolRegistry,
 	type ToolRegistryContract,
 	TopicManager,
 	WorkspaceBackendRegistry,
@@ -62,6 +63,45 @@ import {
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from './policy.js'
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
+/**
+ * A sub-agent that can only look.
+ *
+ * "Find where X is defined", "which files reference Y", "how does Z work" are
+ * the delegations a parent makes most, and every one of them ran with
+ * `write`, `edit` and `bash` in the child's roster — so a lookup needed the
+ * same approvals as a change, and an operator in `accept-edits` mode was
+ * still asked about a child's shell command that only wanted to `cat`. This
+ * definition's registry is the parent's working set filtered to tools that
+ * declare themselves read-only, so a child that cannot change anything is
+ * never asked whether it may.
+ */
+export const EXPLORE_SUBAGENT = 'explore'
+
+const EXPLORE_PROMPT = [
+	'You are a read-only sub-agent dispatched by namzu to find things out: where something is defined, which files reference it, how a piece of code works, what a directory contains.',
+	'You cannot see the parent conversation — work only from the prompt you were given.',
+	'You have reading and searching tools only. You cannot edit, write or run commands, and you must not describe a change as made.',
+	'Search broadly first, then read what matters. Report file paths with line numbers, quote the relevant lines, and say plainly what you did not find.',
+	'End with a concise answer the parent can act on; do not ask the parent questions.',
+	'',
+	NAMZU_WORKING_DOCTRINE,
+].join('\n')
+
+/**
+ * The parent's roster, minus everything that can change state.
+ *
+ * Decided by each tool's own `isReadOnly` with no input — the declaration
+ * `defineTool` records — rather than by a name list here, so a new read-only
+ * builtin joins the explore roster without this file learning its name and
+ * a tool that stops being read-only leaves it the same way.
+ */
+function readOnlyToolsFrom(source: ToolRegistryContract): ToolRegistryContract {
+	const filtered = new ToolRegistry()
+	for (const tool of source.getAll()) {
+		if (tool.isReadOnly?.(undefined as never) === true) filtered.register(tool)
+	}
+	return filtered
+}
 
 const SUBAGENT_PROMPT = [
 	'You are a focused sub-agent dispatched by namzu to complete one self-contained task and report back.',
@@ -188,6 +228,15 @@ export async function createSubagentRuntime(
 			opts,
 		),
 	)
+	registry.register(
+		buildDefinition(
+			EXPLORE_SUBAGENT,
+			'A read-only sub-agent for finding files, symbols and answers.',
+			EXPLORE_PROMPT,
+			opts,
+			() => readOnlyToolsFrom(opts.buildTools()),
+		),
+	)
 
 	const topicManager = new TopicManager({ topicStore, sessionStore: store })
 	const manager = new AgentManager(
@@ -226,9 +275,13 @@ export async function createSubagentRuntime(
 		name: 'Agent',
 		description:
 			'Delegate a self-contained task to a sub-agent and get its result back (BLOCKING). ' +
-			'Define the specialist inline with `role` — a system prompt describing who the sub-agent ' +
-			'is and how to behave (e.g. "You are a security auditor; flag vulnerabilities and rate severity"). ' +
-			'Omit `role` for a general-purpose sub-agent. The sub-agent runs in its own context with its own ' +
+			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which ' +
+			'files reference Y, how does Z work — it has reading and searching tools only and never asks for ' +
+			'permission. Use the default "general-purpose" when the task must change files or run commands. ' +
+			'Define a specialist inline with `role` — a system prompt describing who the sub-agent ' +
+			'is and how to behave (e.g. "You are a security auditor; flag vulnerabilities and rate severity"); ' +
+			'with `subagent_type: "explore"` the role keeps the read-only roster. ' +
+			'Omit `role` for the plain sub-agent. The sub-agent runs in its own context with its own ' +
 			'tools and cannot see this conversation — put everything it needs in `prompt`. Call this multiple ' +
 			'times in one response to run specialists in parallel. When coordinating several specialists, give ' +
 			'them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow ' +
@@ -244,6 +297,12 @@ export async function createSubagentRuntime(
 				prompt: {
 					type: 'string',
 					description: 'Self-contained task with all the context the sub-agent needs.',
+				},
+				subagent_type: {
+					type: 'string',
+					enum: [GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT],
+					description:
+						'"explore" for read-only lookups (find, search, explain); "general-purpose" (default) when the task changes files or runs commands.',
 				},
 				role: {
 					type: 'string',
@@ -279,20 +338,33 @@ export async function createSubagentRuntime(
 		concurrencySafe: true,
 		timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 		async execute(input, context) {
-			const { description, prompt, role, workflow, phase, phase_order } = input as {
+			const { description, prompt, subagent_type, role, workflow, phase, phase_order } = input as {
 				description: string
 				prompt: string
+				subagent_type?: string
 				role?: string
 				workflow?: string
 				phase?: string
 				phase_order?: number
 			}
-			let agentId = GENERAL_PURPOSE_SUBAGENT
+			const explore = subagent_type === EXPLORE_SUBAGENT
+			let agentId = explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT
 			const persona = typeof role === 'string' ? role.trim() : ''
 			const dynamic = persona.length > 0
 			if (dynamic) {
+				// A role on top of explore keeps explore's roster: the persona says
+				// who the child is, the type says what it may touch, and a role
+				// must not be a way to hand a read-only child a `write` tool.
 				agentId = `dyn-${++dynCounter}`
-				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
+				registry.register(
+					buildDefinition(
+						agentId,
+						`Dynamic specialist: ${agentId}`,
+						persona,
+						opts,
+						explore ? () => readOnlyToolsFrom(opts.buildTools()) : opts.buildTools,
+					),
+				)
 			}
 			const tracker = activity.begin({
 				agentId,
@@ -386,7 +458,7 @@ export async function createSubagentRuntime(
 	return {
 		gateway,
 		agentTool,
-		allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT],
+		allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT],
 		activity,
 		close,
 	}
@@ -460,6 +532,8 @@ function buildDefinition(
 	description: string,
 	systemPrompt: string,
 	opts: SubagentRuntimeOptions,
+	/** This definition's own roster; absent means the parent's working set. */
+	tools: () => ToolRegistryContract = opts.buildTools,
 ): AgentDefinition {
 	const agent = new ReactiveAgent({
 		id,
@@ -498,7 +572,7 @@ function buildDefinition(
 				timeoutMs: options.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 				maxIterations: 40,
 				provider: opts.buildProvider(),
-				tools: opts.buildTools(),
+				tools: tools(),
 				systemPrompt: environment ? `${base}\n\n${environment}` : base,
 				...(opts.projectInstructionContext
 					? { projectInstructionContext: opts.projectInstructionContext() }

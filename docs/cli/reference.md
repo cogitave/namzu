@@ -65,7 +65,13 @@ something you point at a real repository:
   before reporting done; never push, force-push, reset or rewrite history
   unless asked; say in one line what a batch of tool calls is for; keep a task
   list for multi-step work. Delegated sub-agents run under the same rules,
-  minus the ones about tools only the parent has. The same prompt states
+  minus the ones about tools only the parent has. The `Agent` tool offers two
+  types: `general-purpose`, with the parent's working set, and `explore`, a
+  read-only sub-agent whose roster is that set filtered to tools that declare
+  themselves read-only — the right delegate for "where is this defined" and
+  "how does this work", and one that never asks for permission because it
+  cannot change anything. A `role` on top of `explore` keeps the read-only
+  roster. The same prompt states
   today's date and the checked-out branch, re-read every turn so a session
   that crosses midnight or changes branch does not keep asserting what was
   true when it started. The working tree's dirty state is deliberately not
