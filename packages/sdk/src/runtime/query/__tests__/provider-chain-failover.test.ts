@@ -5,7 +5,7 @@
  * Every one of those tests still passes with `query()` ignoring
  * `fallbackProviders` entirely — a unit test on a helper says nothing about
  * whether the caller invokes it
- * (`docs/conventions/mutation-check-every-test.md`). So this file drives
+ * ("mutation check every test"). So this file drives
  * `query()` itself and asserts on the run's own events.
  */
 

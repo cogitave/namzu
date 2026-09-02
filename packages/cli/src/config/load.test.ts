@@ -330,7 +330,7 @@ describe('semantic validation of known file settings', () => {
  * `{}`. `permissions` is read from these files, so `{}` is an empty rule table,
  * and a headless run sends everything no rule covered to `auto` — an operator's
  * deny list becomes approval of the same calls, silently, on the path with
- * nobody watching. See `docs/conventions/refuse-do-not-degrade.md`.
+ * nobody watching. See "refuse do not degrade".
  */
 describe('a config that cannot be read', () => {
 	it('refuses malformed yaml instead of reading it as no settings', () => {

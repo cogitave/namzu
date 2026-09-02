@@ -6,9 +6,8 @@ description: >-
   Nothing here measures a model — a score that moves means the code changed,
   not that a vendor did.
 tags: [readme, package, evals, testing]
-timestamp: 2026-08-17T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 -->
 
 <div align="center">
@@ -49,7 +48,6 @@ provider at all, so both are deterministic and cost nothing to run.
 
 ## Documentation
 
-- [The eval suites — the two kinds, running them and what a suite is](https://github.com/cogitave/namzu/blob/main/docs/packages/evals.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

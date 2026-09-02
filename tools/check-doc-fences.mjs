@@ -189,7 +189,7 @@ function packageReadmes() {
  * how much verification it bought.
  *
  * Counted and printed rather than compiled, per
- * `docs/conventions/a-gate-must-say-where-it-looks.md`: the fix for an
+ * "a gate must say where it looks": the fix for an
  * unexamined fence is to retag it ```ts, and you cannot retag what nobody
  * reports.
  */

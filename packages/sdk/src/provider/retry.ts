@@ -162,7 +162,7 @@ export function withProviderRetry(
 				//
 				// It used to fall through to the jittered backoff instead, and that
 				// is degrading where the contract says refuse
-				// (`docs/conventions/refuse-do-not-degrade.md`). The ceiling was
+				// ("refuse do not degrade"). The ceiling was
 				// read as "how long may I sleep", so a provider asking for fifteen
 				// minutes was re-asked in half a second: the one instruction the
 				// server gave was the one thing discarded, and the retries that

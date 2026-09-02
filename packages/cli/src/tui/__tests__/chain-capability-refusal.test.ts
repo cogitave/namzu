@@ -10,7 +10,7 @@ import { createAgentSession } from '../agent.js'
  * `integrations/providers/__tests__/chain-capabilities.test.ts`. What is proven
  * HERE is the hop from a session to that comparison — a helper that is correct
  * and never called refuses nothing
- * (`docs/conventions/reachability-is-its-own-property.md`).
+ * ("reachability is its own property").
  *
  * These drive the real registry and the real driver declarations, deliberately.
  * A stub declaring a synthetic mismatch would pass against a `createAgentSession`

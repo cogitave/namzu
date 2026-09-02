@@ -8,7 +8,7 @@
  * metadata**, so the same file was a hard error in one code path and a skill
  * named after its own directory with "(no description)" in the other. Refuse
  * versus degrade, on one file shape, is the divergence this module exists to
- * end — see `docs/conventions/refuse-do-not-degrade.md`.
+ * end — see "refuse do not degrade".
  *
  * **Deliberately not a YAML parser.** It is a flat key/value splitter with one
  * level of nesting, and it refuses the constructs in {@link UNSUPPORTED_YAML}

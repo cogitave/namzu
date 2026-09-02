@@ -5,9 +5,8 @@ description: >-
   Implements the kernel's `LLMProvider` interface over OpenRouter, which
   fronts many vendors behind one key and one wire format.
 tags: [readme, package, provider, openrouter]
-timestamp: 2026-08-17T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 -->
 
 <div align="center">
@@ -68,7 +67,6 @@ events.
 
 ## Documentation
 
-- [The OpenRouter driver — models, the window, credentials and attribution](https://github.com/cogitave/namzu/blob/main/docs/providers/openrouter.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

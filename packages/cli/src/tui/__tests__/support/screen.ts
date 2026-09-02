@@ -37,7 +37,7 @@
  * update as a fresh full frame with no erase sequences at all. That is a
  * different renderer from the one that ships, and a fixture unlike production
  * tests a system that does not ship — see
- * `docs/conventions/fixture-must-match-production.md`. So this drives the real
+ * "fixture must match production". So this drives the real
  * `render` with `interactive: true` and the production frame-rate cap, which
  * is what puts the in-place repaint on the wire in the first place.
  *

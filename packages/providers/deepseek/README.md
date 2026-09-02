@@ -6,9 +6,8 @@ description: >-
   streaming, tool use and inline image input, with thinking mode mapped onto
   the kernel's reasoning blocks in both directions.
 tags: [readme, package, provider, deepseek]
-timestamp: 2026-08-20T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-20T00:00:00Z }
 -->
 
 <div align="center">
@@ -94,11 +93,10 @@ Turn it off per call with `thinking: { type: 'disabled' }`.
 
 Two parameters are **refused** rather than sent, because the vendor accepts
 them and applies neither: `effort`, and the sampling parameters while thinking
-is on. Both refusals, and how to opt out, are in the documentation below.
+is on. Both refusals can be opted out of in the driver configuration.
 
 ## Documentation
 
-- [The DeepSeek driver](https://github.com/cogitave/namzu/blob/main/docs/providers/deepseek.md) — image input, thinking mode, reasoning replay, what this wire refuses, and why it carries no price rows
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

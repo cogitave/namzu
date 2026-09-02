@@ -13,7 +13,7 @@
  * could take a credential; the probe could see there was none; the phase
  * machine could route. Only a mounted app decides which of those runs, so a
  * unit test on any one of them stays green with the operator still stranded —
- * see `docs/conventions/mutation-check-every-test.md` on a helper test not
+ * see "mutation check every test" on a helper test not
  * proving its caller.
  *
  * Asserting on the MESSAGE would prove nothing at all: the message was always

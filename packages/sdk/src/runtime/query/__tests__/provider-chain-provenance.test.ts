@@ -11,7 +11,7 @@
  * and not off the event stream. The events were already right
  * (`provider-chain-failover.test.ts` pins them), so an assertion on them would
  * pass with this whole change deleted:
- * `docs/conventions/sound-about-the-wrong-thing.md`.
+ * "sound about the wrong thing".
  *
  * Every scripted turn that must appear in the ledger calls a tool, and that is
  * load-bearing rather than decorative. The loop records a step only on the

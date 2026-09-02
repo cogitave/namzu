@@ -17,7 +17,7 @@ import { drainRuns } from '../drain.js'
  * That claim has been cited as the kernel's position on a whole
  * capability, so it had better be true, and until this file nothing
  * checked it. A paragraph is not a check
- * (`docs/conventions/a-falsifiable-comment-is-a-test.md`): a later change
+ * ("a falsifiable comment is a test"): a later change
  * that added one `setTimeout` for a retry would leave the sentence
  * standing and reading as authoritative.
  *

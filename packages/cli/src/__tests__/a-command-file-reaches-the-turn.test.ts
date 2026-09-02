@@ -6,7 +6,7 @@
  * existing machinery — `discoverSkills` finds directories containing a
  * `SKILL.md` and returns `[]` for a folder of loose `.md` files — so the road
  * from the file to the provider is new too, and reachability is its own
- * property (`docs/conventions/reachability-is-its-own-property.md`).
+ * property ("reachability is its own property").
  *
  * So this drives the real dispatch and the real session, and asserts on what
  * `query()` was handed. The chain has four links and a unit test sits on one

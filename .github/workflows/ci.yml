@@ -102,7 +102,7 @@ jobs:
         #
         # Attached to the entry, the flag cannot be separated from the version
         # by accident: whoever changes the runtime is editing the block that
-        # carries it. See `docs/conventions/a-check-that-cannot-fail.md` — a
+        # carries it. See "a check that cannot fail" — a
         # gate whose condition can quietly become unsatisfiable is that rule
         # aimed at CI rather than at a test.
         include:
@@ -178,7 +178,7 @@ jobs:
       # scripts/__tests__/check-log-standard.test.ts has no package of its
       # own for `pnpm -r test` above to pick up, so it runs here, in the same
       # step as the gate it proves. Skipping that would be exactly "the check
-      # that was never asked" (docs/conventions/a-check-that-cannot-fail.md)
+      # that was never asked" ("a check that cannot fail")
       # aimed at a test file instead of a suite.
       - name: Log standard gate
         run: |
@@ -195,7 +195,7 @@ jobs:
       # source was unreachable, and the only tolerable response to that — skip
       # when the network is down — turns "I cannot establish this" into "this
       # is satisfied", which is the failure
-      # docs/conventions/an-optional-dependency-may-not-degrade-a-check.md
+      # "an optional dependency may not degrade a check"
       # exists to prevent. So the rates are reviewed into the tree and this
       # gate only has to prove f(source) == committed, which it can always do.
       #
@@ -223,7 +223,7 @@ jobs:
       # Catching those needs a linter that is not guaranteed on this runner,
       # and a conditional check that skips when its tool is absent would turn
       # "I cannot establish this" into "this is satisfied" — the failure
-      # `docs/conventions/an-optional-dependency-may-not-degrade-a-check.md`
+      # "an optional dependency may not degrade a check"
       # exists to prevent. Reviewing the diff is the control for bashisms.
       - name: Installer parses as POSIX sh
         if: matrix.gates

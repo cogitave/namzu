@@ -5,9 +5,8 @@ description: >-
   Implements the kernel's `LLMProvider` interface for OpenAI API keys and
   account-routed ChatGPT subscription sessions.
 tags: [readme, package, provider, openai]
-timestamp: 2026-08-31T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-31T00:00:00Z }
 -->
 
 <div align="center">
@@ -104,7 +103,6 @@ degradation visible before the affected request.
 
 ## Documentation
 
-- [The OpenAI driver — configuration, refusals and compatible endpoints](https://github.com/cogitave/namzu/blob/main/docs/providers/openai.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

@@ -374,7 +374,7 @@ test('the rule-3 and rule-4 excludes lists in log-standard.json stay empty (dies
 })
 
 // ---------------------------------------------------------------------------
-// Mutation proof (per docs/conventions/mutation-check-every-test.md): for
+// Mutation proof (per "mutation check every test"): for
 // each rule, stub its ENTIRE check-function body to `return []` inside a
 // throwaway copy of the real script's source — a literal textual deletion,
 // not a testing knob — and confirm the fixture that fails against the real

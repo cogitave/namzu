@@ -6,9 +6,8 @@ description: >-
   references, symbols and diagnostics from a real server rather than from
   grep, with one server per language routed by file extension.
 tags: [readme, package, lsp, code-navigation]
-timestamp: 2026-08-17T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 -->
 
 <div align="center">
@@ -65,7 +64,6 @@ await codeNavigation.dispose()
 
 ## Documentation
 
-- [Code navigation — routing, the four operations and containment](https://github.com/cogitave/namzu/blob/main/docs/packages/lsp.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

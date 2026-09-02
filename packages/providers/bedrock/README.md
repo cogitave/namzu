@@ -6,9 +6,8 @@ description: >-
   the region and credential semantics natively rather than as a base-URL
   override.
 tags: [readme, package, provider, bedrock]
-timestamp: 2026-08-17T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 -->
 
 <div align="center">
@@ -67,7 +66,6 @@ events.
 
 ## Documentation
 
-- [The AWS Bedrock driver — model ids, credentials and prompt caching](https://github.com/cogitave/namzu/blob/main/docs/providers/bedrock.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

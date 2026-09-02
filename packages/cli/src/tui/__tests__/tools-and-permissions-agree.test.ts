@@ -14,7 +14,7 @@
  * tool at all.
  *
  * This asserts the CONTRAST rather than either half, per
- * `docs/conventions/one-site-is-not-every-site.md`: a test that only checked
+ * "one site is not every site": a test that only checked
  * `/tools` against a session built in a test would pass, because in a test
  * nothing registers late unless the test makes it. So the test makes it — the
  * mocked `query` registers into the same registry object the real one is handed,

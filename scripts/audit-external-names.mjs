@@ -415,10 +415,7 @@ async function readInventoriedFile(path) {
  * `CHANGELOG` is a record of what shipped, generated from release notes:
  * rewriting it would be editing history to match a rule it predates.
  */
-const WIRE_VALUE_DOCS = [
-	'packages/providers/',
-	'docs/providers/',
-]
+const WIRE_VALUE_DOCS = ['packages/providers/']
 
 const isWireValueDoc = (path) =>
 	path.endsWith('CHANGELOG.md') || WIRE_VALUE_DOCS.some((prefix) => path.startsWith(prefix))

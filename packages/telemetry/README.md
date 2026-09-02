@@ -6,9 +6,8 @@ description: >-
   instruments itself and exports nothing; register this once and that
   existing instrumentation starts reaching a collector.
 tags: [readme, package, telemetry, observability]
-timestamp: 2026-08-17T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 -->
 
 <div align="center">
@@ -53,7 +52,6 @@ await registerTelemetry({
 
 ## Documentation
 
-- [Telemetry — registering a provider, exporters, metrics and session export](https://github.com/cogitave/namzu/blob/main/docs/packages/telemetry.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

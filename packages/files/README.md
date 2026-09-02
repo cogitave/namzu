@@ -6,9 +6,8 @@ description: >-
   with different lifetimes, three backends behind subpath exports, and an
   HTTP router that checks containment before it serves a download.
 tags: [readme, package, files, storage]
-timestamp: 2026-08-17T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 -->
 
 <div align="center">
@@ -48,7 +47,6 @@ import { isSafeRelativePath } from '@namzu/files'
 
 ## Documentation
 
-- [The file registry — contracts, backends and the HTTP surface](https://github.com/cogitave/namzu/blob/main/docs/packages/files.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

@@ -179,7 +179,7 @@ function ceilingDisagreements(
 	// No `length < 2` guard: a lone ceiling is already handled below, because it
 	// IS the largest and the comparison skips it. Adding one would be a branch
 	// that cannot change the answer, which is a check that cannot fail
-	// (`docs/conventions/a-check-that-cannot-fail.md`) — and a mutation proving
+	// ("a check that cannot fail") — and a mutation proving
 	// exactly that is how this one was found.
 	let largest: { index: number; value: number } | undefined
 	for (const ceiling of ceilings) {

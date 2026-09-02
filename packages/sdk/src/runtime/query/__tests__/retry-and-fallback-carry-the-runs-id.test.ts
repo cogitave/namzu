@@ -8,8 +8,8 @@
  * retrying FOR; a "Provider chain: falling over" line could not be joined
  * back to the run record it changed. `one-logger-reaches-retry-and-
  * fallback.test.ts` proves the wiring is a single shared object; this file
- * proves what that object actually WRITES. `docs/conventions/
- * one-site-is-not-every-site.md` is why the assertion below is a loop over
+ * proves what that object actually WRITES. "One site is not every site"
+ * is why the assertion below is a loop over
  * every captured record, never a `toContain` on the first one.
  */
 

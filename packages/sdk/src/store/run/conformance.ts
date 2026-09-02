@@ -33,7 +33,7 @@
  *
  * ## Consuming it
  *
- * See `docs/sdk/runtime/checkpoint-store-conformance.md`. In short:
+ * In short:
  *
  * ```typescript
  * import { describe, expect, it } from 'your-runner'

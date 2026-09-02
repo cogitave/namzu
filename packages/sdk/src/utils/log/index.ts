@@ -1,7 +1,6 @@
 // The LogSink seam. `../logger.ts` keeps `Logger`, `LogContext`,
 // `getRootLogger` and `configureLogger` completely unchanged (now
-// `@deprecated`) — this directory is the additive replacement described in
-// docs/conventions and the observability docs page once those land.
+// `@deprecated`) — this directory is the additive replacement.
 
 export type {
 	LevelFilter,

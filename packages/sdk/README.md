@@ -6,9 +6,8 @@ description: >-
   with an identity, a budget, a permission boundary and pluggable durable
   stores. Renders no UI, hosts no service, and has no preferred model vendor.
 tags: [readme, package, sdk, agent-kernel]
-timestamp: 2026-08-21T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-21T00:00:00Z }
 -->
 
 <div align="center">
@@ -179,9 +178,6 @@ the package root, and each carries `details.topicId`.
 
 ## Documentation
 
-- [The kernel in depth](https://github.com/cogitave/namzu/blob/main/docs/sdk/architecture.md) — every subsystem, the design principles, the event protocol
-- [An agent is a folder](https://github.com/cogitave/namzu/blob/main/docs/sdk/directory/agent-as-a-directory.md)
-- [Tools and safety](https://github.com/cogitave/namzu/tree/main/docs/sdk/tools) · [Observability](https://github.com/cogitave/namzu/tree/main/docs/sdk/observability) · [Integrations](https://github.com/cogitave/namzu/tree/main/docs/sdk/integrations)
 - [All docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

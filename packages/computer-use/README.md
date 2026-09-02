@@ -6,9 +6,8 @@ description: >-
   Which backend serves a call depends on the platform, and what a platform
   cannot do is reported as a capability rather than discovered as a failure.
 tags: [readme, package, computer-use, adapters]
-timestamp: 2026-08-20T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-20T00:00:00Z }
 -->
 
 <div align="center">
@@ -82,7 +81,6 @@ the Windows desktop containing the terminal.
 
 ## Documentation
 
-- [Computer use — the platform matrix, capability flags and error surface](https://github.com/cogitave/namzu/blob/main/docs/packages/computer-use.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

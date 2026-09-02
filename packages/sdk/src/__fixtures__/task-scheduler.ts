@@ -10,7 +10,7 @@ import type { TaskId } from '../types/ids/index.js'
  * rather than on the part that is genuinely absent. So the stub matched the
  * interface at the moment it was written and nothing re-checked it after —
  * exactly the way a fixture drifts from the production shape it stands in
- * for (`docs/conventions/fixture-must-match-production.md`).
+ * for ("fixture must match production").
  *
  * The unsupplied methods THROW rather than returning a plausible empty
  * value. A stub that quietly answers `undefined`/`[]` lets a test keep

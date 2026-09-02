@@ -6,9 +6,8 @@ description: >-
   endpoint. Speaks two wire dialects and refuses a mismatch rather than
   guessing which one a gateway meant.
 tags: [readme, package, provider, http]
-timestamp: 2026-08-17T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 -->
 
 <div align="center">
@@ -69,7 +68,6 @@ events.
 
 ## Documentation
 
-- [The generic HTTP driver — two dialects and one configuration](https://github.com/cogitave/namzu/blob/main/docs/providers/http.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

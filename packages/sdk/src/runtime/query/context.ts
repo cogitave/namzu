@@ -42,7 +42,7 @@ import { type Logger, resolveLogger } from '../../utils/logger.js'
  * threads it to `ensureMigrated` on `build`'s behalf. Its sibling
  * `migrationSink` had the identical shape — declared, never read anywhere
  * in the workspace — and NZ-BOOT-04 removed it
- * (`docs/conventions/declared-but-undriven.md`) rather than invent a caller
+ * ("declared but undriven") rather than invent a caller
  * for a field nothing needed; `filesystemMigrator` is the same defect, left
  * for a follow-up rather than folded into that change.
  */

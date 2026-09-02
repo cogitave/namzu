@@ -34,7 +34,7 @@ function detected(): DetectedProvider[] {
 			// seven cases in this file went red at once against a provider that
 			// works perfectly in production. A fixture missing a field the code
 			// under test reads is a system that does not ship
-			// (`docs/conventions/fixture-must-match-production.md`).
+			// ("fixture must match production").
 			entry: {
 				id: 'openai',
 				label: 'A Provider',

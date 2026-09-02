@@ -6,9 +6,8 @@ description: >-
   you get. Interactive sessions, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
-timestamp: 2026-09-01T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-09-01T00:00:00Z }
 -->
 
 <div align="center">
@@ -282,8 +281,7 @@ links that leave that scope and symlinked manifests are refused. Plugin
 settings cannot be activated by an environment-selected profile. The
 same plugin hooks and skills reach interactive turns, headless runs, durable
 resumes, and ACP sessions; session shutdown settles live work before unloading
-them. See the [operator configuration
-reference](https://github.com/cogitave/namzu/blob/main/docs/cli/reference.md#plugins).
+them.
 
 ## Headless runs
 
@@ -310,8 +308,6 @@ call.
 
 ## Documentation
 
-- [The operator application](https://github.com/cogitave/namzu/blob/main/docs/cli/reference.md) — every command, the configuration surface, headless event shapes
-- [`namzu doctor`](https://github.com/cogitave/namzu/blob/main/docs/cli/doctor.md)
 - [All docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

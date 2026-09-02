@@ -6,9 +6,8 @@ description: >-
   LLMProvider over the vendor's official SDK with route-bound signed-thinking
   replay, so the kernel can resume native tool continuations safely.
 tags: [readme, package, provider, anthropic]
-timestamp: 2026-08-20T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-20T00:00:00Z }
 -->
 
 <div align="center">
@@ -79,7 +78,6 @@ string.
 
 ## Documentation
 
-- [The Anthropic driver](https://github.com/cogitave/namzu/blob/main/docs/providers/anthropic.md) — every configuration field, extended thinking, strict tool inputs
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

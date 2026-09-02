@@ -60,8 +60,7 @@ export interface RunStateMetadata {
  *
  * The wire counterpart is `WireRun` under `contracts/api.ts` — the two stay
  * decoupled so the HTTP field shape can evolve independently from this
- * persistence record. See `docs/sdk/sessions/` for the public hierarchy
- * reference.
+ * persistence record.
  */
 export interface Run {
 	id: RunId

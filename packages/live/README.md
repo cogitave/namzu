@@ -7,9 +7,8 @@ description: >-
   turns, speech synthesis and cancellable audio output without another agent
   runtime.
 tags: [readme, package, live, voice, realtime]
-timestamp: 2026-08-31T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-31T00:00:00Z }
 -->
 
 <div align="center">
@@ -163,7 +162,6 @@ refused.
 
 ## Documentation
 
-- [Live sessions — lifecycle, media contracts and cancellation](https://github.com/cogitave/namzu/blob/main/docs/packages/live.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

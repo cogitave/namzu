@@ -49,7 +49,7 @@ export function checkLimitsDetailed(
 		// bound. Continuing here would be the check answering "the budget is
 		// satisfied" to the question "can the budget be evaluated?", which is
 		// the strongest available wrong answer — see
-		// docs/conventions/an-optional-dependency-may-not-degrade-a-check.md.
+		// "an optional dependency may not degrade a check".
 		if (state.unpricedTokens > 0) {
 			return { type: 'hard_stop', reason: 'cost_unmeasurable' }
 		}

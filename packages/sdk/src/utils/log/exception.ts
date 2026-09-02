@@ -19,7 +19,7 @@
 //    logger that serializes an error chain" is exactly the property this
 //    file exists to provide. Being able to walk a `cause` safely is not the
 //    same claim as every `cause` being safe to attach in the first place;
-//    see that file's own doc comment and docs/conventions/index.md.
+//    see that file's own doc comment and "index".
 
 import type { LogAttributes } from './attributes.js'
 

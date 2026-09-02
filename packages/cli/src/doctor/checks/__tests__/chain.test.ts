@@ -118,7 +118,7 @@ describe('the provider chain check', () => {
 	 * The declarations are the drivers' real ones, not a fixture. A fixture
 	 * would prove the sentence-builder works and say nothing about whether this
 	 * check can reach a real declaration, which is the whole subject
-	 * (`docs/conventions/fixture-must-match-production.md`).
+	 * ("fixture must match production").
 	 */
 	describe('capability disagreements', () => {
 		it('FAILS a chain whose members disagree, even though every credential is present', async () => {
@@ -186,7 +186,7 @@ describe('the provider chain check', () => {
 		 * only promises that this build BUNDLES the driver, and a bundled import
 		 * can still throw on a broken or partial install. That is a nameable
 		 * input, which is what distinguishes a guard worth keeping from one that
-		 * cannot fail (`docs/conventions/a-check-that-cannot-fail.md`).
+		 * cannot fail ("a check that cannot fail").
 		 */
 		it('FAILS a primary with no bundled driver, and sends the operator to the picker', async () => {
 			writePrefs({ version: 3, providers: [{ id: 'bedrock' }, { id: 'anthropic' }] })

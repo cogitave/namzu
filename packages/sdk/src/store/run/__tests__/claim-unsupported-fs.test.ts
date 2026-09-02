@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * volume without hard links gets an error instead of a silently non-exclusive
  * claim, and the other is what stops a broken scratch name from reading as an
  * ordinary lost race. They are unreachable on any disk this suite can mount,
- * which per `docs/conventions/mutation-check-every-test.md` is precisely the
+ * which per "mutation check every test" is precisely the
  * shape that hides in a green table: "the branch you never mutated, because no
  * test would have noticed either way".
  *

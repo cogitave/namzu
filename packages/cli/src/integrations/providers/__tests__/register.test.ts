@@ -58,7 +58,7 @@ const CLI_DEPENDENCIES: Record<string, string> = JSON.parse(
  *  - iterating a list derived from `constructible` meant flipping a flag simply
  *    removed that id from the loop, so the mutation restoring the original
  *    defect passed. A guard filtered by the thing it guards cannot fail
- *    (`docs/conventions/a-check-that-cannot-fail.md`).
+ *    ("a check that cannot fail").
  *  - driving `ensureRegistered` for all seven ids caught it, at the cost of
  *    pulling four driver module graphs through vite's transform in this worker.
  *    That starved a neighbouring render-loop test badly enough to fail it in

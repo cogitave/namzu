@@ -157,7 +157,7 @@ export interface WithProviderFallbackOptions {
  *   classifier maps a `content_policy_violation` structural code onto it, and
  *   `ProviderError` is a public type a third-party driver constructs directly.
  *   Named rather than omitted for that reason; see
- *   `docs/conventions/a-check-that-cannot-fail.md` for why an unnameable one
+ *   "a check that cannot fail" for why an unnameable one
  *   would have been left out.
  */
 const REQUEST_FAULT_CODES: ReadonlySet<string> = new Set([

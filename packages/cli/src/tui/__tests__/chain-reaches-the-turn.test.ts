@@ -5,7 +5,7 @@
  * proves the operator is told. Neither says anything about the hop in between —
  * a session that never passes `fallbackProviders` produces exactly the state
  * this PR exists to remove, with every other test still green
- * (`docs/conventions/reachability-is-its-own-property.md`).
+ * ("reachability is its own property").
  *
  * `query` is stubbed to capture its params, so this drives the real
  * `createAgentSession` — the real preferences, the real registry, the real

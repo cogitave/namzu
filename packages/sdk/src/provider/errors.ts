@@ -412,7 +412,7 @@ function vendorRetryAfter(err: unknown): string | undefined {
  * isolation — that is what would catch a driver that stops going through
  * `providerVendorError`/`providerHttpError` and attaches one directly.
  * `packages/sdk/src/provider/__tests__/errors.test.ts` pins the same thing
- * against this shared function directly. See `docs/conventions/index.md`.
+ * against this shared function directly. See "index".
  *
  * `name` is checked too, because AWS models its failures as distinct classes
  * (`ThrottlingException`, `ValidationException`, `AccessDeniedException`) rather

@@ -19,7 +19,7 @@
  * override is then the only unusual thing in the file, which is what a reader
  * should see. A fixture whose defaults do not resemble a real session tests a
  * system that does not ship
- * (`docs/conventions/fixture-must-match-production.md`).
+ * ("fixture must match production").
  */
 
 import type { Message } from '@namzu/sdk'

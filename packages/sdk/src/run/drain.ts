@@ -334,7 +334,7 @@ export async function drainRuns(params: DrainRunsParams): Promise<DrainRunsResul
 	 * the check in the loop, which runs first. A branch nothing can reach is
 	 * a declaration nothing drives, so it is gone rather than covered by a
 	 * test that would have proved nothing
-	 * (`docs/conventions/declared-but-undriven.md`).
+	 * ("declared but undriven").
 	 */
 	const handle = async (entry: DurableRunEntry): Promise<void> => {
 		const claim = await claimRun(store, entry, {

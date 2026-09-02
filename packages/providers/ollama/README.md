@@ -6,9 +6,8 @@ description: >-
   server, so a run can be driven by a model on your own machine with no key
   and no egress.
 tags: [readme, package, provider, ollama]
-timestamp: 2026-08-17T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 -->
 
 <div align="center">
@@ -68,7 +67,6 @@ events.
 
 ## Documentation
 
-- [The Ollama driver — configuration, refusals and cancellation](https://github.com/cogitave/namzu/blob/main/docs/providers/ollama.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

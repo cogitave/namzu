@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Log-standard gate — the enforcement seed for the adoption rule in
- * docs/conventions/one-record-one-shape.md:
+ * "one record one shape":
  *
  *   "Every diagnostic is emitted through a logger the caller was given, with
  *   a constant body and namespaced attributes. Nothing under `packages/*\/src`

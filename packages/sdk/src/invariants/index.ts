@@ -18,7 +18,7 @@ import { ManagedRegistry } from '../registry/ManagedRegistry.js'
  * — no live run to point it at, a dependency not wired yet — is not the same
  * fact as a check that ran and found nothing wrong, and collapsing the two
  * turns "I do not know" into the strongest possible wrong answer. See
- * `docs/conventions/an-optional-dependency-may-not-degrade-a-check.md`.
+ * "an optional dependency may not degrade a check".
  */
 export type InvariantOutcome =
 	| { readonly state: 'holds' }

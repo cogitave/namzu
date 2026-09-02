@@ -95,7 +95,7 @@ A change to a public surface (an exported symbol, a CLI flag, a config key, a wi
 
 ## Working flow
 
-1. Read the neighbouring code and the page in `docs/` that describes it before a non-trivial change. `docs/conventions/` holds the rules this repository has ratified, each with the incident behind it.
+1. Read the neighbouring code, and the page in `docs/` that describes it if one exists, before a non-trivial change.
 2. After implementation: `pnpm typecheck && pnpm lint && pnpm test`, then the rest of the `<ci_gates>` table before pushing.
 3. A change to a publishable package adds a `.changeset/<slug>.md`. A change to a public surface updates `docs/` and `docs/log.md`.
 4. Commit when a change is coherent. Uncommitted work is the only kind that has ever been lost here.

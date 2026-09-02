@@ -6,9 +6,8 @@ description: >-
   four backends, a bounded filesystem view, and an egress boundary the run
   cannot talk its way past.
 tags: [readme, package, sandbox, isolation]
-timestamp: 2026-08-30T00:00:00Z
-status: active
-diataxis: reference
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-30T00:00:00Z }
 -->
 
 <div align="center">
@@ -94,7 +93,6 @@ for a microVM deployment, rebuild its golden guest image.
 
 ## Documentation
 
-- [The sandbox — tiers, backends, mounts and the egress boundary](https://github.com/cogitave/namzu/blob/main/docs/packages/sandbox.md)
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
 
 ## License

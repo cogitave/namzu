@@ -87,5 +87,5 @@ first one got lost.
   change; a declared capability nothing reads is the
   `declared-but-undriven` defect this repo has a convention page about.
 - `AbstractAgent` takes an injected `Logger`. Do not reach for
-  `getRootLogger()` here — see `docs/conventions/` and the log-standard gate,
+  `getRootLogger()` here — see the log-standard gate,
   which counts every call site.

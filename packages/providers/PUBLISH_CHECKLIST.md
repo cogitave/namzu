@@ -8,11 +8,11 @@ versions or direct maintainer publishes. The authoritative workflow is
 ## Add or change a provider
 
 1. Keep the package under `packages/providers/<name>` with publish metadata,
-   README, tests and one matching page under `docs/providers/`.
+   README, tests and a concept page under `docs/` when the driver has a surface worth documenting.
 2. Add or update a Changeset. Its bump describes consumer impact; do not edit
    `package.json#version` or a changelog by hand.
 3. If this is a new provider, update the root package table, the SDK README and
-   architecture provider inventory, plus `docs/providers/meta.json`.
+   architecture provider inventory.
 4. Run the repository gates, including publish metadata, the packed consumer
    install check and `publint` against the exact provider package.
 5. Merge through the ordinary reviewed path. A direct push does not create a

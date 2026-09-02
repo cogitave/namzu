@@ -229,7 +229,7 @@ export const ALL_PROVIDER_IDS: readonly ProviderId[] = Object.freeze(
  * Written once because it is said in four places — the chain validator, the
  * picker, `ensureRegistered` and `constructProvider` — and four wordings of one
  * fact read as four problems. It names who refused, why, and the two things the
- * operator can actually do, per `docs/conventions/refuse-do-not-degrade.md`.
+ * operator can actually do, per "refuse do not degrade".
  *
  * "This build of namzu" and not "namzu": the driver exists, and telling someone
  * their provider is unsupported when the truth is that this package does not
@@ -254,7 +254,7 @@ export function unsupportedProviderMessage(id: string): string {
  * is printed directly above the picker, so it names what the picker offers:
  * enter one now, or choose something else. Advice that matches the screen it is
  * printed on is the property the unbuildable-primary refusal already has and
- * this case did not — see `docs/conventions/read-the-neighbour.md`.
+ * this case did not — see "read the neighbour".
  *
  * The environment variables are still named. They are how the credential
  * becomes durable, and the entry screen holds one only for the session.

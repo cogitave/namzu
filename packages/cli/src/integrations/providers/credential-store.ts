@@ -20,7 +20,7 @@
  *  - if the assertion cannot be made, the file is deleted and the write
  *    throws. A credential store that cannot prove it is private is a worse
  *    outcome than no credential store, and refusing is the rule this
- *    repository already holds (`docs/conventions/refuse-do-not-degrade.md`).
+ *    repository already holds ("refuse do not degrade").
  *
  * The assertion is per-platform because the underlying protection is:
  *

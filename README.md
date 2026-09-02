@@ -204,7 +204,7 @@ precedence over a persona. `assembleSystemPrompt(persona)` returns a string, so
 its output can simply be what `instructions.md` contains. A folder does not lose
 its skills by taking the simple route: the skills section is rendered either way.
 The trade-off is set out in
-[an agent can be a directory](docs/sdk/directory/agent-as-a-directory.md).
+an agent can be a directory.
 
 A tool file is a normal module:
 
@@ -515,10 +515,8 @@ to name it too.
 
 ## Next
 
-- [`docs/`](./docs/) — the longer-form documentation: the
-  [conventions](./docs/conventions/) this repository is written to, and
-  reference pages for the [SDK](./docs/sdk/), [CLI](./docs/cli/),
-  [extension packages](./docs/packages/) and [providers](./docs/providers/).
+- [`docs/`](./docs/) — the knowledge bundle, an [OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+  directory of concept pages that grows as the code they describe changes.
   Read it here in the repository: there is no documentation site yet.
 - [`packages/sdk/README.md`](./packages/sdk/README.md) — the kernel's
   subsystem map.

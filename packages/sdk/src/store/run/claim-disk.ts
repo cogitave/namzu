@@ -275,7 +275,7 @@ const NO_LINK = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'E
  *
  * Some filesystems — a few network and removable volumes — support no hard
  * link at all. **This refuses rather than falling back**, per
- * [refuse-do-not-degrade](../../../../../docs/conventions/refuse-do-not-degrade.md).
+ * [refuse-do-not-degrade](../../../../../"refuse do not degrade").
  * The only available fallback is the `wx` publish this replaced, and that one
  * carries the defect described in the module header: two workers restore and
  * run the same run. A claim that silently becomes non-exclusive is worse than

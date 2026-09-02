@@ -384,7 +384,7 @@ function readJsonIfExists(path: string): MutableConfig {
  * directory where a file belongs, or an I/O failure all mean the file exists and
  * its contents could not be established, and that is a refusal.
  *
- * See `docs/conventions/an-optional-dependency-may-not-degrade-a-check.md`: the
+ * See "an optional dependency may not degrade a check": the
  * degradation that matters is the one turning "I cannot establish this" into
  * "this is satisfied".
  */
