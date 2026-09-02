@@ -35,3 +35,6 @@ export const NAMZU_WORDMARK_GRADIENT: readonly string[] = [
  * this the Banner falls back to the one-glyph `NAMZU_MARK`.
  */
 export const NAMZU_WORDMARK_MIN_WIDTH = 62
+
+/** The widest wordmark row, for a layout that must place something beside it. */
+export const NAMZU_WORDMARK_WIDTH: number = Math.max(...NAMZU_WORDMARK.map((line) => line.length))

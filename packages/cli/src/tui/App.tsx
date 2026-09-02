@@ -169,6 +169,7 @@ import {
 	NAMZU_WORDMARK,
 	NAMZU_WORDMARK_GRADIENT,
 	NAMZU_WORDMARK_MIN_WIDTH,
+	NAMZU_WORDMARK_WIDTH,
 } from './logo.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
@@ -6151,11 +6152,19 @@ function Banner({
 	const model = session?.modelSummary
 	const home = process.env.HOME
 	const prettyCwd = home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd
+	// The meta column is given its width outright. Left to flex, a long path
+	// widens the column past the row and the terminal wraps the overflow,
+	// which is exactly the mid-word break the truncation below exists to
+	// prevent: the padding on both sides, then the wordmark and its margin.
+	const metaWidth = Math.max(
+		16,
+		columns - 2 - (wide ? NAMZU_WORDMARK_WIDTH + 2 : `${NAMZU_MARK} `.length),
+	)
 	return (
 		<Box flexDirection="column" paddingX={1} paddingTop={1} paddingBottom={1}>
 			<Box flexDirection="row">
 				{wide ? (
-					<Box flexDirection="column" marginRight={2}>
+					<Box flexDirection="column" marginRight={2} flexShrink={0}>
 						{NAMZU_WORDMARK.map((line, i) => (
 							<Text key={`wm-${i}`} color={NAMZU_WORDMARK_GRADIENT[i]} bold>
 								{line}
@@ -6166,7 +6175,7 @@ function Banner({
 					<Text color={NAMZU_MARK_COLOR}>{NAMZU_MARK} </Text>
 				)}
 				{/* Center the meta column against the 5-row wordmark. */}
-				<Box flexDirection="column" marginTop={wide ? 1 : 0}>
+				<Box flexDirection="column" marginTop={wide ? 1 : 0} width={metaWidth}>
 					<Text>
 						<Text color={theme.text.secondary}>Cogitave</Text>
 						{/* Wide layout already spells "namzu" in the wordmark, so the
