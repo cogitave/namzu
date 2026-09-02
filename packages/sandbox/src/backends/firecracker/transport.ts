@@ -56,7 +56,14 @@
 import net from 'node:net'
 import tls from 'node:tls'
 
-import type { SandboxExecOptions, SandboxExecResult } from '@namzu/sdk'
+import type {
+	OpenTerminalOptions,
+	SandboxExecOptions,
+	SandboxExecResult,
+	SandboxTcpConnectOptions,
+	SandboxTcpConnection,
+	TerminalSession,
+} from '@namzu/sdk'
 import { OperationDeadline, OperationDeadlineExpired } from '../readiness.js'
 import {
 	RemoteCancellationUnknownError,
@@ -70,6 +77,12 @@ import {
 	ExecResultAccumulator,
 	type ReadFileRequest,
 	type ReadFileResponse,
+	type TcpConnectRequest,
+	type TcpInputEvent,
+	type TcpOutputEvent,
+	type TerminalInputEvent,
+	type TerminalOpenRequest,
+	type TerminalOutputEvent,
 	type WriteFileRequest,
 	type WriteFileResponse,
 	parseExecLine,
@@ -170,6 +183,8 @@ export type AgentRequest =
 	  }
 	| { readonly op: 'read-file'; readonly body: ReadFileRequest }
 	| { readonly op: 'write-file'; readonly body: WriteFileRequest }
+	| { readonly op: 'terminal'; readonly body: TerminalOpenRequest }
+	| { readonly op: 'tcp-connect'; readonly body: TcpConnectRequest }
 	| { readonly op: 'healthz' }
 
 export interface VsockTransportOptions {
@@ -805,6 +820,306 @@ export class VsockAgentTransport {
 			throw new Error(res.error ?? 'read-file: no content')
 		}
 		return Buffer.from(res.content, 'base64')
+	}
+
+	/**
+	 * Open a real PTY owned by the in-VM agent.
+	 *
+	 * Unlike `execute`, this keeps one framed connection open for the complete
+	 * interactive lifetime: guest output and exit events flow toward the host,
+	 * while input/resize/kill events flow back on the same ordered stream. The
+	 * browser never reaches this transport directly; the runtime gateway owns
+	 * the session and its authenticated WebSocket attachment.
+	 */
+	async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {
+		const socket = await this.dial()
+		const request: TerminalOpenRequest = {
+			...(options.command !== undefined ? { command: options.command } : {}),
+			...(options.args !== undefined ? { args: options.args } : {}),
+			...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+			...(options.env !== undefined ? { env: { ...options.env } } : {}),
+			cols: options.size.cols,
+			rows: options.size.rows,
+		}
+
+		return await new Promise<TerminalSession>((resolve, reject) => {
+			const KILL_GRACE_MS = 5_000
+			const reader = new FrameReader()
+			const listeners = new Set<(chunk: string) => void>()
+			const buffered: string[] = []
+			let bufferedBytes = 0
+			let ready = false
+			let settled = false
+			let killTimer: ReturnType<typeof setTimeout> | undefined
+			let resolveExit!: (event: { exitCode: number; signal?: number }) => void
+			const exited = new Promise<{ exitCode: number; signal?: number }>((done) => {
+				resolveExit = done
+			})
+			const idle = new IdleTimer(this.readIdleTimeoutMs, () => {
+				finish(
+					new Error(
+						`vsock transport: terminal read idle timeout after ${this.readIdleTimeoutMs}ms`,
+					),
+				)
+			})
+
+			const finish = (
+				error: Error | null,
+				exit: { exitCode: number; signal?: number } = { exitCode: -1 },
+			) => {
+				if (settled) return
+				settled = true
+				idle.clear()
+				if (killTimer) clearTimeout(killTimer)
+				socket.destroy()
+				listeners.clear()
+				resolveExit(exit)
+				if (!ready) reject(error ?? new Error('terminal exited before readiness'))
+			}
+
+			const send = (event: TerminalInputEvent) => {
+				if (settled) return
+				socket.write(frame(JSON.stringify(event)))
+			}
+
+			const session: TerminalSession = {
+				write(data) {
+					send({ type: 'input', data })
+				},
+				resize(size) {
+					send({ type: 'resize', cols: size.cols, rows: size.rows })
+				},
+				onData(listener) {
+					listeners.add(listener)
+					if (buffered.length > 0) {
+						const pending = buffered.splice(0)
+						bufferedBytes = 0
+						queueMicrotask(() => {
+							if (!listeners.has(listener)) return
+							for (const chunk of pending) listener(chunk)
+						})
+					}
+					return () => listeners.delete(listener)
+				},
+				exited,
+				kill(signal) {
+					send({ type: 'kill', ...(signal !== undefined ? { signal } : {}) })
+					// A wedged guest must not pin sandbox.destroy() forever. The normal
+					// path reports the real exit; the deadline only severs an
+					// unresponsive transport so the owning microVM can be reclaimed.
+					if (!settled && !killTimer) {
+						killTimer = setTimeout(() => finish(null), KILL_GRACE_MS)
+						killTimer.unref?.()
+					}
+				},
+			}
+
+			socket.on('data', (chunk: Buffer) => {
+				if (!ready) idle.bump()
+				let payloads: string[]
+				try {
+					payloads = reader.push(chunk)
+				} catch (err) {
+					finish(err instanceof Error ? err : new Error(String(err)))
+					return
+				}
+				for (const payload of payloads) {
+					let event: TerminalOutputEvent
+					try {
+						event = JSON.parse(payload) as TerminalOutputEvent
+					} catch (err) {
+						finish(err instanceof Error ? err : new Error(String(err)))
+						return
+					}
+					if (event.type === 'ready') {
+						if (!ready) {
+							ready = true
+							// Once ready, an interactive shell may legitimately sit silent
+							// for hours. Runtime/session TTL owns idle cleanup; a transport
+							// read timer would incorrectly kill a healthy quiet terminal.
+							idle.clear()
+							resolve(session)
+						}
+						continue
+					}
+					if (event.type === 'data') {
+						if (listeners.size === 0) {
+							buffered.push(event.data)
+							bufferedBytes += Buffer.byteLength(event.data)
+							while (bufferedBytes > 1024 * 1024 && buffered.length > 1) {
+								bufferedBytes -= Buffer.byteLength(buffered.shift() ?? '')
+							}
+						} else {
+							for (const listener of listeners) listener(event.data)
+						}
+						continue
+					}
+					if (event.type === 'exit') {
+						finish(null, {
+							exitCode: event.exitCode,
+							...(event.signal !== undefined ? { signal: event.signal } : {}),
+						})
+						return
+					}
+					finish(new Error(event.error))
+					return
+				}
+			})
+			socket.once('error', (err) => finish(err))
+			socket.once('close', () =>
+				finish(new Error('vsock transport: terminal socket closed before exit')),
+			)
+			idle.bump()
+			socket.write(
+				frame(
+					JSON.stringify({
+						op: 'terminal',
+						body: request,
+					} satisfies AgentRequest),
+				),
+			)
+		})
+	}
+
+	/** Open one TCP stream to a service listening on guest loopback. */
+	async openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection> {
+		if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65_535) {
+			throw new Error('tcp connection port must be an integer in [1, 65535]')
+		}
+		const host = options.host ?? '127.0.0.1'
+		if (host !== '127.0.0.1' && host !== '::1') {
+			throw new Error('firecracker TCP connections are restricted to guest loopback')
+		}
+		const socket = await this.dial()
+		const request: TcpConnectRequest = { host, port: options.port }
+
+		return await new Promise<SandboxTcpConnection>((resolve, reject) => {
+			const reader = new FrameReader()
+			const listeners = new Set<(chunk: Uint8Array) => void>()
+			const buffered: Buffer[] = []
+			let bufferedBytes = 0
+			let ready = false
+			let settled = false
+			let resolveClosed!: () => void
+			const closed = new Promise<void>((done) => {
+				resolveClosed = done
+			})
+			const idle = new IdleTimer(this.readIdleTimeoutMs, () => {
+				finish(
+					new Error(`vsock transport: TCP connect idle timeout after ${this.readIdleTimeoutMs}ms`),
+				)
+			})
+
+			const finish = (error: Error | null) => {
+				if (settled) return
+				settled = true
+				idle.clear()
+				socket.destroy()
+				listeners.clear()
+				resolveClosed()
+				if (!ready) reject(error ?? new Error('TCP stream closed before readiness'))
+			}
+
+			const send = (event: TcpInputEvent): boolean => {
+				return !settled && socket.write(frame(JSON.stringify(event)))
+			}
+
+			const connection: SandboxTcpConnection = {
+				write(data) {
+					const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data)
+					return send({ type: 'data', data: bytes.toString('base64') })
+				},
+				end() {
+					send({ type: 'end' })
+				},
+				destroy() {
+					send({ type: 'destroy' })
+					finish(null)
+				},
+				pause() {
+					socket.pause()
+				},
+				resume() {
+					if (!settled) socket.resume()
+				},
+				onData(listener) {
+					listeners.add(listener)
+					if (buffered.length > 0) {
+						const pending = buffered.splice(0)
+						bufferedBytes = 0
+						queueMicrotask(() => {
+							if (!listeners.has(listener)) return
+							for (const chunk of pending) listener(chunk)
+						})
+					}
+					return () => listeners.delete(listener)
+				},
+				onDrain(listener) {
+					socket.on('drain', listener)
+					return () => socket.off('drain', listener)
+				},
+				closed,
+			}
+
+			socket.on('data', (chunk: Buffer) => {
+				if (!ready) idle.bump()
+				let payloads: string[]
+				try {
+					payloads = reader.push(chunk)
+				} catch (error) {
+					finish(error instanceof Error ? error : new Error(String(error)))
+					return
+				}
+				for (const payload of payloads) {
+					let event: TcpOutputEvent
+					try {
+						event = JSON.parse(payload) as TcpOutputEvent
+					} catch (error) {
+						finish(error instanceof Error ? error : new Error(String(error)))
+						return
+					}
+					if (event.type === 'ready') {
+						if (!ready) {
+							ready = true
+							idle.clear()
+							resolve(connection)
+						}
+						continue
+					}
+					if (event.type === 'data') {
+						const bytes = Buffer.from(event.data, 'base64')
+						if (listeners.size === 0) {
+							buffered.push(bytes)
+							bufferedBytes += bytes.byteLength
+							while (bufferedBytes > 1024 * 1024 && buffered.length > 1) {
+								bufferedBytes -= buffered.shift()?.byteLength ?? 0
+							}
+						} else {
+							for (const listener of listeners) listener(bytes)
+						}
+						continue
+					}
+					if (event.type === 'end') {
+						finish(null)
+						continue
+					}
+					finish(new Error(event.error))
+				}
+			})
+			socket.once('error', (error) => finish(error))
+			socket.once('close', () =>
+				finish(ready ? null : new Error('vsock TCP socket closed before readiness')),
+			)
+			idle.bump()
+			socket.write(
+				frame(
+					JSON.stringify({
+						op: 'tcp-connect',
+						body: request,
+					} satisfies AgentRequest),
+				),
+			)
+		})
 	}
 }
 

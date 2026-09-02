@@ -47,6 +47,7 @@
 import https from 'node:https'
 
 import type {
+	OpenTerminalOptions,
 	Sandbox,
 	SandboxDestroyOptions,
 	SandboxEnvironment,
@@ -56,6 +57,9 @@ import type {
 	SandboxId,
 	SandboxStatus,
 	SandboxWalkFilesOptions,
+	SandboxTcpConnectOptions,
+	SandboxTcpConnection,
+	TerminalSession,
 } from '@namzu/sdk'
 import { walkFilesViaExec } from '@namzu/sdk'
 
@@ -456,6 +460,7 @@ async function spawnFirecrackerSandbox(
 	let retirementPromise: Promise<{ readonly accepted: boolean; readonly error?: Error }> | undefined
 	let teardownPromise: Promise<void> | undefined
 	let teardownComplete = false
+	const terminals = new Set<TerminalSession>()
 
 	const assertActive = (): void => {
 		if (lifecycle !== 'active') {
@@ -526,7 +531,6 @@ async function spawnFirecrackerSandbox(
 			activeExecutions = Math.max(0, activeExecutions - 1)
 		}
 	}
-
 	return {
 		id,
 		get status(): SandboxStatus {
@@ -553,6 +557,19 @@ async function spawnFirecrackerSandbox(
 		async readFile(path: string): Promise<Buffer> {
 			assertActive()
 			return await transport.readFile(path)
+		},
+
+		async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {
+			assertActive()
+			const terminal = await transport.openTerminal(options)
+			terminals.add(terminal)
+			void terminal.exited.finally(() => terminals.delete(terminal))
+			return terminal
+		},
+
+		async openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection> {
+			assertActive()
+			return await transport.openTcpConnection(options)
 		},
 
 		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
@@ -601,6 +618,13 @@ async function spawnFirecrackerSandbox(
 				if (observation.accepted) return
 				retirementPromise = undefined
 			}
+			// A terminal owns an interactive process tree in this microVM. Stop and
+			// await every one before releasing the VM so the SDK's ownership
+			// contract is real rather than best-effort bookkeeping.
+			const activeTerminals = [...terminals]
+			for (const terminal of activeTerminals) terminal.kill('SIGKILL')
+			await Promise.allSettled(activeTerminals.map((terminal) => terminal.exited))
+			terminals.clear()
 			// Let the orchestrator DELETE failure propagate — the
 			// Vandal-side lifecycle wraps this with logging, and a
 			// swallowed error here means orphaned microVMs (and their
