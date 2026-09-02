@@ -144,6 +144,9 @@ import {
 	type RunScope,
 	createAgentSession,
 	probeAgentSession,
+	type QuestionAnswer,
+	type QuestionFn,
+	type UserQuestion,
 } from './agent.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
@@ -251,7 +254,7 @@ type CopyPickerState = {
 type ReviewPreset = 'base-branch' | 'uncommitted' | 'commit' | 'custom'
 type TextPromptState = {
 	readonly token: number
-	readonly kind: 'conversation-title' | 'export-file'
+	readonly kind: 'conversation-title' | 'export-file' | 'user-question'
 	readonly title: string
 	readonly placeholder: string
 	readonly emptyNotice: string
@@ -261,7 +264,23 @@ type TextPromptState = {
 type ConversationExportDestination =
 	| { readonly kind: 'clipboard' }
 	| { readonly kind: 'file'; readonly path: string }
+/** The value a question row carries: an option id, or the free-text escape. */
+const FREE_TEXT_ANSWER = '__free_text__'
+
 type ChoicePickerState =
+	| {
+			/**
+			 * A question the model put to the operator. `values` are option ids
+			 * plus `FREE_TEXT_ANSWER` when the model allowed an answer in the
+			 * operator's own words; the resolver lives in a ref, like a
+			 * permission's, because a picker is state and a promise is not.
+			 */
+			readonly kind: 'user-question'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
 	| {
 			readonly kind: 'command'
 			readonly title: string
@@ -709,6 +728,24 @@ export function App({
 	 */
 	const [pickerNotice, setPickerNotice] = useState<string | null>(null)
 	const [permission, setPermission] = useState<PendingPermission | null>(null)
+	/**
+	 * The question currently on screen and the promise the tool is waiting
+	 * on. Resolved exactly once: by a chosen row, by free text, by Esc (skip)
+	 * or by Ctrl+C (abort). A second resolution is a no-op, not a second
+	 * answer.
+	 */
+	const questionRef = useRef<{
+		readonly question: UserQuestion
+		resolve: ((answer: QuestionAnswer) => void) | null
+	} | null>(null)
+	const resolveQuestion = useCallback((answer: QuestionAnswer): void => {
+		const pending = questionRef.current
+		if (!pending?.resolve) return
+		const resolve = pending.resolve
+		pending.resolve = null
+		questionRef.current = null
+		resolve(answer)
+	}, [])
 	const [permissionReviewOffset, setPermissionReviewOffsetState] = useState(0)
 	const permissionReviewOffsetRef = useRef(0)
 	const [permissionDetailsOpen, setPermissionDetailsOpenState] = useState(false)
@@ -1848,6 +1885,43 @@ export function App({
 				})()
 				return
 			}
+			if (picker.kind === 'user-question') {
+				const pending = questionRef.current
+				setChoicePicker(null)
+				if (!pending) return
+				if (value === FREE_TEXT_ANSWER) {
+					// The scope on a text prompt is what its other kinds check
+					// against a conversation switch; a question belongs to the turn
+					// that asked it, and the turn holds the promise.
+					const scope = scopeRef.current
+					if (!scope) {
+						resolveQuestion({ kind: 'skip' })
+						return
+					}
+					textPromptTokenRef.current += 1
+					setTextPrompt({
+						token: textPromptTokenRef.current,
+						kind: 'user-question',
+						title: pending.question.question,
+						placeholder: 'Type your answer and press Enter · Esc skips',
+						emptyNotice: 'An empty answer is a skip. Press Esc to skip.',
+						initialValue: '',
+						sessionId: scope.sessionId,
+					})
+					return
+				}
+				// The tool's own result row carries the answer the model saw; this
+				// row is the operator's, so a reader of the transcript sees the
+				// question and the choice together where it happened.
+				pushMessage(
+					'system',
+					`Answered "${pending.question.question}": ${labelOfOption(pending.question, value as string)}`,
+					false,
+					'?',
+				)
+				resolveQuestion({ kind: 'answer', selectedOptionIds: [value as string] })
+				return
+			}
 			if (picker.kind === 'review-commit') {
 				advanceQueueContinuation()
 				enqueueQueued({
@@ -2151,7 +2225,11 @@ export function App({
 				...(sessionsRef.current ? { sessionGoals: sessionsRef.current.goals } : {}),
 				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 				...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
+				...(activeCtx.web ? { web: activeCtx.web } : {}),
 				...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
+				// Somebody is at this terminal, so the model may ask them one
+				// question when a decision is genuinely theirs.
+				askUser: true,
 			})
 			if (signal?.aborted) {
 				void s.close()
@@ -3033,6 +3111,20 @@ export function App({
 			if (!prompt) return
 			setTextPrompt(null)
 
+			if (prompt.kind === 'user-question') {
+				const text = value.trim()
+				const pending = questionRef.current
+				if (text.length === 0) {
+					resolveQuestion({ kind: 'skip' })
+					return
+				}
+				if (pending) {
+					pushMessage('system', `Answered "${pending.question.question}": ${text}`, false, '?')
+				}
+				resolveQuestion({ kind: 'answer', selectedOptionIds: [], freeText: text })
+				return
+			}
+
 			const scope = scopeRef.current
 			if (!scope || scope.sessionId !== prompt.sessionId) {
 				pushMessage(
@@ -3072,8 +3164,10 @@ export function App({
 		// can read the same key as an interrupt/exit after the child clears the ref.
 		queueMicrotask(() => {
 			if (textPromptRef.current === prompt) setTextPrompt(null)
+			// A cancelled free-text answer is a skipped question, not a hung tool.
+			if (prompt?.kind === 'user-question') resolveQuestion({ kind: 'skip' })
 		})
-	}, [setTextPrompt])
+	}, [resolveQuestion, setTextPrompt])
 
 	/**
 	 * `/fork`: continue in a copy, leaving this conversation where it is.
@@ -3296,6 +3390,44 @@ export function App({
 			})
 		},
 		[sendTerminalNotification, setPermissionDetailsOpen, setPermissionReviewOffset],
+	)
+
+	/**
+	 * `ask_user_question`, on screen. The question becomes a finite chooser —
+	 * the model's options, then "Something else…" when it allowed free text —
+	 * and the tool's promise waits on the row the operator picks. One question
+	 * at a time: the tool is not concurrency-safe, so a second cannot arrive
+	 * while the first is up.
+	 */
+	const askQuestion = useCallback<QuestionFn>(
+		(question) =>
+			new Promise<QuestionAnswer>((resolve) => {
+				questionRef.current = { question, resolve }
+				const values = [
+					...question.options.map((option) => option.id),
+					...(question.allowFreeText ? [FREE_TEXT_ANSWER] : []),
+				]
+				setSelectedChoice(0)
+				setChoicePicker({
+					kind: 'user-question',
+					title: question.question,
+					notice: question.header
+						? `${question.header} · Enter answers · Esc skips`
+						: 'Enter answers · Esc skips',
+					values,
+					options: [
+						...question.options.map((option) => ({
+							label: option.label,
+							description: option.description ?? '',
+						})),
+						...(question.allowFreeText
+							? [{ label: 'Something else…', description: 'Answer in your own words' }]
+							: []),
+					],
+				})
+				sendTerminalNotification({ kind: 'approval-required' })
+			}),
+		[sendTerminalNotification, setChoicePicker, setSelectedChoice],
 	)
 
 	// Render one agent event onto the transcript. Shared by the local turn loop
@@ -3838,6 +3970,7 @@ export function App({
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
+						onQuestion: askQuestion,
 						inboundMessages: () => inbox.drain(),
 						extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 						onConversationMessages: (messages) => {
@@ -5550,6 +5683,11 @@ export function App({
 				if (key.escape || (key.ctrl && input === 'c')) {
 					reviewChoiceInFlightRef.current = null
 					setChoicePicker(null)
+					// Esc leaves the question unanswered and the turn running; the
+					// tool tells the model so. Ctrl+C is the operator saying stop.
+					if (picker.kind === 'user-question') {
+						resolveQuestion({ kind: key.escape ? 'skip' : 'abort' })
+					}
 					return
 				}
 				if (key.home || key.end || key.pageUp || key.pageDown) {
@@ -6177,6 +6315,11 @@ function goalStatusLabel(goal: SessionGoal | null): string | null {
 		case 'complete':
 			return 'Goal achieved'
 	}
+}
+
+/** The label the operator saw for the option id they chose. */
+function labelOfOption(question: UserQuestion, optionId: string): string {
+	return question.options.find((option) => option.id === optionId)?.label ?? optionId
 }
 
 function permissionModeDescription(mode: PermissionMode): string {

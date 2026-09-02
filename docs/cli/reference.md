@@ -83,6 +83,16 @@ something you point at a real repository:
   name or a commit subject is text somebody else wrote. Outside a repository
   nothing is sent. The task tools (`task_create`, `task_update`, `task_list`)
   are available from the first call rather than behind `search_tools`.
+- **The model can ask you one question, and only where you are.** The
+  interactive session mounts `ask_user_question`; a headless run does not, so
+  the model is never offered a question it would ask into the void. A
+  question arrives as a chooser: the model's two to four options, then
+  "Something else…" when it allowed an answer in your own words. Enter picks
+  a row, the free-text row opens a one-line prompt, Esc skips — the model is
+  told the question went unanswered and proceeds on its own judgment — and
+  Ctrl+C declines and stops the turn. The choice is recorded in the
+  transcript beside the question. One question at a time; a second cannot
+  arrive while the first is up.
 - **The plan is a live list, and a reply is never a blank row.** When the
   model opens tasks, the whole plan sits in the live region above the
   composer — each task with its current mark (`☐` pending, `◐` in progress,

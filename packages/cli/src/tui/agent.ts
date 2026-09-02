@@ -77,6 +77,7 @@ import {
 	asSessionId,
 	asTenantId,
 	asTopicId,
+	buildCoordinatorTools,
 	buildMemoryTools,
 	buildSessionGoalTools,
 	compactNow,
@@ -347,8 +348,36 @@ export type PermissionDecision =
 
 export type PermissionFn = (req: PermissionRequest) => Promise<PermissionDecision>
 
+/** One question the model put to the operator through `ask_user_question`. */
+export type UserQuestion = Extract<
+	Parameters<ResumeHandler>[0],
+	{ type: 'user_question' }
+>['question']
+
+/**
+ * What the operator did with a question. `skip` is "did not answer" — the
+ * tool tells the model so and the model proceeds on its own judgment;
+ * `abort` is "stop asking and stop the turn".
+ */
+export type QuestionAnswer =
+	| {
+			readonly kind: 'answer'
+			readonly selectedOptionIds: readonly string[]
+			readonly freeText?: string
+	  }
+	| { readonly kind: 'skip' }
+	| { readonly kind: 'abort' }
+
+export type QuestionFn = (question: UserQuestion) => Promise<QuestionAnswer>
+
 export interface SendOptions {
 	readonly signal?: AbortSignal
+	/**
+	 * Who answers `ask_user_question` this turn. Absent means nobody: the
+	 * tool reports "the user did not answer" and the model carries on. The
+	 * tool itself is mounted per session (`AgentSessionOptions.askUser`).
+	 */
+	readonly onQuestion?: QuestionFn
 	/**
 	 * Live user messages accepted while this turn is running.
 	 *
@@ -1100,6 +1129,12 @@ export interface AgentSessionOptions {
 	/** See `NamzuCliConfig.web`. Absent means no web tool and no provider. */
 	readonly web?: WebConfig
 	/**
+	 * Mount `ask_user_question`. Only where somebody can answer: an
+	 * interactive terminal says `true`; a headless run leaves it absent, so
+	 * the model is never offered a question it would ask into the void.
+	 */
+	readonly askUser?: boolean
+	/**
 	 * Where this session's run events are recorded, if anywhere.
 	 *
 	 * A listener rather than a config: the CLI resolves `@namzu/telemetry`,
@@ -1649,6 +1684,47 @@ export async function createAgentSession(
 		// and got none had nothing on stderr to say why.
 		cliLogger().warn('sub-agent runtime unavailable this session', exceptionAttributes(err))
 	}
+	// `ask_user_question`, where somebody can answer. The SDK tool parks the
+	// run through the handler it was BUILT with, so that handler reads the
+	// turn's answerer through a holder the prelude fills: the tool is per
+	// session, the person answering is per turn. Needs the delegation
+	// gateway the tool builder requires; a session without one has no
+	// question tool either, and says nothing — it also has no `Agent`.
+	let currentOnQuestion: QuestionFn | undefined
+	if (options.askUser && subagentGateway) {
+		const parkQuestion: ResumeHandler = async (request) => {
+			if (request.type !== 'user_question') return { action: 'continue' }
+			const ask = currentOnQuestion
+			if (!ask) return { action: 'continue' }
+			const answer = await ask(request.question)
+			switch (answer.kind) {
+				case 'answer':
+					return {
+						action: 'answer_question',
+						selectedOptionIds: [...answer.selectedOptionIds],
+						...(answer.freeText !== undefined ? { freeText: answer.freeText } : {}),
+						questionId: request.question.questionId,
+					}
+				case 'abort':
+					return { action: 'abort', reason: 'The user declined to answer.' }
+				default:
+					return { action: 'continue' }
+			}
+		}
+		const askTool = buildCoordinatorTools({
+			gateway: subagentGateway,
+			workingDirectory: cwd,
+			allowedAgentIds: [],
+			allowDelegation: false,
+			resumeHandler: parkQuestion,
+			// The builder stamps this on the park request. The handler above
+			// routes by the question, not by the run, and no durable park
+			// recorder is supplied, so a session-scoped id is what is true: the
+			// tool is built once per session and the turn is not known yet.
+			runId: asRunId('run_namzu-interactive-question'),
+		}).find((tool) => tool.name === 'ask_user_question')
+		if (askTool) registry.register(askTool)
+	}
 	// Task store → query registers task_create / task_update / task_list and
 	// emits task_created/task_updated, so the agent can track a plan for the
 	// current request. Tasks are run-scoped. The kernel's default availability
@@ -1860,6 +1936,7 @@ export async function createAgentSession(
 							? await currentPluginSkills(pluginRuntime.skills)
 							: undefined
 						const memoryPrompt = composeMemoryPrompt(readMemory())
+						currentOnQuestion = opts?.onQuestion
 						const [environmentFacts, turnSnapshot] = await Promise.all([
 							readEnvironmentFacts(cwd),
 							readTurnSnapshot(cwd),
