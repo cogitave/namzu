@@ -58,9 +58,10 @@ export type HooksConfig = ShellHooksConfig
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
 	/**
-	 * Which context-management strategy the kernel runs. `structured` is the
-	 * kernel's default; `salience` scores every message and holds the
-	 * context near half the window (see the SDK's compaction module).
+	 * Which context-management strategy the kernel runs. `salience` is the
+	 * default: every message scored, the context held near half the window
+	 * (see the SDK's compaction module). `structured` is the previous
+	 * behaviour — positional retention, a pass only at the trigger.
 	 */
 	readonly strategy?: 'structured' | 'salience'
 	/**
@@ -186,7 +187,7 @@ export interface NamzuCliConfig {
 	/**
 	 * How the kernel keeps a long conversation inside the model's window.
 	 * File-only: a strategy is a property of a project's runs, not of a
-	 * shell. Absent means the kernel's `structured` strategy.
+	 * shell. Absent means the kernel's `salience` strategy.
 	 */
 	readonly compaction?: CompactionCliConfig
 	/**

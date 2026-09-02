@@ -2664,7 +2664,7 @@ function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 // from `runConfig.model`, which is the value the user actually chose. Pinning
 // a number here would fix one window across every model the CLI can talk to.
 const COMPACTION_CONFIG = {
-	strategy: 'structured' as const,
+	strategy: 'salience' as const,
 	// On, and this is the CLI making a choice rather than taking a default.
 	// A session's transcript is the only record of what was compacted away;
 	// the size trade this costs is the operator's to see and turn off.

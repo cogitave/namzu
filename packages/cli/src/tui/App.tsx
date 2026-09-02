@@ -2739,7 +2739,7 @@ export function App({
 		cwd: ctx.cwd,
 		compaction: session
 			? {
-					strategy: ctx.compaction?.strategy ?? 'structured',
+					strategy: ctx.compaction?.strategy ?? 'salience',
 					softTarget: 0.5,
 					triggerThreshold: 0.7,
 					...compactionTally,

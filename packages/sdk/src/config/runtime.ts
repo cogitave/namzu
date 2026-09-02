@@ -17,7 +17,13 @@ export const TaskRouterConfigSchema = z
 	.optional()
 
 export const CompactionConfigSchema = z.object({
-	strategy: z.enum(['structured', 'salience', 'sliding-window', 'disabled']).default('structured'),
+	/**
+	 * `salience` is the default: every message scored without a model, the
+	 * context held from half the window. `structured` is the previous
+	 * default — positional retention, a pass only at the trigger — and one
+	 * word away for a host that wants it back.
+	 */
+	strategy: z.enum(['structured', 'salience', 'sliding-window', 'disabled']).default('salience'),
 	/**
 	 * `salience` only: the fraction of the window at which the working-set
 	 * pass starts evicting low-salience messages, well before
