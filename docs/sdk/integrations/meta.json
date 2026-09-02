@@ -5,6 +5,7 @@
     "connectors-and-mcp",
     "guarded-web-fetch",
     "plugins",
+    "shell-hooks",
     "event-bridges",
     "a2a-client",
     "agent-client-protocol"

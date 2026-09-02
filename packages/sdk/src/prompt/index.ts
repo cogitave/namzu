@@ -13,3 +13,11 @@ export type {
 	PromptContributionContext,
 	PromptPlacement,
 } from './contributions.js'
+export {
+	CODING_AGENT_DELEGATION_DOCTRINE,
+	CODING_AGENT_DOCTRINE_CONTRIBUTION_ID,
+	CODING_AGENT_WORKING_DOCTRINE,
+	PLAN_MODE_DOCTRINE,
+	codingAgentDoctrineContribution,
+} from './coding-agent-doctrine.js'
+export type { CodingAgentDoctrineOptions } from './coding-agent-doctrine.js'

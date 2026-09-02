@@ -3,6 +3,8 @@
   "pages": [
     "index",
     "built-in",
+    "file-defined-agents",
+    "ask-user-question",
     "safety",
     "code-navigation"
   ]

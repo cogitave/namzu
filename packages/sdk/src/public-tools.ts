@@ -99,6 +99,10 @@ export {
 export { buildAdvisoryTools } from './tools/advisory/index.js'
 export { buildMemoryTools } from './tools/memory/index.js'
 export { buildCoordinatorTools } from './tools/coordinator/index.js'
+export {
+	buildAskUserQuestionTool,
+	type AskUserQuestionToolOptions,
+} from './tools/coordinator/ask-user-question.js'
 export { buildAgentTool, type AgentToolOptions } from './tools/coordinator/agent.js'
 
 // ─── RAG tool builder ────────────────────────────────────────────────────

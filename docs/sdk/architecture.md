@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-09-01
+lastReviewed: 2026-09-02
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -48,7 +48,7 @@ We think agent software should be layered the way an operating system is. At the
 - **Personas.** YAML-defined identity, expertise, reflexes, and output format with inheritance — specialize a base persona by merging a single field, no prompt concatenation.
 - **Advisory system.** Mid-execution consultation with specialized advisors. Provider-agnostic: put a security advisor on Bedrock, an architecture advisor on OpenRouter, and let the main agent decide when to consult whom.
 - **Human-in-the-loop.** Structured plan review, per-tool approval with destructiveness flags, typed decision contracts, checkpoint/resume across sessions.
-- **Plugin system.** Lifecycle-hooked plugin loader with skill, MCP and tool contributions, capability-gated installation, and manifest-driven resolution.
+- **Plugin system.** Lifecycle-hooked plugin loader with skill, MCP and tool contributions, capability-gated installation, and manifest-driven resolution. Shell hooks — a command a host runs at a lifecycle event, from configuration rather than a module — attach to the same lifecycle manager.
 - **Multi-tenant isolation from day one.** Connector registries, vaults, config, and stores are tenant-scoped. Two organizations can share a process without cross-contamination.
 - **Provider abstraction.** Dedicated driver packages ship under
   `packages/providers/`, plus a scriptable mock pre-registered in the kernel.
@@ -241,7 +241,7 @@ The limit checker (`run/LimitChecker.ts`) is the kernel scheduler's enforcement 
 
 - `runtime/query/context.ts` assembles the request context: system prompt, persona, skills, tools, messages.
 - `runtime/query/prompt-cache.ts` implements `PromptCache` — a hash-based system-prompt cache keyed by the agent and project that own it. If the prompt inputs have not changed since the last iteration, the cache returns the same text so provider-level prompt caching can hit.
-- `runtime/query/prompt.ts` owns `PromptBuilder` — structured, segment-based prompt assembly (static segment vs dynamic segment) that plays well with provider prompt caches.
+- `runtime/query/prompt.ts` owns `PromptBuilder` — structured, segment-based prompt assembly (static segment vs dynamic segment) that plays well with provider prompt caches. `prompt/contributions.ts` keeps it open: a registry of contributions a host registers by placement, with the skills section and the coding-agent doctrine (`prompt/coding-agent-doctrine.ts` — how an agent built on the kernel works, its delegation rules separable for a sub-agent) as the shipped contributors.
 - `runtime/query/guard.ts` runs pre-dispatch guards on the request.
 - `runtime/query/executor.ts` actually calls the provider and streams the result.
 - `runtime/query/result.ts` normalizes the provider's response into the kernel's canonical shape.
@@ -370,7 +370,7 @@ and safety:
 - `destructive` — boolean flag that triggers HITL approval when true.
 - `concurrencySafe` — whether two concurrent runs can invoke this tool with no interference.
 
-`tools/builtins/` ships file I/O, shell, and glob-search tools. `tools/advisory/`, `tools/memory/`, `tools/task/`, and `tools/coordinator/` ship kernel-facing tools that let agents consult advisors, query memory, coordinate siblings, and manage their task registry from inside the agent loop.
+`tools/builtins/` ships file I/O, shell, and glob-search tools. `tools/advisory/`, `tools/memory/`, `tools/task/`, and `tools/coordinator/` ship kernel-facing tools that let agents consult advisors, query memory, coordinate siblings, and manage their task registry from inside the agent loop; `tools/coordinator/ask-user-question.ts` builds the one tool that turns a run toward the person, on its own, so a host without delegation does not assemble the coordinator set to get it. `tools/roster.ts` narrows a roster — read-only by the authorization gate's own predicate, or to a named allowlist — and `agents/file-definitions.ts` reads a delegated sub-agent from a Markdown file with frontmatter, the way a skill is read.
 
 Tool execution also preserves where a call came from. A provider-authored call
 is `direct`; a tool dispatching another tool records the parent tool-use id;

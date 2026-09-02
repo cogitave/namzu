@@ -77,7 +77,7 @@ import {
 	asSessionId,
 	asTenantId,
 	asTopicId,
-	buildCoordinatorTools,
+	buildAskUserQuestionTool,
 	buildMemoryTools,
 	buildSessionGoalTools,
 	compactNow,
@@ -1732,19 +1732,10 @@ export async function createAgentSession(
 					return { action: 'continue' }
 			}
 		}
-		const askTool = buildCoordinatorTools({
-			gateway: subagentGateway,
-			workingDirectory: cwd,
-			allowedAgentIds: [],
-			allowDelegation: false,
-			resumeHandler: parkQuestion,
-			// The builder stamps this on the park request. The handler above
-			// routes by the question, not by the run, and no durable park
-			// recorder is supplied, so a session-scoped id is what is true: the
-			// tool is built once per session and the turn is not known yet.
-			runId: asRunId('run_namzu-interactive-question'),
-		}).find((tool) => tool.name === 'ask_user_question')
-		if (askTool) registry.register(askTool)
+		// The park request carries the run id of the call that asked; the
+		// handler above routes by the question, not by the run, and no durable
+		// park recorder is supplied.
+		registry.register(buildAskUserQuestionTool({ resumeHandler: parkQuestion }))
 	}
 	// Task store → query registers task_create / task_update / task_list and
 	// emits task_created/task_updated, so the agent can track a plan for the

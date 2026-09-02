@@ -343,6 +343,7 @@ export type {
 } from './types/hitl/policy.js'
 
 export type {
+	CodingAgentDoctrineOptions,
 	PromptContribution,
 	PromptContributionContext,
 	PromptPlacement,

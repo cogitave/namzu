@@ -8,6 +8,7 @@
     "provider-stream-idle-bound",
     "rag-embedding-request-bound",
     "request-rich-content-budget",
-    "stored-attachment-resolution"
+    "stored-attachment-resolution",
+    "coding-agent-doctrine"
   ]
 }

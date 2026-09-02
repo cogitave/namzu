@@ -1202,9 +1202,14 @@ export { AUTO_APPROVE_POLICY_NAME } from './runtime/query/approval-policy.js'
 // The system prompt is open: a contribution registry the assembler
 // consumes, with skills as its first contributor. See `prompt/contributions.ts`.
 export {
+	CODING_AGENT_DELEGATION_DOCTRINE,
+	CODING_AGENT_DOCTRINE_CONTRIBUTION_ID,
+	CODING_AGENT_WORKING_DOCTRINE,
+	PLAN_MODE_DOCTRINE,
 	PromptContributionCollisionError,
 	PromptContributionRegistry,
 	SKILLS_CONTRIBUTION_ID,
+	codingAgentDoctrineContribution,
 	skillsContribution,
 } from './prompt/index.js'
 
