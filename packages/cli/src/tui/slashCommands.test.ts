@@ -57,6 +57,7 @@ function permissionsReadout(ctx: SlashContext) {
 function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
 		cwd: '/workspace/current',
+		compaction: null,
 		availableTools: () => [],
 		sandbox: null,
 		mcp: () => null,
@@ -938,5 +939,48 @@ describe('commands that became keys or folded into another command', () => {
 		const r = runSlash(command, ctx)
 		expect(r).toMatchObject({ kind: 'message' })
 		expect((r as { content: string }).content).toContain('Unknown command')
+	})
+})
+
+describe('/context', () => {
+	it('says there is nothing to report before a session', () => {
+		const r = runSlash('/context', context({ usage: null }))
+		expect(r?.kind).toBe('message')
+		if (r?.kind !== 'message') return
+		expect(r.content).toContain('No context measurement yet')
+		expect(r.content).toContain('no compaction strategy')
+	})
+
+	it('names the strategy, its thresholds and what the passes did', () => {
+		const r = runSlash(
+			'/context',
+			context({
+				usage: {
+					totalTokens: 50_000,
+					cost: cost(0),
+					context: { tokens: 7_000, windowTokens: 14_000, measured: true, windowAssumed: false },
+				},
+				compaction: {
+					strategy: 'salience',
+					softTarget: 0.5,
+					triggerThreshold: 0.7,
+					passes: 3,
+					clearedResults: 4,
+					stubbedNarrations: 2,
+					summaries: 0,
+					reclaimedTokens: 2_400,
+				},
+			}),
+		)
+		expect(r?.kind).toBe('message')
+		if (r?.kind !== 'message') return
+		expect(r.content).toContain('7,000 / 14,000 tokens (50%)')
+		expect(r.content).toContain('Strategy: salience')
+		expect(r.content).toContain('from 50%')
+		expect(r.content).toContain('summarised only at 70%')
+		expect(r.content).toContain('Passes this session: 3')
+		expect(r.content).toContain('tool results cleared:  4')
+		expect(r.content).toContain('narrations stubbed:    2')
+		expect(r.content).toContain('tokens reclaimed:      ~2,400')
 	})
 })

@@ -287,6 +287,14 @@ export type AgentEvent =
 			readonly text: string
 			/** False when the compaction declined and the history is unchanged. */
 			readonly shed: boolean
+			/** Tool-result bodies cleared by this pass, when it was a clearing pass. */
+			readonly cleared?: number
+			/** Assistant narrations stubbed by this pass, when it was a clearing pass. */
+			readonly stubbed?: number
+			/** Tokens this pass reclaimed, by the same estimate the trigger uses. */
+			readonly reclaimedTokens?: number
+			/** True when this pass replaced older history with a summary. */
+			readonly summarised?: boolean
 	  }
 	/**
 	 * A member of the provider chain could not serve; a later one is now.
@@ -3114,7 +3122,13 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				...(event.explanation ? { explanation: event.explanation } : {}),
 			}
 		case 'compaction_completed':
-			return { kind: 'context', text: describeCompaction(event), shed: true }
+			return {
+				kind: 'context',
+				text: describeCompaction(event),
+				shed: true,
+				summarised: true,
+				reclaimedTokens: Math.max(0, event.tokensBefore - event.tokensAfter),
+			}
 		case 'compaction_tool_results_cleared':
 			// `shed: true` on both branches: the tool-result bodies are gone
 			// either way. `reliefWasEnough: false` additionally means a
@@ -3124,6 +3138,9 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				kind: 'context',
 				text: `cleared ${event.clearedCount} tool result${event.clearedCount === 1 ? '' : 's'}${event.stubbedCount ? `, stubbed ${event.stubbedCount} narration${event.stubbedCount === 1 ? '' : 's'}` : ''} (~${event.reclaimedTokens.toLocaleString()} tokens)${event.reliefWasEnough ? '' : ' — not enough, compacting'}`,
 				shed: true,
+				cleared: event.clearedCount,
+				stubbed: event.stubbedCount ?? 0,
+				reclaimedTokens: event.reclaimedTokens,
 			}
 		case 'compaction_failed':
 			return {

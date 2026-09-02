@@ -171,9 +171,25 @@ export type SlashAction =
 	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'all' }
 	| { kind: 'none' }
 
+/** What `/context` reads: the strategy the session runs and what its passes have done so far. */
+export interface CompactionSummary {
+	readonly strategy: 'structured' | 'salience'
+	/** Fraction of the window the salience pass holds the context at. */
+	readonly softTarget: number
+	/** Fraction of the window at which older history is summarised. */
+	readonly triggerThreshold: number
+	readonly passes: number
+	readonly clearedResults: number
+	readonly stubbedNarrations: number
+	readonly summaries: number
+	readonly reclaimedTokens: number
+}
+
 export interface SlashContext {
 	/** Canonical working directory owned by this TUI session. */
 	readonly cwd: string
+	/** Null before a session exists. */
+	readonly compaction: CompactionSummary | null
 	/**
 	 * Every tool the agent can call, read when the command runs.
 	 *
@@ -678,7 +694,16 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (ctx) => ({
 			kind: 'message',
 			role: 'system',
-			content: renderCost(ctx.usage),
+			content: renderCost(ctx.usage, ctx.compaction),
+		}),
+	},
+	{
+		name: 'context',
+		description: 'Show how full the context is and what compaction has done to keep it that way.',
+		action: (ctx) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderContext(ctx.usage, ctx.compaction),
 		}),
 	},
 	{
@@ -900,7 +925,65 @@ export function initPrompt(instructionFiles: readonly string[]): string {
  * conversation with room to spare. This command prints the spend and says which
  * quantity it is, so that nobody reads it as the other one.
  */
-export function renderCost(usage: SlashContext['usage']): string {
+/**
+ * The working set, as a reader would ask about it: how full, held where,
+ * and what it has cost the transcript so far. Counts are for this session,
+ * summed over every pass; a pass that declined leaves them unchanged.
+ */
+export function renderContext(
+	usage: SlashContext['usage'],
+	compaction: CompactionSummary | null,
+): string {
+	const lines: string[] = []
+	const context = usage?.context
+	if (context && context.windowTokens > 0) {
+		const percent = Math.min(999, Math.round((context.tokens / context.windowTokens) * 100))
+		const approx = context.measured && !context.windowAssumed ? '' : '~'
+		lines.push(
+			`Context: ${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')} tokens (${approx}${percent}%)`,
+			`${context.measured ? 'Counted by the provider' : 'Estimated on this side'}; window ${
+				context.windowAssumed
+					? 'assumed from a table or default'
+					: 'declared by the provider or config'
+			}.`,
+		)
+	} else {
+		lines.push('No context measurement yet. The kernel reports it as a turn runs.')
+	}
+	if (!compaction) {
+		lines.push('', 'No session yet, so no compaction strategy to report.')
+		return lines.join('\n')
+	}
+	const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
+	lines.push('')
+	if (compaction.strategy === 'salience') {
+		lines.push(
+			'Strategy: salience — every message is scored (recency, relevance to the goal,',
+			`whether a later turn used it, whether a later message repeats it) and from ${pct(compaction.softTarget)}`,
+			"of the window the least salient are evicted first: a tool result's body cleared, a",
+			`narration cut to its first sentence. Older history is summarised only at ${pct(compaction.triggerThreshold)}.`,
+		)
+	} else {
+		lines.push(
+			`Strategy: structured — at ${pct(compaction.triggerThreshold)} of the window, stale tool results are cleared`,
+			'and, if that is not enough, older history is replaced by a structured summary.',
+		)
+	}
+	lines.push(
+		'',
+		`Passes this session: ${compaction.passes}`,
+		`  tool results cleared:  ${compaction.clearedResults.toLocaleString('en-US')}`,
+		`  narrations stubbed:    ${compaction.stubbedNarrations.toLocaleString('en-US')}`,
+		`  summaries written:     ${compaction.summaries.toLocaleString('en-US')}`,
+		`  tokens reclaimed:      ~${compaction.reclaimedTokens.toLocaleString('en-US')}`,
+	)
+	return lines.join('\n')
+}
+
+export function renderCost(
+	usage: SlashContext['usage'],
+	compaction: CompactionSummary | null = null,
+): string {
 	if (usage === null) {
 		return 'No usage reported yet. The kernel emits it as a turn runs, so this fills in after the first exchange.'
 	}
@@ -968,7 +1051,11 @@ export function renderCost(usage: SlashContext['usage']): string {
 				context.windowAssumed
 					? 'assumed from a table or default'
 					: 'declared by the provider or config'
-			}. Automatic compaction runs at 70%.`,
+			}. ${
+				compaction?.strategy === 'salience'
+					? `Salience holds it from ${Math.round(compaction.softTarget * 100)}%; /context has the detail.`
+					: `Automatic compaction runs at ${Math.round((compaction?.triggerThreshold ?? 0.7) * 100)}%.`
+			}`,
 		)
 	}
 	return lines.join('\n')

@@ -60,6 +60,7 @@ function writeCommand(name: string, body: string): void {
 function context(userCommands: SlashContext['userCommands']): SlashContext {
 	return {
 		cwd,
+		compaction: null,
 		availableTools: () => [],
 		sandbox: null,
 		mcp: () => null,

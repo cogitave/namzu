@@ -795,6 +795,15 @@ export function App({
 	/** Git-admitted file paths cached once per successful session hydration. */
 	const [mentionCandidates, setMentionCandidates] = useState<readonly string[]>([])
 	const mentionLoadOwnerRef = useRef<object | null>(null)
+	// What compaction has done this session, summed over passes; `/context`
+	// prints it. Reset with the session, never by a pass that declined.
+	const [compactionTally, setCompactionTally] = useState({
+		passes: 0,
+		clearedResults: 0,
+		stubbedNarrations: 0,
+		summaries: 0,
+		reclaimedTokens: 0,
+	})
 	const [usage, setUsage] = useState<{
 		totalTokens: number
 		cost: CostInfo
@@ -2728,6 +2737,14 @@ export function App({
 
 	const slashCtx: SlashContext = {
 		cwd: ctx.cwd,
+		compaction: session
+			? {
+					strategy: ctx.compaction?.strategy ?? 'structured',
+					softTarget: 0.5,
+					triggerThreshold: 0.7,
+					...compactionTally,
+				}
+			: null,
 		builtins: hostCommands,
 		lastAssistantMessageId: () => lastAssistantMessage.current?.messageId ?? null,
 		// Called when `/tools` renders, not read here — the same shape, and the
@@ -3685,6 +3702,15 @@ export function App({
 					// looking at was compacted. The event is a fact about the
 					// conversation and belongs in its record.
 					pushMessage('system', event.text, false, event.shed ? '⌫' : '⌦')
+					if (event.shed) {
+						setCompactionTally((tally) => ({
+							passes: tally.passes + 1,
+							clearedResults: tally.clearedResults + (event.cleared ?? 0),
+							stubbedNarrations: tally.stubbedNarrations + (event.stubbed ?? 0),
+							summaries: tally.summaries + (event.summarised ? 1 : 0),
+							reclaimedTokens: tally.reclaimedTokens + (event.reclaimedTokens ?? 0),
+						}))
+					}
 					break
 				case 'provider-fallback':
 					// The transcript, for the reason compaction is in the transcript
