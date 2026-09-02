@@ -235,8 +235,26 @@ while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
   TARBALL=$(ls "$PACK_DIR"/namzu-${dep}-*.tgz | head -1)
   test -f "$TARBALL" || { echo "    ✗ Missing tarball for $dep"; exit 1; }
 
+  # A dependent that itself depends on other workspace packages (the CLI on
+  # the providers it ships with) must get THOSE from the pack directory too.
+  # The gate runs before anything is published, so a train that bumps the CLI
+  # and one provider together would otherwise ask the registry for a provider
+  # version that does not exist yet and fail with ETARGET — a false verdict
+  # about a release that is fine. Peers are deliberately not included: the
+  # peer range against the shipping SDK is what the pairing tests.
+  SIBLING_TARBALLS=$(node -e '
+    const { readFileSync } = require("node:fs")
+    const { join } = require("node:path")
+    const manifest = JSON.parse(readFileSync(join(process.argv[1], process.argv[2], "package.json"), "utf8"))
+    for (const dep of Object.keys(manifest.dependencies ?? {})) {
+      if (!dep.startsWith("@namzu/") || dep === "@namzu/sdk") continue
+      console.log(dep.slice("@namzu/".length))
+    }
+  ' "$WORKSPACE_ROOT" "$pkg_path" | while read -r sibling; do ls "$PACK_DIR"/namzu-"${sibling}"-*.tgz 2>/dev/null | head -1; done)
+
   rm -rf node_modules package-lock.json
-  npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$TARBALL"
+  # shellcheck disable=SC2086
+  npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$TARBALL" $SIBLING_TARBALLS
 
   test -d "node_modules/$pkg_name" || { echo "    ✗ $pkg_name did not install"; exit 1; }
   test -d "node_modules/@namzu/sdk" || { echo "    ✗ @namzu/sdk did not install"; exit 1; }
