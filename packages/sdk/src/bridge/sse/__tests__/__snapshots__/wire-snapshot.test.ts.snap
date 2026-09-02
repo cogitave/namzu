@@ -145,6 +145,17 @@ exports[`every RunEvent has a decided place on the SSE wire > pins the wire name
     ],
     "wire": "iteration.started",
   },
+  "memory_consolidated": {
+    "keys": [
+      "decisions",
+      "discoveries",
+      "failures",
+      "memory_id",
+      "run_id",
+      "title",
+    ],
+    "wire": "memory.consolidated",
+  },
   "message_completed": {
     "keys": [
       "iteration",

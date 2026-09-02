@@ -71,6 +71,13 @@ export interface CompactionCliConfig {
 	 * the model, which is right for almost every project.
 	 */
 	readonly contextWindowTokens?: number
+	/**
+	 * Write what each run learned — its decisions, discoveries and failures —
+	 * to this project's memory store when the run ends, as one entry tagged
+	 * `learning` that `search_memory` finds in a later session. Off by
+	 * default: a memory that outlives the run is the operator's to want.
+	 */
+	readonly consolidate?: boolean
 }
 
 /** See `NamzuCliConfig.web`. */

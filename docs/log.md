@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-02
+* **Update**: consolidation landed — a run's learnings go to the memory store on request (`consolidateInto` in the kernel, `compaction.consolidate` in the CLI); the salience plan is complete.
 * **Update**: compaction defaults to `salience` in the kernel and the CLI; `structured` stays selectable.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — the eval suite landed and two eviction rules with it; Phase 6's default flip and consolidation remain.
 * **Creation**: [Context and compaction in the CLI](/cli/context-and-compaction.md) — the file-only `compaction` key and the `/context` command.

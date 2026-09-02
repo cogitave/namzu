@@ -552,6 +552,21 @@ type CoreRunEvent =
 	 * `stopReason` is what separates them, and it is on the event because the
 	 * alternative is asking every consumer to hold the `Run` as well.
 	 */
+	/**
+	 * What the run learned was written to the host's memory store: its
+	 * decisions, discoveries and failures as one entry a later run can
+	 * search for. Emitted only when a host asked (`consolidateInto`) and
+	 * the run had something to say.
+	 */
+	| {
+			type: 'memory_consolidated'
+			runId: RunId
+			memoryId: string
+			title: string
+			decisions: number
+			discoveries: number
+			failures: number
+	  }
 	| {
 			type: 'run_completed'
 			runId: RunId

@@ -302,6 +302,14 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'memory_consolidated':
+				log.info('Run learnings consolidated into the memory store', {
+					'namzu.memory.id': event.memoryId,
+					'namzu.memory.decisions': event.decisions,
+					'namzu.memory.discoveries': event.discoveries,
+					'namzu.memory.failures': event.failures,
+				})
+				break
 			case 'compaction_tool_results_cleared':
 				// `info` on both branches. The relieved case is the run
 				// avoiding a summarization, which is good news worth stating;

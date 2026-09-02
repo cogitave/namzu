@@ -111,6 +111,15 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		contextWindowTokens: 1,
 		windowSource: 'config',
 	}),
+	memory_consolidated: () => ({
+		type: 'memory_consolidated',
+		runId: FIXTURE_RUN_ID,
+		memoryId: 'mem_fixture',
+		title: 'Learned: a fixture',
+		decisions: 1,
+		discoveries: 0,
+		failures: 0,
+	}),
 	compaction_tool_results_cleared: () => ({
 		type: 'compaction_tool_results_cleared',
 		runId: FIXTURE_RUN_ID,

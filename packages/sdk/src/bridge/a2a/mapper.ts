@@ -245,6 +245,9 @@ const MAPPING: {
 	// strategies fired is a property of how it manages its own window, and a
 	// peer modelling a task lifecycle can act on none of them.
 	compaction_tool_results_cleared: null,
+	// What the run wrote to its own memory store is this runtime's business;
+	// a peer sees the task's outcome, not its housekeeping.
+	memory_consolidated: null,
 	// Compaction, succeeded or declined, is a property of how this runtime
 	// manages its own context. A peer models a task lifecycle and cannot act on
 	// either outcome.

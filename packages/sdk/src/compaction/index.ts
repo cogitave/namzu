@@ -70,3 +70,31 @@ export type { ToolResultEditConfig, ToolResultEditOutcome } from './tool-result-
 export { compactNow, compactRegion } from './manual.js'
 export type { CompactionResult, CompactNowInput, CompactRegionInput } from './manual.js'
 export { COMPACTION_HEADER, buildCompactionMessage, isCompactionMessage } from './summary.js'
+
+// The salience-scored working set: every message scored, the least salient
+// evicted first. See `docs/sdk/salience-working-set.md`.
+export {
+	DEFAULT_SALIENCE_CONFIG,
+	DEFAULT_SALIENCE_WEIGHTS,
+	buildGoal,
+	isStubbedNarration,
+	messageText,
+	planWorkingSet,
+	scoreMessages,
+} from './salience/index.js'
+export type {
+	GoalSources,
+	ProtectedReason,
+	SalienceConfig,
+	SalienceWeights,
+	ScoreOptions,
+	ScoredMessage,
+	WorkingSetAction,
+	WorkingSetOptions,
+	WorkingSetPlan,
+} from './salience/index.js'
+export { DEFAULT_SOFT_TARGET, planSalienceWorkingSet } from './plan.js'
+
+// Episodic → semantic: what a run learned, as the entry a later run searches.
+export { CONSOLIDATION_TAG, consolidationEntry } from './consolidation.js'
+export type { ConsolidationMeta } from './consolidation.js'

@@ -133,6 +133,17 @@ const MAPPING: {
 	// dominate the stream it rides on.
 	request_envelope: null,
 
+	memory_consolidated: {
+		wire: 'memory.consolidated',
+		transform: (e, runId) => ({
+			run_id: runId,
+			memory_id: e.memoryId,
+			title: e.title,
+			decisions: e.decisions,
+			discoveries: e.discoveries,
+			failures: e.failures,
+		}),
+	},
 	compaction_tool_results_cleared: {
 		wire: 'compaction.tool_results_cleared',
 		transform: (e, runId) => ({

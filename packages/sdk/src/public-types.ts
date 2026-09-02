@@ -343,6 +343,24 @@ export type {
 } from './types/hitl/policy.js'
 
 export type {
+	GoalSources,
+	ProtectedReason,
+	SalienceConfig,
+	SalienceWeights,
+	ScoreOptions,
+	ScoredMessage,
+	WorkingSetAction,
+	WorkingSetOptions,
+	WorkingSetPlan,
+} from './compaction/salience/index.js'
+export type { ConsolidationMeta } from './compaction/consolidation.js'
+export type {
+	CompactionPlan,
+	CompactionPlanInput,
+	CompactionSkipReason,
+} from './compaction/plan.js'
+
+export type {
 	ReviewExemption,
 	ReviewMode,
 	ReviewPolicyOptions,

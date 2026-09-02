@@ -38,6 +38,7 @@ import {
 	GuardedFetchProvider,
 	type LLMProvider,
 	type LogAttributes,
+	type MemoryStore,
 	type Message,
 	type ModelInfo,
 	type PluginLifecycleManager,
@@ -2072,6 +2073,7 @@ export async function createAgentSession(
 							yield* runTurn({
 								provider,
 								compactionConfig: compactionConfigFor(options.compaction),
+								...(options.compaction?.consolidate ? { consolidateInto: memoryStore } : {}),
 								// Constructed HERE, per turn, and that is not an optimisation to
 								// undo. `refreshTokenIfNeeded` above replaces the head's client
 								// object when an OAuth token rotates, so a member list built once at
@@ -2713,6 +2715,8 @@ interface RunTurnParams {
 	readonly provider: LLMProvider
 	/** The kernel's compaction configuration for this session, strategy included. */
 	readonly compactionConfig: CompactionConfig
+	/** Where the run's learnings go when the project asked for consolidation. */
+	readonly consolidateInto?: MemoryStore
 	/**
 	 * The chain's tail for THIS turn. Empty means no failover, which is what a
 	 * one-member chain means and what every chain meant before this existed.
@@ -2770,6 +2774,7 @@ interface RunTurnParams {
 async function* runTurn({
 	provider,
 	compactionConfig,
+	consolidateInto,
 	fallbackProviders,
 	model,
 	tools,
@@ -2830,6 +2835,7 @@ async function* runTurn({
 			...(sandboxTeardownTimeoutMs !== undefined ? { sandboxTeardownTimeoutMs } : {}),
 			authorizationGate: gateFor(rules),
 			compactionConfig,
+			...(consolidateInto ? { consolidateInto } : {}),
 			// The CLI owns its process end to end, so it can safely hand the
 			// termination path to the kernel: a Ctrl-C mid-run now leaves a
 			// dump under the injected hierarchy's emergency partition instead of

@@ -1079,6 +1079,17 @@ export { compactNow, compactRegion } from './compaction/manual.js'
 // resume. Export the identity predicate rather than making every host copy the
 // marker string and eventually disagree with the writer.
 export { isCompactionMessage } from './compaction/summary.js'
+export {
+	DEFAULT_SALIENCE_CONFIG,
+	DEFAULT_SALIENCE_WEIGHTS,
+	buildGoal,
+	isStubbedNarration,
+	messageText,
+	planWorkingSet,
+	scoreMessages,
+} from './compaction/salience/index.js'
+export { DEFAULT_SOFT_TARGET, planSalienceWorkingSet } from './compaction/plan.js'
+export { CONSOLIDATION_TAG, consolidationEntry } from './compaction/consolidation.js'
 // The sibling state-bearing system message. A host that carries a Run's
 // conversation into a fresh query must distinguish this ledger from the fresh
 // identity/environment prompt floor without copying its private header string.

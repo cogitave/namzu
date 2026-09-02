@@ -525,11 +525,14 @@ const CONFIG_READERS: ConfigReaders = {
 	},
 	compaction: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
-		const raw = v as { strategy?: unknown; contextWindowTokens?: unknown }
+		const raw = v as { strategy?: unknown; contextWindowTokens?: unknown; consolidate?: unknown }
 		for (const key of Object.keys(v)) {
-			if (key !== 'strategy' && key !== 'contextWindowTokens') {
+			if (key !== 'strategy' && key !== 'contextWindowTokens' && key !== 'consolidate') {
 				return invalidConfigValue(context, [key], 'is not a compaction key')
 			}
+		}
+		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
+			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
 		}
 		if (
 			raw.strategy !== undefined &&
@@ -551,6 +554,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.contextWindowTokens !== undefined
 				? { contextWindowTokens: raw.contextWindowTokens }
 				: {}),
+			...(raw.consolidate !== undefined ? { consolidate: raw.consolidate } : {}),
 		} as CompactionCliConfig
 	},
 	hooks: (v, context) => {

@@ -8,6 +8,7 @@ import {
 } from '../../advisory/index.js'
 import { drainQueuedMessages } from '../../agents/handle.js'
 import { AuthorizationGate } from '../../authorization/gate.js'
+import { consolidationEntry } from '../../compaction/consolidation.js'
 import {
 	type ToolHistoryRepairReport,
 	repairToolMessageHistory,
@@ -68,6 +69,7 @@ import {
 } from '../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
+import type { MemoryStore } from '../../types/memory/index.js'
 import {
 	type AssistantMessage,
 	type Message,
@@ -714,6 +716,15 @@ export interface QueryParams {
 	advisory?: AdvisoryConfig
 
 	compactionConfig?: CompactionConfig
+
+	/**
+	 * Where what the run learned is written when it ends: its decisions,
+	 * discoveries and failures, as one entry tagged `learning`. Episodic
+	 * memory (the working state) dies with the run; this is the bridge to
+	 * the semantic store a later run searches. Absent means nothing is
+	 * written. A store that fails is logged and never fails the run.
+	 */
+	consolidateInto?: MemoryStore
 
 	/**
 	 * Optional neutral working-memory seam. When set, the iteration loop
@@ -2647,6 +2658,32 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				}
 			}
 
+			if (params.consolidateInto && workingStateManager) {
+				const entry = consolidationEntry(workingStateManager.getState(), {
+					runId: ctx.runId,
+					at: Date.now(),
+				})
+				if (entry) {
+					try {
+						const { entry: saved } = await params.consolidateInto.create(entry)
+						await eventTranslator.emitEvent({
+							type: 'memory_consolidated',
+							runId: ctx.runId,
+							memoryId: saved.id,
+							title: entry.title,
+							decisions: workingStateManager.getState().decisions.length,
+							discoveries: workingStateManager.getState().discoveries.length,
+							failures: workingStateManager.getState().failures.length,
+						})
+						yield* eventTranslator.drainPending()
+					} catch (error) {
+						ctx.log.warn('consolidation into the memory store failed', {
+							[NAMZU.RUN_ID]: ctx.runId,
+							'namzu.memory.error': toErrorMessage(error),
+						})
+					}
+				}
+			}
 			yield* resultAssembler.completeRun(rootSpan)
 		} catch (err) {
 			// A failed run still spent its steps; report them.

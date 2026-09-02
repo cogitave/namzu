@@ -22,6 +22,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | --- | --- |
 | `strategy` | `salience` (the default), the scored working set described in [The salience-scored working set](../sdk/salience-working-set.md), or `structured`, the previous behaviour: positional retention and a pass only at the trigger. |
 | `contextWindowTokens` | The window the kernel measures fullness against, when the model's table entry is wrong or a project wants compaction earlier. Absent, the kernel resolves it from the model. |
+| `consolidate` | `true` writes what each run learned — decisions, discoveries, failures, files changed — to the project's memory store when the run ends, as one entry tagged `learning` that `search_memory` finds in a later session. Off by default. |
 
 A strategy is a property of a project's runs, which is why the key is file-only, like `hooks`.
 
