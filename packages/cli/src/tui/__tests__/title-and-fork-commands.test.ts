@@ -42,10 +42,10 @@ function run(input: string) {
 
 describe('/rename and /title', () => {
 	it('open the name editor rather than clearing when given nothing', () => {
-		// The load-bearing one. Reading a bare `/title` as "remove the name"
+		// The load-bearing one. Reading a bare `/rename` as "remove the name"
 		// makes an accidental enter destructive, and the destroyed thing is
 		// invisible until the next `/resume`.
-		for (const command of ['/rename', '/title']) {
+		for (const command of ['/rename']) {
 			expect(run(command)).toMatchObject({
 				kind: 'title',
 				title: '',
@@ -55,7 +55,7 @@ describe('/rename and /title', () => {
 	})
 
 	it('set the name they were given, spaces and all', () => {
-		for (const command of ['/rename', '/title']) {
+		for (const command of ['/rename']) {
 			expect(run(`${command} the auth refactor`)).toMatchObject({
 				kind: 'title',
 				title: 'the auth refactor',
@@ -65,14 +65,14 @@ describe('/rename and /title', () => {
 	})
 
 	it('clears only on the literal word', () => {
-		expect(run('/title clear')).toMatchObject({ kind: 'title', clear: true })
-		expect(run('/title CLEAR')).toMatchObject({ kind: 'title', clear: true })
+		expect(run('/rename clear')).toMatchObject({ kind: 'title', clear: true })
+		expect(run('/rename CLEAR')).toMatchObject({ kind: 'title', clear: true })
 	})
 
 	it('does not clear when "clear" is part of a longer name', () => {
 		// `clear` is a word here, not a prefix. Someone naming a conversation
 		// "clear the cache bug" means the name.
-		expect(run('/title clear the cache bug')).toMatchObject({
+		expect(run('/rename clear the cache bug')).toMatchObject({
 			kind: 'title',
 			title: 'clear the cache bug',
 			clear: false,

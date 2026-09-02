@@ -41,7 +41,7 @@ describe('the effective config debug snapshot', () => {
 	})
 })
 
-describe('/debug-config rendering', () => {
+describe('/status config rendering', () => {
 	it('sorts keys deterministically and names every winning source without a value', () => {
 		const rendered = renderConfigDebug(
 			createConfigDebugSnapshot(

@@ -238,7 +238,7 @@ it('exports raw model/tool history after /fork and /clear-screen, then refuses t
 	await waitFor(harness.lastFrame, 'Type a message')
 	await submit(harness.stdin, '/fork')
 	await waitFor(harness.lastFrame, 'Forked into')
-	await submit(harness.stdin, '/clear-screen')
+	harness.stdin.write('\x0c')
 	await tick(80)
 	expect(harness.lastFrame()).not.toContain('First **raw**.')
 

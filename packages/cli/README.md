@@ -130,7 +130,7 @@ palette; selecting a row runs that command through the same dispatcher as a
 typed slash command. Refused project command files remain visible with their
 reason. Bare `/effort`, `/permissions`, `/feedback`, `/skills`, and `/review`
 open finite keyboard choosers. Bare `/rename` opens a prefilled conversation-name editor;
-`/title` remains an alias and `/title clear` removes the chosen name. The review
+`/rename clear` removes the chosen name. The review
 chooser can target a base branch, uncommitted work, or a recent commit; choosing
 custom instructions restores `/review ` to the composer. When both Namzu-owned
 subscriptions exist, bare `/logout` asks
@@ -173,15 +173,14 @@ or dependencies. Left/Right moves between panes, arrows navigate, and Enter
 inspects one child's live projected transcript. Escape returns and `q` closes
 the inspector. Selection is tied to monitor-owned phase, batch and child
 identities, so a later delegation wave cannot revive completed rows from an
-earlier one. The historical `/agent` spelling remains an executable compatibility
-alias but is no longer advertised in the palette. Parent output that settles
+earlier one. Ctrl+T is the only way into the inspector; there is no slash
+command for it. Parent output that settles
 while a child is open is published once when the active cohort returns control.
 Interactive Agent calls, their child allocations and the parent turn share a
 one-hour upper deadline instead of the generic two-minute tool limit; operator
 cancellation remains the normal way to stop work that is no longer wanted.
 
-`/skill` remains an alias, `/skills <name>` activates directly, and
-`/skills list` prints the roster. Long model and resume lists
+`/skills <name>` activates directly and `/skills list` prints the roster. Long model and resume lists
 keep a seven-row window around the active choice and show its absolute position.
 Finite labels grow into available terminal width, so branch names and commit
 subjects are not forced through the same narrow column. The `/help` palette and
@@ -222,8 +221,8 @@ synchronous, so `/`, navigation and Enter may arrive in one terminal burst
 without losing the chosen command. The same page and boundary keys work in
 model, resume, review, skill, copy and other finite command choosers; their
 Enter action also follows the newest cursor when navigation arrives in the
-same terminal burst. `/pwd` reports the exact session working directory, while
-selecting `/mention` opens a keyboard-navigable list of tracked and unignored
+same terminal burst. `/status` reports the exact session working directory, and
+typing `@` opens a keyboard-navigable list of tracked and unignored
 project files. Enter or Tab inserts the selected `@path` without sending it;
 exact project-relative tokens remain editable, and symlinks outside the trusted
 root are not inlined. On
@@ -257,8 +256,8 @@ sandbox cannot preserve. Use delegated agents for independent concurrent work;
 turning the sandbox off restores the host background-job capability.
 
 Ctrl+L clears only the rendered terminal transcript while idle. It preserves
-model context, durable conversation history and copy/export targets, matching
-`/clear-screen`; an active turn keeps its visible output and reports that the
+model context, durable conversation history and copy/export targets; an active
+turn keeps its visible output and reports that the
 shortcut is temporarily unavailable.
 
 Bare `/export` opens a destination chooser for the complete verified Markdown

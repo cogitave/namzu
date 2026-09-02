@@ -93,7 +93,7 @@ it('shows the exact winning source handed to App', async () => {
 	mounted = harness
 	await waitFor(harness, '> Type a message')
 
-	harness.stdin.write('/debug-config')
+	harness.stdin.write('/status config')
 	await tick()
 	harness.stdin.write('\r')
 

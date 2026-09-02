@@ -200,7 +200,7 @@ it('sends the exact raw Markdown and keeps it after /clear-screen', async () => 
 	await tick(80)
 	await chooseWholeResponse(harness)
 	await frameShows(harness, 'Terminal, multiplexer or remote-session policy may ignore OSC 52')
-	await submit(harness, '/clear-screen')
+	harness.stdin.write('\x0c')
 	await chooseWholeResponse(harness)
 
 	await waitUntil(() => requested.length === 2)

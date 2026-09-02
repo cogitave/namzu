@@ -13,16 +13,17 @@
  * in full when it arrived — a real behaviour, invisible, and available only to
  * someone who wanted the output before knowing it would be truncated.
  *
- * Either way the expansion has to be a NEW row, which is what `/expand` pushes.
+ * Either way the expansion has to be a NEW row, which is what Ctrl+O pushes
+ * once the body has scrolled out of the redrawable window.
  * These tests are written against that distinction: the assertion is not "the
  * hidden lines are visible somewhere" but "a new row appeared containing them,
  * and the collapsed one is untouched", because the first would also pass for a
  * design that cannot reach the case anyone actually hits.
  *
  * Driven through a rendered `<App>` rather than `<Transcript>` alone, because
- * every part of this that can go wrong lives in the seam: whether the number in
- * the hint is the number the command takes, and whether the command reaches a
- * transcript that is still being written to. A component test sees neither.
+ * every part of this that can go wrong lives in the seam: whether the hint names
+ * the key that works, and whether the key reaches a transcript that is still
+ * being written to. A component test sees neither.
  */
 
 import { render } from 'ink-testing-library'
@@ -50,7 +51,7 @@ vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] 
  * Twelve lines, so six collapse and six hide. Distinguishable per line and
  * per block: an assertion that `line-9` reached the screen must not be
  * satisfiable by the OTHER block's ninth line, or the test would pass while
- * `/expand 1` expanded block 2.
+ * the wrong block was reprinted.
  */
 const CALL_DETAIL = Array.from({ length: 12 }, (_, i) => `call-line-${i + 1}`)
 const RESULT_DETAIL = Array.from({ length: 12 }, (_, i) => `result-line-${i + 1}`)
@@ -59,8 +60,8 @@ const RESULT_DETAIL = Array.from({ length: 12 }, (_, i) => `result-line-${i + 1}
  * Short enough to print in full, so it collapses nothing and advertises nothing.
  *
  * Three lines rather than seven on purpose: the whole question is whether a body
- * that never truncates can nonetheless take a number and be picked up by a bare
- * `/expand`. Set by the second `describe` below.
+ * that never truncates can nonetheless be the one Ctrl+O reprints. Set by the
+ * second `describe` below.
  */
 const SHORT_DETAIL = ['short-a', 'short-b', 'short-c']
 /** Whether the mocked turn ends with a short, uncollapsed body. */
@@ -193,200 +194,109 @@ async function twoCollapsedBlocks() {
 	return harness
 }
 
-/** Type a line into the composer and submit it. */
-async function submit(harness: { stdin: { write: (s: string) => void } }, line: string) {
-	// Written separately: Ink delivers one `stdin.write` as ONE keypress, so
-	// `'/expand\r'` arrives with `key.return` false and is taken as pasted text.
-	harness.stdin.write(line)
-	await tick(30)
-	harness.stdin.write('\r')
-}
 
 describe('a collapsed body advertises how to read it', () => {
-	it('names the number the command takes, rather than a key', async () => {
+	it('names the key, and nothing else', async () => {
 		const { lastFrame } = await twoCollapsedBlocks()
 
 		const frame = lastFrame() ?? ''
-		// Both blocks hide six lines, and each carries its own number.
-		expect(frame, 'the first body did not name itself').toContain('… +6 lines · /expand 1')
-		expect(frame, 'the second body did not name itself').toContain('… +6 lines · /expand 2')
-		// The removed key must not still be advertised anywhere on the screen.
-		// A key that is gone and still printed is the defect this replaced.
-		expect(frame.toLowerCase(), 'a removed key is still advertised').not.toContain('ctrl+o')
+		// Both blocks hide six lines, and each points at the same key.
+		expect(frame.split('… +6 lines · ctrl+o').length - 1, 'both bodies name the key').toBe(2)
+		// The command this replaced must not still be advertised anywhere.
+		expect(frame, 'a removed command is still advertised').not.toContain('/expand')
 	})
 })
+
+/** Run `fn` on a terminal too short to keep any transcript row redrawable. */
+async function onAShortTerminal<T>(fn: () => Promise<T>): Promise<T> {
+	const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows')
+	Object.defineProperty(process.stdout, 'rows', { value: 16, configurable: true })
+	try {
+		return await fn()
+	} finally {
+		if (rows) Object.defineProperty(process.stdout, 'rows', rows)
+		else Reflect.deleteProperty(process.stdout, 'rows')
+	}
+}
 
 describe('a body that fits', () => {
-	it('takes no number, so bare /expand still reaches the one that is hidden', async () => {
+	it('is not what Ctrl+O reprints; the hidden one is', async () => {
 		// The turn ends with a three-line body: fully visible, no hint, nothing
-		// concealed. Numbering it anyway would make it "the most recent block",
-		// so bare `/expand` would reprint three lines the operator can already
-		// read while the twelve-line body above stayed truncated — a command that
-		// answers a question nobody asked and leaves the real one unanswered.
-		//
-		// It also puts invisible gaps in the sequence, and makes "this
-		// conversation has N" count blocks no hint ever offered.
+		// concealed. Treating it as "the most recent block" would reprint three
+		// lines the operator can already read while the twelve-line body above
+		// stayed truncated — an answer to a question nobody asked.
 		trailingShortBlock = true
-		const harness = render(<App ctx={ctx} />)
-		mounted.push(harness)
-		await frameShows(harness.lastFrame, 'Connected to a-provider')
-		harness.stdin.write('go')
-		await tick(20)
-		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'short-c')
-
-		const before = harness.lastFrame() ?? ''
-		// Two numbered blocks, and they are the two that truncated.
-		expect(before).toContain('… +6 lines · /expand 1')
-		expect(before).toContain('… +6 lines · /expand 2')
-		expect(before, 'a body that fits was numbered').not.toContain('/expand 3')
-
-		await submit(harness, '/expand')
-		await frameShows(harness.lastFrame, 'result-line-12')
-
-		expect(
-			harness.lastFrame() ?? '',
-			'bare /expand reprinted a body that was already whole',
-		).toContain('result-line-12')
-	})
-})
-
-describe('Ctrl+O, where it cannot reach', () => {
-	it('says so, and names the command that can', async () => {
-		// The key reopens collapsed bodies in place, but only for rows still in
-		// the live window. On a terminal with no room for one — here, one too
-		// short to hold a row above the composer and the status bar — every row
-		// has been printed to scrollback, and a printed row cannot be rewritten.
-		//
-		// Refusing is the whole point. A key that silently appended a copy when
-		// it could not redraw would be two commands wearing one name, and the
-		// operator would have no way to tell which one they just got.
-		const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows')
-		Object.defineProperty(process.stdout, 'rows', { value: 16, configurable: true })
-		try {
-			const harness = await twoCollapsedBlocks()
+		await onAShortTerminal(async () => {
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Connected to a-provider')
+			harness.stdin.write('go')
+			await tick(20)
+			harness.stdin.write('\r')
+			await frameShows(harness.lastFrame, 'short-c')
 
 			harness.stdin.write('\x0f') // Ctrl+O
-			await frameShows(harness.lastFrame, 'Nothing on screen can be expanded in place')
+			await frameShows(harness.lastFrame, 'result-line-12')
 
-			const frame = harness.lastFrame() ?? ''
-			expect(frame, 'the key went back to being silent').toContain(
-				'Nothing on screen can be expanded in place',
-			)
-			expect(frame, 'refused without saying what does work').toContain('/expand')
-			// And it must not have expanded anything: a notice plus a silent
-			// expansion would be two answers to one press.
-			expect(frame, 'the key expanded something it said it could not').not.toContain(
-				'result-line-12',
-			)
-		} finally {
-			if (rows) Object.defineProperty(process.stdout, 'rows', rows)
-			else Reflect.deleteProperty(process.stdout, 'rows')
-		}
+			expect(
+				harness.lastFrame() ?? '',
+				'Ctrl+O reprinted a body that was already whole',
+			).toContain('result-line-12')
+		})
 	})
 })
 
-describe('/expand', () => {
-	it('prints the hidden lines as a NEW row, leaving the collapsed one alone', async () => {
-		const harness = await twoCollapsedBlocks()
+describe('Ctrl+O', () => {
+	// Opening in place while a row is still redrawable is covered by
+	// `a-body-reopens-where-it-is` on a real PTY; this harness keeps no row
+	// redrawable, so every press here takes the reprint path.
 
-		await submit(harness, '/expand 2')
-		await frameShows(harness.lastFrame, 'result-line-12')
+	it('reprints the most recent body as a NEW row once the rows have scrolled away', async () => {
+		// Rows printed to the terminal's own scrollback cannot be rewritten, so
+		// on a terminal too short to keep one redrawable the key appends a copy
+		// that says what it is of — and leaves the collapsed row exactly as it
+		// was, which is the assertion that separates emitting from mutating.
+		await onAShortTerminal(async () => {
+			const harness = await twoCollapsedBlocks()
 
-		const frame = harness.lastFrame() ?? ''
-		// The lines that were behind the hint are now on screen.
-		expect(frame, 'the hidden lines never appeared').toContain('result-line-12')
-		// And they arrived as a new row that says what it is of, rather than by
-		// the old row changing — which `<Static>` would not have allowed.
-		expect(frame, 'the expansion did not say what it expanded').toContain('in full (12 lines)')
-		// The original row still reads exactly as it did. This is the assertion
-		// that distinguishes emitting from mutating: a design that tried to
-		// re-render the committed row would leave no hint behind.
-		expect(frame, 'the collapsed row was disturbed').toContain('… +6 lines · /expand 2')
-	})
+			harness.stdin.write('\x0f')
+			await frameShows(harness.lastFrame, 'result-line-12')
 
-	it('takes the number the hint printed, not the position of the row', async () => {
-		// `/expand 1` must reach the FIRST body. Between the two bodies sit the
-		// user's own row and the tool result line, so anything counting messages
-		// rather than bodies lands somewhere else.
-		const harness = await twoCollapsedBlocks()
-
-		await submit(harness, '/expand 1')
-		await frameShows(harness.lastFrame, 'call-line-12')
-
-		const frame = harness.lastFrame() ?? ''
-		expect(frame, '/expand 1 did not reach the first body').toContain('call-line-12')
-		expect(frame, '/expand 1 expanded the wrong body').not.toContain('result-line-12')
-	})
-
-	it('with no argument takes the most recent body', async () => {
-		const harness = await twoCollapsedBlocks()
-
-		await submit(harness, '/expand')
-		await frameShows(harness.lastFrame, 'result-line-12')
-
-		const frame = harness.lastFrame() ?? ''
-		expect(frame, 'bare /expand did not take the most recent').toContain('result-line-12')
-		expect(frame, 'bare /expand reached back past the most recent').not.toContain('call-line-12')
-	})
-
-	it('says how many there are when asked for one that does not exist', async () => {
-		// Refusing alone would leave the operator guessing at a number, which is
-		// the same cost the numbered hint exists to remove.
-		const harness = await twoCollapsedBlocks()
-
-		await submit(harness, '/expand 9')
-		await frameShows(harness.lastFrame, 'No collapsed output numbered 9')
-
-		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('No collapsed output numbered 9')
-		expect(frame, 'refused without saying which numbers exist').toContain('numbered 1 to 2')
+			const frame = harness.lastFrame() ?? ''
+			expect(frame, 'the hidden lines never appeared').toContain('result-line-12')
+			expect(frame, 'the reprint did not say what it is of').toContain('in full (12 lines)')
+			expect(frame, 'the most recent body is the one reprinted').not.toContain('call-line-12')
+		})
 	})
 
 	it('says what produces one when the transcript has none', async () => {
 		// Before any tool has run. An empty result here would read as a broken
-		// command rather than as an empty set.
+		// key rather than as an empty set.
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
 		// The COMPOSER's placeholder is not readiness — it draws from the first
-	// frame, while the composer stays `disabled` until the session is up, so a
-	// key sent on sight of it is dropped and the turn never runs. The connect
-	// line is the first thing that only exists once `phase === 'ready'`.
-	await frameShows(harness.lastFrame, 'Connected to a-provider')
+		// frame, while the composer stays `disabled` until the session is up. The
+		// connect line is the first thing that only exists once `phase === 'ready'`.
+		await frameShows(harness.lastFrame, 'Connected to a-provider')
 
-		await submit(harness, '/expand')
+		harness.stdin.write('\x0f')
 		await frameShows(harness.lastFrame, 'Nothing to expand yet')
 
 		expect(harness.lastFrame() ?? '').toContain('Nothing to expand yet')
 	})
 
-	it('forgets the numbers when /clear-screen takes the rows away', async () => {
-		// A number outliving the row it names is this surface's own defect in
-		// miniature: `/expand 1` would print output the operator can no longer
-		// see anywhere, from a conversation they just cleared.
+	it('forgets a body when Ctrl+L takes the rows away', async () => {
+		// A body outliving the row it was in would print output the operator
+		// can no longer see anywhere, from a transcript they just cleared.
 		const harness = await twoCollapsedBlocks()
 
-		await submit(harness, '/clear-screen')
+		harness.stdin.write('\x0c') // Ctrl+L
 		await tick(80)
-		await submit(harness, '/expand 1')
+		harness.stdin.write('\x0f')
 		await frameShows(harness.lastFrame, 'Nothing to expand yet')
 
 		const frame = harness.lastFrame() ?? ''
 		expect(frame, 'a cleared block was still expandable').toContain('Nothing to expand yet')
-		expect(frame, 'output from a cleared conversation came back').not.toContain('call-line-12')
-	})
-
-	it('refuses an argument that is not a number, instead of expanding something', async () => {
-		const harness = await twoCollapsedBlocks()
-
-		await submit(harness, '/expand 2nd')
-		await frameShows(harness.lastFrame, 'Usage: /expand')
-
-		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('Usage: /expand')
-		// `parseInt('2nd')` is 2. A parser that used it would silently expand
-		// block 2 for a typo, which is the quiet-wrong-answer failure this
-		// whole surface is being cleaned of.
-		expect(frame, 'a typo was read as a block number').not.toContain('result-line-12')
+		expect(frame, 'output from a cleared transcript came back').not.toContain('call-line-12')
 	})
 })

@@ -15,11 +15,11 @@
  * already carries. A command that had to compute its own answer would be a
  * second source for a fact the kernel already owns, and the two would drift.
  *
- * `/expand` is the same discipline with the split drawn one step earlier. The
+ * Ctrl+O's reprint is the same discipline with the split drawn one step earlier. The
  * lines it prints were captured when the tool ran and are held on the transcript
- * row, which this module cannot see and must not: it validates the argument and
- * hands App a `which`, and App — the only thing that knows what rows exist —
- * resolves it. Giving this module the transcript to search would put the answer
+ * row, which this module cannot see and must not: App — the only thing that knows
+ * what rows exist — resolves it. Giving this module the transcript to search
+ * would put the answer
  * to "does block 4 exist" in two places at once.
  */
 
@@ -148,15 +148,6 @@ export type SlashAction =
 			messageId: string
 			note?: string
 	  }
-	/**
-	 * Print a collapsed tool body in full, as a NEW transcript row.
-	 *
-	 * `which` is the number the collapse hint printed, or `'last'` for the most
-	 * recent one. This module validates the shape of the argument and stops
-	 * there: whether such a block exists is a fact about the transcript, which
-	 * App owns and this module deliberately does not see.
-	 */
-	| { kind: 'expand'; which: number | 'last' }
 	/**
 	 * Drive a turn with text the command composed rather than the user typed.
 	 *
@@ -557,12 +548,6 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		},
 	},
 	{
-		name: 'agent',
-		description: 'Compatibility alias for the automatic delegated-work panel.',
-		discoverable: false,
-		action: () => ({ kind: 'agent-cockpit' }),
-	},
-	{
 		name: 'feedback',
 		description: 'Rate the last answer; choose good/bad or add an optional note.',
 		action: (ctx, args) => {
@@ -618,60 +603,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: () => ({ kind: 'archive-picker' }),
 	},
 	{
-		name: 'clear-screen',
-		description: 'Clear only the terminal transcript; keep this conversation context.',
-		action: () => ({ kind: 'clear-screen' }),
-	},
-	{
-		name: 'quit',
+		name: 'exit',
 		description: 'Exit namzu.',
 		action: () => ({ kind: 'exit' }),
 	},
 	{
-		name: 'exit',
-		description: 'Alias of /quit.',
-		action: () => ({ kind: 'exit' }),
-	},
-	{
-		name: 'tools',
-		description: 'List tools the agent can call.',
-		action: (ctx) => {
-			// Asked now, not when the session was built. Some of these register
-			// during the first turn, so a list captured earlier is a list of what
-			// was callable then — and this command is asked in the present tense.
-			const tools = ctx.availableTools()
-			return {
-				kind: 'message',
-				role: 'system',
-				content:
-					tools.length === 0
-						? 'No tools registered yet — the agent session may still be connecting.'
-						: `Registered tools (${tools.length}):\n  ${tools.join('\n  ')}`,
-			}
-		},
-	},
-	{
-		name: 'remember',
-		description: 'Save a fact to durable memory: /remember <text>.',
-		action: (_ctx, args) => {
-			const text = args.join(' ').trim()
-			return text.length === 0
-				? {
-						kind: 'message',
-						role: 'system',
-						content: 'Usage: /remember <something to remember>',
-					}
-				: { kind: 'remember', text }
-		},
-	},
-	{
 		name: 'rename',
-		description: 'Rename this conversation; opens an editor when no name is supplied.',
-		action: renameConversationAction,
-	},
-	{
-		name: 'title',
-		description: 'Alias for /rename; /title clear removes the saved name.',
+		description:
+			'Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name.',
 		action: renameConversationAction,
 	},
 	{
@@ -681,8 +620,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'memory',
-		description: 'Show what namzu remembers (USER.md + MEMORY.md).',
-		action: () => ({ kind: 'show-memory' }),
+		description: 'Show what namzu remembers, or save a fact: /memory [something to remember].',
+		action: (_ctx, args) => {
+			const text = args.join(' ').trim()
+			return text.length === 0 ? { kind: 'show-memory' } : { kind: 'remember', text }
+		},
 	},
 	{
 		name: 'skills',
@@ -698,64 +640,6 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'resume',
 		description: 'Resume a past conversation in this folder.',
 		action: () => ({ kind: 'resume' }),
-	},
-	{
-		name: 'mention',
-		description: 'Insert @ so a project file can be mentioned in the next prompt.',
-		action: () => ({ kind: 'composer-draft', text: '@' }),
-	},
-	{
-		name: 'expand',
-		description: 'Print a collapsed tool output in full: /expand [n].',
-		action: (_ctx, args) => {
-			const arg = args.join(' ').trim()
-			// Bare `/expand` means the most recent one. That is what a person types
-			// the moment output truncates in front of them, and making them read a
-			// number back off the screen first would be a toll on the common case.
-			if (arg.length === 0) return { kind: 'expand', which: 'last' }
-			// Matched as the literal decimal a hint can print, and nothing else.
-			//
-			// `parseInt` would read `2nd` as 2 and expand a block the operator did
-			// not name. `Number` plus `Number.isInteger` fixes that one and still
-			// admits `0x10`, `1e2`, `+3` and `3.0` — four spellings no hint has
-			// ever shown, each of which turns a typo into a valid reference to
-			// some OTHER block. What this accepts is exactly what the screen can
-			// produce, which is the only set with no silently-wrong answer in it.
-			if (!/^[1-9][0-9]*$/.test(arg)) {
-				return {
-					kind: 'message',
-					role: 'system',
-					content:
-						'Usage: /expand [n], where n is the number in the "… +N lines · /expand n" hint under a collapsed tool output. /expand on its own takes the most recent one.',
-				}
-			}
-			return { kind: 'expand', which: Number(arg) }
-		},
-	},
-	{
-		name: 'skill',
-		description: 'Alias for /skills; choose a skill or type its name.',
-		action: (_ctx, args) => {
-			const name = args.join(' ').trim()
-			return name.length === 0 ? { kind: 'skill-picker' } : { kind: 'load-skill', name }
-		},
-	},
-	{
-		name: 'provider',
-		description: 'Show the current provider + model.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content:
-				ctx.providerSummary === null
-					? 'No provider configured. Run /model to pick one, or set an LLM env var (ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY) and restart namzu.'
-					: `Provider: ${ctx.providerSummary}${ctx.modelSummary ? `\nModel: ${ctx.modelSummary}` : ''}`,
-		}),
-	},
-	{
-		name: 'pwd',
-		description: 'Show the active working directory.',
-		action: (ctx) => ({ kind: 'message', role: 'system', content: ctx.cwd }),
 	},
 	{
 		name: 'model',
@@ -854,21 +738,29 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'status',
-		description: 'Show what this session is, where it may write, and when it stops to ask.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content: renderStatus(ctx),
-		}),
-	},
-	{
-		name: 'debug-config',
-		description: 'Show the winning source for every resolved config key.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content: renderConfigDebug(ctx.configDebug),
-		}),
+		description:
+			'Show what this session is, where it may write, and when it stops to ask; /status config for where each setting came from, /status tools for what the agent can call.',
+		action: (ctx, args) => {
+			const which = args.join(' ').trim().toLowerCase()
+			if (which === 'config') {
+				return { kind: 'message', role: 'system', content: renderConfigDebug(ctx.configDebug) }
+			}
+			if (which === 'tools') {
+				const tools = ctx.availableTools()
+				return {
+					kind: 'message',
+					role: 'system',
+					content:
+						tools.length === 0
+							? 'No tools registered yet — the agent session may still be connecting.'
+							: `Registered tools (${tools.length}):\n  ${tools.join('\n  ')}`,
+				}
+			}
+			if (which.length > 0) {
+				return { kind: 'message', role: 'system', content: 'Usage: /status [config|tools]' }
+			}
+			return { kind: 'message', role: 'system', content: renderStatus(ctx) }
+		},
 	},
 	{
 		name: 'permissions',

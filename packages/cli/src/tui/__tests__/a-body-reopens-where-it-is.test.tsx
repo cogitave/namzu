@@ -221,8 +221,8 @@ describe('the expand key, on a body that is still on screen', () => {
 		expect(screen.scrollback().filter(call), 'resize printed a second durable tool row').toHaveLength(1)
 	}, 30_000)
 
-	it('still reaches the rows of the conversation after /clear-screen', async () => {
-		// `/clear-screen` empties the transcript and remounts the static log, and the
+	it('still reaches the rows of the conversation after Ctrl+L', async () => {
+		// Ctrl+L empties the transcript and remounts the static log, and the
 		// window has to come back with it.
 		//
 		// Honest about what this does NOT pin: dropping `settledRef` in
@@ -235,9 +235,7 @@ describe('the expand key, on a body that is still on screen', () => {
 		// cleared under it.
 		const screen = await aCollapsedBody()
 
-		screen.press('/clear-screen')
-		await screen.waitForRender()
-		screen.press('\r')
+		screen.press('\x0c')
 		await screenShows(screen, 'Type a message')
 		expect(screen.viewport().join('\n'), 'the transcript was not cleared').not.toContain(
 			'result-line-6',

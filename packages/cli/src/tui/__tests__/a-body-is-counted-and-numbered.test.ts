@@ -43,11 +43,11 @@ describe('renderedDetailLines', () => {
 	})
 
 	it('gives the hint the text it really prints, command included', () => {
-		// `… +6 lines · /expand 3` is eleven columns longer than `… +6 lines`, and
+		// `… +6 lines · ctrl+o` is nine columns longer than `… +6 lines`, and
 		// on a narrow terminal those eleven columns are a second rendered row that
 		// the estimate would not know about.
 		const lines = renderedDetailLines(row({ detail: body(12), detailRef: 3 }))
-		expect(lines[6]).toContain('/expand 3')
+		expect(lines[6]).toContain('ctrl+o')
 	})
 
 	it('measures a body against the width it has, not the width of the terminal', () => {

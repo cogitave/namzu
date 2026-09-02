@@ -340,7 +340,7 @@ function DetailBlock({
 					    rather than printing a command that would not resolve. */}
 					<Text color={theme.text.muted}>
 						… +{hidden} lines
-						{detailRef === undefined ? '' : ` · /expand ${detailRef}`}
+						{detailRef === undefined ? '' : ' · ctrl+o'}
 					</Text>
 				</Box>
 			) : null}
@@ -400,7 +400,7 @@ export function renderedDetailLines(message: TranscriptMessage): readonly string
 		? [
 				...body,
 				`${gutter}… +${hidden} lines${
-					message.detailRef === undefined ? '' : ` · /expand ${message.detailRef}`
+					message.detailRef === undefined ? '' : ' · ctrl+o'
 				}`,
 			]
 		: body

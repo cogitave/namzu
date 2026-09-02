@@ -159,10 +159,10 @@ describe('transcriptLines', () => {
 		const rich = transcriptLines([message])
 		const raw = transcriptLines([message], true)
 
-		expect(rich).toContain('   … +6 lines · /expand 1')
+		expect(rich).toContain('   … +6 lines · ctrl+o')
 		expect(rich).not.toContain('   raw-detail-12')
 		expect(raw).toContain('raw-detail-12')
-		expect(raw).not.toContain('   … +6 lines · /expand 1')
+		expect(raw).not.toContain('   … +6 lines · ctrl+o')
 	})
 
 	it('uses the complete raw body when bounding the redrawable window', () => {

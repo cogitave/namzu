@@ -4592,89 +4592,6 @@ export function App({
 					case 'fork':
 						void doFork()
 						return
-					case 'expand': {
-						// Resolved INSIDE the updater, against `prev`.
-						//
-						// Not against the `messages` this callback captured: rows arrive
-						// from `applyEvent` while a turn runs, which is exactly when
-						// someone types `/expand`, and a captured array can be a render
-						// behind — so "the most recent one" would sometimes mean the one
-						// before it, and the command would quietly show the wrong output.
-						// `prev` is by definition the latest.
-						//
-						// And against the ROWS, not a parallel index of them. An earlier
-						// draft kept a ref mirroring `{ref, label, lines}` alongside the
-						// rows that already hold all three. That is one concept in two
-						// shapes with a hand-written copy between them — the geometry
-						// `docs/conventions/one-site-is-not-every-site.md` names as the
-						// hardest kind to spot, adopted here to solve a staleness problem
-						// the updater solves without it.
-						//
-						// The id is taken outside so both branches use the same one.
-						const id = nextId()
-						setMessages((prev) => {
-							const blocks = prev.filter((m) => m.detailRef !== undefined)
-							const say = (content: string): TranscriptMessage => ({
-								id,
-								role: 'system',
-								content,
-							})
-							if (blocks.length === 0) {
-								return [
-									...prev,
-									say(
-										'Nothing to expand yet. Tool output longer than six lines collapses with a "… +N lines · /expand n" hint, and that number is what this takes.',
-									),
-								]
-							}
-							const block =
-								slash.which === 'last'
-									? blocks[blocks.length - 1]
-									: blocks.find((m) => m.detailRef === slash.which)
-							if (!block) {
-								// Names the range rather than only refusing: the operator's
-								// next move is to type a different number, and they should
-								// not have to guess which ones exist.
-								return [
-									...prev,
-									say(
-										`No collapsed output numbered ${slash.which}. This conversation has ${
-											blocks.length === 1
-												? 'one, numbered 1'
-												: `${blocks.length}, numbered 1 to ${blocks.length}`
-										}.`,
-									),
-								]
-							}
-							// A NEW row carrying the same lines, flagged to print them all.
-							// Not a mutation of the row that collapsed them: that row was
-							// handed to <Static>, which emits an item once and calls the
-							// render function only for items it has not emitted yet, so
-							// nothing decided now can reach it. Appending is the only
-							// expansion this architecture has.
-							//
-							// The lines travel as `detail` rather than flattened into the
-							// content so the `▏` rule and the +/- diff colouring survive.
-							// An expansion that showed LESS than the collapsed form would
-							// be a strange thing to have asked for.
-							//
-							// It carries no `detailRef` of its own: it is already in full,
-							// so there is nothing for a number to offer, and giving it one
-							// would let `/expand` produce a third copy of the same output.
-							return [
-								...prev,
-								{
-									id,
-									role: 'system',
-									content: `${block.content} — in full (${block.detail?.length ?? 0} lines)`,
-									glyph: '⤢',
-									detail: block.detail,
-									detailExpanded: true,
-								},
-							]
-						})
-						return
-					}
 					case 'prompt':
 						// Deliberately does NOT return: the composed text falls
 						// through to the same queue-or-send below that a typed
@@ -5845,20 +5762,37 @@ export function App({
 			// in place and sometimes prints a second copy further down would be two
 			// commands wearing one name.
 			if (key.ctrl && input === 'o') {
-				// Taken outside the updater so both branches use the same one, as
-				// `/expand` does.
+				// Taken outside the updater so both branches use the same one.
 				const id = nextId()
 				setMessages((prev) => {
 					const live = prev.filter((m) => !m.pending).slice(settledRef.current)
 					const collapsible = live.filter((m) => willCollapse(m.detail))
 					if (collapsible.length === 0) {
+						// Nothing redrawable is collapsed, so this reprints the most recent
+						// collapsed body as a new row — the rows above have been printed
+						// to the terminal's own scrollback, which cannot be rewritten.
+						const blocks = prev.filter((m) => m.detailRef !== undefined)
+						const block = blocks[blocks.length - 1]
+						if (!block) {
+							return [
+								...prev,
+								{
+									id,
+									role: 'system' as const,
+									content:
+										'Nothing to expand yet. Tool output longer than six lines collapses with a "… +N lines · ctrl+o" hint; Ctrl+O opens it in place while it is still on screen, and reprints the most recent one in full once it has scrolled away.',
+								},
+							]
+						}
 						return [
 							...prev,
 							{
 								id,
 								role: 'system' as const,
-								content:
-									'Nothing on screen can be expanded in place. Only the last few rows stay redrawable; anything older has been printed to the terminal’s own scrollback, which cannot be rewritten. Use /expand <n> for those — the number is in the hint under each collapsed body, and /expand on its own takes the most recent.',
+								content: `${block.content} — in full (${block.detail?.length ?? 0} lines)`,
+								glyph: '⤢',
+								detail: block.detail,
+								detailExpanded: true,
 							},
 						]
 					}

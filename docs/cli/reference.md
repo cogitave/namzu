@@ -140,11 +140,11 @@ Inside the session, grouped by the question each one answers:
 
 | | |
 |---|---|
-| **What is going on** | `/status`, `/pwd`, `/debug-config`, `/cost`, `/permissions`, `/effort`, `/mcp`, `/tools`, `/model`, `/provider` |
-| **What changed** | `/diff`, `/review`, `/expand` |
-| **This conversation** | `/resume`, `/rename`, `/title`, `/goal`, `/fork`, `/new`, `/clear`, `/archive`, `/clear-screen`, `/compact`, `/copy`, `/raw`, `/export` |
-| **What it knows** | `/memory`, `/remember`, `/skills`, `/skill`, `/init` |
-| **Everything else** | `/mention`, `/help`, `/login`, `/logout`, `/feedback`, `/quit`, `/exit` |
+| **What is going on** | `/status` (bare, `config`, `tools`), `/cost`, `/permissions`, `/effort`, `/mcp`, `/model` |
+| **What changed** | `/diff`, `/review` — and Ctrl+O to open a collapsed tool output |
+| **This conversation** | `/resume`, `/rename`, `/goal`, `/fork`, `/new`, `/clear`, `/archive`, `/compact`, `/copy`, `/raw`, `/export` — and Ctrl+L to clear the screen |
+| **What it knows** | `/memory` (bare shows, `/memory <text>` saves), `/skills`, `/init` |
+| **Everything else** | `/help`, `/login`, `/logout`, `/feedback`, `/exit` |
 
 Commands the kernel's own registry contributes are merged in beside them; a name
 claimed by both raises an error rather than letting one silently shadow the
@@ -157,9 +157,8 @@ instead of a parallel implementation. Project command files that cannot be
 loaded remain visible with their refusal reason and cannot accidentally invoke a
 same-named built-in.
 
-`/pwd` prints the canonical working directory this session uses. `/mention`
-returns the composer to an editable `@` token instead of sending the command to
-the model. Tracked and unignored project files appear in a bounded chooser;
+`/status` prints the canonical working directory this session uses. Typing `@`
+in the composer opens the file mention. Tracked and unignored project files appear in a bounded chooser;
 arrows, page keys and Home/End navigate it, and Enter or Tab inserts the selected
 project-relative path without submitting the prompt. Exact `@path` input still
 works when no repository index is available. Mention expansion resolves the real
@@ -249,9 +248,8 @@ execution. The agent pane shows lifecycle state and latest activity for the
 selected phase. Left/Right changes panes, arrows navigate, and Enter opens a
 bounded live projection of the selected child. Escape returns and `q` closes
 the inspector. The composer remains mounted, preserving its exact draft through
-inspection; the inspector closes when its last active cohort settles. The old
-`/agent` command remains executable for compatibility but is omitted from help
-and autocomplete. Observing a child never adds private events to the parent's
+inspection; the inspector closes when its last active cohort settles. Ctrl+T is
+the only way in; there is no slash command for it. Observing a child never adds private events to the parent's
 model history, and parent rows that settle while observation is open are emitted
 exactly once after returning.
 
@@ -291,8 +289,7 @@ form, and choosing **Custom** restores `/review ` to the composer for editing.
 
 Bare `/skills` opens the discovered project/user skill roster and
 `/skills <name>` remains the direct form. `/skills list` prints the complete
-roster with active markers, while `/skill` remains a compatible alias for the
-chooser and named activation. Unreadable skills stay visible with their refusal
+roster with active markers. Unreadable skills stay visible with their refusal
 instead of disappearing.
 
 Finite overlays render at most seven choices around their absolute cursor and
@@ -371,8 +368,8 @@ logout and token publication fail closed.
 conversation is listed by the first thing you typed in it — a reasonable default
 and a poor identity, because it stops describing the work as soon as the work
 moves on from that opening question. Bare `/rename` opens a prefilled name
-editor; `/rename <name>` updates it directly. `/title` remains an alias, and
-`/title clear` goes back to the derived name. The editor is a host decision, so
+editor; `/rename <name>` updates it directly, and `/rename clear` goes back to
+the derived name. The editor is a host decision, so
 its text does not enter model prompt history or the follow-up queue. A named row
 is shown in quotes so the two kinds are distinguishable in the list.
 
@@ -491,7 +488,7 @@ under the wrong session.
 An armed goal continues through finite, durably admitted rounds. The default
 cap is 256. Each round is reserved before provider creation, carries its exact
 goal authority, and can use `get_goal` plus `update_goal`; ordinary human turns,
-`/tools`, and subagents do not see those capabilities. A model may complete the
+`/status tools`, and subagents do not see those capabilities. A model may complete the
 goal in any admitted round, but cannot report it blocked before round three.
 Reaching the cap blocks it durably rather than starting unbounded work.
 
@@ -523,7 +520,7 @@ from `/resume`; the clean-exit summary therefore does not print a resume command
 for the tombstone. Archive waits for the current turn, queued work, compaction,
 export and persistence tail to settle before publishing the versioned status.
 
-`/clear-screen` is the narrower display operation: it remounts an empty transcript
+Ctrl+L is the narrower display operation: it remounts an empty transcript
 without changing model context, durable history, or the active conversation. It
 exists for operators who want a clean terminal while continuing the same chat.
 Ctrl+L reaches that exact display-only operation while idle; it refuses while a
@@ -686,7 +683,7 @@ The picker owns the response snapshot it opened with. A newer answer may settle
 without retargeting an open selection, and no queued human or automatic goal turn
 starts until the picker is selected or cancelled. While a new answer is streaming,
 the previous normally completed answer remains available; a cancelled, guarded
-or otherwise partial answer does not replace it. `/clear-screen` and `/compact`
+or otherwise partial answer does not replace it. Ctrl+L and `/compact`
 keep the target. `/clear` and `/new` clear it with the model context; `/resume`
 replaces it with the newest non-empty assistant output in the resumed conversation,
 labelled as persisted because older durable records do not carry the stop reason
@@ -722,7 +719,7 @@ context, permission/tool request objects, persistence, export and the target of
 The mode applies to the whole retained transcript, not only to rows produced
 after the command. Switching it clears terminal scrollback, remounts the static
 log and replays those rows in the selected form; `/raw off` performs the same
-rebuild back to rich rendering. `/clear-screen` still removes the rendered rows,
+rebuild back to rich rendering. Ctrl+L still removes the rendered rows,
 so raw mode cannot and does not resurrect a view the operator deliberately
 cleared.
 
@@ -755,7 +752,7 @@ to the exact user message before model execution begins. Export then reads the
 run's strictly parsed event log and the survivor snapshot whose event boundary
 matches that log. Raw assistant Markdown, model-visible tool calls and results,
 provider fallback and context-relief activity therefore remain available after
-`/clear-screen`; inline attachment bytes are represented by name and media type
+Ctrl+L; inline attachment bytes are represented by name and media type
 rather than copied into the Markdown. After `/clear` or `/new`, `/export` targets
 the fresh active conversation; resume the previous one to export its record.
 
@@ -995,7 +992,7 @@ the trust refusal (`77`) and no project bytes have been read. The real directory
 approved by the gate is pinned for that launch, so repointing a `--cwd` symlink
 after the decision cannot redirect config discovery or the session elsewhere.
 
-`/debug-config` shows which source won each resolved top-level key, in a stable
+`/status config` shows which source won each resolved top-level key, in a stable
 order, and states the cascade separately. It deliberately receives and prints
 no resolved values: the display answers which file, profile, variable or flag
 to change without turning a diagnostic into a credential or command-argument

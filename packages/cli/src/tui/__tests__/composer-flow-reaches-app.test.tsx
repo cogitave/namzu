@@ -288,7 +288,7 @@ describe('the two composer destinations', () => {
 				'App never became ready',
 			)
 			screen.press('/')
-			const toolsIndex = matchSlashCommands('/', []).findIndex((command) => command.name === 'tools')
+			const toolsIndex = matchSlashCommands('/', []).findIndex((command) => command.name === 'cost')
 			expect(toolsIndex).toBeGreaterThan(5)
 			for (let index = 0; index < toolsIndex; index += 1) screen.press('\x1b[B')
 			screen.press('\r')
@@ -297,8 +297,8 @@ describe('the two composer destinations', () => {
 				() =>
 					screen
 						.scrollback()
-						.some((line) => line.includes('No tools registered yet')),
-				'burst-selected /tools command never reached App',
+						.some((line) => line.includes('No usage reported yet')),
+				'burst-selected /cost command never reached App',
 			)
 
 			expect(sent).toHaveLength(0)
@@ -406,12 +406,11 @@ describe('the two composer destinations', () => {
 				() => screen.scrollback().some((line) => line.includes('Type a message')),
 				'App never became ready',
 			)
-			screen.press('/mention')
-			screen.press('\r')
+			screen.press('@')
 			await waitUntil(
 				screen,
 				() => screen.viewport().some((line) => line.includes('› @src/app.ts')),
-				'/mention did not show the hydrated project files',
+				'typing @ did not show the hydrated project files',
 			)
 
 			screen.press('\x1b[B')

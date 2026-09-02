@@ -192,7 +192,7 @@ it('cancels without mutating the durable name', async () => {
 	mounted = screen
 	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
 
-	screen.press('/title')
+	screen.press('/rename')
 	await screen.waitForRender()
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('Rename conversation'))

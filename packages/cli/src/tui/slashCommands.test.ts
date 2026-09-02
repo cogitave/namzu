@@ -101,7 +101,7 @@ describe('matchSlashCommands', () => {
 
 	it('returns [] once a space is typed (now entering arguments)', () => {
 		expect(matchSlashCommands('/model ')).toEqual([])
-		expect(matchSlashCommands('/skill foo')).toEqual([])
+		expect(matchSlashCommands('/skills foo')).toEqual([])
 	})
 
 	it('returns [] for non-slash input', () => {
@@ -115,30 +115,11 @@ describe('matchSlashCommands', () => {
 
 	it('puts a fully typed command before longer names with the same prefix', () => {
 		expect(
-			matchSlashCommands('/skill')
+			matchSlashCommands('/clear')
 				.map((command) => command.name)
-				.slice(0, 2),
-		).toEqual(['skill', 'skills'])
+				.slice(0, 1),
+		).toEqual(['clear'])
 		expect(matchSlashCommands('/clear').map((command) => command.name)[0]).toBe('clear')
-	})
-})
-
-describe('local navigation commands', () => {
-	it('offers both commands through prefix-filtered palette discovery', () => {
-		expect(matchSlashCommands('/men').map((command) => command.name)).toEqual(['mention'])
-		expect(matchSlashCommands('/pw').map((command) => command.name)).toEqual(['pwd'])
-	})
-
-	it('reports the exact session cwd without creating a prompt', () => {
-		expect(runSlash('/pwd', ctx)).toEqual({
-			kind: 'message',
-			role: 'system',
-			content: '/workspace/current',
-		})
-	})
-
-	it('turns /mention into an editable file token rather than model input', () => {
-		expect(runSlash('/mention', ctx)).toEqual({ kind: 'composer-draft', text: '@' })
 	})
 })
 
@@ -207,10 +188,6 @@ describe('runSlash', () => {
 		expect(runSlash('/archive', ctx)).toEqual({ kind: 'archive-picker' })
 	})
 
-	it('/clear-screen preserves the conversation behind the view', () => {
-		expect(runSlash('/clear-screen', ctx)).toEqual({ kind: 'clear-screen' })
-	})
-
 	it('/copy returns a copy action for App to resolve against completed output', () => {
 		expect(runSlash('/copy', ctx)).toEqual({ kind: 'copy' })
 	})
@@ -226,9 +203,9 @@ describe('runSlash', () => {
 		})
 	})
 
-	it('/debug-config renders the launch-time winning source without a value', () => {
+	it('/status config renders the launch-time winning source without a value', () => {
 		const r = runSlash(
-			'/debug-config',
+			'/status config',
 			context({
 				configDebug: {
 					sources: {
@@ -255,39 +232,27 @@ describe('runSlash', () => {
 		})
 	})
 
-	it('/quit and /exit both produce an exit action', () => {
-		expect(runSlash('/quit', ctx)).toEqual({ kind: 'exit' })
+	it('/exit produces an exit action, and the old /quit spelling is gone', () => {
 		expect(runSlash('/exit', ctx)).toEqual({ kind: 'exit' })
+		expect(runSlash('/quit', ctx)).toMatchObject({ kind: 'message' })
+		expect((runSlash('/quit', ctx) as { content: string }).content).toContain(
+			'Unknown command: /quit',
+		)
 	})
 
-	it('/tools reports "no tools" when registry is empty', () => {
-		const r = runSlash('/tools', ctx)
+	it('/status tools reports "no tools" when registry is empty', () => {
+		const r = runSlash('/status tools', ctx)
 		expect(r?.kind).toBe('message')
 		if (r?.kind === 'message') expect(r.content).toContain('No tools registered')
 	})
 
-	it('/tools lists registered tools when present', () => {
-		const r = runSlash('/tools', ctxWithTools)
+	it('/status tools lists registered tools when present', () => {
+		const r = runSlash('/status tools', ctxWithTools)
 		expect(r?.kind).toBe('message')
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('Bash')
 			expect(r.content).toContain('Read')
 			expect(r.content).toContain('3')
-		}
-	})
-
-	it('/provider says "not configured" when no provider', () => {
-		const r = runSlash('/provider', ctx)
-		expect(r?.kind).toBe('message')
-		if (r?.kind === 'message') expect(r.content).toContain('No provider configured')
-	})
-
-	it('/provider shows summary when configured', () => {
-		const r = runSlash('/provider', ctxWithTools)
-		expect(r?.kind).toBe('message')
-		if (r?.kind === 'message') {
-			expect(r.content).toContain('anthropic-personal')
-			expect(r.content).toContain('claude-opus-4-7')
 		}
 	})
 
@@ -389,17 +354,6 @@ describe('/cost', () => {
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('Cumulative')
 			expect(r.content).toContain('how full')
-		}
-	})
-})
-
-describe('/agent', () => {
-	it('keeps the old command executable without advertising it', () => {
-		expect(runSlash('/agent', context())).toEqual({ kind: 'agent-cockpit' })
-		const help = runSlash('/help', context())
-		expect(help?.kind).toBe('command-picker')
-		if (help?.kind === 'command-picker') {
-			expect(help.commands.map((command) => command.name)).not.toContain('agent')
 		}
 	})
 })
@@ -770,7 +724,6 @@ describe('the new commands are reachable', () => {
 			// `/expand` replaced a key. A key is discoverable by pressing it and a
 			// command is not, so the entry that names it is load-bearing in a way
 			// the others are not.
-			expect(names).toContain('expand')
 		}
 	})
 
@@ -784,58 +737,7 @@ describe('the new commands are reachable', () => {
 		expect(names('/ta')).toContain('tasks')
 		expect(names('/per')).toContain('permissions')
 		expect(names('/eff')).toContain('effort')
-		expect(names('/ex')).toContain('expand')
-	})
-})
-
-describe('/expand argument parsing', () => {
-	// This module validates the SHAPE of the argument and nothing else. Whether
-	// block 4 exists is a fact about the transcript, which App owns; putting the
-	// lookup here as well would give one question two answers.
-
-	it('takes the most recent block when given no argument', () => {
-		expect(runSlash('/expand', ctx)).toEqual({ kind: 'expand', which: 'last' })
-	})
-
-	it('passes a number through', () => {
-		expect(runSlash('/expand 3', ctx)).toEqual({ kind: 'expand', which: 3 })
-	})
-
-	it('refuses a number-with-a-suffix rather than reading the digits off it', () => {
-		// `parseInt('2nd')` is 2, so a parser built on it expands block 2 for
-		// what was a typo — and shows the operator output they did not ask for
-		// with nothing to indicate the substitution. `Number` returns NaN, which
-		// is the honest reading of `2nd` as a block number.
-		const r = runSlash('/expand 2nd', ctx)
-		expect(r?.kind).toBe('message')
-		if (r?.kind === 'message') expect(r.content).toContain('Usage: /expand')
-	})
-
-	it('accepts only the spelling a hint can print', () => {
-		// Every one of these is a number JavaScript is happy to parse and no
-		// collapse hint has ever shown. They matter because each turns a typo
-		// into a VALID reference to some other block, which is the silently-wrong
-		// answer this surface exists to remove — `0x10` reaching block 16 is
-		// worse than `0x10` being refused.
-		//
-		// `Number(arg)` with `Number.isInteger` — the first version of this
-		// parser — accepts all four.
-		for (const arg of ['0', '-1', '1.5', '0x10', '1e2', '+3', '3.0', '3 3']) {
-			const r = runSlash(`/expand ${arg}`, ctx)
-			expect(r?.kind, `"${arg}" was accepted as a block number`).toBe('message')
-		}
-	})
-
-	it('is not fussy about the spacing around it', () => {
-		// Refusing `0x10` is about a wrong answer being possible. Extra spaces
-		// cannot produce a wrong answer, and refusing them would be strictness
-		// for its own sake — `parseSlash` splits on runs of whitespace, so this
-		// is already the same argument.
-		expect(runSlash('/expand   3', ctx)).toEqual({ kind: 'expand', which: 3 })
-		expect(runSlash('  /expand 3  ', ctx)).toEqual({
-			kind: 'expand',
-			which: 3,
-		})
+		expect(names('/ex')).toContain('export')
 	})
 })
 
@@ -967,19 +869,6 @@ describe('/feedback', () => {
 	})
 })
 
-describe('/skill', () => {
-	it('opens the finite skill chooser when no name is typed', () => {
-		expect(runSlash('/skill', ctx)).toEqual({ kind: 'skill-picker' })
-	})
-
-	it('keeps the direct named form', () => {
-		expect(runSlash('/skill release-check', ctx)).toEqual({
-			kind: 'load-skill',
-			name: 'release-check',
-		})
-	})
-})
-
 describe('/skills', () => {
 	it('opens the activation chooser by default', () => {
 		expect(runSlash('/skills', ctx)).toEqual({ kind: 'skill-picker' })
@@ -1019,5 +908,35 @@ describe('/cost and the context', () => {
 	it('says nothing about the context when the run resolved no window', () => {
 		const text = renderCost({ totalTokens: 12_345, cost })
 		expect(text).not.toContain('Context:')
+	})
+})
+
+describe('/memory', () => {
+	it('shows what namzu remembers when bare, and saves a fact when given one', () => {
+		expect(runSlash('/memory', ctx)).toEqual({ kind: 'show-memory' })
+		expect(runSlash('/memory the deploy key lives in 1Password', ctx)).toEqual({
+			kind: 'remember',
+			text: 'the deploy key lives in 1Password',
+		})
+	})
+})
+
+describe('commands that became keys or folded into another command', () => {
+	it.each([
+		'/expand',
+		'/agent',
+		'/clear-screen',
+		'/mention',
+		'/pwd',
+		'/provider',
+		'/tools',
+		'/remember',
+		'/title',
+		'/skill',
+		'/debug-config',
+	])('%s is no longer a command', (command) => {
+		const r = runSlash(command, ctx)
+		expect(r).toMatchObject({ kind: 'message' })
+		expect((r as { content: string }).content).toContain('Unknown command')
 	})
 })

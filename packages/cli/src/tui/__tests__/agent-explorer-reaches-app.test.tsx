@@ -281,7 +281,7 @@ afterEach(async () => {
 	vi.restoreAllMocks()
 })
 
-describe('/agent', () => {
+describe('Ctrl+T', () => {
 	it('suppresses only the generic Agent row correlated to a visible child', async () => {
 		activity.set([
 			agent({
@@ -767,9 +767,7 @@ describe('/agent', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
 
-		screen.press('/agent')
-		await screen.waitForRender()
-		screen.press('\r')
+		screen.press('\x14')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Child run'),
@@ -803,7 +801,8 @@ describe('/agent', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
-		await submit(screen, '/agent')
+		screen.press('\x14')
+		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'picker missing')
 
 		screen.press('\x1b[B')
@@ -833,7 +832,8 @@ describe('/agent', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
 
-		await submit(screen, '/agent')
+		screen.press('\x14')
+		await screen.waitForRender()
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Alpha audit'),
@@ -890,7 +890,8 @@ describe('/agent', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
 
-		await submit(screen, '/agent')
+		screen.press('\x14')
+		await screen.waitForRender()
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Phases · 1/2'),
@@ -923,7 +924,8 @@ describe('/agent', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
-		await submit(screen, '/agent')
+		screen.press('\x14')
+		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'cockpit missing')
 
 		screen.press('\x1b[B')
@@ -953,7 +955,8 @@ describe('/agent', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
-		await submit(screen, '/agent')
+		screen.press('\x14')
+		await screen.waitForRender()
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Beta pruned'),
@@ -990,7 +993,8 @@ describe('/agent', () => {
 		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
 
 		await submit(screen, 'start parent')
-		await submit(screen, '/agent')
+		screen.press('\x14')
+		await screen.waitForRender()
 		screen.press('\r')
 		await waitUntil(
 			screen,
