@@ -1,5 +1,48 @@
 # @namzu/cli
 
+## 18.1.0
+
+### Minor Changes
+
+- cbdc218: Two permission modes for the two things an operator does most — watching the agent write code, and asking it to think first — plus a change that reads as a change.
+
+  - **`accept-edits` mode.** `--permission-mode accept-edits`, `/permissions accept-edits`, or **Shift+Tab** in the composer. A batch made only of non-destructive `edit` and `write` calls (plus tools that never prompt) is approved without asking; a batch with a shell command, a delegation or anything a tool declares destructive still asks as a whole. Deny rules and the dangerous-pattern floor sit above it as above every mode.
+  - **`plan` mode.** `--permission-mode plan`, `/permissions plan`, or Shift+Tab. Read-only tools and the task list work; any call that would change state is refused with feedback telling the agent to present its plan, and the system prompt carries a plan-mode block saying the same up front so it plans instead of probing. Leaving plan mode is the approval.
+  - Shift+Tab cycles `prompt` → `accept-edits` → `plan` → `prompt`; `auto` and `strict` are chosen by name. The composer shows the mode beside the input whenever it is not `prompt`.
+  - **Edit and write approvals show the change.** The readable review for an `edit` shows the path, then the removed lines as `-` and the added lines as `+`, coloured; a `write` shows the file it creates. Forty lines a side, the remainder counted. The exact prepared input is still behind `d`, byte for byte, and any shape the summary does not fully recognise opens there first as before.
+
+  `PERMISSION_MODES` gains `accept-edits` and `plan`; a consumer validating modes against the old three-member list should add them. Nothing else on the surface changed.
+
+- a70fae8: The model can ask you one question, where you are there to answer.
+
+  The interactive session mounts the SDK's `ask_user_question` tool and answers it on screen: the model's two to four options as a chooser, then "Something else…" when it allowed an answer in your own words. Enter picks a row, the free-text row opens a one-line prompt, Esc skips (the model is told the question went unanswered and proceeds on its own judgment), Ctrl+C declines and stops the turn. The choice is recorded in the transcript beside the question. Headless runs do not mount the tool, so the model is never offered a question it would ask into the void. The working doctrine already tells the model to reserve questions for decisions that are genuinely the operator's.
+
+  Also fixed: the interactive App now passes the `web` config through to its session; the previous release wired the key at the session but not from the TUI, so `web.fetch: true` reached headless runs only.
+
+- cb58d38: A sub-agent that can only look.
+
+  The `Agent` tool gains `subagent_type: "explore"`: a read-only sub-agent for the delegations a parent makes most — where is X defined, which files reference Y, how does Z work. Its roster is the parent's working set filtered to tools that declare themselves read-only (`read`, `grep`, `glob`, `ls`, the memory and search tools), so it never asks the operator for permission and cannot be handed a `write` through a `role`. The default `general-purpose` is unchanged. The permission review names the type when one is given, and the working doctrine tells the model when to pick each.
+
+- 3406a42: The model's plan is a live list, and a slow paragraph streams a sentence at a time.
+
+  - **Live task list.** `task_create` / `task_update` used to reach the screen as two transcript rows — one when a task opened, one when it closed — and nothing in between. The interactive session now keeps the whole plan in the live region above the composer: every task with its current mark (`☐` pending, `◐` in progress, `☑` done, `☒` failed) and a `done/total` count, updated in place on each change, kept up after the turn ends and cleared when the next request begins. The transcript still records the opening and the close.
+  - **A paragraph that takes a while is shown a sentence at a time.** Reply text is released a block at a time so it never types itself out; a model's paragraph is one line, so nothing of a long one was shown until its final character. Text held longer than 250 ms is now released to its last safe cut — a sentence end or a line end, never mid-word, never inside a fence or an open inline code span. A fast reply still lands a paragraph at a time.
+  - **`run-stream` wire (minor):** the `task` event now carries `taskId`, and is emitted on every status change (`pending`, `in_progress`, `completed`, `failed`) rather than only on creation and completion. Existing fields are unchanged; a consumer that keyed on `subject` and ignored intermediate states keeps working, one that counted `task` events as "opened or closed" should now filter on `status`.
+
+- a769fd1: The agent can reach the web when you say so.
+
+  A new `web` config key, file-only and off by default: `web: { fetch: true }` mounts `web_fetch` over the SDK's guarded provider (private and loopback addresses refused, redirects and body bounded) and adds the citation guidance to the prompt. Every fetch is reviewed like a shell command under `prompt` and `accept-edits`, whatever the tool declares about itself — a request leaving the machine to an address the model chose is one the operator sees first. Sub-agents do not receive the tool. There is no search backend in this kernel, so `web_search` is not offered and there is no `search` key. Without the key nothing changes: no tool, no provider, no guidance.
+
+### Patch Changes
+
+- 7ad4d43: The interactive agent now works under a written doctrine, and knows what the repository looked like when your turn began.
+
+  - **Working doctrine in the system prompt.** The CLI previously told the model who it was and what it must never fabricate, and nothing about how to work — so scope, verification, narration and git safety all fell to whichever provider model was behind the session. The prompt now carries the rules an operator expects from a coding agent: act on the request as stated rather than narrowing or widening it; finish the whole task and say what was left out; read a file before editing it and match the surrounding code; prefer `read`/`grep`/`glob`/`edit` over their shell equivalents; run the checks that would catch a mistake before reporting done; never push, force-push, reset or rewrite history without being asked; say in one line what a batch of tool calls is for; open a task list for multi-step work. Delegated sub-agents receive the same doctrine, minus the rules about tools only the parent has.
+  - **Turn-start repository snapshot.** The first model call of each turn now receives `git status --short` (bounded to 30 entries, each line cut at 200 characters) and the last five commit subjects, through the SDK's ephemeral `turn` placement — never in the cached system prompt, never in history, and not repeated on later iterations of the same turn. The block is wrapped as untrusted material: a file name or commit subject is text somebody else wrote, and it lands in a system message.
+  - **Task tools are active from the first turn.** `task_create` / `task_update` / `task_list` no longer need a `search_tools` round-trip before the model can plan.
+
+  No flag or configuration changed. A session that does not want the snapshot cannot yet turn it off; that switch is queued.
+
 ## 18.0.0
 
 ### Major Changes
