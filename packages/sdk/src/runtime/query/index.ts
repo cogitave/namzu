@@ -149,7 +149,7 @@ import {
 	resolveSandboxTeardownTimeoutMs,
 	teardownSandbox,
 } from './sandbox-lifecycle.js'
-import type { SteeringChannel } from './steering.js'
+import { SteeringBinding, type SteeringChannel } from './steering.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
@@ -276,6 +276,16 @@ export interface QueryParams {
 	 * background execution is refused rather than silently bypassing the sandbox.
 	 */
 	backgroundJobs?: BackgroundJobRegistry
+	/**
+	 * Which owner the run's background jobs belong to. Absent, the run id:
+	 * jobs are stopped when the run ends. A host that wants a job to
+	 * outlive the turn that started it — a dev server started in one turn
+	 * and read in the next — passes its session id here and calls
+	 * `backgroundJobs.killOwner(sessionId)` when the session ends; the run
+	 * then stops nothing at its end and still tells the model when a job
+	 * finishes.
+	 */
+	backgroundJobOwner?: string
 
 	/**
 	 * What else goes in this run's prompt.
@@ -1701,6 +1711,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			invocationState: params.invocationState,
 			pluginManager: params.pluginManager,
 			...(params.backgroundJobs ? { backgroundJobs: params.backgroundJobs } : {}),
+			...(params.backgroundJobOwner ? { backgroundJobOwner: params.backgroundJobOwner } : {}),
 			// The `skill` tool's registry. Threaded from the run rather than
 			// held by the tool, because a tool that reached for a module-level
 			// registry would answer about whatever the last run configured.
@@ -1745,6 +1756,33 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		ctx.log,
 	)
 
+	// A background job's exit reaches the model as a notice on its next tool
+	// result, and the host as an event — without either polling. Subscribed
+	// for the owner the run's jobs are bound to, so a session-owned job that
+	// ends during this run is reported here too.
+	const jobOwner = params.backgroundJobOwner ?? ctx.runId
+	const jobNotices = params.backgroundJobs ? new SteeringBinding() : undefined
+	const unsubscribeJobExits = params.backgroundJobs?.onExit((job) => {
+		if (job.owner !== jobOwner) return
+		const outcome =
+			job.status === 'killed'
+				? 'was stopped'
+				: `exited with code ${job.exitCode ?? 'unknown'}${job.signal ? ` (${job.signal})` : ''}`
+		jobNotices?.steer(
+			`Background job ${job.id} (${job.command}) ${outcome}. Read its output with the job tool if you need it.`,
+		)
+		void eventTranslator
+			.emitEvent({
+				type: 'background_job_exited',
+				runId: ctx.runId,
+				jobId: job.id,
+				command: job.command,
+				status: job.status === 'killed' ? 'killed' : 'exited',
+				...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
+				...(job.signal ? { signal: job.signal } : {}),
+			})
+			.catch(() => {})
+	})
 	let workingStateManager: WorkingStateManager | undefined
 	// Normalised once, defaults applied. A host that passes a partial
 	// object — a strategy and a window, nothing else — used to reach the
@@ -1913,6 +1951,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		takeApprovalPolicyChange: () => approvalPolicy.takeUnannouncedChange(),
 		...(params.promptContributions ? { promptContributions: params.promptContributions } : {}),
 		...(params.steering ? { steering: params.steering } : {}),
+		...(jobNotices ? { jobNotices } : {}),
 		checkpointMgr,
 		planManager: ctx.planManager,
 		taskGateway: taskScheduler,
@@ -2705,7 +2744,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			//
 			// Awaited, and its failure swallowed. A job that would not die is
 			// worth a log line, and is not worth retracting a run's answer.
-			if (params.backgroundJobs) {
+			unsubscribeJobExits?.()
+			// Only jobs bound to this run. Jobs a host bound to its session are
+			// the host's to stop, when the session ends.
+			if (params.backgroundJobs && (params.backgroundJobOwner ?? ctx.runId) === ctx.runId) {
 				try {
 					const stopped = await params.backgroundJobs.killOwner(ctx.runId)
 					if (stopped.length > 0) {

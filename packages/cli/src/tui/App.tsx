@@ -804,6 +804,32 @@ export function App({
 		summaries: 0,
 		reclaimedTokens: 0,
 	})
+	// Jobs that ended while no turn was running. The kernel's notice needs a
+	// tool result to ride on, so between turns the exit is held here and
+	// handed to the next send as part of the system text; the transcript
+	// row is written at once.
+	const idleJobNoticesRef = useRef<string[]>([])
+	const drainIdleJobNotices = (): string | undefined => {
+		if (idleJobNoticesRef.current.length === 0) return undefined
+		const lines = idleJobNoticesRef.current
+		idleJobNoticesRef.current = []
+		return `Background jobs that ended since your last turn:\n${lines.map((l) => `- ${l}`).join('\n')}`
+	}
+	useEffect(() => {
+		if (!session?.onJobExit) return
+		return session.onJobExit((job) => {
+			if (abortRef.current !== null) return
+			const text = describeJobExit({
+				jobId: job.id,
+				command: job.command,
+				status: job.status === 'killed' ? 'killed' : 'exited',
+				...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
+				...(job.signal ? { signal: job.signal } : {}),
+			})
+			idleJobNoticesRef.current.push(text)
+			pushMessage('system', text, false, '⚙')
+		})
+	}, [session])
 	const [usage, setUsage] = useState<{
 		totalTokens: number
 		cost: CostInfo
@@ -2737,6 +2763,7 @@ export function App({
 
 	const slashCtx: SlashContext = {
 		cwd: ctx.cwd,
+		jobs: () => session?.jobs?.() ?? [],
 		compaction: session
 			? {
 					strategy: ctx.compaction?.strategy ?? 'salience',
@@ -3695,6 +3722,11 @@ export function App({
 					}
 					break
 				}
+				case 'job':
+					// The kernel saw it end during a turn; the model reads the notice
+					// on its next tool result, the operator reads this row.
+					pushMessage('system', describeJobExit(event), false, '⚙')
+					break
 				case 'context':
 					// Into the TRANSCRIPT, not a status line. A status indicator is
 					// present while nothing is happening and gone afterwards, so
@@ -4057,7 +4089,10 @@ export function App({
 						onPermission: askPermission,
 						onQuestion: askQuestion,
 						inboundMessages: () => inbox.drain(),
-						extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
+						extraSystem:
+							[composeSkillsPrompt(activeSkills), drainIdleJobNotices()]
+								.filter((part): part is string => Boolean(part))
+								.join('\n\n') || undefined,
 						onConversationMessages: (messages) => {
 							// State-only: opaque reasoning/signatures must reach the next
 							// provider and durable store without becoming transcript text.
@@ -6174,6 +6209,21 @@ export function App({
 			</Box>
 		</Box>
 	)
+}
+
+/** One line for a background job that ended, for the transcript and the next turn. */
+function describeJobExit(job: {
+	readonly jobId: string
+	readonly command: string
+	readonly status: 'exited' | 'killed'
+	readonly exitCode?: number
+	readonly signal?: string
+}): string {
+	const outcome =
+		job.status === 'killed'
+			? 'was stopped'
+			: `exited ${job.exitCode ?? '?'}${job.signal ? ` (${job.signal})` : ''}`
+	return `background job ${job.jobId} (${job.command}) ${outcome}`
 }
 
 function Banner({

@@ -558,6 +558,20 @@ type CoreRunEvent =
 	 * search for. Emitted only when a host asked (`consolidateInto`) and
 	 * the run had something to say.
 	 */
+	/**
+	 * A background job this run (or the owner it runs under) started has
+	 * ended. The model learns it from a notice on its next tool result;
+	 * the host learns it from this, whether or not a turn is running.
+	 */
+	| {
+			type: 'background_job_exited'
+			runId: RunId
+			jobId: string
+			command: string
+			status: 'exited' | 'killed'
+			exitCode?: number
+			signal?: string
+	  }
 	| {
 			type: 'memory_consolidated'
 			runId: RunId

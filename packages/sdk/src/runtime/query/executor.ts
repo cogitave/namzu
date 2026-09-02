@@ -319,6 +319,13 @@ export interface ToolExecutorConfig {
 	 * that fallback is a lie rather than a lesser version.
 	 */
 	backgroundJobs?: BackgroundJobRegistry
+	/**
+	 * Which owner the run's jobs are bound to. The run id by default, which
+	 * scopes them to the run; a host that wants jobs to outlive a turn (a
+	 * dev server started in one, read in the next) binds them to its
+	 * session and stops them itself when the session ends.
+	 */
+	backgroundJobOwner?: string
 
 	/**
 	 * Where the `skill` tool reads from.
@@ -1221,10 +1228,14 @@ export class ToolExecutor {
 			// the safe composition is to withhold this host capability entirely.
 			...(this.config.backgroundJobs && !this.config.sandbox
 				? {
-						backgroundJobs: bindOwner(this.config.backgroundJobs, this.config.runId, {
-							workingDirectory: this.config.workingDirectory,
-							env: this.config.env,
-						}),
+						backgroundJobs: bindOwner(
+							this.config.backgroundJobs,
+							this.config.backgroundJobOwner ?? this.config.runId,
+							{
+								workingDirectory: this.config.workingDirectory,
+								env: this.config.env,
+							},
+						),
 					}
 				: {}),
 			...(this.parentSpan ? { parentSpan: this.parentSpan } : {}),

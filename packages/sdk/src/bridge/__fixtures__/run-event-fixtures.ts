@@ -111,6 +111,14 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		contextWindowTokens: 1,
 		windowSource: 'config',
 	}),
+	background_job_exited: () => ({
+		type: 'background_job_exited',
+		runId: FIXTURE_RUN_ID,
+		jobId: 'job_1',
+		command: 'npm test',
+		status: 'exited',
+		exitCode: 0,
+	}),
 	memory_consolidated: () => ({
 		type: 'memory_consolidated',
 		runId: FIXTURE_RUN_ID,

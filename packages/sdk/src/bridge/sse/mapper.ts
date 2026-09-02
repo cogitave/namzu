@@ -133,6 +133,17 @@ const MAPPING: {
 	// dominate the stream it rides on.
 	request_envelope: null,
 
+	background_job_exited: {
+		wire: 'background_job.exited',
+		transform: (e, runId) => ({
+			run_id: runId,
+			job_id: e.jobId,
+			command: e.command,
+			status: e.status,
+			...(e.exitCode !== undefined ? { exit_code: e.exitCode } : {}),
+			...(e.signal ? { signal: e.signal } : {}),
+		}),
+	},
 	memory_consolidated: {
 		wire: 'memory.consolidated',
 		transform: (e, runId) => ({

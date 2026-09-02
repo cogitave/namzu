@@ -24,6 +24,8 @@
 import {
 	type AuthorizationRule,
 	BOOT_EVENT_NAMES,
+	type BackgroundJob,
+	BackgroundJobRegistry,
 	type CheckpointStore,
 	type CompactionConfig,
 	type CompactionResult,
@@ -284,6 +286,14 @@ export type AgentEvent =
 	 * model being stupid rather than the harness dropping context.
 	 */
 	| {
+			readonly kind: 'job'
+			readonly jobId: string
+			readonly command: string
+			readonly status: 'exited' | 'killed'
+			readonly exitCode?: number
+			readonly signal?: string
+	  }
+	| {
 			readonly kind: 'context'
 			readonly text: string
 			/** False when the compaction declined and the history is unchanged. */
@@ -513,6 +523,10 @@ export interface AgentSession {
 	 * moment, and a line about what just happened should say what was true then.
 	 */
 	readonly toolNames: () => readonly string[]
+	/** This session's background jobs, running and ended. Absent on a session with no registry. */
+	readonly jobs?: () => readonly BackgroundJob[]
+	/** Be told when one of this session's jobs ends, whether or not a turn is running. */
+	readonly onJobExit?: (listener: (job: BackgroundJob) => void) => () => void
 	/**
 	 * Shrink a conversation on request, returning the replacement history.
 	 *
@@ -1556,6 +1570,13 @@ export async function createAgentSession(
 		'namzu.sandbox.unconfined': sandbox.unconfined,
 	})
 	const backgroundJobs = sandbox.provider === undefined
+	// One registry per session, and jobs bound to the SESSION: a dev server
+	// started in one turn is still there in the next, and the kernel tells
+	// the model when a job ends. Stopped when the session closes, below.
+	// Withheld under a sandbox for the reason the kernel gives: the registry
+	// runs on the host and must not sit beside a sandbox in one tool context.
+	const jobRegistry = backgroundJobs ? new BackgroundJobRegistry() : undefined
+	const jobOwner = scope.sessionId
 	const { registry, memoryStore } = buildToolRegistry(cwd, projectStateRoot, backgroundJobs)
 	// Package presence is not tool reachability. The CLI used to probe and
 	// report @namzu/computer-use without ever constructing its host or mounting
@@ -1862,6 +1883,7 @@ export async function createAgentSession(
 			pluginRuntime?.close(),
 			mcp.close(),
 			computerUseHost?.dispose(),
+			jobRegistry?.killOwner(jobOwner),
 		])
 		const failures = results
 			.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
@@ -1932,6 +1954,11 @@ export async function createAgentSession(
 				.map((t) => t.name)
 				.filter((name) => !goalToolNames.has(name)),
 		agentIds: allowedAgentIds,
+		jobs: () => jobRegistry?.list(jobOwner) ?? [],
+		onJobExit: (listener) =>
+			jobRegistry?.onExit((job) => {
+				if (job.owner === jobOwner) listener(job)
+			}) ?? (() => {}),
 		...(subagentRuntime ? { subagents: subagentRuntime.activity } : {}),
 		get instructionFiles() {
 			return projectInstructions.instructionFiles
@@ -2074,6 +2101,9 @@ export async function createAgentSession(
 								provider,
 								compactionConfig: compactionConfigFor(options.compaction),
 								...(options.compaction?.consolidate ? { consolidateInto: memoryStore } : {}),
+								...(jobRegistry
+									? { backgroundJobs: jobRegistry, backgroundJobOwner: jobOwner }
+									: {}),
 								// Constructed HERE, per turn, and that is not an optimisation to
 								// undo. `refreshTokenIfNeeded` above replaces the head's client
 								// object when an OAuth token rotates, so a member list built once at
@@ -2717,6 +2747,9 @@ interface RunTurnParams {
 	readonly compactionConfig: CompactionConfig
 	/** Where the run's learnings go when the project asked for consolidation. */
 	readonly consolidateInto?: MemoryStore
+	/** The session's job registry and the owner its jobs are bound to. */
+	readonly backgroundJobs?: BackgroundJobRegistry
+	readonly backgroundJobOwner?: string
 	/**
 	 * The chain's tail for THIS turn. Empty means no failover, which is what a
 	 * one-member chain means and what every chain meant before this existed.
@@ -2775,6 +2808,8 @@ async function* runTurn({
 	provider,
 	compactionConfig,
 	consolidateInto,
+	backgroundJobs,
+	backgroundJobOwner,
 	fallbackProviders,
 	model,
 	tools,
@@ -2836,6 +2871,7 @@ async function* runTurn({
 			authorizationGate: gateFor(rules),
 			compactionConfig,
 			...(consolidateInto ? { consolidateInto } : {}),
+			...(backgroundJobs ? { backgroundJobs, backgroundJobOwner } : {}),
 			// The CLI owns its process end to end, so it can safely hand the
 			// termination path to the kernel: a Ctrl-C mid-run now leaves a
 			// dump under the injected hierarchy's emergency partition instead of
@@ -3150,6 +3186,15 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				...(event.failure ? { failure: event.failure } : {}),
 				...(event.providerError ? { providerError: event.providerError } : {}),
 				...(event.explanation ? { explanation: event.explanation } : {}),
+			}
+		case 'background_job_exited':
+			return {
+				kind: 'job',
+				jobId: event.jobId,
+				command: event.command,
+				status: event.status,
+				...(event.exitCode !== undefined ? { exitCode: event.exitCode } : {}),
+				...(event.signal ? { signal: event.signal } : {}),
 			}
 		case 'compaction_completed':
 			return {

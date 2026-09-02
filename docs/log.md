@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-02
+* **Creation**: [Background jobs in the CLI](/cli/background-jobs.md) — session-owned jobs, exit notices for model and operator, `/jobs`.
+* **Creation**: [Where the CLI stands against its peers](/cli/competitive-gaps.md) — the competitive survey and the backlog it orders.
 * **Update**: consolidation landed — a run's learnings go to the memory store on request (`consolidateInto` in the kernel, `compaction.consolidate` in the CLI); the salience plan is complete.
 * **Update**: compaction defaults to `salience` in the kernel and the CLI; `structured` stays selectable.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — the eval suite landed and two eviction rules with it; Phase 6's default flip and consolidation remain.

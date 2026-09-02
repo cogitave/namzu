@@ -171,6 +171,7 @@ export type StreamEventType =
 	/** Oversized tool results were emptied instead of the history summarized. */
 	| 'compaction.tool_results_cleared'
 	| 'memory.consolidated'
+	| 'background_job.exited'
 	| 'compaction.failed'
 	/** A guardrail refused or corrected the run. */
 	| 'guardrail.triggered'

@@ -84,6 +84,38 @@ export class SteeringBinding implements SteeringChannel {
  * to be worked with rather than followed would inverting the very thing the
  * host is trying to do. Different party, different frame, on purpose.
  */
+/** The same slot as steering, for notices the kernel itself has to deliver. */
+export function attachNotice(
+	messages: readonly Message[],
+	channel: SteeringChannel | undefined,
+	format: (text: string) => string,
+): readonly Message[] {
+	if (!channel?.pending) return messages
+	let lastToolIndex = -1
+	for (let index = messages.length - 1; index >= 0; index--) {
+		if (messages[index]?.role === 'tool') {
+			lastToolIndex = index
+			break
+		}
+	}
+	if (lastToolIndex === -1) return messages
+	const text = channel.drain()
+	if (text === undefined) return messages
+	const target = messages[lastToolIndex] as Message
+	if (typeof target.content !== 'string') {
+		channel.steer(text)
+		return messages
+	}
+	const next = [...messages]
+	next[lastToolIndex] = { ...target, content: target.content + format(text) }
+	return next
+}
+
+/** What the model reads when a background job it started has ended. */
+export function formatJobNote(text: string): string {
+	return `\n\n[Background job update]\n${text}`
+}
+
 export function formatSteeringNote(text: string): string {
 	return `\n\n[Message from the operator, received while this tool was running]\n${text}`
 }

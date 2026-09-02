@@ -77,6 +77,16 @@ exports[`every RunEvent has a decided place on the SSE wire > pins the wire name
     ],
     "wire": "approval_policy.changed",
   },
+  "background_job_exited": {
+    "keys": [
+      "command",
+      "exit_code",
+      "job_id",
+      "run_id",
+      "status",
+    ],
+    "wire": "background_job.exited",
+  },
   "capability_warning": null,
   "checkpoint_created": {
     "keys": [

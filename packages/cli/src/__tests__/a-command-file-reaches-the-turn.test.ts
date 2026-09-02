@@ -61,6 +61,7 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 	return {
 		cwd,
 		compaction: null,
+		jobs: () => [],
 		availableTools: () => [],
 		sandbox: null,
 		mcp: () => null,

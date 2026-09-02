@@ -302,6 +302,13 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'background_job_exited':
+				log.info('Background job ended', {
+					'namzu.jobs.id': event.jobId,
+					'namzu.jobs.status': event.status,
+					...(event.exitCode !== undefined ? { 'namzu.jobs.exit_code': event.exitCode } : {}),
+				})
+				break
 			case 'memory_consolidated':
 				log.info('Run learnings consolidated into the memory store', {
 					'namzu.memory.id': event.memoryId,

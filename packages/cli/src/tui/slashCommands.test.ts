@@ -58,6 +58,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
 		cwd: '/workspace/current',
 		compaction: null,
+		jobs: () => [],
 		availableTools: () => [],
 		sandbox: null,
 		mcp: () => null,
@@ -982,5 +983,37 @@ describe('/context', () => {
 		expect(r.content).toContain('tool results cleared:  4')
 		expect(r.content).toContain('narrations stubbed:    2')
 		expect(r.content).toContain('tokens reclaimed:      ~2,400')
+	})
+})
+
+describe('/jobs', () => {
+	it('says there are none, and why there may be none', () => {
+		const r = runSlash('/jobs', context())
+		expect(r?.kind).toBe('message')
+		if (r?.kind !== 'message') return
+		expect(r.content).toContain('No background jobs this session')
+	})
+
+	it('lists each job with its state', () => {
+		const r = runSlash(
+			'/jobs',
+			context({
+				jobs: () => [
+					{ id: 'job_1', command: 'npm run dev', status: 'running', startedAt: Date.now() - 5_000 },
+					{
+						id: 'job_2',
+						command: 'npm test',
+						status: 'exited',
+						exitCode: 0,
+						startedAt: Date.now() - 60_000,
+					},
+				],
+			}),
+		)
+		expect(r?.kind).toBe('message')
+		if (r?.kind !== 'message') return
+		expect(r.content).toContain('2 background jobs this session')
+		expect(r.content).toMatch(/job_1\s+running for \d+s\s+npm run dev/)
+		expect(r.content).toMatch(/job_2\s+exited 0\s+npm test/)
 	})
 })

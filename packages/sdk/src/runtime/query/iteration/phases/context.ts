@@ -131,6 +131,8 @@ export interface IterationContext {
 	 * drained and no tool result is extended.
 	 */
 	readonly steering?: SteeringChannel
+	/** Exit notices for the run's background jobs, drained into the next tool result. */
+	readonly jobNotices?: SteeringChannel
 	readonly checkpointMgr: CheckpointManager
 	readonly planManager: PlanManager
 

@@ -190,6 +190,14 @@ export interface SlashContext {
 	readonly cwd: string
 	/** Null before a session exists. */
 	readonly compaction: CompactionSummary | null
+	/** This session's background jobs, running and ended; empty under a sandbox. */
+	readonly jobs: () => readonly {
+		readonly id: string
+		readonly command: string
+		readonly status: 'running' | 'exited' | 'killed'
+		readonly exitCode?: number
+		readonly startedAt: number
+	}[]
 	/**
 	 * Every tool the agent can call, read when the command runs.
 	 *
@@ -698,6 +706,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		}),
 	},
 	{
+		name: 'jobs',
+		description: 'List background jobs started this session, running and ended.',
+		action: (ctx) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderJobs(ctx.jobs()),
+		}),
+	},
+	{
 		name: 'context',
 		description: 'Show how full the context is and what compaction has done to keep it that way.',
 		action: (ctx) => ({
@@ -930,6 +947,28 @@ export function initPrompt(instructionFiles: readonly string[]): string {
  * and what it has cost the transcript so far. Counts are for this session,
  * summed over every pass; a pass that declined leaves them unchanged.
  */
+/** The session's background jobs, as an operator would ask about them. */
+export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
+	if (jobs.length === 0) {
+		return 'No background jobs this session. The agent starts one with `run_in_background` on bash; under a sandbox none can be started.'
+	}
+	const lines = jobs.map((job) => {
+		const state =
+			job.status === 'running'
+				? `running for ${Math.max(1, Math.round((Date.now() - job.startedAt) / 1000))}s`
+				: job.status === 'killed'
+					? 'stopped'
+					: `exited ${job.exitCode ?? '?'}`
+		return `${job.id}  ${state.padEnd(16)}  ${job.command}`
+	})
+	return [
+		`${jobs.length} background job${jobs.length === 1 ? '' : 's'} this session:`,
+		...lines,
+		'',
+		'The agent reads one with the job tool; ask it to stop one, or /exit stops them all.',
+	].join('\n')
+}
+
 export function renderContext(
 	usage: SlashContext['usage'],
 	compaction: CompactionSummary | null,

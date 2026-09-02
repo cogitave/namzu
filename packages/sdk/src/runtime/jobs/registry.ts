@@ -116,6 +116,30 @@ interface JobEntry {
 export class BackgroundJobRegistry {
 	private readonly jobs = new Map<string, JobEntry>()
 	private counter = 0
+	private readonly exitListeners = new Set<(job: BackgroundJob) => void>()
+
+	/**
+	 * Be told when a job ends, whoever owns it. A job outlives the call that
+	 * started it, so the one thing the model could not do was learn that it
+	 * had finished without polling; a run subscribes here and turns the exit
+	 * into a notice on its next tool result. Returns the unsubscribe.
+	 */
+	onExit(listener: (job: BackgroundJob) => void): () => void {
+		this.exitListeners.add(listener)
+		return () => {
+			this.exitListeners.delete(listener)
+		}
+	}
+
+	private announceExit(job: BackgroundJob): void {
+		for (const listener of this.exitListeners) {
+			try {
+				listener(job)
+			} catch {
+				// A listener that throws is its owner's problem, not the job's.
+			}
+		}
+	}
 
 	constructor(private readonly config: BackgroundJobRegistryConfig = {}) {}
 
@@ -190,10 +214,12 @@ export class BackgroundJobRegistry {
 						...(signal ? { signal } : {}),
 					}
 					resolve()
+					this.announceExit(entry.record)
 				})
 				child.once('error', () => {
 					entry.record = { ...entry.record, status: 'exited', exitedAt: Date.now() }
 					resolve()
+					this.announceExit(entry.record)
 				})
 			}),
 		}

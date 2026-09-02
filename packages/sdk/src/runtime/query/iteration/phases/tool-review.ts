@@ -8,7 +8,7 @@ import {
 	replaceProjectInstructionSnapshot,
 } from '../../project-instructions.js'
 import { attachRepeatNotice } from '../../repeat-call.js'
-import { attachSteering } from '../../steering.js'
+import { attachNotice, attachSteering, formatJobNote } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
@@ -145,7 +145,10 @@ export async function* runToolReview(
 		// block must be answered by a `tool_result` with the same id, so a
 		// user message wedged between them is rejected by the provider. Same
 		// delivery a denial already uses, without the refusal.
-		for (const msg of attachRepeatNotice(attachSteering(batch.messages, ctx.steering), notices)) {
+		for (const msg of attachRepeatNotice(
+			attachNotice(attachSteering(batch.messages, ctx.steering), ctx.jobNotices, formatJobNote),
+			notices,
+		)) {
 			ctx.runMgr.pushMessage(msg)
 		}
 		// The complete tool-result batch is already in history before host policy

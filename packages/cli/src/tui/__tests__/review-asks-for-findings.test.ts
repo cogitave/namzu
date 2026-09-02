@@ -99,6 +99,7 @@ function context(): Parameters<typeof runSlash>[1] {
 	return {
 		cwd: '/workspace',
 		compaction: null,
+		jobs: () => [],
 		availableTools: () => [],
 		sandbox: null,
 		mcp: () => null,

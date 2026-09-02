@@ -248,6 +248,9 @@ const MAPPING: {
 	// What the run wrote to its own memory store is this runtime's business;
 	// a peer sees the task's outcome, not its housekeeping.
 	memory_consolidated: null,
+	// A job's exit is housekeeping of this runtime's host; the peer sees the
+	// task's outcome.
+	background_job_exited: null,
 	// Compaction, succeeded or declined, is a property of how this runtime
 	// manages its own context. A peer models a task lifecycle and cannot act on
 	// either outcome.

@@ -33,6 +33,8 @@ export interface ToolingBootstrapConfig {
 	toolTimeoutMs?: number
 	/** Host-owned and shared; the executor binds it to this run. */
 	backgroundJobs?: BackgroundJobRegistry
+	/** See `QueryParams.backgroundJobOwner`. */
+	backgroundJobOwner?: string
 	/** Where the `skill` tool reads from. */
 	skills?: SkillRegistryRef
 	/** How this run reaches the web. */
@@ -70,6 +72,7 @@ export class ToolingBootstrap {
 				invocationState: config.invocationState,
 				pluginManager: config.pluginManager,
 				...(config.backgroundJobs ? { backgroundJobs: config.backgroundJobs } : {}),
+				...(config.backgroundJobOwner ? { backgroundJobOwner: config.backgroundJobOwner } : {}),
 				...(config.skills ? { skills: config.skills } : {}),
 				...(config.web ? { web: config.web } : {}),
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
