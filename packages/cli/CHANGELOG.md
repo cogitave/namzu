@@ -1,5 +1,90 @@
 # @namzu/cli
 
+## 19.0.0
+
+### Major Changes
+
+- e15e923: Fewer slash commands: what a key already does is not also a command, and what one command already shows is not also another.
+
+  **Removed** (38 → 26). Each line names what to use instead.
+
+  - `/expand [n]` → **Ctrl+O**. Opens the collapsed tool bodies still on screen in place; once they have scrolled away it reprints the most recent one in full. The collapse hint now reads `… +N lines · ctrl+o`. Numbered reopening of older bodies is gone with the numbers.
+  - `/agent` → **Ctrl+T** (the delegated-work inspector; the command had already been hidden from help).
+  - `/clear-screen` → **Ctrl+L**.
+  - `/mention` → type **`@`** in the composer.
+  - `/quit` → `/exit`.
+  - `/title` → `/rename`; `/rename clear` removes the saved name.
+  - `/skill` → `/skills` (`/skills <name>` activates directly).
+  - `/provider`, `/pwd` → `/status`, which already shows both.
+  - `/tools` → `/status tools`.
+  - `/debug-config` → `/status config`.
+  - `/remember <text>` → `/memory <text>`; bare `/memory` still shows what is remembered.
+
+  A removed spelling is answered with "Unknown command: /x. Try /help." rather than silently sent to the model as prose. Scripts and muscle memory that used one of the old names are what this breaks; nothing else on the surface changed.
+
+  Kept on purpose: `/new` (a fresh conversation that leaves the screen alone is a different act from `/clear`), `/raw` (a distinct rendering mode with no key), `/effort` (the scriptable form of Shift+↑/↓).
+
+- 3ad8784: **Sessions run the kernel's `salience` compaction by default.** The context is held near half the model's window by scoring every message and clearing what the run has stopped using, before any summary; `/context` shows what it did. The previous behaviour is one line in the config file: `compaction: { strategy: structured }`.
+
+### Minor Changes
+
+- 37d1c27: A file-only `compaction` key: `strategy: salience` opts a project into the kernel's salience-scored working set (every message scored, the context held near half the window, no model in the loop), and `contextWindowTokens` overrides the window the kernel resolves from the model for a project that wants compaction earlier or knows its model's window better than the table. Absent, nothing changes: the structured strategy and the model's own window. The transcript row for a pass now also counts the narrations it stubbed. A `/context` command shows how full the window is, which strategy the session runs with its thresholds, and what the passes so far cleared, stubbed, summarised and reclaimed; `/cost` names the strategy instead of a fixed 70%. `consolidate: true` writes each run's decisions, discoveries and failures to the project's memory store as a `learning` a later session's `search_memory` finds.
+- 6024fd9: The permission prompt is the box an operator already knows from other coding agents: a title naming the operation (`Bash command`, `Edit file src/x.ts`, `Start 4 agents`), the operation in its plainest form — the command without quotes, the change as a coloured diff — one question, and three numbered answers with a cursor on `Yes`. `↑↓` move the cursor, `Enter` confirms the highlighted answer, `1`–`3` answer directly; `y`, `a`, `n`, `esc`, `ctrl+c` and `d` (exact input) keep working. **Enter now confirms**, where it previously did nothing: the settle window that already guards `y` and `a` guards it too, so an Enter in flight when the prompt appears still decides nothing. Paging a long operation moved to `PgUp`/`PgDn`/`Home`/`End`.
+- 52c52bc: A project can define its own sub-agents.
+
+  `<cwd>/.namzu/agents/<name>.md` and `~/.namzu/agents/<name>.md` (project shadowing user) each define a `subagent_type` the `Agent` tool offers beside `general-purpose` and `explore`: YAML frontmatter with `name`, `description` and optionally `tools: read, grep`, `model`, `readOnly: true`, over a Markdown body that becomes the agent's prompt. The roster is the file's allowlist intersected with the parent's working set — a file cannot grant a tool the parent does not have — and `readOnly` narrows it the way `explore` is narrowed. The model is told each type's description so it can pick the right one. A file that cannot be loaded (no name, a built-in name, a bad `tools` line, an empty body) is named on stderr with its reason and the rest of the roster survives it.
+
+- 1681904: Shell hooks: one line of config runs a command before or after a tool, or when a run starts or ends.
+
+  ```yaml
+  hooks:
+    pre_tool_use:
+      - matcher: bash
+        command: ./scripts/check-command.sh
+    post_tool_use:
+      - matcher: edit|write
+        command: pnpm biome format --write "$NAMZU_TOOL_PATH"
+    run_end:
+      - command: notify-send namzu "turn settled"
+  ```
+
+  A hook runs with `sh -c` in the working directory, receives the event as JSON on stdin (`event`, `tool_name`, `tool_input`, `tool_result`, `run_id`, `cwd`) and as `NAMZU_HOOK_EVENT` / `NAMZU_TOOL_NAME` / `NAMZU_TOOL_PATH` / `NAMZU_RUN_ID` in its environment. Its exit code is its answer: `0` carries on; `2` from a `pre_tool_use` hook **blocks the call** and tells the model why, with the hook's stderr as the reason; any other failure — including a timeout (default 30 s, capped at ten minutes) — is reported on stderr and never blocks. `matcher` is a tool name, a `|`-separated list, or a `prefix*`; absent means every tool. Hooks ride the plugin lifecycle manager, so they run with plugins on or off and take the same `plugins.hookTimeoutMs` ceiling. The key is file-only and never read from the environment, because a hook runs a command with the operator's authority. A hook cannot yet modify a tool's input or replace its result.
+
+- f089ea0: A long think reads as work, and `/cost` says how full the context is.
+
+  - **Thinking row.** While the model reasons, its current line is shown dim under the Working row (`└ thinking · …`; `└ thinking…` when the provider keeps its reasoning redacted) and disappears the moment the reply or a tool call begins. Reasoning never becomes a transcript row — the run keeps no such record either.
+  - **Context in `/cost`.** `/cost` now prints `Context: 54,000 / 128,000 tokens (42%)` when the run knows both how full the context is and how large the window is, each term with its provenance; a `~` marks an estimated count or an assumed window, and nothing is printed when there is no window to measure against. The footer stays quiet — the persistent gauge was removed on purpose — so this is on request, where a person asks.
+  - **`run-stream` wire (minor):** a new `reasoning` event (`{ kind: 'reasoning', text, done? }`) is emitted for reasoning deltas and block ends. Consumers that switch exhaustively on `kind` should add it; everything else is unchanged.
+
+### Patch Changes
+
+- c884bc8: File-defined agents and the read-only `explore` delegate now run on the kernel's loader, filters and prompt. `.namzu/agents/<name>.md` keeps its shape and behaviour; the CLI only decides the two directories and their order (user, then project shadowing it) and hands the rest to `@namzu/sdk`. One tightening rides along: a connected server's tool that merely claims to be read-only no longer reaches an `explore` or `readOnly: true` roster unless the server's read-only hints are trusted — the same rule the authorization gate already applied.
+- f6678f5: When computer use cannot reach a desktop (a WSL process with no interactive Windows session, an ssh session with no display), the tool is still offered — with every capability off and the reason attached — rather than left out. The model sees what it cannot do and why, and a call is refused with the same reason, so it stops on the first result instead of reasoning from a tool that was never there.
+- 698a5d8: The working doctrine the model reads and the interactive `ask_user_question` tool now come from `@namzu/sdk`. The prompt text is byte-for-byte what shipped; the question tool no longer has to be built through the coordinator set with a placeholder run id.
+- f5e62a3: Shell hooks now run on the kernel's adapter. The `hooks:` config key, its shape and its behaviour are unchanged; the CLI only reads the file and hands the table to `@namzu/sdk`'s `attachShellHooks`, so an ACP server or an embedder gets the same contract from the same code.
+- 6383358: The permission dialog opens readable for any batch it can show completely. A `read`, `grep`, `glob`, `ls` or connected-server call has no formatter and used to drop the whole batch into the exact JSON view, so an edit beside a read was reviewed as raw JSON by default; such a call is now listed key by key with every value JSON-escaped, which hides nothing, and the exact view stays one `d` away. An evolved shape of a tool that does have a formatter (`bash`, `edit`, `write`, `Agent`) and a tool whose name is not a plain token still open exact-first.
+- b3222f5: The permission modes (`prompt`, `accept-edits`, `auto`, `strict`, `plan`) now run on the kernel's review policy; the CLI supplies the terminal prompt and the session's approve-all state. Behaviour, refusal texts and the exempt roster are unchanged. `namzu run --help` now lists all five modes.
+- 51c0ea3: `namzu run-stream` no longer waits forever on a pipe that is open and silent. It read stdin to end-of-input whenever stdin was not a terminal, so a host that spawned it without closing stdin — a background task, a CI step, a UI that forgot — saw the boot log stop and nothing follow. It now takes the same quarter-second first-byte deadline `namzu run` already used: data that is there is read in full, silence means no history.
+- 37d2d60: Two things the terminal showed that the frame-string tests could not: the banner's working directory is cut at its start and sized to the room beside the wordmark instead of wrapping mid-word across it, and a tool result shown line by line no longer repeats its first line — the `⎿` summary is that line, and the body starts at the second.
+- 334b9c3: On WSL, the probe that asks Windows for the paired home directory (to find a Claude credential on the Windows side) now ends with SIGKILL when it overruns its second; the interop shim ignored SIGTERM, and a boot could wait on it indefinitely. The credential discovery step is also bracketed in the debug log with its duration, so a boot that stalls there says so.
+- Updated dependencies [ec1ac3c]
+- Updated dependencies [c884bc8]
+- Updated dependencies [85dddca]
+- Updated dependencies [f6678f5]
+- Updated dependencies [34282d5]
+- Updated dependencies [698a5d8]
+- Updated dependencies [ec1ac3c]
+- Updated dependencies [b3222f5]
+- Updated dependencies [3ad8784]
+- Updated dependencies [f8168ee]
+- Updated dependencies [f5e62a3]
+  - @namzu/computer-use@1.4.1
+  - @namzu/sdk@35.0.0
+  - @namzu/anthropic@4.0.4
+  - @namzu/ollama@2.2.2
+  - @namzu/openai@2.1.0
+  - @namzu/openrouter@2.3.2
+
 ## 18.1.0
 
 ### Minor Changes
