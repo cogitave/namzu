@@ -64,6 +64,13 @@ export function wslWindowsHome(
 		const output = run(command, ['/d', '/s', '/c', 'echo', '%USERPROFILE%'], {
 			encoding: 'utf8',
 			timeout: 1_000,
+			// The interop shim that fronts a Windows process does not honour
+			// SIGTERM the way a Linux process does; a probe that overran its
+			// second was left alive, and the synchronous call waited on it for
+			// as long as Windows took to answer. SIGKILL is what actually ends
+			// it, and the answer is "no paired home", which is the correct one
+			// for a probe that could not be made in time.
+			killSignal: 'SIGKILL',
 			windowsHide: true,
 			stdio: ['ignore', 'pipe', 'ignore'],
 		})

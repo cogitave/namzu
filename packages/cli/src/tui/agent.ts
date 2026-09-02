@@ -892,7 +892,17 @@ async function drainIterator(iterator: AsyncIterator<unknown>): Promise<void> {
  */
 export async function probeAgentSession(): Promise<AgentSessionContext> {
 	const read = readPreferences()
+	// Bracketed in the log because this is where a boot has stalled without
+	// a record on either side: it reads credential files, and on WSL it asks
+	// Windows for the paired home. A hang that shows the last line before it
+	// and nothing after is this step.
+	const discoveryStartedAt = Date.now()
+	cliLogger().debug('discovering provider credentials')
 	const detected = await discoverProviders()
+	cliLogger().debug('provider credentials discovered', {
+		'namzu.boot.discovery_ms': Date.now() - discoveryStartedAt,
+		'namzu.boot.detected_count': detected.length,
+	})
 	switch (read.status) {
 		case 'ok':
 			return {

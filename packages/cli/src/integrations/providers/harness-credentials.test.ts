@@ -145,7 +145,7 @@ describe('the paired Windows home visible from WSL', () => {
 		expect(run).toHaveBeenCalledWith(
 			command,
 			['/d', '/s', '/c', 'echo', '%USERPROFILE%'],
-			expect.objectContaining({ timeout: 1_000 }),
+			expect.objectContaining({ timeout: 1_000, killSignal: 'SIGKILL' }),
 		)
 		const nativeRun = vi.fn()
 		expect(wslWindowsHome({}, nativeRun as never, command)).toBeNull()
