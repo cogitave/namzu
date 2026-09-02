@@ -216,6 +216,27 @@ PACKED_COUNT=$(find "$PACK_DIR" -maxdepth 1 -name '*.tgz' | wc -l | tr -d ' ')
 echo "  ✓ Packed $PACKED_COUNT tarballs → $PACK_DIR"
 
 echo ""
+# The tarballs of the workspace packages a package's `dependencies` name,
+# from the pack directory. A dependent that itself depends on other
+# workspace packages (the CLI on the providers and leaves it ships with)
+# must get THOSE from the pack directory too: the gate runs before anything
+# is published, so a train that bumps the CLI and one sibling together
+# would otherwise ask the registry for a version that does not exist yet
+# and fail with ETARGET — a false verdict about a release that is fine.
+# Peers are deliberately not included: the peer range against the shipping
+# SDK is what a pairing tests.
+sibling_tarballs() {
+  node -e '
+    const { readFileSync } = require("node:fs")
+    const { join } = require("node:path")
+    const manifest = JSON.parse(readFileSync(join(process.argv[1], process.argv[2], "package.json"), "utf8"))
+    for (const dep of Object.keys(manifest.dependencies ?? {})) {
+      if (!dep.startsWith("@namzu/") || dep === "@namzu/sdk") continue
+      console.log(dep.slice("@namzu/".length))
+    }
+  ' "$WORKSPACE_ROOT" "$1" | while read -r sibling; do ls "$PACK_DIR"/namzu-"${sibling}"-*.tgz 2>/dev/null | head -1; done
+}
+
 echo "=== Consumer install dry-run (SDK + each dependent) ==="
 cd "$CONSUMER_DIR"
 npm init -y >/dev/null
@@ -235,22 +256,7 @@ while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
   TARBALL=$(ls "$PACK_DIR"/namzu-${dep}-*.tgz | head -1)
   test -f "$TARBALL" || { echo "    ✗ Missing tarball for $dep"; exit 1; }
 
-  # A dependent that itself depends on other workspace packages (the CLI on
-  # the providers it ships with) must get THOSE from the pack directory too.
-  # The gate runs before anything is published, so a train that bumps the CLI
-  # and one provider together would otherwise ask the registry for a provider
-  # version that does not exist yet and fail with ETARGET — a false verdict
-  # about a release that is fine. Peers are deliberately not included: the
-  # peer range against the shipping SDK is what the pairing tests.
-  SIBLING_TARBALLS=$(node -e '
-    const { readFileSync } = require("node:fs")
-    const { join } = require("node:path")
-    const manifest = JSON.parse(readFileSync(join(process.argv[1], process.argv[2], "package.json"), "utf8"))
-    for (const dep of Object.keys(manifest.dependencies ?? {})) {
-      if (!dep.startsWith("@namzu/") || dep === "@namzu/sdk") continue
-      console.log(dep.slice("@namzu/".length))
-    }
-  ' "$WORKSPACE_ROOT" "$pkg_path" | while read -r sibling; do ls "$PACK_DIR"/namzu-"${sibling}"-*.tgz 2>/dev/null | head -1; done)
+  SIBLING_TARBALLS=$(sibling_tarballs "$pkg_path")
 
   rm -rf node_modules package-lock.json
   # shellcheck disable=SC2086
@@ -289,7 +295,10 @@ EVALS_TARBALL=$(find "$PACK_DIR" -maxdepth 1 -name 'namzu-evals-*.tgz' -print -q
 test -f "$EVALS_TARBALL" || { echo "    ✗ Missing evals tarball in $PACK_DIR"; exit 1; }
 
 rm -rf node_modules package-lock.json eval-report.json
-npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$CLI_TARBALL" "$EVALS_TARBALL"
+CLI_PATH=$(awk -F'\t' '$1 == "@namzu/cli" { print $2 }' "$PACKAGE_TABLE")
+CLI_SIBLINGS=$(sibling_tarballs "$CLI_PATH")
+# shellcheck disable=SC2086
+npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$CLI_TARBALL" "$EVALS_TARBALL" $CLI_SIBLINGS
 
 test -x node_modules/.bin/namzu || { echo "    ✗ Packed CLI did not install an executable namzu binary"; exit 1; }
 test -d node_modules/@namzu/evals || { echo "    ✗ Packed eval suites did not install"; exit 1; }
