@@ -1,8 +1,14 @@
+import { REVIEW_MODES, type ReviewMode, isReviewMode } from '@namzu/sdk'
+
 /**
  * How a run resolves the calls no rule decided.
  *
- * The `[permissions]` table says what a tool may do. This says what happens to
- * everything it did not cover. The two axes are separate on purpose: a rule is
+ * The `[permissions]` table says what a tool may do. The kernel's review
+ * policy (`createReviewHandler` in `@namzu/sdk`) says what happens to
+ * everything it did not cover; the modes and their words live there, and
+ * this file resolves which one a run gets from the flag and the terminal.
+ *
+ * The two axes are separate on purpose: a rule is
  * a durable statement an operator reviewed, and a mode is a property of ONE
  * invocation — the difference between "we never force-push" and "this run is
  * unattended".
@@ -21,63 +27,13 @@
  * a prohibition that a flag can lift is not a prohibition. The dangerous-pattern
  * floor sits above both and no mode reaches it either.
  */
-export type PermissionMode =
-	/** Ask a human. The default when a terminal is attached. */
-	| 'prompt'
-	/**
-	 * Approve it. The default with no terminal, and what every headless run has
-	 * always done — named here rather than left implicit.
-	 */
-	| 'auto'
-	/**
-	 * Approve a file edit, ask about everything else.
-	 *
-	 * The mode an operator watching the agent write code actually wants: an
-	 * `edit` or `write` inside the working directory is what they asked for
-	 * and is undoable with `git`, so a prompt on each one is a prompt they
-	 * answer `y` to forty times an hour — and a prompt that is always answered
-	 * the same way trains the hand to answer the next one, which is the bash
-	 * prompt, the same way. Shell commands, delegation and anything a tool
-	 * declares destructive still ask. Deny rules and the dangerous-pattern
-	 * floor sit above this as above every mode.
-	 */
-	| 'accept-edits'
-	/**
-	 * Read and think, do not act. A call that only reads is approved; a call
-	 * that would change anything is refused with feedback telling the model
-	 * to present its plan instead. The operator reads the plan and switches
-	 * mode to have it carried out — the switch IS the approval, which is why
-	 * this is a permission mode rather than a separate screen.
-	 */
-	| 'plan'
-	/**
-	 * Refuse it. Nothing runs unless a rule allowed it by name or pattern.
-	 *
-	 * The mode that did not exist before: an unattended run could previously
-	 * only be `auto`, so a CI job either trusted the agent with everything or
-	 * could not use it. This makes the allowlist the whole permission surface,
-	 * which is the only form an unattended run can actually be reasoned about.
-	 */
-	| 'strict'
+export type PermissionMode = ReviewMode
 
-export const PERMISSION_MODES: readonly PermissionMode[] = [
-	'prompt',
-	'accept-edits',
-	'auto',
-	'strict',
-	'plan',
-]
+export const PERMISSION_MODES: readonly PermissionMode[] = REVIEW_MODES
 
-/** What the model is told when a call is refused under `plan`. */
-export const PLAN_MODE_REFUSAL =
-	'Refused: plan mode is read-only. Explore with the reading tools, then present the plan as your reply — what you would change, in which files, and in what order. The user will switch out of plan mode to have it carried out.'
+export { ACCEPT_EDITS_TOOLS, PLAN_MODE_REFUSAL } from '@namzu/sdk'
 
-/** The tools `accept-edits` approves without asking. Everything else prompts. */
-export const ACCEPT_EDITS_TOOLS: ReadonlySet<string> = new Set(['edit', 'write'])
-
-export function isPermissionMode(value: unknown): value is PermissionMode {
-	return typeof value === 'string' && (PERMISSION_MODES as readonly string[]).includes(value)
-}
+export const isPermissionMode: (value: unknown) => value is PermissionMode = isReviewMode
 
 /**
  * The mode for a run, from the flag, the bypass alias, and whether anyone is

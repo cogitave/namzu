@@ -343,6 +343,15 @@ export type {
 } from './types/hitl/policy.js'
 
 export type {
+	ReviewExemption,
+	ReviewMode,
+	ReviewPolicyOptions,
+	ToolReviewAnswer,
+	ToolReviewPrompt,
+	ToolReviewRequest,
+} from './runtime/query/review-policy.js'
+
+export type {
 	CodingAgentDoctrineOptions,
 	PromptContribution,
 	PromptContributionContext,

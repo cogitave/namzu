@@ -35,7 +35,6 @@ import {
 	type FencingToken,
 	type GoalRoundAuthority,
 	GuardedFetchProvider,
-	type HITLResumeDecision,
 	type LLMProvider,
 	type LogAttributes,
 	type Message,
@@ -64,12 +63,14 @@ import {
 	type TaskScheduler,
 	type TaskStore,
 	type TenantId,
-	type ToolCallSummary,
 	type ToolCallView,
 	type ToolDefinition,
 	type ToolPresenter,
 	ToolRegistry,
 	type ToolResultView,
+	type ToolReviewAnswer,
+	type ToolReviewPrompt,
+	type ToolReviewRequest,
 	type TopicId,
 	WebFetchTool,
 	asProjectId,
@@ -77,16 +78,18 @@ import {
 	asSessionId,
 	asTenantId,
 	asTopicId,
+	batchNeedsReview,
 	buildAskUserQuestionTool,
 	buildMemoryTools,
 	buildSessionGoalTools,
 	compactNow,
 	createComputerUseTool,
 	createMemoryPromoter,
+	createReviewHandler,
 	createToolPresenter,
 	generateRunId,
 	getBuiltinTools,
-	isTrustedReadOnly,
+	isReviewExempt,
 	query,
 	resumeRun,
 	webGuidanceContribution,
@@ -157,7 +160,7 @@ import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
-import { ACCEPT_EDITS_TOOLS, PLAN_MODE_REFUSAL, type PermissionMode } from '../permissions/mode.js'
+import type { PermissionMode } from '../permissions/mode.js'
 import { projectRunConversation } from './conversation-history.js'
 
 export type AgentEvent =
@@ -219,7 +222,11 @@ export type AgentEvent =
 	 * ephemeral in the kernel's own transcript and is shown here for the
 	 * same reason a spinner is — so a long silence reads as work.
 	 */
-	| { readonly kind: 'reasoning'; readonly text: string; readonly done?: boolean }
+	| {
+			readonly kind: 'reasoning'
+			readonly text: string
+			readonly done?: boolean
+	  }
 	| {
 			readonly kind: 'usage'
 			/** CUMULATIVE run spend. Grows every turn; never a context size. */
@@ -345,16 +352,10 @@ export interface PermissionToolCall {
 	readonly isDestructive: boolean
 }
 
-export interface PermissionRequest {
-	readonly toolCalls: readonly PermissionToolCall[]
-}
-
-export type PermissionDecision =
-	| { readonly kind: 'approve' }
-	| { readonly kind: 'approve-all' }
-	| { readonly kind: 'reject'; readonly feedback?: string }
-
-export type PermissionFn = (req: PermissionRequest) => Promise<PermissionDecision>
+/** The batch a person is asked about — the kernel's `ToolReviewRequest`. */
+export type PermissionRequest = ToolReviewRequest
+export type PermissionDecision = ToolReviewAnswer
+export type PermissionFn = ToolReviewPrompt
 
 /** One question the model put to the operator through `ask_user_question`. */
 export type UserQuestion = Extract<
@@ -2848,152 +2849,33 @@ async function* runTurn({
 }
 
 /**
- * Bridge the SDK's HITL `tool_review` request to the TUI's permission
- * callback. Read-only batches (nothing destructive) run silently; batches
- * with a destructive call prompt the user unless they've already chosen
- * "approve all" for the session. Plans and iteration checkpoints are
- * auto-continued (the TUI doesn't use plan mode).
+ * The kernel's review policy with the TUI's prompt behind it.
+ *
+ * The five modes, the exemptions and the batch rule live in `@namzu/sdk`
+ * (`createReviewHandler`); what this application adds is the person to ask
+ * and the session's "approve all" box, which the screen also reads.
  */
 export function makeResumeHandler(
 	approval: { all: boolean },
 	onPermission: PermissionFn | undefined,
 	mode: PermissionMode = onPermission ? 'prompt' : 'auto',
-	/**
-	 * Which calls skip the prompt. Injected rather than reached for, so this
-	 * handler stays testable without a registry — and so the answer comes from
-	 * the live roster at the moment of the call.
-	 */
 	exempt: (name: string, input: unknown) => boolean = () => false,
 ): ResumeHandler {
-	return async (request): Promise<HITLResumeDecision> => {
-		if (request.type !== 'tool_review') {
-			return request.type === 'plan_approval' ? { action: 'approve_plan' } : { action: 'continue' }
-		}
-		// Only calls the gate routed to REVIEW arrive here — a rule that denied
-		// one already stopped it, and a rule that allowed one never asked. So the
-		// mode decides what happens to the undecided, and cannot reopen anything
-		// a rule closed. That is the whole precedence story between a flag and a
-		// config file, and it is one sentence on purpose.
-		if (!batchNeedsPrompt(request.toolCalls, exempt)) {
-			return { action: 'approve_tools' }
-		}
-		// A batch of nothing but non-destructive file edits is the case this
-		// mode exists for. One bash call in the same batch and the whole batch
-		// asks — the operator reviews the batch as a unit, and a prompt that
-		// showed only the shell command while the edits went through beside it
-		// would be approving something it did not show.
-		if (
-			mode === 'accept-edits' &&
-			request.toolCalls.every(
-				(tc) => !tc.isDestructive && (ACCEPT_EDITS_TOOLS.has(tc.name) || exempt(tc.name, tc.input)),
-			)
-		) {
-			return { action: 'approve_tools' }
-		}
-		// Reads were already approved above (they are exempt). Anything that
-		// reached here would change something, and plan mode's answer to that
-		// is the same every time: not now, tell the user what you would do.
-		if (mode === 'plan') {
-			return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
-		}
-		if (mode === 'strict') {
-			return {
-				action: 'reject_tools',
-				feedback:
-					'Refused: this run only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.',
-			}
-		}
-		if (mode === 'auto' || !onPermission || approval.all) {
-			return { action: 'approve_tools' }
-		}
-		const decision = await onPermission({
-			toolCalls: request.toolCalls.map((tc) => ({
-				id: tc.id,
-				name: tc.name,
-				input: tc.input,
-				isDestructive: tc.isDestructive,
-			})),
-		})
-		switch (decision.kind) {
-			case 'approve':
-				return { action: 'approve_tools' }
-			case 'approve-all':
-				approval.all = true
-				return { action: 'approve_tools' }
-			case 'reject':
-				return {
-					action: 'reject_tools',
-					feedback: decision.feedback ?? 'User declined to run the proposed tool(s).',
-				}
-		}
-	}
+	return createReviewHandler({
+		mode,
+		prompt: onPermission,
+		exempt,
+		remembered: approval,
+	})
 }
 
 /**
- * Writes that skip the prompt anyway, in spite of declaring `readOnly: false`.
- *
- * This is an OVERRIDE of the tool's own declaration, and it is named as one.
- * The list it replaced was called `READ_ONLY_TOOLS` and contained three tools
- * that declare `readOnly: false` — a constant asserting the exact property it
- * was getting wrong, which is how the disagreement survived: nothing reading it
- * had reason to doubt the name.
- *
- * The bar for an entry is that prompting would be unusable AND a bad write
- * cannot reach beyond the agent's own bookkeeping. Each one is justified here,
- * or it does not belong here.
- *
- * - `task_create` / `task_update` — the model's own plan for the current
- *   request, written several times per planning turn; prompting each would put
- *   a consent dialog between the agent and its todo list. What a bad write
- *   costs is a polluted task list, which is visible in the transcript and
- *   grants nothing. Worth knowing while reading that: these DO outlive the
- *   session, because the CLI's task store uses a fixed run id
- *   (`run_namzu-cli`), so "run-scoped" is not the reason they are here — the
- *   blast radius is.
- *
- * `save_memory` was on the list it replaced and is deliberately NOT here. Its
- * effect outlives the run in a way the task tools' does not: content saved now
- * is retrievable by `search_memory` in a later session, so a tool result or
- * fetched page that talks the model into saving something reaches a future
- * run's reasoning. It is not auto-injected into the prompt — that is
- * `MEMORY.md`, a different thing — but retrievable is enough. A write that
- * survives the process, into the user's own repository, is not read-only under
- * any reading, and it now prompts.
+ * Whether a call runs without asking. The kernel's rule: a trusted read-only
+ * declaration or a named bookkeeping write, never a fetch, never a tool the
+ * registry does not know.
  */
-const PROMPT_EXEMPT_WRITES = new Set(['task_create', 'task_update', 'update_goal'])
-
-/**
- * Whether a call runs without asking: it declares itself read-only, or it is a
- * named exemption above.
- *
- * The read-only half comes from the tool's own `isReadOnly(input)`, never from
- * a list of names kept here. A name list in the consumer is a second source of
- * truth for a property the producer already states: a new read-only tool
- * missing from it merely gets prompted, but a RENAMED tool silently changes
- * posture with nothing to notice.
- *
- * Resolved per call rather than snapshotted, because the roster changes after
- * this module has run — the task tools are registered deferred inside
- * `query()`, and tool servers connect during startup, so anything computed
- * eagerly would be answering about a registry that no longer exists.
- *
- * A tool the registry does not know, or one that declares nothing, prompts.
- * That is the safe-by-default direction the previous comment claimed and this
- * keeps: consent is the answer when the question cannot be established.
- */
-export function isPromptExempt(registry: ToolRegistry, name: string, input: unknown): boolean {
-	if (PROMPT_EXEMPT_WRITES.has(name.toLowerCase())) return true
-	const tool = registry.get(name) ?? registry.get(name.toLowerCase())
-	// A fetch changes nothing here and declares itself read-only, and it is
-	// still a request leaving the machine to an address the model chose. The
-	// operator sees the URL before it goes, the way they see a shell command.
-	if (tool?.category === 'network') return false
-	// A connected server's own claim about its own tool cannot skip the
-	// prompt. Same predicate the kernel gate and plan mode use -- three
-	// doors, one rule, because fixing two would close the issue and leave
-	// the boundary open.
-	return isTrustedReadOnly(tool, input)
-}
+export const isPromptExempt: (registry: ToolRegistry, name: string, input: unknown) => boolean =
+	isReviewExempt
 
 /** The exempt roster, sorted, for the surface that has to NAME it. */
 export function promptExemptToolNames(registry: ToolRegistry): readonly string[] {
@@ -3004,16 +2886,8 @@ export function promptExemptToolNames(registry: ToolRegistry): readonly string[]
 		.sort()
 }
 
-/**
- * A batch needs explicit approval when any call mutates state: flagged
- * destructive by the SDK, or not exempt from the prompt.
- */
-export function batchNeedsPrompt(
-	toolCalls: readonly ToolCallSummary[],
-	exempt: (name: string, input: unknown) => boolean,
-): boolean {
-	return toolCalls.some((tc) => tc.isDestructive || !exempt(tc.name, tc.input))
-}
+/** A batch needs explicit approval when any call mutates state. */
+export const batchNeedsPrompt = batchNeedsReview
 
 /**
  * Translate one SDK `RunEvent` into the TUI's `AgentEvent` vocabulary, or
