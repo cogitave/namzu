@@ -175,6 +175,14 @@ export type {
 } from './registry/index.js'
 
 export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
+export type {
+	ShellHookEntry,
+	ShellHookEvent,
+	ShellHookInput,
+	ShellHookOptions,
+	ShellHookOutcome,
+	ShellHooksConfig,
+} from './plugin/shell-hook.js'
 
 export type {
 	PlanApprovalHandler,

@@ -7,6 +7,7 @@
  * validation decision whenever that list grows.
  */
 
+import type { ShellHookEntry, ShellHookEvent, ShellHooksConfig } from '@namzu/sdk'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { FormatName } from '../output/index.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
@@ -46,27 +47,13 @@ export interface TuiConfig {
 export type PluginScope = 'project' | 'user'
 
 /**
- * Session plugin runtime settings.
- *
- * Plugins may import JavaScript hooks and tools, so the runtime is disabled
- * unless an operator opts in explicitly. Project plugins are considered only
- * after the existing project trust gate has pinned the canonical cwd.
+ * Shell hooks are the kernel's contract (`@namzu/sdk` `plugin/shell-hook`);
+ * the config file carries its shape and nothing more. Aliased here so the
+ * loader and the session option name the same types the kernel exports.
  */
-/** The points in the loop a shell hook can attach to. */
-export type HookEvent = 'pre_tool_use' | 'post_tool_use' | 'run_start' | 'run_end'
-
-/** One shell command at one point. See `integrations/hooks/shell-hooks.ts`. */
-export interface HookEntry {
-	/** Run with `sh -c`, in the working directory, with the event JSON on stdin. */
-	readonly command: string
-	/** Tool names this applies to: `*`, a name, or `a|b|prefix*`. Absent means every tool. */
-	readonly matcher?: string
-	/** Deadline in milliseconds; default 30 000, capped at ten minutes. */
-	readonly timeoutMs?: number
-}
-
-/** See `NamzuCliConfig.hooks`. */
-export type HooksConfig = { readonly [event in HookEvent]?: readonly HookEntry[] }
+export type HookEvent = ShellHookEvent
+export type HookEntry = ShellHookEntry
+export type HooksConfig = ShellHooksConfig
 
 /** See `NamzuCliConfig.web`. */
 export interface WebConfig {
@@ -74,6 +61,13 @@ export interface WebConfig {
 	readonly fetch?: boolean
 }
 
+/**
+ * Session plugin runtime settings.
+ *
+ * Plugins may import JavaScript hooks and tools, so the runtime is disabled
+ * unless an operator opts in explicitly. Project plugins are considered only
+ * after the existing project trust gate has pinned the canonical cwd.
+ */
 export interface PluginConfig {
 	/** Start the plugin runtime. Only the exact value `true` enables it. */
 	readonly enabled?: boolean
@@ -168,7 +162,8 @@ export interface NamzuCliConfig {
 	 * environment — a hook runs a command with the operator's authority, and
 	 * a shell profile must not be able to plant one. Exit `2` from a
 	 * `pre_tool_use` hook blocks the call and tells the model why; any other
-	 * failure is reported and never blocks. See `integrations/hooks`.
+	 * failure is reported and never blocks. The contract is the kernel's
+	 * (`@namzu/sdk` `plugin/shell-hook`); this key is only where it is read.
 	 */
 	readonly hooks?: HooksConfig
 	/**

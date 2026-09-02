@@ -529,11 +529,20 @@ export {
 } from './registry/index.js'
 
 export {
+	attachShellHooks,
+	createShellHook,
+	DEFAULT_SHELL_HOOK_TIMEOUT_MS,
 	discoverAllPluginDirs,
 	discoverPlugins,
 	loadPluginManifest,
+	MAX_SHELL_HOOK_TIMEOUT_MS,
 	PluginLifecycleManager,
 	PluginResolver,
+	runShellHook,
+	SHELL_HOOK_EVENTS,
+	SHELL_HOOKS_PLUGIN_ID,
+	shellHookMatches,
+	shellHookVerdict,
 } from './plugin/index.js'
 
 export {

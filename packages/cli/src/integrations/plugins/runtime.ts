@@ -4,12 +4,12 @@ import {
 	SkillRegistry,
 	SkillTool,
 	type ToolRegistry,
+	attachShellHooks,
 	discoverAllPluginDirs,
 } from '@namzu/sdk'
 
 import type { HooksConfig, PluginConfig, PluginScope } from '../../config/schema.js'
 import { cliLogger } from '../../logging.js'
-import { attachShellHooks } from '../hooks/shell-hooks.js'
 import { resolveNamzuHome } from '../state/home.js'
 
 export interface CliPluginRuntime {
@@ -57,7 +57,7 @@ export async function createCliPluginRuntime(
 		log,
 		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 	})
-	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, cwd)
+	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, { cwd, log })
 	const allowedScopes = config?.allowedScopes ?? (['project', 'user'] as const)
 	const discovered = pluginsEnabled
 		? await discoverAllPluginDirs(cwd, {
