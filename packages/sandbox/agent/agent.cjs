@@ -762,10 +762,6 @@ function terminalDimension(value, max, name) {
 	return parsed
 }
 
-function delay(ms) {
-	return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 async function processChildren(pid) {
 	try {
 		const raw = await fs.readFile(`/proc/${pid}/task/${pid}/children`, 'utf8')
