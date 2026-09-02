@@ -206,6 +206,34 @@ export interface SandboxNetworkPolicy {
 	readonly allowedHosts: readonly string[]
 }
 
+/**
+ * One host-side end of a TCP connection opened from inside the sandbox.
+ *
+ * The connection is intentionally narrower than general sandbox networking:
+ * callers may reach a loopback service already running in the sandbox, while
+ * the sandbox's egress policy remains unchanged. This is the primitive a
+ * development-workspace gateway uses to publish an HTTP/WebSocket preview
+ * without copying the checkout into a second container.
+ */
+export interface SandboxTcpConnection {
+	/** Queue bytes for the guest. False means pause the producer until onDrain. */
+	write(data: string | Uint8Array): boolean
+	end(): void
+	destroy(): void
+	/** Pause/resume bytes arriving from the guest without closing the stream. */
+	pause(): void
+	resume(): void
+	onData(listener: (chunk: Uint8Array) => void): () => void
+	onDrain(listener: () => void): () => void
+	readonly closed: Promise<void>
+}
+
+export interface SandboxTcpConnectOptions {
+	readonly port: number
+	/** Only guest loopback addresses are supported by the built-in backend. */
+	readonly host?: '127.0.0.1' | '::1'
+}
+
 export interface Sandbox {
 	readonly id: SandboxId
 	readonly status: SandboxStatus
@@ -241,11 +269,18 @@ export interface Sandbox {
 	 * with `rootDir` as its working directory does not satisfy either the
 	 * confinement or the ownership contract.
 	 *
-	 * @deprecated No built-in backend currently satisfies both guarantees.
-	 * Use a separately owned terminal backend; this member will be removed in
-	 * a future major release after the repository's deprecation window.
+	 * The Firecracker backend satisfies both guarantees by owning the PTY in the
+	 * guest and awaiting its exit before the microVM is released. Backends that
+	 * cannot provide that boundary omit the capability.
 	 */
 	openTerminal?(options: OpenTerminalOptions): Promise<TerminalSession>
+	/**
+	 * Connect to a loopback TCP service owned by this same sandbox.
+	 *
+	 * Optional. A backend that cannot preserve the same-workspace boundary must
+	 * omit this capability rather than proxying to a different filesystem.
+	 */
+	openTcpConnection?(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection>
 	writeFile(path: string, content: string | Buffer): Promise<void>
 	readFile(path: string): Promise<Buffer>
 	/**
@@ -428,7 +463,10 @@ export interface ContainerSandboxLayout {
  * can inspect the post-default layout the model actually sees.
  */
 export interface ResolvedContainerSandboxLayout {
-	readonly outputs: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
+	readonly outputs: {
+		readonly source: ContainerSandboxMountSource
+		readonly containerPath: string
+	}
 	readonly uploads?: {
 		readonly source: ContainerSandboxMountSource
 		readonly containerPath: string

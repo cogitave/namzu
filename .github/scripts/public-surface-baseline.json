@@ -2399,6 +2399,8 @@
         "SandboxProvider",
         "SandboxProviderFactory",
         "SandboxStatus",
+        "SandboxTcpConnectOptions",
+        "SandboxTcpConnection",
         "SandboxWorkspaceMode",
         "ScopeChain",
         "ScopeRef",

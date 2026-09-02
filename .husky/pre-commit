@@ -59,8 +59,11 @@ sessions=$(awk -F'|' '
 # an epoch. That silently broke this gate on Git Bash / Windows, where
 # every comparison below then failed with "integer expected".
 mtime() {
-  m=$(stat -c %Y "$1" 2>/dev/null)
-  case "$m" in ''|*[!0-9]*) m=$(stat -f %m "$1" 2>/dev/null) ;; esac
+  # Both probes are expected to fail on the other platform. Keep `set -e`
+  # from treating that feature detection as a fatal hook error before the
+  # portable fallback can run.
+  m=$(stat -c %Y "$1" 2>/dev/null || true)
+  case "$m" in ''|*[!0-9]*) m=$(stat -f %m "$1" 2>/dev/null || true) ;; esac
   case "$m" in ''|*[!0-9]*) m='' ;; esac
   printf '%s' "$m"
 }
