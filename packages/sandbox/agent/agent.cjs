@@ -54,6 +54,7 @@ const net = require('node:net')
 const { spawn } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const fs = require('node:fs/promises')
+const { constants: osConstants } = require('node:os')
 const path = require('node:path')
 
 // --- config (mirrors worker/server.js env contract) -----------------------
@@ -115,7 +116,7 @@ function frame(payload) {
 }
 
 function writeFrame(socket, obj) {
-	socket.write(frame(JSON.stringify(obj)))
+	return socket.write(frame(JSON.stringify(obj)))
 }
 
 function writeTerminator(socket) {
@@ -742,11 +743,284 @@ async function handleWriteFile(socket, body) {
 	}
 }
 
+// --- guest-owned pseudo-terminal ------------------------------------------
+
+const MAX_TERMINAL_COLS = 1000
+const MAX_TERMINAL_ROWS = 1000
+const TERMINAL_SIGNALS = new Set(['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP'])
+
+/** Quote one argv token for the shell command accepted by util-linux script. */
+function shellQuote(value) {
+	return `'${String(value).replaceAll("'", "'\\''")}'`
+}
+
+function terminalDimension(value, max, name) {
+	const parsed = Number(value)
+	if (!Number.isInteger(parsed) || parsed < 1 || parsed > max) {
+		throw new Error(`${name} must be an integer in [1, ${max}]`)
+	}
+	return parsed
+}
+
+function delay(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function processChildren(pid) {
+	try {
+		const raw = await fs.readFile(`/proc/${pid}/task/${pid}/children`, 'utf8')
+		return raw
+			.trim()
+			.split(/\s+/)
+			.map(Number)
+			.filter((value) => Number.isInteger(value) && value > 0)
+	} catch {
+		return []
+	}
+}
+
+/**
+ * Resolve the slave allocated by util-linux `script`.
+ *
+ * `script` owns the PTY master and the login shell is its child. The child's
+ * fd 0 is therefore the authoritative slave path; discovering it through proc
+ * lets resize use the real TIOCSWINSZ ioctl through `stty -F`, including the
+ * SIGWINCH programs expect. No pipe is represented as a terminal.
+ */
+async function findPtySlave(scriptPid) {
+	for (let attempt = 0; attempt < 200; attempt += 1) {
+		const queue = await processChildren(scriptPid)
+		while (queue.length > 0) {
+			const pid = queue.shift()
+			try {
+				const target = await fs.readlink(`/proc/${pid}/fd/0`)
+				if (/^\/dev\/pts\/\d+$/.test(target)) return target
+			} catch {}
+			queue.push(...(await processChildren(pid)))
+		}
+		await delay(5)
+	}
+	throw new Error('terminal PTY slave did not appear')
+}
+
+function resizePty(slavePath, cols, rows) {
+	return new Promise((resolve, reject) => {
+		const child = spawn(
+			'/usr/bin/stty',
+			['-F', slavePath, 'rows', String(rows), 'cols', String(cols)],
+			{
+				stdio: 'ignore',
+			},
+		)
+		child.once('error', reject)
+		child.once('close', (code) => {
+			if (code === 0) resolve()
+			else reject(new Error(`stty resize failed with code ${String(code)}`))
+		})
+	})
+}
+
+/**
+ * Start one interactive PTY inside the guest and bind it to this framed
+ * connection. The runtime gateway owns the connection; disconnect/kill tears
+ * down the complete detached process group before the microVM can be released.
+ */
+function handleTerminal(socket, body) {
+	let child
+	let slavePath
+	let ready = false
+	let settled = false
+	const pending = []
+
+	const kill = (signal = 'SIGTERM') => {
+		if (!child?.pid || settled) return
+		const safeSignal = TERMINAL_SIGNALS.has(signal) ? signal : 'SIGTERM'
+		try {
+			// detached:true makes the script process the process-group leader;
+			// negative pid reaches the shell and every descendant, not just script.
+			process.kill(-child.pid, safeSignal)
+		} catch {}
+	}
+
+	const apply = (event) => {
+		if (!event || typeof event !== 'object') return
+		if (event.type === 'input') {
+			if (
+				typeof event.data === 'string' &&
+				child?.stdin?.writable &&
+				!child.stdin.write(event.data)
+			) {
+				socket.pause()
+				child.stdin.once('drain', () => {
+					if (!settled) socket.resume()
+				})
+			}
+			return
+		}
+		if (event.type === 'resize') {
+			try {
+				const cols = terminalDimension(event.cols, MAX_TERMINAL_COLS, 'cols')
+				const rows = terminalDimension(event.rows, MAX_TERMINAL_ROWS, 'rows')
+				if (slavePath) void resizePty(slavePath, cols, rows).catch(() => {})
+			} catch {}
+			return
+		}
+		if (event.type === 'kill') kill(typeof event.signal === 'string' ? event.signal : 'SIGTERM')
+	}
+
+	const start = async () => {
+		if (!body || typeof body !== 'object') throw new Error('missing_terminal_options')
+		const cols = terminalDimension(body.cols, MAX_TERMINAL_COLS, 'cols')
+		const rows = terminalDimension(body.rows, MAX_TERMINAL_ROWS, 'rows')
+		const cwd = body.cwd ? resolveWithinWorkspace(body.cwd, WORKSPACE_ROOT) : WORKSPACE_ROOT
+		await fs.mkdir(cwd, { recursive: true })
+
+		const command = typeof body.command === 'string' && body.command ? body.command : '/bin/sh'
+		const args = Array.isArray(body.args) ? body.args.map(String) : []
+		const commandLine = ['exec', shellQuote(command), ...args.map(shellQuote)].join(' ')
+		child = spawn('/usr/bin/script', ['-qefc', commandLine, '/dev/null'], {
+			cwd,
+			env: { ...process.env, TERM: 'xterm-256color', ...(body.env || {}) },
+			detached: true,
+			stdio: ['pipe', 'pipe', 'pipe'],
+		})
+		const forward = (source, chunk) => {
+			if (!writeFrame(socket, { type: 'data', data: chunk.toString('utf8') })) {
+				source.pause()
+				socket.once('drain', () => {
+					if (!settled) source.resume()
+				})
+			}
+		}
+		child.stdout.on('data', (chunk) => forward(child.stdout, chunk))
+		child.stderr.on('data', (chunk) => forward(child.stderr, chunk))
+		child.once('error', (error) => {
+			if (settled) return
+			settled = true
+			writeFrame(socket, { type: 'error', error: error.message })
+			socket.end()
+		})
+		child.once('close', (exitCode, signal) => {
+			if (settled) return
+			settled = true
+			writeFrame(socket, {
+				type: 'exit',
+				exitCode: typeof exitCode === 'number' ? exitCode : -1,
+				...(signal && osConstants.signals[signal] ? { signal: osConstants.signals[signal] } : {}),
+			})
+			socket.end()
+		})
+
+		slavePath = await findPtySlave(child.pid)
+		await resizePty(slavePath, cols, rows)
+		ready = true
+		writeFrame(socket, { type: 'ready' })
+		for (const event of pending.splice(0)) apply(event)
+	}
+
+	void start().catch((error) => {
+		if (settled) return
+		writeFrame(socket, {
+			type: 'error',
+			error: error instanceof Error ? error.message : String(error),
+		})
+		kill('SIGKILL')
+		settled = true
+		socket.end()
+	})
+
+	return {
+		onFrame(payload) {
+			let event
+			try {
+				event = JSON.parse(payload)
+			} catch {
+				return
+			}
+			if (ready) apply(event)
+			else pending.push(event)
+		},
+		onClose() {
+			kill('SIGKILL')
+		},
+	}
+}
+
+// --- guest-loopback TCP forwarding ---------------------------------------
+
+function handleTcpConnect(socket, body) {
+	const host = body?.host || '127.0.0.1'
+	const port = Number(body?.port)
+	if (
+		(host !== '127.0.0.1' && host !== '::1') ||
+		!Number.isInteger(port) ||
+		port < 1 ||
+		port > 65535
+	) {
+		writeFrame(socket, { type: 'error', error: 'invalid_loopback_target' })
+		socket.end()
+		return
+	}
+
+	let settled = false
+	const upstream = net.createConnection({ host, port })
+	const finish = (event) => {
+		if (settled) return
+		settled = true
+		if (event) writeFrame(socket, event)
+		upstream.destroy()
+		socket.end()
+	}
+
+	upstream.once('connect', () => writeFrame(socket, { type: 'ready' }))
+	upstream.on('data', (chunk) => {
+		if (!writeFrame(socket, { type: 'data', data: chunk.toString('base64') })) {
+			upstream.pause()
+			socket.once('drain', () => {
+				if (!settled) upstream.resume()
+			})
+		}
+	})
+	upstream.once('end', () => finish({ type: 'end' }))
+	upstream.once('error', (error) => finish({ type: 'error', error: error.message }))
+
+	return {
+		onFrame(payload) {
+			let event
+			try {
+				event = JSON.parse(payload)
+			} catch {
+				return
+			}
+			if (event?.type === 'data' && typeof event.data === 'string') {
+				const bytes = Buffer.from(event.data, 'base64')
+				if (bytes.byteLength <= 8 * 1024 * 1024 && !upstream.write(bytes)) {
+					socket.pause()
+					upstream.once('drain', () => {
+						if (!settled) socket.resume()
+					})
+				}
+				return
+			}
+			if (event?.type === 'end') {
+				upstream.end()
+				return
+			}
+			if (event?.type === 'destroy') finish()
+		},
+		onClose() {
+			settled = true
+			upstream.destroy()
+		},
+	}
+}
+
 // --- connection dispatch ---------------------------------------------------
 
 function handleConnection(socket) {
 	const reader = new FrameReader()
 	let dispatched = false
+	let activeStream
 	socket.on('data', (chunk) => {
 		let frames
 		try {
@@ -755,21 +1029,23 @@ function handleConnection(socket) {
 			socket.destroy()
 			return
 		}
-		// One request per connection (matches the host dialer, which
-		// opens a fresh connection per request — the resume-survivable
-		// shape).
-		if (dispatched || frames.length === 0) return
-		const first = frames[0]
-		dispatched = true
-		let req
-		try {
-			req = JSON.parse(first)
-		} catch {
-			socket.destroy()
-			return
+		for (const payload of frames) {
+			if (dispatched) {
+				activeStream?.onFrame(payload)
+				continue
+			}
+			dispatched = true
+			let req
+			try {
+				req = JSON.parse(payload)
+			} catch {
+				socket.destroy()
+				return
+			}
+			activeStream = dispatch(socket, req)
 		}
-		dispatch(socket, req)
 	})
+	socket.on('close', () => activeStream?.onClose())
 	socket.on('error', () => {
 		// A severed connection is not fatal — the listener stays up and
 		// the next dial lands fresh (resume invariant).
@@ -810,6 +1086,12 @@ function dispatch(socket, req) {
 			} catch {}
 		})
 		return
+	}
+	if (op === 'terminal') {
+		return handleTerminal(socket, req.body)
+	}
+	if (op === 'tcp-connect') {
+		return handleTcpConnect(socket, req.body)
 	}
 	if (op === 'read-file') {
 		handleReadFile(socket, req.body).finally(() => socket.end())

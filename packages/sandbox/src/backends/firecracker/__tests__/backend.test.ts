@@ -577,6 +577,34 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 	})
 })
 
+describe.skipIf(process.platform !== 'linux')('buildFirecrackerBackend terminal ownership', () => {
+	it('kills and awaits every guest terminal before deleting the microVM', async () => {
+		server = await startAgent()
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 3_000,
+			readyPollIntervalMs: 50,
+		})
+		const sandbox = await backend.create({ workingDirectory: workDir })
+		expect(sandbox.openTerminal).toBeTypeOf('function')
+		const terminal = await sandbox.openTerminal?.({
+			command: '/bin/sh',
+			args: ['-lc', 'sleep 30'],
+			cwd: workDir,
+			size: { cols: 80, rows: 24 },
+		})
+		expect(terminal).toBeDefined()
+
+		await sandbox.destroy()
+		await expect(terminal?.exited).resolves.toMatchObject({
+			exitCode: expect.any(Number),
+		})
+		expect(calls.some((call) => call.method === 'DELETE')).toBe(true)
+	})
+})
+
 // ---------------------------------------------------------------------------
 // Cert-injection seam (ses_051 P4 Track C) — the orchestrator returns a WIRE
 // `mtls` handle (host/port/sandboxId, NO certs); the consumer injects the

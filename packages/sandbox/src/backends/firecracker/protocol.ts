@@ -86,6 +86,57 @@ export interface ReadFileRequest {
 	readonly encoding: 'base64'
 }
 
+// ---------------------------------------------------------------------------
+// Terminal — a real guest-owned PTY over the same framed stream
+// ---------------------------------------------------------------------------
+
+/** Initial request for one interactive terminal process in the guest. */
+export interface TerminalOpenRequest {
+	readonly command?: string
+	readonly args?: readonly string[]
+	readonly cwd?: string
+	readonly env?: Record<string, string>
+	readonly cols: number
+	readonly rows: number
+}
+
+/** Host → guest messages after the terminal stream reports ready. */
+export type TerminalInputEvent =
+	| { readonly type: 'input'; readonly data: string }
+	| { readonly type: 'resize'; readonly cols: number; readonly rows: number }
+	| { readonly type: 'kill'; readonly signal?: string }
+
+/** Guest → host events carried for the lifetime of the terminal stream. */
+export type TerminalOutputEvent =
+	| { readonly type: 'ready' }
+	| { readonly type: 'data'; readonly data: string }
+	| {
+			readonly type: 'exit'
+			readonly exitCode: number
+			readonly signal?: number
+	  }
+	| { readonly type: 'error'; readonly error: string }
+
+// ---------------------------------------------------------------------------
+// Loopback TCP — publish a service without moving it out of the sandbox
+// ---------------------------------------------------------------------------
+
+export interface TcpConnectRequest {
+	readonly host: '127.0.0.1' | '::1'
+	readonly port: number
+}
+
+export type TcpInputEvent =
+	| { readonly type: 'data'; readonly data: string }
+	| { readonly type: 'end' }
+	| { readonly type: 'destroy' }
+
+export type TcpOutputEvent =
+	| { readonly type: 'ready' }
+	| { readonly type: 'data'; readonly data: string }
+	| { readonly type: 'end' }
+	| { readonly type: 'error'; readonly error: string }
+
 /** `/read-file` response. `content` is base64 on success. */
 export interface ReadFileResponse {
 	readonly ok: boolean

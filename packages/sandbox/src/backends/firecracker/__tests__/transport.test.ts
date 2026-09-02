@@ -246,6 +246,38 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		expect(await transport.healthz()).toBe(true)
 	})
 
+	it('forwards a bidirectional guest-loopback TCP stream', async () => {
+		server = await startAgentServer(agent.handleConnection)
+		const upstream = createServer((socket) => {
+			socket.once('data', (chunk) => socket.end(Buffer.concat([Buffer.from('reply:'), chunk])))
+		})
+		await new Promise<void>((resolve, reject) => {
+			upstream.once('error', reject)
+			upstream.listen(0, '127.0.0.1', resolve)
+		})
+		try {
+			const address = upstream.address()
+			if (!address || typeof address === 'string') throw new Error('missing TCP test address')
+			const transport = new VsockAgentTransport({
+				kind: 'unix',
+				path: sockPath,
+			})
+			const connection = await transport.openTcpConnection({
+				port: address.port,
+			})
+			let output = ''
+			const dispose = connection.onData((chunk) => {
+				output += Buffer.from(chunk).toString('utf8')
+			})
+			expect(connection.write('hello')).toBe(true)
+			await expect(connection.closed).resolves.toBeUndefined()
+			expect(output).toBe('reply:hello')
+			dispose()
+		} finally {
+			await new Promise<void>((resolve) => upstream.close(() => resolve()))
+		}
+	})
+
 	it('fits a connected peer that never replies inside the readiness deadline', async () => {
 		let peerClosed = false
 		server = createServer((socket) => {
@@ -478,6 +510,42 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		await expect(transport.readFile('x')).rejects.toThrow(/could not connect to agent/)
 	})
 })
+
+describe.skipIf(process.platform !== 'linux')(
+	'VsockAgentTransport guest PTY over a unix-socket loopback agent',
+	() => {
+		it('provides a real TTY with ordered input, resize, output, and exit', async () => {
+			server = await startAgentServer(agent.handleConnection)
+			const transport = new VsockAgentTransport({
+				kind: 'unix',
+				path: sockPath,
+			})
+			const terminal = await transport.openTerminal({
+				command: '/bin/sh',
+				args: ['-l'],
+				cwd: workDir,
+				size: { cols: 101, rows: 31 },
+			})
+			let output = ''
+			const unsubscribe = terminal.onData((chunk) => {
+				output += chunk
+			})
+
+			terminal.write(
+				'if [ -t 0 ] && [ -t 1 ]; then echo __REAL_PTY__; else echo __NOT_A_PTY__; fi; stty size\n',
+			)
+			await vi.waitFor(() => expect(output).toContain('__REAL_PTY__'))
+			await vi.waitFor(() => expect(output).toContain('31 101'))
+
+			terminal.resize({ cols: 120, rows: 40 })
+			terminal.write('sleep 0.1; stty size; echo __RESIZED__; exit 7\n')
+			await vi.waitFor(() => expect(output).toContain('__RESIZED__'))
+			await vi.waitFor(() => expect(output).toContain('40 120'))
+			await expect(terminal.exited).resolves.toMatchObject({ exitCode: 7 })
+			unsubscribe()
+		})
+	},
+)
 
 // ---------------------------------------------------------------------------
 // Ring-0 mTLS arm — pure-local TLS loopback "relay" (no Azure, no FC host)

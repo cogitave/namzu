@@ -6,8 +6,8 @@ type: Reference
 diataxis: reference
 owner: cogitave/namzu
 status: active
-timestamp: 2026-08-30T00:00:00Z
-lastReviewed: 2026-09-01
+timestamp: 2026-09-02T00:00:00Z
+lastReviewed: 2026-09-02
 resource: packages/sandbox/src/index.ts
 tags: [sandbox, isolation, reference]
 ---
@@ -623,10 +623,24 @@ under a shorter one.
 One separate gap remains, written down rather than implied away because it
 would otherwise look like a feature that works.
 
-`Sandbox.openTerminal` is not implemented by any backend in this package. The
-contract's rule is that a backend which cannot open a real pseudo-terminal must
-throw rather than hand back a pipe, and leaving the optional method absent is
-how that reads here.
+`Sandbox.openTerminal` and `Sandbox.openTcpConnection` are implemented only by
+the Firecracker backend. The terminal is a real guest-owned pseudo-terminal;
+input, output, resize, signal, and exit events travel over the agent transport,
+and sandbox teardown kills and awaits every open session before it releases the
+microVM. If the guest stops answering, the host severs the PTY transport after
+five seconds and proceeds with microVM reclamation rather than waiting forever.
+
+The TCP capability reaches guest loopback only: it validates a non-reserved
+port, connects to `127.0.0.1` inside the guest, and exposes a byte stream whose
+`write()` result plus `onDrain`, `pause`, and `resume` carry backpressure in
+both directions. It exists so a host can publish a development server from the
+same writable sandbox without creating a second checkout or granting the guest
+another external listener.
+
+Container, standby-pool, and local backends leave both optional methods absent.
+The contract's rule remains that a backend which cannot provide a real PTY or
+an owned loopback stream must omit the capability rather than substitute a pipe
+or host process.
 
 ## Exports
 
