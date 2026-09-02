@@ -212,6 +212,13 @@ export type AgentEvent =
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
 	  }
+	/**
+	 * The model thinking, for the live region only. `text` is a delta;
+	 * `done` marks the end of a block. Never a transcript row: reasoning is
+	 * ephemeral in the kernel's own transcript and is shown here for the
+	 * same reason a spinner is — so a long silence reads as work.
+	 */
+	| { readonly kind: 'reasoning'; readonly text: string; readonly done?: boolean }
 	| {
 			readonly kind: 'usage'
 			/** CUMULATIVE run spend. Grows every turn; never a context size. */
@@ -3017,6 +3024,14 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				...(event.messageId ? { messageId: event.messageId } : {}),
 				...(event.runId ? { runId: event.runId } : {}),
 			}
+		case 'reasoning_started':
+			// A redacted block has no text to show; the empty delta still says
+			// "thinking" so the region does not sit silent for its duration.
+			return { kind: 'reasoning', text: '' }
+		case 'reasoning_delta':
+			return { kind: 'reasoning', text: event.text }
+		case 'reasoning_completed':
+			return { kind: 'reasoning', text: '', done: true }
 		case 'tool_executing':
 			return {
 				kind: 'tool-start',

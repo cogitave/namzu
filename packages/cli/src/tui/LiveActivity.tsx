@@ -32,6 +32,12 @@ export interface LiveActivityProps {
 	readonly interruptible?: boolean
 	/** False for non-interactive renderers and deterministic snapshots. */
 	readonly animate?: boolean
+	/**
+	 * The model's current line of reasoning, or `null`. Shown dim under the
+	 * Working row and nowhere else; an empty string means "thinking, but the
+	 * provider gave no readable text" and still earns the row.
+	 */
+	readonly thinking?: string | null
 }
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
@@ -43,6 +49,7 @@ export function LiveActivity({
 	agentCount = 0,
 	interruptible = false,
 	animate = true,
+	thinking = null,
 }: LiveActivityProps) {
 	const active = activeTools.length > 0 || working
 	const startedAtRef = useRef<number | null>(null)
@@ -100,6 +107,13 @@ export function LiveActivity({
 			{hiddenTools > 0 ? (
 				<Box paddingLeft={2}>
 					<Text color={theme.text.muted}>└ +{hiddenTools} more tools</Text>
+				</Box>
+			) : null}
+			{thinking !== null && activeTools.length === 0 ? (
+				<Box paddingLeft={2}>
+					<Text color={theme.text.muted} wrap="truncate-end">
+						└ thinking{thinking.length > 0 ? ` · ${terminalDisplayText(thinking)}` : '…'}
+					</Text>
 				</Box>
 			) : null}
 		</Box>

@@ -240,6 +240,19 @@ export interface SlashContext {
 	readonly usage: {
 		readonly totalTokens: number
 		readonly cost: CostInfo
+		/**
+		 * How full the context is, when the run knows: the numerator and the
+		 * window with their provenance, from the `usage` event. Absent when
+		 * the run resolved no window. Printed here, on request, rather than in
+		 * the footer — the persistent gauge was removed on purpose for a
+		 * quieter frame, and `/cost` is where a person asks.
+		 */
+		readonly context?: {
+			readonly tokens: number
+			readonly windowTokens: number
+			readonly measured: boolean
+			readonly windowAssumed: boolean
+		}
 	} | null
 	/** What decides a tool call right now — flags, config, and session state. */
 	readonly permissions: {
@@ -1048,6 +1061,24 @@ export function renderCost(usage: SlashContext['usage']): string {
 		'the context is — that is a different quantity and it goes down when the',
 		'conversation is compacted, while this only ever grows.',
 	)
+
+	// The other quantity, when the run has it. Each term with its provenance,
+	// because a ratio is only as sound as the weaker of its terms and a bare
+	// `42%` over an assumed window would be a measurement nobody made.
+	const context = usage.context
+	if (context && context.windowTokens > 0) {
+		const percent = Math.min(999, Math.round((context.tokens / context.windowTokens) * 100))
+		const approx = context.measured && !context.windowAssumed ? '' : '~'
+		lines.push(
+			'',
+			`Context: ${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')} tokens (${approx}${percent}%)`,
+			`${context.measured ? 'Counted by the provider' : 'Estimated on this side'}; window ${
+				context.windowAssumed
+					? 'assumed from a table or default'
+					: 'declared by the provider or config'
+			}. Automatic compaction runs at 70%.`,
+		)
+	}
 	return lines.join('\n')
 }
 

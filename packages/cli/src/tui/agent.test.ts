@@ -635,3 +635,29 @@ describe('isPromptExempt and the network', () => {
 		expect(isPromptExempt(registry, 'web_fetch', { url: 'https://example.com' })).toBe(false)
 	})
 })
+
+describe('toAgentEvent and reasoning', () => {
+	const base = { runId: 'run_r', iteration: 1, messageId: 'msg_r', blockIndex: 0 }
+	it('maps a reasoning delta to a live-region event and the block end to done', () => {
+		expect(
+			toAgentEvent(
+				{ type: 'reasoning_delta', ...base, text: 'weighing the options' } as never,
+				presenter,
+			),
+		).toEqual({ kind: 'reasoning', text: 'weighing the options' })
+		expect(toAgentEvent({ type: 'reasoning_completed', ...base } as never, presenter)).toEqual({
+			kind: 'reasoning',
+			text: '',
+			done: true,
+		})
+	})
+
+	it('still says thinking for a redacted block that carries no text', () => {
+		expect(
+			toAgentEvent(
+				{ type: 'reasoning_started', ...base, reasoningType: 'redacted_thinking' } as never,
+				presenter,
+			),
+		).toEqual({ kind: 'reasoning', text: '' })
+	})
+})

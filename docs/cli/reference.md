@@ -103,6 +103,15 @@ something you point at a real repository:
   paragraph that is taking longer than a quarter of a second is released to
   its last sentence or line end instead, never mid-word and never inside a
   code fence, so a long answer reads as writing rather than as silence.
+  While the model reasons, its current line is shown dim under the Working
+  row (`└ thinking · …`, or `└ thinking…` for a provider that keeps its
+  reasoning redacted) and is gone the moment the reply or a tool call begins;
+  reasoning never becomes a transcript row, because the run keeps no such
+  record either. How full the context is stays out of the footer on purpose
+  — the persistent gauge was removed for a quieter frame — and is printed by
+  `/cost` when asked: `Context: 54,000 / 128,000 tokens (42%)`, each term
+  with its provenance, a `~` marking an estimated count or an assumed window,
+  and nothing at all when the run resolved no window to measure against.
 - **It connects the tool servers you declare.** Each server's tools arrive
   prefixed with its name (`mcp_tickets_create`), so two servers offering `search`
   do not collide. A server that fails to start is named with its reason: the

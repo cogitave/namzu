@@ -10,6 +10,7 @@ import {
 	mergeHostCommands,
 	parseSlash,
 	renderAgents,
+	renderCost,
 	renderPermissions,
 	runSlash,
 } from './slashCommands.js'
@@ -990,5 +991,33 @@ describe('/skills', () => {
 			kind: 'load-skill',
 			name: 'release-check',
 		})
+	})
+})
+
+describe('/cost and the context', () => {
+	const cost = { totalCost: 0.05, unpricedTokens: 0 } as never
+	it('prints how full the context is, with the provenance of both terms', () => {
+		const text = renderCost({
+			totalTokens: 12_345,
+			cost,
+			context: { tokens: 54_000, windowTokens: 128_000, measured: true, windowAssumed: false },
+		})
+		expect(text).toContain('Context: 54,000 / 128,000 tokens (42%)')
+		expect(text).toContain('Counted by the provider; window declared by the provider or config')
+	})
+
+	it('marks an estimate as an estimate', () => {
+		const text = renderCost({
+			totalTokens: 12_345,
+			cost,
+			context: { tokens: 54_000, windowTokens: 128_000, measured: false, windowAssumed: true },
+		})
+		expect(text).toContain('(~42%)')
+		expect(text).toContain('Estimated on this side; window assumed from a table or default')
+	})
+
+	it('says nothing about the context when the run resolved no window', () => {
+		const text = renderCost({ totalTokens: 12_345, cost })
+		expect(text).not.toContain('Context:')
 	})
 })

@@ -55,3 +55,37 @@ describe('the redrawable Working region', () => {
 		}
 	})
 })
+
+describe('the thinking row', () => {
+	it('shows the current line of reasoning under Working, dim, and only while no tool runs', () => {
+		const thinking = render(
+			<LiveActivity activeTools={[]} working animate={false} thinking="weighing the options" />,
+		)
+		try {
+			expect(thinking.lastFrame() ?? '').toContain('└ thinking · weighing the options')
+		} finally {
+			thinking.unmount()
+		}
+
+		const redacted = render(<LiveActivity activeTools={[]} working animate={false} thinking="" />)
+		try {
+			expect(redacted.lastFrame() ?? '').toContain('└ thinking…')
+		} finally {
+			redacted.unmount()
+		}
+
+		const busy = render(
+			<LiveActivity
+				activeTools={[{ id: 't', label: 'bash(ls)', startedAt: Date.now() }]}
+				working
+				animate={false}
+				thinking="stale"
+			/>,
+		)
+		try {
+			expect(busy.lastFrame() ?? '').not.toContain('thinking')
+		} finally {
+			busy.unmount()
+		}
+	})
+})

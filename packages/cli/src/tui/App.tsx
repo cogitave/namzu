@@ -788,7 +788,25 @@ export function App({
 	const [usage, setUsage] = useState<{
 		totalTokens: number
 		cost: CostInfo
+		/**
+		 * See the `usage` event: absent when the run resolved no window. Read
+		 * by `/cost`, not by the footer — the persistent gauge was removed on
+		 * purpose (iteration 168) and the compaction tests pin its absence.
+		 */
+		context?: {
+			tokens: number
+			windowTokens: number
+			measured: boolean
+			windowAssumed: boolean
+		}
 	} | null>(null)
+	/**
+	 * The model's current reasoning, last line only, for the live region.
+	 * Never appended to a message: the kernel keeps reasoning out of its
+	 * own transcript, and this exists so a long think reads as work rather
+	 * than as silence. Cleared by the first text or tool call that follows.
+	 */
+	const [thinking, setThinking] = useState<string | null>(null)
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly RunningTool[]>([])
@@ -3464,6 +3482,7 @@ export function App({
 					// turn: the wait before the first token is the model's, and
 					// counting it would release the opening sentence on arrival.
 					st.releasedAt ??= Date.now()
+					setThinking(null)
 					st.text += event.text
 					// Held, not appended. Appending each delta is what produced text
 					// that types itself out — nothing animates it, but a few
@@ -3492,6 +3511,7 @@ export function App({
 				}
 				case 'tool-start': {
 					closeAssistant()
+					setThinking(null)
 					setState('tool')
 					const tool: RunningTool = {
 						id: event.toolUseId,
@@ -3591,8 +3611,34 @@ export function App({
 					break
 				}
 				case 'usage':
-					setUsage({ totalTokens: event.totalTokens, cost: event.cost })
+					setUsage({
+						totalTokens: event.totalTokens,
+						cost: event.cost,
+						...(event.contextTokens !== undefined && event.contextWindowTokens !== undefined
+							? {
+									context: {
+										tokens: event.contextTokens,
+										windowTokens: event.contextWindowTokens,
+										measured: event.contextMeasuredBy === 'provider',
+										windowAssumed:
+											event.windowSource !== 'provider' && event.windowSource !== 'config',
+									},
+								}
+							: {}),
+					})
 					break
+				case 'reasoning': {
+					if (event.done) break
+					setState('thinking')
+					// The last line only, bounded: a screen-wide row that changes as
+					// the model writes is a spinner with words, not a transcript.
+					setThinking((prev) => {
+						const joined = `${prev ?? ''}${event.text}`
+						const lastLine = joined.slice(joined.lastIndexOf('\n') + 1)
+						return lastLine.length > 160 ? `…${lastLine.slice(-159)}` : lastLine
+					})
+					break
+				}
 				case 'task': {
 					// The live list gets every change; the transcript records the
 					// opening and the close, as it did before the list existed.
@@ -5986,6 +6032,7 @@ export function App({
 								working={state === 'thinking' || state === 'tool'}
 								interruptible={abortRef.current !== null}
 								animate={stdout.isTTY === true}
+								thinking={thinking}
 							/>
 						) : null}
 						{/* The plan for this request, kept current as the model works.
