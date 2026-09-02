@@ -6182,7 +6182,12 @@ function Banner({
 					<Text color={theme.text.secondary}>
 						{provider ? `${provider}${model ? ` · ${model}` : ''}` : 'the agent in your terminal'}
 					</Text>
-					<Text color={theme.text.muted}>{prettyCwd}</Text>
+					{/* A long path is cut at its START, the way the status bar cuts it:
+					    the end of a path is the part that says where you are, and a
+					    wrapped path breaks mid-word across the wordmark's rows. */}
+					<Text color={theme.text.muted} wrap="truncate-start">
+						{prettyCwd}
+					</Text>
 				</Box>
 			</Box>
 			{permissionMode === 'auto' ? (
