@@ -89,6 +89,18 @@ describe('shellHookVerdict', () => {
 	const entry = { command: 'x' }
 	const ok = { exitCode: 0, timedOut: false, stdout: '', stderr: '' }
 
+	it('kills what the hook started, not only the shell, so a survivor cannot hold the outcome', async () => {
+		// `sleep 5 &` is a grandchild holding stdout. Killing only the shell
+		// would leave the pipe open and this would take five seconds.
+		const startedAt = Date.now()
+		const outcome = await runShellHook(
+			{ command: 'sleep 5 & wait', timeoutMs: 150 },
+			{ event: 'run_start', cwd: process.cwd(), runId: 'run_test' },
+		)
+		expect(outcome.timedOut).toBe(true)
+		expect(Date.now() - startedAt).toBeLessThan(3000)
+	})
+
 	it('carries on for 0', () => {
 		expect(shellHookVerdict('pre_tool_use', entry, ok)).toEqual({ action: 'continue' })
 	})

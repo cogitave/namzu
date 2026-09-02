@@ -166,6 +166,13 @@ export function runShellHook(
 					...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
 				},
 				stdio: ['pipe', 'pipe', 'pipe'],
+				// Its own process group, so the deadline can kill everything the
+				// command started. `sh -c 'sleep 5'` is one process under a shell
+				// that execs its last command and two under one that forks it;
+				// killing only the shell in the second case leaves `sleep` holding
+				// the stdout pipe, and the outcome cannot settle until it exits on
+				// its own — the hook's deadline becomes the grandchild's.
+				detached: process.platform !== 'win32',
 			})
 		} catch (error) {
 			resolve({
@@ -198,17 +205,37 @@ export function runShellHook(
 			signal?.removeEventListener('abort', onAbort)
 			resolve(outcome)
 		}
+		const killTree = () => {
+			if (child.pid !== undefined && process.platform !== 'win32') {
+				try {
+					process.kill(-child.pid, 'SIGKILL')
+					return
+				} catch {
+					// The group is already gone, or this platform has no groups;
+					// the child alone is the best that can be done.
+				}
+			}
+			child.kill('SIGKILL')
+		}
 		const timer = setTimeout(() => {
 			timedOut = true
-			child.kill('SIGKILL')
+			killTree()
 		}, timeoutMs)
-		const onAbort = () => child.kill('SIGKILL')
+		const onAbort = () => killTree()
 		signal?.addEventListener('abort', onAbort, { once: true })
 		child.on('error', (error) => {
 			finish({ exitCode: null, timedOut, stdout, stderr, spawnError: error.message })
 		})
 		child.on('close', (code) => {
 			finish({ exitCode: code, timedOut, stdout, stderr })
+		})
+		child.on('exit', () => {
+			// After a kill, a survivor that still holds the pipes must not hold
+			// the outcome: drop our ends so `close` follows `exit` promptly.
+			if (timedOut || signal?.aborted) {
+				child.stdout?.destroy()
+				child.stderr?.destroy()
+			}
 		})
 		child.stdin?.on('error', () => {
 			// A hook that never reads stdin closes it; that is not a failure.
