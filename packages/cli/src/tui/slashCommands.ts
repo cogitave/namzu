@@ -96,6 +96,8 @@ export type SlashAction =
 	 * writes it into a new session before anything on screen changes.
 	 */
 	| { kind: 'fork' }
+	/** List file checkpoints, or put the tree back to before turn `turn`. */
+	| { kind: 'restore'; turn?: number }
 	/**
 	 * Shrink the conversation now, rather than when a threshold decides.
 	 *
@@ -645,6 +647,24 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'fork',
 		description: 'Continue in a copy of this conversation, leaving the original where it is.',
 		action: () => ({ kind: 'fork' }),
+	},
+	{
+		name: 'restore',
+		description:
+			'Put files back to before a turn: /restore lists the checkpoints, /restore N restores.',
+		action: (_ctx, args) => {
+			const raw = args[0]?.trim()
+			if (!raw) return { kind: 'restore' }
+			const turn = Number.parseInt(raw, 10)
+			if (!Number.isInteger(turn) || turn < 1 || String(turn) !== raw) {
+				return {
+					kind: 'message',
+					role: 'system',
+					content: `/restore takes a turn number from the list: /restore 3. Not: ${raw}`,
+				}
+			}
+			return { kind: 'restore', turn }
+		},
 	},
 	{
 		name: 'memory',

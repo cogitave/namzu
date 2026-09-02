@@ -202,6 +202,7 @@ import {
 	runShellEscape,
 	shellEscapeCommand,
 } from './shell-escape.js'
+import { renderCheckpoints, renderRestore } from '../checkpoints/store.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { useSelectionIndex } from './use-selection-index.js'
@@ -831,7 +832,7 @@ export function App({
 		if (operatorShellRef.current.length === 0) return undefined
 		const blocks = operatorShellRef.current
 		operatorShellRef.current = []
-		return `Commands the operator ran in their own shell since your last turn, with their output:\n\n${blocks.join('\n\n')}`
+		return `What the operator did outside you since your last turn — commands they ran in their own shell, files they put back — with the output:\n\n${blocks.join('\n\n')}`
 	}
 	useEffect(() => {
 		if (!session?.onJobExit) return
@@ -3377,6 +3378,36 @@ export function App({
 		setPhase('edit')
 	}, [hasUnsettledTurn, messages, pushMessage, state])
 
+	/** `/restore`: list the file checkpoints, or put the tree back to before a turn. */
+	const doRestore = useCallback(
+		async (turn: number | undefined) => {
+			const store = session?.checkpoints
+			if (!store) {
+				pushMessage('system', 'This session keeps no file checkpoints.')
+				return
+			}
+			if (turn === undefined) {
+				pushMessage('system', renderCheckpoints(store.list(), ctxRef.current.cwd))
+				return
+			}
+			if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
+				pushMessage('system', 'A turn is still running. Wait for it, or interrupt it, before restoring files.')
+				return
+			}
+			try {
+				const report = await store.restore(turn)
+				const text = renderRestore(report, ctxRef.current.cwd)
+				pushMessage('system', text)
+				// The model's picture of those files is now wrong; it reads
+				// this before its next turn.
+				operatorShellRef.current.push(`/restore ${turn}\n${text}`)
+			} catch (err) {
+				pushMessage('system', err instanceof Error ? err.message : String(err))
+			}
+		},
+		[hasUnsettledTurn, pushMessage, session, state],
+	)
+
 	/** Fork before the selected prompt, then reopen that prompt in the composer. */
 	const confirmPromptEdit = useCallback(
 		async (target: EditablePrompt) => {
@@ -4738,6 +4769,9 @@ export function App({
 						return
 					case 'fork':
 						void doFork()
+						return
+					case 'restore':
+						void doRestore(slash.turn)
 						return
 					case 'prompt':
 						// Deliberately does NOT return: the composed text falls

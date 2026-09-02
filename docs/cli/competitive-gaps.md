@@ -45,7 +45,7 @@ Surveyed on 2026-09-02 against the published feature sets of Claude Code,[^cc-re
 | `/add-dir` — more than one directory in a session | Claude Code, Gemini | sandbox mounts and authorization scope for a second root | backlog |
 | `/hooks`, `/agents`, `/config`, `/release-notes` | Claude Code | listing commands over state the session already has | `/hooks` and `/release-notes` done; `/agents` was already the kernel's; `/status` already answers what `/config` would |
 | Output styles | Claude Code | a prompt contribution per style | backlog, low |
-| File checkpoints and rollback of edits | Gemini | snapshot before a write, `/restore` | backlog |
+| File checkpoints and rollback of edits | Gemini | snapshot before a write, `/restore` | done — tool writes only; shell and sub-agent writes are not covered |
 | Session share links, desktop app | OpenCode | out of scope for a terminal-first kernel | no |
 | Vim keybindings | Claude Code, Codex | a composer mode | backlog, low |
 

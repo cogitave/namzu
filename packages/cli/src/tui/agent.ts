@@ -104,6 +104,8 @@ import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve } from 'node:path'
+import { FileCheckpointStore } from '../checkpoints/store.js'
+import { CHECKPOINTED_TOOLS, withCheckpoints } from '../checkpoints/wrap.js'
 import type {
 	CompactionCliConfig,
 	HooksConfig,
@@ -527,6 +529,8 @@ export interface AgentSession {
 	readonly jobs?: () => readonly BackgroundJob[]
 	/** The shell hooks this session runs, by event; what `/hooks` lists. */
 	readonly hooks?: HooksConfig
+	/** Files as they were before each turn's writes; what `/restore` uses. */
+	readonly checkpoints?: FileCheckpointStore
 	/** Be told when one of this session's jobs ends, whether or not a turn is running. */
 	readonly onJobExit?: (listener: (job: BackgroundJob) => void) => () => void
 	/**
@@ -1083,9 +1087,21 @@ function buildToolRegistry(
 	cwd: string,
 	projectStateRoot = join(cwd, '.namzu'),
 	backgroundJobs = true,
+	checkpoints?: FileCheckpointStore,
 ): BuiltTools {
 	const registry = new ToolRegistry()
 	registry.register(builtinTools(backgroundJobs))
+	// The file tools take a checkpoint before they write, so `/restore` can
+	// put the tree back. Only the session's own registry: a sub-agent's
+	// writes are not checkpointed yet, and the page says so.
+	if (checkpoints) {
+		for (const name of CHECKPOINTED_TOOLS) {
+			const tool = registry.get(name)
+			if (!tool) continue
+			registry.unregister(name)
+			registry.register(withCheckpoints(tool, checkpoints))
+		}
+	}
 	// SDK memory: the agent gets search_memory / read_memory / save_memory over
 	// a structured store in this Project's generated-state directory. CLI
 	// surfaces inject the central application-home hierarchy; embedded callers
@@ -1579,7 +1595,16 @@ export async function createAgentSession(
 	// runs on the host and must not sit beside a sandbox in one tool context.
 	const jobRegistry = backgroundJobs ? new BackgroundJobRegistry() : undefined
 	const jobOwner = scope.sessionId
-	const { registry, memoryStore } = buildToolRegistry(cwd, projectStateRoot, backgroundJobs)
+	const checkpoints = new FileCheckpointStore(
+		join(ensurePrivateStateDirectory(projectStateRoot, 'checkpoints'), scope.sessionId),
+		cwd,
+	)
+	const { registry, memoryStore } = buildToolRegistry(
+		cwd,
+		projectStateRoot,
+		backgroundJobs,
+		checkpoints,
+	)
 	// Package presence is not tool reachability. The CLI used to probe and
 	// report @namzu/computer-use without ever constructing its host or mounting
 	// SDK's computer_use definition, so even an installed, healthy package was
@@ -1912,6 +1937,7 @@ export async function createAgentSession(
 			mcp.close(),
 			computerUseHost?.dispose(),
 			jobRegistry?.killOwner(jobOwner),
+			checkpoints.close(),
 		])
 		const failures = results
 			.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
@@ -1984,6 +2010,7 @@ export async function createAgentSession(
 		agentIds: allowedAgentIds,
 		jobs: () => jobRegistry?.list(jobOwner) ?? [],
 		...(options.hooks ? { hooks: options.hooks } : {}),
+		checkpoints,
 		onJobExit: (listener) =>
 			jobRegistry?.onExit((job) => {
 				if (job.owner === jobOwner) listener(job)
@@ -2098,6 +2125,7 @@ export async function createAgentSession(
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
 						await announceSessionStart()
+						checkpoints.beginTurn(lastUserText(messages))
 						let capturedAuthority: GoalRoundAuthority | undefined
 						if (opts?.goalRound) {
 							if (!opts.runId) throw new Error('A goal round requires a caller-reserved runId.')
@@ -2671,6 +2699,15 @@ export interface RunScope {
 	readonly topicId: TopicId
 	readonly projectId: ProjectId
 	readonly tenantId: TenantId
+}
+
+/** The newest user turn's text, for labels. */
+function lastUserText(messages: readonly Message[]): string {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]
+		if (m?.role === 'user' && typeof m.content === 'string') return m.content
+	}
+	return ''
 }
 
 /** One scope per launched TUI session; runId is minted fresh per turn by the SDK. */
