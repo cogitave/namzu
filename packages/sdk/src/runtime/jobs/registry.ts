@@ -57,11 +57,25 @@ export interface BackgroundJobOutput {
 	readonly exitCode?: number
 }
 
+/** A job's process, when something other than the registry starts it. */
+export interface JobProcess {
+	readonly child: ReturnType<typeof spawn>
+	/** How to stop it, when the registry's process-group kill would not reach everything. */
+	kill?(signal: NodeJS.Signals): void
+}
+
 export interface StartJobParams {
 	readonly owner: string
 	readonly command: string
 	readonly workingDirectory: string
 	readonly env?: Readonly<Record<string, string>>
+	/**
+	 * Start the process yourself — a sandbox does, so the job runs inside
+	 * its boundary. Absent, the registry runs `/bin/sh -c command` on the
+	 * host. The process must be the leader of its own group and must not
+	 * expect stdin.
+	 */
+	readonly spawn?: () => JobProcess
 }
 
 export interface BackgroundJobRegistryConfig {
@@ -106,6 +120,8 @@ export class UnknownBackgroundJobError extends Error {
 interface JobEntry {
 	record: BackgroundJob
 	child: ReturnType<typeof spawn>
+	/** The spawner's own kill, when it gave one. */
+	killProcess?: (signal: NodeJS.Signals) => void
 	/** Retained tail. */
 	buffer: string
 	/** Bytes produced in total, including the ones the cap dropped. */
@@ -188,15 +204,20 @@ export class BackgroundJobRegistry {
 		// started it, which makes the leak longer-lived, not smaller.
 		const inherited = scrubInheritedEnv()
 
-		const child = spawn('/bin/sh', ['-c', params.command], {
-			cwd: params.workingDirectory,
-			env: { ...inherited.env, ...params.env },
-			// Leader of its own process group, which is what `killTree` needs
-			// to reach the command and everything it forks rather than only the
-			// wrapping shell. See `process/kill-tree.ts`.
-			detached: process.platform !== 'win32',
-			stdio: ['ignore', 'pipe', 'pipe'],
-		})
+		const started = params.spawn
+			? params.spawn()
+			: {
+					child: spawn('/bin/sh', ['-c', params.command], {
+						cwd: params.workingDirectory,
+						env: { ...inherited.env, ...params.env },
+						// Leader of its own process group, which is what `killTree` needs
+						// to reach the command and everything it forks rather than only the
+						// wrapping shell. See `process/kill-tree.ts`.
+						detached: process.platform !== 'win32',
+						stdio: ['ignore', 'pipe', 'pipe'],
+					}),
+				}
+		const child = started.child
 		// Started, not adopted: this process stays the parent for the job's
 		// whole life. `unref` would let Node exit with the job still running,
 		// which is the orphan this registry exists to prevent.
@@ -212,6 +233,7 @@ export class BackgroundJobRegistry {
 				startedAt: Date.now(),
 			},
 			child,
+			...(started.kill ? { killProcess: started.kill.bind(started) } : {}),
 			buffer: '',
 			produced: 0,
 			exit: new Promise<void>((resolve) => {
@@ -326,8 +348,10 @@ export class BackgroundJobRegistry {
 		// tell a kill from an ordinary exit. Set it after and the race decides
 		// which of two different answers a reader gets.
 		entry.record = { ...entry.record, status: 'killed' }
-		killTree(entry.child, 'SIGTERM')
-		const grace = setTimeout(() => killTree(entry.child, 'SIGKILL'), SANDBOX_KILL_GRACE_MS)
+		const signal = (sig: NodeJS.Signals) =>
+			entry.killProcess ? entry.killProcess(sig) : killTree(entry.child, sig)
+		signal('SIGTERM')
+		const grace = setTimeout(() => signal('SIGKILL'), SANDBOX_KILL_GRACE_MS)
 		// Unreffed: a job that exits on SIGTERM must not hold the process open
 		// for the remaining grace period doing nothing.
 		grace.unref?.()
@@ -377,7 +401,16 @@ export class BackgroundJobRegistry {
 export function bindOwner(
 	registry: BackgroundJobRegistry,
 	owner: string,
-	defaults: { readonly workingDirectory?: string; readonly env?: Record<string, string> } = {},
+	defaults: {
+		readonly workingDirectory?: string
+		readonly env?: Record<string, string>
+		/** See `StartJobParams.spawn`; given the resolved command, directory and env. */
+		readonly spawn?: (params: {
+			readonly command: string
+			readonly workingDirectory: string
+			readonly env?: Record<string, string>
+		}) => JobProcess
+	} = {},
 ) {
 	const mine = (id: string): BackgroundJob => {
 		const job = registry.get(id)
@@ -385,13 +418,26 @@ export function bindOwner(
 		return job
 	}
 	return {
-		start: (params: { command: string; workingDirectory?: string }) =>
-			registry.start({
+		start: (params: { command: string; workingDirectory?: string }) => {
+			const workingDirectory = params.workingDirectory ?? defaults.workingDirectory ?? process.cwd()
+			const spawnHost = defaults.spawn
+			return registry.start({
 				owner,
 				command: params.command,
-				workingDirectory: params.workingDirectory ?? defaults.workingDirectory ?? process.cwd(),
+				workingDirectory,
 				...(defaults.env ? { env: defaults.env } : {}),
-			}),
+				...(spawnHost
+					? {
+							spawn: () =>
+								spawnHost({
+									command: params.command,
+									workingDirectory,
+									...(defaults.env ? { env: defaults.env } : {}),
+								}),
+						}
+					: {}),
+			})
+		},
 		get: (id: string) => mine(id),
 		read: (id: string, opts?: { fromOffset?: number }) => {
 			mine(id)

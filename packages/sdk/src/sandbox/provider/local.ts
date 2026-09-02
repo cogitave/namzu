@@ -25,18 +25,20 @@ import {
 // registry needs the same one, and a near-copy would reproduce in the copy
 // every bug the original's comment was written to record.
 import { killTree } from '../../process/kill-tree.js'
-import { resolveWithinAnyReal } from '../../tools/paths.js'
+import { resolveWithinAny, resolveWithinAnyReal } from '../../tools/paths.js'
 import type { SandboxId } from '../../types/ids/index.js'
 import type {
 	Sandbox,
 	SandboxCreateConfig,
 	SandboxDestroyOptions,
+	SandboxDetachedProcess,
 	SandboxEnvironment,
 	SandboxExecOptions,
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxIsolationControl,
 	SandboxProvider,
+	SandboxSpawnOptions,
 	SandboxStatus,
 } from '../../types/sandbox/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
@@ -796,6 +798,67 @@ class LocalSandbox implements Sandbox {
 	// -----------------------------------------------------------------------
 	// Private helpers
 	// -----------------------------------------------------------------------
+
+	spawnDetached(
+		command: string,
+		args: readonly string[] = [],
+		opts?: SandboxSpawnOptions,
+	): SandboxDetachedProcess {
+		if (this._status === 'destroyed') {
+			throw new Error(`Sandbox ${this.id} is destroyed`)
+		}
+		// Lexical containment for the cwd: the caller does not wait, so
+		// neither does this. The mounts are the same ones `exec` uses.
+		const cwd = opts?.cwd ? resolveWithinAny(this.roots, opts.cwd) : this.rootDir
+		const { spawnCommand, spawnArgs, bwrapInfoFd, bwrapBlockFd } = this.buildSpawnArgs(command, [
+			...args,
+		])
+		const env = buildSafeEnv(this.config.env, opts?.env)
+		const child = spawn(spawnCommand, spawnArgs, {
+			cwd,
+			env,
+			stdio:
+				bwrapInfoFd === undefined
+					? ['ignore', 'pipe', 'pipe']
+					: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
+			detached: process.platform !== 'win32',
+		})
+		let bwrapChildPid: number | undefined
+		let requested: NodeJS.Signals | undefined
+		// Same dance as `exec`: bwrap's inner reaper is in its own session, so
+		// a kill has to reach it by the pid the info fd reports, and a kill
+		// asked for before that pid is known is delivered when it arrives.
+		const bwrapInfo = bwrapInfoFd === undefined ? undefined : child.stdio[bwrapInfoFd]
+		const bwrapBlock = bwrapBlockFd === undefined ? undefined : child.stdio[bwrapBlockFd]
+		let bwrapInfoBuffer = ''
+		bwrapInfo?.on('data', (chunk: Buffer) => {
+			if (bwrapChildPid !== undefined) return
+			bwrapInfoBuffer += chunk.toString('utf8')
+			const observed = readBwrapChildPid(bwrapInfoBuffer)
+			if (observed === undefined) return
+			bwrapChildPid = observed
+			if (requested !== undefined) {
+				killTree(child, 'SIGKILL')
+				killBwrapChild(bwrapChildPid, 'SIGKILL')
+			} else if (bwrapBlock !== undefined && bwrapBlock !== null && 'end' in bwrapBlock) {
+				bwrapBlock.end(Buffer.from([1]))
+			}
+		})
+		this.log.debug('Detached process started', {
+			'namzu.sandbox.command': command,
+			'namzu.sandbox.args': args,
+			'namzu.execution.environment': this.environment,
+		})
+		return {
+			child,
+			kill: (signal) => {
+				requested = signal
+				if (bwrapBlockFd !== undefined && bwrapChildPid === undefined) return
+				killTree(child, signal)
+				killBwrapChild(bwrapChildPid, signal)
+			},
+		}
+	}
 
 	private buildSpawnArgs(
 		command: string,

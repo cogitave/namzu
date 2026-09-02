@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-02
+* **Update**: [Background jobs in the CLI](/cli/background-jobs.md) — jobs run inside the sandbox now: the local provider starts them detached under the same confinement, the registry keeps them.
 * **Creation**: [Adding a directory](/cli/add-dir.md) — `/add-dir`, `--add-dir`, `additionalDirectories`; the kernel's `query({ additionalDirectories })` reaches the tools and the sandbox.
 * **Creation**: [File checkpoints](/cli/file-checkpoints.md) — every file recorded before a tool changes it, per turn; `/restore N` puts the tree back.
 * **Creation**: [Slash commands](/cli/slash-commands.md) — every builtin and kernel command in one place; `/release-notes` is new.

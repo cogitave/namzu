@@ -1591,7 +1591,10 @@ export async function createAgentSession(
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.SANDBOX_RESOLVED,
 		'namzu.sandbox.unconfined': sandbox.unconfined,
 	})
-	const backgroundJobs = sandbox.provider === undefined
+	// Always built: the executor hands it to the tools only where it is
+	// safe — on the host, or inside a sandbox that can start a detached
+	// process — so a session under a sandbox that cannot simply has none.
+	const backgroundJobs = true
 	// One registry per session, and jobs bound to the SESSION: a dev server
 	// started in one turn is still there in the next, and the kernel tells
 	// the model when a job ends. Stopped when the session closes, below.

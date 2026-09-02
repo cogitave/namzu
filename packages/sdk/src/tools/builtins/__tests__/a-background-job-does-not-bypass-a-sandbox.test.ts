@@ -3,10 +3,9 @@ import { expect, it, vi } from 'vitest'
 import type { RunId, SandboxId } from '../../../types/ids/index.js'
 import type { Sandbox } from '../../../types/sandbox/index.js'
 import type { BackgroundJobRegistryRef, ToolContext } from '../../../types/tool/index.js'
-import { BashTool } from '../bash.js'
+import { BashTool, SANDBOX_CANNOT_DETACH } from '../bash.js'
 
-const REFUSAL =
-	'run_in_background is unavailable while a sandbox is active because the host background-job registry cannot preserve that sandbox boundary. Run the command in the foreground, or use a sandbox-aware persistent-process capability.'
+const REFUSAL = SANDBOX_CANNOT_DETACH
 
 function sandbox(): Sandbox {
 	return {

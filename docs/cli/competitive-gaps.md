@@ -37,7 +37,7 @@ Surveyed on 2026-09-02 against the published feature sets of `Claude Code`,[^cc-
 | Gap | Who has it | Cost to close | Status |
 | --- | --- | --- | --- |
 | Background jobs that survive a turn and *notify* the model when they finish | `Claude Code` (`run_in_background` + completion notices), `Gemini` | kernel: owner lifetime, exit subscription, event + notice; CLI: registry per session, `/jobs`, transcript row | done |
-| Background jobs inside the sandbox | `Claude Code` | a sandbox execution seam for persistent processes; no built-in backend has one | backlog |
+| Background jobs inside the sandbox | `Claude Code` | a sandbox execution seam for persistent processes; no built-in backend has one | done — `Sandbox.spawnDetached`, implemented by the local provider |
 | `!command` — run a shell command from the composer without the model | `Claude Code` | composer prefix, transcript row, no model call | done |
 | `#note` — add to memory from the composer | `Claude Code` | composer prefix over `save_memory` | done |
 | `Esc Esc` — pop back to an earlier turn | `Claude Code` | key binding over the existing edit-previous picker | already there: a second empty Esc opens the prompt picker; picking forks before that prompt and reopens it |
@@ -51,11 +51,13 @@ Surveyed on 2026-09-02 against the published feature sets of `Claude Code`,[^cc-
 
 # Order
 
-1. Background jobs done right — the one gap that changes what a long task can be.
-2. `!` and `#` in the composer — the two daily conveniences.
-3. Hook events to parity.
-4. `Esc Esc`, `/hooks`, `/agents`, `/release-notes`.
-5. `/add-dir` and file checkpoints, each its own design.
+1. Background jobs done right — the one gap that changes what a long task can be. Done, outside the sandbox.
+2. `!` and `#` in the composer — the two daily conveniences. Done.
+3. Hook events to parity. Done.
+4. `Esc Esc`, `/hooks`, `/agents`, `/release-notes`. Done.
+5. `/add-dir` and file checkpoints, each its own design. Done.
+6. Background jobs inside the sandbox — the seam the first item left open. Done.
+7. Output styles and vim keys, when someone asks.
 
 [^cc-ref]: `Claude Code` features and settings reference 2026
 [^peer-c-guide]: `Codex CLI` guide 2026

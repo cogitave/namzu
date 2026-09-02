@@ -206,12 +206,38 @@ export interface SandboxNetworkPolicy {
 	readonly allowedHosts: readonly string[]
 }
 
+/** A process the sandbox started and does not wait for; see `Sandbox.spawnDetached`. */
+export interface SandboxDetachedProcess {
+	/** The wrapper process. Its stdout and stderr are pipes the caller reads; stdin is closed. */
+	readonly child: import('node:child_process').ChildProcess
+	/** Signal everything the sandbox started for this process, inside the boundary and out. */
+	kill(signal: NodeJS.Signals): void
+}
+
+export interface SandboxSpawnOptions {
+	readonly cwd?: string
+	readonly env?: Record<string, string>
+}
+
 export interface Sandbox {
 	readonly id: SandboxId
 	readonly status: SandboxStatus
 	readonly rootDir: string
 	readonly environment: SandboxEnvironment
 	exec(command: string, args?: string[], opts?: SandboxExecOptions): Promise<SandboxExecResult>
+
+	/**
+	 * Start a process inside the boundary and hand it back running, for a
+	 * host that keeps long-lived processes — a background job registry.
+	 * The same confinement as `exec`; the difference is who waits. A
+	 * provider without this cannot host background jobs, and the tools
+	 * say so rather than running the job on the host.
+	 */
+	spawnDetached?(
+		command: string,
+		args?: readonly string[],
+		opts?: SandboxSpawnOptions,
+	): SandboxDetachedProcess
 
 	/**
 	 * Narrow or widen what this sandbox can reach, while it is running.

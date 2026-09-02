@@ -92,6 +92,10 @@ function isDangerousCommand(command: string): boolean {
 	return DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))
 }
 
+/** The refusal when a sandbox cannot host a detached process; exported so the test states the same words. */
+export const SANDBOX_CANNOT_DETACH =
+	'run_in_background is unavailable: this sandbox cannot start a detached process, and the job will not be run on the host to get around it. Run the command in the foreground, or raise `timeout` up to the tool maximum.'
+
 export const BashTool = defineTool({
 	name: 'bash',
 	description:
@@ -123,21 +127,16 @@ export const BashTool = defineTool({
 		}
 
 		if (input.run_in_background) {
-			// The current registry owns a host process. Foreground execution,
-			// however, goes through `context.sandbox.exec()` below. Treating the
-			// same command as host work just because `run_in_background` changed
-			// would make that boolean an escape hatch from the configured boundary.
-			//
-			// Query-built contexts structurally withhold the registry in this
-			// composition. This explicit check also protects direct tool callers
-			// and says why the capability is absent instead of misdiagnosing the
-			// host as having configured no registry.
-			if (context.sandbox) {
+			// A sandboxed run gets a registry only when its sandbox can start a
+			// detached process inside the boundary (`Sandbox.spawnDetached`);
+			// the executor withholds it otherwise. This check is for direct
+			// tool callers, who could hand a host registry and a sandbox to the
+			// same context: the boolean is never an escape from the boundary.
+			if (context.sandbox && context.sandbox.spawnDetached === undefined) {
 				return {
 					success: false,
 					output: '',
-					error:
-						'run_in_background is unavailable while a sandbox is active because the host background-job registry cannot preserve that sandbox boundary. Run the command in the foreground, or use a sandbox-aware persistent-process capability.',
+					error: SANDBOX_CANNOT_DETACH,
 				}
 			}
 			// Refused, not degraded to `cmd &`. The fallback is not a lesser

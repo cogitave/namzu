@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Background jobs in the CLI
-description: How a command started with run_in_background outlives its turn, how the model and the operator learn that it ended, what /jobs shows, and why a sandboxed session has none.
+description: How a command started with run_in_background outlives its turn, how the model and the operator learn that it ended, what /jobs shows, and how a job runs inside the sandbox.
 resource: packages/cli/src/tui/agent.ts
 tags: [cli, jobs, shell]
 status: stable
@@ -27,4 +27,4 @@ Jobs belong to the **session**, not the turn: a server started in one turn is st
 
 # Under a sandbox
 
-None can start. The registry runs processes on the host, and the kernel refuses to seat a host process capability beside a sandbox in one tool context: a tool that could reach both could start a process outside the boundary its foreground work is confined to. A session with the sandbox on does not register the `job` tool, and `run_in_background` is refused with that reason. A sandbox-native job seam is on the backlog in [Where the CLI stands against its peers](competitive-gaps.md).
+A job runs inside the boundary. The sandbox starts the process itself — the local provider does, under the same bwrap or seatbelt confinement, mounts and environment the foreground command gets — and the registry only keeps it: output, lifetime, ownership, and a stop that reaches bwrap's inner reaper. The kernel never runs a job on the host to get around a sandbox: a sandbox that cannot start a detached process has no registry in its tool context, and `run_in_background` says which case it is in rather than blaming the host.

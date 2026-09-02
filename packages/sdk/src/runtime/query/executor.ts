@@ -47,7 +47,7 @@ import { toErrorMessage } from '../../utils/error.js'
 import { generateToolCallId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
-import { type BackgroundJobRegistry, bindOwner } from '../jobs/registry.js'
+import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
 import type { ToolResultObservation } from './project-instructions.js'
 import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
@@ -1231,7 +1231,12 @@ export class ToolExecutor {
 			// that its foreground work would use. A sandbox-aware persistent
 			// process capability needs its own execution seam; until one exists,
 			// the safe composition is to withhold this host capability entirely.
-			...(this.config.backgroundJobs && !this.config.sandbox
+			//
+			// That seam now exists: a sandbox that can `spawnDetached` starts
+			// the job inside its boundary, and the registry only keeps it. A
+			// sandbox without it still withholds the capability.
+			...(this.config.backgroundJobs &&
+			(!this.config.sandbox || this.config.sandbox.spawnDetached !== undefined)
 				? {
 						backgroundJobs: bindOwner(
 							this.config.backgroundJobs,
@@ -1239,6 +1244,23 @@ export class ToolExecutor {
 							{
 								workingDirectory: this.config.workingDirectory,
 								env: this.config.env,
+								...(this.config.sandbox?.spawnDetached
+									? {
+											spawn: (job: {
+												readonly command: string
+												readonly workingDirectory: string
+												readonly env?: Record<string, string>
+											}): JobProcess =>
+												(this.config.sandbox as Sandbox).spawnDetached?.(
+													'/bin/sh',
+													['-c', job.command],
+													{
+														cwd: job.workingDirectory,
+														...(job.env ? { env: job.env } : {}),
+													},
+												) as JobProcess,
+										}
+									: {}),
 							},
 						),
 					}
