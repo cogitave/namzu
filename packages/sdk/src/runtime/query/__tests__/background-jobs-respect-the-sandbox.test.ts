@@ -8,7 +8,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { BackgroundJobRegistry } from '../../../runtime/jobs/registry.js'
-import { BashTool } from '../../../tools/builtins/bash.js'
+import { BashTool, SANDBOX_CANNOT_DETACH } from '../../../tools/builtins/bash.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -19,8 +19,7 @@ import { drainQuery } from '../index.js'
 
 registerMock()
 
-const REFUSAL =
-	'run_in_background is unavailable while a sandbox is active because the host background-job registry cannot preserve that sandbox boundary. Run the command in the foreground, or use a sandbox-aware persistent-process capability.'
+const REFUSAL = SANDBOX_CANNOT_DETACH
 const dirs: string[] = []
 
 afterEach(async () => {
