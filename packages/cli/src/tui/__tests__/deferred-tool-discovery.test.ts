@@ -99,8 +99,11 @@ describe('search_tools is mounted only where a deferred roster exists', () => {
 		const session = await createAgentSession(prefs, detectedAnthropic(), { cwd: workDir })
 		expect(session.hasProvider).toBe(true)
 
-		// The session opens a task store, so query() defers the task tools and
-		// the search has a roster.
+		// The session mounts the search itself: a tool server or plugin can
+		// register a deferred roster, and the search is how the model reaches
+		// it. (The task tools were once the standing example; the interactive
+		// session now registers those `active` — see the query call in
+		// agent.ts — so they are no longer what this search is for.)
 		expect(session.toolNames()).toContain('search_tools')
 
 		expect(

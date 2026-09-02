@@ -43,6 +43,7 @@ import {
 	type ProjectId,
 	type ProjectInstructionContext,
 	type PromoteMemory,
+	PromptContributionRegistry,
 	type ProviderChainMember,
 	ProviderRegistry,
 	type ReasoningEffort,
@@ -94,6 +95,7 @@ import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve } from 'node:path'
 import type { PluginConfig, SandboxConfig } from '../config/schema.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
+import { NAMZU_DELEGATION_DOCTRINE, NAMZU_WORKING_DOCTRINE } from '../context/doctrine.js'
 import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
 import { ProjectInstructionTracker } from '../context/project-tracker.js'
 import {
@@ -102,6 +104,7 @@ import {
 	resolveSandbox,
 	sandboxResolvedSeverity,
 } from '../context/sandbox.js'
+import { composeTurnSnapshot, readTurnSnapshot } from '../context/turn-snapshot.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -1618,14 +1621,18 @@ export async function createAgentSession(
 		// and got none had nothing on stderr to say why.
 		cliLogger().warn('sub-agent runtime unavailable this session', exceptionAttributes(err))
 	}
-	// Task store → query registers task_create / task_update / task_list as
-	// DEFERRED tools and emits task_created/task_updated, so the agent can track
-	// a plan for the current request. Tasks are run-scoped.
+	// Task store → query registers task_create / task_update / task_list and
+	// emits task_created/task_updated, so the agent can track a plan for the
+	// current request. Tasks are run-scoped. The kernel's default availability
+	// for them is `deferred`; this session overrides that to `active` at the
+	// query call, because the doctrine tells the model to plan with them and a
+	// tool it must search for first is a tool it skips.
 	//
-	// "Deferred" is why this session mounts `search_tools` above: these three are
-	// the roster it searches. They are registered inside query(), after this
-	// function returns, which is why the connect line reports no count of them —
-	// counting here would mean restating query's registration order in the CLI.
+	// `search_tools` stays mounted above even so: a tool server or plugin can
+	// still register a deferred roster, and that is what the search is for. The
+	// task tools are registered inside query(), after this function returns,
+	// which is why the connect line reports no count of them — counting here
+	// would mean restating query's registration order in the CLI.
 	//
 	// It is also why `toolNames` below reads the registry rather than a list
 	// captured on this line. The count at connect time is unchanged; what
@@ -1825,9 +1832,35 @@ export async function createAgentSession(
 							? await currentPluginSkills(pluginRuntime.skills)
 							: undefined
 						const memoryPrompt = composeMemoryPrompt(readMemory())
-						const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
+						const [environmentFacts, turnSnapshot] = await Promise.all([
+							readEnvironmentFacts(cwd),
+							readTurnSnapshot(cwd),
+						])
+						const environmentPrompt = composeEnvironmentPrompt(environmentFacts)
+						// The repository as it stood when THIS turn began, through the
+						// SDK's `turn` placement — the ephemeral trailing message that is
+						// never cached and never enters history. FIRST iteration only:
+						// later iterations work from state the model itself changed, and
+						// `git status` is the honest source for that. A registry per
+						// turn, closed over this turn's snapshot, rather than one
+						// session-scoped holder every send overwrites: two overlapping
+						// sends would otherwise both render whichever ran second.
+						const turnSnapshotPrompt = turnSnapshot ? composeTurnSnapshot(turnSnapshot) : null
+						const promptContributions = new PromptContributionRegistry()
+						promptContributions.register({
+							id: 'namzu.turn-snapshot',
+							placement: 'turn',
+							render: ({ iteration }) => (iteration === 1 ? turnSnapshotPrompt : null),
+						})
 						const systemPrompt =
-							[NAMZU_IDENTITY, environmentPrompt, memoryPrompt, opts?.extraSystem]
+							[
+								NAMZU_IDENTITY,
+								NAMZU_WORKING_DOCTRINE,
+								NAMZU_DELEGATION_DOCTRINE,
+								environmentPrompt,
+								memoryPrompt,
+								opts?.extraSystem,
+							]
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
 						let capturedAuthority: GoalRoundAuthority | undefined
@@ -1889,6 +1922,15 @@ export async function createAgentSession(
 								opts: turnOpts,
 								resumeHandler,
 								taskGateway: subagentGateway,
+								promptContributions,
+								// Active, not deferred: the doctrine tells the model to open a
+								// task list for multi-step work, and a tool it has to search
+								// for first is a tool it will skip.
+								runtimeToolOverrides: {
+									task_create: 'active',
+									task_update: 'active',
+									task_list: 'active',
+								},
 								onRunEvent: options.onRunEvent,
 								...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 								...(options.sandbox?.teardownTimeoutMs !== undefined
@@ -1926,7 +1968,13 @@ export async function createAgentSession(
 				const memoryPrompt = composeMemoryPrompt(readMemory())
 				const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
 				const systemPrompt =
-					[NAMZU_IDENTITY, environmentPrompt, memoryPrompt]
+					[
+						NAMZU_IDENTITY,
+						NAMZU_WORKING_DOCTRINE,
+						NAMZU_DELEGATION_DOCTRINE,
+						environmentPrompt,
+						memoryPrompt,
+					]
 						.filter((s): s is string => Boolean(s))
 						.join('\n\n') || undefined
 
@@ -1949,6 +1997,15 @@ export async function createAgentSession(
 						skillRegistry: pluginRuntime?.skills,
 						skills: pluginSkills,
 						taskStore,
+						// The same availability the original run registered under.
+						// A resumed run re-registers the task tools; leaving them at
+						// the kernel's `deferred` default would hand the model a plan
+						// it started with active tools and can no longer update.
+						runtimeToolOverrides: {
+							task_create: 'active',
+							task_update: 'active',
+							task_list: 'active',
+						},
 						...(subagentGateway ? { taskGateway: subagentGateway } : {}),
 						authorizationGate: gateFor(options.rules),
 						compactionConfig: COMPACTION_CONFIG,
@@ -2496,6 +2553,15 @@ interface RunTurnParams {
 	readonly projectInstructionContext: ProjectInstructionContext
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskScheduler | undefined
+	/** Host text for the `turn` placement; absent means none this session. */
+	readonly promptContributions?: PromptContributionRegistry
+	/**
+	 * Availability the task tools register with. The kernel's default is
+	 * `deferred`, which makes a plan cost a `search_tools` round-trip before
+	 * the first `task_create`; an interactive session wants them `active` so
+	 * the model plans the way the doctrine tells it to.
+	 */
+	readonly runtimeToolOverrides?: NonNullable<Parameters<typeof query>[0]['runtimeToolOverrides']>
 	/** See {@link AgentSessionOptions.onRunEvent}. */
 	readonly onRunEvent: ((event: RunEvent) => void) | undefined
 	/**
@@ -2530,6 +2596,8 @@ async function* runTurn({
 	projectInstructionContext,
 	opts,
 	taskGateway,
+	promptContributions,
+	runtimeToolOverrides,
 	sandboxProvider,
 	sandboxTeardownTimeoutMs,
 	onRunEvent,
@@ -2602,6 +2670,8 @@ async function* runTurn({
 			// tools `query()` registers deferred below and any tool server that
 			// connected after this session was built.
 			resumeHandler,
+			...(promptContributions ? { promptContributions } : {}),
+			...(runtimeToolOverrides ? { runtimeToolOverrides } : {}),
 			signal,
 			...scope,
 		})

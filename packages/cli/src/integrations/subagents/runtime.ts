@@ -52,6 +52,7 @@ import {
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 
+import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import {
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
 	MAX_AGENT_PHASE_ORDER,
@@ -69,9 +70,14 @@ const SUBAGENT_PROMPT = [
 	'Be thorough but do not ask the parent questions; make reasonable assumptions and state them.',
 	'',
 	'Never fabricate. Only report results you actually produced via tool calls:',
-	'- If you write a file, write it with the `write` tool and report the real path; never claim a file exists without writing it.',
+	'- If you create a file, create it with the `write` tool; if you change an existing one, use `edit`. Report the real path either way; never claim a file exists without a tool having written it.',
 	'- If you need to research and have no web tool available, say so plainly and answer from your own knowledge with that caveat — do not invent sources, data, or URLs.',
 	'- Do not invent command output or results. If you cannot complete the task, say what blocked you.',
+	'',
+	// The same working rules the parent runs under. A delegated task edits the
+	// same repository, and a child that reads a file before editing it while
+	// the parent does not is the same defect in the other direction.
+	NAMZU_WORKING_DOCTRINE,
 ].join('\n')
 
 export interface SubagentRuntimeOptions {

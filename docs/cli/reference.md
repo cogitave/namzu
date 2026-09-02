@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-25T00:00:00Z
-lastReviewed: 2026-09-01
+lastReviewed: 2026-09-02
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
 ---
@@ -56,6 +56,27 @@ something you point at a real repository:
   force are named on stderr, and one that was skipped is named with its reason —
   a refusal that says nothing is indistinguishable from a project that declared
   nothing.
+- **The agent works under a written doctrine, and knows where it is standing.**
+  Ahead of any project file, the system prompt carries Namzu's own working
+  rules: deliver the request as stated rather than a narrower or wider one;
+  finish the whole task and say what was left out; read a file before editing
+  it and match the surrounding code; prefer `read`, `grep`, `glob` and `edit`
+  over their shell equivalents; run the checks that would catch a mistake
+  before reporting done; never push, force-push, reset or rewrite history
+  unless asked; say in one line what a batch of tool calls is for; keep a task
+  list for multi-step work. Delegated sub-agents run under the same rules,
+  minus the ones about tools only the parent has. The same prompt states
+  today's date and the checked-out branch, re-read every turn so a session
+  that crosses midnight or changes branch does not keep asserting what was
+  true when it started. The working tree's dirty state is deliberately not
+  there — that block is the cached prefix of every request — and reaches the
+  model another way: the first model call of each turn receives
+  `git status --short` (at most thirty entries, the remainder counted) and the
+  last five commit subjects as an ephemeral trailing message that is neither
+  cached nor kept in history, wrapped as untrusted material because a file
+  name or a commit subject is text somebody else wrote. Outside a repository
+  nothing is sent. The task tools (`task_create`, `task_update`, `task_list`)
+  are available from the first call rather than behind `search_tools`.
 - **It connects the tool servers you declare.** Each server's tools arrive
   prefixed with its name (`mcp_tickets_create`), so two servers offering `search`
   do not collide. A server that fails to start is named with its reason: the
