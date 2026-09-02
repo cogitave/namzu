@@ -129,7 +129,7 @@ import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { TaskList, type TaskListItem } from './TaskList.js'
-import { PermissionOverlay } from './PermissionOverlay.js'
+import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { StatusBar } from './StatusBar.js'
@@ -174,7 +174,7 @@ import {
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
-	PERMISSION_REVIEW_PAGE_ROWS,
+	permissionReviewPageRows,
 	buildPermissionReview,
 	buildPermissionSummary,
 	permissionReviewRefusal,
@@ -758,6 +758,15 @@ export function App({
 	const setPermissionReviewOffset = useCallback((next: number) => {
 		permissionReviewOffsetRef.current = next
 		setPermissionReviewOffsetState(next)
+	}, [])
+	// Which of the three answers the cursor is on. Opens on "Yes", as the
+	// prompt an operator knows from elsewhere does; Enter confirms it only
+	// after the same settle window `y` and `a` wait out.
+	const [permissionChoice, setPermissionChoiceState] = useState<PermissionChoice>(0)
+	const permissionChoiceRef = useRef<PermissionChoice>(0)
+	const setPermissionChoice = useCallback((next: PermissionChoice) => {
+		permissionChoiceRef.current = next
+		setPermissionChoiceState(next)
 	}, [])
 	// The launch bypass is an INITIAL selection, not permanent authority. A
 	// typed /permissions command can narrow it back to prompt/strict without
@@ -2802,6 +2811,7 @@ export function App({
 			permissionOpenedAtRef.current = null
 			setPermissionReviewOffset(0)
 			setPermissionDetailsOpen(false)
+			setPermissionChoice(0)
 			setPermission(null)
 			if (resolve) {
 				// The provider resumes asynchronously after the decision. Leaving the
@@ -5436,27 +5446,27 @@ export function App({
 					setPermissionDetailsOpen(!permissionDetailsOpenRef.current)
 					return
 				}
-				if (
-					permission &&
-					(key.upArrow || key.downArrow || key.pageUp || key.pageDown || key.home || key.end)
-				) {
+				if (permission && (key.upArrow || key.downArrow)) {
+					const current = permissionChoiceRef.current
+					const next = key.upArrow ? Math.max(0, current - 1) : Math.min(2, current + 1)
+					setPermissionChoice(next as PermissionChoice)
+					return
+				}
+				if (permission && (key.pageUp || key.pageDown || key.home || key.end)) {
 					const source = permissionDetailsOpenRef.current
 						? permission.review
 						: permission.summary.text
 					const count = permissionReviewRows(source, terminal.columns).length
-					const maxOffset = Math.max(0, count - PERMISSION_REVIEW_PAGE_ROWS)
+					const pageRows = permissionReviewPageRows(terminal.rows)
+					const maxOffset = Math.max(0, count - pageRows)
 					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
 					const next = key.home
 						? 0
 						: key.end
 							? maxOffset
 							: key.pageUp
-								? Math.max(0, current - PERMISSION_REVIEW_PAGE_ROWS)
-								: key.pageDown
-									? Math.min(maxOffset, current + PERMISSION_REVIEW_PAGE_ROWS)
-									: key.upArrow
-										? Math.max(0, current - 1)
-										: Math.min(maxOffset, current + 1)
+								? Math.max(0, current - pageRows)
+								: Math.min(maxOffset, current + pageRows)
 					setPermissionReviewOffset(next)
 					return
 				}
@@ -5471,15 +5481,17 @@ export function App({
 					resolvePermission({ kind: 'reject' })
 					return
 				}
-				// Enter is deliberately NOT an approval. It is the key people press
-				// to dismiss a thing that appeared, it is the key already in flight
-				// when a turn's follow-up was being typed, and it is named nowhere
-				// on this prompt — so reading it as consent approves a tool call the
-				// operator never looked at. `y` and `a` are the only approvals, and
-				// they must arrive after the prompt has been up long enough to read.
+				// Every approval waits out the settle window: `y`, `a`, a digit and
+				// Enter alike. Enter confirms the answer the cursor is on, which
+				// opens on "Yes" — the prompt an operator knows from elsewhere — so
+				// the window is what stands between an in-flight Enter and a call
+				// the operator never looked at. Refusals above never wait.
 				if (!approvalIsDeliberate(permissionOpenedAtRef.current, Date.now())) return
-				if (ch === 'y') resolvePermission({ kind: 'approve' })
-				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
+				const numbered = ch === '1' ? 0 : ch === '2' ? 1 : ch === '3' ? 2 : null
+				const chosen = key.return ? permissionChoiceRef.current : numbered
+				if (ch === 'y' || chosen === 0) resolvePermission({ kind: 'approve' })
+				else if (ch === 'a' || chosen === 1) resolvePermission({ kind: 'approve-all' })
+				else if (chosen === 2) resolvePermission({ kind: 'reject' })
 				return
 			}
 			// The active child count already advertises this key beside Working.
@@ -5989,7 +6001,9 @@ export function App({
 								summary={permission.summary}
 								detailsOpen={permissionDetailsOpen}
 								reviewOffset={permissionReviewOffset}
+								choice={permissionChoice}
 								columns={terminal.columns}
+								rows={terminal.rows}
 							/>
 						) : null}
 						{textPrompt ? (
@@ -6291,7 +6305,7 @@ function hintForPhase(
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
 	// Enter is absent because Enter decides nothing here, deliberately — see the
 	// permission gate in the key handler above.
-	if (state === 'awaiting-permission') return 'y approve · n / esc reject · a approve all'
+	if (state === 'awaiting-permission') return '↑↓ select · enter confirm · esc decline'
 	if (state !== 'idle') return hasDraft ? 'enter steer · tab queue · esc interrupt' : ''
 	// The composer already points to /help. Keeping the complete key legend in
 	// every idle frame made ordinary conversation read like a permanent setup

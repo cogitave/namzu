@@ -228,10 +228,10 @@ async function promptOpenWithDraftInFlight() {
 	// with "the prompt never opened" — a flake in the setup, reported as a
 	// failure of whatever the test was actually about.
 	const started = performance.now()
-	while (!(harness.lastFrame() ?? '').includes('wants to ') && performance.now() - started < 3_000) {
+	while (!(harness.lastFrame() ?? '').includes('Do you want to') && performance.now() - started < 3_000) {
 		await tick(20)
 	}
-	expect(harness.lastFrame(), 'the prompt never opened').toContain('wants to ')
+	expect(harness.lastFrame(), 'the prompt never opened').toContain('Do you want to')
 	return harness
 }
 
@@ -273,25 +273,46 @@ function settle(): void {
 }
 
 describe('the permission prompt', () => {
-	it('does not approve on Enter, even once the prompt has settled', async () => {
-		// The heart of it. Enter is the key that submits the draft the operator
-		// was typing, it is in flight exactly when the overlay appears, and it is
-		// named on no screen — so it must decide nothing here.
-		//
-		// The wait is what gives this test its teeth. Pressing Enter immediately
-		// proves nothing: the settle window would swallow it whether or not the
-		// approving branch still read `key.return`, and an earlier draft of this
-		// test passed with the defect restored for exactly that reason. Waiting
-		// past the window leaves the binding as the only thing that can decide
-		// it — `y` at this same moment approves, one test down.
+	it('confirms the highlighted answer on Enter, but only once the prompt has settled', async () => {
+		// Enter is the key that submits the draft the operator was typing, and
+		// it is in flight exactly when the overlay appears — so an Enter inside
+		// the settle window decides nothing. Past the window it confirms the
+		// answer the cursor is on, which opens on "Yes"; the owner chose the
+		// prompt an operator already knows from other coding agents over a
+		// prompt Enter cannot answer.
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+
+		stdin.write('\r')
+		await tick(50)
+		expect(decisions, 'an in-flight Enter decided the prompt').toEqual([])
+		expect(lastFrame()).toContain('Do you want to')
 
 		settle()
 		stdin.write('\r')
 		await tick(400)
+		expect(decisions).toEqual([{ kind: 'approve' }])
+	})
 
-		expect(decisions, 'Enter decided the prompt').toEqual([])
-		expect(lastFrame(), 'the prompt closed without a decision').toContain('wants to run')
+	it('moves the cursor with the arrows and confirms the answer it lands on', async () => {
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		expect(lastFrame()).toContain('❯ 1. Yes')
+
+		stdin.write('\x1b[B')
+		await tick(50)
+		expect(lastFrame()).toContain("❯ 2. Yes, and don't ask again this session")
+
+		settle()
+		stdin.write('\r')
+		await tick(400)
+		expect(decisions).toEqual([{ kind: 'approve-all' }])
+	})
+
+	it('answers by number once the prompt has settled', async () => {
+		const { stdin } = await promptOpenWithDraftInFlight()
+		settle()
+		stdin.write('3')
+		await tick(400)
+		expect(decisions).toEqual([{ kind: 'reject' }])
 	})
 
 	it('ignores an approving key that arrives before the prompt can have been read', async () => {
@@ -328,7 +349,7 @@ describe('the permission prompt', () => {
 
 		const frame = lastFrame() ?? ''
 		expect(frame).toContain('Working')
-		expect(frame).not.toContain('wants to run')
+		expect(frame).not.toContain('Do you want to')
 		expect(frame).not.toContain('y approve')
 	})
 
@@ -352,7 +373,7 @@ describe('the permission prompt', () => {
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
 		const approval = lastFrame() ?? ''
 
-		expect(approval).toContain('namzu wants to start 4 agents')
+		expect(approval).toContain('Start 4 agents')
 		expect(approval).toContain('1. API research')
 		expect(approval).toContain('4. Delivery plan')
 		expect(approval).not.toContain('"calls"')
@@ -365,7 +386,7 @@ describe('the permission prompt', () => {
 
 		const working = lastFrame() ?? ''
 		expect(working).toContain('Working')
-		expect(working).not.toContain('wants to start')
+		expect(working).not.toContain('Do you want to start')
 		expect(working).not.toContain('y approve')
 	})
 
@@ -391,11 +412,11 @@ describe('the permission prompt', () => {
 		// status bar's own hint satisfies from the other side of the screen. Two
 		// assertions that could not fail, guarding the advertisement that four
 		// separate fixes tonight were about.
-		expect(frame).toContain('approve all for this session')
-		expect(frame).toContain('the agent tries something else')
-		// The advertisement is the contract the handler is held to. `enter` must
-		// not appear, because Enter no longer does anything here.
-		expect(frame.toLowerCase()).not.toContain('enter')
+		expect(frame).toContain("don't ask again this session")
+		expect(frame).toContain('tell namzu what to do differently')
+		// The advertisement is the contract the handler is held to: Enter
+		// confirms the highlighted answer, and the box says so.
+		expect(frame.toLowerCase()).toContain('enter confirm')
 	})
 
 	it('names the key that stops the turn, and says that it is different', async () => {
@@ -416,7 +437,7 @@ describe('the permission prompt', () => {
 
 	it('toggles the immutable exact envelope without deciding the prompt', async () => {
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
-		expect(lastFrame()).toContain('Prepared operation')
+		expect(lastFrame()).toContain('Bash command')
 		expect(lastFrame()).not.toContain('"calls"')
 
 		stdin.write('d')
@@ -427,7 +448,7 @@ describe('the permission prompt', () => {
 
 		stdin.write('d')
 		await tick(100)
-		expect(lastFrame()).toContain('Prepared operation')
+		expect(lastFrame()).toContain('Bash command')
 		expect(decisions).toEqual([])
 	})
 
@@ -450,7 +471,7 @@ describe('the permission prompt', () => {
 
 		stdin.write('d')
 		await tick(100)
-		expect(lastFrame()).toContain('Prepared operation')
+		expect(lastFrame()).toContain('Bash command')
 		expect(decisions).toEqual([])
 		stdin.write('d')
 		await tick(100)
@@ -569,13 +590,13 @@ describe('/permissions session mode', () => {
 		await tick(60)
 		stdin.write('\r')
 		const started = performance.now()
-		while (!(lastFrame() ?? '').includes('wants to run') && performance.now() - started < 3_000) {
+		while (!(lastFrame() ?? '').includes('Do you want to') && performance.now() - started < 3_000) {
 			await tick(20)
 		}
 
 		expect(permissionModes).toEqual(['prompt'])
 		expect(toolExecutions, 'the yolo launch still auto-approved after switching to prompt').toBe(0)
-		expect(lastFrame(), 'the destructive tool never reached a prompt').toContain('wants to run')
+		expect(lastFrame(), 'the destructive tool never reached a prompt').toContain('Do you want to')
 
 		settle()
 		stdin.write('y')
@@ -616,12 +637,12 @@ describe('/permissions session mode', () => {
 		await tick(60)
 		stdin.write('\r')
 		const started = performance.now()
-		while (!(lastFrame() ?? '').includes('wants to run') && performance.now() - started < 3_000) {
+		while (!(lastFrame() ?? '').includes('Do you want to') && performance.now() - started < 3_000) {
 			await tick(20)
 		}
 
 		expect(permissionModes.at(-1)).toBe('prompt')
 		expect(toolExecutions, 'approve-all survived an explicit prompt-mode reset').toBe(1)
-		expect(lastFrame()).toContain('wants to run')
+		expect(lastFrame()).toContain('Do you want to')
 	})
 })

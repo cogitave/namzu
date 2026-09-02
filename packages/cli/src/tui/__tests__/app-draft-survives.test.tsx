@@ -225,8 +225,8 @@ describe('a draft while a permission prompt comes and goes', () => {
 
 		// The prompt takes the screen. The draft is deliberately not shown while
 		// it is up — the composer is hidden, not unmounted.
-		await frameShows(lastFrame, 'wants to run')
-		expect(lastFrame(), 'the prompt never opened').toContain('wants to run')
+		await frameShows(lastFrame, 'Do you want to')
+		expect(lastFrame(), 'the prompt never opened').toContain('Do you want to')
 
 		// Answer it, and the composer comes back with the sentence intact.
 		stdin.write('\x1B')
@@ -255,8 +255,8 @@ describe('a draft while a permission prompt comes and goes', () => {
 		expect(harness.lastFrame(), 'the paste chip never appeared').toContain('Pasted text')
 
 		letThePromptOpen()
-		await frameShows(harness.lastFrame, 'wants to run')
-		expect(harness.lastFrame()).toContain('wants to run')
+		await frameShows(harness.lastFrame, 'Do you want to')
+		expect(harness.lastFrame()).toContain('Do you want to')
 		harness.stdin.write('\x1B')
 		await frameShows(harness.lastFrame, 'Pasted text')
 
@@ -309,8 +309,8 @@ describe('while the prompt is up', () => {
 		// outcome, which is the thing that matters if either flag later moves.
 		const draft = 'untouched'
 		const { stdin, lastFrame } = await turnRunningWithDraft(draft)
-		await frameShows(lastFrame, 'wants to run')
-		expect(lastFrame()).toContain('wants to run')
+		await frameShows(lastFrame, 'Do you want to')
+		expect(lastFrame()).toContain('Do you want to')
 		expect(lastFrame(), 'the composer is still drawing under the prompt').not.toContain(draft)
 
 		// `q` decides nothing at the prompt; it must not reach the composer.

@@ -192,7 +192,7 @@ it('escapes permission, live-tool and transcript output while preserving the req
 	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
 
 	await submit(screen, 'run the proposed call')
-	await waitUntil(screen, () => painted(screen).includes('wants to run'))
+	await waitUntil(screen, () => painted(screen).includes('Do you want to'))
 	expect(screen.writes().join('')).toContain(LINK_OSC)
 	expect(painted(screen)).toContain(LINK_LABEL)
 	expect(painted(screen)).not.toContain(`(${LINK_TARGET})`)
@@ -234,11 +234,9 @@ it('pages a single long JSON string by physical rows in a narrow terminal', asyn
 	expect(first).not.toContain(suffix)
 	const firstRows = screen.viewport()
 	const firstStart = firstRows.findIndex((row) => row.includes('Exact prepared input'))
-	const firstEnd = firstRows.findIndex((row) => row.includes('↑↓ row'))
+	const firstEnd = firstRows.findIndex((row) => /rows \d+-\d+\/\d+/u.test(row))
 	expect(
-		firstRows
-			.slice(firstStart + 1, firstEnd)
-			.filter((row) => /^\s*[›↳]/u.test(row)).length,
+		firstRows.slice(firstStart + 1, firstEnd).filter((row) => row.trim().length > 0).length,
 	).toBe(PERMISSION_REVIEW_PAGE_ROWS)
 
 	for (let page = 0; page < 20 && !screen.viewport().join('\n').includes(suffix); page += 1) {
@@ -250,15 +248,13 @@ it('pages a single long JSON string by physical rows in a narrow terminal', asyn
 	expect(last).toContain(suffix)
 	const lastRows = screen.viewport()
 	const lastStart = lastRows.findIndex((row) => row.includes('Exact prepared input'))
-	const lastEnd = lastRows.findIndex((row) => row.includes('↑↓ row'))
+	const lastEnd = lastRows.findIndex((row) => /rows \d+-\d+\/\d+/u.test(row))
 	expect(
-		lastRows
-			.slice(lastStart + 1, lastEnd)
-			.filter((row) => /^\s*[›↳]/u.test(row)).length,
+		lastRows.slice(lastStart + 1, lastEnd).filter((row) => row.trim().length > 0).length,
 	).toBe(PERMISSION_REVIEW_PAGE_ROWS)
 	let commandCloseRow = lastRows.find((row) => row.includes('",'))
 	for (let row = 0; row < 20 && !commandCloseRow; row += 1) {
-		screen.press('\u001b[A')
+		screen.press('\u001b[5~')
 		await screen.waitForRender()
 		commandCloseRow = screen.viewport().find((visibleRow) => visibleRow.includes('",'))
 	}
@@ -309,7 +305,7 @@ it('keeps the destination visible when the terminal path is not known to support
 	mounted = screen
 	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
 	await submit(screen, 'run the proposed call')
-	await waitUntil(screen, () => painted(screen).includes('wants to run'))
+	await waitUntil(screen, () => painted(screen).includes('Do you want to'))
 
 	expect(screen.writes().join('')).not.toContain('\u001b]8;;')
 	expect(painted(screen)).toContain(`${LINK_LABEL} (${LINK_TARGET})`)

@@ -124,8 +124,8 @@ it('names a parallel Agent batch as delegated work instead of exposing tool prot
 	)
 	try {
 		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('namzu wants to start 4 agents')
-		expect(frame).toContain('Delegated work')
+		expect(frame).toContain('Start 4 agents')
+		expect(frame).toContain('Do you want to start 4 agents?')
 		expect(frame).toContain('1. Research APIs')
 		expect(frame).toContain('start 4 agents')
 		expect(frame).not.toContain('"calls"')

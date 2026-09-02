@@ -1,14 +1,32 @@
-/** Readable, source-preserving tool consent surface. App owns every key. */
+/**
+ * The consent box: what the model wants to do, and the three answers.
+ *
+ * Shaped like the prompt an operator already knows from other coding
+ * agents — a titled box naming the operation, the operation itself in the
+ * plainest form the tool allows (the command, the diff, the file), one
+ * question, and a numbered choice with a cursor on the answer most people
+ * give. App owns every key; this is presentational.
+ *
+ * Nothing here decides what is SHOWN: the readable text is the kernel-side
+ * envelope's projection from `permission-review.ts`, and the exact envelope
+ * is one key away. What this file decides is how it reads.
+ */
+
+import { basename } from 'node:path'
 
 import { Box, Text } from 'ink'
 
 import type { PermissionToolCall } from './agent.js'
 import {
-	PERMISSION_REVIEW_PAGE_ROWS,
 	type PermissionReviewSummary,
+	permissionReviewPageRows,
 	permissionReviewRows,
 } from './permission-review.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
+
+/** The three answers, in the order they are shown and numbered. */
+export type PermissionChoice = 0 | 1 | 2
 
 export interface PermissionOverlayProps {
 	readonly toolCalls: readonly PermissionToolCall[]
@@ -20,21 +38,101 @@ export interface PermissionOverlayProps {
 	readonly detailsOpen: boolean
 	/** First physical row shown in the fixed-height pager. */
 	readonly reviewOffset?: number
+	/** Which answer the cursor is on. */
+	readonly choice?: PermissionChoice
 	/** Live terminal width. Re-wrapping on resize keeps every suffix reachable. */
 	readonly columns?: number
+	/** Live terminal height; the pager shows as much as the screen has room for. */
+	readonly rows?: number
+}
+
+function pathOf(input: unknown): string | undefined {
+	if (input === null || typeof input !== 'object') return undefined
+	const path = (input as { path?: unknown }).path
+	return typeof path === 'string' && path.length > 0 ? path : undefined
+}
+
+/** What the box is called, from the batch's shape. */
+export function permissionTitle(toolCalls: readonly PermissionToolCall[]): string {
+	const first = toolCalls[0]
+	if (toolCalls.length === 1 && first) {
+		const path = pathOf(first.input)
+		switch (first.name) {
+			case 'bash':
+				return 'Bash command'
+			case 'edit':
+				return path ? `Edit file ${path}` : 'Edit file'
+			case 'write':
+				return path ? `Write file ${path}` : 'Write file'
+			case 'Agent':
+				return 'Start an agent'
+			default:
+				return first.name
+		}
+	}
+	if (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')) {
+		return `Start ${toolCalls.length} agents`
+	}
+	return `${toolCalls.length} tool calls`
+}
+
+/** The one question under the operation. */
+export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): string {
+	const first = toolCalls[0]
+	if (toolCalls.length === 1 && first) {
+		const path = pathOf(first.input)
+		switch (first.name) {
+			case 'bash':
+				return 'Do you want to proceed?'
+			case 'edit':
+				return path ? `Do you want to make this edit to ${basename(path)}?` : 'Do you want to make this edit?'
+			case 'write':
+				return path ? `Do you want to write ${basename(path)}?` : 'Do you want to write this file?'
+			case 'Agent':
+				return 'Do you want to start this agent?'
+			default:
+				return `Do you want to run ${first.name}?`
+		}
+	}
+	if (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')) {
+		return `Do you want to start ${toolCalls.length} agents?`
+	}
+	return `Do you want to run these ${toolCalls.length} tools?`
+}
+
+/** The three answers, worded for the batch. */
+export function permissionChoices(toolCalls: readonly PermissionToolCall[]): readonly string[] {
+	const agents = toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')
+	return [
+		'Yes',
+		agents ? 'Yes, and allow all tools this session' : "Yes, and don't ask again this session",
+		'No, and tell namzu what to do differently (esc)',
+	]
+}
+
+/**
+ * The readable text, without the batch furniture a single call does not
+ * need: its `1. name` heading says what the title already says, and the
+ * three-space indent under it exists to set calls apart from each other.
+ */
+function readableBody(summaryText: string, single: boolean): string {
+	if (!single) return summaryText
+	const lines = summaryText.split('\n')
+	const body = lines.length > 1 && /^1\. /.test(lines[0] ?? '') ? lines.slice(1) : lines
+	return body.map((line) => (line.startsWith('   ') ? line.slice(3) : line)).join('\n')
 }
 
 /**
  * A change row reads as a change: removed text red, added text green. Only in
  * the readable view — the exact view is JSON, where a `-` at column one is a
- * value, not a sign — and only on the readable summary's own `+ ` / `- `
- * prefixes, which the indentation puts at column four.
+ * value, not a sign — and only on the summary's own `+ ` / `- ` prefixes,
+ * which sit at column one for a single call and column four in a batch.
  */
 function rowColor(text: string, detailsOpen: boolean): string {
 	if (detailsOpen) return theme.text.secondary
-	if (/^\s{3}- /.test(text)) return theme.status.error
-	if (/^\s{3}\+ /.test(text)) return theme.status.ok
-	return theme.text.secondary
+	if (/^(\s{3})?- /.test(text)) return theme.status.error
+	if (/^(\s{3})?\+ /.test(text)) return theme.status.ok
+	return theme.text.primary
 }
 
 export function PermissionOverlay({
@@ -43,78 +141,71 @@ export function PermissionOverlay({
 	summary,
 	detailsOpen,
 	reviewOffset = 0,
+	choice = 0,
 	columns,
+	rows: terminalRows,
 }: PermissionOverlayProps) {
-	const source = detailsOpen ? review : summary.text
+	const pageRows = permissionReviewPageRows(terminalRows)
+	const single = toolCalls.length === 1
+	const source = detailsOpen ? review : readableBody(summary.text, single)
 	const rows = permissionReviewRows(source, columns)
-	const maxOffset = Math.max(0, rows.length - PERMISSION_REVIEW_PAGE_ROWS)
+	const maxOffset = Math.max(0, rows.length - pageRows)
 	const offset = Math.min(Math.max(0, reviewOffset), maxOffset)
-	const visibleRows = rows.slice(offset, offset + PERMISSION_REVIEW_PAGE_ROWS)
+	const visibleRows = rows.slice(offset, offset + pageRows)
+	const paged = rows.length > pageRows
 	const first = rows.length === 0 ? 0 : offset + 1
-	const last = Math.min(rows.length, offset + PERMISSION_REVIEW_PAGE_ROWS)
-	const noun = toolCalls.length === 1 ? 'this tool' : `these ${toolCalls.length} tools`
-	const agentBatch = toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')
-	const agentNoun = `${toolCalls.length} agent${toolCalls.length === 1 ? '' : 's'}`
+	const last = Math.min(rows.length, offset + pageRows)
+	const destructive = toolCalls.some((call) => call.isDestructive)
+	const choices = permissionChoices(toolCalls)
 
 	return (
 		<Box
 			flexDirection="column"
-			borderStyle="single"
-			borderTop
-			borderBottom
-			borderLeft={false}
-			borderRight={false}
+			borderStyle="round"
 			borderColor={theme.status.warn}
 			paddingX={1}
 			marginTop={1}
 		>
-			<Text color={theme.status.warn} bold>
-				{agentBatch ? `namzu wants to start ${agentNoun}` : `namzu wants to run ${noun}`}
+			<Text>
+				<Text color={theme.status.warn} bold>
+					{detailsOpen ? 'Exact prepared input' : terminalDisplayText(permissionTitle(toolCalls))}
+				</Text>
+				{destructive ? <Text color={theme.status.error}> · destructive</Text> : null}
 			</Text>
-			<Text color={theme.text.muted}>
-				{detailsOpen ? 'Exact prepared input' : agentBatch ? 'Delegated work' : 'Prepared operation'} · rows {first}-{last}/
-				{rows.length}
-			</Text>
-			<Box
-				flexDirection="column"
-				paddingTop={1}
-				height={PERMISSION_REVIEW_PAGE_ROWS + 1}
-			>
+			<Box flexDirection="column" paddingLeft={2}>
 				{visibleRows.map((row) => (
 					<Box key={row.index} width="100%">
-						<Text color={theme.text.muted}>{row.continuation ? '↳ ' : '› '}</Text>
-						<Text color={rowColor(row.text, detailsOpen)}>{row.text}</Text>
+						<Text color={rowColor(row.text, detailsOpen)}>
+							{row.continuation ? `↳ ${row.text}` : row.text}
+						</Text>
 					</Box>
 				))}
 			</Box>
-			{rows.length > PERMISSION_REVIEW_PAGE_ROWS ? (
-				<Text color={theme.text.muted}>↑↓ row · PgUp/PgDn page · Home/End boundary</Text>
+			{paged ? (
+				<Text color={theme.text.muted}>
+					rows {first}-{last}/{rows.length} · PgUp/PgDn page · Home/End boundary
+				</Text>
 			) : null}
 			<Box flexDirection="column" paddingTop={1}>
+				<Text color={theme.text.primary} bold>
+					{terminalDisplayText(permissionQuestion(toolCalls))}
+				</Text>
+				{choices.map((label, index) => {
+					const selected = index === choice
+					return (
+						<Text key={label} color={selected ? theme.accent.user : theme.text.secondary}>
+							{selected ? '❯ ' : '  '}
+							{index + 1}. {label}
+						</Text>
+					)
+				})}
+			</Box>
+			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
-					<Text color={theme.status.ok} bold>
-						y
-					</Text>{' '}
-					{agentBatch ? `start ${agentNoun}` : 'run once'} ·{' '}
-					<Text color={theme.accent.user} bold>
-						a
-					</Text>{' '}
-					{agentBatch ? 'allow all tools this session' : 'approve all for this session'} ·{' '}
-					<Text color={theme.text.primary} bold>
-						d
-					</Text>{' '}
+					↑↓ select · enter confirm · y / a / n answer · d{' '}
 					{detailsOpen ? 'readable view' : 'exact input'}
 				</Text>
-				<Text color={theme.text.muted}>
-					<Text color={theme.status.error} bold>
-						n / esc
-					</Text>{' '}
-					{agentBatch ? "don't start; revise the plan" : 'decline, and the agent tries something else'} ·{' '}
-					<Text color={theme.status.error} bold>
-						ctrl+c
-					</Text>{' '}
-					decline and stop the turn
-				</Text>
+				<Text color={theme.text.muted}>esc decline · ctrl+c decline and stop the turn</Text>
 			</Box>
 		</Box>
 	)

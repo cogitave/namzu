@@ -95,7 +95,7 @@ describe('buildPermissionSummary', () => {
 
 		const summary = buildPermissionSummary(review.text)
 		expect(summary.complete).toBe(true)
-		expect(summary.text).toContain('$ "printf \\"safe\\" && git push origin main"')
+		expect(summary.text).toContain('$ printf \\"safe\\" && git push origin main')
 		expect(summary.text).toContain('timeout: 12000 ms')
 		expect(summary.text).toContain('background: no')
 		expect(summary.text).not.toContain('"calls"')
@@ -170,7 +170,7 @@ describe('buildPermissionSummary', () => {
 		const summary = buildPermissionSummary(batch.text)
 		expect(summary.complete).toBe(true)
 		expect(summary.text).toContain('1. read\n   path: "src/slug.mjs"')
-		expect(summary.text).toContain('2. bash\n   $ "npm test"')
+		expect(summary.text).toContain('2. bash\n   $ npm test')
 	})
 
 	it('opens exact-first for a tool whose name is not a plain token', () => {

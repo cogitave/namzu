@@ -13,6 +13,16 @@ export const MAX_PERMISSION_REVIEW_BYTES = 8_000
 /** Physical rows kept visible without crowding a 24-row terminal. */
 export const PERMISSION_REVIEW_PAGE_ROWS = 6
 
+/**
+ * The page a terminal of this height gets: the 24-row floor above, and
+ * every row past what the box's own furniture needs on a taller one, so
+ * a two-call batch is not paged on a screen that could show it whole.
+ */
+export function permissionReviewPageRows(terminalRows: number | undefined): number {
+	const rows = terminalRows ?? 24
+	return Math.min(24, Math.max(PERMISSION_REVIEW_PAGE_ROWS, rows - 18))
+}
+
 export interface PermissionReviewCall {
 	readonly id: string
 	readonly name: string
@@ -311,7 +321,10 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 		if (shapeIsKnown) {
 			return {
 				lines: [
-					`$ ${JSON.stringify(input.command)}`,
+					// Escaped the way JSON escapes, so a control character or a
+					// newline cannot pose as a second command, but without the
+					// quotes: the operator is reading a command, not a string.
+					`$ ${JSON.stringify(input.command).slice(1, -1)}`,
 					...(input.timeout !== undefined ? [`timeout: ${String(input.timeout)} ms`] : []),
 					...(input.run_in_background !== undefined
 						? [`background: ${input.run_in_background ? 'yes' : 'no'}`]
