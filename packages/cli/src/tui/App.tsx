@@ -128,6 +128,7 @@ import {
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
+import { TaskList, type TaskListItem } from './TaskList.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
@@ -189,7 +190,7 @@ import {
 	reviewPrompt,
 	runSlash,
 } from './slashCommands.js'
-import { splitCompleteBlocks } from './stream-blocks.js'
+import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
@@ -352,12 +353,32 @@ type ChoicePickerState =
  * said, and what has been shown — and conflating them is how a reply gets
  * saved with a paragraph the operator never saw, or shown twice.
  */
+/**
+ * How long held reply text may wait before a sentence of it is shown.
+ *
+ * Blocks are released as they complete (`splitCompleteBlocks`), which keeps a
+ * fast reply landing a paragraph at a time. A slow one — a long paragraph
+ * arriving over twenty seconds — completes no block until its last character
+ * and was invisible for its whole length. Past this interval the pending
+ * text is released to its last safe cut instead (`splitSafeCut`): a sentence
+ * or a line, never a half-word, never inside a fence. Long enough that a
+ * fast stream never reaches it; short enough that a slow one reads as
+ * writing rather than as silence.
+ */
+const STREAM_RELEASE_MS = 250
+
 type StreamState = {
 	assistantId: string | null
 	text: string
 	/** Exact provider-visible conversation state returned by the settled kernel run. */
 	conversationMessages?: readonly Message[]
 	pending?: string
+	/**
+	 * When held text was last released to the screen, and the timer that
+	 * releases it if the stream goes quiet. See `STREAM_RELEASE_MS`.
+	 */
+	releasedAt?: number
+	releaseTimer?: ReturnType<typeof setTimeout>
 	/** Only a normal run end makes this text the next `/copy` target. */
 	completed: boolean
 	/** Exact durable run outcome; notification wording is intentionally coarser. */
@@ -734,6 +755,15 @@ export function App({
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly RunningTool[]>([])
+	/**
+	 * The model's plan for the current request, in creation order, updated in
+	 * place on every status change. Cleared when the next request begins —
+	 * a plan is scoped to the request it was made for, and one that outlived
+	 * it would read as work still pending on a turn that already ended.
+	 */
+	const [tasks, setTasks] = useState<readonly TaskListItem[]>([])
+	/** Ids already seen this request, so an opening row is written once. */
+	const knownTaskIdsRef = useRef(new Set<string>())
 	// Bumped to reset the <Static> transcript log (on /clear, /clear-screen and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
 	/**
@@ -1976,11 +2006,36 @@ export function App({
 	 */
 	const flushStream = useCallback(
 		(st: StreamState) => {
+			if (st.releaseTimer) {
+				clearTimeout(st.releaseTimer)
+				st.releaseTimer = undefined
+			}
 			if (!st.pending || st.pending.length === 0) return
 			const id = st.assistantId ?? pushMessage('assistant', '', true)
 			st.assistantId = id
 			appendToMessage(id, st.pending)
 			st.pending = ''
+			st.releasedAt = Date.now()
+		},
+		[appendToMessage, pushMessage],
+	)
+
+	/**
+	 * Release held text to its last safe cut — a sentence or a line — when it
+	 * has waited longer than `STREAM_RELEASE_MS`. Called from the delta path
+	 * with the clock, and from the timer the delta path arms so a stream that
+	 * goes quiet mid-paragraph still shows what it has.
+	 */
+	const releaseStalled = useCallback(
+		(st: StreamState) => {
+			if (!st.pending || st.pending.length === 0) return
+			const { ready, rest } = splitSafeCut(st.pending)
+			if (ready.length === 0) return
+			const id = st.assistantId ?? pushMessage('assistant', '', true)
+			st.assistantId = id
+			st.pending = rest
+			appendToMessage(id, ready)
+			st.releasedAt = Date.now()
 		},
 		[appendToMessage, pushMessage],
 	)
@@ -3257,6 +3312,10 @@ export function App({
 							sessionId: st.sessionId,
 						}
 					}
+					// The release clock starts with the first character, not with the
+					// turn: the wait before the first token is the model's, and
+					// counting it would release the opening sentence on arrival.
+					st.releasedAt ??= Date.now()
 					st.text += event.text
 					// Held, not appended. Appending each delta is what produced text
 					// that types itself out — nothing animates it, but a few
@@ -3267,7 +3326,20 @@ export function App({
 					if (ready.length > 0) {
 						st.pending = rest
 						appendToMessage(ensureAssistant(), ready)
+						st.releasedAt = Date.now()
 					}
+					// A block is the preferred unit; a sentence is the fallback for
+					// a paragraph that is taking longer than an operator will wait
+					// for it. The timer covers the stream going quiet between two
+					// deltas, which the clock check alone cannot see.
+					if (st.releaseTimer) clearTimeout(st.releaseTimer)
+					if (Date.now() - (st.releasedAt ?? 0) >= STREAM_RELEASE_MS) {
+						releaseStalled(st)
+					}
+					st.releaseTimer = setTimeout(() => {
+						st.releaseTimer = undefined
+						releaseStalled(st)
+					}, STREAM_RELEASE_MS)
 					break
 				}
 				case 'tool-start': {
@@ -3373,9 +3445,32 @@ export function App({
 				case 'usage':
 					setUsage({ totalTokens: event.totalTokens, cost: event.cost })
 					break
-				case 'task':
-					pushMessage('tool', event.subject, false, event.status === 'completed' ? '☑' : '☐')
+				case 'task': {
+					// The live list gets every change; the transcript records the
+					// opening and the close, as it did before the list existed.
+					// Decided from a ref, not inside the state updater: React runs
+					// updaters lazily, so a flag set there is still unset when the
+					// transcript row below is chosen.
+					const isNew = !knownTaskIdsRef.current.has(event.taskId)
+					knownTaskIdsRef.current.add(event.taskId)
+					const item: TaskListItem = {
+						id: event.taskId,
+						subject: event.subject,
+						status: event.status,
+					}
+					setTasks((prev) => {
+						const index = prev.findIndex((task) => task.id === item.id)
+						return index < 0 ? [...prev, item] : prev.map((task, i) => (i === index ? item : task))
+					})
+					if (event.status === 'completed') {
+						pushMessage('tool', event.subject, false, '☑')
+					} else if (event.status === 'failed') {
+						pushMessage('tool', event.subject, false, '☒')
+					} else if (isNew) {
+						pushMessage('tool', event.subject, false, '☐')
+					}
 					break
+				}
 				case 'context':
 					// Into the TRANSCRIPT, not a status line. A status indicator is
 					// present while nothing is happening and gone afterwards, so
@@ -3544,6 +3639,12 @@ export function App({
 					humanPromptMeta(attached.length, attachments),
 				)
 			}
+			// A plan is scoped to the request it was made for. Cleared here, at
+			// the start of the next one, rather than when the previous turn
+			// ended: a finished list stays on screen until the operator moves on,
+			// which is the moment it has told them everything it can.
+			setTasks([])
+			knownTaskIdsRef.current = new Set()
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
 			const st: StreamState = {
@@ -5733,6 +5834,10 @@ export function App({
 								animate={stdout.isTTY === true}
 							/>
 						) : null}
+						{/* The plan for this request, kept current as the model works.
+						    A sibling of the activity rows, not a mode: the composer
+						    below stays mounted and usable while it is up. */}
+						{agentSurface === null && permission === null ? <TaskList tasks={tasks} /> : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the
 						    operator was part-way through typing — text, paste chips

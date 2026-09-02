@@ -77,6 +77,16 @@ something you point at a real repository:
   name or a commit subject is text somebody else wrote. Outside a repository
   nothing is sent. The task tools (`task_create`, `task_update`, `task_list`)
   are available from the first call rather than behind `search_tools`.
+- **The plan is a live list, and a reply is never a blank row.** When the
+  model opens tasks, the whole plan sits in the live region above the
+  composer — each task with its current mark (`☐` pending, `◐` in progress,
+  `☑` done, `☒` failed) and a `done/total` count — updated in place on every
+  change, kept up after the turn ends, and cleared when the next request
+  begins. The transcript records only the opening and the close of each task.
+  Reply text is released a block at a time so it never types itself out; a
+  paragraph that is taking longer than a quarter of a second is released to
+  its last sentence or line end instead, never mid-word and never inside a
+  code fence, so a long answer reads as writing rather than as silence.
 - **It connects the tool servers you declare.** Each server's tools arrive
   prefixed with its name (`mcp_tickets_create`), so two servers offering `search`
   do not collide. A server that fails to start is named with its reason: the

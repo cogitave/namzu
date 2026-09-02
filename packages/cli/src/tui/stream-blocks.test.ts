@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { splitCompleteBlocks } from './stream-blocks.js'
+import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 
 /** Feed a string in one-character deltas, the way the kernel actually does. */
 function stream(text: string): { shown: string[]; leftover: string } {
@@ -116,5 +116,44 @@ describe('edges that would lose or duplicate text', () => {
 			const { ready, rest } = splitCompleteBlocks(text)
 			expect(ready + rest).toBe(text)
 		}
+	})
+})
+
+describe('splitSafeCut — a paragraph that is taking a while', () => {
+	it('releases up to the whitespace after the last sentence end', () => {
+		const { ready, rest } = splitSafeCut('First sentence. Second one! Third is still arri')
+		expect(ready).toBe('First sentence. Second one! ')
+		expect(rest).toBe('Third is still arri')
+	})
+
+	it('never cuts mid-word: a period with no whitespace after it is not an end', () => {
+		expect(splitSafeCut('Version 3.14 of e.g').ready).toBe('')
+		expect(splitSafeCut('Wait for it.').ready).toBe('')
+	})
+
+	it('cuts at the LAST safe point — a line end, then a sentence end inside the growing line', () => {
+		expect(splitSafeCut('- one. two\n- three four')).toEqual({
+			ready: '- one. two\n',
+			rest: '- three four',
+		})
+		expect(splitSafeCut('- one. two\n- three. four')).toEqual({
+			ready: '- one. two\n- three. ',
+			rest: 'four',
+		})
+	})
+
+	it('releases a whole line including its trailing newline — unlike the block rule, that is safe', () => {
+		expect(splitSafeCut('- one\n')).toEqual({ ready: '- one\n', rest: '' })
+	})
+
+	it('does not cut inside an open fence or an open inline code span', () => {
+		expect(splitSafeCut('```ts\nconst a = 1. \nconst b').ready).toBe('')
+		expect(splitSafeCut('Run `pnpm test. then` now').ready).toBe('')
+		expect(splitSafeCut('Run `pnpm test`. Then wait').ready).toBe('Run `pnpm test`. ')
+	})
+
+	it('releases nothing for a buffer that has shown no content yet', () => {
+		expect(splitSafeCut('\n\n')).toEqual({ ready: '', rest: '\n\n' })
+		expect(splitSafeCut('')).toEqual({ ready: '', rest: '' })
 	})
 })

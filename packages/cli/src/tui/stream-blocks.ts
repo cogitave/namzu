@@ -84,3 +84,75 @@ export function splitCompleteBlocks(buffer: string): { ready: string; rest: stri
 	if (cut < 0) return { ready: '', rest: buffer }
 	return { ready: buffer.slice(0, cut), rest: buffer.slice(cut) }
 }
+
+/**
+ * A sentence end followed by whitespace, or a line end. The whitespace is the
+ * point: `3.14` and `e.g.` are not sentence ends, and a period at the very end
+ * of the buffer may be the first half of `...` or the last character of a
+ * word the model has not finished.
+ */
+const SAFE_CUT = /[.!?:;]\s|\n/g
+
+/**
+ * The block rule above, relaxed for a paragraph that is taking a while.
+ *
+ * A model's paragraph is one long line, so the block rule shows NOTHING of it
+ * until its final character — and a reply that is one long paragraph, which
+ * many are, is invisible for its whole length. That is the failure the block
+ * rule traded the typing effect for, and an operator staring at a blank row
+ * for twenty seconds experiences it as "it is not streaming".
+ *
+ * This releases up to the last point that is safe to show: a line end, or
+ * the whitespace after a sentence end. Never mid-word (a released half-word
+ * is the typing effect back), never inside an open fence (same reason as the
+ * block rule), never inside an open inline code span — a released `` `foo ``
+ * with its closing tick still arriving renders as a stray backtick and then
+ * re-renders as code, which is worse than waiting.
+ *
+ * The caller decides WHEN: this is meant to run on a clock, not on every
+ * delta, so a fast stream still lands a block at a time and only a slow one
+ * degrades to a sentence at a time.
+ */
+export function splitSafeCut(buffer: string): { ready: string; rest: string } {
+	if (buffer.length === 0) return { ready: '', rest: '' }
+
+	let fenceOpen = false
+	let cut = -1
+	let offset = 0
+	let sawContent = false
+	for (const line of buffer.split('\n')) {
+		const lineEnd = offset + line.length
+		if (FENCE.test(line)) {
+			fenceOpen = !fenceOpen
+			sawContent = true
+		} else if (line.trim().length > 0) {
+			sawContent = true
+		}
+		if (!fenceOpen && sawContent) {
+			// The line end itself, including a trailing one: unlike the block
+			// rule, releasing "text\n" ahead of the "\n" that may follow costs
+			// nothing — the renderer sees the same document either way, and a
+			// line that is whole is safe to show.
+			if (lineEnd < buffer.length) cut = lineEnd + 1
+			// Or the last sentence end inside this line, when the line is still
+			// growing and nothing after it has arrived.
+			else {
+				for (const match of line.matchAll(SAFE_CUT)) {
+					const at = offset + match.index + match[0].length
+					if (backticksBalanced(buffer.slice(0, at))) cut = at
+				}
+			}
+		}
+		offset = lineEnd + 1
+	}
+
+	if (cut < 0) return { ready: '', rest: buffer }
+	return { ready: buffer.slice(0, cut), rest: buffer.slice(cut) }
+}
+
+/** An even number of backticks: every inline span that opened has closed. */
+function backticksBalanced(text: string): boolean {
+	let count = 0
+	for (const ch of text) if (ch === '`') count += 1
+	return count % 2 === 0
+}

@@ -280,7 +280,18 @@ export type AgentEvent =
 			readonly source: Extract<RunEvent, { type: 'message_history_repaired' }>['source']
 			readonly text: string
 	  }
-	| { readonly kind: 'task'; readonly subject: string; readonly status: string }
+	/**
+	 * One task of the model's plan, on every change. `taskId` is what lets the
+	 * live list update a row in place rather than append; `status` is the
+	 * store's own vocabulary. The transcript still records only the opening
+	 * and the close — the churn in between is for the list, not the record.
+	 */
+	| {
+			readonly kind: 'task'
+			readonly taskId: string
+			readonly subject: string
+			readonly status: 'pending' | 'in_progress' | 'completed' | 'failed'
+	  }
 	/**
 	 * The turn ended without throwing — which is not the same as succeeding.
 	 *
@@ -2992,13 +3003,16 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			}
 		}
 		case 'task_created':
-			return { kind: 'task', subject: event.subject, status: event.status }
 		case 'task_updated':
-			// Only surface completions — skip pending/in-progress churn so the
-			// transcript shows "todo added" then "todo done", not every flip.
-			return event.status === 'completed'
-				? { kind: 'task', subject: event.subject, status: event.status }
-				: null
+			// Every change, not only completions: the live task list needs the
+			// in-progress flips to show which step is current. The transcript
+			// decides for itself which of these it records.
+			return {
+				kind: 'task',
+				taskId: String(event.taskId),
+				subject: event.subject,
+				status: event.status,
+			}
 		case 'run_paused':
 			// A pause is not an error and not an invisible end. The checkpoint and
 			// classification are the recovery surface; dropping this event made a
