@@ -114,7 +114,11 @@ describe('runCli', () => {
 		expect(code).toBe(0)
 		expect(stdout).toContain(`Skills available for ${cwd}`)
 		expect(stdout).toContain('release [project] — prepare a verified release')
-		expect(stdout).not.toContain('M5')
+		// The output names `cwd`, and `cwd` is a random temp path: on CI it once
+		// contained "M5" and this failed a test about a milestone stub that
+		// was never printed. Look for the stub in what the command SAID, not
+		// in where it was pointed.
+		expect(stdout.replaceAll(cwd, '<cwd>')).not.toContain('M5')
 	})
 
 	it('skills refuses an untrusted target before reading its roster', async () => {
