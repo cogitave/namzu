@@ -97,18 +97,47 @@ export async function* runToolReview(
 	}
 	let toolCallSummaries = summariesFor(preparedBatch)
 
+	/**
+	 * A call that has failed identically too many times in a row is answered
+	 * with the tracker's refusal instead of being run — the one denial the
+	 * tracker makes, on top of whatever the caller already denied.
+	 */
+	const withRepeatRefusals = (denials?: ToolCallDenials): ToolCallDenials | undefined => {
+		const tracker = ctx.repeatCalls
+		if (!tracker) return denials
+		let merged: Map<string, string> | undefined
+		for (const summary of toolCallSummaries) {
+			if (denials?.has(summary.id)) continue
+			const refusal = tracker.refusal(summary.name, summary.input)
+			if (!refusal) continue
+			merged ??= new Map(denials ?? [])
+			merged.set(summary.id, refusal)
+		}
+		return merged ?? denials
+	}
+
 	/** Executes the batch, answering every call, and appends the results. */
 	const settle = async (denials?: ToolCallDenials): Promise<void> => {
 		const startedAt = Date.now()
-		const batch = await ctx.toolExecutor.executeBatch(response, denials, undefined, preparedBatch)
+		const batch = await ctx.toolExecutor.executeBatch(
+			response,
+			withRepeatRefusals(denials),
+			undefined,
+			preparedBatch,
+		)
 		toolMs += Date.now() - startedAt
 		executed = batch.results
-		// Recorded AFTER execution and never before it: this advises, it does
-		// not deny, so the call has already run and its real result is in the
-		// batch. Wiring it ahead of `executeBatch` would make it a gate.
+		// Recorded AFTER execution, with the real result: the notice advises
+		// on the call that already ran, and the failure count is what the
+		// refusal above reads on the NEXT identical call.
 		const notices = []
 		for (const summary of toolCallSummaries) {
-			const notice = ctx.repeatCalls?.record(summary.name, summary.input)
+			const outcome = batch.results.find((result) => result.toolCallId === summary.id)
+			const notice = ctx.repeatCalls?.record(
+				summary.name,
+				summary.input,
+				outcome ? { failed: outcome.isError === true } : undefined,
+			)
 			if (notice) notices.push(notice)
 		}
 		// Guidance the host queued while this batch was running rides out on

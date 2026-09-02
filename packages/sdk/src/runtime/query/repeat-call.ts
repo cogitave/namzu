@@ -12,11 +12,18 @@ import { stableStringify } from './tool-grants.js'
  * regardless of whether anything is repeating and needs a human at the
  * other end.
  *
- * It advises; it never denies. A repeat is not necessarily wrong — polling
- * for a build to finish is the same call by design — and a tracker that
- * refused would break that case to fix a different one. What the model
- * lacks is not permission but the observation, which it cannot make about
- * itself: each turn it sees a history, not a count.
+ * It advises, and it refuses exactly one thing. A repeat is not
+ * necessarily wrong — polling for a build to finish is the same call by
+ * design — so a repeat that keeps SUCCEEDING is only ever noticed. A repeat
+ * that keeps FAILING the same way is different: an operator watched a
+ * model ask a desktop it could not reach for a screenshot, read the same
+ * error, and ask again, for as long as the run was allowed to go on. After
+ * `refuseFailedAfter` consecutive identical failures the next identical
+ * call is answered with a refusal instead of being run, and the refusal
+ * says why. A success resets the count, so a poll that fails a few times
+ * before it succeeds is never touched. What the model lacks is not
+ * permission but the observation, which it cannot make about itself: each
+ * turn it sees a history, not a count.
  */
 
 /** Same key `ToolGrantSet` uses, so "the same call" means one thing here. */
@@ -29,11 +36,17 @@ export interface RepeatCallThresholds {
 	readonly notifyAfter: number
 	/** Repeats at which the wording escalates. */
 	readonly escalateAfter: number
+	/**
+	 * Consecutive identical FAILURES after which the next identical call is
+	 * refused rather than run. A success in between resets the count.
+	 */
+	readonly refuseFailedAfter: number
 }
 
 export const DEFAULT_REPEAT_THRESHOLDS: RepeatCallThresholds = {
 	notifyAfter: 3,
 	escalateAfter: 5,
+	refuseFailedAfter: 4,
 }
 
 export interface RepeatCallNotice {
@@ -52,17 +65,27 @@ export class RepeatCallTracker {
 	/** Which keys have already been reported at which level, so one repeat
 	 *  does not produce the same sentence on every subsequent turn. */
 	private readonly announced = new Map<string, 'notice' | 'escalated'>()
+	/** Consecutive failures per key; a success deletes the entry. */
+	private readonly failures = new Map<string, number>()
 
 	constructor(private readonly thresholds: RepeatCallThresholds = DEFAULT_REPEAT_THRESHOLDS) {}
 
 	/**
 	 * Records one call and returns a notice when this is the repeat that
-	 * crosses a threshold, `undefined` otherwise.
+	 * crosses a threshold, `undefined` otherwise. `outcome.failed` is what
+	 * the refusal counts; a call recorded without an outcome counts as a
+	 * repeat but never towards a refusal.
 	 */
-	record(toolName: string, input: unknown): RepeatCallNotice | undefined {
+	record(
+		toolName: string,
+		input: unknown,
+		outcome?: { readonly failed: boolean },
+	): RepeatCallNotice | undefined {
 		const key = keyFor(toolName, input)
 		const count = (this.counts.get(key) ?? 0) + 1
 		this.counts.set(key, count)
+		if (outcome?.failed === true) this.failures.set(key, (this.failures.get(key) ?? 0) + 1)
+		else if (outcome?.failed === false) this.failures.delete(key)
 
 		const already = this.announced.get(key)
 		if (count >= this.thresholds.escalateAfter && already !== 'escalated') {
@@ -89,6 +112,18 @@ export class RepeatCallTracker {
 	/** Repeats seen for one call, for a host that wants to render it. */
 	countOf(toolName: string, input: unknown): number {
 		return this.counts.get(keyFor(toolName, input)) ?? 0
+	}
+
+	/**
+	 * The refusal for a call that has failed identically too many times in
+	 * a row, or `undefined` when the call may run. Asked BEFORE execution;
+	 * the refused call is still recorded afterwards, as a failure, so the
+	 * refusal holds until the model changes something.
+	 */
+	refusal(toolName: string, input: unknown): string | undefined {
+		const failed = this.failures.get(keyFor(toolName, input)) ?? 0
+		if (failed < this.thresholds.refuseFailedAfter) return undefined
+		return `Refused: \`${toolName}\` with these exact arguments has failed ${failed} times in a row in this run, with the same result each time. It will not be run again with these arguments. Change the arguments, use a different tool, or tell the user what is blocking you and stop.`
 	}
 }
 

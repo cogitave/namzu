@@ -5,7 +5,7 @@ import type {
 	ComputerUseResult,
 	DisplayGeometry,
 } from '@namzu/sdk'
-import type { Adapter } from './adapters/types.js'
+import { type Adapter, AdapterUnavailableError } from './adapters/types.js'
 import { detectDisplayServer } from './detect/index.js'
 import { ComputerUseOutcomeUnknownError } from './errors.js'
 import { SpawnError } from './util/spawn.js'
@@ -74,6 +74,21 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		if (this.adapter) return
 		const displayServer = this._capabilities.displayServer
 		const adapter = await loadAdapter(displayServer)
+		// Loading an adapter proves its tools exist on PATH, not that a desktop
+		// answers. A WSL process finds PowerShell and still may have no
+		// interactive Windows session to capture; an ssh session finds xdotool
+		// and no display. The host used to become "ready" on the first and let
+		// every later action fail the same way — and a model that reads the
+		// same error asks again. One cheap read here turns that into "computer
+		// use is unavailable on this device" before any tool is mounted.
+		try {
+			await adapter.getDisplayGeometry()
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error)
+			throw new AdapterUnavailableError(
+				`SubprocessComputerUseHost: the ${displayServer} adapter loaded but the desktop did not answer: ${reason}`,
+			)
+		}
 		this.adapter = adapter
 		this._capabilities = adapter.capabilities
 	}

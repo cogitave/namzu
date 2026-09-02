@@ -25,9 +25,11 @@ import { RepeatCallTracker } from '../repeat-call.js'
  * iteration checkpoint, which fires on a count regardless of whether
  * anything is repeating and needs a human at the other end.
  *
- * It advises and never denies, and that is a decision rather than caution:
- * polling for a build to finish is the same call by design, and a tracker
- * that refused would break that case to fix a different one. What the
+ * It advises and does not deny a repeat that succeeds, and that is a
+ * decision rather than caution: polling for a build to finish is the same
+ * call by design, and a tracker that refused would break that case to fix
+ * a different one. The one refusal it makes — the same call failing the
+ * same way over and over — is in its own test. What the
  * model lacks is not permission but the observation — each turn it sees a
  * history, not a count.
  */
