@@ -25,6 +25,7 @@ import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import { resolveModelPricing } from '../../pricing/index.js'
+import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import { isCallerAbortError } from '../../provider/errors.js'
 import {
@@ -1798,6 +1799,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		toolExecutor.setWorkingStateManager(workingStateManager)
 	}
 
+	// The run's own registry when the host passed none, so a hook's
+	// annotation has somewhere to land.
+	const promptContributions = params.promptContributions ?? new PromptContributionRegistry()
+
 	const promptBuilder = new PromptBuilder({
 		systemPrompt: params.systemPrompt,
 		persona: params.persona,
@@ -1806,7 +1811,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		tools: params.tools,
 		allowedTools: effectiveAllowedTools,
 		runtimeContext: params.runtimeContext,
-		...(params.promptContributions ? { contributions: params.promptContributions } : {}),
+		contributions: promptContributions,
 	})
 
 	const guard = new GuardCoordinator({
@@ -1949,7 +1954,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// question rather than the next run.
 		resumeHandler: (request) => approvalPolicy.current.handler(request),
 		takeApprovalPolicyChange: () => approvalPolicy.takeUnannouncedChange(),
-		...(params.promptContributions ? { promptContributions: params.promptContributions } : {}),
+		promptContributions,
 		...(params.steering ? { steering: params.steering } : {}),
 		...(jobNotices ? { jobNotices } : {}),
 		checkpointMgr,
@@ -2128,6 +2133,32 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				'namzu.runtime.resume_from_checkpoint': params.resumeFromCheckpoint ?? null,
 			})
 
+			// The operator's prompt, before the model sees it. A hook may
+			// refuse it — the run ends here, before a prompt is built — or add
+			// to what the model is told; the addition rides the prompt as a
+			// dynamic contribution so every iteration of the run carries it.
+			if (params.pluginManager) {
+				const hookResults = await params.pluginManager.executeHooks(
+					'user_prompt_submit',
+					{
+						runId: ctx.runId,
+						sessionId: params.sessionId,
+						prompt: lastUserPrompt(initialMessages),
+						signal: ctx.abortController.signal,
+					},
+					eventTranslator.emitEvent,
+				)
+				const annotations = applyLifecycleHookResults('user_prompt_submit', hookResults)
+				if (annotations.length > 0) {
+					promptContributions.replace({
+						id: 'hooks:user_prompt_submit',
+						placement: 'dynamic',
+						render: () => `Context from the operator's hooks:\n\n${annotations.join('\n\n')}`,
+					})
+				}
+				yield* eventTranslator.drainPending()
+			}
+
 			const contextLevel = params.contextLevel ?? 'full'
 			const cacheInput = {
 				systemPrompt: params.systemPrompt,
@@ -2137,7 +2168,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				tools: params.tools,
 				allowedTools: effectiveAllowedTools,
 				runtimeContext: params.runtimeContext,
-				...(params.promptContributions ? { contributions: params.promptContributions } : {}),
+				contributions: promptContributions,
 			}
 
 			const segments: PromptSegments = promptCache
@@ -2639,6 +2670,22 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				)
 				applyLifecycleHookResults('run_end', hookResults)
 				yield* eventTranslator.drainPending()
+				// A delegated run says so once more, by name, so a hook that
+				// only cares when a subagent finishes need not read parent ids
+				// off every run_end.
+				if (params.parentRunId !== undefined) {
+					const stopResults = await params.pluginManager.executeHooks(
+						'subagent_stop',
+						{
+							runId: ctx.runId,
+							parentRunId: params.parentRunId,
+							signal: ctx.abortController.signal,
+						},
+						eventTranslator.emitEvent,
+					)
+					applyLifecycleHookResults('subagent_stop', stopResults)
+					yield* eventTranslator.drainPending()
+				}
 			}
 
 			// Hand the step record to the run before it settles, so the
@@ -2831,6 +2878,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
  * either way — a stale cursor belongs to the client, and must not be able to
  * stop the work.
  */
+/** The text of the newest user turn, which is what a prompt hook is asked about. */
+function lastUserPrompt(messages: readonly Message[]): string {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]
+		if (m?.role === 'user' && typeof m.content === 'string') return m.content
+	}
+	return ''
+}
+
 async function* catchUpFromCursor(
 	runMgr: RunPersistence,
 	cursor: RunEventCursor,

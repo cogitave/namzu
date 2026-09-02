@@ -213,6 +213,9 @@ import {
 	reviewMergeBase,
 } from './workspace-review.js'
 
+/** How long `/exit` waits for the session to close before leaving anyway. */
+const SESSION_CLOSE_ON_EXIT_MS = 5_000
+
 export interface AppProps {
 	readonly ctx: TuiContext
 	readonly onExitSummary?: (summary: TuiExitSummary) => void
@@ -1157,14 +1160,29 @@ export function App({
 	 */
 	const conversationMaterializedRef = useRef(false)
 	const materializationRef = useRef<Promise<RunScope | undefined> | null>(null)
+	/**
+	 * The session owns processes — MCP servers, background jobs, the hooks'
+	 * `session_end` — and Ink's exit does not close it. So the session is
+	 * closed first, bounded, and the process leaves after: a server started
+	 * with `run_in_background` used to outlive `/exit`, and a `session_end`
+	 * hook never ran.
+	 */
+	const closeAndExit = useCallback(() => {
+		const closing = session?.close() ?? Promise.resolve()
+		const bounded = Promise.race([
+			closing,
+			new Promise<void>((resolve) => setTimeout(resolve, SESSION_CLOSE_ON_EXIT_MS).unref?.()),
+		])
+		void bounded.catch(() => undefined).finally(() => exit())
+	}, [exit, session])
 	const exitWithSummary = useCallback(() => {
 		onExitSummary?.({
 			...(conversationMaterializedRef.current && scopeRef.current?.sessionId
 				? { conversationId: scopeRef.current.sessionId }
 				: {}),
 		})
-		exit()
-	}, [exit, onExitSummary])
+		closeAndExit()
+	}, [closeAndExit, onExitSummary])
 	/** Durable active state is not permission to spend turns after a restart. */
 	const [goalActivation] = useState(() => new SessionGoalActivation())
 	const goalDriveInFlightRef = useRef(false)
@@ -1672,7 +1690,7 @@ export function App({
 				archived = true
 				goalActivation.clear()
 				onExitSummary?.({})
-				exit()
+				closeAndExit()
 			} catch (error) {
 				pushMessage(
 					'system',
@@ -2779,6 +2797,7 @@ export function App({
 	const slashCtx: SlashContext = {
 		cwd: ctx.cwd,
 		jobs: () => session?.jobs?.() ?? [],
+		hooks: () => session?.hooks,
 		compaction: session
 			? {
 					strategy: ctx.compaction?.strategy ?? 'salience',

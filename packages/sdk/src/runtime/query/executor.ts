@@ -2119,6 +2119,7 @@ export class ToolExecutor {
 						output: `Error: ${result.message}`,
 					}
 				case 'retry':
+				case 'annotate':
 				// There is no result to replace yet. Rejecting loudly beats
 				// silently ignoring it: a hook author who returned this here
 				// meant to redact something and would otherwise watch the secret
@@ -2379,6 +2380,7 @@ export class ToolExecutor {
 					continue
 				case 'skip':
 				case 'modify':
+				case 'annotate':
 					throw new Error(
 						`Plugin hook post_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
 					)

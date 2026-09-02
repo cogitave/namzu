@@ -17,6 +17,7 @@ import { NAMZU } from '../../../../constants/telemetry/index.js'
 import { invariants } from '../../../../invariants/index.js'
 import { resolveTaskModel } from '../../../../model-router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
+import { applyLifecycleHookResults } from '../../plugin-hooks.js'
 import type { IterationContext } from './context.js'
 import { isWorkingMemoryMessage } from './working-memory.js'
 
@@ -496,8 +497,56 @@ async function recordShed(
 	})
 }
 
+/**
+ * A pass, once the check decided to run one, is bracketed by the
+ * `pre_compact` and `post_compact` hooks. Observational: a hook sees the
+ * numbers and cannot stop the pass, because a context the provider will
+ * reject is not a thing a hook may insist on.
+ */
+interface CompactionPass {
+	attempted: boolean
+	reason: 'threshold' | 'overflow'
+	tokensBefore: number
+	contextWindowTokens: number
+}
+
 export async function runCompactionCheck(
 	ctx: IterationContext,
+	options?: { force?: boolean },
+): Promise<void> {
+	const pass: CompactionPass = {
+		attempted: false,
+		reason: options?.force ? 'overflow' : 'threshold',
+		tokensBefore: 0,
+		contextWindowTokens: 0,
+	}
+	try {
+		await runCompactionCheckInner(ctx, pass, options)
+	} finally {
+		if (pass.attempted && ctx.pluginManager) {
+			const results = await ctx.pluginManager.executeHooks(
+				'post_compact',
+				{
+					runId: ctx.runMgr.id,
+					iteration: ctx.runMgr.currentIteration,
+					compaction: {
+						reason: pass.reason,
+						tokensBefore: pass.tokensBefore,
+						tokensAfter: estimateTokens(ctx),
+						contextWindowTokens: pass.contextWindowTokens,
+					},
+					signal: ctx.abortController.signal,
+				},
+				ctx.emitEvent,
+			)
+			applyLifecycleHookResults('post_compact', results)
+		}
+	}
+}
+
+async function runCompactionCheckInner(
+	ctx: IterationContext,
+	pass: CompactionPass,
 	options?: { force?: boolean },
 ): Promise<void> {
 	const config = ctx.compactionConfig
@@ -532,6 +581,27 @@ export async function runCompactionCheck(
 		? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, config.triggerThreshold)
 		: config.triggerThreshold
 	if (!options?.force && usage < startAt) return
+
+	pass.attempted = true
+	pass.tokensBefore = estimatedTokens
+	pass.contextWindowTokens = budget
+	if (ctx.pluginManager) {
+		const results = await ctx.pluginManager.executeHooks(
+			'pre_compact',
+			{
+				runId: ctx.runMgr.id,
+				iteration: ctx.runMgr.currentIteration,
+				compaction: {
+					reason: pass.reason,
+					tokensBefore: estimatedTokens,
+					contextWindowTokens: budget,
+				},
+				signal: ctx.abortController.signal,
+			},
+			ctx.emitEvent,
+		)
+		applyLifecycleHookResults('pre_compact', results)
+	}
 
 	// A reducer, when the run has one, OWNS reduction — the structured pass
 	// below does not also run. `strategy: 'sliding-window'` resolves to the

@@ -8,7 +8,7 @@ import {
 	MAX_TOOLS_PER_PLUGIN,
 	PLUGIN_NAME_MAX_LENGTH,
 } from '../../constants/plugin/index.js'
-import type { PluginId, RunId } from '../ids/index.js'
+import type { PluginId, RunId, SessionId } from '../ids/index.js'
 import type { Message, ToolResultContent } from '../message/index.js'
 import type { CancelCause } from '../run/cancel-cause.js'
 import type { ToolResult } from '../tool/index.js'
@@ -84,6 +84,20 @@ export function assertPluginContributionType(type: PluginContributionType): void
 // ---------------------------------------------------------------------------
 
 export type PluginHookEvent =
+	/**
+	 * The operator's prompt, before the model sees it. Carries `prompt`.
+	 * The one event that can BLOCK a run (`skip`) and the one that can add
+	 * to what the model is told (`annotate`).
+	 */
+	| 'user_prompt_submit'
+	/** A host's session opened or closed. Carries `sessionId`; `runId` is minted for the session's own hooks. */
+	| 'session_start'
+	| 'session_end'
+	/** A compaction pass is about to run / has run. Carries `compaction`. */
+	| 'pre_compact'
+	| 'post_compact'
+	/** A delegated run ended. Fired after its own `run_end`; carries `parentRunId`. */
+	| 'subagent_stop'
 	| 'run_start'
 	| 'run_end'
 	| 'run_interrupt'
@@ -96,6 +110,12 @@ export type PluginHookEvent =
 
 export function assertPluginHookEvent(event: PluginHookEvent): void {
 	switch (event) {
+		case 'user_prompt_submit':
+		case 'session_start':
+		case 'session_end':
+		case 'pre_compact':
+		case 'post_compact':
+		case 'subagent_stop':
 		case 'run_start':
 		case 'run_end':
 		case 'run_interrupt':
@@ -142,10 +162,28 @@ export interface PluginModelResponse {
 	}
 }
 
+/** What a compaction hook is shown about the pass. */
+export interface PluginCompactionInfo {
+	/** `threshold`: the estimate crossed the line. `overflow`: the provider rejected the prompt. */
+	readonly reason: 'threshold' | 'overflow'
+	readonly tokensBefore: number
+	/** Present on `post_compact`. */
+	readonly tokensAfter?: number
+	readonly contextWindowTokens: number
+}
+
 export interface PluginHookContext {
 	readonly runId: RunId
 	readonly pluginId: PluginId
 	readonly event: PluginHookEvent
+	/** The host's session, on `session_*` and `user_prompt_submit`. */
+	readonly sessionId?: SessionId
+	/** The run that delegated, on `subagent_stop`. */
+	readonly parentRunId?: RunId
+	/** The operator's prompt, on `user_prompt_submit`. */
+	readonly prompt?: string
+	/** The pass, on `pre_compact` and `post_compact`. */
+	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
 	readonly toolInput?: unknown
 	readonly toolResult?: ToolResult
@@ -204,6 +242,15 @@ export interface PluginHookContext {
 
 export type PluginHookResult =
 	| { action: 'continue' }
+	/**
+	 * Add to what the model is told, without changing anything else.
+	 *
+	 * The answer a `user_prompt_submit` hook gives when it has context the
+	 * model should have — the branch, the time, a ticket — and no opinion
+	 * on the prompt. Accepted on that event only: a tool hook that returns
+	 * it is rejected, because a tool result is not a place for context.
+	 */
+	| { action: 'annotate'; text: string }
 	| { action: 'skip'; reason: string }
 	| { action: 'modify'; input: unknown }
 	| { action: 'error'; message: string }
@@ -238,6 +285,7 @@ export function assertPluginHookResult(result: PluginHookResult): asserts result
 	const action = result.action
 	switch (action) {
 		case 'continue':
+		case 'annotate':
 		case 'skip':
 		case 'modify':
 		case 'error':

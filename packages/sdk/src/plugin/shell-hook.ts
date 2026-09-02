@@ -47,6 +47,7 @@ import { spawn } from 'node:child_process'
 
 import type { PluginId } from '../types/ids/index.js'
 import type {
+	PluginCompactionInfo,
 	PluginHookContext,
 	PluginHookDefinition,
 	PluginHookEvent,
@@ -57,15 +58,34 @@ import { NOOP_LOGGER } from '../utils/log/create-logger.js'
 import type { Logger } from '../utils/logger.js'
 import type { PluginLifecycleManager } from './lifecycle.js'
 
-/** The events a shell hook may attach to: the ones with a clear verdict. */
+/**
+ * The events a shell hook may attach to: the ones an operator can act on
+ * from a script. The model-call and iteration events stay in-process —
+ * they carry the messages, and a shell is not where those go.
+ */
 export type ShellHookEvent = Extract<
 	PluginHookEvent,
-	'pre_tool_use' | 'post_tool_use' | 'run_start' | 'run_end'
+	| 'user_prompt_submit'
+	| 'session_start'
+	| 'session_end'
+	| 'pre_tool_use'
+	| 'post_tool_use'
+	| 'pre_compact'
+	| 'post_compact'
+	| 'subagent_stop'
+	| 'run_start'
+	| 'run_end'
 >
 
 export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
+	'user_prompt_submit',
+	'session_start',
+	'session_end',
 	'pre_tool_use',
 	'post_tool_use',
+	'pre_compact',
+	'post_compact',
+	'subagent_stop',
 	'run_start',
 	'run_end',
 ]
@@ -125,6 +145,10 @@ export interface ShellHookInput {
 	readonly event: ShellHookEvent
 	readonly cwd: string
 	readonly runId: string
+	readonly sessionId?: string
+	readonly parentRunId?: string
+	readonly prompt?: string
+	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
 	readonly toolInput?: unknown
 	readonly toolResult?: {
@@ -148,6 +172,10 @@ export function runShellHook(
 		event: input.event,
 		cwd: input.cwd,
 		run_id: input.runId,
+		...(input.sessionId !== undefined ? { session_id: input.sessionId } : {}),
+		...(input.parentRunId !== undefined ? { parent_run_id: input.parentRunId } : {}),
+		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+		...(input.compaction !== undefined ? { compaction: input.compaction } : {}),
 		...(input.toolName !== undefined ? { tool_name: input.toolName } : {}),
 		...(input.toolInput !== undefined ? { tool_input: input.toolInput } : {}),
 		...(input.toolResult !== undefined ? { tool_result: input.toolResult } : {}),
@@ -162,6 +190,7 @@ export function runShellHook(
 					...process.env,
 					NAMZU_HOOK_EVENT: input.event,
 					NAMZU_RUN_ID: input.runId,
+					...(input.sessionId !== undefined ? { NAMZU_SESSION_ID: input.sessionId } : {}),
 					...(input.toolName !== undefined ? { NAMZU_TOOL_NAME: input.toolName } : {}),
 					...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
 				},
@@ -274,11 +303,19 @@ export function shellHookVerdict(
 		log.warn('hook timed out', attrs)
 		return { action: 'continue' }
 	}
-	if (outcome.exitCode === 0) return { action: 'continue' }
+	if (outcome.exitCode === 0) {
+		// On the prompt event, what the hook printed is context for the
+		// model — the branch, the time, a ticket. Everywhere else stdout is
+		// the operator's to read and the model's business not at all.
+		const text = outcome.stdout.trim()
+		if (event === 'user_prompt_submit' && text.length > 0) return { action: 'annotate', text }
+		return { action: 'continue' }
+	}
 	if (outcome.exitCode === 2) {
 		const reason =
 			outcome.stderr.trim() || outcome.stdout.trim() || `blocked by hook \`${entry.command}\``
-		if (event === 'pre_tool_use') return { action: 'skip', reason }
+		if (event === 'pre_tool_use' || event === 'user_prompt_submit')
+			return { action: 'skip', reason }
 		log.warn('hook returned 2 on an event it cannot block', {
 			...attrs,
 			'namzu.hook.reason': reason,
@@ -316,6 +353,12 @@ export function createShellHook(
 					event,
 					cwd: options.cwd,
 					runId: String(context.runId),
+					...(context.sessionId !== undefined ? { sessionId: String(context.sessionId) } : {}),
+					...(context.parentRunId !== undefined
+						? { parentRunId: String(context.parentRunId) }
+						: {}),
+					...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
+					...(context.compaction !== undefined ? { compaction: context.compaction } : {}),
 					...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
 					...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),
 					...(context.toolResult !== undefined

@@ -24,6 +24,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { SHELL_HOOK_EVENTS } from '@namzu/sdk'
 
 import { parse as yamlParse } from 'yaml'
 
@@ -560,14 +561,14 @@ const CONFIG_READERS: ConfigReaders = {
 	hooks: (v, context) => {
 		if (!isConfigMapping(v))
 			return invalidConfigValue(context, [], 'must be a mapping of event → list')
-		const events = new Set(['pre_tool_use', 'post_tool_use', 'run_start', 'run_end'])
+		const events = new Set<string>(SHELL_HOOK_EVENTS)
 		const out: Record<string, HookEntry[]> = {}
 		for (const [event, entries] of Object.entries(v)) {
 			if (!events.has(event)) {
 				return invalidConfigValue(
 					context,
 					[event],
-					'is not a hook event (pre_tool_use, post_tool_use, run_start, run_end)',
+					`is not a hook event (${SHELL_HOOK_EVENTS.join(', ')})`,
 				)
 			}
 			if (!Array.isArray(entries))

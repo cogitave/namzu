@@ -525,6 +525,8 @@ export interface AgentSession {
 	readonly toolNames: () => readonly string[]
 	/** This session's background jobs, running and ended. Absent on a session with no registry. */
 	readonly jobs?: () => readonly BackgroundJob[]
+	/** The shell hooks this session runs, by event; what `/hooks` lists. */
+	readonly hooks?: HooksConfig
 	/** Be told when one of this session's jobs ends, whether or not a turn is running. */
 	readonly onJobExit?: (listener: (job: BackgroundJob) => void) => () => void
 	/**
@@ -1859,6 +1861,24 @@ export async function createAgentSession(
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose()])
 		return emptySession(describeError(error))
 	}
+	// The session's own lifecycle, for hooks that set up or tear down
+	// something per session rather than per run. The run id is minted for
+	// these two calls: they belong to no turn. `session_start` waits for
+	// the first turn rather than firing here, because the conversation id
+	// the scope holds at construction is provisional — it is replaced when
+	// the conversation is first made durable — and a hook given the
+	// provisional id could never match it to a run.
+	const sessionPlugins = pluginRuntime
+	const sessionHookRunId = generateRunId()
+	let sessionStarted = false
+	const announceSessionStart = async (): Promise<void> => {
+		if (!sessionPlugins || sessionStarted) return
+		sessionStarted = true
+		await sessionPlugins.manager.executeHooks('session_start', {
+			runId: sessionHookRunId,
+			sessionId: scope.sessionId,
+		})
+	}
 	if (pluginRuntime) {
 		cliLogger().info('discovery complete', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
@@ -1880,7 +1900,15 @@ export async function createAgentSession(
 	const operations = new SessionOperationOwner(async () => {
 		const results = await Promise.allSettled([
 			subagentRuntime?.close?.(),
-			pluginRuntime?.close(),
+			sessionPlugins
+				? sessionPlugins.manager
+						.executeHooks('session_end', {
+							runId: sessionHookRunId,
+							sessionId: scope.sessionId,
+						})
+						.catch(() => [])
+						.then(() => sessionPlugins.close())
+				: undefined,
 			mcp.close(),
 			computerUseHost?.dispose(),
 			jobRegistry?.killOwner(jobOwner),
@@ -1955,6 +1983,7 @@ export async function createAgentSession(
 				.filter((name) => !goalToolNames.has(name)),
 		agentIds: allowedAgentIds,
 		jobs: () => jobRegistry?.list(jobOwner) ?? [],
+		...(options.hooks ? { hooks: options.hooks } : {}),
 		onJobExit: (listener) =>
 			jobRegistry?.onExit((job) => {
 				if (job.owner === jobOwner) listener(job)
@@ -2068,6 +2097,7 @@ export async function createAgentSession(
 							]
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
+						await announceSessionStart()
 						let capturedAuthority: GoalRoundAuthority | undefined
 						if (opts?.goalRound) {
 							if (!opts.runId) throw new Error('A goal round requires a caller-reserved runId.')

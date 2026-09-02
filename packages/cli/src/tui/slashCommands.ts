@@ -33,6 +33,7 @@ import {
 } from '@namzu/sdk'
 
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
+import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
 import { type PermissionMode, isPermissionMode } from '../permissions/mode.js'
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
@@ -190,6 +191,8 @@ export interface SlashContext {
 	readonly cwd: string
 	/** Null before a session exists. */
 	readonly compaction: CompactionSummary | null
+	/** The shell hooks this session runs, by event; absent when the session has none. */
+	readonly hooks?: () => HooksConfig | undefined
 	/** This session's background jobs, running and ended; empty under a sandbox. */
 	readonly jobs: () => readonly {
 		readonly id: string
@@ -715,6 +718,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		}),
 	},
 	{
+		name: 'hooks',
+		description: 'List the shell hooks this session runs, by event.',
+		action: (ctx) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderHooks(ctx.hooks?.()),
+		}),
+	},
+	{
 		name: 'context',
 		description: 'Show how full the context is and what compaction has done to keep it that way.',
 		action: (ctx) => ({
@@ -947,6 +959,25 @@ export function initPrompt(instructionFiles: readonly string[]): string {
  * and what it has cost the transcript so far. Counts are for this session,
  * summed over every pass; a pass that declined leaves them unchanged.
  */
+/** The session's shell hooks, by event, in the order the config file gave them. */
+export function renderHooks(hooks: HooksConfig | undefined): string {
+	const events = Object.entries(hooks ?? {}).filter(([, entries]) => (entries?.length ?? 0) > 0)
+	if (events.length === 0) {
+		return 'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of { command, matcher?, timeoutMs? }.'
+	}
+	const lines: string[] = []
+	for (const [event, entries] of events) {
+		lines.push(`${event}`)
+		for (const entry of entries ?? []) {
+			const when = entry.matcher ? ` · matches ${entry.matcher}` : ''
+			const deadline =
+				entry.timeoutMs !== undefined ? ` · ${Math.round(entry.timeoutMs / 1000)}s` : ''
+			lines.push(`  ${entry.command}${when}${deadline}`)
+		}
+	}
+	return lines.join('\n')
+}
+
 /** The session's background jobs, as an operator would ask about them. */
 export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 	if (jobs.length === 0) {
