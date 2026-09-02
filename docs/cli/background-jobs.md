@@ -21,6 +21,8 @@ The model passes `run_in_background: true` to `bash` for work that legitimately 
 
 # Lifetime
 
+A job is its **process group**, not its shell. A command that backgrounds its real work (`python3 -m http.server 8765 &`) returns from the shell at once; the job stays `running` while any process it started is alive, ends with the shell's exit code when the last one is gone, and a stop takes the survivors with it.
+
 Jobs belong to the **session**, not the turn: a server started in one turn is still there in the next. They are stopped when the session closes (`/exit`, `Ctrl+D`, the process ending). `/jobs` lists every job started this session with its state — running for how long, exited with which code, stopped.
 
 # Under a sandbox

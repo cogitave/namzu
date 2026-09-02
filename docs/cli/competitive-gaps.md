@@ -38,8 +38,8 @@ Surveyed on 2026-09-02 against the published feature sets of Claude Code,[^cc-re
 | --- | --- | --- | --- |
 | Background jobs that survive a turn and *notify* the model when they finish | Claude Code (`run_in_background` + completion notices), Gemini | kernel: owner lifetime, exit subscription, event + notice; CLI: registry per session, `/jobs`, transcript row | done |
 | Background jobs inside the sandbox | Claude Code | a sandbox execution seam for persistent processes; no built-in backend has one | backlog |
-| `!command` — run a shell command from the composer without the model | Claude Code | composer prefix, transcript row, no model call | backlog |
-| `#note` — add to memory from the composer | Claude Code | composer prefix over `save_memory` | backlog |
+| `!command` — run a shell command from the composer without the model | Claude Code | composer prefix, transcript row, no model call | done |
+| `#note` — add to memory from the composer | Claude Code | composer prefix over `save_memory` | done |
 | `Esc Esc` — pop back to an earlier turn | Claude Code | key binding over the existing edit-previous picker | backlog |
 | Hook events beyond four | Claude Code (10), Gemini | `user_prompt_submit`, `pre_compact`/`post_compact`, `session_start`/`session_end`, `subagent_stop`; the kernel already fires `iteration_*`, `pre/post_llm_call`, `run_interrupt` | backlog |
 | `/add-dir` — more than one directory in a session | Claude Code, Gemini | sandbox mounts and authorization scope for a second root | backlog |

@@ -196,6 +196,12 @@ import {
 } from './slashCommands.js'
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
+import {
+	describeShellEscape,
+	describeShellEscapeForModel,
+	runShellEscape,
+	shellEscapeCommand,
+} from './shell-escape.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { useSelectionIndex } from './use-selection-index.js'
@@ -814,6 +820,15 @@ export function App({
 		const lines = idleJobNoticesRef.current
 		idleJobNoticesRef.current = []
 		return `Background jobs that ended since your last turn:\n${lines.map((l) => `- ${l}`).join('\n')}`
+	}
+	// Commands the operator ran with `!` since the last turn. The model did
+	// not see them happen; it reads them here on its next turn.
+	const operatorShellRef = useRef<string[]>([])
+	const drainOperatorShell = (): string | undefined => {
+		if (operatorShellRef.current.length === 0) return undefined
+		const blocks = operatorShellRef.current
+		operatorShellRef.current = []
+		return `Commands the operator ran in their own shell since your last turn, with their output:\n\n${blocks.join('\n\n')}`
 	}
 	useEffect(() => {
 		if (!session?.onJobExit) return
@@ -4090,7 +4105,7 @@ export function App({
 						onQuestion: askQuestion,
 						inboundMessages: () => inbox.drain(),
 						extraSystem:
-							[composeSkillsPrompt(activeSkills), drainIdleJobNotices()]
+							[composeSkillsPrompt(activeSkills), drainIdleJobNotices(), drainOperatorShell()]
 								.filter((part): part is string => Boolean(part))
 								.join('\n\n') || undefined,
 						onConversationMessages: (messages) => {
@@ -4331,6 +4346,45 @@ export function App({
 				return
 			}
 			setHistory((prev) => [...prev, value])
+			// `#` remembers, `!` runs — neither is a prompt. Both are the
+			// operator acting directly, the way other coding agents spell it,
+			// and both leave a row the model reads on its next turn.
+			if (value.startsWith('#') && value.slice(1).trim().length > 0) {
+				const note = value.slice(1).trim()
+				try {
+					appendMemory(note)
+					pushMessage('system', `Remembered: ${note}`)
+				} catch (err) {
+					pushMessage('system', `Could not save memory: ${err instanceof Error ? err.message : String(err)}`)
+				}
+				return
+			}
+			const escaped = shellEscapeCommand(value)
+			if (escaped !== null) {
+				pushMessage('user', value)
+				const rowId = pushMessage('tool', `! ${escaped}`, true, '…')
+				void runShellEscape(escaped, { cwd: ctx.cwd }).then((result) => {
+					operatorShellRef.current.push(describeShellEscapeForModel(escaped, result))
+					const ok = result.exitCode === 0 && !result.timedOut
+					const detail =
+						result.output.length > 0 ? result.output.replace(/\n$/u, '').split('\n') : undefined
+					setMessages((prev) =>
+						prev.map((m) =>
+							m.id === rowId
+								? {
+										...m,
+										content: describeShellEscape(escaped, result),
+										pending: false,
+										glyph: ok ? '✓' : '✗',
+										...(ok ? {} : { glyphColor: theme.status.error }),
+										...(detail ? { detail } : {}),
+									}
+								: m,
+						),
+					)
+				})
+				return
+			}
 			// What actually gets sent. A `prompt` action replaces it with text the
 			// command composed, and then takes the ordinary send path below —
 			// including the queue — so a command-driven turn is not a second way

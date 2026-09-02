@@ -113,6 +113,19 @@ interface JobEntry {
 	exit: Promise<void>
 }
 
+/** Whether any process of the group led by `pid` is still alive. */
+function groupAlive(pid: number | undefined): boolean {
+	if (pid === undefined || process.platform === 'win32') return false
+	try {
+		process.kill(-pid, 0)
+		return true
+	} catch {
+		return false
+	}
+}
+
+const GROUP_POLL_MS = 250
+
 export class BackgroundJobRegistry {
 	private readonly jobs = new Map<string, JobEntry>()
 	private counter = 0
@@ -202,7 +215,7 @@ export class BackgroundJobRegistry {
 			buffer: '',
 			produced: 0,
 			exit: new Promise<void>((resolve) => {
-				child.once('close', (code, signal) => {
+				const finalize = (code: number | null, signal: NodeJS.Signals | null): void => {
 					entry.record = {
 						...entry.record,
 						// A job killed by this registry says `killed`, not
@@ -215,6 +228,27 @@ export class BackgroundJobRegistry {
 					}
 					resolve()
 					this.announceExit(entry.record)
+				}
+				child.once('close', (code, signal) => {
+					// The job is the process GROUP, not the shell. A command that
+					// backgrounds its real work (`server &`) exits the shell at
+					// once and leaves the server as the group's survivor; calling
+					// that "exited" told the model the job was over while the
+					// port was still held, and nothing stopped the survivor at
+					// session end because the job was no longer running. So a
+					// job whose shell has ended stays running while its group is
+					// alive, and ends — with the shell's exit code — when the
+					// group is empty.
+					if (entry.record.status !== 'killed' && groupAlive(child.pid)) {
+						const poll = setInterval(() => {
+							if (groupAlive(child.pid)) return
+							clearInterval(poll)
+							finalize(code, signal)
+						}, GROUP_POLL_MS)
+						poll.unref()
+						return
+					}
+					finalize(code, signal)
 				})
 				child.once('error', () => {
 					entry.record = { ...entry.record, status: 'exited', exitedAt: Date.now() }
