@@ -1,5 +1,50 @@
 # Changelog
 
+## 35.0.0
+
+### Major Changes
+
+- 3ad8784: **`compaction.strategy` defaults to `salience`.** A run under the default now scores every message — recency, relevance to the goal, use by a later turn, repetition — and holds the context near half the window by clearing the least salient tool results and stubbing narrations, without a model in the loop; older history is summarised only at the trigger, as before. The previous default was `structured`: positional retention and a pass only at the trigger. To keep it, pass `compactionConfig: { strategy: 'structured' }`. Measured on the same three-part coding task with a real model: 237k tokens against 271k, the task finished identically; on the eval that plants a fact early and cites it late, salience keeps the fact where structured loses it, with a smaller final history.
+
+### Minor Changes
+
+- c884bc8: Delegates a host can define from files, and rosters narrower than the parent's.
+
+  - **`discoverAgentDefinitions(roots)`, `parseAgentFile`, `parseAgentMarkdown`** — a sub-agent defined in a Markdown file the way a skill is: frontmatter with `name`, `description`, optionally `tools` (one comma-separated line), `model` and `readOnly`, over a body that is the prompt. The host passes an ordered list of roots and later roots shadow earlier ones by name; a file that cannot be loaded is returned with its path and reason rather than silently dropped. Names a host reserves (`general-purpose`, `explore` by default) are refused.
+  - **`filterReadOnlyTools(registry)`** — the source's tools that declare themselves read-only and are trusted to say so, decided by `isTrustedReadOnly`, the same predicate the authorization gate uses; **`filterToolsNamed(registry, names)`** — the source intersected with an allowlist. Neither can widen.
+  - **`EXPLORE_AGENT_ID` / `EXPLORE_AGENT_DESCRIPTION` / `EXPLORE_AGENT_PROMPT`** — the read-only delegate's identity and prompt, for a host to build with `filterReadOnlyTools` and its own doctrine around it.
+
+  Nothing existing changed.
+
+- f6678f5: `ComputerUseCapabilities.unavailableReason`: when a host loaded but the desktop did not answer, the `computer_use` tool stays mountable with every capability false and the reason in its description and in every refusal — "requires capability screenshot which is not available on this host … the desktop did not answer: <why>. Do not retry; tell the user." The model reads why once instead of finding an absent tool or a bare error.
+- 34282d5: Consolidation, the bridge from episodic to semantic memory. `query({ consolidateInto: memoryStore })` writes what the run learned when it ends — its decisions, discoveries and failures, and the files it changed — as one memory entry tagged `learning` (`consolidationEntry` builds it; a run that learned nothing writes nothing), and emits `memory_consolidated` with the entry's id and counts. A store that fails is logged and never fails the run. The salience scorer (`scoreMessages`, `buildGoal`, `planWorkingSet`, `planSalienceWorkingSet`) is exported for a host that wants to render or tune it.
+- 698a5d8: The coding-agent doctrine, and a question that needs no gateway.
+
+  - **`CODING_AGENT_WORKING_DOCTRINE`, `CODING_AGENT_DELEGATION_DOCTRINE`, `PLAN_MODE_DOCTRINE`, `codingAgentDoctrineContribution(options?)`** — the rules that say HOW an agent built on this kernel works: act or ask, deliver the whole scope, report faithfully, prefer the bounded tools over their shell equivalents, what is off-limits in git without a person saying so. The working text names only builtin tools and suits every agent; the delegation text names `task_create` and `Agent` and suits the parent only, and `codingAgentDoctrineContribution({ delegation: false })` leaves it out for a sub-agent. The contribution is `static` and renders after `systemPrompt`, so a host keeps its own identity block in front of it.
+  - **`buildAskUserQuestionTool({ resumeHandler, runId?, questionParks?, pendingAnswers? })`** — `ask_user_question` on its own. It was reachable only through `buildCoordinatorTools`, which demands a gateway and a roster the question never uses and a run id at build time; the standalone builder takes the park handler and reads the run id from the calling `ToolContext` unless one is pinned. `buildCoordinatorTools` registers the same tool through it.
+
+  Nothing existing changed.
+
+- ec1ac3c: The repeat-call tracker refuses one thing. It advised on identical calls and never denied one, so a model that asked a desktop it could not reach for a screenshot, read the same error and asked again ran until the iteration budget ended it. After four consecutive identical failures the fifth identical call is answered with a refusal that names the count and asks for a different call; a success in between resets the count, so a poll that fails a few times before it succeeds is never touched. `refuseFailedAfter` on `RepeatCallThresholds` sets the number; `repeatCallAdvisory: false` on `query` switches the tracker off entirely, as before.
+- b3222f5: The review policy: what a run does with the calls no rule decided.
+
+  - **`createReviewPolicy({ mode, prompt, exempt | registry, remembered })`** — an `ApprovalPolicy` named after its mode, and **`createReviewHandler`** for a host that wants only the `ResumeHandler`. Five modes: `prompt` (ask the person the host supplies), `auto`, `accept-edits` (approve a batch of non-destructive `edit`/`write` calls, ask when anything else rides along), `plan` (refuse every mutation with `PLAN_MODE_REFUSAL`, the words that make the model present a plan), `strict` (refuse with `STRICT_MODE_REFUSAL`). A plan-approval request is approved and every other checkpoint continues. Only calls the gate routed to review reach it, so a mode can never reopen what a rule closed.
+  - **`isReviewExempt(registry, name, input)`** — the calls that skip review: a trusted read-only declaration or one of `REVIEW_EXEMPT_WRITES` (`task_create`, `task_update`, `update_goal`); never a `network` tool, never a tool the registry does not know. **`batchNeedsReview(toolCalls, exempt)`** — the batch rule.
+  - Types `ReviewMode`, `ToolReviewRequest`, `ToolReviewAnswer`, `ToolReviewPrompt`, `ReviewPolicyOptions`, `ReviewExemption`; constants `REVIEW_MODES`, `ACCEPT_EDITS_TOOLS`.
+
+  Two small alignments ride along: the kernel's execution-time plan-mode refusal now carries the same guidance text as the review-time one (`PLAN_MODE_REFUSAL`, exported from the permission types), and `ApiPermissionMode` is the kernel's `PermissionMode` rather than a second copy of the union.
+
+  Nothing else existing changed. The kernel's `permissionMode: 'plan'` stays the execution-time floor; `createReviewPolicy({ mode: 'plan' })` is the review-time counterpart that gives the model feedback instead of an error.
+
+- f8168ee: A new compaction strategy, opt-in: `compaction.strategy: 'salience'`. Every message is scored without a model — recency with a half-life, BM25 relevance to the goal (the task, the live requirements, the open task-list items, the latest intent), whether a later turn used it, and whether a later message repeats it — and from `softTarget` (half the window by default) the least salient tokens are evicted first: a tool result's body cleared to the same placeholder the stale-result pass uses, an assistant narration cut to its first sentence. No message is removed and no pair is split, so it runs on every iteration; the summary path is reached only at `triggerThreshold`, as before. `compaction_tool_results_cleared` gains an optional `stubbedCount`. `structured` remains the default and is unchanged. The scoring core (`scoreMessages`, `buildGoal`, `planWorkingSet`) is exported from the compaction module for a host that wants to render or tune it.
+- f5e62a3: A shell command as a plugin hook, once, for every host.
+
+  `createShellHook(event, entry, { cwd, log })` turns `{ command, matcher?, timeoutMs? }` into a `PluginHookDefinition` the lifecycle manager accepts, and `attachShellHooks(manager, config, { cwd, log })` registers a whole `{ pre_tool_use, post_tool_use, run_start, run_end }` table. The command runs with `sh -c`, receives the event as JSON on stdin and as `NAMZU_HOOK_EVENT` / `NAMZU_RUN_ID` / `NAMZU_TOOL_NAME` / `NAMZU_TOOL_PATH`, and answers with its exit code: `0` carries on, `2` before a tool skips the call with the hook's stderr as the reason the model reads, anything else — a crash, a missing interpreter, a timeout — is the hook's own failure, reported through the logger and never blocking. `runShellHook`, `shellHookVerdict` and `shellHookMatches` are exported separately for a host that wants the pieces. Nothing existing changed.
+
+### Patch Changes
+
+- 85dddca: `query` applies the compaction schema's defaults to a partial `compactionConfig`. A host that passed only a strategy and a window reached the compaction phase with `triggerThreshold` undefined, and `usage < undefined` is false: the pass ran on every iteration, and the salience strategy fell through to the stale-result clearing it exists to replace. Pass what you mean; the rest is filled in.
+
 ## 34.2.0
 
 ### Minor Changes
