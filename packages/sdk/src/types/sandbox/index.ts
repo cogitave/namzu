@@ -467,6 +467,12 @@ export interface SandboxCreateConfig {
 	 */
 	readonly signal?: AbortSignal
 	readonly workingDirectory?: string
+	/**
+	 * Directories bound into the sandbox read-write besides the working
+	 * directory, absolute on the host. Only meaningful with
+	 * `workingDirectory`; an ephemeral root has nothing to add to.
+	 */
+	readonly additionalDirectories?: readonly string[]
 	readonly env?: Record<string, string>
 	readonly timeoutMs?: number
 	readonly memoryLimitMb?: number

@@ -558,6 +558,15 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.consolidate !== undefined ? { consolidate: raw.consolidate } : {}),
 		} as CompactionCliConfig
 	},
+	additionalDirectories: (v, context) => {
+		if (!Array.isArray(v)) return invalidConfigValue(context, [], 'must be a list of directories')
+		for (const [index, entry] of v.entries()) {
+			if (typeof entry !== 'string' || entry.trim().length === 0) {
+				return invalidConfigValue(context, [index], 'must be a directory path')
+			}
+		}
+		return v as readonly string[]
+	},
 	hooks: (v, context) => {
 		if (!isConfigMapping(v))
 			return invalidConfigValue(context, [], 'must be a mapping of event → list')
@@ -907,6 +916,7 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// A hook runs a command with the operator's authority; the file is the only
 	// place one may be declared.
 	hooks: undefined,
+	additionalDirectories: undefined,
 	// A strategy is a property of a project's runs, declared where they are reviewed.
 	compaction: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`

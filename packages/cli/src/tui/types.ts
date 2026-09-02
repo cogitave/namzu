@@ -96,6 +96,8 @@ export interface TuiContext {
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
 	readonly compaction?: CompactionCliConfig
+	/** See `NamzuCliConfig.additionalDirectories`, resolved absolute, plus `--add-dir`. */
+	readonly additionalDirectories?: readonly string[]
 	/**
 	 * Isolation config, by the same reasoning as the two above: it belongs
 	 * to the user, not to a command, so it has to reach the session

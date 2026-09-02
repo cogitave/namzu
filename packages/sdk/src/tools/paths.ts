@@ -35,6 +35,70 @@ export function resolveWithin(root: string, candidate: string | undefined): stri
 }
 
 /** True when `candidate` resolves inside `root`. */
+/**
+ * The directories a tool may reach: the working directory first, then any
+ * the host added for the session (`/add-dir`). Relative paths resolve
+ * against the first; an absolute path is accepted inside any.
+ */
+export function toolRoots(context: {
+	readonly workingDirectory: string
+	readonly additionalDirectories?: readonly string[]
+}): readonly string[] {
+	return [context.workingDirectory, ...(context.additionalDirectories ?? [])]
+}
+
+function describeRoots(roots: readonly string[]): string {
+	return roots.length === 1
+		? `inside ${resolve(roots[0] as string)}`
+		: `inside ${resolve(roots[0] as string)} or the added directories ${roots
+				.slice(1)
+				.map((r) => resolve(r))
+				.join(', ')}`
+}
+
+/** `resolveWithin` over several roots. See `toolRoots` for the order. */
+export function resolveWithinAny(roots: readonly string[], candidate: string | undefined): string {
+	const [first, ...rest] = roots
+	if (first === undefined) throw new Error('No root to resolve within.')
+	if (rest.length === 0) return resolveWithin(first, candidate)
+	const resolved =
+		candidate === undefined || candidate === ''
+			? resolve(first)
+			: resolve(resolve(first), candidate)
+	for (const root of roots) {
+		if (isWithin(root, resolved)) return resolveWithin(root, resolved)
+	}
+	throw new Error(
+		`Path escapes the working directory: ${candidate}. Tools may only reach ${describeRoots(roots)}.`,
+	)
+}
+
+/** `resolveWithinReal` over several roots: the first that contains the path, links followed. */
+export async function resolveWithinAnyReal(
+	roots: readonly string[],
+	candidate: string | undefined,
+): Promise<string> {
+	const [first, ...rest] = roots
+	if (first === undefined) throw new Error('No root to resolve within.')
+	if (rest.length === 0) return resolveWithinReal(first, candidate)
+	const resolved =
+		candidate === undefined || candidate === ''
+			? resolve(first)
+			: resolve(resolve(first), candidate)
+	let firstError: unknown
+	for (const root of roots) {
+		try {
+			return await resolveWithinReal(root, resolved)
+		} catch (err) {
+			firstError ??= err
+		}
+	}
+	throw new Error(
+		`Path escapes the working directory: ${candidate}. Tools may only reach ${describeRoots(roots)}.`,
+		{ cause: firstError },
+	)
+}
+
 export function isWithin(root: string, candidate: string): boolean {
 	try {
 		resolveWithin(root, candidate)

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
-import { resolveWithinReal } from '../paths.js'
+import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
@@ -350,7 +350,7 @@ export const EditTool = defineTool({
 		// machine, and answers it with whatever happens to exist there.
 		const filePath = context.sandbox
 			? undefined
-			: await resolveWithinReal(context.workingDirectory, parsed.data.path)
+			: await resolveWithinAnyReal(toolRoots(context), parsed.data.path)
 		// Read-modify-write is not atomic on its own: two edits to the same
 		// path interleave their reads, and the second write lands on content
 		// the first had already replaced — so one edit vanishes and the loser

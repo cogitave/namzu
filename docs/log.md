@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-02
+* **Creation**: [Adding a directory](/cli/add-dir.md) — `/add-dir`, `--add-dir`, `additionalDirectories`; the kernel's `query({ additionalDirectories })` reaches the tools and the sandbox.
 * **Creation**: [File checkpoints](/cli/file-checkpoints.md) — every file recorded before a tool changes it, per turn; `/restore N` puts the tree back.
 * **Creation**: [Slash commands](/cli/slash-commands.md) — every builtin and kernel command in one place; `/release-notes` is new.
 * **Creation**: [Hook events](/sdk/hooks.md) — six more events (`user_prompt_submit`, `session_start`/`session_end`, `pre_compact`/`post_compact`, `subagent_stop`), the `annotate` result, and the shell hook contract for all ten; `/hooks` in the CLI.

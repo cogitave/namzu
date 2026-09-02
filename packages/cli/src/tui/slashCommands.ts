@@ -98,6 +98,8 @@ export type SlashAction =
 	| { kind: 'fork' }
 	/** List file checkpoints, or put the tree back to before turn `turn`. */
 	| { kind: 'restore'; turn?: number }
+	/** Let the file tools reach another directory for the rest of the session. */
+	| { kind: 'add-dir'; path: string }
 	/**
 	 * Shrink the conversation now, rather than when a threshold decides.
 	 *
@@ -196,6 +198,8 @@ export interface SlashContext {
 	readonly compaction: CompactionSummary | null
 	/** The shell hooks this session runs, by event; absent when the session has none. */
 	readonly hooks?: () => HooksConfig | undefined
+	/** Directories besides the working directory the file tools may reach, absolute. */
+	readonly directories?: () => readonly string[]
 	/** This session's background jobs, running and ended; empty under a sandbox. */
 	readonly jobs: () => readonly {
 		readonly id: string
@@ -647,6 +651,26 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'fork',
 		description: 'Continue in a copy of this conversation, leaving the original where it is.',
 		action: () => ({ kind: 'fork' }),
+	},
+	{
+		name: 'add-dir',
+		description:
+			'Let the file tools reach another directory this session: /add-dir <path>. Alone, list them.',
+		action: (ctx, args) => {
+			const path = args.join(' ').trim()
+			if (path.length === 0) {
+				const dirs = ctx.directories?.() ?? []
+				return {
+					kind: 'message',
+					role: 'system',
+					content:
+						dirs.length === 0
+							? 'No added directories. The file tools reach the working directory only. /add-dir <path> adds one for this session; `additionalDirectories` in the config file adds one for every session.'
+							: `Added directories (reachable by absolute path, bound into the sandbox):\n${dirs.map((d) => `  ${d}`).join('\n')}`,
+				}
+			}
+			return { kind: 'add-dir', path }
+		},
 	},
 	{
 		name: 'restore',
@@ -1293,6 +1317,7 @@ export function renderStatus(ctx: SlashContext): string {
 	lines.push('')
 
 	lines.push('Where it may write')
+	for (const dir of ctx.directories?.() ?? []) lines.push(`  Also ${dir} (added with /add-dir)`)
 	const sandbox = ctx.sandbox
 	if (!sandbox) {
 		lines.push('  Not resolved yet — no session has started.')

@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import { z } from 'zod'
 import type { ToolContext, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
-import { resolveWithinReal } from '../paths.js'
+import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
@@ -137,7 +137,7 @@ export const WriteFileTool = defineTool({
 		// machine and answers it with whatever happens to exist there.
 		const filePath = context.sandbox
 			? undefined
-			: await resolveWithinReal(context.workingDirectory, valid.path)
+			: await resolveWithinAnyReal(toolRoots(context), valid.path)
 		// The exists-check and the write are a check-then-act pair. Unlocked,
 		// two writers both see "absent", both skip the read-before-overwrite
 		// guard, and the second silently discards the first.

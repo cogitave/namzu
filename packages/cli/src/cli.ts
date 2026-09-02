@@ -109,6 +109,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		)
 		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
 		.option(
+			'--add-dir <path>',
+			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
+			(value: string, previous: string[]) => [...previous, value],
+			[] as string[],
+		)
+		.option(
 			'--profile <name>',
 			'Apply a named profile from the config files. A name no file declares is refused, not ignored.',
 		)
@@ -281,6 +287,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const launchOpts = program.opts<{
 				dangerouslySkipPermissions?: boolean
 				yolo?: boolean
+				addDir?: string[]
 			}>()
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
 			// The same three lines `run` and `run-stream` use. The TUI compiled
@@ -296,11 +303,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
 					resolvedCtx.formatter.error({ message: `${where}: ${d.message}` })
 				}
+				const additionalDirectories = [
+					...(resolvedCtx.config.additionalDirectories ?? []),
+					...(launchOpts.addDir ?? []),
+				].map((dir) => resolve(cwd, dir))
 				return {
 					cwd,
 					version: CLI_VERSION,
 					configDebug: resolvedCtx.configDebug,
 					skipPermissions,
+					...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
 					rules: permissions.rules,
 					logging: resolvedCtx.logging,
 					...(initialConversationId ? { initialConversationId } : {}),

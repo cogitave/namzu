@@ -23,6 +23,8 @@ export interface ToolingBootstrapConfig {
 	tools: ToolRegistryContract
 	runId: RunId
 	workingDirectory: string
+	/** See `QueryParams.additionalDirectories`. */
+	additionalDirectories?: readonly string[]
 	/** A resolver, so an approval inside a run can change it. See the executor. */
 	permissionMode: PermissionMode | (() => PermissionMode)
 	env: Record<string, string>
@@ -65,6 +67,9 @@ export class ToolingBootstrap {
 				tools: config.tools,
 				runId: config.runId,
 				workingDirectory: config.workingDirectory,
+				...(config.additionalDirectories?.length
+					? { additionalDirectories: config.additionalDirectories }
+					: {}),
 				permissionMode: config.permissionMode,
 				env: config.env,
 				abortSignal: config.abortSignal,

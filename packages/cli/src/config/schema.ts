@@ -192,6 +192,12 @@ export interface NamzuCliConfig {
 	 */
 	readonly hooks?: HooksConfig
 	/**
+	 * Directories besides the working directory the file tools may reach,
+	 * relative to the project or absolute. Bound read-write into the sandbox.
+	 * `--add-dir` and `/add-dir` add to this list for one launch or session.
+	 */
+	readonly additionalDirectories?: readonly string[]
+	/**
 	 * How the kernel keeps a long conversation inside the model's window.
 	 * File-only: a strategy is a property of a project's runs, not of a
 	 * shell. Absent means the kernel's `salience` strategy.

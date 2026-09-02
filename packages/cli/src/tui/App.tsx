@@ -2314,6 +2314,9 @@ export function App({
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				...(activeCtx.additionalDirectories
+					? { additionalDirectories: activeCtx.additionalDirectories }
+					: {}),
 				...(sessionsRef.current?.backend === 'central'
 					? { stateRoot: sessionsRef.current.root }
 					: {}),
@@ -2799,6 +2802,7 @@ export function App({
 		cwd: ctx.cwd,
 		jobs: () => session?.jobs?.() ?? [],
 		hooks: () => session?.hooks,
+		directories: () => session?.directories?.list() ?? [],
 		compaction: session
 			? {
 					strategy: ctx.compaction?.strategy ?? 'salience',
@@ -4773,6 +4777,22 @@ export function App({
 					case 'restore':
 						void doRestore(slash.turn)
 						return
+					case 'add-dir': {
+						const dirs = session?.directories
+						if (!dirs) {
+							pushMessage('system', 'No session yet; /add-dir works once one has started.')
+							return
+						}
+						void dirs.add(slash.path).then((result) => {
+							pushMessage(
+								'system',
+								result.added
+									? `Added ${result.path}. The file tools reach it by absolute path from the next turn; a sandboxed run binds it read-write.`
+									: `Not added: ${result.path} — ${result.reason ?? 'refused'}`,
+							)
+						})
+						return
+					}
 					case 'prompt':
 						// Deliberately does NOT return: the composed text falls
 						// through to the same queue-or-send below that a typed

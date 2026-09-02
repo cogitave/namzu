@@ -5,7 +5,7 @@ import type { Sandbox } from '../../types/sandbox/index.js'
 import type { ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { matchesGlob } from '../glob-match.js'
-import { resolveWithin } from '../paths.js'
+import { resolveWithinAny, toolRoots } from '../paths.js'
 import { joinPosix, relativePosix, resolveWithinPosix } from '../posix-path.js'
 
 /**
@@ -111,7 +111,7 @@ export const GlobTool = defineTool({
 		// Contained, not merely resolved. This was a bare `resolve`, so
 		// `path: "../../.."` reached whatever sits above the working
 		// directory — with no sandbox needed to make it work.
-		const basePath = resolveWithin(context.workingDirectory, input.path)
+		const basePath = resolveWithinAny(toolRoots(context), input.path)
 
 		let searchPath = basePath
 		let pattern = input.pattern
@@ -121,7 +121,7 @@ export const GlobTool = defineTool({
 			// A base directory lifted out of the PATTERN is caller-supplied
 			// too: `pattern: "../../**/*.pem"` is the same escape wearing a
 			// different argument.
-			const resolvedPatternBase = resolveWithin(context.workingDirectory, baseDir)
+			const resolvedPatternBase = resolveWithinAny(toolRoots(context), baseDir)
 			if (resolvedPatternBase === basePath || resolvedPatternBase.startsWith(`${basePath}/`)) {
 				searchPath = resolvedPatternBase
 				pattern = relativePattern

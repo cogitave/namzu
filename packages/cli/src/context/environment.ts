@@ -43,6 +43,8 @@ const GIT_TIMEOUT_MS = 2_000
 export interface EnvironmentFacts {
 	/** ISO calendar date, `YYYY-MM-DD`, in the machine's own timezone. */
 	readonly today: string
+	/** Directories besides the working directory the file tools may reach, absolute. */
+	readonly additionalDirectories?: readonly string[]
 	/**
 	 * `branch` when on one, `null` when the working directory is not a
 	 * repository, `'detached'` when it is one with no branch checked out.
@@ -110,6 +112,11 @@ export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
 		)
 	} else {
 		lines.push(`The working directory is a git repository on branch \`${facts.branch}\`.`)
+	}
+	if (facts.additionalDirectories && facts.additionalDirectories.length > 0) {
+		lines.push(
+			`Besides the working directory, the file tools may reach these directories, by absolute path: ${facts.additionalDirectories.map((d) => `\`${d}\``).join(', ')}. Relative paths still resolve against the working directory.`,
+		)
 	}
 	lines.push(
 		'These are facts about right now. Prefer them over any date or branch you would otherwise assume.',

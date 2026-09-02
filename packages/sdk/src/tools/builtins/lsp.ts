@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { CodeNavigationProvider } from '../../types/code-navigation/index.js'
 import type { ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
-import { resolveWithinReal } from '../paths.js'
+import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 
 /**
  * Symbol navigation, for the questions `grep` answers wrongly.
@@ -97,7 +97,7 @@ export const LspTool = defineTool({
 		let absolute: string | undefined
 		if (input.path !== undefined) {
 			try {
-				absolute = await resolveWithinReal(context.workingDirectory, input.path)
+				absolute = await resolveWithinAnyReal(toolRoots(context), input.path)
 			} catch (err) {
 				return {
 					success: false,

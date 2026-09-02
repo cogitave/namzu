@@ -290,6 +290,8 @@ export interface ToolExecutorConfig {
 	tools: ToolRegistryContract
 	runId: RunId
 	workingDirectory: string
+	/** See `ToolContext.additionalDirectories`. */
+	additionalDirectories?: readonly string[]
 	/**
 	 * Read LIVE, not frozen at run start.
 	 *
@@ -1182,6 +1184,9 @@ export class ToolExecutor {
 		const context: ToolContext = {
 			runId: this.config.runId,
 			workingDirectory: this.config.workingDirectory,
+			...(this.config.additionalDirectories?.length
+				? { additionalDirectories: this.config.additionalDirectories }
+				: {}),
 			abortSignal: this.config.abortSignal,
 			env: this.config.env,
 			log: (level, message) => this.log[level](message),

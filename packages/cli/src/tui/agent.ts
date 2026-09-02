@@ -531,6 +531,8 @@ export interface AgentSession {
 	readonly hooks?: HooksConfig
 	/** Files as they were before each turn's writes; what `/restore` uses. */
 	readonly checkpoints?: FileCheckpointStore
+	/** The directories besides the working directory the file tools may reach; `/add-dir` adds one. */
+	readonly directories?: SessionDirectories
 	/** Be told when one of this session's jobs ends, whether or not a turn is running. */
 	readonly onJobExit?: (listener: (job: BackgroundJob) => void) => () => void
 	/**
@@ -1203,6 +1205,8 @@ export interface AgentSessionOptions {
 	readonly askUser?: boolean
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
 	readonly hooks?: HooksConfig
+	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add-dir` extends it for the session. */
+	readonly additionalDirectories?: readonly string[]
 	/** See `NamzuCliConfig.compaction`. Absent means the kernel's structured strategy. */
 	readonly compaction?: CompactionCliConfig
 	/**
@@ -1595,6 +1599,27 @@ export async function createAgentSession(
 	// runs on the host and must not sit beside a sandbox in one tool context.
 	const jobRegistry = backgroundJobs ? new BackgroundJobRegistry() : undefined
 	const jobOwner = scope.sessionId
+	// Session-scoped and mutable: `/add-dir` adds to it, and every turn reads
+	// it fresh — the query, the sandbox binds and the environment prompt.
+	const directories: string[] = []
+	for (const dir of options.additionalDirectories ?? []) {
+		const absolute = resolve(cwd, dir)
+		if (absolute !== resolve(cwd) && !directories.includes(absolute)) directories.push(absolute)
+	}
+	const sessionDirectories: SessionDirectories = {
+		list: () => [...directories],
+		add: async (path) => {
+			const absolute = resolve(cwd, path)
+			if (absolute === resolve(cwd))
+				return { added: false, path: absolute, reason: 'That is the working directory.' }
+			if (directories.includes(absolute))
+				return { added: false, path: absolute, reason: 'Already added.' }
+			const entry = await stat(absolute).catch(() => null)
+			if (!entry?.isDirectory()) return { added: false, path: absolute, reason: 'Not a directory.' }
+			directories.push(absolute)
+			return { added: true, path: absolute }
+		},
+	}
 	const checkpoints = new FileCheckpointStore(
 		join(ensurePrivateStateDirectory(projectStateRoot, 'checkpoints'), scope.sessionId),
 		cwd,
@@ -2011,6 +2036,7 @@ export async function createAgentSession(
 		jobs: () => jobRegistry?.list(jobOwner) ?? [],
 		...(options.hooks ? { hooks: options.hooks } : {}),
 		checkpoints,
+		directories: sessionDirectories,
 		onJobExit: (listener) =>
 			jobRegistry?.onExit((job) => {
 				if (job.owner === jobOwner) listener(job)
@@ -2089,7 +2115,10 @@ export async function createAgentSession(
 							readEnvironmentFacts(cwd),
 							readTurnSnapshot(cwd),
 						])
-						const environmentPrompt = composeEnvironmentPrompt(environmentFacts)
+						const environmentPrompt = composeEnvironmentPrompt({
+							...environmentFacts,
+							additionalDirectories: [...directories],
+						})
 						// The repository as it stood when THIS turn began, through the
 						// SDK's `turn` placement — the ephemeral trailing message that is
 						// never cached and never enters history. FIRST iteration only:
@@ -2178,6 +2207,7 @@ export async function createAgentSession(
 								scope,
 								pathBuilder,
 								workingDirectory: cwd,
+								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
 								sandboxWorkspace,
 								rules: options.rules,
 								reviewAnswer: options.reviewAnswer,
@@ -2235,7 +2265,10 @@ export async function createAgentSession(
 					? await currentPluginSkills(pluginRuntime.skills)
 					: undefined
 				const memoryPrompt = composeMemoryPrompt(readMemory())
-				const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
+				const environmentPrompt = composeEnvironmentPrompt({
+					...(await readEnvironmentFacts(cwd)),
+					additionalDirectories: [...directories],
+				})
 				const systemPrompt =
 					[
 						NAMZU_IDENTITY,
@@ -2302,6 +2335,7 @@ export async function createAgentSession(
 						agentName: 'namzu',
 						...(systemPrompt ? { systemPrompt } : {}),
 						workingDirectory: cwd,
+						...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
 						// No `onPermission`: there is nobody at a drainer's terminal, so a
 						// prompt would block the pass forever on a run nobody is watching.
 						// The gate's deny rules still apply.
@@ -2701,6 +2735,14 @@ export interface RunScope {
 	readonly tenantId: TenantId
 }
 
+/** What `/add-dir` talks to. */
+export interface SessionDirectories {
+	list(): readonly string[]
+	add(
+		path: string,
+	): Promise<{ readonly added: boolean; readonly path: string; readonly reason?: string }>
+}
+
 /** The newest user turn's text, for labels. */
 function lastUserText(messages: readonly Message[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
@@ -2832,6 +2874,8 @@ interface RunTurnParams {
 	readonly pathBuilder: DefaultPathBuilder
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
+	/** See `QueryParams.additionalDirectories`. */
+	readonly additionalDirectories?: readonly string[]
 	/** The project tree a sandboxed turn is rooted at. */
 	readonly sandboxWorkspace: 'working-directory' | 'ephemeral'
 	/** Operator rules for this run, already compiled. */
@@ -2886,6 +2930,7 @@ async function* runTurn({
 	scope,
 	pathBuilder,
 	workingDirectory,
+	additionalDirectories,
 	sandboxWorkspace,
 	rules,
 	reviewAnswer,
@@ -2971,6 +3016,7 @@ async function* runTurn({
 			messages: [...messages],
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 			workingDirectory,
+			...(additionalDirectories?.length ? { additionalDirectories } : {}),
 			// The exemption reads `tools` at decision time, so it sees the task
 			// tools `query()` registers deferred below and any tool server that
 			// connected after this session was built.

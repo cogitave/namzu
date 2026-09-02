@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type { ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
-import { resolveWithin } from '../paths.js'
+import { resolveWithinAny, toolRoots } from '../paths.js'
 import { joinPosix, relativePosix, resolveWithinPosix } from '../posix-path.js'
 
 const inputSchema = z.object({
@@ -220,7 +220,7 @@ export const LsTool = defineTool({
 		}
 
 		// Contained, not merely resolved — see `resolveWithin`.
-		const targetPath = resolveWithin(context.workingDirectory, input.path)
+		const targetPath = resolveWithinAny(toolRoots(context), input.path)
 
 		if (input.recursive) {
 			const output: string[] = []

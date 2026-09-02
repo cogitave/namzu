@@ -26,8 +26,8 @@ A line starting with `/` is a command, answered by the session without a model c
 | `/skills` | Choose an available skill; use /skills list for the full roster. |
 | `/resume` | Resume a past conversation in this folder. |
 | `/model` | Re-open the provider picker to switch the primary provider. |
-| `/login` | Sign in with a Claude or Codex subscription. |
-| `/logout` | Remove a Namzu-owned subscription credential: /logout [claude\|codex\|all]. |
+| `/login` | Sign in with a `Claude` or `Codex` subscription. |
+| `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
 | `/cost` | Show tokens and spend for this run. |
 | `/jobs` | List background jobs started this session, running and ended. |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |

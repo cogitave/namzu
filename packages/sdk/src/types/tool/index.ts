@@ -223,6 +223,13 @@ export interface ToolDispatchOptions {
 export interface ToolContext {
 	runId: RunId
 	workingDirectory: string
+	/**
+	 * Directories besides the working directory the file tools may reach,
+	 * absolute. A host adds one for a session (`/add-dir`); a sandboxed run
+	 * binds each. Relative paths still resolve against the working
+	 * directory; an absolute path inside any of these is accepted.
+	 */
+	additionalDirectories?: readonly string[]
 	abortSignal: AbortSignal
 	env: Record<string, string>
 	log: (level: 'info' | 'warn' | 'error', message: string) => void

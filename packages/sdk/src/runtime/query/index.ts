@@ -482,6 +482,12 @@ export interface QueryParams {
 	agentId: string
 	agentName: string
 	workingDirectory?: string
+	/**
+	 * Directories besides the working directory the file tools may reach,
+	 * absolute; a sandboxed run binds each read-write. See
+	 * `ToolContext.additionalDirectories`.
+	 */
+	additionalDirectories?: readonly string[]
 	pricing?: ModelPricing
 	enableActivityTracking?: boolean
 	messages: Message[]
@@ -1705,6 +1711,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			tools: params.tools,
 			runId: ctx.runId,
 			workingDirectory: ctx.cwd,
+			...(params.additionalDirectories?.length
+				? { additionalDirectories: params.additionalDirectories }
+				: {}),
 			permissionMode: () => ctx.permissionMode.current,
 			env: runConfig.env ?? {},
 			abortSignal: ctx.abortController.signal,
@@ -2502,6 +2511,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					provider: params.sandboxProvider,
 					config: {
 						...(rootAtCwd ? { workingDirectory: ctx.cwd } : {}),
+						...(rootAtCwd && params.additionalDirectories?.length
+							? { additionalDirectories: params.additionalDirectories }
+							: {}),
 						timeoutMs: runConfig.sandbox?.timeoutMs,
 						memoryLimitMb: runConfig.sandbox?.memoryLimitMb,
 						maxProcesses: runConfig.sandbox?.maxProcesses,

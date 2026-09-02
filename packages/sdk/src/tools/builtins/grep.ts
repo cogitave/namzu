@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import { defineTool } from '../defineTool.js'
 import { matchesGlob } from '../glob-match.js'
-import { resolveWithin } from '../paths.js'
+import { resolveWithinAny } from '../paths.js'
 import { joinPosix, relativePosix, resolveWithinPosix } from '../posix-path.js'
 
 /**
@@ -135,7 +135,7 @@ export const GrepTool = defineTool({
 		// working directory, with no sandbox needed to make it work.
 		const searchRoot = source.posix
 			? resolveWithinPosix(source.root, input.path)
-			: resolveWithin(source.root, input.path)
+			: resolveWithinAny([source.root, ...(context.additionalDirectories ?? [])], input.path)
 
 		// Auto-prepend **/ for simple patterns (e.g. "*.ts" → "**/*.ts")
 		let filePattern = input.include ?? '**/*'

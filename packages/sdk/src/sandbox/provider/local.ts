@@ -25,7 +25,7 @@ import {
 // registry needs the same one, and a near-copy would reproduce in the copy
 // every bug the original's comment was written to record.
 import { killTree } from '../../process/kill-tree.js'
-import { resolveWithinReal } from '../../tools/paths.js'
+import { resolveWithinAnyReal } from '../../tools/paths.js'
 import type { SandboxId } from '../../types/ids/index.js'
 import type {
 	Sandbox,
@@ -208,6 +208,8 @@ export interface LimitedSpawnRequest {
 	readonly command: string
 	readonly args: readonly string[]
 	readonly rootDir: string
+	/** Bound read-write beside the root; see `SandboxCreateConfig.additionalDirectories`. */
+	readonly additionalDirectories?: readonly string[]
 	readonly memoryLimitMb?: number
 	readonly maxProcesses?: number
 }
@@ -265,7 +267,7 @@ export function buildLimitedSpawn(request: LimitedSpawnRequest): {
 		case 'linux-bwrap':
 			return {
 				spawnCommand: requiredWrapper(request),
-				spawnArgs: [...buildBwrapArgs(rootDir), '--', ...inner],
+				spawnArgs: [...buildBwrapArgs(rootDir, request.additionalDirectories), '--', ...inner],
 			}
 
 		case 'linux-namespace':
@@ -277,7 +279,7 @@ export function buildLimitedSpawn(request: LimitedSpawnRequest): {
 		case 'macos-seatbelt':
 			return {
 				spawnCommand: requiredWrapper(request),
-				spawnArgs: [...buildSeatbeltArgs(rootDir), '--', ...inner],
+				spawnArgs: [...buildSeatbeltArgs(rootDir, request.additionalDirectories), '--', ...inner],
 			}
 
 		case 'basic': {
@@ -375,7 +377,10 @@ function canonicalizePath(p: string): string {
  * process table through them — a bound `/proc` would hand back the process
  * isolation the same flag just removed.
  */
-export function buildBwrapArgs(sandboxRoot: string): string[] {
+export function buildBwrapArgs(
+	sandboxRoot: string,
+	additionalDirectories: readonly string[] = [],
+): string[] {
 	const root = canonicalizePath(sandboxRoot)
 
 	const args = [
@@ -426,9 +431,15 @@ export function buildBwrapArgs(sandboxRoot: string): string[] {
 		'--bind',
 		root,
 		root,
-		'--chdir',
-		root,
 	)
+	// The host's added directories, read-write at their own paths, so a
+	// path the model was given on the host means the same thing inside.
+	for (const dir of additionalDirectories) {
+		const canonical = canonicalizePath(dir)
+		if (canonical === root) continue
+		args.push('--bind', canonical, canonical)
+	}
+	args.push('--chdir', root)
 
 	return args
 }
@@ -450,10 +461,21 @@ const BWRAP_SYSTEM_PATHS: readonly string[] = [
 	'/opt',
 ]
 
-function buildSeatbeltProfile(): string {
+function seatbeltString(value: string): string {
+	return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+function buildSeatbeltProfile(additionalDirectories: readonly string[] = []): string {
 	return [
 		'(version 1)',
 		'(deny default)',
+		// The host's added directories, read-write, by the same contract as
+		// the root. Literal paths rather than params: sandbox-exec takes one
+		// -D per name and the count here is the operator's.
+		...additionalDirectories.flatMap((dir) => [
+			`(allow file-read* (subpath ${seatbeltString(canonicalizePath(dir))}))`,
+			`(allow file-write* (subpath ${seatbeltString(canonicalizePath(dir))}))`,
+		]),
 
 		// --- Process lifecycle ---
 		'(allow process-exec)',
@@ -538,8 +560,15 @@ function buildSeatbeltProfile(): string {
  * remain path bytes instead of becoming policy syntax. This is the same
  * parameter boundary used by Codex's seatbelt builder.
  */
-function buildSeatbeltArgs(sandboxRoot: string): string[] {
-	return ['-p', buildSeatbeltProfile(), `-DNAMZU_SANDBOX_ROOT=${canonicalizePath(sandboxRoot)}`]
+function buildSeatbeltArgs(
+	sandboxRoot: string,
+	additionalDirectories: readonly string[] = [],
+): string[] {
+	return [
+		'-p',
+		buildSeatbeltProfile(additionalDirectories),
+		`-DNAMZU_SANDBOX_ROOT=${canonicalizePath(sandboxRoot)}`,
+	]
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +624,12 @@ class LocalSandbox implements Sandbox {
 	private _status: SandboxStatus
 	private readonly config: SandboxCreateConfig
 	private readonly log: Logger
+	/** The host's added directories, canonical; bound beside the root. */
+	private readonly additionalDirectories: readonly string[]
+	/** Where this sandbox's own file API may reach: the root, then the added directories. */
+	private get roots(): readonly string[] {
+		return [this.rootDir, ...this.additionalDirectories]
+	}
 
 	get status(): SandboxStatus {
 		return this._status
@@ -613,6 +648,9 @@ class LocalSandbox implements Sandbox {
 		this.rootDir = rootDir
 		this.environment = environment
 		this.config = config
+		this.additionalDirectories = (config.additionalDirectories ?? [])
+			.map((dir) => canonicalizePath(resolve(dir)))
+			.filter((dir) => dir !== rootDir)
 		this._status = 'ready'
 		this.log = log.child({
 			[SCOPE_ATTRIBUTE]: 'sandbox/provider/local',
@@ -640,7 +678,7 @@ class LocalSandbox implements Sandbox {
 		const env = buildSafeEnv(this.config.env, opts?.env)
 		const timeout = opts?.timeout ?? this.config.timeoutMs ?? SANDBOX_DEFAULT_TIMEOUT_MS
 
-		const cwd = opts?.cwd ? await resolveWithinReal(this.rootDir, opts.cwd) : this.rootDir
+		const cwd = opts?.cwd ? await resolveWithinAnyReal(this.roots, opts.cwd) : this.rootDir
 
 		const { spawnCommand, spawnArgs, bwrapInfoFd, bwrapBlockFd } = this.buildSpawnArgs(
 			command,
@@ -689,7 +727,7 @@ class LocalSandbox implements Sandbox {
 			throw new Error(`Sandbox ${this.id} is destroyed`)
 		}
 
-		const resolved = await resolveWithinReal(this.rootDir, path)
+		const resolved = await resolveWithinAnyReal(this.roots, path)
 		await mkdir(dirname(resolved), { recursive: true })
 
 		// Convention 8: Atomic write (write-tmp-rename)
@@ -705,7 +743,7 @@ class LocalSandbox implements Sandbox {
 			throw new Error(`Sandbox ${this.id} is destroyed`)
 		}
 
-		const resolved = await resolveWithinReal(this.rootDir, path)
+		const resolved = await resolveWithinAnyReal(this.roots, path)
 		return fsReadFile(resolved)
 	}
 
@@ -714,7 +752,7 @@ class LocalSandbox implements Sandbox {
 			throw new Error(`Sandbox ${this.id} is destroyed`)
 		}
 
-		const resolved = await resolveWithinReal(this.rootDir, rootPath)
+		const resolved = await resolveWithinAnyReal(this.roots, rootPath)
 		const root = await stat(resolved).catch(() => null)
 		if (!root || !root.isDirectory()) return []
 
@@ -774,6 +812,9 @@ class LocalSandbox implements Sandbox {
 			command,
 			args,
 			rootDir: this.rootDir,
+			...(this.additionalDirectories.length > 0
+				? { additionalDirectories: this.additionalDirectories }
+				: {}),
 			...(this.config.memoryLimitMb !== undefined
 				? { memoryLimitMb: this.config.memoryLimitMb }
 				: {}),
@@ -1051,6 +1092,12 @@ export class LocalSandboxProvider implements SandboxProvider {
 				)
 			}
 			removeRootOnDestroy = false
+			for (const dir of config.additionalDirectories ?? []) {
+				const entry = await stat(resolve(dir)).catch(() => null)
+				if (!entry?.isDirectory()) {
+					throw new Error(`Sandbox additional directory is not a directory: ${resolve(dir)}`)
+				}
+			}
 		} else {
 			// No workspace was named: this allocation owns a fresh temporary root.
 			const { mkdtemp } = await import('node:fs/promises')
