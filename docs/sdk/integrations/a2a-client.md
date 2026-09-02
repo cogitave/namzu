@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.integrations.a2a-client
 title: A2A client discovery and delegation bounds
 description: Reference for finite A2A agent-card discovery, whole-delegation deadlines, cancellation ownership, remote task cleanup, polling validation, and the unavoidable pre-task-id uncertainty window.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+status: stable
 resource: packages/sdk/src/bridge/a2a/client.ts
 tags: [sdk, bridge, a2a, timeout, cancellation]
+generated: { by: human:bahadirarda, at: 2026-08-19T00:00:00Z }
 ---
 
 # A2A client discovery and delegation bounds

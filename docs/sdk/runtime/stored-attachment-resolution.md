@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.stored-attachment-resolution
 title: Stored attachment resolution
 description: Reference for resolving stored image and document references through SDK agent front doors, the finite materialization deadline, cancellation precedence, refusal semantics, and the explicit unbounded compatibility mode.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/sdk/src/runtime/query/__tests__/attachment-resolution-cancellation-reaches-run.test.ts
 tags: [sdk, runtime, attachments, stores, cancellation]
+generated: { by: human:bahadirarda, at: 2026-08-24T00:00:00Z }
 ---
 
 # Stored attachment resolution

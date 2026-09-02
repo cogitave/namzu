@@ -1,15 +1,11 @@
 ---
-uid: namzu.cli.reference
 title: The operator application — sessions, commands, headless runs and configuration
 description: Reference for @namzu/cli: what the interactive session does, every command and what it is for, how a headless run streams its events, the configuration surface and where it is read from, and what `namzu doctor` probes.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-25T00:00:00Z
-lastReviewed: 2026-09-02
+status: stable
 resource: packages/cli/src/cli.ts
 tags: [cli, reference]
+generated: { by: human:bahadirarda, at: 2026-08-25T00:00:00Z }
 ---
 
 # The operator application — sessions, commands, headless runs and configuration

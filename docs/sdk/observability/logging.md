@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.observability.logging
 title: The log pipeline — sink seam, record shape, and the audit boundary
 description: Where a host plugs its own destination in, what a record carries and what the LogAttributes allowlist does and does not guarantee, how a record is defended against log forging, and why the audit trail is a separate pipeline rather than a log level.
 type: Guide
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+status: stable
 resource: packages/sdk/src/utils/logger.ts
 tags: [logging, observability, sdk]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # The log pipeline

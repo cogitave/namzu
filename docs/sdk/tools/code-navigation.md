@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.tools.code-navigation
 title: Code navigation — the call site grep cannot find
 description: Why an agent asked for call sites needs symbol resolution rather than a regex, what the three-member result union protects against, why the lsp tool is not registered without a provider, and how one server per language is routed by file extension.
 type: Guide
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-16T00:00:00Z
-lastReviewed: 2026-08-16
+status: stable
 resource: packages/sdk/src/tools/builtins/lsp.ts
 tags: [sdk, tools, navigation, lsp]
+generated: { by: human:bahadirarda, at: 2026-08-16T00:00:00Z }
 ---
 
 # Code navigation

@@ -1,15 +1,11 @@
 ---
-uid: namzu.providers.anthropic
 title: The Anthropic driver — authentication, configuration and strict tool inputs
 description: Reference for @namzu/anthropic — authentication, configuration, route-bound signed-thinking replay, reasoning effort mapping, and strict tool-input generation.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-23T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/providers/anthropic/src/client.ts
 tags: [provider, anthropic, reference]
+generated: { by: human:bahadirarda, at: 2026-08-23T00:00:00Z }
 ---
 
 # The Anthropic driver

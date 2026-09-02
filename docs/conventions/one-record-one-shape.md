@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.one-record-one-shape
 title: One log record has one shape, and rules 3 and 4 prove it against the type, not the name
 description: Every diagnostic goes through an injected Logger with a constant message body and namespaced attribute keys. Two of the six rules the gate enforces resolve this against the real Logger and LogAttributes types, not a name match — and cannot see where an attribute value came from.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-16T00:00:00Z
-lastReviewed: 2026-08-16
+status: stable
 tags: [convention, logging, observability]
+generated: { by: human:bahadirarda, at: 2026-08-16T00:00:00Z }
 ---
 
 # One log record has one shape

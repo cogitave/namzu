@@ -1,14 +1,10 @@
 ---
-uid: namzu.sdk.integrations.connectors-and-mcp
 title: Connectors and MCP
 description: Build connector catalogs, expose connector instances as tools, consume remote MCP servers, and bridge connected integrations back out through MCP in @namzu/sdk.
 type: Guide
-diataxis: how-to
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-24
+status: stable
 tags: [sdk]
+generated: { by: human:bahadirarda, at: 2026-08-05T00:00:00Z }
 ---
 
 # Connectors and MCP
@@ -787,7 +783,7 @@ That keeps lifecycle ownership explicit instead of mixing definitions, connectio
 
 ## Related
 
-- [SDK Tools](../tools/README.md)
+- [SDK Tools](../tools/defining-tools.md)
 - [Plugins and MCP Servers](./plugins.md)
 - [Event Bridges](./event-bridges.md)
 - [Connector Barrel](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/connector/index.ts)

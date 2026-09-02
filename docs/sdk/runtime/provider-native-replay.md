@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.provider-native-replay
 title: Provider-native replay ownership
 description: Reference for assistant-message route provenance and versioned adapter replay state, including fallback attribution, resume behavior, validation, and safe degradation across provider or model switches.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-24
+status: stable
 resource: packages/sdk/src/types/message/index.ts
 tags: [sdk, runtime, providers, reasoning, replay, fallback]
+generated: { by: human:bahadirarda, at: 2026-08-24T00:00:00Z }
 ---
 
 # Provider-native replay ownership

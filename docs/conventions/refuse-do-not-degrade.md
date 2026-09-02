@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.refuse-do-not-degrade
 title: Refuse, do not silently degrade
 description: A capability that quietly does nothing produces an answer that looks like an answer, leaving the caller no signal to tell a considered result from a request that was dropped on the floor.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, error-handling, api-design]
+generated: { by: human:bahadirarda, at: 2026-08-04T00:00:00Z }
 ---
 
 # Refuse, do not silently degrade

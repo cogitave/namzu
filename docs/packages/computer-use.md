@@ -1,15 +1,11 @@
 ---
-uid: namzu.packages.computer-use
 title: Computer use — the platform matrix, capability flags and error surface
 description: Reference for @namzu/computer-use: platform adapters and capability flags, plus the error and unknown-outcome contracts that keep state-changing desktop actions from being replayed unsafely.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/computer-use/src/index.ts
 tags: [computer-use, adapters, reference]
+generated: { by: human:bahadirarda, at: 2026-08-20T00:00:00Z }
 ---
 
 # Computer use — the platform matrix, capability flags and error surface

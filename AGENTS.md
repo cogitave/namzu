@@ -22,16 +22,9 @@ files  (standalone)
 
 No circular dependencies. Leaf packages do not import one another; the CLI is
 the composition root and may import the leaves it ships with. No package
-imports the CLI.
+imports the CLI. If this list and `packages/` ever disagree, the directory is
+right.
 </dependency_direction>
-
-> This list previously named `@namzu/contracts`, `@namzu/agents` and
-> `@namzu/api`. **None of them exist**, and none appears in `packages/`. A
-> routing document is read by every agent before it reads anything else, so a
-> package named here is a place someone will look, import from, or reason
-> about the layering of — and the layering was stated in terms of two of them.
-> Corrected against `packages/` rather than against memory; if this list and
-> that directory ever disagree again, the directory is right.
 
 ## Build & Test
 
@@ -42,10 +35,11 @@ pnpm test         # vitest
 pnpm build        # Build all packages
 ```
 
-Use `pnpm --filter <pkg>` to scope commands to a single package.
+Use `pnpm --filter <pkg>` to scope commands to a single package. SDK tests run
+through `pnpm --filter @namzu/sdk test -- <file>`, never bare `vitest`.
 
 <ci_gates>
-Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs twenty steps, in this order, and the branch is not green until every one passes.
+Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs the steps below, in this order, and the branch is not green until every one passes.
 
 | CI step | Run it locally |
 |---|---|
@@ -67,152 +61,74 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Publish-metadata gate | `node .github/scripts/check-publish-metadata.mjs` |
 | Pre-publish consumer install check | `bash .github/scripts/verify-consumer-install.sh` |
 | Signature types are exported | `node .github/scripts/check-signature-types-exported.mjs` |
-| Public-surface regression check | `node .github/scripts/verify-public-surface.mjs` |
 | publint (package.json shape) | `npx -y publint@latest packages/<pkg>` |
 
-Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all twenty.
+Some carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run them all.
 
-**A direct push to `main` runs a different job.** `ci.yml`'s `Build & Test` is a
-pull-request gate; a push straight to `main` is validated inline by
-`release.yml` before it publishes. Those two lists had drifted to the point
-where fifteen of the gates above applied to branches only, and a documentation
-page went stale on `main` inside a commit that reported green. They are now
-compared by `check-workflow-gate-parity.mjs`, which fails on any gate present in
-one path and not the other unless it is exempted BY NAME with a reason — five
-are, all on cost.
+A **direct push to `main` runs a different job**: `release.yml` validates inline before it publishes. `check-workflow-gate-parity.mjs` fails on any gate present in one path and not the other unless it is exempted by name with a reason.
 
-A **second job**, `Docs`, runs **two** gates on a full-history checkout:
+A **second job**, `Docs`, runs two gates:
 
 | Docs step | Run it locally |
 |---|---|
-| Docs standard gate | `pnpm docs:check` (navigation regression tests + `node tools/check-docs.mjs`) |
-| Docs fence gate | `pnpm --filter @namzu/sdk build && node tools/check-doc-fences.mjs` |
+| Docs OKF gate | `pnpm docs:check` (`tools/check-docs-okf.mjs` and its test) |
+| Docs fence gate | `pnpm -r build && node tools/check-doc-fences.mjs` |
 
-Full history because the standard gate's drift check compares a document's last commit against its `resource:`'s, which `git log` cannot answer on a shallow clone — it refuses one rather than passing.
+The fence gate compiles the ```ts in `docs/` and the package READMEs against the built packages. A fence opts out by declaring itself: ```ts sketch is not compiled and is counted out loud; ```ts verbatim is asserted to appear byte-for-byte in the file its `// from:` marker names.
 
-The fence gate compiles the ```ts in `docs/` against `packages/sdk/dist`, so this job installs and builds the SDK. Every other gate in this repository checks a document's METADATA; this is the only one that reads its content, and it exists because a rename can otherwise pass everything here while leaving documentation that does not build. Fences opt out by declaring themselves — ```ts sketch is not compiled and is counted out loud, ```ts verbatim is asserted to appear byte-for-byte in the file its `// from:` marker names.
+**Why the short list is not enough.** A job stops at its first failing step, and every step after it is reported `skipped`, not `failure`. Green on lint, typecheck, build and test establishes four steps and nothing about the rest.
 
-**Why the short list is not enough.** A job stops at its first failing step, and every step after it is reported `skipped`, not `failure`. A red run therefore shows one red entry and a column of grey — and grey is not "these passed", it is "these were never asked". The four commands at the top of this section appear in that table as **Lint**, **Type check**, **Build** and **Test** — rows 1, 4, 5 and 6, since the workflow-parity and build-graph gates sit between lint and the compiler. Green on them establishes four of the twenty steps and nothing whatsoever about the other sixteen.
+**A worktree is not a working checkout until `pnpm install && pnpm -r build` has run in it.** Several gates read build output, and they name the source when they fail. `pnpm lint` checks each package's whole source tree, never your diff: check `git diff --name-only origin/main...HEAD` before you accept a hit as yours.
 </ci_gates>
 
-## Where to find things
+## Documentation
 
-This file is a **router**, not a rulebook. Detail lives in the folders below; read their `README.md` before drilling deeper.
+`docs/` is an [OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) knowledge bundle, and `pnpm docs:check` enforces exactly the spec's conformance rules:
 
-<routing>
-  <working_memory path=".work/sessions/">
-    Durable agent memory, and **gitignored**. Every non-trivial piece of design, decision, or refactor work opens a session folder here (`ses_<NNN>-<slug>/`). Sessions capture scope, decisions, plans, and open questions. When a new agent takes over, it starts here to see what's in flight.
+- Every page other than `index.md` and `log.md` is a **concept**: YAML frontmatter with a non-empty `type`. Recommended: `title`, `description`, `resource` (the code the page describes), `tags`.
+- `docs/index.md` carries only `okf_version: "0.2"`. Every other `index.md` carries no frontmatter and lists its directory as `* [Title](file.md) - description`. Add a page to its directory's index when you add the page.
+- `docs/log.md` is the update history, newest date first, `## YYYY-MM-DD` headings, one bullet per change with a leading bold word (`**Creation**`, `**Update**`, `**Deprecation**`). Write the entry in the same commit as the change.
+- Trust is frontmatter, not prose. `generated: { by, at }` says who produced the content and when; `verified: [{ by, at }]` says who confirmed it against its sources. Actors are `human:<id>`, `process:<id>`, or `<producer>/<version>`. Omit `verified` rather than guess it: absent reads honestly as unverified.
+- `status` is `draft`, `stable` (the default) or `deprecated`. Set `stale_after` when a page has a known expiry.
 
-    It stays untracked on purpose. A session log compares this kernel against other systems by name, and `scripts/audit-external-names.mjs` forbids a third-party product name in tracked prose — so this material can be neither published nor rewritten without destroying what it is for. `.work/parked/` holds superseded analyses of the same kind.
-
-    Skills: `start-session`, `resume-session`, `freeze-session`.
-  </working_memory>
-
-  <code_rules path="docs/conventions/">
-    Ratified, stable rules about how code is written, and **tracked** — these are live rules, not history. Grows as sessions freeze and emit stable rules. Read its `index.md` for the catalog before a non-trivial change.
-
-    Skill: `read-conventions`.
-  </code_rules>
-
-  <published_docs path="docs/">
-    User-facing documentation. Pages carry YAML frontmatter the docs gate reads — see the standard below. Do not edit during internal decision work; update only when a design lands and the public surface actually changes.
-
-    Skill: `update-docs`.
-  </published_docs>
-
-  <legacy path="(deliberately does not exist)">
-    **There is no `docs/legacy/`, and its absence is a decision.** Frozen sessions and superseded design notes stay whole and untracked in `.work/`.
-
-    The plan was to group them under `docs/legacy/`. Measuring them ended it: the owner ruled that no third-party brand name appears in tracked prose, and under that ruling not one frozen session can move without leaving files behind. In every case the blocked files are the `README.md` and the `progress.md` — the ones that give the rest its meaning. Moving the remainder would produce anonymous fragments in a bin, which is the outcome the exercise existed to avoid.
-
-    An empty `docs/legacy/` would be worse than none: a directory that exists to hold the old material, holding nothing, reads as "there is no old material" rather than "the old material could not come". So do not create it. The naming ruling is the owner's to revisit, and this follows from it.
-  </legacy>
-
-  <runtime_state path=".namzu/">
-    The repo's own dogfooding runtime state (threads, sessions, runs). Do not edit by hand.
-  </runtime_state>
-
-  <worktrees path="(agent checkouts — the worktrees directory under the harness config)">
-    Path: `.claude/worktrees/<name>`, written here in a code span because the audit forbids that directory's name in bare prose. Most work in this repo now happens in one, and the directory is **gitignored** — a nested checkout committed as a gitlink is not clonable. So a worktree is a whole second copy of the tree carrying its own untracked state, and three things follow that have each cost a diagnosis.
-
-    **`.work/` is per-worktree. It is not shared and it does not travel with the branch.** Being gitignored is exactly why: a freshly added worktree has no `.work/` at all, and each existing one lists a different set of sessions in its own `.work/sessions/README.md`. The `pre-commit` hook resolves that index relative to the current working directory, so it gates on the sessions listed in **this** worktree — a session opened here is invisible to the shared checkout and to every sibling. Open your session where you are working; do not go looking for it elsewhere.
-
-    **A fresh worktree is not a working checkout until `pnpm install && pnpm -r build` has run in it.** Several gates read build output rather than source, and they name the source when they fail. Run `node .github/scripts/check-publish-metadata.mjs` in an unbuilt worktree and it reports, for sixteen of the seventeen publishable packages, that the package "would publish without its `main` (dist/index.js)". That is not a manifest defect: the script packs each package and asserts the declared entry point is in the tarball, and there is no `dist/` yet. The eval-suite package is the exception because it intentionally ships suites rather than an entry point. The `Evals` gate still fails in an unbuilt checkout because it invokes `packages/cli/dist/bin.js`.
-
-    **A lint finding is not evidence your branch caused it.** `pnpm lint` is `pnpm -r lint`, and each package's script is `biome check src/` — the package's whole source tree, never your diff. A worktree branched from an older `origin/main` therefore reports whatever was there at that commit. Check `git diff --name-only origin/main...HEAD` before you accept a hit as yours, and never reformat a file your branch did not change in order to make a gate pass.
-
-    `scripts/audit-external-names.mjs` inventories tracked and non-ignored untracked files, so Git's ignored-worktree rule keeps this second checkout out of a scan from the shared tree. Run the audit from inside your worktree to audit the tree you are actually changing.
-
-    The three above are mechanics — where state lives and what a gate reads. The two below are etiquette, and they are the ones that have actually destroyed work.
-
-    **Never check out a branch in a worktree you did not create.** The protection you would assume exists covers half the case: git refuses the *same* branch in two worktrees, and `git worktree add` on a held branch fails with `already used by worktree at <path>`. Nothing refuses a *different* branch in a directory somebody is working in. The switch carries their uncommitted modified and untracked files across rather than refusing them, so the occupant's work lands in the switcher's tree indistinguishable from their own — one `git add -A` from a commit on the wrong branch. A `git checkout` inside a script or a mutation harness does the same thing without anyone deciding to. If you need another branch, create your own directory.
-
-    **Stage explicit paths. Never `git add -A` or `git add .`.** This is what makes sharing a directory survivable when the rule above is broken, and it is the only one of these two that does not depend on anyone else behaving. Name the files you changed. Run `git status` when you enter a tree and treat anything already dirty as somebody else's until you know otherwise.
-
-    **Assume anything uncommitted can vanish, and commit early.** A commit is in the object database every worktree shares, so a branch survives another agent switching, removing or reverting inside your directory. Uncommitted work is the only kind that has ever been lost here. Write the `progress.md` entry the hook needs, then commit as soon as a change is coherent, rather than holding a large one in a working tree or parking it in a patch file.
-  </worktrees>
-</routing>
-
-## Documentation standard
-
-`docs/` follows the estate documentation standard: markdown with YAML front matter, one concept per file, Diataxis content types. Required keys, all machine-checked by `pnpm docs:check` (`tools/check-docs.mjs`):
-
-`uid`, `title`, `description` (75-300 chars), `type`, `diataxis`, `owner`, `status`, `timestamp`, `lastReviewed`.
-
-`type` is what kind of thing the document is; `diataxis` is how it is written. They are separate on purpose — collapsing them would restate one fact in two fields.
-
-Optional and load-bearing: `resource:` names the code the document describes, and the gate **fails the build** when that code has commits newer than the document. `verified:` records who last re-established the document against source; **omit it rather than guess**, because an absent key honestly reads as unverified and a false one does not.
-
-The gate is authoritative only inside the directories listed in its `CONFORMING` array and prints the unmigrated remainder on every run. Add a directory there in the same change that brings its pages up to the standard, never before.
+A change to a public surface (an exported symbol, a CLI flag, a config key, a wire shape) updates the page that describes it in the same commit, or creates one. Documentation that describes code which no longer exists is a defect, not a backlog.
 
 ## Working flow
 
-<flow>
-1. Starting or continuing any non-trivial work → open or resume a session.
-2. Before a non-trivial change → read the relevant conventions.
-3. After drafting a plan → run an adversarial second-opinion check (see `codex-check` skill).
-4. **Every commit while an in-progress session exists** → `progress.md` entry is written **synchronously with the commit**, not as a follow-up. `.work/` is gitignored, so the entry does not enter the commit itself — it lives on local disk, and the discipline is that the working-tree update happens before `git commit` runs. This is non-negotiable — the log is what makes a fresh agent able to pick up after `/clear`, and a six-commit gap has happened before. An entry is one line minimum: `- <hash> <subject> — what/why` (hash filled post-commit); add a `**Deviation:**` line if the commit diverges from the ratified plan. See skill: `commit`.
-5. After implementation → `pnpm typecheck && pnpm lint && pnpm test` must all pass. That trio is three of the seventeen steps CI runs, not the gate — before pushing, work the `<ci_gates>` table under **Build & Test**.
-6. Commit touches public surface (exported types, wire schema, CLI flags, API routes)? → **queue a `**Docs debt:**` line in the touching commit's `progress.md` entry**; the debt is cleared by running the `update-docs` skill before `freeze-session`. Queuing is mandatory per commit; actually writing `docs/` pages can batch at freeze time.
-7. Decisions turning final → freeze the session; extract stable rules into `docs/conventions/`, written to the documentation standard above.
-</flow>
+1. Read the neighbouring code and the page in `docs/` that describes it before a non-trivial change. `docs/conventions/` holds the rules this repository has ratified, each with the incident behind it.
+2. After implementation: `pnpm typecheck && pnpm lint && pnpm test`, then the rest of the `<ci_gates>` table before pushing.
+3. A change to a publishable package adds a `.changeset/<slug>.md`. A change to a public surface updates `docs/` and `docs/log.md`.
+4. Commit when a change is coherent. Uncommitted work is the only kind that has ever been lost here.
 
 ## Hard rules
 
 <git_identity>
-Required author: `bahadirarda <bahadirarda@users.noreply.github.com>`. Verify `git config --show-origin user.email` before any commit. Identity contamination has previously required filter-branch remediation. See skill: `commit`.
+Required author: `bahadirarda <bahadirarda@users.noreply.github.com>`. Verify `git config --show-origin user.email` before any commit. Identity contamination has previously required filter-branch remediation.
 </git_identity>
 
 <commit_format>
-Conventional Commits. No AI co-author trailers. See skill: `commit`.
+Conventional Commits: `<type>(<scope>): <subject>`, types `feat|fix|refactor|docs|test|chore|build|ci|perf`, scope the package or area. No AI co-author trailers.
 </commit_format>
 
 <releases>
-Releases are driven by [Changesets](https://github.com/changesets/changesets). Every PR that touches a publishable package adds a `.changeset/<slug>.md` declaring bump intent; on merge to `main`, `changesets/action@v1` opens a "chore(release): version packages" PR; merging that PR publishes every bumped package to npm via `pnpm changeset publish` under `.github/workflows/release.yml`. Never hand-edit `package.json#version` or invoke `npm publish` directly. See skill: `release`.
+Releases are driven by [Changesets](https://github.com/changesets/changesets). Every PR that touches a publishable package adds a `.changeset/<slug>.md` declaring bump intent; on merge to `main`, `changesets/action@v1` opens a "chore(release): version packages" PR; merging that PR publishes every bumped package to npm via `pnpm changeset publish` under `.github/workflows/release.yml`. Never hand-edit `package.json#version` or invoke `npm publish` directly.
 
 **Bump intent is a claim about the consumer, not about effort.** [SemVer rule 8](https://semver.org/) admits no exception: `major` for *any* backward-incompatible change to the public API — a removed or renamed export, a narrowed union, a changed default, a widened peer range. Rewriting the whole kernel without touching the public surface is `patch`.
 
-**Deprecate before you remove.** SemVer's own guidance is that a removal should be preceded by at least one minor release carrying the deprecation, so a consumer has a version where their code still compiles and warns. Applied here:
-
-- **Renaming** an exported identifier or a union member ⇒ ship the new name plus the old one marked `@deprecated` in a `minor`, and remove the old name in a later `major`. A rename with no alias is the case this rule exists for.
-- **Removing** a declaration that provably does nothing — no producer, no reader, no runtime effect — may go straight to `major`. A deprecation window exists so working code can migrate, and there is no working code to migrate off a field that was never read. Say so in the changeset.
-- **Changing a default** ⇒ `major`, and the changeset names the value that changed and what a caller does to keep the old behaviour.
+**Deprecate before you remove.** Renaming an exported identifier ⇒ ship the new name plus the old one marked `@deprecated` in a `minor`, remove the old name in a later `major`. Removing a declaration that provably does nothing may go straight to `major`; say so in the changeset. Changing a default ⇒ `major`, naming the value that changed and what a caller does to keep the old behaviour.
 
 A changeset body is read by a stranger deciding whether to take the upgrade. Name what breaks and what to do about it, not what the work was.
 
-**A version PR is a snapshot, and merging a stale one spends a version number on nothing.** Before merging `chore(release): version packages`, every changeset file present on `main` must appear in that PR's deleted files. One missing means the PR was computed before that changeset landed; merge it and the publish step sees pending changesets, opens a fresh version PR instead of publishing, and the bump it already wrote to the CHANGELOG reaches no registry. Its existence is not evidence of its currency — check what it consumes.
+**A version PR is a snapshot.** Before merging `chore(release): version packages`, every changeset file present on `main` must appear in that PR's deleted files; otherwise the publish step sees pending changesets and opens a fresh version PR instead of publishing.
 
-**A green release run is not a publish, and a version number is not the fix.** Confirming a release means asking the registry, and picking the right run to watch in the first place. Both procedures, with the commands, are in skill: `release` (Phase 2, steps 4 and 6).
+**A green release run is not a publish.** Confirming a release means asking the registry: `npm view <pkg> version`.
 </releases>
 
 <workflow_safety>
-- Never push without explicit user approval.
+- Never push without explicit user approval. Approval for one push does not extend to the next.
 - Never run destructive ops (`git reset --hard`, `git push --force`, `rm -rf`, `npm unpublish`) without explicit approval.
-- Never skip hooks (`--no-verify`, `--no-gpg-sign`) unless the user explicitly asks. The husky `pre-commit` hook (`.husky/pre-commit`) machine-enforces the per-commit progress gate: every active session in `.work/sessions/README.md` must have a `progress.md` mtime newer than the staged files. Bypass with `--no-verify` is forbidden by this rule, not by the hook itself.
+- Never skip hooks or checks (`--no-verify`, `--no-gpg-sign`) unless the user explicitly asks.
 - File-scoped operations (lint, unit tests) may run freely. Risky operations (installs, pushes, infrastructure changes) require approval.
-- Never check out a branch in a worktree you did not create, and never `git add -A`. Both are about sharing a machine with other agents; the reasoning is in `<worktrees>` above rather than twice.
+- Stage explicit paths. Never `git add -A` or `git add .`.
+- Never check out a branch in a worktree you did not create; git carries the occupant's uncommitted files across the switch. If you need another branch, create your own directory.
 </workflow_safety>
-
-## Second-opinion loop
-
-Non-trivial plans are cross-checked with an adversarial second agent. Prompt for attack, not approval — "find what's broken" rather than "does this work?". See skill: `codex-check`.

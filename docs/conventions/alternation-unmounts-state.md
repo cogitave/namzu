@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.alternation-unmounts-state
 title: Rendering two things in a ternary destroys the state of both
 description: A component swapped for another at the same position is unmounted, and its state goes with it. The guard written to preserve that state reintroduced the loss when it changed the element type it returned.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-09T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, react, state, ui]
+generated: { by: human:bahadirarda, at: 2026-08-09T00:00:00Z }
 ---
 
 # Rendering two things in a ternary destroys the state of both

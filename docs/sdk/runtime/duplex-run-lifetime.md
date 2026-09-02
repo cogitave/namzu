@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.duplex-run-lifetime
 title: Duplex run lifetime
 description: Reference for duplex-session ownership, the difference between conversational interruption and run cancellation, atomic tool-result publication, duplicate-call fencing, and bounded provider cleanup.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-30T00:00:00Z
-lastReviewed: 2026-08-30
+status: stable
 resource: packages/sdk/src/runtime/bidi/session.ts
 tags: [sdk, runtime, duplex, cancellation, tools]
+generated: { by: human:bahadirarda, at: 2026-08-30T00:00:00Z }
 ---
 
 # Duplex run lifetime

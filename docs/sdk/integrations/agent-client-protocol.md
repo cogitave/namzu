@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.integrations.agent-client-protocol
 title: The agent-client protocol bridge — what a peer may call, and what it must declare
 description: How an editor or orchestrator drives a namzu agent over stdio, why a session is refused for a client that cannot ask a human, how tool calls are rendered by the tool rather than the bridge, and why the method table is two hand-written sets compared in both directions.
 type: Guide
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/sdk/src/bridge/acp/server.ts
 tags: [sdk, bridge, protocol, stdio, permissions]
+generated: { by: human:bahadirarda, at: 2026-08-21T00:00:00Z }
 ---
 
 # The agent-client protocol bridge

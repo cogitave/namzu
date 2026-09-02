@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.a-green-run-on-your-machine
 title: A green run on your machine is not a green run
 description: Three CI failures in one session, none reproducible locally, none about the change. What differed was never configured — what happened to be built already, which binary a name resolves to, what the job installs. Reproduce the condition before diagnosing it.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+status: stable
 tags: [convention, ci, verification]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # A green run on your machine is not a green run

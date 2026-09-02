@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.architecture
 title: The kernel in depth — thesis, subsystems and the event protocol
 description: Architecture reference for @namzu/sdk: what the kernel is and deliberately is not, every subsystem from the sandbox boundary to multi-tenant isolation, the design principles the code is held to, and the agent event protocol a host consumes.
 type: Explanation
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-09-02
+status: stable
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
+generated: { by: human:bahadirarda, at: 2026-08-24T00:00:00Z }
 ---
 
 # The kernel in depth — thesis, subsystems and the event protocol

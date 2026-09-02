@@ -110,10 +110,9 @@
  * in it, and none is checked anywhere else either — established by looking
  * rather than assumed:
  *
- *  - **Commit messages.** `.husky/` holds `pre-commit` and `post-commit` and no
- *    `commit-msg`; there is no commitlint configuration in the repository and
- *    no commitlint step in `.github/workflows/ci.yml`. So a commit message is
- *    read by no gate at all, for this rule or any other.
+ *  - **Commit messages.** There are no git hooks, no commitlint configuration
+ *    in the repository and no commitlint step in `.github/workflows/ci.yml`.
+ *    So a commit message is read by no gate at all, for this rule or any other.
  *  - **PR titles and bodies**, **issue text**, and **branch names**. The audit
  *    is invoked once, as `node scripts/audit-external-names.mjs` over a
  *    checkout; none of those three is in a checkout.
@@ -355,12 +354,8 @@ function familyOf(path) {
 }
 
 /**
- * The git hooks carry as much rationale prose as any source file and have no
- * extension at all, so they are named rather than matched.
  */
-const isHook = (path) => path.split('/').includes('.husky')
-
-const AUDIT_ROOTS = ['packages/', 'docs/', 'scripts/', 'tools/', '.github/', '.husky/', '.claude/']
+const AUDIT_ROOTS = ['packages/', 'docs/', 'scripts/', 'tools/', '.github/']
 const INVENTORY_MAX_BYTES = 16 * 1024 * 1024
 
 /**
@@ -385,7 +380,7 @@ function inventoriedPaths() {
 function shouldAuditPath(path) {
 	if (!path.includes('/')) return /\.(md|sh|ps1)$/.test(path)
 	if (!AUDIT_ROOTS.some((root) => path.startsWith(root))) return false
-	return SCANNED.test(path) || isHook(path)
+	return SCANNED.test(path)
 }
 
 const isErrno = (error, code) =>

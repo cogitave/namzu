@@ -23,9 +23,7 @@
  * This is the structural half of the coverage gate; the per-module floor
  * check lives in `check-sdk-module-coverage.mjs`.
  *
- * Convention: "enumerate what counts, don't infer." Mirrors
- * `.github/scripts/verify-public-surface.mjs`, which applies the same
- * pattern to the public API.
+ * Convention: "enumerate what counts, don't infer."
  *
  * Non-bypassable by design (ses_006 Q7); there is no env-var escape hatch.
  */

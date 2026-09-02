@@ -1,11 +1,10 @@
 // Compiles the TypeScript in `docs/` against the built SDK.
 //
-// `check-docs.mjs` has six fatal checks and every one is about a document's
-// METADATA. `DRIFT` says a page might be stale because its `resource:` moved;
-// it says nothing about a fence naming a symbol that no longer exists in a
-// page whose `resource:` did not move. So `docs/` carried 184 ```ts fences
-// that nothing had ever compiled, and a rename could pass every gate in the
-// repository while leaving documentation that does not build.
+// The OKF gate (`check-docs-okf.mjs`) is about a document's METADATA; it
+// says nothing about a fence naming a symbol that no longer exists. So
+// `docs/` once carried 184 ```ts fences that nothing had ever compiled, and
+// a rename could pass every gate in the repository while leaving
+// documentation that does not build.
 //
 // Three fence kinds, and the second two exist because forcing every fence
 // through a compiler produces either noise or a wall of `// @ts-ignore`:
@@ -18,9 +17,8 @@
 //                    file its `// from: <path>` marker names. For a snippet
 //                    whose value is that it IS the shipped code.
 //
-// Scope is `FENCE_CONFORMING`, the same discipline `check-docs.mjs` uses and
-// for the same reason: a gate that claims the whole tree on day one gets
-// switched off on day two. Every run prints what it did NOT look at.
+// Scope is `FENCE_CONFORMING`, because a gate that claims the whole tree on
+// day one gets switched off on day two. Every run prints what it did NOT look at.
 //
 // Usage: node tools/check-doc-fences.mjs [rootDir]
 

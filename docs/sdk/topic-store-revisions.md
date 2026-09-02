@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.topic-store-revisions
 title: Durable topic revisions and shared-store upgrades
 description: Reference for exact topic-state and objective revisions, immutable disk commits, crash behavior, tenant isolation, filesystem requirements, and safe upgrades of a shared store.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-18T00:00:00Z
-lastReviewed: 2026-08-18
+status: stable
 resource: packages/sdk/src/store/kv/revision-record-store.ts
 tags: [sdk, storage, topics, concurrency]
+generated: { by: human:bahadirarda, at: 2026-08-18T00:00:00Z }
 ---
 
 # Durable topic revisions and shared-store upgrades

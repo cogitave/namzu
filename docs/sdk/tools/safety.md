@@ -1,14 +1,10 @@
 ---
-uid: namzu.sdk.tools.safety
 title: Tool Safety
 description: Layered tool safety in @namzu/sdk, including tool metadata, availability states, the authorization rule vocabulary and its evaluation order, plan mode, and sandbox boundaries.
 type: Guide
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-09-01
+status: stable
 tags: [computer-use, sdk]
+generated: { by: human:bahadirarda, at: 2026-08-05T00:00:00Z }
 ---
 
 # Tool Safety
@@ -379,6 +375,6 @@ That pattern gives the model useful autonomy without treating every tool equally
 
 ## Related
 
-- [SDK Tools](./README.md)
+- [SDK Tools](./index.md)
 - [Built-In Tools](./built-in.md)
 - [AuthorizationGate Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/authorization/gate.ts)

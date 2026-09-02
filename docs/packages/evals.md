@@ -1,15 +1,11 @@
 ---
-uid: namzu.packages.evals
 title: The eval suites — the two kinds, running them and what a suite is
 description: Reference for @namzu/evals: why the kernel suites and the security suites are scored differently, how to run either against an installed kernel, what a suite file contains, and how a suite is versioned so a score stays comparable across releases.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+status: stable
 resource: packages/evals/kernel
 tags: [evals, testing, reference]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # The eval suites — the two kinds, running them and what a suite is

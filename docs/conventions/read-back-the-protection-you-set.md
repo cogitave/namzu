@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.read-back-the-protection-you-set
 title: Read back the protection you set, and refuse if you cannot
 description: Asking for a permission is not holding one. A protection must be re-read from the thing it was applied to and refused when the read cannot be made — and because the readback is usually platform-conditional, the predicate has to be pure or it is a check most contributors never see fail.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-09T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, verification, security, cross-platform]
+generated: { by: human:bahadirarda, at: 2026-08-09T00:00:00Z }
 ---
 
 # Read back the protection you set, and refuse if you cannot

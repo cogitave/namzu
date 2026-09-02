@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.session-goals
 title: Session-owned completion goals
 description: Reference for durable completion goals in @namzu/sdk, including Session authority, exact revisions, lifecycle transitions, disk publication, and the boundary between goal state and automatic continuation.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-18T00:00:00Z
-lastReviewed: 2026-08-18
+status: stable
 resource: packages/sdk/src/store/goal/index.ts
 tags: [sdk, sessions, goals, durability]
+generated: { by: human:bahadirarda, at: 2026-08-18T00:00:00Z }
 ---
 
 # Session-owned completion goals

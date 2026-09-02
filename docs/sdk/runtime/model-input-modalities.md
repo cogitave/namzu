@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.model-input-modalities
 title: Provider capabilities and model input modalities
 description: Reference for the difference between a driver's ability to map rich input and the input kinds accepted by one listed model, including the honest meaning of absent model metadata.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-22T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/sdk/src/types/provider/model.ts
 tags: [sdk, providers, models, images, documents]
+generated: { by: human:bahadirarda, at: 2026-08-22T00:00:00Z }
 ---
 
 # Provider capabilities and model input modalities

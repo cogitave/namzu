@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.verify-claims-including-your-own
 title: Verify the claim, including your own, including a comment's
 description: Re-establish every claim against source before acting on it — a reporter's finding, a comment already in the tree, and what you yourself concluded an hour ago are all claims of the same kind.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, verification, review]
+generated: { by: human:bahadirarda, at: 2026-08-04T00:00:00Z }
 verified:
   - by: process:conventions-migration
     at: 2026-08-07T00:00:00Z

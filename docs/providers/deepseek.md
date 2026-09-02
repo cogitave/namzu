@@ -1,15 +1,11 @@
 ---
-uid: namzu.providers.deepseek
 title: The DeepSeek driver — image input, thinking mode and reasoning replay
 description: Reference for @namzu/deepseek — model-scoped inline image input, why thinking mode makes this a separate driver, how reasoning_content maps onto kernel reasoning blocks, and what the wire refuses.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-22T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/providers/deepseek/src/client.ts
 tags: [provider, deepseek, reasoning, reference]
+generated: { by: human:bahadirarda, at: 2026-08-22T00:00:00Z }
 ---
 
 # The DeepSeek driver

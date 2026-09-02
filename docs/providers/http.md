@@ -1,15 +1,11 @@
 ---
-uid: namzu.providers.http
 title: The generic HTTP driver — two dialects and one configuration
 description: Reference for @namzu/http: the two wire dialects it speaks and how a mismatch is refused rather than guessed, every configuration field, and the model-listing and health surfaces a gateway has to provide.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+status: stable
 resource: packages/providers/http/src/index.ts
 tags: [provider, http, reference]
+generated: { by: human:bahadirarda, at: 2026-08-21T00:00:00Z }
 ---
 
 # The generic HTTP driver — two dialects and one configuration

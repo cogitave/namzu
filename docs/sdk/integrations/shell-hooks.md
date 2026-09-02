@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.integrations.shell-hooks
 title: Shell hooks
 description: Run a shell command before or after a tool call or around a run from a host's configuration, with the event on stdin, a bounded deadline, and exit code 2 as a refusal.
 type: Guide
-diataxis: how-to
-owner: cogitave/namzu
-status: active
-timestamp: 2026-09-02T00:00:00Z
-lastReviewed: 2026-09-02
+status: stable
 resource: packages/sdk/src/plugin/shell-hook.ts
 tags: [sdk, integrations]
+generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 ---
 
 # Shell hooks

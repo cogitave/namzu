@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.a-falsifiable-comment-is-a-test
 title: A sentence a test could falsify is a claim, not documentation
 description: A docblock sentence naming a condition and an outcome has a truth value, so it is an unpinned assertion sitting where nobody checks it — the test goes in the suite and the comment points at it.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-10T00:00:00Z
-lastReviewed: 2026-08-10
+status: stable
 tags: [convention, verification, testing]
+generated: { by: human:bahadirarda, at: 2026-08-10T00:00:00Z }
 ---
 
 # A sentence a test could falsify is a claim, not documentation

@@ -296,10 +296,6 @@ jobs:
       - name: Signature types are exported
         run: node .github/scripts/check-signature-types-exported.mjs
 
-      - name: Public-surface regression check
-        if: matrix.gates
-        run: node .github/scripts/verify-public-surface.mjs
-
       # Derived from the workspace, never hand-listed. The list used to be
       # eleven literal package names, and four publishable packages were not
       # on it — `cli`, `files`, `lsp` and `evals`, one of which was added
@@ -338,8 +334,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -356,7 +350,7 @@ jobs:
       - name: Build the packages the fences compile against
         run: pnpm -r build
 
-      - name: Docs standard gate
+      - name: Docs OKF gate
         run: pnpm docs:check
 
       - name: Docs fence gate

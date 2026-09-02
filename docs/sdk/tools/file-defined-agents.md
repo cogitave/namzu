@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.tools.file-defined-agents
 title: Agents defined in files
 description: Load delegated sub-agents from Markdown files with frontmatter, shadow them by root order, filter their tool rosters read-only or by name, and ship the explore delegate.
 type: Guide
-diataxis: how-to
-owner: cogitave/namzu
-status: active
-timestamp: 2026-09-02T00:00:00Z
-lastReviewed: 2026-09-02
+status: stable
 resource: packages/sdk/src/agents/file-definitions.ts
 tags: [sdk, tools, agents]
+generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 ---
 
 # Agents defined in files

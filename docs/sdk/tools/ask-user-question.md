@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.tools.ask-user-question
 title: The ask_user_question tool
 description: Give a run one tool that turns to the human for a decision, built alone from a park handler without the coordinator's gateway, roster, or a run id chosen before any run exists.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-09-02T00:00:00Z
-lastReviewed: 2026-09-02
+status: stable
 resource: packages/sdk/src/tools/coordinator/ask-user-question.ts
 tags: [sdk, tools, hitl]
+generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 ---
 
 # The `ask_user_question` tool

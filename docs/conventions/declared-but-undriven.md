@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.declared-but-undriven
 title: A declaration nothing drives is a defect, not a roadmap
 description: A field, option or type that is declared, exported and read by no code path is not a feature pending. It is a lie the type system tells, and fourteen instances shipped in a single week.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-30
+status: stable
 tags: [convention, api-design, types]
+generated: { by: human:bahadirarda, at: 2026-08-04T00:00:00Z }
 verified:
   - by: process:conventions-migration
     at: 2026-08-07T00:00:00Z

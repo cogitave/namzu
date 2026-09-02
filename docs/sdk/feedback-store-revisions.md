@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.feedback-store-revisions
 title: Durable message-feedback revisions
 description: Reference for exact message-feedback compare-and-set updates, immutable disk commits, legacy projection handling, filesystem requirements, safe identifiers, and shared-root upgrades.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-18T00:00:00Z
-lastReviewed: 2026-08-18
+status: stable
 resource: packages/sdk/src/store/feedback/disk.ts
 tags: [sdk, storage, feedback, concurrency]
+generated: { by: human:bahadirarda, at: 2026-08-18T00:00:00Z }
 ---
 
 # Durable message-feedback revisions

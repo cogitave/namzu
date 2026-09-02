@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.rag-embedding-request-bound
 title: RAG embedding request bounds
 description: Reference for HTTP embedding deadlines, response integrity, cancellation propagation across public RAG operations, transport ownership, and the explicit unbounded compatibility option.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+status: stable
 resource: packages/sdk/src/rag/embedding.ts
 tags: [sdk, rag, embeddings, timeout, cancellation]
+generated: { by: human:bahadirarda, at: 2026-08-19T00:00:00Z }
 ---
 
 # RAG embedding request bounds

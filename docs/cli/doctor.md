@@ -1,15 +1,11 @@
 ---
-uid: cli.doctor
 title: namzu doctor
 description: What namzu doctor checks, what each status word means, and what its exit code tells a script — including the code that says a check could not answer rather than that everything is well.
 type: reference
-diataxis: reference
-owner: bahadirarda
 status: current
-timestamp: 2026-08-25
-lastReviewed: 2026-08-25
 last_updated: 2026-08-11
 related_packages: ["@namzu/cli", "@namzu/sdk"]
+generated: { by: human:bahadirarda, at: 2026-08-25 }
 ---
 
 # `namzu doctor`

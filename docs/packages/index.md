@@ -1,0 +1,11 @@
+# Packages
+
+The optional capability packages that ship beside the kernel.
+
+* [Computer use — the platform matrix, capability flags and error surface](computer-use.md) - Reference for @namzu/computer-use: platform adapters and capability flags, plus the error and unknown-outcome contracts that keep state-changing desktop actions from being replayed unsafely.
+* [The eval suites — the two kinds, running them and what a suite is](evals.md) - Reference for @namzu/evals: why the kernel suites and the security suites are scored differently, how to run either against an installed kernel, what a suite file contains, and how a suite is versioned so a score stays comparable across releases.
+* [The file registry — contracts, backends and the HTTP surface](files.md) - Reference for @namzu/files: why the blob store and the file registry are separate contracts with different lifetimes, the three backends and their subpaths, and what the HTTP router checks before it serves a download.
+* [Live sessions — lifecycle, media contracts and cancellation](live.md) - Reference for @namzu/live: the independent live-session lifecycle, PCM and speech-driver contracts, semantic turn handling, barge-in, bounded queues, terminal events and Namzu model bridge.
+* [Code navigation — routing, the four operations and containment](lsp.md) - Reference for @namzu/lsp: the four navigation operations and why each returns three answers rather than two, how one server per language is routed by file extension, the option surface, and where the path-containment boundary sits.
+* [The sandbox — tiers, backends, mounts and the egress boundary](sandbox.md) - Reference for @namzu/sandbox: the two isolation tiers and four backends, what the container image contains, the mount layout a run sees, how the egress proxy bounds outbound traffic, and which requested options are deliberately not honoured.
+* [Telemetry — registering a provider, exporters, metrics and session export](telemetry.md) - Reference for @namzu/telemetry: what registering does to the OpenTelemetry globals, the three exporter types and why none of them suppresses the pipeline, the metric surface, and how a session is exported for offline inspection.

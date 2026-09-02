@@ -1,15 +1,11 @@
 ---
-uid: namzu.providers.openai
 title: The OpenAI package — API-key and ChatGPT subscription transports
 description: Reference for @namzu/openai: the Chat Completions API-key driver, the account-routed ChatGPT subscription transport, their capabilities, refusals, health checks and model-listing surfaces.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-22T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/providers/openai/src/index.ts
 tags: [provider, openai, reference]
+generated: { by: human:bahadirarda, at: 2026-08-22T00:00:00Z }
 ---
 
 # The OpenAI package — API-key and ChatGPT subscription transports

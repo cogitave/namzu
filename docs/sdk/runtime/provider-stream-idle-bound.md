@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.provider-stream-idle-bound
 title: Provider stream idle bounds
 description: Reference for the finite provider-stream silence bound, its relationship to run timeouts, retry and fallback composition, cancellation semantics, configuration limits, and the explicit compatibility opt-out.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/sdk/src/runtime/query/__tests__/stream-idle-timeout-reaches-run.test.ts
 tags: [sdk, runtime, providers, retry, cancellation]
+generated: { by: human:bahadirarda, at: 2026-08-24T00:00:00Z }
 ---
 
 # Provider stream idle bounds

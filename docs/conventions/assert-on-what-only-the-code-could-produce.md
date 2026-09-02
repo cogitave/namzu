@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.assert-on-what-only-the-code-could-produce
 title: Assert on something only the code under test could have produced
 description: An assertion passes when its expected text is present for any reason, including a reason that has nothing to do with the behaviour being pinned — so a substring echoed from the test's own input, or a fragment that survives deleting the sentence around it, certifies a behaviour nobody checked.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-18T00:00:00Z
-lastReviewed: 2026-08-18
+status: stable
 tags: [convention, verification, testing]
+generated: { by: human:bahadirarda, at: 2026-08-18T00:00:00Z }
 ---
 
 # Assert on something only the code under test could have produced

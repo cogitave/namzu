@@ -1,15 +1,11 @@
 ---
-uid: namzu.packages.live
 title: Live sessions — lifecycle, media contracts and cancellation
 description: Reference for @namzu/live: the independent live-session lifecycle, PCM and speech-driver contracts, semantic turn handling, barge-in, bounded queues, terminal events and Namzu model bridge.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-31T00:00:00Z
-lastReviewed: 2026-09-01
+status: stable
 resource: packages/live/src
 tags: [live, voice, realtime, reference]
+generated: { by: human:bahadirarda, at: 2026-08-31T00:00:00Z }
 ---
 
 # Live sessions — lifecycle, media contracts and cancellation

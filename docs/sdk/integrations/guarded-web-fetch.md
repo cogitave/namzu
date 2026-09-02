@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.integrations.guarded-web-fetch
 title: Guard model-authored web fetches
 description: Configure the SDK web-fetch provider with SSRF refusal, one cancellation and deadline boundary, bounded redirects, and streaming response limits.
 type: Guide
-diataxis: how-to
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-19
+status: stable
 resource: packages/sdk/src/connector/web/guarded-fetch.ts
 tags: [sdk, integrations, security]
+generated: { by: human:bahadirarda, at: 2026-08-19T00:00:00Z }
 ---
 
 # Guard model-authored web fetches

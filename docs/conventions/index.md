@@ -1,167 +1,24 @@
----
-okf_version: "0.2"
----
-
 # Conventions
 
-Ratified rules about how code is written here, extracted when a session's
-decisions turn final. Each file is one rule with the evidence that produced it —
-a rule with no incident behind it is a preference, and preferences do not belong
-here.
+Ratified rules about how code is written here, each with the incident that produced it.
 
-Read the rule that matches what you are about to change before you change it.
-
-## Why no page here carries a `resource:`
-
-The documentation standard's `resource:` names the code a document describes,
-and the gate fails the build when that code has commits newer than the
-document. Every page here had one, pointing at the file where its incident
-happened.
-
-That is the wrong subject, and the gate says so by firing. **A convention is a
-rule about reasoning, and no file can make one false.** `refuse-do-not-degrade`
-would be exactly as true if the driver that produced it were deleted;
-`one-site-is-not-every-site` is not a claim about a checkpoint type. What the
-pointers actually did was demand a re-read every time an unrelated line moved in
-a file that happened to be the scene — three times in six hours on one night,
-and each time there was nothing to re-establish.
-
-The gate's own guidance warns that a churning sentinel trains everyone to wave
-the failure through, which is the failure mode of a check that fires where
-nothing is wrong. So the key is gone from this directory as a class rather than
-re-dated page by page, and the reasoning lives here once instead of eight times.
-
-**Point `resource:` at code whose change could make the document wrong, not at
-code the document happens to be about.** An absent key honestly reads as "no
-code can invalidate this", which is the true statement for every page in this
-folder — the same reason the standard says to omit `verified:` rather than guess
-it.
-
-A page here would earn a `resource:` back by describing a specific mechanism
-rather than a way of thinking. None does today, and a page that did would
-probably belong under `docs/sdk/` instead.
-
-## The rules
-
-### Declarations and reachability
-
-- [A declaration nothing drives is a defect, not a roadmap](declared-but-undriven.md)
-  — a field read by no code path is a lie the type system tells. Fourteen
-  instances in one week.
-- [Reachability is its own property, and it needs its own test](reachability-is-its-own-property.md)
-  — the behaviour is covered; the hop from the surface a host builds is not.
-- [Finding an emitter is not evidence that every path reaches it](one-site-is-not-every-site.md)
-  — the some-sites case, plus: how many shapes does this concept have?
-- [Rendering two things in a ternary destroys the state of both](alternation-unmounts-state.md)
-  — and the guard written to prevent it did it again. Only alternation
-  destroys; a conditional sibling does not.
-
-### Refusing rather than degrading
-
-- [Refuse, do not silently degrade](refuse-do-not-degrade.md) — a capability
-  that quietly does nothing is worse than one that errors.
-- [An optional dependency may degrade a feature, never a check](an-optional-dependency-may-not-degrade-a-check.md)
-  — a default fallback turned "I cannot establish this" into "this is
-  satisfied".
-
-**A deliberate omission is not the same shape as a missing feature, and a new
-capability does not retroactively license it.** `packages/sdk/src/provider/errors.ts`
-and the classified-error paths under `packages/providers/` refuse to attach
-`cause`, on purpose: a vendor client builds its own error message FROM the
-response body, so a credential the upstream echoed back is already inside
-`err.message` before any of this code runs, and a `cause` survives every
-logger that serializes an error chain. `utils/log/exception.ts` shipping a
-bounded, cycle-safe `cause` walk for logging is not evidence that walk is now
-safe everywhere it was previously refused — the mapper existing does not
-override the reason the omission exists, and the drivers' regression tests
-(plus `packages/sdk/src/provider/__tests__/errors.test.ts` for the shared
-function) are what keep a future "finally something walks `cause`"
-from reading as permission.
-
-### Tests that prove something
-
-- [Mutate every test](mutation-check-every-test.md) — and a unit test on a
-  helper never proves the caller invokes it. A kill by one unit is the fixture
-  discriminating, not the code. Write the second round to find gaps rather than
-  to confirm the first: twenty aimed mutations all died, and ten written with
-  the opposite intent produced seven survivors.
-- [A test can be sound and still be about the wrong thing](sound-about-the-wrong-thing.md)
-- [Assert on something only the code under test could have produced](assert-on-what-only-the-code-could-produce.md)
-  — a substring echoed from the input, or a fragment that survives deleting the
-  sentence around it, is green whether or not the behaviour exists
-  — right path, wrong observer, wrong moment. A live run is not exempt.
-- [A fixture unlike production tests a system that does not ship](fixture-must-match-production.md)
-  — the defect lives in a branch an empty listener set never enters.
-- [A green run on your machine is not a green run](a-green-run-on-your-machine.md)
-  — three CI failures in one session, none reproducible locally, none about the
-  change. What differed was never configured: what happened to be built already,
-  which shell `/bin/sh` is, what the job installed. Reproduce the condition —
-  each took minutes with a shim and would have taken an afternoon to argue about.
-- [A check that cannot fail is worse than no check](a-check-that-cannot-fail.md)
-  — it teaches the next reader that the checks here are decoration. Includes the
-  loose matcher: `toContain(old)` cannot see a change that only adds around it.
-  And the check that was never asked: a suite excluded from its own runner,
-  reported as a pass. A separated suite announces its absence to nobody.
-- [A gate must say where it looks, and derive it](a-gate-must-say-where-it-looks.md)
-  — a green run is a claim about the files it opened, and silence over the rest
-  reads as approval. Five gates here claimed a scope wider than their code; the
-  two that printed what they skipped were legitimate and the three that said
-  nothing were not. Four kept the scope in a hand-written list, one of which was
-  already wrong by the hand of the person reading it.
-- [A ratchet at zero needs a floor](a-ratchet-at-zero-needs-a-floor.md)
-  — exact equality says "declare the change", never "this must stay zero". Once
-  a count reaches zero because the counted thing was removed, the `--write` flag
-  that keeps a ratchet maintainable becomes the way past it: reintroduce the
-  defect, regenerate, and the regression lands as a `0` → `1` diff a reviewer
-  reads as housekeeping.
-
-### Reading the evidence
-
-- [The answer is usually already written, near where it is needed](read-the-neighbour.md)
-  — five defects in one session whose reasoning was seventeen lines below, two
-  columns away, forty lines above. Unapplied knowledge, not missing knowledge.
-- [Verify the claim, including your own, including a comment's](verify-claims-including-your-own.md)
-  — including a report's, including your own from an hour ago.
-- [A sentence a test could falsify is a claim, not documentation](a-falsifiable-comment-is-a-test.md)
-  — its mirror, aimed at writing rather than reading. The tell is grammatical: a
-  sentence naming a condition and an outcome is a test you have not written.
-  Committed by an agent an hour after it caught the same shape in its own
-  harness.
-- [Read back the protection you set, and refuse if you cannot](read-back-the-protection-you-set.md)
-  — asking for a permission is not holding one, and a wrong value is visible
-  where an unset file mode is not. Includes the platform axis: a readback inside
-  a platform branch cannot fail on any machine but one, so the predicate has to
-  be pure. Deleting a mode check killed no test on the machine it was written on.
-- [Never filter a verification down to something that can read green](never-filter-a-verification.md)
-  — the check ran and its answer was invisible. Three incidents in one day.
-
-### Logging
-
-- [One log record has one shape, and rules 3 and 4 prove it against the type, not the name](one-record-one-shape.md)
-  — two of six enforced rules resolve on the real `Logger` and `LogAttributes`
-  types rather than a name match, closing what a name-matching walk cannot
-  see. Both counts are measured and ratcheted, and both are now at **0** —
-  so each rule is a floor, and the first new non-constant body or bare
-  attribute key fails the gate rather than the hundredth.
-
-## How to add one
-
-When a session's decisions turn final, promote the rules that apply beyond that
-session's own slice. A rule that is only about that session's code belongs in
-the code as a comment instead.
-
-Every file here carries front matter the documentation gate reads: `uid`,
-`title`, `description`, `type`, `diataxis`, `owner`, `status`, `timestamp` and
-`lastReviewed`. Run it with `pnpm docs:check`.
-
-**Do not add a `resource`.** This paragraph used to instruct the opposite — name
-the code the incident lives in — which is what put a sentinel on all eight pages
-and is the practice the section at the top of this file removed. The two
-sentences contradicted each other for the length of one commit, which is a
-smaller version of the thing conventions exist to stop: a reader following the
-instruction here would have rebuilt exactly what the reasoning above explains
-away.
-
-`verified` records who last re-established a rule against source, and when. It
-is absent on most of these, and that absence is accurate rather than an
-oversight — a rule carrying no `verified` key has been read but not re-checked.
+* [A check that cannot fail is worse than no check](a-check-that-cannot-fail.md) - A guard whose condition can never be false protects nothing, and teaches the next reader that the checks here are decoration. The same shape reaches a matcher that accepts what it exists to reject, and a suite that never runs — whose absence the runner reports as success.
+* [A sentence a test could falsify is a claim, not documentation](a-falsifiable-comment-is-a-test.md) - A docblock sentence naming a condition and an outcome has a truth value, so it is an unpinned assertion sitting where nobody checks it — the test goes in the suite and the comment points at it.
+* [A gate must say where it looks, and derive it](a-gate-must-say-where-it-looks.md) - A check reports on what it scanned, never on what you assumed it scanned. Five gates here claimed a scope broader than their code, and four of the five kept it in a hand-written list that went stale the day somebody added a package.
+* [A green run on your machine is not a green run](a-green-run-on-your-machine.md) - Three CI failures in one session, none reproducible locally, none about the change. What differed was never configured — what happened to be built already, which binary a name resolves to, what the job installs. Reproduce the condition before diagnosing it.
+* [A ratchet at zero needs a floor](a-ratchet-at-zero-needs-a-floor.md) - An exact-equality ratchet says "declare the change", never "this must stay zero" — and when the number it compares against is regenerated by a --write flag, a reintroduced defect plus one regeneration is a passing gate and a one-line diff nobody reads as a regression.
+* [Rendering two things in a ternary destroys the state of both](alternation-unmounts-state.md) - A component swapped for another at the same position is unmounted, and its state goes with it. The guard written to preserve that state reintroduced the loss when it changed the element type it returned.
+* [An optional dependency may degrade a feature, never a check](an-optional-dependency-may-not-degrade-a-check.md) - A call site reading an optional method with a default has decided what its absence means. For a feature that is fine; for a precondition it turns "I cannot establish this" into "this is satisfied".
+* [Assert on something only the code under test could have produced](assert-on-what-only-the-code-could-produce.md) - An assertion passes when its expected text is present for any reason, including a reason that has nothing to do with the behaviour being pinned — so a substring echoed from the test's own input, or a fragment that survives deleting the sentence around it, certifies a behaviour nobody checked.
+* [A declaration nothing drives is a defect, not a roadmap](declared-but-undriven.md) - A field, option or type that is declared, exported and read by no code path is not a feature pending. It is a lie the type system tells, and fourteen instances shipped in a single week.
+* [A fixture unlike production tests a system that does not ship](fixture-must-match-production.md) - The assertion is right and the observation point is right, and the test still proves nothing, because the setup never enters the branch the defect lives in. A harness is a configuration.
+* [Mutate every test, and never trust a helper test to prove its caller](mutation-check-every-test.md) - A passing test proves nothing until you have watched it fail. Break the thing it covers, confirm that that test and not a neighbour goes red, read the whole run rather than the summary line, and write the second round of mutations to find gaps rather than to confirm the first.
+* [Never filter a verification down to something that can read green](never-filter-a-verification.md) - Piping a check through a line filter can discard the diagnostic while keeping a summary line, so the check runs, its answer is invisible, and what you see reads as success.
+* [One log record has one shape, and rules 3 and 4 prove it against the type, not the name](one-record-one-shape.md) - Every diagnostic goes through an injected Logger with a constant message body and namespaced attribute keys. Two of the six rules the gate enforces resolve this against the real Logger and LogAttributes types, not a name match — and cannot see where an attribute value came from.
+* [Finding an emitter is not evidence that every path reaches it](one-site-is-not-every-site.md) - The mechanism is present, wired, tested and correct, and one of the paths into it does not use it. The check that finds a declaration nothing drives passes cleanly on this one.
+* [Reachability is its own property, and it needs its own test](reachability-is-its-own-property.md) - A knob can be declared on the config, honoured correctly by the machinery, tested at the layer that honours it, and still be unreachable from the surface a host actually constructs.
+* [Read back the protection you set, and refuse if you cannot](read-back-the-protection-you-set.md) - Asking for a permission is not holding one. A protection must be re-read from the thing it was applied to and refused when the read cannot be made — and because the readback is usually platform-conditional, the predicate has to be pure or it is a check most contributors never see fail.
+* [The answer is usually already written, near where it is needed](read-the-neighbour.md) - Five defects in one session had their reasoning already in the tree — seventeen lines below, two columns away, forty lines above, in the sibling command. None needed measuring. All needed applying, and the cost of checking is one screen of reading.
+* [Refuse, do not silently degrade](refuse-do-not-degrade.md) - A capability that quietly does nothing produces an answer that looks like an answer, leaving the caller no signal to tell a considered result from a request that was dropped on the floor.
+* [A test can be sound and still be about the wrong thing](sound-about-the-wrong-thing.md) - A test can run, cover a real path, and go red under mutation, and still be evidence about a property nobody needed. The machinery is honest and the subject is wrong.
+* [Verify the claim, including your own, including a comment's](verify-claims-including-your-own.md) - Re-establish every claim against source before acting on it — a reporter's finding, a comment already in the tree, and what you yourself concluded an hour ago are all claims of the same kind.

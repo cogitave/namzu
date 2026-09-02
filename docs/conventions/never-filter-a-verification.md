@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.never-filter-a-verification
 title: Never filter a verification down to something that can read green
 description: Piping a check through a line filter can discard the diagnostic while keeping a summary line, so the check runs, its answer is invisible, and what you see reads as success.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, verification, tooling]
+generated: { by: human:bahadirarda, at: 2026-08-04T00:00:00Z }
 ---
 
 # Never filter a verification down to something that can read green
@@ -39,7 +35,7 @@ verdict, never on a guess at what the diagnostic will look like.
 
 ## And again, five days later, to someone who had read it
 
-Running the six gates by hand, `node tools/check-docs.mjs | Select-Object -First 1`
+Running the gate by hand, `node tools/check-docs-okf.mjs | Select-Object -First 1`
 printed `EXIT: -1` for a gate that had passed: the truncating pipe closed the
 stream and killed the process, so the exit code described the pipe rather than
 the check. It happened while writing up a report about not having run all the
@@ -59,7 +55,7 @@ itself.
 
 ## It recurred, in a shape the rule did not spell out
 
-2026-08-07. An agent ran `node tools/check-docs.mjs 2>&1 | tail -4; echo $?`
+2026-08-07. An agent ran `node tools/check-docs-okf.mjs 2>&1 | tail -4; echo $?`
 and read `0`. The gate had found a problem and exited `1`. The zero belonged to
 `tail`.
 
@@ -74,8 +70,8 @@ away. Run the check unpiped, or capture its status before anything else touches
 it:
 
 ```sh
-node tools/check-docs.mjs > /dev/null 2>&1; echo $?   # the gate's own status
-node tools/check-docs.mjs | tail -4; echo $?          # tail's status, always 0
+node tools/check-docs-okf.mjs > /dev/null 2>&1; echo $?   # the gate's own status
+node tools/check-docs-okf.mjs | tail -4; echo $?          # tail's status, always 0
 ```
 
 Caught the same day by an agent that had read this page that morning, which is
@@ -97,8 +93,8 @@ pipeline leaves nothing to notice: it is a number, confidently about the wrong
 process. It has now bitten twice, and it is the least visible of the three.
 
 ```sh
-node tools/check-docs.mjs > /dev/null 2>&1; echo $?   # the gate's own status
-node tools/check-docs.mjs | tail -4; echo $?          # tail's status, always 0
+node tools/check-docs-okf.mjs > /dev/null 2>&1; echo $?   # the gate's own status
+node tools/check-docs-okf.mjs | tail -4; echo $?          # tail's status, always 0
 ```
 
 ## An exit code you did not read the cause of is not evidence

@@ -1,15 +1,11 @@
 ---
-uid: namzu.packages.files
 title: The file registry — contracts, backends and the HTTP surface
 description: Reference for @namzu/files: why the blob store and the file registry are separate contracts with different lifetimes, the three backends and their subpaths, and what the HTTP router checks before it serves a download.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+status: stable
 resource: packages/files/src/index.ts
 tags: [files, storage, reference]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # The file registry — contracts, backends and the HTTP surface

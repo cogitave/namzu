@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.fixture-must-match-production
 title: A fixture unlike production tests a system that does not ship
 description: The assertion is right and the observation point is right, and the test still proves nothing, because the setup never enters the branch the defect lives in. A harness is a configuration.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-06T00:00:00Z
-lastReviewed: 2026-08-07
+status: stable
 tags: [convention, testing, verification]
+generated: { by: human:bahadirarda, at: 2026-08-06T00:00:00Z }
 ---
 
 # A fixture unlike production tests a system that does not ship

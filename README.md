@@ -7,9 +7,8 @@ description: >-
   identity, budgets, permissions and pluggable durability. FSL-1.1-MIT,
   converting to MIT two years after each release.
 tags: [readme, index, typescript, agent-platform]
-timestamp: 2026-08-07T00:00:00Z
-status: active
-diataxis: explanation
+status: stable
+generated: { by: human:bahadirarda, at: 2026-08-07T00:00:00Z }
 -->
 
 <div align="center">

@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.a-check-that-cannot-fail
 title: A check that cannot fail is worse than no check
 description: A guard whose condition can never be false protects nothing, and teaches the next reader that the checks here are decoration. The same shape reaches a matcher that accepts what it exists to reject, and a suite that never runs — whose absence the runner reports as success.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-13
+status: stable
 tags: [convention, verification, code-review]
+generated: { by: human:bahadirarda, at: 2026-08-04T00:00:00Z }
 ---
 
 # A check that cannot fail is worse than no check

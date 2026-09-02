@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.an-optional-dependency-may-not-degrade-a-check
 title: An optional dependency may degrade a feature, never a check
 description: A call site reading an optional method with a default has decided what its absence means. For a feature that is fine; for a precondition it turns "I cannot establish this" into "this is satisfied".
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, api-design, verification]
+generated: { by: human:bahadirarda, at: 2026-08-04T00:00:00Z }
 ---
 
 # An optional dependency may degrade a feature, never a check

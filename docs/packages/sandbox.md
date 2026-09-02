@@ -1,15 +1,11 @@
 ---
-uid: namzu.packages.sandbox
 title: The sandbox — tiers, backends, mounts and the egress boundary
 description: Reference for @namzu/sandbox: the two isolation tiers and four backends, what the container image contains, the mount layout a run sees, how the egress proxy bounds outbound traffic, and which requested options are deliberately not honoured.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-30T00:00:00Z
-lastReviewed: 2026-09-01
+status: stable
 resource: packages/sandbox/src/index.ts
 tags: [sandbox, isolation, reference]
+generated: { by: human:bahadirarda, at: 2026-08-30T00:00:00Z }
 ---
 
 # The sandbox — tiers, backends, mounts and the egress boundary

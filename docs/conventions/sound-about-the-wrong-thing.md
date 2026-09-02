@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.sound-about-the-wrong-thing
 title: A test can be sound and still be about the wrong thing
 description: A test can run, cover a real path, and go red under mutation, and still be evidence about a property nobody needed. The machinery is honest and the subject is wrong.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-06T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, testing, verification]
+generated: { by: human:bahadirarda, at: 2026-08-06T00:00:00Z }
 ---
 
 # A test can be sound and still be about the wrong thing

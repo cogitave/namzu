@@ -94,10 +94,7 @@ jobs:
       - name: Signature types are exported
         run: node .github/scripts/check-signature-types-exported.mjs
 
-      - name: Public-surface regression check
-        run: node .github/scripts/verify-public-surface.mjs
-
-      - name: Docs standard gate
+      - name: Docs OKF gate
         run: pnpm docs:check
 
       - name: Docs fence gate

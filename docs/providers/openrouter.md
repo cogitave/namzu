@@ -1,15 +1,11 @@
 ---
-uid: namzu.providers.openrouter
 title: The OpenRouter driver — models, the window, credentials and attribution
 description: Reference for @namzu/openrouter: how a model id maps to a context window, where credentials and the attribution headers come from, every configuration field, and the health and error surfaces.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-19T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 resource: packages/providers/openrouter/src/client.ts
 tags: [provider, openrouter, reference]
+generated: { by: human:bahadirarda, at: 2026-08-19T00:00:00Z }
 ---
 
 # The OpenRouter driver — models, the window, credentials and attribution

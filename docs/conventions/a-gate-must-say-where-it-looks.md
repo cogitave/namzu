@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.a-gate-must-say-where-it-looks
 title: A gate must say where it looks, and derive it
 description: A check reports on what it scanned, never on what you assumed it scanned. Five gates here claimed a scope broader than their code, and four of the five kept it in a hand-written list that went stale the day somebody added a package.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+status: stable
 tags: [convention, verification, ci]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # A gate must say where it looks, and derive it

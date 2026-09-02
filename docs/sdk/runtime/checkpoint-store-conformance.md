@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.checkpoint-store-conformance
 title: Test your own checkpoint store
 description: Run the shipped checkpoint-store contract against a backend you wrote yourself — what the suite guarantees, how to wire it to any test runner, the capability flags, and why the contract carries a version number.
 type: Guide
-diataxis: how-to
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-09T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 resource: packages/sdk/src/store/run/conformance.ts
 tags: [sdk, store, checkpoints, testing, conformance]
+generated: { by: human:bahadirarda, at: 2026-08-09T00:00:00Z }
 ---
 
 # Test your own checkpoint store

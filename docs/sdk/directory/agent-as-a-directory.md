@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.directory
 title: An agent can be a directory
 description: The conventional folder the SDK reads into run options — its five slots, the import-nothing load mode, the diagnostics it returns instead of dropping work, and the two ways a folder-defined agent can be given its system prompt.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-20
+status: stable
 resource: packages/sdk/src/directory/types.ts
 tags: [sdk, directory, agents, convention]
+generated: { by: human:bahadirarda, at: 2026-08-20T00:00:00Z }
 ---
 
 # An agent can be a directory

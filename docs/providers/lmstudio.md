@@ -1,15 +1,11 @@
 ---
-uid: namzu.providers.lmstudio
 title: The LM Studio driver — the local server, configuration and cost
 description: Reference for @namzu/lmstudio: what the local server has to be running, every configuration field, why a locally served model reports zero cost, and the error surface when the server is absent.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+status: stable
 resource: packages/providers/lmstudio/src/index.ts
 tags: [provider, lmstudio, reference]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # The LM Studio driver — the local server, configuration and cost

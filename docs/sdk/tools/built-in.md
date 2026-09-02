@@ -1,14 +1,10 @@
 ---
-uid: namzu.sdk.tools.built-in
 title: Built-In Tools
 description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, deadlines, and common usage patterns.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-20T00:00:00Z
-lastReviewed: 2026-08-31
+status: stable
 tags: [computer-use, sdk]
+generated: { by: human:bahadirarda, at: 2026-08-20T00:00:00Z }
 ---
 
 # Built-In Tools
@@ -286,7 +282,7 @@ Notes:
   retained callback cannot start later work; executor-owned child terminal
   events settle before the parent reports completion
 
-See [Tool Context](README.md#3b-nested-and-code-runtime-calls) for source shapes
+See [Tool Context](defining-tools.md#3b-nested-and-code-runtime-calls) for source shapes
 and the custom `CodeRuntime` migration contract.
 
 ### 4.11 `skill` (opt-in)
@@ -400,7 +396,7 @@ They do not throw raw errors across the tool boundary in normal use. This is imp
 
 ## Related
 
-- [SDK Tools](./README.md)
+- [SDK Tools](./index.md)
 - [Tool Safety](./safety.md)
 - [Built-In Tools Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/tools/builtins/index.ts)
 - [ToolRegistry Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/registry/tool/execute.ts)

@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.request-rich-content-budget
 title: Provider request rich-content budgets
 description: Reference for provider-bound image and document projection, including the accumulated payload budget, durable recovery after one rejected image, preserved history, and explicit unbounded compatibility mode.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-24
+status: stable
 resource: packages/sdk/src/runtime/query/request-rich-content.ts
 tags: [sdk, runtime, providers, images, documents, tools]
+generated: { by: human:bahadirarda, at: 2026-08-24T00:00:00Z }
 ---
 
 # Provider request rich-content budgets

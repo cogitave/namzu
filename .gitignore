@@ -7,16 +7,6 @@ dist/
 .DS_Store
 coverage/
 
-# Agent working memory: live session logs, and comparative analyses that name
-# other systems in order to compare against them. Deliberately untracked —
-# `scripts/audit-external-names.mjs` forbids a third-party product name in
-# tracked prose, and naming what was compared IS the work in those documents,
-# so they are parked here rather than published or rewritten into uselessness.
-# `docs.local/` is the name this had before the documentation migration; it
-# stays ignored until every checkout has been renamed.
-.work/
-docs.local/
-
 # Generated runtime state is central. A repository-local .namzu directory is
 # reserved for authored project inputs; ignore everything by default so an
 # unknown future state writer cannot become commit-visible accidentally.

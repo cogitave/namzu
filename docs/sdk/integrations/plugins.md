@@ -1,14 +1,10 @@
 ---
-uid: namzu.sdk.integrations.plugins
 title: Plugins and MCP Servers
 description: Load project or user plugins in @namzu/sdk, register namespaced tools and skills, execute hooks, and mount plugin-managed stdio MCP servers.
 type: Guide
-diataxis: how-to
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-29
+status: stable
 tags: [sdk]
+generated: { by: human:bahadirarda, at: 2026-08-21T00:00:00Z }
 ---
 
 # Plugins and MCP Servers
@@ -556,7 +552,7 @@ This is useful for:
 
 ## Related
 
-- [SDK Tools](../tools/README.md)
+- [SDK Tools](../tools/defining-tools.md)
 - [Connectors and MCP](./connectors-and-mcp.md)
 - [Event Bridges](./event-bridges.md)
 - [Plugin Lifecycle Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/plugin/lifecycle.ts)

@@ -1,15 +1,11 @@
 ---
-uid: namzu.providers.bedrock
 title: The AWS Bedrock driver — model ids, credentials and prompt caching
 description: Reference for @namzu/bedrock: how a Bedrock model id differs from a vendor id, where credentials and region come from, what prompt caching buys and costs, and the health and error surfaces the kernel reads.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+status: stable
 resource: packages/providers/bedrock/src/index.ts
 tags: [provider, bedrock, reference]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # The AWS Bedrock driver — model ids, credentials and prompt caching

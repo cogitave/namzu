@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.one-site-is-not-every-site
 title: Finding an emitter is not evidence that every path reaches it
 description: The mechanism is present, wired, tested and correct, and one of the paths into it does not use it. The check that finds a declaration nothing drives passes cleanly on this one.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-05T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, verification, testing]
+generated: { by: human:bahadirarda, at: 2026-08-05T00:00:00Z }
 verified:
   - by: process:conventions-migration
     at: 2026-08-07T00:00:00Z

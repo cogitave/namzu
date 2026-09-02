@@ -1,15 +1,11 @@
 ---
-uid: namzu.providers.ollama
 title: The Ollama driver — configuration, refusals and cancellation
 description: Reference for @namzu/ollama: every configuration field, what the driver refuses rather than silently approximating, how cancellation reaches a running generation, and how to use it without carrying the vendor client.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-21T00:00:00Z
-lastReviewed: 2026-08-21
+status: stable
 resource: packages/providers/ollama/src/index.ts
 tags: [provider, ollama, reference]
+generated: { by: human:bahadirarda, at: 2026-08-21T00:00:00Z }
 ---
 
 # The Ollama driver — configuration, refusals and cancellation

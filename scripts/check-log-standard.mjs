@@ -433,10 +433,8 @@ export function checkUnnamespacedBindingRatchet(fileEntries, config) {
 // let the first four rules' tests hand fixture TEXT directly. Rules 3 and 4
 // cannot work that way: "is this receiver really a Logger" and "is this
 // attribute bag really namespaced" are both questions about a DECLARED
-// TYPE, and there is no syntactic substitute for asking the compiler (see
-// .github/scripts/verify-public-surface.mjs, which already drives
-// ts.createProgram from a script in this repo — the same technique, read
-// from there rather than invented fresh). Every fixture these two rules run
+// TYPE, and there is no syntactic substitute for asking the compiler, so
+// this script drives ts.createProgram itself. Every fixture these two rules run
 // against is consequently a REAL file on disk under
 // scripts/__fixtures__/log-standard/, importing the ACTUAL `Logger` and
 // `LogAttributes` types from packages/sdk/src — never a hand-rolled
@@ -477,8 +475,7 @@ const PROGRAM_OPTIONS = {
  * NodeNext moduleResolution walks straight through each OTHER package's
  * node_modules symlink to its BUILT dist/*.d.ts, not back through this
  * gate's own source list. That means the "Log standard gate" CI step (see
- * .github/workflows/ci.yml) depends on the "Build" step ahead of it the
- * same way .github/scripts/verify-public-surface.mjs already does — and
+ * .github/workflows/ci.yml) depends on the "Build" step ahead of it — and
  * locally, a worktree that has not run `pnpm -r build` resolves every
  * CROSS-package Logger/LogAttributes reference to an error type, which
  * silently reads as "not a Logger" rather than failing loudly. See the

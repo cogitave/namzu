@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.reachability-is-its-own-property
 title: Reachability is its own property, and it needs its own test
 description: A knob can be declared on the config, honoured correctly by the machinery, tested at the layer that honours it, and still be unreachable from the surface a host actually constructs.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-06T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, testing, api-design]
+generated: { by: human:bahadirarda, at: 2026-08-06T00:00:00Z }
 verified:
   - by: process:conventions-migration
     at: 2026-08-07T00:00:00Z

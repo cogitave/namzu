@@ -1,15 +1,11 @@
 ---
-uid: namzu.packages.lsp
 title: Code navigation — routing, the four operations and containment
 description: Reference for @namzu/lsp: the four navigation operations and why each returns three answers rather than two, how one server per language is routed by file extension, the option surface, and where the path-containment boundary sits.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-25
+status: stable
 resource: packages/lsp/src/index.ts
 tags: [lsp, code-navigation, reference]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # Code navigation — routing, the four operations and containment

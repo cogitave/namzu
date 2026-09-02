@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.read-the-neighbour
 title: The answer is usually already written, near where it is needed
 description: Five defects in one session had their reasoning already in the tree — seventeen lines below, two columns away, forty lines above, in the sibling command. None needed measuring. All needed applying, and the cost of checking is one screen of reading.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-09T00:00:00Z
-lastReviewed: 2026-08-09
+status: stable
 tags: [convention, code-review, verification]
+generated: { by: human:bahadirarda, at: 2026-08-09T00:00:00Z }
 ---
 
 # The answer is usually already written, near where it is needed

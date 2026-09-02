@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.observability.session-export
 title: Session export — what leaves the machine, and the sentence that says so
 description: How a session's run events are exported, why the redaction chain drops rather than degrades when a redactor refuses or throws, and how the boot disclosure is derived from the event filter so it cannot disagree with what is actually sent.
 type: Guide
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-16T00:00:00Z
-lastReviewed: 2026-08-16
+status: stable
 resource: packages/telemetry/src/session-export.ts
 tags: [telemetry, observability, privacy, redaction]
+generated: { by: human:bahadirarda, at: 2026-08-16T00:00:00Z }
 ---
 
 # Session export

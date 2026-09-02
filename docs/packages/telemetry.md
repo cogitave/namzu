@@ -1,15 +1,11 @@
 ---
-uid: namzu.packages.telemetry
 title: Telemetry — registering a provider, exporters, metrics and session export
 description: Reference for @namzu/telemetry: what registering does to the OpenTelemetry globals, the three exporter types and why none of them suppresses the pipeline, the metric surface, and how a session is exported for offline inspection.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-17T00:00:00Z
-lastReviewed: 2026-08-17
+status: stable
 resource: packages/telemetry/src/index.ts
 tags: [telemetry, observability, reference]
+generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 # Telemetry — registering a provider, exporters, metrics and session export

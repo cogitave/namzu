@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.command-execution-lifetime
 title: Command execution lifetime and cancellation
 description: Reference for bounded local command output, cancellation outcomes, nullable exits, remote cancellation refusal, and disconnect or teardown ownership in SDK execution contexts.
 type: Reference
-diataxis: reference
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-30T00:00:00Z
-lastReviewed: 2026-08-30
+status: stable
 resource: packages/sdk/src/types/execution/index.ts
 tags: [sdk, execution, cancellation, lifecycle]
+generated: { by: human:bahadirarda, at: 2026-08-30T00:00:00Z }
 ---
 
 # Command execution lifetime and cancellation

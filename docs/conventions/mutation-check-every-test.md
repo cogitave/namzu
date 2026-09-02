@@ -1,14 +1,10 @@
 ---
-uid: namzu.conventions.mutation-check-every-test
 title: Mutate every test, and never trust a helper test to prove its caller
 description: A passing test proves nothing until you have watched it fail. Break the thing it covers, confirm that that test and not a neighbour goes red, read the whole run rather than the summary line, and write the second round of mutations to find gaps rather than to confirm the first.
 type: Convention
-diataxis: explanation
-owner: cogitave/namzu
-status: active
-timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-10
+status: stable
 tags: [convention, testing, verification]
+generated: { by: human:bahadirarda, at: 2026-08-04T00:00:00Z }
 ---
 
 # Mutate every test, and never trust a helper test to prove its caller

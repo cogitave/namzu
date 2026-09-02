@@ -1,15 +1,11 @@
 ---
-uid: namzu.sdk.runtime.coding-agent-doctrine
 title: The coding-agent doctrine
 description: Put the kernel's rules for how a coding agent works into the system prompt as a static contribution, with the delegation rules separable for a sub-agent that has no Agent tool.
 type: Guide
-diataxis: how-to
-owner: cogitave/namzu
-status: active
-timestamp: 2026-09-02T00:00:00Z
-lastReviewed: 2026-09-02
+status: stable
 resource: packages/sdk/src/prompt/coding-agent-doctrine.ts
 tags: [sdk, runtime, prompt]
+generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 ---
 
 # The coding-agent doctrine
