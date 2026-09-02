@@ -1626,7 +1626,10 @@ export async function createAgentSession(
 		// ignored my reviewer" and "namzu never saw it" call for opposite fixes.
 		const discovered = discoverAgentDefinitions({ cwd })
 		for (const skipped of discovered.skipped) {
-			cliLogger().warn('agent definition skipped', { path: skipped.path, reason: skipped.reason })
+			cliLogger().warn('agent definition skipped', {
+				'namzu.agent.definition.path': skipped.path,
+				'namzu.agent.definition.reason': skipped.reason,
+			})
 		}
 		const sub = await createSubagentRuntime({
 			cwd,
