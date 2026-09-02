@@ -205,3 +205,74 @@ describe('permissionReviewRows', () => {
 		}
 	})
 })
+
+describe('buildPermissionSummary — a file change reads as a change', () => {
+	const review = (name: string, input: unknown) => {
+		const built = buildPermissionReview([{ id: 'c1', name, input, isDestructive: false }])
+		if (!built.ok) throw new Error('review must be representable')
+		return buildPermissionSummary(built.text)
+	}
+
+	it('shows one replacement as - and + lines under the path', () => {
+		const summary = review('edit', {
+			path: 'src/a.ts',
+			old_string: 'const a = 1\nconst b = 2',
+			new_string: 'const a = 10',
+		})
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('src/a.ts')
+		expect(summary.text).toContain('   - const a = 1')
+		expect(summary.text).toContain('   - const b = 2')
+		expect(summary.text).toContain('   + const a = 10')
+		expect(summary.text, 'the JSON envelope stays behind `d`').not.toContain('old_string')
+	})
+
+	it('shows an insertion as + lines at its line, and a list of edits one after another', () => {
+		const insert = review('edit', { path: 'x.md', insertLine: 'end', newStr: 'tail' })
+		expect(insert.complete).toBe(true)
+		expect(insert.text).toContain('x.md · insert at end')
+		expect(insert.text).toContain('   + tail')
+
+		const many = review('edit', {
+			path: 'y.ts',
+			edits: [
+				{ old_string: 'one', new_string: 'uno' },
+				{ old_string: 'two', new_string: 'dos', replace_all: true },
+			],
+		})
+		expect(many.complete).toBe(true)
+		expect(many.text).toContain('y.ts · 2 replacements')
+		expect(many.text).toContain('@ 2 · every occurrence')
+		expect(many.text.indexOf('- one')).toBeLessThan(many.text.indexOf('- two'))
+	})
+
+	it('counts the lines a long side does not show, and never drops the exact view', () => {
+		const long = Array.from({ length: 50 }, (_, i) => `line ${i}`).join('\n')
+		const summary = review('edit', { path: 'z.ts', old_string: 'x', new_string: long })
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('+ line 39')
+		expect(summary.text).not.toContain('+ line 40')
+		expect(summary.text).toContain('+ … 10 more lines')
+	})
+
+	it('shows a write as the file it creates', () => {
+		const summary = review('write', { path: 'new.txt', content: 'a\nb\nc' })
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('new.txt · write 3 lines')
+		expect(summary.text).toContain('   + a')
+		expect(summary.text).toContain('   + c')
+	})
+
+	it('falls back to exact-input-first for an edit shape it does not know', () => {
+		// Both spellings of the same field is an evolved shape; picking one
+		// half would show a change the tool does not make.
+		const summary = review('edit', {
+			path: 'a.ts',
+			old_string: 'x',
+			oldStr: 'y',
+			new_string: 'z',
+		})
+		expect(summary.complete).toBe(false)
+		expect(summary.text).toContain('input:')
+	})
+})

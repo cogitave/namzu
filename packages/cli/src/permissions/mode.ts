@@ -30,6 +30,19 @@ export type PermissionMode =
 	 */
 	| 'auto'
 	/**
+	 * Approve a file edit, ask about everything else.
+	 *
+	 * The mode an operator watching the agent write code actually wants: an
+	 * `edit` or `write` inside the working directory is what they asked for
+	 * and is undoable with `git`, so a prompt on each one is a prompt they
+	 * answer `y` to forty times an hour — and a prompt that is always answered
+	 * the same way trains the hand to answer the next one, which is the bash
+	 * prompt, the same way. Shell commands, delegation and anything a tool
+	 * declares destructive still ask. Deny rules and the dangerous-pattern
+	 * floor sit above this as above every mode.
+	 */
+	| 'accept-edits'
+	/**
 	 * Refuse it. Nothing runs unless a rule allowed it by name or pattern.
 	 *
 	 * The mode that did not exist before: an unattended run could previously
@@ -39,7 +52,15 @@ export type PermissionMode =
 	 */
 	| 'strict'
 
-export const PERMISSION_MODES: readonly PermissionMode[] = ['prompt', 'auto', 'strict']
+export const PERMISSION_MODES: readonly PermissionMode[] = [
+	'prompt',
+	'accept-edits',
+	'auto',
+	'strict',
+]
+
+/** The tools `accept-edits` approves without asking. Everything else prompts. */
+export const ACCEPT_EDITS_TOOLS: ReadonlySet<string> = new Set(['edit', 'write'])
 
 export function isPermissionMode(value: unknown): value is PermissionMode {
 	return typeof value === 'string' && (PERMISSION_MODES as readonly string[]).includes(value)

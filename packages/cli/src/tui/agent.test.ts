@@ -562,3 +562,44 @@ describe('the rows under a tool result', () => {
 		expect(resultRows('bash', '   ')).toBeUndefined()
 	})
 })
+
+describe('makeResumeHandler under accept-edits', () => {
+	it('approves a batch of non-destructive edits and writes without asking', async () => {
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler({ all: false }, onPermission, 'accept-edits')
+		const decision = await handler(
+			toolReview([tc({ name: 'edit' }), tc({ name: 'write' }), tc({ name: 'edit' })]),
+		)
+		expect(decision).toEqual({ action: 'approve_tools' })
+		expect(onPermission).not.toHaveBeenCalled()
+	})
+
+	it('still asks when one call in the batch is a shell command', async () => {
+		// The batch is reviewed as a unit. Approving the edits while showing
+		// only the shell command would be approving something not shown.
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler({ all: false }, onPermission, 'accept-edits')
+		await handler(toolReview([tc({ name: 'edit' }), tc({ name: 'bash' })]))
+		expect(onPermission).toHaveBeenCalledOnce()
+	})
+
+	it('still asks about an edit a tool declared destructive', async () => {
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler({ all: false }, onPermission, 'accept-edits')
+		await handler(toolReview([tc({ name: 'write', isDestructive: true })]))
+		expect(onPermission).toHaveBeenCalledOnce()
+	})
+
+	it('lets an exempt tool ride along with the edits', async () => {
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler(
+			{ all: false },
+			onPermission,
+			'accept-edits',
+			exemptNames('read'),
+		)
+		const decision = await handler(toolReview([tc({ name: 'read' }), tc({ name: 'edit' })]))
+		expect(decision).toEqual({ action: 'approve_tools' })
+		expect(onPermission).not.toHaveBeenCalled()
+	})
+})

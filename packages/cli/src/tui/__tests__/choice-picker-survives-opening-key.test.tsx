@@ -249,7 +249,8 @@ it('paints /permissions choices before a later key can select one', async () => 
 	expect(output).not.toContain('Permission mode changed to prompt')
 
 	// A later key, sent after the menu is visible, does own a choice.
-	screen.press('3')
+	// Fourth row: prompt, accept-edits, auto, strict.
+	screen.press('4')
 	await waitUntil(screen, () => painted(screen).includes('Permission mode changed to strict'))
 	output = painted(screen)
 	expect(output.match(/Permission mode changed to strict/g)).toHaveLength(1)

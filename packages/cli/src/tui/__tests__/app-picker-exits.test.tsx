@@ -567,8 +567,10 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Select Permission Mode')
 		expect(harness.lastFrame()).toContain('prompt')
 		expect(harness.lastFrame()).toContain('auto')
+		expect(harness.lastFrame()).toContain('accept-edits')
 		expect(harness.lastFrame()).toContain('strict')
-		harness.stdin.write('3')
+		// Fourth row: prompt, accept-edits, auto, strict.
+		harness.stdin.write('4')
 		await frameShows(harness.lastFrame, 'Permission mode changed to strict')
 
 		await submit(harness, 'use the selected settings')

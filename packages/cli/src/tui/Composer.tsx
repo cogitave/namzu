@@ -14,6 +14,7 @@ import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
+import type { PermissionMode } from '../permissions/mode.js'
 import type { UserCommand } from '../user-commands/store.js'
 import { activeFileMention, matchMentionableFiles } from './mentions.js'
 import { matchSlashCommands } from './slashCommands.js'
@@ -79,6 +80,10 @@ export interface ComposerProps {
 	readonly onDraftPresenceChange?: (hasDraft: boolean) => void
 	/** Empty-composer ↓ opens the currently active delegated-work panel. */
 	readonly onOpenAgentPanel?: () => boolean
+	/** The mode undecided tool calls run under; shown beside the input when it is not the default. */
+	readonly permissionMode?: PermissionMode
+	/** Shift+Tab. Absent means the key does nothing, which the hint then does not advertise. */
+	readonly onCycleMode?: () => void
 }
 
 /** Return addresses the active turn; Tab deliberately addresses the follow-up queue. */
@@ -335,6 +340,8 @@ export function Composer({
 	onDraftRestored,
 	onDraftPresenceChange,
 	onOpenAgentPanel,
+	permissionMode,
+	onCycleMode,
 }: ComposerProps) {
 	const terminal = useWindowSize()
 	const [value, setValueState] = useState<string>('')
@@ -603,6 +610,12 @@ export function Composer({
 				}
 				if (acceptSuggestion()) return
 				submit('submit')
+				return
+			}
+			if (key.tab && key.shift) {
+				// Shift+Tab cycles the permission mode. Before the plain-Tab
+				// branch below, which would otherwise queue the draft.
+				onCycleMode?.()
 				return
 			}
 			if (key.tab) {
@@ -906,6 +919,21 @@ export function Composer({
 							⎘ Pasted text #{i + 1} (+{p.split('\n').length} lines)
 						</Text>
 					))}
+				</Box>
+			) : null}
+			{permissionMode !== undefined && permissionMode !== 'prompt' ? (
+				// Only when it is not the default: a line that is always there is
+				// a line nobody reads, and the mode that matters is the one that
+				// differs from what the operator would assume.
+				<Box paddingX={1}>
+					<Text color={permissionMode === 'strict' ? theme.status.warn : theme.accent.user}>
+						{permissionMode === 'accept-edits'
+							? '⏵⏵ accept edits on'
+							: permissionMode === 'auto'
+								? '⏵⏵ auto-approve on'
+								: '⏸ strict: undecided calls refused'}
+					</Text>
+					{onCycleMode ? <Text color={theme.text.muted}> (shift+tab to cycle)</Text> : null}
 				</Box>
 			) : null}
 			<Box paddingX={1}>

@@ -1610,6 +1610,19 @@ export function App({
 		return { sessions, sessionId }
 	}, [hasUnsettledTurn, pushMessage, state])
 
+	/**
+	 * Shift+Tab: `prompt` ⇄ `accept-edits`. Two modes only — `auto` and
+	 * `strict` are deliberate choices made by name in `/permissions`, not
+	 * stops on a key an operator presses on reflex. From either of those the
+	 * key returns to `prompt`, which is the direction a reflex should fall.
+	 * The change goes through the same gate `/permissions` uses, so it is
+	 * refused while a turn is active, and the refusal is explained on screen.
+	 */
+	const cyclePermissionMode = useCallback((): void => {
+		const next: PermissionMode = permissionModeRef.current === 'prompt' ? 'accept-edits' : 'prompt'
+		applyPermissionMode(next)
+	}, [applyPermissionMode])
+
 	const runConversationExport = useCallback(
 		(destination: ConversationExportDestination): void => {
 			const source = stableExportSource()
@@ -4216,7 +4229,7 @@ export function App({
 							)
 							return
 						}
-						const values = ['prompt', 'auto', 'strict'] as const
+						const values = ['prompt', 'accept-edits', 'auto', 'strict'] as const
 						setSelectedChoice(Math.max(0, values.indexOf(permissionModeRef.current)))
 						setChoicePicker({
 							kind: 'permission-mode',
@@ -5922,6 +5935,8 @@ export function App({
 								</Box>
 							) : null}
 							<Composer
+								permissionMode={permissionMode}
+								onCycleMode={cyclePermissionMode}
 								disabled={
 									phase !== 'ready' ||
 									state === 'awaiting-permission' ||
@@ -6165,6 +6180,8 @@ function permissionModeDescription(mode: PermissionMode): string {
 	switch (mode) {
 		case 'prompt':
 			return 'Ask before an undecided tool call runs'
+		case 'accept-edits':
+			return 'Approve file edits and writes without asking; shell and everything else still ask'
 		case 'auto':
 			return 'Approve undecided calls unless a rule or safety gate refuses'
 		case 'strict':

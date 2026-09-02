@@ -148,7 +148,7 @@ import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
-import type { PermissionMode } from '../permissions/mode.js'
+import { ACCEPT_EDITS_TOOLS, type PermissionMode } from '../permissions/mode.js'
 import { projectRunConversation } from './conversation-history.js'
 
 export type AgentEvent =
@@ -2756,6 +2756,19 @@ export function makeResumeHandler(
 		// a rule closed. That is the whole precedence story between a flag and a
 		// config file, and it is one sentence on purpose.
 		if (!batchNeedsPrompt(request.toolCalls, exempt)) {
+			return { action: 'approve_tools' }
+		}
+		// A batch of nothing but non-destructive file edits is the case this
+		// mode exists for. One bash call in the same batch and the whole batch
+		// asks — the operator reviews the batch as a unit, and a prompt that
+		// showed only the shell command while the edits went through beside it
+		// would be approving something it did not show.
+		if (
+			mode === 'accept-edits' &&
+			request.toolCalls.every(
+				(tc) => !tc.isDestructive && (ACCEPT_EDITS_TOOLS.has(tc.name) || exempt(tc.name, tc.input)),
+			)
+		) {
 			return { action: 'approve_tools' }
 		}
 		if (mode === 'strict') {

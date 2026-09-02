@@ -24,6 +24,19 @@ export interface PermissionOverlayProps {
 	readonly columns?: number
 }
 
+/**
+ * A change row reads as a change: removed text red, added text green. Only in
+ * the readable view — the exact view is JSON, where a `-` at column one is a
+ * value, not a sign — and only on the readable summary's own `+ ` / `- `
+ * prefixes, which the indentation puts at column four.
+ */
+function rowColor(text: string, detailsOpen: boolean): string {
+	if (detailsOpen) return theme.text.secondary
+	if (/^\s{3}- /.test(text)) return theme.status.error
+	if (/^\s{3}\+ /.test(text)) return theme.status.ok
+	return theme.text.secondary
+}
+
 export function PermissionOverlay({
 	toolCalls,
 	review,
@@ -70,7 +83,7 @@ export function PermissionOverlay({
 				{visibleRows.map((row) => (
 					<Box key={row.index} width="100%">
 						<Text color={theme.text.muted}>{row.continuation ? '↳ ' : '› '}</Text>
-						<Text color={theme.text.secondary}>{row.text}</Text>
+						<Text color={rowColor(row.text, detailsOpen)}>{row.text}</Text>
 					</Box>
 				))}
 			</Box>

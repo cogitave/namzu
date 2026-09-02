@@ -317,6 +317,34 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 		}
 	}
 
+	if (name === 'edit' && isRecord(input)) {
+		const summary = summarizeEdit(input)
+		if (summary) return summary
+	}
+
+	if (name === 'write' && isRecord(input)) {
+		const allowed = new Set(['path', 'content', 'newStr'])
+		const keys = Object.keys(input)
+		const body = typeof input.content === 'string' ? input.content : input.newStr
+		const shapeIsKnown =
+			keys.every((key) => allowed.has(key)) &&
+			typeof input.path === 'string' &&
+			typeof body === 'string' &&
+			// One body, not two: a call carrying both is an evolved shape the
+			// exact view has to show, not one this summary may pick a half of.
+			(input.content === undefined) !== (input.newStr === undefined)
+		if (shapeIsKnown) {
+			const lines = (body as string).split('\n')
+			return {
+				lines: [
+					`${input.path as string} · write ${lines.length} line${lines.length === 1 ? '' : 's'}`,
+					...diffLines('+', lines),
+				],
+				complete: true,
+			}
+		}
+	}
+
 	if (name === 'Agent' && isRecord(input)) {
 		const allowed = new Set(['description', 'prompt', 'role', 'workflow', 'phase', 'phase_order'])
 		const keys = Object.keys(input)
@@ -363,6 +391,123 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 
 function oneLine(value: string): string {
 	return value.replace(/\s+/gu, ' ').trim() || '(untitled task)'
+}
+
+/** Lines of one side of a change shown before the rest is counted. */
+const DIFF_PREVIEW_LINES = 40
+
+/**
+ * One side of a change as review lines: `- old` / `+ new`, one per source
+ * line, cut at `DIFF_PREVIEW_LINES` with the remainder counted. The prefix is
+ * what the overlay colours on; the exact view (`d`) still has every byte.
+ */
+function diffLines(sign: '+' | '-', lines: readonly string[]): readonly string[] {
+	const shown = lines.slice(0, DIFF_PREVIEW_LINES).map((line) => `${sign} ${line}`)
+	const hidden = lines.length - shown.length
+	return hidden > 0 ? [...shown, `${sign} … ${hidden} more line${hidden === 1 ? '' : 's'}`] : shown
+}
+
+/**
+ * An `edit` as the change it makes, not as the JSON it arrived in.
+ *
+ * The tool has three shapes — one replacement (`old_string`/`new_string`, with
+ * the `oldStr`/`newStr` aliases), an insertion (`insertLine` + new text), and a
+ * list of replacements (`edits`) applied as one write — and each becomes `-`
+ * and `+` lines under the path. Returns `null` for a shape this does not know
+ * so the caller falls through to the exact-input view rather than showing a
+ * half of the call.
+ */
+function summarizeEdit(input: Record<string, unknown>): ReadableCallSummary | null {
+	const allowed = new Set([
+		'path',
+		'old_string',
+		'oldStr',
+		'new_string',
+		'newStr',
+		'insertLine',
+		'replace_all',
+		'edits',
+	])
+	if (!Object.keys(input).every((key) => allowed.has(key))) return null
+	if (typeof input.path !== 'string') return null
+	const path = input.path
+
+	const oldText = pickString(input, 'old_string', 'oldStr')
+	const newText = pickString(input, 'new_string', 'newStr')
+	if (oldText === undefined || newText === undefined) return null
+	const replaceAll = input.replace_all
+	if (replaceAll !== undefined && typeof replaceAll !== 'boolean') return null
+
+	// A list of replacements, applied together.
+	if (input.edits !== undefined) {
+		if (!Array.isArray(input.edits) || oldText.value !== null || newText.value !== null) return null
+		const lines: string[] = [
+			`${path} · ${input.edits.length} replacement${input.edits.length === 1 ? '' : 's'}`,
+		]
+		for (const [index, edit] of input.edits.entries()) {
+			if (
+				!isRecord(edit) ||
+				typeof edit.old_string !== 'string' ||
+				typeof edit.new_string !== 'string'
+			) {
+				return null
+			}
+			if (edit.replace_all !== undefined && typeof edit.replace_all !== 'boolean') return null
+			if (
+				!Object.keys(edit).every(
+					(key) => key === 'old_string' || key === 'new_string' || key === 'replace_all',
+				)
+			) {
+				return null
+			}
+			lines.push(`@ ${index + 1}${edit.replace_all ? ' · every occurrence' : ''}`)
+			lines.push(...diffLines('-', edit.old_string.split('\n')))
+			lines.push(...diffLines('+', edit.new_string.split('\n')))
+		}
+		return { lines, complete: true }
+	}
+
+	// An insertion: new text at a line, nothing removed.
+	if (input.insertLine !== undefined) {
+		const at = input.insertLine
+		if (at !== 'end' && !(typeof at === 'number' && Number.isSafeInteger(at))) return null
+		if (oldText.value !== null || newText.value === null) return null
+		return {
+			lines: [
+				`${path} · insert at ${at === 'end' ? 'end' : `line ${String(at)}`}`,
+				...diffLines('+', newText.value.split('\n')),
+			],
+			complete: true,
+		}
+	}
+
+	// One replacement.
+	if (oldText.value === null || newText.value === null) return null
+	return {
+		lines: [
+			`${path}${replaceAll ? ' · every occurrence' : ''}`,
+			...diffLines('-', oldText.value.split('\n')),
+			...diffLines('+', newText.value.split('\n')),
+		],
+		complete: true,
+	}
+}
+
+/**
+ * A field that has two spellings. `undefined` when both are present or one
+ * is not a string — an evolved shape — and `{ value: null }` when neither is.
+ */
+function pickString(
+	input: Record<string, unknown>,
+	name: string,
+	alias: string,
+): { value: string | null } | undefined {
+	const a = input[name]
+	const b = input[alias]
+	if (a !== undefined && b !== undefined) return undefined
+	const value = a ?? b
+	if (value === undefined) return { value: null }
+	return typeof value === 'string' ? { value } : undefined
 }
 
 /** Keep multi-line model input readable without making continuation lines look like new fields. */

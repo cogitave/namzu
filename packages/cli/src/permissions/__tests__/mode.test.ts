@@ -25,7 +25,7 @@ describe('resolving the mode from flag, alias and terminal', () => {
 	it('refuses a mode it does not know, and names the ones it does', () => {
 		const result = resolvePermissionMode({ flag: 'yolo', interactive: false })
 
-		expect('error' in result && result.error).toContain('prompt, auto, strict')
+		expect('error' in result && result.error).toContain('prompt, accept-edits, auto, strict')
 	})
 
 	it('maps the bypass aliases to auto', () => {
@@ -148,5 +148,15 @@ describe('what each mode does with an undecided call', () => {
 		expect(await handler({ type: 'tool_review', toolCalls: readOnly } as never)).toEqual({
 			action: 'approve_tools',
 		})
+	})
+})
+
+describe('accept-edits', () => {
+	it('is a mode the flag accepts, between prompt and auto', () => {
+		expect(isPermissionMode('accept-edits')).toBe(true)
+		expect(resolvePermissionMode({ flag: 'accept-edits', interactive: true })).toEqual({
+			mode: 'accept-edits',
+		})
+		expect(PERMISSION_MODES).toEqual(['prompt', 'accept-edits', 'auto', 'strict'])
 	})
 })

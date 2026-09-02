@@ -160,11 +160,24 @@ its exact device credential envelope, `Codex` from its exact `auth.json` envelop
 before a provider can be selected.
 
 Bare `/permissions` opens a finite chooser for the effective tool-review mode;
-`/permissions prompt`, `/permissions auto`, and `/permissions strict` remain
-scriptable forms. They select how otherwise-undecided calls are handled on later
-turns: ask the operator, approve automatically, or reject automatically. A
-change is accepted only while the session is idle, and it revokes any earlier
-**approve all** choice before publishing the new mode. Declarative deny rules
+`/permissions prompt`, `/permissions accept-edits`, `/permissions auto`, and
+`/permissions strict` remain scriptable forms. They select how
+otherwise-undecided calls are handled on later turns: ask the operator, approve
+file edits and writes without asking while everything else still asks, approve
+automatically, or reject automatically. **Shift+Tab** in the composer toggles
+between `prompt` and `accept-edits` — the two an operator reaches for on reflex;
+`auto` and `strict` are chosen by name — and the composer shows the mode
+beside the input whenever it is not `prompt`. `accept-edits` approves a batch
+only when every call in it is a non-destructive `edit` or `write` (or a tool
+that never prompts): one shell command in the batch and the whole batch asks,
+because the batch is reviewed as a unit. A change is accepted only while the
+session is idle, and it revokes any earlier **approve all** choice before
+publishing the new mode.
+
+When the call under review is an `edit` or a `write`, the readable view shows
+the change rather than its JSON: the path, then the removed lines as `-` and
+the added lines as `+`, coloured, forty lines a side before the remainder is
+counted. `d` still opens the exact prepared input, byte for byte. Declarative deny rules
 and the built-in safety gate remain authoritative in every mode. `--yolo` (the
 `--dangerously-skip-permissions` alias) therefore chooses the initial `auto`
 mode; it does not permanently remove the prompt boundary, and `/permissions
@@ -849,7 +862,7 @@ than read aloud to the model, which is the worst available response to a typo.
 | `--resume <id>` | Resume that conversation and no other (`run`) |
 | `--gate <command>` | Must exit `0` before the run may settle. Repeatable; they run in order and stop at the first failure |
 | `--gate-retries <n>` | Fix attempts a failing gate allows. Default `3` |
-| `--permission-mode <m>` | `prompt`, `auto` or `strict` — what happens to a call no rule decided. `auto` when there is nobody to ask |
+| `--permission-mode <m>` | `prompt`, `accept-edits`, `auto` or `strict` — what happens to a call no rule decided. `auto` when there is nobody to ask |
 | `--trust` | Accept this working directory for this run only |
 | `--yolo` | Alias of `--dangerously-skip-permissions`: resolves undecided calls to `auto`. It does **not** imply `--trust` |
 | `--` | End of options; everything after it is the prompt verbatim |
