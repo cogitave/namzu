@@ -236,8 +236,17 @@ function agent(
 	}
 }
 
+/**
+ * Bounded by the clock, not by a render count. A count of renders is a
+ * count of how busy the screen is, which under load is the wrong axis: the
+ * live region redraws on a timer, so a slow machine spends its 120 renders
+ * on spinner ticks and fails a test whose condition was still on its way.
+ * Twenty seconds is far past anything here at rest and still a failure,
+ * not a hang, when a condition never arrives.
+ */
 async function waitUntil(screen: Screen, predicate: () => boolean, message: string): Promise<void> {
-	for (let attempt = 0; attempt < 120; attempt += 1) {
+	const deadline = Date.now() + 20_000
+	while (Date.now() < deadline) {
 		await screen.waitForRender()
 		if (predicate()) return
 		await new Promise<void>((resolve) => setImmediate(resolve))
@@ -518,7 +527,13 @@ describe('/agent', () => {
 					runConfig: {
 						model: 'mock-model',
 						tokenBudget: 100_000,
-						timeoutMs: 5_000,
+						// Generous on purpose. Four real child runs stand up under this
+						// parent, and on a loaded machine — the whole workspace testing
+						// at once — that took longer than the five seconds this used to
+						// allow, which failed the parent with a timeout the test was
+						// never about. The assertions below are about concurrency and
+						// the screen, and none of them names a wall-clock threshold.
+						timeoutMs: 60_000,
 						maxIterations: 4,
 						permissionMode: 'auto',
 					},
