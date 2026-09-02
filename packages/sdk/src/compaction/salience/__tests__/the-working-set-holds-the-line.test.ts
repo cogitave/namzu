@@ -93,6 +93,33 @@ describe('planWorkingSet', () => {
 		expect(findDanglingMessages(plan.messages).isValid).toBe(true)
 	})
 
+	it('will not evict what the goal names to shave the last tokens, and says it fell short', () => {
+		const messages: Message[] = [
+			{ role: 'system', content: 'sys' },
+			{ role: 'user', content: 'Fix slugify in src/slug.mjs' },
+			call('c1', 'read', { path: 'src/slug.mjs' }),
+			result('c1', big('src/slug.mjs: export function slugify(title) accents', 4_000)),
+			call('c2', 'read', { path: 'docs/a.md' }),
+			result('c2', big('docs/a.md contents', 4_000)),
+			call('c3', 'read', { path: 'docs/b.md' }),
+			result('c3', big('docs/b.md contents', 4_000)),
+			{ role: 'assistant', content: 'ok.' },
+		]
+		const estimatedTokens = estimate(messages)
+		const scored = scoreMessages(messages, {
+			goal: 'Fix slugify in src/slug.mjs',
+			keepRecentMessages: 1,
+		})
+		// A target only the goal's own file could satisfy.
+		const plan = planWorkingSet(messages, scored, { estimatedTokens, targetTokens: 100 })
+		const slug = plan.messages.find(
+			(m) => m.role === 'tool' && (m as ToolMessage).toolCallId === 'c1',
+		) as ToolMessage
+		expect(isClearedToolResult(slug.content)).toBe(false)
+		expect(plan.clearedCount).toBe(2)
+		expect(plan.reachedTarget).toBe(false)
+	})
+
 	it('leaves protected messages and small results alone, and says when it fell short', () => {
 		const messages: Message[] = [
 			{ role: 'system', content: 'sys' },

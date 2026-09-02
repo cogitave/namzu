@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
@@ -75,12 +74,14 @@ describe('a run under the salience strategy', () => {
 			projectId: 'prj_s' as ProjectId,
 			tenantId: 'tnt_s' as TenantId,
 			resumeHandler: async () => ({ action: 'continue' }),
-			compactionConfig: CompactionConfigSchema.parse({
+			// Partial on purpose: the kernel applies the schema's defaults, so a
+			// host need not spell out twenty fields to pick a strategy.
+			compactionConfig: {
 				strategy: 'salience',
 				contextWindowTokens: 8_000,
 				keepRecentMessages: 2,
 				llmVerification: false,
-			}),
+			} as never,
 		})) {
 			events.push(event)
 		}

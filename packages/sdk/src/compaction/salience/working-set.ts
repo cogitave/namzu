@@ -50,6 +50,15 @@ export interface WorkingSetOptions {
 	readonly minNarrationChars?: number
 	/** Tools whose results are never cleared. */
 	readonly preserveTools?: readonly string[]
+	/**
+	 * A message the goal names or a later turn cited is not evicted to
+	 * reach the target while it scores above this fraction of the most
+	 * salient evictable message. A strict target evicted the one result
+	 * the goal named to shave the last few tokens — an eval watched it
+	 * happen — and a pass that stops short and says so is the better
+	 * answer: the trigger threshold still guards the hard limit.
+	 */
+	readonly keepAboveFraction?: number
 }
 
 const STUB_MARK = '… (elided'
@@ -79,10 +88,18 @@ export function planWorkingSet(
 		}
 	}
 
+	// Ordered by salience, not salience per token. Per token was the plan's
+	// first answer and it evicts the wrong thing: a large result the goal
+	// names loses to a small one it does not, because size divides the
+	// score. Among equals the larger goes first, which is where the tokens
+	// are.
 	type Candidate = {
 		readonly index: number
 		readonly kind: 'clear' | 'stub'
-		readonly perToken: number
+		readonly salience: number
+		readonly tokens: number
+		/** Named by the goal or cited by a later turn: what the floor protects. */
+		readonly goalBound: boolean
 	}
 	const candidates: Candidate[] = []
 	for (const s of scored) {
@@ -93,14 +110,28 @@ export function planWorkingSet(
 			if (tool.isError || isClearedToolResult(tool.content)) continue
 			if (preserve.has(toolNameByCallId.get(tool.toolCallId) ?? '')) continue
 			if (s.tokens * CHARS_PER_TOKEN < minTool) continue
-			candidates.push({ index: s.index, kind: 'clear', perToken: s.salience / s.tokens })
+			candidates.push({
+				index: s.index,
+				kind: 'clear',
+				salience: s.salience,
+				tokens: s.tokens,
+				goalBound: s.relevance >= 0.5 || s.utility >= 1,
+			})
 		} else if (m.role === 'assistant' && !Array.isArray((m as AssistantMessage).toolCalls)) {
 			const text = typeof m.content === 'string' ? m.content : ''
 			if (text.length < minNarration || isStubbedNarration(text)) continue
-			candidates.push({ index: s.index, kind: 'stub', perToken: s.salience / s.tokens })
+			candidates.push({
+				index: s.index,
+				kind: 'stub',
+				salience: s.salience,
+				tokens: s.tokens,
+				goalBound: s.relevance >= 0.5 || s.utility >= 1,
+			})
 		}
 	}
-	candidates.sort((a, b) => a.perToken - b.perToken || a.index - b.index)
+	candidates.sort((a, b) => a.salience - b.salience || b.tokens - a.tokens || a.index - b.index)
+	const maxSalience = candidates.reduce((m, c) => Math.max(m, c.salience), Number.NEGATIVE_INFINITY)
+	const floor = maxSalience * (options.keepAboveFraction ?? 0.5)
 
 	const next = [...messages]
 	const actions: WorkingSetAction[] = []
@@ -111,6 +142,10 @@ export function planWorkingSet(
 		options.estimatedTokens - Math.ceil(charsReclaimed / CHARS_PER_TOKEN) - options.targetTokens
 	for (const candidate of candidates) {
 		if (excess() <= 0) break
+		// The floor guards what the goal names or a later turn used, not
+		// every above-average message: a run of look-alike dumps must still
+		// be evicted from the bottom when the target asks for it.
+		if (candidate.goalBound && candidate.salience > floor && candidate.salience > 0) continue
 		const m = next[candidate.index] as Message
 		if (candidate.kind === 'clear') {
 			const tool = m as ToolMessage

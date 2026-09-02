@@ -18,7 +18,7 @@ import { WorkingStateManager } from '../../compaction/manager.js'
 import type { ContextReducer } from '../../compaction/reducer.js'
 import { serializeState as serializeWorkingState } from '../../compaction/serializer.js'
 import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
-import type { CompactionConfig } from '../../config/runtime.js'
+import { type CompactionConfig, CompactionConfigSchema } from '../../config/runtime.js'
 import { BOOT_EVENT_NAMES } from '../../constants/telemetry/index.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
@@ -1735,8 +1735,17 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	)
 
 	let workingStateManager: WorkingStateManager | undefined
-	if (params.compactionConfig && params.compactionConfig.strategy !== 'disabled') {
-		workingStateManager = new WorkingStateManager(params.compactionConfig)
+	// Normalised once, defaults applied. A host that passes a partial
+	// object — a strategy and a window, nothing else — used to reach the
+	// phase with `triggerThreshold` undefined, and `usage < undefined` is
+	// false: the pass ran on every iteration and the salience strategy fell
+	// through to the stale-result clearing it exists to replace. The eval
+	// suite that passed exactly that object found it.
+	const compactionConfig = params.compactionConfig
+		? CompactionConfigSchema.parse(params.compactionConfig)
+		: undefined
+	if (compactionConfig && compactionConfig.strategy !== 'disabled') {
+		workingStateManager = new WorkingStateManager(compactionConfig)
 		toolExecutor.setWorkingStateManager(workingStateManager)
 	}
 
@@ -1905,7 +1914,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// run is a claim about work nobody repeated, and a module-level map
 		// would leak exactly that way.
 		...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
-		compactionConfig: params.compactionConfig,
+		compactionConfig,
 		...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
 		...(params.projectInstructionContext
 			? { projectInstructionContext: params.projectInstructionContext }
@@ -2132,8 +2141,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				// would drop it and replace it with a summary covering only
 				// what happened after the resume, silently losing the run's
 				// first hour.
-				if (workingStateManager && checkpoint.workingState && params.compactionConfig) {
-					const revived = restoreWorkingState(checkpoint.workingState, params.compactionConfig)
+				if (workingStateManager && checkpoint.workingState && compactionConfig) {
+					const revived = restoreWorkingState(checkpoint.workingState, compactionConfig)
 					workingStateManager.replaceState(revived.getState())
 					ctx.log.info('Restored compaction working state from checkpoint', {
 						[NAMZU.RUN_ID]: ctx.runMgr.id,

@@ -125,8 +125,20 @@ export function scoreMessages(
 
 	// Relevance, normalised to the best message of the pass so weights mean
 	// the same thing in a short run and a long one.
+	// Normalised to the best message the pass could evict, not to the user
+	// turn that stated the goal: that turn matches the goal by definition,
+	// and measured against it every result reads as barely relevant.
 	const rawRelevance = documents.map((doc) => bm25Score(index, doc, goalTokens))
-	const maxRelevance = Math.max(0, ...rawRelevance)
+	// Nor to an assistant turn that only issued a call: its arguments echo
+	// the goal's path in a dozen tokens, which BM25 scores above the
+	// four-thousand-token result that actually holds the file.
+	const maxRelevance = Math.max(
+		0,
+		...rawRelevance.filter((_, i) => {
+			const m = messages[i] as Message
+			return m.role === 'tool' || (m.role === 'assistant' && !isAssistantWithCalls(m))
+		}),
+	)
 
 	// Citation index: everything a LATER assistant turn or tool input names.
 	// Built once, suffix-wise, so each message asks "does anything after me
@@ -215,10 +227,16 @@ export function scoreMessages(
 			const tokens = tokenLists[i] as string[]
 			utility = citable(tokens).size > 0 || tokens.length >= 6 ? 1 : 0.2
 		} else if (message.role === 'tool') {
+			// Used is used: one identifier from this result named by a later
+			// turn is the evidence, and a count would let the recency of
+			// everything after it outvote the one result the run came back
+			// for. The eval that placed the account id deep in an early dump
+			// and cited it later watched the salience pass clear it under a
+			// thirds rule.
 			const mine = citable(tokenLists[i] as string[])
 			let hits = 0
 			for (const token of mine) if ((citedAfter[i] as Set<string>).has(token)) hits += 1
-			utility = Math.min(1, hits / 3)
+			utility = hits > 0 ? 1 : 0
 		} else if (isAssistantWithCalls(message)) utility = 0.5
 
 		let redundancy = 0
