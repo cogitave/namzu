@@ -2946,10 +2946,17 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 					output: event.result,
 				},
 			)
-			const summary = firstLine(event.result)
 			const detail = viewToLines(view)
+			// For output shown line by line, the summary IS the first rendered
+			// line, so the body can drop it without a second, differently
+			// whitespaced copy of the same text — a `read` used to show its
+			// first line twice, once collapsed and once numbered.
+			const summary =
+				view.kind === 'terminal' && detail && detail.length > 0
+					? truncate(detail[0] as string, 120)
+					: firstLine(event.result)
 			const withoutRepeatedSummary =
-				view.kind === 'terminal' && detail?.[0] === summary ? detail.slice(1) : detail
+				view.kind === 'terminal' && detail && detail.length > 0 ? detail.slice(1) : detail
 			return {
 				kind: 'tool-end',
 				runId: event.runId,
