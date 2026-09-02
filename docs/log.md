@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-02
+* **Creation**: [Slash commands](/cli/slash-commands.md) — every builtin and kernel command in one place; `/release-notes` is new.
 * **Creation**: [Hook events](/sdk/hooks.md) — six more events (`user_prompt_submit`, `session_start`/`session_end`, `pre_compact`/`post_compact`, `subagent_stop`), the `annotate` result, and the shell hook contract for all ten; `/hooks` in the CLI.
 * **Creation**: [The composer prefixes](/cli/composer-prefixes.md) — `!command` runs on the host without the model and the model reads the output next turn; `#note` remembers.
 * **Update**: [Background jobs in the CLI](/cli/background-jobs.md) — a job is its process group: a command that backgrounds its work stays `running` until the survivor ends, and `kill` takes it.

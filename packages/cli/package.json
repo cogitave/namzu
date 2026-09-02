@@ -37,7 +37,8 @@
 		"!dist/**/__tests__",
 		"!dist/**/__fixtures__",
 		"!dist/**/test-setup.*",
-		"README.md"
+		"README.md",
+		"CHANGELOG.md"
 	],
 	"scripts": {
 		"build": "tsc --build && chmod +x dist/bin.js",

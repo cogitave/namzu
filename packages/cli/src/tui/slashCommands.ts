@@ -36,6 +36,7 @@ import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
 import { type PermissionMode, isPermissionMode } from '../permissions/mode.js'
+import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
 
@@ -715,6 +716,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			kind: 'message',
 			role: 'system',
 			content: renderJobs(ctx.jobs()),
+		}),
+	},
+	{
+		name: 'release-notes',
+		description: 'Show what changed in the version that is running: /release-notes [version].',
+		action: (_ctx, args) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderReleaseNotes(readChangelog(), args[0]?.trim() || undefined),
 		}),
 	},
 	{
