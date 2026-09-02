@@ -97,7 +97,7 @@ import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve } from 'node:path'
-import type { PluginConfig, SandboxConfig, WebConfig } from '../config/schema.js'
+import type { HooksConfig, PluginConfig, SandboxConfig, WebConfig } from '../config/schema.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
@@ -1142,6 +1142,8 @@ export interface AgentSessionOptions {
 	 * the model is never offered a question it would ask into the void.
 	 */
 	readonly askUser?: boolean
+	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
+	readonly hooks?: HooksConfig
 	/**
 	 * Where this session's run events are recorded, if anywhere.
 	 *
@@ -1787,7 +1789,7 @@ export async function createAgentSession(
 	// registries, so executable plugins remain a top-level-session capability.
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
-		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd)
+		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd, options.hooks)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose()])
 		return emptySession(describeError(error))

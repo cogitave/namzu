@@ -52,6 +52,22 @@ export type PluginScope = 'project' | 'user'
  * unless an operator opts in explicitly. Project plugins are considered only
  * after the existing project trust gate has pinned the canonical cwd.
  */
+/** The points in the loop a shell hook can attach to. */
+export type HookEvent = 'pre_tool_use' | 'post_tool_use' | 'run_start' | 'run_end'
+
+/** One shell command at one point. See `integrations/hooks/shell-hooks.ts`. */
+export interface HookEntry {
+	/** Run with `sh -c`, in the working directory, with the event JSON on stdin. */
+	readonly command: string
+	/** Tool names this applies to: `*`, a name, or `a|b|prefix*`. Absent means every tool. */
+	readonly matcher?: string
+	/** Deadline in milliseconds; default 30 000, capped at ten minutes. */
+	readonly timeoutMs?: number
+}
+
+/** See `NamzuCliConfig.hooks`. */
+export type HooksConfig = { readonly [event in HookEvent]?: readonly HookEntry[] }
+
 /** See `NamzuCliConfig.web`. */
 export interface WebConfig {
 	/** Mount `web_fetch` over the guarded provider. Default `false`. */
@@ -146,6 +162,15 @@ export interface NamzuCliConfig {
 	 * this kernel, so there is no `search` key to turn on.
 	 */
 	readonly web?: WebConfig
+	/**
+	 * Shell commands to run at points in the agent's loop: before or after a
+	 * tool call, when a run starts or ends. File-only, never from the
+	 * environment — a hook runs a command with the operator's authority, and
+	 * a shell profile must not be able to plant one. Exit `2` from a
+	 * `pre_tool_use` hook blocks the call and tells the model why; any other
+	 * failure is reported and never blocks. See `integrations/hooks`.
+	 */
+	readonly hooks?: HooksConfig
 	/**
 	 * Observability this CLI turns on for itself.
 	 *

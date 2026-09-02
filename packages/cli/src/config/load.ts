@@ -40,7 +40,13 @@ import type {
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
 } from './schema.js'
-import { DEFAULT_CONFIG, type NamzuCliConfig, type WebConfig } from './schema.js'
+import {
+	DEFAULT_CONFIG,
+	type HookEntry,
+	type HooksConfig,
+	type NamzuCliConfig,
+	type WebConfig,
+} from './schema.js'
 
 export interface LoadConfigOptions {
 	/** Override the user's home dir (testing). */
@@ -516,6 +522,68 @@ const CONFIG_READERS: ConfigReaders = {
 		if (isConfigMapping(v)) return v as McpServersConfig
 		return invalidConfigValue(context, [], 'must be a mapping of server names')
 	},
+	hooks: (v, context) => {
+		if (!isConfigMapping(v))
+			return invalidConfigValue(context, [], 'must be a mapping of event → list')
+		const events = new Set(['pre_tool_use', 'post_tool_use', 'run_start', 'run_end'])
+		const out: Record<string, HookEntry[]> = {}
+		for (const [event, entries] of Object.entries(v)) {
+			if (!events.has(event)) {
+				return invalidConfigValue(
+					context,
+					[event],
+					'is not a hook event (pre_tool_use, post_tool_use, run_start, run_end)',
+				)
+			}
+			if (!Array.isArray(entries))
+				return invalidConfigValue(context, [event], 'must be a list of hooks')
+			const parsed: HookEntry[] = []
+			for (const [index, entry] of entries.entries()) {
+				if (!isConfigMapping(entry)) {
+					return invalidConfigValue(context, [event, index], 'must be a mapping with a `command`')
+				}
+				const raw = entry as { command?: unknown; matcher?: unknown; timeoutMs?: unknown }
+				for (const key of Object.keys(entry)) {
+					if (key !== 'command' && key !== 'matcher' && key !== 'timeoutMs') {
+						return invalidConfigValue(
+							context,
+							[event, index, key],
+							'is not a recognized hook setting',
+						)
+					}
+				}
+				if (typeof raw.command !== 'string' || raw.command.trim().length === 0) {
+					return invalidConfigValue(
+						context,
+						[event, index, 'command'],
+						'must be a non-empty string',
+					)
+				}
+				if (raw.matcher !== undefined && typeof raw.matcher !== 'string') {
+					return invalidConfigValue(context, [event, index, 'matcher'], 'must be a string')
+				}
+				if (
+					raw.timeoutMs !== undefined &&
+					(typeof raw.timeoutMs !== 'number' ||
+						!Number.isInteger(raw.timeoutMs) ||
+						raw.timeoutMs <= 0)
+				) {
+					return invalidConfigValue(
+						context,
+						[event, index, 'timeoutMs'],
+						'must be a positive integer',
+					)
+				}
+				parsed.push({
+					command: raw.command,
+					...(raw.matcher !== undefined ? { matcher: raw.matcher } : {}),
+					...(raw.timeoutMs !== undefined ? { timeoutMs: raw.timeoutMs } : {}),
+				})
+			}
+			out[event] = parsed
+		}
+		return out as HooksConfig
+	},
 	web: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -800,6 +868,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	sandbox: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
+	// A hook runs a command with the operator's authority; the file is the only
+	// place one may be declared.
+	hooks: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`
 	// in a shell profile would start exporting conversation content with
 	// nothing in the config file to show for it — the disclosure would be

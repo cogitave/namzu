@@ -2244,6 +2244,7 @@ export function App({
 				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 				...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 				...(activeCtx.web ? { web: activeCtx.web } : {}),
+				...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 				...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 				// Somebody is at this terminal, so the model may ask them one
 				// question when a decision is genuinely theirs.

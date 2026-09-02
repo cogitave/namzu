@@ -1038,6 +1038,48 @@ or filenames, and start no host command. Neither protocol acknowledges display
 or sound, so a successful write means only that the request was sent. Terminal,
 multiplexer and remote-session policy may still ignore it.
 
+### Hooks
+
+A hook is a shell command run at a point in the agent's loop: before a tool
+call (`pre_tool_use`), after one (`post_tool_use`), when a run starts
+(`run_start`) or ends (`run_end`).
+
+```yaml
+hooks:
+  pre_tool_use:
+    - matcher: bash
+      command: ./scripts/check-command.sh
+  post_tool_use:
+    - matcher: edit|write
+      command: pnpm biome format --write "$NAMZU_TOOL_PATH"
+  run_end:
+    - command: notify-send namzu "turn settled"
+```
+
+The command runs with `sh -c` in the working directory. It receives one JSON
+object on stdin — `event`, `cwd`, `run_id`, and for tool events `tool_name`,
+`tool_input` and (after the call) `tool_result` — and the same facts as
+`NAMZU_HOOK_EVENT`, `NAMZU_RUN_ID`, `NAMZU_TOOL_NAME` and, when the input names
+a file, `NAMZU_TOOL_PATH`. `matcher` is a tool name, a `|`-separated list, or a
+`prefix*`; absent means every tool.
+
+**Its exit code is its answer.** `0` carries on. `2` from a `pre_tool_use` hook
+blocks the call: the tool does not run and the model is told why, with the
+hook's stderr as the reason. `2` on any other event is reported and the run
+carries on, because there is nothing left to block. Any other exit — a missing
+interpreter, a crash, a timeout — is the hook's own failure: reported on
+stderr, never blocking. A formatter that crashed must not stop the agent
+editing, and a script missing its interpreter must not read as "the operator
+forbade this call".
+
+Each hook has a deadline (`timeoutMs`, default 30 000, capped at ten minutes)
+and its output is captured to a bound. Hooks ride the plugin lifecycle
+manager, so they run whether or not `plugins.enabled` is set, and `post_*`
+hooks run in reverse order as plugin hooks do. The key is file-only and never
+read from the environment: a hook runs a command with the operator's
+authority, and a shell profile must not be able to plant one. A hook cannot
+yet modify a tool's input or replace its result.
+
 ### Profiles
 
 A profile is a named bundle of settings **inside** a config file, so the
@@ -1184,6 +1226,7 @@ valid.
 | `sandbox` | `{ enabled?, workspace?, requireIsolation?, teardownTimeoutMs? }` | `enabled` defaults to **on**. `workspace` defaults to `working-directory`; set `ephemeral` for a disposable empty tree. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start. `teardownTimeoutMs` defaults to `30000`; `0` restores the former unbounded wait |
 | `telemetry` | `{ sessionExport?: { destination, eventTypes?, redactors? } }` | Writes run events to a JSONL file. `redactors: []` means no redaction and has to be written to mean it |
 | `tui` | `{ notifications?, notificationMethod? }` | Interactive notifications; events are `turn-settled` / `approval-required`, method is `osc9` / `bel` |
+| `hooks` | event → `[{ command, matcher?, timeoutMs? }]` | File-only, never from the environment. Events are `pre_tool_use`, `post_tool_use`, `run_start`, `run_end`. Exit `2` from a `pre_tool_use` hook blocks the call and tells the model why; any other failure is reported and never blocks. See **Hooks** below |
 | `web` | `{ fetch? }` | Default off, file-only, never from the environment. `fetch: true` mounts `web_fetch` over the SDK's guarded provider — private and loopback addresses refused, redirects and body bounded — and adds the citation guidance to the prompt. Every fetch is reviewed like a shell command in `prompt` and `accept-edits` modes, whatever the tool declares about itself. There is no search backend in this kernel, so no `search` key |
 
 Only `format` and `quiet` are settable from the environment. `telemetry` is

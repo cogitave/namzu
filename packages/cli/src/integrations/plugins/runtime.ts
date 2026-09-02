@@ -7,8 +7,9 @@ import {
 	discoverAllPluginDirs,
 } from '@namzu/sdk'
 
-import type { PluginConfig, PluginScope } from '../../config/schema.js'
+import type { HooksConfig, PluginConfig, PluginScope } from '../../config/schema.js'
 import { cliLogger } from '../../logging.js'
+import { attachShellHooks } from '../hooks/shell-hooks.js'
 import { resolveNamzuHome } from '../state/home.js'
 
 export interface CliPluginRuntime {
@@ -33,8 +34,16 @@ export async function createCliPluginRuntime(
 	config: PluginConfig | undefined,
 	tools: ToolRegistry,
 	cwd: string,
+	/**
+	 * Operator shell hooks. They ride the same lifecycle manager plugins use,
+	 * so a session with hooks and no plugins still builds one — with nothing
+	 * installed, and `pluginCount` honestly 0.
+	 */
+	hooks?: HooksConfig,
 ): Promise<CliPluginRuntime | undefined> {
-	if (config?.enabled !== true) return undefined
+	const pluginsEnabled = config?.enabled === true
+	const hookCount = hooks ? Object.values(hooks).reduce((n, list) => n + (list?.length ?? 0), 0) : 0
+	if (!pluginsEnabled && hookCount === 0) return undefined
 
 	const log = cliLogger()
 	const userRoot = resolveNamzuHome()
@@ -46,16 +55,19 @@ export async function createCliPluginRuntime(
 		skillRegistry: skills,
 		scopeRoots: { project: cwd, user: userRoot },
 		log,
-		...(config.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
+		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 	})
-	const allowedScopes = config.allowedScopes ?? (['project', 'user'] as const)
-	const discovered = await discoverAllPluginDirs(cwd, {
-		enabled: true,
-		autoDiscovery: config.autoDiscovery ?? true,
-		allowedScopes,
-		userRoot,
-		log,
-	})
+	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, cwd)
+	const allowedScopes = config?.allowedScopes ?? (['project', 'user'] as const)
+	const discovered = pluginsEnabled
+		? await discoverAllPluginDirs(cwd, {
+				enabled: true,
+				autoDiscovery: config?.autoDiscovery ?? true,
+				allowedScopes,
+				userRoot,
+				log,
+			})
+		: { project: [], user: [] }
 	const installed: Awaited<ReturnType<PluginLifecycleManager['install']>>[] = []
 	let ownsSkillTool = false
 
