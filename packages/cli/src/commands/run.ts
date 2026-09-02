@@ -375,6 +375,7 @@ export const runCommand: CommandDef = {
 			permissionMode: modeResult.mode,
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 			...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
+			...(ctx.config.web ? { web: ctx.config.web } : {}),
 			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		})
 		if (!session.hasProvider) {

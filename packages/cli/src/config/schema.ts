@@ -52,6 +52,12 @@ export type PluginScope = 'project' | 'user'
  * unless an operator opts in explicitly. Project plugins are considered only
  * after the existing project trust gate has pinned the canonical cwd.
  */
+/** See `NamzuCliConfig.web`. */
+export interface WebConfig {
+	/** Mount `web_fetch` over the guarded provider. Default `false`. */
+	readonly fetch?: boolean
+}
+
 export interface PluginConfig {
 	/** Start the plugin runtime. Only the exact value `true` enables it. */
 	readonly enabled?: boolean
@@ -128,6 +134,18 @@ export interface NamzuCliConfig {
 	 * ambiguous between "no sandbox" and "a sandbox that requires nothing".
 	 */
 	readonly sandbox?: SandboxConfig
+	/**
+	 * Whether the agent may reach the web, and how.
+	 *
+	 * Off by default and opted into by name: a model that can fetch a URL can
+	 * be steered by a page, and a session that never asked for that should
+	 * not have it because a kernel happened to ship a tool. `fetch: true`
+	 * mounts `web_fetch` over the SDK's guarded provider — private and
+	 * loopback addresses refused, redirects and body bounded — and every
+	 * fetch is reviewed like a shell command. There is no search backend in
+	 * this kernel, so there is no `search` key to turn on.
+	 */
+	readonly web?: WebConfig
 	/**
 	 * Observability this CLI turns on for itself.
 	 *

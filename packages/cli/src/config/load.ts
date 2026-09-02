@@ -40,7 +40,7 @@ import type {
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
 } from './schema.js'
-import { DEFAULT_CONFIG, type NamzuCliConfig } from './schema.js'
+import { DEFAULT_CONFIG, type NamzuCliConfig, type WebConfig } from './schema.js'
 
 export interface LoadConfigOptions {
 	/** Override the user's home dir (testing). */
@@ -516,6 +516,18 @@ const CONFIG_READERS: ConfigReaders = {
 		if (isConfigMapping(v)) return v as McpServersConfig
 		return invalidConfigValue(context, [], 'must be a mapping of server names')
 	},
+	web: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'fetch')
+				return invalidConfigValue(context, [key], 'is not a recognized web setting')
+		}
+		const raw = v as { fetch?: unknown }
+		if (raw.fetch !== undefined && typeof raw.fetch !== 'boolean') {
+			return invalidConfigValue(context, ['fetch'], 'must be a boolean')
+		}
+		return raw as WebConfig
+	},
 	plugins: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const known = new Set(['enabled', 'autoDiscovery', 'allowedScopes', 'hookTimeoutMs'])
@@ -786,6 +798,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// and its provenance are the reviewable source of this authority.
 	plugins: undefined,
 	sandbox: undefined,
+	// Outbound reach is opted into in the file, never from the environment.
+	web: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`
 	// in a shell profile would start exporting conversation content with
 	// nothing in the config file to show for it — the disclosure would be

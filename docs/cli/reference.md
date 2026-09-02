@@ -1160,6 +1160,7 @@ valid.
 | `sandbox` | `{ enabled?, workspace?, requireIsolation?, teardownTimeoutMs? }` | `enabled` defaults to **on**. `workspace` defaults to `working-directory`; set `ephemeral` for a disposable empty tree. `requireIsolation` lists the controls (`filesystem`, `network`, `process`) this machine must actually enforce, or the run refuses to start. `teardownTimeoutMs` defaults to `30000`; `0` restores the former unbounded wait |
 | `telemetry` | `{ sessionExport?: { destination, eventTypes?, redactors? } }` | Writes run events to a JSONL file. `redactors: []` means no redaction and has to be written to mean it |
 | `tui` | `{ notifications?, notificationMethod? }` | Interactive notifications; events are `turn-settled` / `approval-required`, method is `osc9` / `bel` |
+| `web` | `{ fetch? }` | Default off, file-only, never from the environment. `fetch: true` mounts `web_fetch` over the SDK's guarded provider — private and loopback addresses refused, redirects and body bounded — and adds the citation guidance to the prompt. Every fetch is reviewed like a shell command in `prompt` and `accept-edits` modes, whatever the tool declares about itself. There is no search backend in this kernel, so no `search` key |
 
 Only `format` and `quiet` are settable from the environment. `telemetry` is
 deliberately not: a variable in a shell profile could otherwise start exporting

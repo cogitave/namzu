@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { WebFetchTool } from '@namzu/sdk'
 import type {
 	CheckpointId,
 	HITLDecisionRequest,
@@ -623,5 +624,14 @@ describe('makeResumeHandler under plan', () => {
 		}
 		// Never a prompt: the operator chose plan mode so as not to be asked.
 		expect(onPermission).not.toHaveBeenCalled()
+	})
+})
+
+describe('isPromptExempt and the network', () => {
+	it('never exempts a network tool, however read-only it declares itself', () => {
+		const registry = new ToolRegistry()
+		registry.register(WebFetchTool)
+		expect(WebFetchTool.isReadOnly?.({ url: 'https://example.com' } as never)).toBe(true)
+		expect(isPromptExempt(registry, 'web_fetch', { url: 'https://example.com' })).toBe(false)
 	})
 })

@@ -34,6 +34,7 @@ import {
 	EVENT_NAME_ATTRIBUTE,
 	type FencingToken,
 	type GoalRoundAuthority,
+	GuardedFetchProvider,
 	type HITLResumeDecision,
 	type LLMProvider,
 	type LogAttributes,
@@ -70,6 +71,7 @@ import {
 	ToolRegistry,
 	type ToolResultView,
 	type TopicId,
+	WebFetchTool,
 	asProjectId,
 	asRunId,
 	asSessionId,
@@ -86,6 +88,7 @@ import {
 	isTrustedReadOnly,
 	query,
 	resumeRun,
+	webGuidanceContribution,
 	withProviderFallback,
 } from '@namzu/sdk'
 
@@ -93,7 +96,7 @@ import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve } from 'node:path'
-import type { PluginConfig, SandboxConfig } from '../config/schema.js'
+import type { PluginConfig, SandboxConfig, WebConfig } from '../config/schema.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
@@ -1094,6 +1097,8 @@ export interface AgentSessionOptions {
 	 * environment.
 	 */
 	readonly sandbox?: SandboxConfig
+	/** See `NamzuCliConfig.web`. Absent means no web tool and no provider. */
+	readonly web?: WebConfig
 	/**
 	 * Where this session's run events are recorded, if anywhere.
 	 *
@@ -1554,6 +1559,14 @@ export async function createAgentSession(
 	// This session passes a `taskStore` to query() below, which registers the
 	// task tools deferred — so `search_tools` has something to find here.
 	registry.register([SearchToolsTool])
+	// Web reach, opted into in the config file and nowhere else. The parent's
+	// registry only: a child's config carries no provider, and a tool whose
+	// provider is missing is a tool that reports itself unwired — truthful,
+	// and noise. The guarded provider refuses private and loopback addresses
+	// and bounds redirects and body; every fetch is reviewed like a shell
+	// command (see `isPromptExempt`).
+	const webCapability = options.web?.fetch ? { fetch: new GuardedFetchProvider() } : undefined
+	if (webCapability) registry.register(WebFetchTool)
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
@@ -1867,6 +1880,10 @@ export async function createAgentSession(
 							placement: 'turn',
 							render: ({ iteration }) => (iteration === 1 ? turnSnapshotPrompt : null),
 						})
+						// The citation rules that come with the web tools, only when the
+						// tools are there: guidance about a capability the turn does not
+						// have reads as a capability it should be looking for.
+						if (webCapability) promptContributions.register(webGuidanceContribution)
 						const systemPrompt =
 							[
 								NAMZU_IDENTITY,
@@ -1942,6 +1959,7 @@ export async function createAgentSession(
 								resumeHandler,
 								taskGateway: subagentGateway,
 								promptContributions,
+								...(webCapability ? { web: webCapability } : {}),
 								// Active, not deferred: the doctrine tells the model to open a
 								// task list for multi-step work, and a tool it has to search
 								// for first is a tool it will skip.
@@ -2574,6 +2592,8 @@ interface RunTurnParams {
 	readonly taskGateway: TaskScheduler | undefined
 	/** Host text for the `turn` placement; absent means none this session. */
 	readonly promptContributions?: PromptContributionRegistry
+	/** How this turn reaches the web; absent means the web tools report themselves unwired. */
+	readonly web?: NonNullable<Parameters<typeof query>[0]['web']>
 	/**
 	 * Availability the task tools register with. The kernel's default is
 	 * `deferred`, which makes a plan cost a `search_tools` round-trip before
@@ -2617,6 +2637,7 @@ async function* runTurn({
 	taskGateway,
 	promptContributions,
 	runtimeToolOverrides,
+	web,
 	sandboxProvider,
 	sandboxTeardownTimeoutMs,
 	onRunEvent,
@@ -2691,6 +2712,7 @@ async function* runTurn({
 			resumeHandler,
 			...(promptContributions ? { promptContributions } : {}),
 			...(runtimeToolOverrides ? { runtimeToolOverrides } : {}),
+			...(web ? { web } : {}),
 			signal,
 			...scope,
 		})
@@ -2873,6 +2895,10 @@ const PROMPT_EXEMPT_WRITES = new Set(['task_create', 'task_update', 'update_goal
 export function isPromptExempt(registry: ToolRegistry, name: string, input: unknown): boolean {
 	if (PROMPT_EXEMPT_WRITES.has(name.toLowerCase())) return true
 	const tool = registry.get(name) ?? registry.get(name.toLowerCase())
+	// A fetch changes nothing here and declares itself read-only, and it is
+	// still a request leaving the machine to an address the model chose. The
+	// operator sees the URL before it goes, the way they see a shell command.
+	if (tool?.category === 'network') return false
 	// A connected server's own claim about its own tool cannot skip the
 	// prompt. Same predicate the kernel gate and plan mode use -- three
 	// doors, one rule, because fixing two would close the issue and leave

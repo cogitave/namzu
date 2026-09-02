@@ -213,6 +213,7 @@ export function createCliAcpRuntime(
 					rules: permissions.rules,
 					...(projectCtx.config.mcpServers ? { mcpServers: projectCtx.config.mcpServers } : {}),
 					...(projectCtx.config.plugins ? { plugins: projectCtx.config.plugins } : {}),
+					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
 					onRunEvent: (event) => routeOwner.current?.route?.(event),
 				})

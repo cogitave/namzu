@@ -306,6 +306,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(initialConversationId ? { initialConversationId } : {}),
 					...(resolvedCtx.config.mcpServers ? { mcpServers: resolvedCtx.config.mcpServers } : {}),
 					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
+					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
 				}

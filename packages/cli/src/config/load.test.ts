@@ -529,3 +529,25 @@ describe('type-level guarantees', () => {
 		expect(coverage.format).toBe('NAMZU_FORMAT')
 	})
 })
+
+describe('web', () => {
+	it('reads fetch as a boolean and refuses anything else', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-web-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  fetch: true\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).web).toEqual({ fetch: true })
+
+		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  fetch: yes\n')
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(/web\.fetch/)
+
+		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  search: true\n')
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(/web\.search/)
+	})
+
+	it('is not settable from the environment', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-web-'))
+		expect(
+			loadConfig({ home, cwd: tmpdir(), env: { NAMZU_WEB_FETCH: 'true' } }).web,
+		).toBeUndefined()
+	})
+})
