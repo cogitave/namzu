@@ -71,7 +71,15 @@ something you point at a real repository:
   themselves read-only — the right delegate for "where is this defined" and
   "how does this work", and one that never asks for permission because it
   cannot change anything. A `role` on top of `explore` keeps the read-only
-  roster. The same prompt states
+  roster. A project or a user can define more types in files —
+  `<cwd>/.namzu/agents/<name>.md` and `~/.namzu/agents/<name>.md`, project
+  shadowing user — with YAML frontmatter (`name`, `description`, and
+  optionally `tools: read, grep`, `model`, `readOnly: true`) over a Markdown
+  body that becomes the agent's prompt. The roster is the file's allowlist
+  intersected with the parent's working set, never wider; `readOnly` narrows
+  it the way `explore` is narrowed. Each file becomes a `subagent_type` the
+  model is told about by its description. A file that cannot be loaded is
+  named on stderr with its reason, and the rest of the roster survives it. The same prompt states
   today's date and the checked-out branch, re-read every turn so a session
   that crosses midnight or changes branch does not keep asserting what was
   true when it started. The working tree's dirty state is deliberately not

@@ -60,6 +60,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
+import type { AgentFileDefinition } from './definitions.js'
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from './policy.js'
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
@@ -101,6 +102,26 @@ function readOnlyToolsFrom(source: ToolRegistryContract): ToolRegistryContract {
 		if (tool.isReadOnly?.(undefined as never) === true) filtered.register(tool)
 	}
 	return filtered
+}
+
+/**
+ * A file-defined agent's roster: the parent's working set, kept to the
+ * file's `tools` allowlist when there is one, and to read-only tools when
+ * the file says `readOnly: true`. Intersection, never union — a name in the
+ * file that the parent does not carry is simply not there.
+ */
+function fileAgentTools(
+	definition: AgentFileDefinition,
+	opts: SubagentRuntimeOptions,
+): () => ToolRegistryContract {
+	return () => {
+		const source = definition.readOnly ? readOnlyToolsFrom(opts.buildTools()) : opts.buildTools()
+		if (!definition.tools) return source
+		const allowed = new Set(definition.tools)
+		const filtered = new ToolRegistry()
+		for (const tool of source.getAll()) if (allowed.has(tool.name)) filtered.register(tool)
+		return filtered
+	}
 }
 
 const SUBAGENT_PROMPT = [
@@ -155,6 +176,12 @@ export interface SubagentRuntimeOptions {
 	readonly readEnvironment?: () => Promise<string>
 	/** Receives the child's RunEvents (lineage-stamped) — for the tree view. */
 	readonly onEvent?: (event: RunEvent) => void
+	/**
+	 * Agents a project or user defined in `.namzu/agents/<name>.md`. Each
+	 * becomes a type the `Agent` tool offers beside the built-in two, with
+	 * its own prompt, roster and model. See `definitions.ts`.
+	 */
+	readonly definitions?: readonly AgentFileDefinition[]
 }
 
 export interface SubagentRuntime {
@@ -237,6 +264,29 @@ export async function createSubagentRuntime(
 			() => readOnlyToolsFrom(opts.buildTools()),
 		),
 	)
+	// Agents a project or user defined in a file, each a type of its own.
+	// The roster is the file's allowlist intersected with the parent's set —
+	// a file cannot grant a tool the parent does not have — narrowed further
+	// to read-only when the file says so. The prompt is the file's body over
+	// the same sub-agent base every child gets.
+	const fileAgents = new Map<string, AgentFileDefinition>()
+	for (const definition of opts.definitions ?? []) {
+		fileAgents.set(definition.name, definition)
+		registry.register(
+			buildDefinition(
+				definition.name,
+				definition.description,
+				definition.prompt,
+				opts,
+				fileAgentTools(definition, opts),
+				definition.model ?? opts.model,
+			),
+		)
+	}
+	const agentTypeIds = [GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT, ...fileAgents.keys()]
+	const fileAgentSummary = [...fileAgents.values()]
+		.map((definition) => `"${definition.name}" — ${definition.description}`)
+		.join('; ')
 
 	const topicManager = new TopicManager({ topicStore, sessionStore: store })
 	const manager = new AgentManager(
@@ -273,20 +323,21 @@ export async function createSubagentRuntime(
 	let dynCounter = 0
 	const agentTool = defineTool({
 		name: 'Agent',
-		description:
-			'Delegate a self-contained task to a sub-agent and get its result back (BLOCKING). ' +
-			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which ' +
-			'files reference Y, how does Z work — it has reading and searching tools only and never asks for ' +
-			'permission. Use the default "general-purpose" when the task must change files or run commands. ' +
-			'Define a specialist inline with `role` — a system prompt describing who the sub-agent ' +
-			'is and how to behave (e.g. "You are a security auditor; flag vulnerabilities and rate severity"); ' +
-			'with `subagent_type: "explore"` the role keeps the read-only roster. ' +
-			'Omit `role` for the plain sub-agent. The sub-agent runs in its own context with its own ' +
-			'tools and cannot see this conversation — put everything it needs in `prompt`. Call this multiple ' +
-			'times in one response to run specialists in parallel. When coordinating several specialists, give ' +
-			'them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow ' +
-			'the work in the agent cockpit. These fields are display annotations only; they do not create ' +
-			'dependencies, barriers, or serial execution.',
+		description: [
+			'Delegate a self-contained task to a sub-agent and get its result back (BLOCKING).',
+			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which files reference Y, how does Z work — it has reading and searching tools only and never asks for permission.',
+			'Use the default "general-purpose" when the task must change files or run commands.',
+			'Define a specialist inline with `role` — a system prompt describing who the sub-agent is and how to behave (e.g.',
+			'"You are a security auditor; flag vulnerabilities and rate severity"); with `subagent_type: "explore"` the role keeps the read-only roster.',
+			'Omit `role` for the plain sub-agent.',
+			'The sub-agent runs in its own context with its own tools and cannot see this conversation — put everything it needs in `prompt`.',
+			'Call this multiple times in one response to run specialists in parallel.',
+			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit.',
+			'These fields are display annotations only; they do not create dependencies, barriers, or serial execution.',
+			fileAgentSummary.length > 0 ? `Project-defined types: ${fileAgentSummary}.` : '',
+		]
+			.filter((part) => part.length > 0)
+			.join(' '),
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -300,9 +351,12 @@ export async function createSubagentRuntime(
 				},
 				subagent_type: {
 					type: 'string',
-					enum: [GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT],
-					description:
-						'"explore" for read-only lookups (find, search, explain); "general-purpose" (default) when the task changes files or runs commands.',
+					enum: agentTypeIds,
+					description: `"explore" for read-only lookups (find, search, explain); "general-purpose" (default) when the task changes files or runs commands.${
+						fileAgentSummary.length > 0
+							? ` This project also defines: ${fileAgentSummary}. Prefer a project-defined type when its description fits the task.`
+							: ''
+					}`,
 				},
 				role: {
 					type: 'string',
@@ -348,21 +402,29 @@ export async function createSubagentRuntime(
 				phase_order?: number
 			}
 			const explore = subagent_type === EXPLORE_SUBAGENT
-			let agentId = explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT
+			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
+			let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
 			const persona = typeof role === 'string' ? role.trim() : ''
 			const dynamic = persona.length > 0
 			if (dynamic) {
-				// A role on top of explore keeps explore's roster: the persona says
-				// who the child is, the type says what it may touch, and a role
-				// must not be a way to hand a read-only child a `write` tool.
+				// A role on top of a type keeps that type's roster and model: the
+				// persona says who the child is, the type says what it may touch,
+				// and a role must not be a way to hand a read-only child a `write`
+				// tool. Over a file-defined agent the role is appended to the
+				// file's prompt rather than replacing it.
 				agentId = `dyn-${++dynCounter}`
 				registry.register(
 					buildDefinition(
 						agentId,
 						`Dynamic specialist: ${agentId}`,
-						persona,
+						fileAgent ? `${fileAgent.prompt}\n\n${persona}` : persona,
 						opts,
-						explore ? () => readOnlyToolsFrom(opts.buildTools()) : opts.buildTools,
+						fileAgent
+							? fileAgentTools(fileAgent, opts)
+							: explore
+								? () => readOnlyToolsFrom(opts.buildTools())
+								: opts.buildTools,
+						fileAgent?.model ?? opts.model,
 					),
 				)
 			}
@@ -458,7 +520,7 @@ export async function createSubagentRuntime(
 	return {
 		gateway,
 		agentTool,
-		allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT],
+		allowedAgentIds: agentTypeIds,
 		activity,
 		close,
 	}
@@ -534,6 +596,8 @@ function buildDefinition(
 	opts: SubagentRuntimeOptions,
 	/** This definition's own roster; absent means the parent's working set. */
 	tools: () => ToolRegistryContract = opts.buildTools,
+	/** This definition's model; absent means the session's. */
+	model: string = opts.model,
 ): AgentDefinition {
 	const agent = new ReactiveAgent({
 		id,
@@ -555,7 +619,7 @@ function buildDefinition(
 			category: 'general',
 			description,
 			tools: [],
-			defaults: { model: opts.model, tokenBudget: 200_000 },
+			defaults: { model, tokenBudget: 200_000 },
 		},
 		// ReactiveAgent is Agent<ReactiveAgentConfig,…>; the registry stores the
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
@@ -567,7 +631,7 @@ function buildDefinition(
 			// is worse than one that was never told.
 			const environment = opts.readEnvironment ? await opts.readEnvironment() : null
 			return {
-				model: options.model ?? opts.model,
+				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? 200_000,
 				timeoutMs: options.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 				maxIterations: 40,

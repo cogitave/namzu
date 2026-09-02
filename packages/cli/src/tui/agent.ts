@@ -152,6 +152,7 @@ import {
 } from '../integrations/providers/index.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
+import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
@@ -1620,9 +1621,17 @@ export async function createAgentSession(
 	// would name agents that are not there.
 	let allowedAgentIds: readonly string[] = []
 	try {
+		// Agents the project or user defined in files. A file that cannot be
+		// loaded is named with its reason rather than silently absent: "namzu
+		// ignored my reviewer" and "namzu never saw it" call for opposite fixes.
+		const discovered = discoverAgentDefinitions({ cwd })
+		for (const skipped of discovered.skipped) {
+			cliLogger().warn('agent definition skipped', { path: skipped.path, reason: skipped.reason })
+		}
 		const sub = await createSubagentRuntime({
 			cwd,
 			model,
+			definitions: discovered.definitions,
 			pathBuilder: new DefaultPathBuilder(join(projectStateRoot, 'subagents')),
 			sandboxWorkspace,
 			resolveResumeHandler: (runId) => delegatedResumeHandlers.get(runId),
