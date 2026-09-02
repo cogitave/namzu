@@ -1,6 +1,11 @@
 import { resolveContextWindow } from '../../../../compaction/context-window.js'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
-import { type CompactionPlan, planCompaction } from '../../../../compaction/plan.js'
+import {
+	type CompactionPlan,
+	DEFAULT_SOFT_TARGET,
+	planCompaction,
+	planSalienceWorkingSet,
+} from '../../../../compaction/plan.js'
 import type { ContextReducer, ContextReduction } from '../../../../compaction/reducer.js'
 import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
@@ -148,6 +153,7 @@ async function emitToolResultClear(
 		runId: ctx.runMgr.id,
 		iteration: ctx.runMgr.currentIteration,
 		clearedCount: plan.clearedCount,
+		...(plan.stubbedCount !== undefined ? { stubbedCount: plan.stubbedCount } : {}),
 		charsReclaimed: plan.charsReclaimed,
 		reclaimedTokens: plan.reclaimedTokens,
 		reliefWasEnough: plan.reliefWasEnough,
@@ -519,7 +525,13 @@ export async function runCompactionCheck(
 
 	// A forced pass skips the threshold: it runs because the provider
 	// rejected the prompt, which is stronger evidence than any estimate.
-	if (!options?.force && usage < config.triggerThreshold) return
+	// The salience strategy starts holding the context at `softTarget`,
+	// well before the summary trigger; every other strategy waits for it.
+	const salience = config.strategy === 'salience'
+	const startAt = salience
+		? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, config.triggerThreshold)
+		: config.triggerThreshold
+	if (!options?.force && usage < startAt) return
 
 	// A reducer, when the run has one, OWNS reduction — the structured pass
 	// below does not also run. `strategy: 'sliding-window'` resolves to the
@@ -571,6 +583,39 @@ export async function runCompactionCheck(
 	// The decision is `planCompaction`'s; installing it is this file's. The
 	// planner touches no `ctx` at all, which is what lets the boundary
 	// arithmetic be tested without a run.
+	if (salience) {
+		let openTasks: string[] | undefined
+		if (ctx.taskStore) {
+			try {
+				const tasks = await ctx.taskStore.list({ runId: ctx.runMgr.id })
+				openTasks = tasks
+					.filter((t) => t.status !== 'completed')
+					.map((t) => t.description)
+					.filter((d): d is string => typeof d === 'string' && d.length > 0)
+			} catch {
+				// The goal is measured without the plan items; a task store
+				// that cannot answer must not stop the pass.
+			}
+		}
+		const working = planSalienceWorkingSet({
+			messages: ctx.runMgr.messages,
+			config,
+			contextWindowTokens: budget,
+			estimatedTokens,
+			...(openTasks ? { openTasks } : {}),
+		})
+		if (working.reclaimedTokens > 0) {
+			await commitToolResultClear(ctx, working, budget, window.source)
+		}
+		// Under the trigger, the working set was the whole pass: the summary
+		// path is for the trigger, not for the soft target.
+		if (
+			!options?.force &&
+			(estimatedTokens - working.reclaimedTokens) / budget < config.triggerThreshold
+		) {
+			return
+		}
+	}
 	const clearPlan = planCompaction({
 		messages: ctx.runMgr.messages,
 		config,

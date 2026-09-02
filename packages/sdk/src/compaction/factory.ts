@@ -33,6 +33,9 @@ export function createConversationManager(
 ): ConversationManager {
 	switch (strategy) {
 		case 'structured':
+		case 'salience':
+			// The salience pass changes what is evicted, not how the state
+			// slots are kept; the structured manager owns those for both.
 			return new StructuredCompactionManager(config)
 		case 'sliding-window':
 			return new SlidingWindowManager({

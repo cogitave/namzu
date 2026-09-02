@@ -120,6 +120,19 @@ export interface ToolResultEditOutcome {
 	readonly charsReclaimed: number
 }
 
+/**
+ * One result cleared on its own, for a caller that chose it by some
+ * other rule than staleness. The same placeholder, the same accounting.
+ */
+export function clearToolResult(
+	tool: ToolMessage,
+	toolName: string,
+): { readonly message: ToolMessage; readonly charsReclaimed: number } {
+	const size = measureContent(tool.content)
+	const content = clearedPlaceholder(tool.content, toolName, size)
+	return { message: { ...tool, content }, charsReclaimed: Math.max(0, size - content.length) }
+}
+
 export function isClearedToolResult(content: unknown): boolean {
 	return typeof content === 'string' && content.startsWith(CLEARED_PREFIX)
 }

@@ -245,6 +245,8 @@ type CoreRunEvent =
 			iteration: number
 			/** How many `tool_result` bodies were emptied. */
 			clearedCount: number
+			/** Assistant narrations cut to their first sentence by the salience pass, when it ran. */
+			stubbedCount?: number
 			/** Characters removed, summed across those results. */
 			charsReclaimed: number
 			/** `charsReclaimed` as tokens, by the same estimate the trigger uses. */

@@ -3,7 +3,7 @@ type: Plan
 title: The salience-scored working set
 description: The work plan that turns "every message is scored and the context changes dynamically" from a promise into the kernel's context-management algorithm, phase by phase, with what each phase must prove.
 tags: [sdk, cli, compaction, memory, plan]
-status: draft
+status: stable
 generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 ---
 
@@ -56,7 +56,7 @@ Everything above is deterministic and runs without a model call. The LLM verific
 
 ## Phases
 
-Each phase lands as its own change with its tests and a changeset. Nothing changes the default behaviour until Phase 6.
+Each phase lands as its own change with its tests and a changeset. Nothing changes the default behaviour until Phase 6. Phases 1–4 have landed as `strategy: 'salience'`, opt-in.
 
 ### Phase 1 — Scoring core (`compaction/salience/`)
 

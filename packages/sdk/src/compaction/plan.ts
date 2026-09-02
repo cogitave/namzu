@@ -2,6 +2,9 @@ import type { CompactionConfig } from '../config/runtime.js'
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import type { Message } from '../types/message/index.js'
 import { findSafeTrimIndex } from './dangling.js'
+import { buildGoal } from './salience/goal.js'
+import { scoreMessages } from './salience/score.js'
+import { type WorkingSetPlan, planWorkingSet } from './salience/working-set.js'
 import { clearStaleToolResults } from './tool-result-editing.js'
 
 /**
@@ -43,6 +46,8 @@ export type CompactionPlan =
 			readonly kind: 'cleared'
 			readonly messages: readonly Message[]
 			readonly clearedCount: number
+			/** Assistant narrations cut to their first sentence by the salience pass. */
+			readonly stubbedCount?: number
 			readonly charsReclaimed: number
 			readonly reclaimedTokens: number
 			readonly reliefWasEnough: boolean
@@ -134,6 +139,49 @@ export function naiveKeepStartByTokens(messages: readonly Message[], budgetToken
 		start = index
 	}
 	return start
+}
+
+/**
+ * The salience pass: score every message and evict the least salient
+ * until the context is under `softTarget`. Returned as a `cleared` plan
+ * so the phase commits it the way it commits the stale-result pass; the
+ * summary path runs after it only when the trigger threshold is still
+ * exceeded.
+ */
+/** Where the salience pass holds the context, as a fraction of the window. */
+export const DEFAULT_SOFT_TARGET = 0.5
+
+export function planSalienceWorkingSet(input: {
+	readonly messages: readonly Message[]
+	readonly config: CompactionConfig
+	readonly contextWindowTokens: number
+	readonly estimatedTokens: number
+	readonly openTasks?: readonly string[]
+}): Extract<CompactionPlan, { kind: 'cleared' }> & { readonly working: WorkingSetPlan } {
+	const { config, estimatedTokens, contextWindowTokens: budget } = input
+	const goal = buildGoal(input.messages, {
+		...(input.openTasks ? { openTasks: input.openTasks } : {}),
+	})
+	const scored = scoreMessages(input.messages, {
+		goal,
+		keepRecentMessages: config.keepRecentMessages,
+	})
+	const working = planWorkingSet(input.messages, scored, {
+		estimatedTokens,
+		targetTokens: Math.floor(budget * (config.softTarget ?? DEFAULT_SOFT_TARGET)),
+		minToolResultChars: config.minToolResultCharsToClear,
+		...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
+	})
+	return {
+		kind: 'cleared',
+		messages: working.messages,
+		clearedCount: working.clearedCount,
+		stubbedCount: working.stubbedCount,
+		charsReclaimed: working.charsReclaimed,
+		reclaimedTokens: working.reclaimedTokens,
+		reliefWasEnough: (estimatedTokens - working.reclaimedTokens) / budget < config.triggerThreshold,
+		working,
+	}
 }
 
 export function planCompaction(input: CompactionPlanInput): CompactionPlan {

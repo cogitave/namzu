@@ -17,7 +17,13 @@ export const TaskRouterConfigSchema = z
 	.optional()
 
 export const CompactionConfigSchema = z.object({
-	strategy: z.enum(['structured', 'sliding-window', 'disabled']).default('structured'),
+	strategy: z.enum(['structured', 'salience', 'sliding-window', 'disabled']).default('structured'),
+	/**
+	 * `salience` only: the fraction of the window at which the working-set
+	 * pass starts evicting low-salience messages, well before
+	 * `triggerThreshold` summarises. The context is held around here.
+	 */
+	softTarget: z.number().min(0).max(1).optional(),
 	/**
 	 * Optional model context-window size (tokens) the compaction trigger
 	 * measures the CURRENT window against. NO default: when omitted the

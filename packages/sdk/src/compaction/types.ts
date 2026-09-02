@@ -44,4 +44,4 @@ export interface ToolResultSlot {
 	timestamp: number
 }
 
-export type CompactionStrategy = 'structured' | 'sliding-window' | 'disabled'
+export type CompactionStrategy = 'structured' | 'salience' | 'sliding-window' | 'disabled'
