@@ -160,6 +160,10 @@ export interface SendMessageOptions {
 	/** See {@link import('./scheduler.js').CreateTaskOptions.personaOverride}. */
 	readonly personaOverride?: import('../persona/index.js').AgentPersona
 
+	/** Approved plan edge inherited from the delegation tool, when present. */
+	readonly planId?: string
+	readonly planStepId?: string
+
 	agentId: string
 
 	input: AgentInput

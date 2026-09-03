@@ -750,6 +750,9 @@ type CoreRunEvent =
 			parentAgentId: string
 			childAgentId: string
 			depth: number
+			/** Approved plan edge carried while the blocking tool is still live. */
+			planId?: string
+			planStepId?: string
 	  }
 	| {
 			type: 'agent_completed'

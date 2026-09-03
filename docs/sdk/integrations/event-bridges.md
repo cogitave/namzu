@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-24T00:00:00Z
-lastReviewed: 2026-08-31
+lastReviewed: 2026-09-04
 tags: [sdk]
 ---
 
@@ -118,6 +118,15 @@ things arrive that way:
   transient write failure, and no retry or reconnect will produce one.
 
 A client must not advance its cursor onto any of them.
+
+When `create_task` launches work for an approved plan step, `agent.pending`
+also carries the exact plan edge as optional `plan_id` and `plan_step_id`
+fields. They are absent for delegation outside a plan. Use these identities to
+paint live plan progress; do not infer ownership from an agent label, launch
+order, or the first incomplete step. The correlation remains live-only for the
+same reason as the surrounding lifecycle event, so a host that needs restored
+progress must persist its own projection or settle from the durable plan
+events.
 
 `tool.progress` is a bounded latest-state signal, not a lossless output log.
 Each message is at most 8 KiB of UTF-8; when a live consumer is slower than the

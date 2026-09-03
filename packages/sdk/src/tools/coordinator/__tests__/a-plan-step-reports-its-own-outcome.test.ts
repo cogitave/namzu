@@ -101,6 +101,25 @@ const stepStatus = (pm: PlanManager, id: string) =>
 	pm.active?.steps.find((s) => s.id === id)?.status
 
 describe('a delegated step reports through the launch that carries it out', () => {
+	it('carries the plan edge on the live worker launch', async () => {
+		const pm = approvedPlan()
+		const gateway = gatewayReturning('ok')
+		let launched: Parameters<TaskScheduler['createTask']>[0] | undefined
+		const createTask = gateway.createTask.bind(gateway)
+		gateway.createTask = async (options) => {
+			launched = options
+			return createTask(options)
+		}
+		const named = toolsOver(pm, gateway)
+
+		await named('create_task').execute(
+			{ agent_id: 'worker', prompt: 'go', description: 'do it', plan_step_id: 'step_1' },
+			ctx(),
+		)
+
+		expect(launched).toMatchObject({ planId: pm.active?.id, planStepId: 'step_1' })
+	})
+
 	it('completes the step when the worker succeeded', async () => {
 		const pm = approvedPlan()
 		const named = toolsOver(pm, gatewayReturning('ok'))

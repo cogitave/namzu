@@ -47,6 +47,10 @@ export interface CreateTaskOptions {
 	 */
 	readonly parentSpan?: import('@opentelemetry/api').Span
 
+	/** Approved plan edge for live worker/progress correlation. */
+	readonly planId?: string
+	readonly planStepId?: string
+
 	agentId: string
 
 	/**

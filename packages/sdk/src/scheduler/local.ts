@@ -107,6 +107,8 @@ export class LocalTaskScheduler implements TaskScheduler {
 		const task = await this.agentManager.sendMessage(
 			{
 				agentId: options.agentId,
+				...(options.planId ? { planId: options.planId } : {}),
+				...(options.planStepId ? { planStepId: options.planStepId } : {}),
 				input: {
 					messages: [createUserMessage(options.prompt)],
 					workingDirectory: options.workingDirectory,

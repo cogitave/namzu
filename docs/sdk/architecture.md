@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-09-02T00:00:00Z
-lastReviewed: 2026-09-02
+lastReviewed: 2026-09-04
 resource: packages/sdk/src/public-runtime.ts
 tags: [sdk, architecture, explanation]
 ---
@@ -229,7 +229,9 @@ These exist because the moment you have more than one agent running in parallel 
 - Builds a child config via the agent definition's `configBuilder(factoryOptions)`
 - Stamps the child with manager-owned `parentRunId` and `depth` **after** the builder returns, so a fixed builder or per-call override cannot turn a child back into the root; `topicId`, project, tenant, and child session scope are stamped at the same boundary
 - Registers the child task in an internal `TaskRegistry` keyed by `TaskId`
-- Emits `agent_pending` on the bus with parent/child/depth metadata
+- Emits `agent_pending` on the bus with parent/child/depth metadata and, when
+  the launch belongs to an approved plan step, its exact optional `planId` /
+  `planStepId` edge
 - Forwards every child event to the parent's run listener so the supervisor sees what its subtree is doing
 
 When the parent is cancelled — by HITL, by a limit breach, or by an external signal — `cancelAll(parentRunId)` walks the subtree and aborts every descendant. This is the equivalent of signalling a whole process group.
@@ -604,6 +606,10 @@ Plugins are how a community ecosystem grows around the kernel without the kernel
 child-task request into the agent manager, preserves the parent task context,
 tracks lightweight settled handles after the heavy run state is evicted, and
 delivers each observer's events in order without blocking the child stream.
+`CreateTaskOptions.planId` and `planStepId` carry an optional approved-plan
+edge through that translation so the manager can publish it on the live child
+lifecycle. Both are absent for ordinary delegation; a scheduler must not infer
+either identity from task order or agent names.
 External transports remain host concerns built over the kernel's bridge and
 run APIs; there is no kernel-owned gateway directory.
 

@@ -620,6 +620,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// could report `failed` or stay `executing` forever but never
 			// `completed`.
 			const planStepId = plan_step_id
+			const planId = planStepId ? getPlanManager?.()?.active?.id : undefined
 			const reportStep = (status: 'running' | 'completed' | 'failed', error?: string): void => {
 				if (!planStepId) return
 				getPlanManager?.()?.updateStepStatus(planStepId, status, error)
@@ -649,6 +650,8 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				prompt,
 				workingDirectory: cwd,
 				runtimeContext: opts.runtimeContext,
+				...(planStepId ? { planStepId } : {}),
+				...(planId ? { planId } : {}),
 				// Hang the child run off THIS tool's span, so the delegation
 				// shows up inside the turn that asked for it.
 				...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),

@@ -280,6 +280,27 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 		).toBe('agent.canceled')
 	})
 
+	it('agent.pending carries an approved plan edge when present', () => {
+		const pending = mapRunToStreamEvent(
+			{
+				type: 'agent_pending',
+				runId: RID,
+				taskId: 'task_1' as TaskId,
+				parentAgentId: 'supervisor',
+				childAgentId: 'worker',
+				depth: 1,
+				planId: 'plan_1',
+				planStepId: 'step_2',
+			},
+			RID,
+		)
+
+		expect(pending?.data).toMatchObject({
+			plan_id: 'plan_1',
+			plan_step_id: 'step_2',
+		})
+	})
+
 	it('task_created / task_updated map cleanly', () => {
 		const a = mapRunToStreamEvent(
 			{

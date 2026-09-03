@@ -301,6 +301,8 @@ export class AgentManager {
 				parentAgentId: context.parentAgentId,
 				childAgentId: options.agentId,
 				depth: context.depth,
+				...(options.planId ? { planId: options.planId } : {}),
+				...(options.planStepId ? { planStepId: options.planStepId } : {}),
 			})
 
 			const lineage: Lineage = {
