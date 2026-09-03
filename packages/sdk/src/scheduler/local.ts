@@ -112,6 +112,8 @@ export class LocalTaskScheduler implements TaskScheduler {
 			{
 				agentId: options.agentId,
 				beforeStart: options.beforeStart,
+				...(options.planId ? { planId: options.planId } : {}),
+				...(options.planStepId ? { planStepId: options.planStepId } : {}),
 				input: {
 					messages: [createUserMessage(options.prompt)],
 					workingDirectory: options.workingDirectory,
