@@ -327,7 +327,7 @@ export const runStreamCommand: CommandDef = {
 				projectId: cli.projectId,
 				tenantId: cli.tenantId,
 			},
-			...(cli.backend === 'central' ? { stateRoot: cli.root } : {}),
+			stateRoot: cli.root,
 			rules: permissions.rules,
 			// The operator's --gate commands, as a standing condition on the
 			// answer. Spread rather than passed as undefined so a run without

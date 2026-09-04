@@ -210,7 +210,7 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 			projectId: sessions.projectId,
 			tenantId: sessions.tenantId,
 		},
-		...(sessions.backend === 'central' ? { stateRoot: sessions.root } : {}),
+		stateRoot: sessions.root,
 	})
 	const firstSession = await createAgentSession(preferences, detected, sessionOptions())
 	let produced: readonly Message[] | undefined

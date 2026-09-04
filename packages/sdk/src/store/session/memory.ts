@@ -229,8 +229,11 @@ export class InMemorySessionStore implements SessionStore {
 		this.assertTenant(projectRecord.tenantId, tenantId, `project(${params.projectId})`)
 
 		const now = new Date()
+		if (params.id !== undefined && (await this.getSession(params.id, tenantId))) {
+			throw new Error(`Session ${params.id} already exists`)
+		}
 		const session: Session = {
-			id: generateSessionId(),
+			id: params.id ?? generateSessionId(),
 			topicId: params.topicId,
 			projectId: params.projectId,
 			tenantId,

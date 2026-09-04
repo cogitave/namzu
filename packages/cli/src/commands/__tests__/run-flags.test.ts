@@ -149,9 +149,9 @@ describe('namzu run reads its options instead of reciting them', () => {
 			expect(seen.cwd).toBe(elsewhere)
 			expect(seen.stateRoot).toBe(process.env.NAMZU_HOME)
 			expect(seen.scope).toMatchObject({
-				topicId: 'top_namzu-cli',
+				topicId: expect.stringMatching(/^top_/),
 				projectId: expect.stringMatching(/^prj_/),
-				tenantId: 'tnt_unknown_legacy',
+				tenantId: expect.stringMatching(/^tnt_/),
 				sessionId: expect.stringMatching(/^ses_/),
 			})
 			// The whole point: the flag was previously the first two words the

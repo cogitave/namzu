@@ -86,7 +86,6 @@ export const BOOT_TEMPLATES: Record<BootEventName, BootTemplate> = {
 	// nothing-to-do branch in `runtime/query/index.ts` — so the operator's
 	// migration line rendered the body and appended an empty string. `kind`
 	// is the fact worth seeing: migrated, already_migrated, or noop_no_legacy.
-	[BOOT_EVENT_NAMES.MIGRATION_COMPLETED]: (r) => bodyWith(r, ['namzu.migration.kind']),
 	[BOOT_EVENT_NAMES.DISCOVERY_COMPLETED]: (r) =>
 		joined([
 			r.body,

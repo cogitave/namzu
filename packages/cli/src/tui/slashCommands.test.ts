@@ -919,6 +919,7 @@ describe('/memory', () => {
 		expect(runSlash('/memory the deploy key lives in 1Password', ctx)).toEqual({
 			kind: 'remember',
 			text: 'the deploy key lives in 1Password',
+			scope: 'project',
 		})
 	})
 })

@@ -77,11 +77,7 @@ import {
 	type ToolReviewRequest,
 	type TopicId,
 	WebFetchTool,
-	asProjectId,
 	asRunId,
-	asSessionId,
-	asTenantId,
-	asTopicId,
 	batchNeedsReview,
 	buildAskUserQuestionTool,
 	buildMemoryTools,
@@ -91,7 +87,11 @@ import {
 	createMemoryPromoter,
 	createReviewHandler,
 	createToolPresenter,
+	generateProjectId,
 	generateRunId,
+	generateSessionId,
+	generateTenantId,
+	generateTopicId,
 	getBuiltinTools,
 	isReviewExempt,
 	query,
@@ -2115,7 +2115,7 @@ export async function createAgentSession(
 						const pluginSkills = pluginRuntime
 							? await currentPluginSkills(pluginRuntime.skills)
 							: undefined
-						const memoryPrompt = composeMemoryPrompt(readMemory())
+						const memoryPrompt = composeMemoryPrompt(readMemory(undefined, cwd))
 						currentOnQuestion = opts?.onQuestion
 						const [environmentFacts, turnSnapshot] = await Promise.all([
 							readEnvironmentFacts(cwd),
@@ -2271,7 +2271,7 @@ export async function createAgentSession(
 				const pluginSkills = pluginRuntime
 					? await currentPluginSkills(pluginRuntime.skills)
 					: undefined
-				const memoryPrompt = composeMemoryPrompt(readMemory())
+				const memoryPrompt = composeMemoryPrompt(readMemory(undefined, cwd))
 				const environmentPrompt = composeEnvironmentPrompt({
 					...(await readEnvironmentFacts(cwd)),
 					additionalDirectories: [...directories],
@@ -2737,6 +2737,12 @@ export async function listProviderModels(
 }
 
 export interface RunScope {
+	/**
+	 * The active conversation. Chosen before the conversation is written
+	 * and never replaced by a provisional value; it changes only when the
+	 * operator moves to another conversation (/resume, /fork, /new), which
+	 * is why it is the one field here that is not readonly.
+	 */
 	sessionId: SessionId
 	readonly topicId: TopicId
 	readonly projectId: ProjectId
@@ -2760,18 +2766,17 @@ function lastUserText(messages: readonly Message[]): string {
 	return ''
 }
 
-/** One scope per launched TUI session; runId is minted fresh per turn by the SDK. */
+/**
+ * A scope for a session no host supplied one for: four minted ids. Minted
+ * rather than spelled, because a spelled id is a place a typo hides and
+ * these types accept either spelling until they are nominal.
+ */
 function mintScope(): RunScope {
-	const suffix = `tui-${Date.now().toString(36)}`
-	// Through the constructors rather than as four bare template literals.
-	// One suffix shared by four ids is exactly the shape a typo hides in —
-	// `top_` and `tnt_` differ by two characters, and the types accept either
-	// spelling for either field while they are still structural.
 	return {
-		sessionId: asSessionId(`ses_${suffix}`),
-		topicId: asTopicId(`top_${suffix}`),
-		projectId: asProjectId(`prj_${suffix}`),
-		tenantId: asTenantId(`tnt_${suffix}`),
+		sessionId: generateSessionId(),
+		topicId: generateTopicId(),
+		projectId: generateProjectId(),
+		tenantId: generateTenantId(),
 	}
 }
 

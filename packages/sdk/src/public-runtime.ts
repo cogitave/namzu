@@ -937,29 +937,6 @@ export {
 } from './session/intervention/index.js'
 
 export {
-	acceptLegacyContainerId,
-	/** @deprecated Use {@link acceptLegacyContainerId}. Removal is NZ-TOPIC-05. */
-	acquireMigrationLock,
-	DefaultFilesystemMigrator,
-	FilesystemMigrationError,
-	LEGACY_DEFAULT_PROJECT_PREFIX,
-	LEGACY_DEFAULT_SESSION_ID,
-	LOCK_REL_PATH,
-	loggingMigrationSink,
-	MARKER_REL_PATH,
-	MIGRATION_VERSION,
-	NOOP_FILESYSTEM_MIGRATION_SINK,
-	NOOP_MIGRATION_WARNING_SINK,
-	readMarker,
-	rejectLegacyContainerPrefix,
-	/** @deprecated Use {@link rejectLegacyContainerPrefix}. Removal is NZ-TOPIC-05. */
-	releaseMigrationLock,
-	StalePrefixError,
-	WINDOW_OPEN,
-	writeMarker,
-} from './session/migration/index.js'
-
-export {
 	ArchivalManager,
 	ArchiveNotConfiguredError,
 	ArchiveNotFoundError,
@@ -1018,7 +995,6 @@ export { isConnectorActive } from './types/connector/core.js'
 export { CONNECTOR_SCOPE_ORDER } from './types/connector/scope.js'
 export { RoutingResponseSchema } from './types/decision/index.js'
 export { autoApproveHandler } from './types/hitl/index.js'
-export { UNKNOWN_TENANT_ID } from './types/ids/index.js'
 export { deriveChildState } from './types/invocation/index.js'
 export { assertMemoryStatus } from './types/memory/index.js'
 export {
@@ -1345,9 +1321,6 @@ export type {
 export type { BroadcastHandoffDeps } from './session/handoff/broadcast.js'
 export type { SingleHandoffDeps } from './session/handoff/single.js'
 export type { InterventionChainLoader } from './session/intervention/prev-artifact.js'
-export type { FilesystemMigrationSink } from './session/migration/filesystem.js'
-export type { MigrationWarningSink } from './session/migration/id-prefix.js'
-export type { MigrationMarker } from './session/migration/marker.js'
 export type { ActionInput } from './tools/builtins/computer-use.js'
 export type { Project } from './types/project/entity.js'
 export type { CreatedLogger } from './utils/log/create-logger.js'
@@ -1355,3 +1328,4 @@ export type {
 	LoggerOptions,
 	MutableLogSinkCounters,
 } from './utils/log/types.js'
+export type { JobProcess } from './runtime/jobs/registry.js'

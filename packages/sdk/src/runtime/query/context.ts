@@ -2,12 +2,6 @@ import { join } from 'node:path'
 import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
 import { PlanManager } from '../../manager/plan/lifecycle.js'
 import { RunPersistence } from '../../manager/run/persistence.js'
-import {
-	DefaultFilesystemMigrator,
-	type FilesystemMigrationResult,
-	type FilesystemMigrator,
-	NOOP_FILESYSTEM_MIGRATION_SINK,
-} from '../../session/migration/index.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
 import { ActivityStore } from '../../store/activity/memory.js'
 import { type ActivityTrackingConfig, resolveActivityTracking } from '../../types/activity/index.js'
@@ -33,18 +27,6 @@ import { type Logger, resolveLogger } from '../../utils/logger.js'
  * `pathBuilder` is optional; when absent a {@link DefaultPathBuilder} is
  * constructed against `{workingDirectory}/.namzu`.
  *
- * `filesystemMigrator` is optional, but note what `build` actually does
- * with it: nothing. Migration is not part of `build` — it runs once per
- * process via {@link RunContextFactory.ensureMigrated}, kept out of `build`
- * entirely so the static method stays synchronous for existing callers;
- * `query()` calls `ensureMigrated` itself, with its own migrator, before it
- * ever calls `build`. This field predates that split, and no code path
- * threads it to `ensureMigrated` on `build`'s behalf. Its sibling
- * `migrationSink` had the identical shape — declared, never read anywhere
- * in the workspace — and NZ-BOOT-04 removed it
- * ("declared but undriven") rather than invent a caller
- * for a field nothing needed; `filesystemMigrator` is the same defect, left
- * for a follow-up rather than folded into that change.
  */
 export interface RunContextConfig {
 	/**
@@ -93,13 +75,6 @@ export interface RunContextConfig {
 	checkpointStore?: CheckpointStore
 	runStore?: RunStore
 
-	/**
-	 * Optional injected migrator — tests pass a stub; production code relies
-	 * on the {@link DefaultFilesystemMigrator}. See session-hierarchy.md
-	 * §13.4.1.
-	 */
-	filesystemMigrator?: FilesystemMigrator
-
 	runId?: RunId
 
 	parentRunId?: RunId
@@ -138,39 +113,7 @@ export interface RunContext {
 	trackingConfig: ActivityTrackingConfig
 }
 
-/**
- * Module-level first-call guard for the boot-time filesystem migration
- * (session-hierarchy.md §13.4.1). Keyed on the root directory so a single
- * process that spans multiple `.namzu` roots (unusual but legal) migrates
- * each one once. Subsequent calls short-circuit via the cached promise —
- * never re-reading the on-disk marker per call.
- */
-const migrationPromises = new Map<string, Promise<FilesystemMigrationResult>>()
-
 export class RunContextFactory {
-	/**
-	 * Run the boot-time filesystem migration for `rootDir` at most once per
-	 * process. Safe to `await` from any async entry point; concurrent callers
-	 * for the same root share a single migration promise (no duplicate work,
-	 * no race with the on-disk `.tmp` lock).
-	 */
-	static ensureMigrated(
-		rootDir: string,
-		migrator: FilesystemMigrator = new DefaultFilesystemMigrator(NOOP_FILESYSTEM_MIGRATION_SINK),
-	): Promise<FilesystemMigrationResult> {
-		const cached = migrationPromises.get(rootDir)
-		if (cached) return cached
-		const promise = migrator.migrate(rootDir)
-		migrationPromises.set(rootDir, promise)
-		// Crash-safety: if the migration rejects, drop the cached promise so
-		// the next caller gets a fresh attempt. Successful results stay cached
-		// (idempotency — further calls short-circuit without re-running).
-		promise.catch(() => {
-			migrationPromises.delete(rootDir)
-		})
-		return promise
-	}
-
 	/**
 	 * The run's one correlated logger, built once and handed to every
 	 * consumer that used to construct its own. Split out of `build` because

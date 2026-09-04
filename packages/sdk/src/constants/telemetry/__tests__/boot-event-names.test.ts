@@ -12,7 +12,6 @@ describe('BOOT_EVENT_NAMES / BootEventName', () => {
 			'namzu.capability.detected': true,
 			'namzu.capability.broken': true,
 			'namzu.telemetry.status': true,
-			'namzu.migration.completed': true,
 			'namzu.discovery.completed': true,
 			'namzu.boot.refused': true,
 			'namzu.boot.ready': true,

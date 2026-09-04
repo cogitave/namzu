@@ -2259,6 +2259,9 @@ export function App({
 		} else {
 			// Provider/tool startup needs stable project/tenant/topic ids, not a
 			// durable conversation. The cursor is replaced on first admitted use.
+			// The conversation's id, chosen now; the conversation is written
+			// under it at first durable use. Nothing that saw this id before
+			// that moment — a hook, a log line, the screen — is later wrong.
 			sessionId = generateSessionId()
 		}
 		sessionsRef.current = sessions
@@ -2284,11 +2287,14 @@ export function App({
 			if (!sessions || !scope) return undefined
 			conversationMutationRef.current = 'materialize'
 			try {
-				const sessionId = await startConversation(sessions)
+				const written = await startConversation(sessions, scope.sessionId)
 				if (scopeRef.current !== scope || conversationMaterializedRef.current) {
 					throw new Error('the active conversation changed while its first session was published')
 				}
-				scope.sessionId = sessionId
+				// The store creates the conversation under the id chosen at open,
+				// so this is the same id; a store that cannot honour a chosen id
+				// is followed rather than contradicted.
+				if (written !== scope.sessionId) scope.sessionId = written
 				conversationMaterializedRef.current = true
 				return scope
 			} finally {
@@ -2317,9 +2323,7 @@ export function App({
 				...(activeCtx.additionalDirectories
 					? { additionalDirectories: activeCtx.additionalDirectories }
 					: {}),
-				...(sessionsRef.current?.backend === 'central'
-					? { stateRoot: sessionsRef.current.root }
-					: {}),
+				...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
 				enableComputerUse: true,
 				rules: activeCtx.rules,
 				...(sessionsRef.current ? { sessionGoals: sessionsRef.current.goals } : {}),
@@ -4406,8 +4410,8 @@ export function App({
 			if (value.startsWith('#') && value.slice(1).trim().length > 0) {
 				const note = value.slice(1).trim()
 				try {
-					appendMemory(note)
-					pushMessage('system', `Remembered: ${note}`)
+					const path = appendMemory(note, { scope: 'project', cwd: ctx.cwd })
+					pushMessage('system', `Remembered for this project (${path}): ${note}`)
 				} catch (err) {
 					pushMessage('system', `Could not save memory: ${err instanceof Error ? err.message : String(err)}`)
 				}
@@ -4694,8 +4698,11 @@ export function App({
 					}
 					case 'remember':
 						try {
-							appendMemory(slash.text)
-							pushMessage('system', `Remembered: ${slash.text}`)
+							const path = appendMemory(slash.text, { scope: slash.scope, cwd: ctx.cwd })
+							pushMessage(
+								'system',
+								`Remembered ${slash.scope === 'user' ? 'for every project' : 'for this project'} (${path}): ${slash.text}`,
+							)
 						} catch (err) {
 							pushMessage(
 								'system',
@@ -4704,10 +4711,10 @@ export function App({
 						}
 						return
 					case 'show-memory': {
-						const mem = composeMemoryPrompt(readMemory())
+						const mem = composeMemoryPrompt(readMemory(undefined, ctx.cwd))
 						pushMessage(
 							'system',
-							mem ?? 'Nothing remembered yet. Use /remember <text>, or edit ~/.namzu/MEMORY.md.',
+							mem ?? 'Nothing remembered yet. #note or /memory <text> saves a fact about this project (.namzu/MEMORY.md); /memory --user <text> saves one for every project (~/.namzu/MEMORY.md).',
 						)
 						return
 					}

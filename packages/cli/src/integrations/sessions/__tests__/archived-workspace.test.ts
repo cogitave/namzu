@@ -24,13 +24,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
-import {
-	DefaultPathBuilder,
-	ProjectManager,
-	type TenantId,
-	UNKNOWN_TENANT_ID,
-	createUserMessage,
-} from '@namzu/sdk'
+import { DefaultPathBuilder, ProjectManager, createUserMessage } from '@namzu/sdk'
 
 import {
 	appendMessages,
@@ -59,10 +53,7 @@ describe('a workspace its owner has closed', () => {
 	it('refuses a new conversation, instead of quietly accepting work', async () => {
 		// First run: creates the project and writes the pointer.
 		const first = await openSessions(cwd)
-		await new ProjectManager({ store: first.store }).archive(
-			first.projectId,
-			UNKNOWN_TENANT_ID as TenantId,
-		)
+		await new ProjectManager({ store: first.store }).archive(first.projectId, first.tenantId)
 
 		// A later run in the same directory reaches the SAME project through the
 		// pointer — the case that exists only from the second run onward.
@@ -88,10 +79,7 @@ describe('a workspace its owner has closed', () => {
 		// A refusal that does not say which workspace sends the reader nowhere:
 		// the whole point is that an owner closed this one on purpose.
 		const first = await openSessions(cwd)
-		await new ProjectManager({ store: first.store }).archive(
-			first.projectId,
-			UNKNOWN_TENANT_ID as TenantId,
-		)
+		await new ProjectManager({ store: first.store }).archive(first.projectId, first.tenantId)
 
 		const later = await openSessions(cwd)
 

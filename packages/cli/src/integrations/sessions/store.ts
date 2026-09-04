@@ -16,11 +16,9 @@ import {
 	chmodSync,
 	closeSync,
 	fsyncSync,
-	lstatSync,
 	mkdirSync,
 	openSync,
 	readFileSync,
-	readdirSync,
 	renameSync,
 	rmSync,
 	writeFileSync,
@@ -39,15 +37,15 @@ import {
 	type SessionId,
 	type TenantId,
 	type TopicId,
-	UNKNOWN_TENANT_ID,
 	type UserMessage,
-	asProjectId,
 	asSessionId,
 	asTopicId,
+	generateTopicId,
 	requireOpenProject,
 } from '@namzu/sdk'
 import { restrictToOwner } from '../providers/credential-store.js'
 import { resolveNamzuHome } from '../state/home.js'
+import { loadIdentity } from '../state/identity.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import {
 	type ConversationLineageTurn,
@@ -58,8 +56,6 @@ import {
 
 // `UNKNOWN_TENANT_ID` is already a `TenantId`; the assertion this replaced
 // re-stated a type the constant carries.
-const TENANT: TenantId = UNKNOWN_TENANT_ID
-const THREAD = asTopicId('top_namzu-cli')
 
 export interface CliSessions {
 	readonly store: DiskSessionStore
@@ -75,7 +71,6 @@ export interface CliSessions {
 	/** CLI-only sidecars for this Project. Legacy stores use their old root. */
 	readonly controlRoot: string
 	/** Which durable backend was selected by the state-routing decision. */
-	readonly backend: 'central' | 'legacy'
 	/**
 	 * CLI-only turn/run correlation. Optional for embedded test doubles and
 	 * pre-feature hosts; {@link openSessions} always supplies it.
@@ -113,101 +108,6 @@ export interface OpenSessionsOptions {
 	readonly env?: NodeJS.ProcessEnv
 }
 
-type LegacyRoute =
-	| { readonly kind: 'none' }
-	| {
-			readonly kind: 'valid'
-			readonly root: string
-			readonly projectId: ProjectId
-	  }
-	| { readonly kind: 'refuse'; readonly detail: string }
-
-const AUTHORED_LOCAL_ENTRIES = new Set(['commands', 'config.yaml', 'plugins', 'skills'])
-
-async function inspectLegacyRoute(
-	localRoot: string,
-	options: { readonly allowApplicationHomeEntries?: boolean } = {},
-): Promise<LegacyRoute> {
-	try {
-		const rootEntry = lstatSync(localRoot)
-		if (rootEntry.isSymbolicLink() || !rootEntry.isDirectory()) {
-			return {
-				kind: 'refuse',
-				detail: `${localRoot} is not a real directory.`,
-			}
-		}
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'none' }
-		return {
-			kind: 'refuse',
-			detail: `${localRoot} cannot be inspected: ${error instanceof Error ? error.message : String(error)}`,
-		}
-	}
-
-	const pointerPath = join(localRoot, 'cli.json')
-	let raw: unknown
-	try {
-		raw = JSON.parse(readFileSync(pointerPath, 'utf8'))
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-			// When the working directory is the OS home, the project-local path
-			// and the application home are the same directory. Its ordinary config
-			// and generated partitions are not evidence of an unbound legacy
-			// project. A present cli.json is still inspected below; only the
-			// no-pointer classification is relaxed for this natural overlap.
-			if (options.allowApplicationHomeEntries) return { kind: 'none' }
-			const unclassified = readdirSync(localRoot).filter(
-				(name) => !AUTHORED_LOCAL_ENTRIES.has(name),
-			)
-			return unclassified.length === 0
-				? { kind: 'none' }
-				: {
-						kind: 'refuse',
-						detail: `${localRoot} contains legacy or unknown generated entries (${unclassified.join(', ')}) but no cli.json binding.`,
-					}
-		}
-		return {
-			kind: 'refuse',
-			detail: `${pointerPath} is not valid JSON; refusing to hide recoverable local history behind a new central Project.`,
-		}
-	}
-
-	const projectIdValue =
-		typeof raw === 'object' && raw !== null && 'projectId' in raw
-			? (raw as { projectId?: unknown }).projectId
-			: undefined
-	if (typeof projectIdValue !== 'string' || !projectIdValue.startsWith('prj_')) {
-		return {
-			kind: 'refuse',
-			detail: `${pointerPath} does not contain a valid Project id.`,
-		}
-	}
-	const projectId = asProjectId(projectIdValue)
-	try {
-		const legacyStore = new DiskSessionStore({ rootDir: localRoot })
-		const project = await legacyStore.getProject(projectId, TENANT)
-		if (!project) {
-			return {
-				kind: 'refuse',
-				detail: `${pointerPath} points to ${projectId}, but that local Project record is missing.`,
-			}
-		}
-		const workingDirectory = resolve(localRoot, '..')
-		if (project.rootPath !== undefined && project.rootPath !== workingDirectory) {
-			return {
-				kind: 'refuse',
-				detail: `${pointerPath} points to ${projectId}, but that Project is bound to ${project.rootPath} instead of ${workingDirectory}.`,
-			}
-		}
-		return { kind: 'valid', root: localRoot, projectId }
-	} catch (error) {
-		return {
-			kind: 'refuse',
-			detail: `The legacy Project selected by ${pointerPath} cannot be read: ${error instanceof Error ? error.message : String(error)}`,
-		}
-	}
-}
-
 /**
  * Select one durable backend for the canonical working directory.
  *
@@ -220,86 +120,64 @@ export async function openSessions(
 	options: OpenSessionsOptions = {},
 ): Promise<CliSessions> {
 	const workingDirectory = await realpath(resolve(cwd))
-	const centralRoot = resolve(
+	const root = resolve(
 		options.stateRoot ??
 			resolveNamzuHome({
 				...(options.home !== undefined ? { home: options.home } : {}),
 				...(options.env !== undefined ? { env: options.env } : {}),
 			}),
 	)
-	const localRoot = join(workingDirectory, '.namzu')
-	const overlaps = centralRoot === localRoot
-	const legacy = await inspectLegacyRoute(localRoot, {
-		allowApplicationHomeEntries: overlaps,
-	})
-	if (legacy.kind === 'refuse') {
-		throw new Error(`${legacy.detail} Run \`namzu state\` for a read-only inventory.`)
-	}
-
-	const centralStore = new DiskSessionStore({ rootDir: centralRoot })
-	const centralProject = await centralStore.findProjectByRootPath(workingDirectory, TENANT)
-	if (
-		legacy.kind === 'valid' &&
-		centralProject &&
-		(!overlaps || centralProject.id !== legacy.projectId)
-	) {
-		throw new Error(
-			`Both legacy state at ${localRoot} and central state at ${centralRoot} are bound to this workspace. Refusing to choose between split histories; run \`namzu state\` for the two inventories.`,
-		)
-	}
-
-	let root: string
-	let store: DiskSessionStore
-	let projectId: ProjectId
-	let backend: CliSessions['backend']
-	if (legacy.kind === 'valid') {
-		root = legacy.root
-		store = new DiskSessionStore({ rootDir: root })
-		projectId = legacy.projectId
-		backend = 'legacy'
-		ensurePrivateStateDirectory(root, 'projects')
-		ensurePrivateStateDirectory(root, 'goals')
-	} else {
-		root = centralRoot
-		ensurePrivateStateDirectory(root, 'projects')
-		ensurePrivateStateDirectory(root, 'goals')
-		store = centralStore
-		let project = centralProject
-		if (!project) {
-			try {
-				project = await store.createProject(
-					{ tenantId: TENANT, name: 'namzu CLI', rootPath: workingDirectory },
-					TENANT,
-				)
-			} catch (error) {
-				// Another process may have won the immutable root binding between our
-				// lookup and publication. Re-read; every other failure stays a failure.
-				project = await store.findProjectByRootPath(workingDirectory, TENANT)
-				if (!project) throw error
-			}
+	// Who this installation is, minted once; and where this workspace's
+	// state lives, one Project per working directory under that tenant.
+	const tenantId = loadIdentity(root).tenantId
+	ensurePrivateStateDirectory(root, 'projects')
+	ensurePrivateStateDirectory(root, 'goals')
+	const store = new DiskSessionStore({ rootDir: root })
+	let project = await store.findProjectByRootPath(workingDirectory, tenantId)
+	if (!project) {
+		try {
+			project = await store.createProject(
+				{ tenantId, name: 'namzu CLI', rootPath: workingDirectory },
+				tenantId,
+			)
+		} catch (error) {
+			project = await store.findProjectByRootPath(workingDirectory, tenantId)
+			if (!project) throw error
 		}
-		projectId = project.id
-		backend = 'central'
 	}
-
+	const projectId = project.id
 	const projectStateRoot = new DefaultPathBuilder(root).projectDir(projectId)
-	const controlRoot = backend === 'central' ? join(projectStateRoot, 'cli') : root
-	if (backend === 'central') ensurePrivateStateDirectory(projectStateRoot, 'cli')
-	// The root also holds authored project commands/plugins and may legitimately
-	// be shareable. Generated conversation and goal state is not: make those
-	// partitions the owner-only privacy boundary before any store writes.
+	const controlRoot = ensurePrivateStateDirectory(projectStateRoot, 'cli')
 	return {
 		store,
 		goals: new DiskSessionGoalStore({ rootDir: root, sessions: store }),
 		projectId,
-		topicId: THREAD,
-		tenantId: TENANT,
+		topicId: topicIdFor(controlRoot),
+		tenantId,
 		root,
 		projectStateRoot,
 		controlRoot,
-		backend,
 		turnEvidence: new DiskConversationEvidence({ root, projectId }),
 	}
+}
+
+/**
+ * The project's one topic, minted the first time the project is opened and
+ * kept in its control directory. A topic groups a project's conversations;
+ * the CLI keeps one per project, and it is an id like any other rather
+ * than a constant string shared by every project on every machine.
+ */
+function topicIdFor(controlRoot: string): TopicId {
+	const path = join(controlRoot, 'topic.json')
+	try {
+		const raw = JSON.parse(readFileSync(path, 'utf8')) as { topicId?: unknown }
+		if (typeof raw.topicId === 'string') return asTopicId(raw.topicId)
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+	}
+	const topicId = generateTopicId()
+	writeFileSync(path, `${JSON.stringify({ topicId }, null, 2)}\n`, { mode: 0o600 })
+	return topicId
 }
 
 // Maps an embedder's own session key (e.g. a desktop host's uuid) to a
@@ -449,7 +327,7 @@ async function resolveExistingConversation(
 	if (existing?.startsWith('ses_')) {
 		const mapped = asSessionId(existing)
 		const session = await s.store.getSession(mapped, s.tenantId)
-		if (session?.projectId === s.projectId && session.topicId === s.topicId) return mapped
+		if (session?.projectId === s.projectId) return mapped
 	}
 	return null
 }
@@ -469,16 +347,16 @@ async function resolveExistingConversation(
  * since have closed. A freshly created project is always open, which is why
  * the first run could never have shown this.
  */
-export async function startConversation(s: CliSessions): Promise<SessionId> {
-	const id = await createConversation(s)
-	await s.turnEvidence?.recordOrigin(id, { kind: 'new' })
-	return id
+export async function startConversation(s: CliSessions, id?: SessionId): Promise<SessionId> {
+	const created = await createConversation(s, id)
+	await s.turnEvidence?.recordOrigin(created, { kind: 'new' })
+	return created
 }
 
-async function createConversation(s: CliSessions): Promise<SessionId> {
+async function createConversation(s: CliSessions, id?: SessionId): Promise<SessionId> {
 	await requireOpenProject(s.store, s.projectId, s.tenantId, 'cli-session')
 	const session = await s.store.createSession(
-		{ topicId: s.topicId, projectId: s.projectId, currentActor: null },
+		{ ...(id ? { id } : {}), topicId: s.topicId, projectId: s.projectId, currentActor: null },
 		s.tenantId,
 	)
 	return session.id
@@ -502,7 +380,7 @@ async function requireConversationInScope(
 	if (!session) {
 		throw new Error(`Conversation ${sessionId} was not found — ${op} rejected`)
 	}
-	if (session.projectId !== s.projectId || session.topicId !== s.topicId) {
+	if (session.projectId !== s.projectId) {
 		throw new Error(`Conversation ${sessionId} does not belong to this workspace — ${op} rejected`)
 	}
 	return session

@@ -74,7 +74,7 @@ export type SlashAction =
 	| { kind: 'reasoning-effort-picker' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
-	| { kind: 'remember'; text: string }
+	| { kind: 'remember'; text: string; scope: 'project' | 'user' }
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
 	| { kind: 'skill-picker' }
@@ -692,10 +692,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'memory',
-		description: 'Show what namzu remembers, or save a fact: /memory [something to remember].',
+		description:
+			'Show what namzu remembers, or save a fact about this project: /memory [text]. /memory --user [text] saves it for every project.',
 		action: (_ctx, args) => {
-			const text = args.join(' ').trim()
-			return text.length === 0 ? { kind: 'show-memory' } : { kind: 'remember', text }
+			const user = args[0] === '--user'
+			const text = (user ? args.slice(1) : args).join(' ').trim()
+			return text.length === 0
+				? { kind: 'show-memory' }
+				: { kind: 'remember', text, scope: user ? 'user' : 'project' }
 		},
 	},
 	{

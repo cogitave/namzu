@@ -1,13 +1,6 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hostLogger } from '../../../__fixtures__/host-logger.js'
 import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
-import {
-	DefaultFilesystemMigrator,
-	loggingMigrationSink,
-} from '../../../session/migration/index.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../../session/workspace/path-builder.js'
 import { posix } from '../../../test-support/paths.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
@@ -284,45 +277,5 @@ describe('RunContextFactory.build accepts a pre-built logger', () => {
 
 		expect(records).toHaveLength(1)
 		expect(records[0]?.attributes[NAMZU.RUN_ID]).toBe(runId)
-	})
-})
-
-describe('RunContextFactory.ensureMigrated', () => {
-	afterEach(() => {
-		__resetProcessSinkForTests()
-	})
-
-	it('defaults to NOOP_FILESYSTEM_MIGRATION_SINK: migrating a legacy layout logs nothing', async () => {
-		// Two roots, one assertion each way. Asserting only the empty half
-		// would pass on a migration that never ran, on a sink wired to
-		// nothing, and — since LOG-20 — on absolutely any default at all,
-		// because no logger reaches a component that was not handed one. The
-		// control root proves the same migration DOES narrate when the caller
-		// asks for it, so the empty half means "this default is silent".
-		const quiet = await mkdtemp(join(tmpdir(), 'namzu-ensure-migrated-'))
-		const loud = await mkdtemp(join(tmpdir(), 'namzu-ensure-migrated-loud-'))
-		try {
-			await mkdir(join(quiet, 'threads', 'thd_abc', 'runs', 'run_1'), { recursive: true })
-			await mkdir(join(loud, 'threads', 'thd_abc', 'runs', 'run_1'), { recursive: true })
-
-			const records: LogRecord[] = []
-			const sink: LogSink = { emit: (record) => records.push(record) }
-
-			const control = await RunContextFactory.ensureMigrated(
-				loud,
-				new DefaultFilesystemMigrator(loggingMigrationSink(hostLogger(sink))),
-			)
-			expect(control.kind).toBe('migrated')
-			expect(records.length).toBeGreaterThan(0)
-
-			records.length = 0
-			const result = await RunContextFactory.ensureMigrated(quiet)
-
-			expect(result.kind).toBe('migrated')
-			expect(records).toHaveLength(0)
-		} finally {
-			await rm(quiet, { recursive: true, force: true })
-			await rm(loud, { recursive: true, force: true })
-		}
 	})
 })

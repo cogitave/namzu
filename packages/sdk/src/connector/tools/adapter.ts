@@ -4,7 +4,7 @@ import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ConnectorMethod } from '../../types/connector/index.js'
 import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
-import { parseConnectorInstanceId } from '../../utils/id.js'
+import { asConnectorInstanceId } from '../../utils/id.js'
 import { connectorToolError } from './result.js'
 
 export function connectorMethodToTool(
@@ -96,7 +96,7 @@ export function createConnectorRouterTool(
 		isConcurrencySafe: () => true,
 
 		async execute(input: ConnectorRouterInput, context: ToolContext): Promise<ToolResult> {
-			const instanceId = parseConnectorInstanceId(String(input.instanceId))
+			const instanceId = asConnectorInstanceId(String(input.instanceId))
 			const instance = manager.getInstance(instanceId)
 			if (!instance) {
 				return {

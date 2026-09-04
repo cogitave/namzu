@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-04
+* **Creation**: [Memory](/cli/memory.md) — a project memory file beside the user one; `#note` and `/memory` write to the project by default; injected sections are capped.
+* **Creation**: [Ids](/sdk/ids.md) — the `thd_` compatibility machinery is gone, retired prefixes are refused, a session can be created under a chosen id; the CLI mints its tenant and topic.
 * **Creation**: [Run limits](/cli/run-limits.md) — `--max-iterations`, `--token-budget` and the `limits` config key; a headless run is no longer capped at a chat turn's 50 calls.
 
 ## 2026-09-02

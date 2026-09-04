@@ -34,6 +34,14 @@ import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../session/ids
  * tracks both.
  */
 export interface CreateSessionParams {
+	/**
+	 * The id the session is created under. A host that needs to know a
+	 * conversation's id before the conversation is written — to name a
+	 * log, to label a hook, to show it — mints one with `generateSessionId`
+	 * and passes it here; the store refuses an id it already holds. Absent,
+	 * the store mints one.
+	 */
+	id?: SessionId
 	topicId: TopicId
 	projectId: ProjectId
 	/**

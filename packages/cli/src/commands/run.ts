@@ -322,7 +322,7 @@ export const runCommand: CommandDef = {
 				projectId: sessions.projectId,
 				tenantId: sessions.tenantId,
 			},
-			...(sessions.backend === 'central' ? { stateRoot: sessions.root } : {}),
+			stateRoot: sessions.root,
 			rules: permissions.rules,
 			...(sessionExport ? { onRunEvent: sessionExport.listener } : {}),
 			// The operator's --gate commands, as a standing condition on the

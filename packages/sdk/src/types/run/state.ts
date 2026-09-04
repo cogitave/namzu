@@ -1,5 +1,6 @@
 import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PendingDecision } from '../hitl/index.js'
+import { RetiredIdPrefixError } from '../ids/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ProjectId, TopicId } from '../session/ids.js'
@@ -104,17 +105,13 @@ const RUN_STATE_LEGACY_VERSION = 1
  */
 const RUN_STATE_PRE_PREFIX_VERSION = 2
 
-/**
- * Shared by both legacy branches below: rewrite a `thd_`-prefixed topicId
- * value to `top_`, leaving everything else — including an absent topicId —
- * untouched. Mirrors `store/session/disk.ts`'s
- * `migrateSessionStoreTopicIdPrefix`: same no-op-when-already-correct
- * shape, same reason (idempotence under a repeated migration pass).
- */
-function rewriteLegacyTopicIdPrefix(record: Record<string, unknown>): Record<string, unknown> {
+/** A record's `topicId` must carry the one prefix a topic id has; a retired one is refused. */
+function requireTopicIdPrefix(record: Record<string, unknown>): Record<string, unknown> {
 	const topicId = record.topicId
-	if (typeof topicId !== 'string' || !topicId.startsWith('thd_')) return record
-	return { ...record, topicId: `top_${topicId.slice('thd_'.length)}` }
+	if (typeof topicId === 'string' && !topicId.startsWith('top_')) {
+		throw new RetiredIdPrefixError(topicId, 'top_')
+	}
+	return record
 }
 
 /**
@@ -159,14 +156,14 @@ export function parseRunState(json: string | unknown): RunState {
 			...(threadId !== undefined ? { topicId: threadId } : {}),
 		}
 		return {
-			...rewriteLegacyTopicIdPrefix(withTopicId),
+			...requireTopicIdPrefix(withTopicId),
 			version: RUN_STATE_VERSION,
 		} as RunState
 	}
 
 	if (version === RUN_STATE_PRE_PREFIX_VERSION) {
 		return {
-			...rewriteLegacyTopicIdPrefix(record),
+			...requireTopicIdPrefix(record),
 			version: RUN_STATE_VERSION,
 		} as RunState
 	}

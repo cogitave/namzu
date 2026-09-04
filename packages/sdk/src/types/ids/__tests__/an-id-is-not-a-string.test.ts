@@ -6,10 +6,10 @@ import {
 	asGoalId,
 	asRunId,
 	asSessionId,
+	asTenantId,
 	generateGoalId,
 	generateRunId,
 } from '../../../utils/id.js'
-import { UNKNOWN_TENANT_ID } from '../index.js'
 import type { GoalId, RunId, SessionId, TenantId } from '../index.js'
 
 /**
@@ -69,14 +69,14 @@ describe('an id is not a string', () => {
 		const goal: GoalId = generateGoalId()
 		const checkedGoal: GoalId = asGoalId('goal_from_a_session')
 		const fixture: RunId = fixtureId.run('from_a_test')
-		const sentinel: TenantId = UNKNOWN_TENANT_ID
+		const sentinel: TenantId = asTenantId('tnt_from_a_config')
 
 		expect(minted.startsWith('run_')).toBe(true)
 		expect(checked).toBe('run_from_a_log_line')
 		expect(goal.startsWith('goal_')).toBe(true)
 		expect(checkedGoal).toBe('goal_from_a_session')
 		expect(fixture).toBe('run_from_a_test')
-		expect(sentinel).toBe('tnt_unknown_legacy')
+		expect(sentinel).toBe('tnt_from_a_config')
 	})
 
 	it('still checks the prefix at runtime, which the brand cannot', () => {

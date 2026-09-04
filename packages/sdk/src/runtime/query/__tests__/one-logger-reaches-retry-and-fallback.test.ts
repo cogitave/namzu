@@ -97,7 +97,6 @@ vi.mock('../context.js', async (importOriginal) => {
 	return {
 		...actual,
 		RunContextFactory: {
-			ensureMigrated: actual.RunContextFactory.ensureMigrated,
 			buildLogger: (
 				...args: Parameters<typeof actual.RunContextFactory.buildLogger>
 			): ReturnType<typeof actual.RunContextFactory.buildLogger> => {

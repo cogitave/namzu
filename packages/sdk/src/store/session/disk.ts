@@ -31,6 +31,7 @@ import {
 	TenantIsolationError,
 } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
+import { RetiredIdPrefixError } from '../../types/ids/index.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
@@ -169,8 +170,10 @@ export function migrateSessionStoreTopicIdPrefix(
 	record: Record<string, unknown>,
 ): Record<string, unknown> {
 	const topicId = record.topicId
-	if (typeof topicId !== 'string' || !topicId.startsWith('thd_')) return record
-	return { ...record, topicId: `top_${topicId.slice('thd_'.length)}` }
+	if (typeof topicId === 'string' && !topicId.startsWith('top_')) {
+		throw new RetiredIdPrefixError(topicId, 'top_')
+	}
+	return record
 }
 
 /**
@@ -590,8 +593,11 @@ export class DiskSessionStore implements SessionStore {
 			throw new Error(`Project ${params.projectId} not found`)
 		}
 		const now = new Date()
+		if (params.id !== undefined && (await this.getSession(params.id, tenantId))) {
+			throw new Error(`Session ${params.id} already exists`)
+		}
 		const session: Session = {
-			id: generateSessionId(),
+			id: params.id ?? generateSessionId(),
 			topicId: params.topicId,
 			projectId: params.projectId,
 			tenantId,

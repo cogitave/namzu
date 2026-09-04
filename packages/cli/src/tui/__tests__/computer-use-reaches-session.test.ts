@@ -141,21 +141,25 @@ describe('computer use session reachability', () => {
 			// drain the real session adapter into the mocked kernel boundary
 		}
 
-		expect(queryToolNames).toEqual([
-			'bash',
-			'edit',
-			'glob',
-			'grep',
-			'read',
-			'write',
-			'search_memory',
-			'read_memory',
-			'save_memory',
-			'computer_use',
-			'search_tools',
-			'Agent',
-		])
-		const computerUse = queryTools[9]?.function.parameters
+		expect([...queryToolNames].sort()).toEqual(
+			[
+				'bash',
+				'edit',
+				'glob',
+				'grep',
+				'job',
+				'read',
+				'write',
+				'search_memory',
+				'read_memory',
+				'save_memory',
+				'computer_use',
+				'search_tools',
+				'Agent',
+			].sort(),
+		)
+		const computerUse = queryTools.find((t) => t.function.name === 'computer_use')?.function
+			.parameters
 		expect(computerUse).toMatchObject({
 			type: 'object',
 			required: ['type'],

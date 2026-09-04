@@ -20,7 +20,6 @@ import type { ContextReducer } from '../../compaction/reducer.js'
 import { serializeState as serializeWorkingState } from '../../compaction/serializer.js'
 import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
 import { type CompactionConfig, CompactionConfigSchema } from '../../config/runtime.js'
-import { BOOT_EVENT_NAMES } from '../../constants/telemetry/index.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
@@ -35,7 +34,6 @@ import {
 } from '../../provider/fallback.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../../provider/idle-timeout.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
-import { DefaultFilesystemMigrator, loggingMigrationSink } from '../../session/migration/index.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import { resolveAttachments } from '../../store/attachment/index.js'
 import {
@@ -111,7 +109,6 @@ import type { ModelPricing } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateRunId } from '../../utils/id.js'
 import { errorAttributes } from '../../utils/log/exception.js'
-import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { AUTO_APPROVE_POLICY_NAME, createRunApprovalPolicy } from './approval-policy.js'
@@ -1060,44 +1057,6 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		projectId: params.projectId,
 		tenantId: params.tenantId,
 	})
-
-	// Boot-time filesystem migration (session-hierarchy.md §13.4.1). First
-	// call per process per root actually runs; subsequent calls short-circuit
-	// via the in-memory guard in `context.ts`. Kept here rather than inside
-	// the synchronous `RunContextFactory.build` so the factory signature stays
-	// sync for tests / non-async call sites.
-	//
-	// The migrator built here — not `ensureMigrated`'s own default — is what
-	// turns the migration facts `DefaultFilesystemMigrator` already computes
-	// into a `namzu.migration.completed` record instead of discarding them.
-	// `ensureMigrated`'s default parameter stays
-	// `NOOP_FILESYSTEM_MIGRATION_SINK` (see `context.ts`), so any other path
-	// that reaches `ensureMigrated` keeps today's silent behaviour.
-	const cwdForMigration = params.workingDirectory ?? process.cwd()
-	const migrationRoot = params.pathBuilder?.rootDir() ?? join(cwdForMigration, '.namzu')
-	const migrationResult = await RunContextFactory.ensureMigrated(
-		migrationRoot,
-		new DefaultFilesystemMigrator(loggingMigrationSink(log)),
-	)
-	// `loggingMigrationSink` only ever hears about `kind: 'migrated'` — the
-	// only outcome `DefaultFilesystemMigrator` ever hands its sink (see the
-	// module doc on `FilesystemMigrationSink`). The other two are logged
-	// here, straight off the resolved result, rather than by widening
-	// `FilesystemMigrationEvent` to carry them: a wider union would need a
-	// new arm in every exhaustive switch already written over it — a major —
-	// for two outcomes `migrationResult.kind` already fully describes.
-	if (migrationResult.kind !== 'migrated') {
-		log.debug('filesystem migration: nothing to do', {
-			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.MIGRATION_COMPLETED,
-			// `namzu.migration.*`, matching `loggingMigrationSink` — the OTHER
-			// emitter of this same event name. Two emitters of one event writing
-			// two namespaces for the same fact is precisely the collision the
-			// namespaced-key rule exists to stop, and a per-module derivation is
-			// how it would be reintroduced.
-			'namzu.migration.kind': migrationResult.kind,
-			'namzu.migration.marker_path': migrationResult.markerPath,
-		})
-	}
 
 	// Every model call in the run — the loop's turns, the forced-final
 	// summary, advisory and compaction side calls — goes through this one

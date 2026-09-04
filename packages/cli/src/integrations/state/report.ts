@@ -3,7 +3,9 @@ import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 
-import { DiskSessionStore, UNKNOWN_TENANT_ID } from '@namzu/sdk'
+import { DiskSessionStore } from '@namzu/sdk'
+
+import { readIdentity } from './identity.js'
 
 const MAX_METADATA_BYTES = 4 * 1024 * 1024
 const MAX_ORIGIN_BYTES = 64 * 1024
@@ -310,9 +312,17 @@ async function inspectCentralProjectBinding(
 	canonicalCwd: string,
 ): Promise<ProjectBinding> {
 	try {
+		// Read-only: an inventory reports what is there and mints nothing.
+		const identity = readIdentity(centralRoot)
+		if (!identity) {
+			return {
+				status: 'uninitialized',
+				detail: 'No identity has been minted in this application home, so no Project can be bound.',
+			}
+		}
 		const project = await new DiskSessionStore({ rootDir: centralRoot }).findProjectByRootPath(
 			canonicalCwd,
-			UNKNOWN_TENANT_ID,
+			identity.tenantId,
 		)
 		if (!project) {
 			return {

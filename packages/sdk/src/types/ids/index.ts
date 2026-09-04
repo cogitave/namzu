@@ -1,4 +1,4 @@
-import { type Id, unsafeId } from './brand.js'
+import type { Id } from './brand.js'
 
 /**
  * Every id here is NOMINAL as of NZ-SURF-11: `Id<Prefix, Tag>` intersects the
@@ -120,4 +120,23 @@ export type DeliverableId = Id<'del', 'DeliverableId'>
 // `unsafeId`, not `asTenantId`: `utils/id.ts` imports this file, so reaching
 // for its constructor here would close a cycle. The prefix is pinned by
 // `__tests__/an-id-is-not-a-string.test.ts` instead.
-export const UNKNOWN_TENANT_ID = unsafeId<TenantId>('tnt_unknown_legacy')
+
+/**
+ * A persisted id that carries a prefix this kernel no longer accepts.
+ *
+ * Every id type has exactly one prefix, and a reader that meets another
+ * refuses rather than rewrites: the record's meaning is not the reader's
+ * to guess, and a silent rewrite is how the `thd_` era's ambiguity lasted
+ * three versions. The message names the file's owner's way out.
+ */
+export class RetiredIdPrefixError extends Error {
+	constructor(
+		readonly value: string,
+		readonly expectedPrefix: string,
+	) {
+		super(
+			`Retired id prefix: ${JSON.stringify(value)} is not a ${JSON.stringify(expectedPrefix)} id. Records written by namzu before 0.2 are not read by this version; open them with a 0.x namzu that migrates them, or start fresh.`,
+		)
+		this.name = 'RetiredIdPrefixError'
+	}
+}

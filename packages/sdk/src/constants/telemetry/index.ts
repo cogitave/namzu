@@ -146,7 +146,6 @@ export const BOOT_EVENT_NAMES = {
 	CAPABILITY_DETECTED: 'namzu.capability.detected',
 	CAPABILITY_BROKEN: 'namzu.capability.broken',
 	TELEMETRY_STATUS: 'namzu.telemetry.status',
-	MIGRATION_COMPLETED: 'namzu.migration.completed',
 	DISCOVERY_COMPLETED: 'namzu.discovery.completed',
 	BOOT_REFUSED: 'namzu.boot.refused',
 	BOOT_READY: 'namzu.boot.ready',

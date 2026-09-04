@@ -233,18 +233,23 @@ function parseId<T extends `${P}${string}`, P extends string = string>(
 	return unsafeId<T>(raw)
 }
 
+/** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseProjectId(raw: string): ProjectId {
 	return parseId(raw, 'prj_', 'ProjectId')
 }
+/** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseRunId(raw: string): RunId {
 	return parseId(raw, 'run_', 'RunId')
 }
+/** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseConnectorInstanceId(raw: string): ConnectorInstanceId {
 	return parseId(raw, 'ci_', 'ConnectorInstanceId')
 }
+/** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parsePluginId(raw: string): PluginId {
 	return parseId(raw, 'plg_', 'PluginId')
 }
+/** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseSandboxId(raw: string): SandboxId {
 	return parseId(raw, 'sbx_', 'SandboxId')
 }

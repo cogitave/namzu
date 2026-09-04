@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { RetiredIdPrefixError } from '../../types/ids/index.js'
 
 import type { ProjectId, SessionId, TenantId, TopicId, UserId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -126,7 +127,7 @@ describe('what comes back off disk', () => {
 })
 
 describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
-	it('migrates a pre-rename session.json: threadId becomes topicId, threadId is gone', async () => {
+	it('refuses a pre-rename session.json whose thread id carries the retired prefix', async () => {
 		const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
 		const sessionId = 'ses_legacy' as SessionId
 		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
@@ -152,15 +153,10 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		}
 		await writeFile(join(dir, 'session.json'), JSON.stringify(legacy), 'utf-8')
 
-		const loaded = await store.getSession(sessionId, TENANT)
-		expect(loaded).not.toBeNull()
-		// v1 chains straight through v1->v2 (rename) AND v2->v3 (top_ rewrite)
-		// in the same migrate() call — a record this old was never `top_` and
-		// must not still read back `thd_`.
-		expect((loaded as unknown as { topicId?: unknown })?.topicId).toBe('top_legacy')
-		// `deserializeSession` only ever reads `topicId` off the persisted
-		// record now, so this is really asserting the migration ran at all.
-		expect((loaded as unknown as { threadId?: unknown })?.threadId).toBeUndefined()
+		// v1 chains through v1->v2 (rename) and v2->v3 (prefix check) in one
+		// migrate() call; a record that still carries the retired `thd_`
+		// prefix is refused there, not rewritten.
+		await expect(store.getSession(sessionId, TENANT)).rejects.toThrow(RetiredIdPrefixError)
 	})
 
 	it('a legacy record survives a subsequent write at the current schema version', async () => {
@@ -173,7 +169,7 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		await mkdir(dir, { recursive: true })
 		const legacy = {
 			id: sessionId,
-			threadId: 'thd_legacy2',
+			threadId: 'top_legacy2',
 			projectId: project.id,
 			tenantId: TENANT,
 			status: 'idle',
@@ -226,14 +222,14 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 	it('migrateSessionStoreThreadIdToTopicId renames threadId and removes it when present', () => {
 		const legacySession = {
 			id: 'ses_x',
-			threadId: 'thd_x',
+			threadId: 'top_x',
 			projectId: 'prj_x',
 			tenantId: TENANT,
 		}
 		const migrated = migrateSessionStoreThreadIdToTopicId({ ...legacySession })
 		expect(migrated).toStrictEqual({
 			id: 'ses_x',
-			topicId: 'thd_x',
+			topicId: 'top_x',
 			projectId: 'prj_x',
 			tenantId: TENANT,
 		})
@@ -241,8 +237,8 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 	})
 })
 
-describe('topicId thd_ → top_ prefix (NZ-TOPIC-04, v2→v3)', () => {
-	it('migrates a v2 session.json whose topicId still carries the thd_ prefix', async () => {
+describe('topicId prefix check (v2→v3)', () => {
+	it('refuses a v2 session.json whose topicId still carries the retired thd_ prefix', async () => {
 		const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
 		const sessionId = 'ses_v2legacy' as SessionId
 		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
@@ -265,9 +261,7 @@ describe('topicId thd_ → top_ prefix (NZ-TOPIC-04, v2→v3)', () => {
 		}
 		await writeFile(join(dir, 'session.json'), JSON.stringify(v2Record), 'utf-8')
 
-		const loaded = await store.getSession(sessionId, TENANT)
-		expect(loaded).not.toBeNull()
-		expect((loaded as unknown as { topicId?: unknown })?.topicId).toBe('top_v2')
+		await expect(store.getSession(sessionId, TENANT)).rejects.toThrow(RetiredIdPrefixError)
 	})
 
 	it('running the migration a second time is a no-op: file bytes are unchanged because a read never writes', async () => {
@@ -277,7 +271,7 @@ describe('topicId thd_ → top_ prefix (NZ-TOPIC-04, v2→v3)', () => {
 		await mkdir(dir, { recursive: true })
 		const v2Record = {
 			id: sessionId,
-			topicId: 'thd_idem',
+			topicId: 'top_idem',
 			projectId: project.id,
 			tenantId: TENANT,
 			status: 'idle',
@@ -301,7 +295,7 @@ describe('topicId thd_ → top_ prefix (NZ-TOPIC-04, v2→v3)', () => {
 		// Unlike `filesystem.ts`'s marker-gated boot migration, this migration
 		// is a lazy per-record read: nothing writes, so "run it twice" cannot
 		// double-prefix a value even in principle. Both reads leave the exact
-		// pre-migration bytes on disk (still `thd_idem` — only the in-memory
+		// pre-migration bytes on disk (still `top_idem` — only the in-memory
 		// return value is migrated), and the two reads agree with each other.
 		expect(afterFirstRead).toBe(raw)
 		expect(afterSecondRead).toBe(raw)
@@ -319,14 +313,8 @@ describe('topicId thd_ → top_ prefix (NZ-TOPIC-04, v2→v3)', () => {
 		expect(migrateSessionStoreTopicIdPrefix(record)).toBe(record)
 	})
 
-	it('migrateSessionStoreTopicIdPrefix rewrites a thd_-prefixed topicId to top_ and nothing else', () => {
+	it('migrateSessionStoreTopicIdPrefix refuses a thd_-prefixed topicId instead of rewriting it', () => {
 		const record = { id: 'ses_x', topicId: 'thd_rewrite', tenantId: TENANT, extra: 'kept' }
-		const migrated = migrateSessionStoreTopicIdPrefix({ ...record })
-		expect(migrated).toStrictEqual({
-			id: 'ses_x',
-			topicId: 'top_rewrite',
-			tenantId: TENANT,
-			extra: 'kept',
-		})
+		expect(() => migrateSessionStoreTopicIdPrefix(record)).toThrow(RetiredIdPrefixError)
 	})
 })

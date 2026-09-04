@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
 import { defineTool } from '../../tools/defineTool.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import { parseConnectorInstanceId } from '../../utils/id.js'
+import { asConnectorInstanceId } from '../../utils/id.js'
 import { connectorToolError } from './result.js'
 
 export interface ConnectorToolConfig {
@@ -30,7 +30,7 @@ export function createConnectorExecuteTool(config: ConnectorToolConfig): ToolDef
 		concurrencySafe: true,
 
 		async execute(input, context) {
-			const instanceId = parseConnectorInstanceId(String(input.instance_id))
+			const instanceId = asConnectorInstanceId(String(input.instance_id))
 			const instance = config.manager.getInstance(instanceId)
 
 			if (!instance) {

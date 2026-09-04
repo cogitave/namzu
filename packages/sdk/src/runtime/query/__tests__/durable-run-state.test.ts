@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
+import { RetiredIdPrefixError } from '../../../types/ids/index.js'
 
 import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import type {
@@ -193,16 +194,12 @@ describe('parseRunState', () => {
 		expect(parseRunState(state).runId).toBe(RUN_ID)
 	})
 
-	it('coerces a version-1 snapshot: threadId becomes topicId AND the thd_ value becomes top_ (NZ-TOPIC-03 + NZ-TOPIC-04 chained)', () => {
-		// Exactly the pre-NZ-TOPIC-03 shape a host could have serialized under
-		// the original RUN_STATE_VERSION: 1, and be reading back today — field
-		// still `threadId`, value still `thd_` (NZ-TOPIC-04's narrowing did
-		// not exist when this snapshot was written either).
+	it('coerces a version-1 snapshot: threadId becomes topicId', () => {
 		const legacy = {
 			version: 1,
 			runId: RUN_ID,
 			sessionId: 'ses_d',
-			threadId: 'thd_d',
+			threadId: 'top_d',
 			projectId: 'prj_d',
 			tenantId: 'tnt_d',
 		}
@@ -212,6 +209,16 @@ describe('parseRunState', () => {
 		expect((revived as unknown as { threadId?: unknown }).threadId).toBeUndefined()
 	})
 
+	it('refuses a snapshot whose topic id carries the retired thd_ prefix, rather than rewriting it', () => {
+		// The pre-0.2 container prefix. A reader that rewrote it would be
+		// deciding what a record means on the writer's behalf; it refuses and
+		// names the way out instead.
+		const v1 = { version: 1, runId: RUN_ID, threadId: 'thd_d' }
+		expect(() => parseRunState(JSON.stringify(v1))).toThrow(RetiredIdPrefixError)
+		const v2 = { version: 2, runId: RUN_ID, topicId: 'thd_d' }
+		expect(() => parseRunState(JSON.stringify(v2))).toThrow(RetiredIdPrefixError)
+	})
+
 	it('coerces a version-1 snapshot with no threadId without stamping a stray topicId', () => {
 		const legacy = { version: 1, runId: RUN_ID }
 		const revived = parseRunState(JSON.stringify(legacy))
@@ -219,24 +226,6 @@ describe('parseRunState', () => {
 		// toEqual would forgive an unconditionally-added `topicId: undefined`;
 		// the `in` check does not, which is the whole point of this assertion.
 		expect('topicId' in revived).toBe(false)
-	})
-
-	it('coerces a version-2 snapshot: topicId is already the field name, but the thd_ prefix is rewritten to top_ (NZ-TOPIC-04)', () => {
-		// Exactly what a host running the SDK between NZ-TOPIC-03 and
-		// NZ-TOPIC-04 could have serialized: field already `topicId`, value
-		// still `thd_`-prefixed, stamped at the RUN_STATE_VERSION that release
-		// shipped (2).
-		const v2 = {
-			version: 2,
-			runId: RUN_ID,
-			sessionId: 'ses_d',
-			topicId: 'thd_d',
-			projectId: 'prj_d',
-			tenantId: 'tnt_d',
-		}
-		const revived = parseRunState(JSON.stringify(v2))
-		expect(revived.version).toBe(RUN_STATE_VERSION)
-		expect((revived as unknown as { topicId?: unknown }).topicId).toBe('top_d')
 	})
 
 	it('coerces a version-2 snapshot with no topicId without stamping a stray field', () => {
