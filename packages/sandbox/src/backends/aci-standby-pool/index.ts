@@ -63,7 +63,10 @@ import {
 	resolveReadinessOptions,
 	runFailureCleanup,
 } from '../readiness.js'
-import { RemoteCancellationUnknownError } from '../remote-execution-controller.js'
+import {
+	RemoteCancellationUnknownError,
+	RemoteProtocolError,
+} from '../remote-execution-controller.js'
 
 /**
  * Authentication callback. Caller returns a fresh Azure Resource
@@ -735,6 +738,7 @@ async function waitForWorkerReady(
 			if (result.ok) return
 		} catch (err) {
 			if (err instanceof OperationDeadlineExpired) break
+			if (err instanceof RemoteProtocolError) throw err
 			// Network not ready yet, try again.
 		}
 		try {

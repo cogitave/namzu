@@ -16,7 +16,7 @@
  * host picks the `microvm` tier instead.)
  *
  * Endpoints:
- *   GET  /healthz       — liveness probe.
+ *   GET  /healthz       — exact-protocol readiness probe.
  *   POST /execute       — run a command inside the workspace.
  *                         body: { executionId?, command, args, cwd, env, stdin,
  *                                 timeoutMs, maxOutputBytes }
@@ -57,6 +57,8 @@ const { spawn } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const fs = require('node:fs/promises')
 const path = require('node:path')
+
+const REMOTE_EXECUTION_PROTOCOL_VERSION = 2
 
 /**
  * Prefix every variable this worker reads its own configuration from.
@@ -416,7 +418,7 @@ async function handleReserveExecution(_req, res) {
 	})
 	writeJson(res, 201, {
 		ok: true,
-		protocolVersion: 2,
+		protocolVersion: REMOTE_EXECUTION_PROTOCOL_VERSION,
 		executionId,
 		leaseExpiresAt,
 	})
@@ -939,7 +941,10 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 		if (req.method === 'GET' && req.url === '/healthz') {
-			writeJson(res, 200, { ok: true })
+			writeJson(res, 200, {
+				ok: true,
+				protocolVersion: REMOTE_EXECUTION_PROTOCOL_VERSION,
+			})
 			return
 		}
 		if (req.method === 'POST' && req.url === '/execute') {

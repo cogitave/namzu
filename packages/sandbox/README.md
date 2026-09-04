@@ -64,7 +64,7 @@ const provider = createSandboxProvider({
 })
 ```
 
-## Cancellation and worker compatibility
+## Protocol readiness and cancellation
 
 Pass `SandboxExecOptions.signal` to stop a command on any shipped backend. A
 remote host reserves every command before admission and the container worker or
@@ -85,12 +85,15 @@ Concurrent destroy and automatic-retirement calls share one checked teardown;
 Docker removal is never reported as accepted after a non-zero or aborted
 `docker rm -f`.
 
-The cancellation path requires a worker or guest image built from the same
-release. A current host explicitly detects an older peer and remains compatible
-with legacy no-signal execution, but a signal sent to that peer is refused with
-a rebuild instruction. For a standby pool, publish a new container group
-profile revision containing the current worker before enabling cancellation;
-for a microVM deployment, rebuild its golden guest image.
+Every worker and microVM guest publishes its wire-protocol version in the
+readiness response. The host admits only the exact version implemented by its
+release; missing, older, and newer versions fail before a sandbox handle or
+command is returned. There is no identity-less legacy execution path. For a
+standby pool, publish a new container group profile revision containing the
+matching worker before deploying the host; for a microVM deployment, rebuild
+and validate its golden guest image from the same release. Firecracker hosts
+can import `FIRECRACKER_AGENT_PROTOCOL_VERSION` to apply the same admission
+check in their own warm-pool probe.
 
 ## Documentation
 

@@ -99,7 +99,7 @@ describe('the shared HTTP worker execution client', () => {
 		])
 	})
 
-	it('falls back only after an explicit old-worker response and caches that peer capability', async () => {
+	it('refuses an old worker without starting identity-less execution', async () => {
 		const paths: string[] = []
 		const fetch_ = vi.fn(async (input: string | URL | Request) => {
 			const url = String(input)
@@ -113,14 +113,8 @@ describe('the shared HTTP worker execution client', () => {
 		vi.stubGlobal('fetch', fetch_)
 		const client = new HttpWorkerClient('http://old-worker')
 
-		await expect(client.exec('true', [], undefined)).resolves.toMatchObject({ exitCode: 0 })
-		await expect(client.exec('true', [], undefined)).resolves.toMatchObject({ exitCode: 0 })
-
-		expect(paths).toEqual([
-			'http://old-worker/executions/reserve',
-			'http://old-worker/execute',
-			'http://old-worker/execute',
-		])
+		await expect(client.exec('true', [], undefined)).rejects.toThrow(/protocol/i)
+		expect(paths).toEqual(['http://old-worker/executions/reserve'])
 	})
 
 	it('admits nothing for an already-aborted caller', async () => {

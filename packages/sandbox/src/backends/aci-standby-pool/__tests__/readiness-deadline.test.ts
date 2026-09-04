@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ResolvedContainerSandboxLayout } from '@namzu/sdk'
 
+import { REMOTE_EXECUTION_PROTOCOL_VERSION } from '../../remote-execution-controller.js'
 import { buildAciStandbyPoolBackend } from '../index.js'
 
 const realFetch = globalThis.fetch
@@ -15,6 +16,15 @@ const layout: ResolvedContainerSandboxLayout = {
 afterEach(() => {
 	globalThis.fetch = realFetch
 })
+
+function workerHealthResponse(
+	protocolVersion: number | undefined = REMOTE_EXECUTION_PROTOCOL_VERSION,
+): Response {
+	return new Response(JSON.stringify({ ok: true, protocolVersion }), {
+		status: 200,
+		headers: { 'content-type': 'application/json' },
+	})
+}
 
 function backend(timeoutMs = 25) {
 	return buildAciStandbyPoolBackend({
@@ -70,7 +80,7 @@ function stubClaim(
 		}
 		if (url === 'http://10.0.0.8:2024/healthz') {
 			healthSignal = init?.signal ?? undefined
-			if (options.ready) return new Response('ok', { status: 200 })
+			if (options.ready) return workerHealthResponse()
 			return await new Promise<Response>(() => undefined)
 		}
 		if (url.startsWith('https://management.azure.com') && method === 'DELETE') {
@@ -122,7 +132,7 @@ describe('standby worker readiness deadline', () => {
 				return new Response(null, { status: 204 })
 			}
 			workerPaths.push(url)
-			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
+			if (url.endsWith('/healthz')) return workerHealthResponse()
 			if (url.endsWith('/executions/reserve')) {
 				return new Response(
 					JSON.stringify({
@@ -166,8 +176,9 @@ describe('standby worker readiness deadline', () => {
 		expect(performance.now() - startedAt).toBeLessThan(500)
 	})
 
-	it('retires and fences an old worker after an identity-less execution outcome becomes unknown', async () => {
+	it('refuses an older worker before command admission and releases the container group', async () => {
 		let deleteCalls = 0
+		let commandCalls = 0
 		globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 			const url = String(input)
 			const method = init?.method ?? 'GET'
@@ -186,27 +197,25 @@ describe('standby worker readiness deadline', () => {
 				deleteCalls += 1
 				return new Response(null, { status: 410 })
 			}
-			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
-			if (url.endsWith('/executions/reserve')) {
-				return new Response(JSON.stringify({ error: 'not_found' }), { status: 404 })
+			if (url.endsWith('/healthz')) {
+				return workerHealthResponse(REMOTE_EXECUTION_PROTOCOL_VERSION - 1)
 			}
-			if (url.endsWith('/execute')) return new Response('not-json\n', { status: 200 })
+			if (url.endsWith('/executions/reserve')) {
+				commandCalls += 1
+				return new Response(null, { status: 500 })
+			}
+			if (url.endsWith('/execute')) {
+				commandCalls += 1
+				return new Response(null, { status: 500 })
+			}
 			throw new Error(`unexpected URL ${url}`)
 		}) as typeof fetch
-		const sandbox = await backend(100).create({ workingDirectory: '/workspace' })
 
-		try {
-			await sandbox.exec('ambiguous')
-			expect.unreachable('an identity-less remote outcome must retire its container group')
-		} catch (error) {
-			expect(error).toMatchObject({ retirement: { accepted: true } })
-			expect((error as Error).message).toMatch(/outcome is unknown/i)
-		}
-		expect(sandbox.status).toBe('destroyed')
+		await expect(backend(100).create({ workingDirectory: '/workspace' })).rejects.toThrow(
+			/protocol version/i,
+		)
 		expect(deleteCalls).toBe(1)
-		await expect(sandbox.writeFile('anything', 'nope')).rejects.toThrow(/no new worker operation/)
-		await sandbox.destroy()
-		expect(deleteCalls).toBe(1)
+		expect(commandCalls).toBe(0)
 	})
 
 	it('uses the same total clock while waiting for an IP address', async () => {

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { REMOTE_EXECUTION_PROTOCOL_VERSION } from '../../remote-execution-controller.js'
 import { buildDockerBackend, resolveLayout } from '../index.js'
 
 const realFetch = globalThis.fetch
@@ -33,6 +34,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+	vi.useRealTimers()
 	globalThis.fetch = realFetch
 	process.env.NAMZU_TEST_DOCKER_LOG = undefined
 	process.env.NAMZU_TEST_HOLD_DOCKER_RM = undefined
@@ -57,13 +59,28 @@ function cleanupCalls(): number {
 	return readFileSync(dockerLog, 'utf8').trim().split('\n').length
 }
 
+function workerHealthResponse(
+	protocolVersion: number | 'missing' = REMOTE_EXECUTION_PROTOCOL_VERSION,
+): Response {
+	return new Response(
+		JSON.stringify({
+			ok: true,
+			...(protocolVersion === 'missing' ? {} : { protocolVersion }),
+		}),
+		{
+			status: 200,
+			headers: { 'content-type': 'application/json' },
+		},
+	)
+}
+
 describe('docker worker readiness deadline', () => {
 	it('routes a cancellable exec through the worker lease protocol', async () => {
 		const paths: string[] = []
 		globalThis.fetch = vi.fn(async (input) => {
 			const url = String(input)
 			paths.push(url)
-			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
+			if (url.endsWith('/healthz')) return workerHealthResponse()
 			if (url.endsWith('/executions/reserve')) {
 				return new Response(
 					JSON.stringify({
@@ -100,7 +117,7 @@ describe('docker worker readiness deadline', () => {
 		let reservation = 0
 		globalThis.fetch = vi.fn(async (input) => {
 			const url = String(input)
-			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
+			if (url.endsWith('/healthz')) return workerHealthResponse()
 			if (url.endsWith('/executions/reserve')) {
 				reservation += 1
 				return new Response(
@@ -150,32 +167,33 @@ describe('docker worker readiness deadline', () => {
 		expect(sandbox.status).toBe('destroyed')
 	})
 
-	it('retires and fences an old worker after an identity-less execution outcome becomes unknown', async () => {
+	it('refuses an unversioned worker before command admission and tears the container down', async () => {
+		let reserveCalls = 0
+		let executeCalls = 0
 		globalThis.fetch = vi.fn(async (input) => {
 			const url = String(input)
-			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
+			if (url.endsWith('/healthz')) return workerHealthResponse('missing')
 			if (url.endsWith('/executions/reserve')) {
+				reserveCalls += 1
 				return new Response(JSON.stringify({ error: 'not_found' }), {
 					status: 404,
 				})
 			}
-			if (url.endsWith('/execute')) return new Response('not-json\n', { status: 200 })
+			if (url.endsWith('/execute')) {
+				executeCalls += 1
+				return new Response('not-json\n', { status: 200 })
+			}
 			throw new Error(`unexpected URL ${url}`)
 		}) as typeof fetch
-		const sandbox = await backend(100).create({ workingDirectory: workDir })
 
-		try {
-			await sandbox.exec('ambiguous')
-			expect.unreachable('an identity-less remote outcome must retire its container')
-		} catch (error) {
-			expect(error).toMatchObject({ retirement: { accepted: true } })
-			expect((error as Error).message).toMatch(/outcome is unknown/i)
-		}
-		expect(sandbox.status).toBe('destroyed')
+		const startedAt = performance.now()
+		await expect(backend(100).create({ workingDirectory: workDir })).rejects.toThrow(
+			/protocol version/i,
+		)
+		expect(performance.now() - startedAt).toBeLessThan(500)
 		expect(cleanupCalls()).toBe(1)
-		await expect(sandbox.readFile('anything')).rejects.toThrow(/no new worker operation/)
-		await sandbox.destroy()
-		expect(cleanupCalls()).toBe(1)
+		expect(reserveCalls).toBe(0)
+		expect(executeCalls).toBe(0)
 	})
 
 	it('settles and aborts a health fetch implementation that ignores cancellation', async () => {
@@ -236,7 +254,7 @@ describe('docker worker readiness deadline', () => {
 	})
 
 	it('passes teardown authority to a held docker rm child', async () => {
-		globalThis.fetch = vi.fn(async () => new Response('ok', { status: 200 })) as typeof fetch
+		globalThis.fetch = vi.fn(async () => workerHealthResponse()) as typeof fetch
 		const sandbox = await backend().create({ workingDirectory: workDir })
 		process.env.NAMZU_TEST_HOLD_DOCKER_RM = '1'
 		const owner = new AbortController()
@@ -252,24 +270,59 @@ describe('docker worker readiness deadline', () => {
 		expect(performance.now() - startedAt).toBeLessThan(500)
 	})
 
+	it('refuses a future worker protocol before returning a sandbox handle', async () => {
+		let commandCalls = 0
+		globalThis.fetch = vi.fn(async (input) => {
+			const url = String(input)
+			if (url.endsWith('/healthz')) {
+				return workerHealthResponse(REMOTE_EXECUTION_PROTOCOL_VERSION + 1)
+			}
+			if (url.endsWith('/executions/reserve')) {
+				commandCalls += 1
+				return new Response(null, { status: 500 })
+			}
+			if (url.endsWith('/execute')) {
+				commandCalls += 1
+				return new Response(null, { status: 500 })
+			}
+			throw new Error(`unexpected URL ${url}`)
+		}) as typeof fetch
+
+		await expect(backend(100).create({ workingDirectory: workDir })).rejects.toThrow(
+			/protocol version/i,
+		)
+		expect(cleanupCalls()).toBe(1)
+		expect(commandCalls).toBe(0)
+	})
+
 	it('reports a failed security retirement instead of claiming the container was removed', async () => {
 		globalThis.fetch = vi.fn(async (input) => {
 			const url = String(input)
-			if (url.endsWith('/healthz')) return new Response('ok', { status: 200 })
+			if (url.endsWith('/healthz')) return workerHealthResponse()
 			if (url.endsWith('/executions/reserve')) {
-				return new Response(JSON.stringify({ error: 'not_found' }), {
-					status: 404,
-				})
+				return new Response(
+					JSON.stringify({
+						ok: true,
+						protocolVersion: REMOTE_EXECUTION_PROTOCOL_VERSION,
+						executionId: 'exec_00000000-0000-4000-8000-000000000001',
+						leaseExpiresAt: Date.now() + 30_000,
+					}),
+					{ status: 201 },
+				)
 			}
 			if (url.endsWith('/execute')) return new Response('not-json\n', { status: 200 })
+			if (url.endsWith('/cancel')) return new Response('unavailable', { status: 503 })
 			throw new Error(`unexpected URL ${url}`)
 		}) as typeof fetch
 		const sandbox = await backend(100).create({ workingDirectory: workDir })
 		process.env.NAMZU_TEST_FAIL_DOCKER_RM = '1'
+		vi.useFakeTimers()
+		const execution = sandbox.exec('ambiguous')
+		await vi.advanceTimersByTimeAsync(8_100)
 
 		try {
-			await sandbox.exec('ambiguous')
-			expect.unreachable('an unconfirmed removal must remain observable')
+			await execution
+			expect.unreachable('an unreconciled remote outcome must retire its container')
 		} catch (error) {
 			expect(error).toMatchObject({
 				retirement: { accepted: false, error: expect.any(Error) },
@@ -278,5 +331,9 @@ describe('docker worker readiness deadline', () => {
 		expect(sandbox.status).toBe('destroyed')
 		expect(cleanupCalls()).toBe(1)
 		await expect(sandbox.readFile('anything')).rejects.toThrow(/no new worker operation/)
+		process.env.NAMZU_TEST_FAIL_DOCKER_RM = undefined
+		await sandbox.destroy()
+		expect(cleanupCalls()).toBe(2)
+		expect(sandbox.status).toBe('destroyed')
 	})
 })

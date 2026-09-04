@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
 	OperationDeadline,
 	OperationDeadlineExpired,
+	probeHttpHealth,
 	resolveReadinessOptions,
 	runFailureCleanup,
 } from './readiness.js'
+import { REMOTE_EXECUTION_PROTOCOL_VERSION } from './remote-execution-controller.js'
 
 afterEach(() => {
 	vi.useRealTimers()
@@ -70,6 +72,38 @@ describe('OperationDeadline', () => {
 		await expect(deadline.run(async () => 'late-ready')).rejects.toBeInstanceOf(
 			OperationDeadlineExpired,
 		)
+	})
+})
+
+describe('HTTP worker protocol readiness', () => {
+	it('accepts only the exact remote execution protocol', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					ok: true,
+					protocolVersion: REMOTE_EXECUTION_PROTOCOL_VERSION,
+				}),
+				{ status: 200 },
+			),
+		)
+
+		await expect(
+			probeHttpHealth('http://worker.test/healthz', new AbortController().signal),
+		).resolves.toEqual({ ok: true, status: 200 })
+	})
+
+	it.each([
+		['missing', { ok: true }],
+		['older', { ok: true, protocolVersion: REMOTE_EXECUTION_PROTOCOL_VERSION - 1 }],
+		['newer', { ok: true, protocolVersion: REMOTE_EXECUTION_PROTOCOL_VERSION + 1 }],
+	])('refuses a %s worker protocol', async (_label, payload) => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(JSON.stringify(payload), { status: 200 }),
+		)
+
+		await expect(
+			probeHttpHealth('http://worker.test/healthz', new AbortController().signal),
+		).rejects.toThrow(/protocol version/i)
 	})
 })
 

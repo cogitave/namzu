@@ -439,6 +439,7 @@
       "runtime": [
         "ContainerSandboxLayoutValidationError",
         "EgressProxy",
+        "FIRECRACKER_AGENT_PROTOCOL_VERSION",
         "SANDBOX_DEFAULT_OUTPUTS_PATH",
         "SANDBOX_DEFAULT_SKILLS_PARENT",
         "SANDBOX_DEFAULT_TOOL_RESULTS_PATH",
@@ -464,6 +465,7 @@
         "EgressPolicy",
         "EgressProxy",
         "EgressProxyOptions",
+        "FIRECRACKER_AGENT_PROTOCOL_VERSION",
         "FirecrackerBackendInternalConfig",
         "MicroVMBackendConfig",
         "OrchestratorTokenProvider",

@@ -9,9 +9,12 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647
 const EXECUTION_ID_PATTERN =
 	/^exec_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+/** Exact wire version implemented by the shipped worker and microVM guest. */
+export const REMOTE_EXECUTION_PROTOCOL_VERSION = 2 as const
+
 export interface RemoteReservation {
 	readonly ok: true
-	readonly protocolVersion: 2
+	readonly protocolVersion: typeof REMOTE_EXECUTION_PROTOCOL_VERSION
 	readonly executionId: string
 	readonly leaseExpiresAt: number
 }
@@ -36,8 +39,6 @@ export interface RemoteCancellationAcknowledgement {
 export class RemoteCommandError extends Error {}
 
 export class RemoteProtocolError extends Error {}
-
-export class RemoteCancellationUnsupportedError extends Error {}
 
 export interface SandboxRetirementObservation {
 	readonly accepted: boolean
@@ -106,7 +107,7 @@ function parseReservation(value: unknown): RemoteReservation {
 	const reservation = value as Record<string, unknown>
 	if (
 		reservation.ok !== true ||
-		reservation.protocolVersion !== 2 ||
+		reservation.protocolVersion !== REMOTE_EXECUTION_PROTOCOL_VERSION ||
 		!EXECUTION_ID_PATTERN.test(String(reservation.executionId ?? '')) ||
 		!Number.isFinite(reservation.leaseExpiresAt)
 	) {
@@ -223,17 +224,13 @@ async function bounded<T>(
 	}
 }
 
-type Capability = 'unknown' | 'supported' | 'unsupported'
-
 /**
- * One state machine for remote command ownership. A v2 peer reserves every
- * command, even when the caller supplied no signal, so transport loss can be
- * reconciled by identity. Legacy execution is entered only after an explicit
- * unsupported response from the peer and is fenced as unknown on any failure.
+ * One state machine for remote command ownership. Every supported peer reserves
+ * every command before admission, even when the caller supplied no signal, so
+ * transport loss can be reconciled by identity. An old peer is refused; an
+ * identity-less remote command is never started.
  */
 export class RemoteExecutionController<Context = undefined> {
-	private capability: Capability = 'unknown'
-	private unsupportedError: RemoteCancellationUnsupportedError | undefined
 	private readonly controlRequestTimeoutMs: number
 	private readonly cancelConfirmTimeoutMs: number
 	private readonly resultDrainTimeoutMs: number
@@ -261,17 +258,6 @@ export class RemoteExecutionController<Context = undefined> {
 	): Promise<SandboxExecResult> {
 		const startedAt = Date.now()
 		if (opts?.signal?.aborted) return cancelledBeforeStart(startedAt)
-		if (this.capability === 'unsupported') {
-			if (opts?.signal) {
-				throw (
-					this.unsupportedError ??
-					new RemoteCancellationUnsupportedError(
-						`${this.adapter.label} was classified as cancellation-unsupported`,
-					)
-				)
-			}
-			return await this.executeLegacy(command, argv, opts, context)
-		}
 
 		let reservation: RemoteReservation
 		try {
@@ -283,44 +269,12 @@ export class RemoteExecutionController<Context = undefined> {
 					opts?.signal,
 				),
 			)
-			this.capability = 'supported'
 		} catch (error) {
 			if (opts?.signal?.aborted) return cancelledBeforeStart(startedAt)
-			if (error instanceof RemoteCancellationUnsupportedError) {
-				this.capability = 'unsupported'
-				this.unsupportedError = error
-				if (opts?.signal) throw error
-				return await this.executeLegacy(command, argv, opts, context)
-			}
 			throw error
 		}
 
 		return await this.executeReserved(reservation, command, argv, opts, startedAt, context)
-	}
-
-	private async executeLegacy(
-		command: string,
-		argv: string[] | undefined,
-		opts: SandboxExecOptions | undefined,
-		context: Context | undefined,
-	): Promise<SandboxExecResult> {
-		const timeoutMs = observationDeadlineMs(
-			opts?.timeout,
-			this.defaultExecutionTimeoutMs,
-			this.executionObservationGraceMs,
-		)
-		try {
-			return await bounded(
-				`${this.adapter.label} legacy execution observation`,
-				timeoutMs,
-				(signal) => this.adapter.execute(undefined, command, argv, opts, signal, context),
-			)
-		} catch (error) {
-			throw new RemoteCancellationUnknownError(
-				`The legacy ${this.adapter.label} execution failed after admission without an execution id: ${error instanceof Error ? error.message : String(error)}. The remote outcome is unknown and the sandbox must not be reused.`,
-				{ cause: error },
-			)
-		}
 	}
 
 	private async requestCancellation(

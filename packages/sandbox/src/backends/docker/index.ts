@@ -65,7 +65,10 @@ import {
 	resolveReadinessOptions,
 	runFailureCleanup,
 } from '../readiness.js'
-import { RemoteCancellationUnknownError } from '../remote-execution-controller.js'
+import {
+	RemoteCancellationUnknownError,
+	RemoteProtocolError,
+} from '../remote-execution-controller.js'
 
 /**
  * Backend-specific tuning. Most hosts use the defaults; advanced
@@ -904,6 +907,7 @@ async function waitForWorkerReady(
 			lastError = new Error(`healthz HTTP ${result.status}`)
 		} catch (err) {
 			lastError = err
+			if (err instanceof RemoteProtocolError) throw err
 			if (err instanceof OperationDeadlineExpired) break
 		}
 		try {

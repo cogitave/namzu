@@ -43,6 +43,7 @@ const IS_WINDOWS = process.platform === 'win32'
 const require_ = createRequire(import.meta.url)
 
 interface AgentModule {
+	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
 }
 
@@ -243,7 +244,55 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 			kind: 'unix',
 			path: sockPath,
 		})
+		await expect(transport.request({ op: 'healthz' })).resolves.toMatchObject({
+			ok: true,
+			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+		})
 		expect(await transport.healthz()).toBe(true)
+	})
+
+	it.each([
+		['missing', { ok: true }],
+		['older', { ok: true, protocolVersion: 1 }],
+		['newer', { ok: true, protocolVersion: 3 }],
+	])('refuses a %s guest protocol before readiness', async (_label, reply) => {
+		server = await startAgentServer((socket) => {
+			const reader = new __framing.FrameReader()
+			socket.on('data', (chunk: Buffer) => {
+				if (reader.push(chunk)[0] !== undefined) {
+					socket.end(__framing.frame(JSON.stringify(reply)))
+				}
+			})
+		})
+		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+
+		const startedAt = performance.now()
+		await expect(transport.waitForReady(2_000, 100)).rejects.toThrow(/protocol version/i)
+		expect(performance.now() - startedAt).toBeLessThan(500)
+	})
+
+	it('never downgrades an unsupported reservation into identity-less execution', async () => {
+		let executeCalls = 0
+		server = await startAgentServer((socket) => {
+			const reader = new __framing.FrameReader()
+			socket.on('data', (chunk: Buffer) => {
+				const payload = reader.push(chunk)[0]
+				if (payload === undefined) return
+				const request = JSON.parse(payload) as { op?: string }
+				if (request.op === 'reserve-execution') {
+					socket.end(
+						__framing.frame(JSON.stringify({ ok: false, error: 'unknown_op:reserve-execution' })),
+					)
+					return
+				}
+				if (request.op === 'execute') executeCalls += 1
+				socket.end(__framing.frame(JSON.stringify({ ok: false, error: 'unexpected_op' })))
+			})
+		})
+		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+
+		await expect(transport.exec('/bin/true')).rejects.toThrow(/protocol/i)
+		expect(executeCalls).toBe(0)
 	})
 
 	it('forwards a bidirectional guest-loopback TCP stream', async () => {

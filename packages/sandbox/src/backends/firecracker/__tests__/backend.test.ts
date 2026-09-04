@@ -40,6 +40,7 @@ const IS_WINDOWS = process.platform === 'win32'
 const require_ = createRequire(import.meta.url)
 
 interface AgentModule {
+	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
 }
 
@@ -239,6 +240,29 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
 	})
 
+	it('tears down an unversioned guest immediately instead of admitting a stale golden', async () => {
+		server = await startAgentServer((socket) => {
+			const reader = new __framing.FrameReader()
+			socket.on('data', (chunk: Buffer) => {
+				if (reader.push(chunk)[0] !== undefined) {
+					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+				}
+			})
+		})
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 2_000,
+			readyPollIntervalMs: 100,
+		})
+
+		const startedAt = performance.now()
+		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(/protocol version/i)
+		expect(performance.now() - startedAt).toBeLessThan(500)
+		expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
+	})
+
 	it('honours public exec cancellation and keeps a confirmed-quiescent microVM reusable', async () => {
 		server = await startAgent()
 		stubOrchestrator({ kind: 'unix', path: sockPath })
@@ -293,7 +317,14 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 				if (payload === undefined) return
 				const request = JSON.parse(payload) as { op?: string }
 				if (request.op === 'healthz') {
-					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+					socket.end(
+						__framing.frame(
+							JSON.stringify({
+								ok: true,
+								protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+							}),
+						),
+					)
 					return
 				}
 				if (request.op === 'reserve-execution') {
@@ -335,7 +366,14 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 				if (payload === undefined) return
 				const request = JSON.parse(payload) as { op?: string }
 				if (request.op === 'healthz') {
-					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+					socket.end(
+						__framing.frame(
+							JSON.stringify({
+								ok: true,
+								protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+							}),
+						),
+					)
 					return
 				}
 				if (request.op === 'reserve-execution') {

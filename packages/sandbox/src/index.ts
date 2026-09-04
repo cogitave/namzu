@@ -78,6 +78,7 @@ export type {
 	OrchestratorTokenProvider,
 } from './backends/firecracker/index.js'
 export {
+	FIRECRACKER_AGENT_PROTOCOL_VERSION,
 	type SandboxAgentHandle,
 	type VsockTransportOptions,
 	VsockAgentTransport,

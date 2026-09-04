@@ -7,7 +7,7 @@ diataxis: reference
 owner: cogitave/namzu
 status: active
 timestamp: 2026-09-02T00:00:00Z
-lastReviewed: 2026-09-02
+lastReviewed: 2026-09-04
 resource: packages/sandbox/src/index.ts
 tags: [sandbox, isolation, reference]
 ---
@@ -206,7 +206,8 @@ nothing.
 `image` must name an image whose entrypoint runs the sandbox worker: an HTTP
 server on port **2024** serving
 
-- `GET /healthz` — `create()` polls this and does not return until it answers,
+- `GET /healthz` — returns `{ ok: true, protocolVersion }`; `create()` does not
+  return until the version exactly matches the host package,
 - `POST /execute` — a request per command, answered with an NDJSON stream of
   `stdout_delta`, `stderr_delta` and a final `result` event,
 - `POST /read-file` and `POST /write-file` — base64 bodies.
@@ -582,15 +583,16 @@ also accept `404`/`410` as already absent. Credential proxies are closed even
 when container removal fails, and a failed teardown is attached to the
 original unknown-outcome error as `retirement.accepted: false`.
 
-This protocol requires a current worker or microVM guest image. A new host
-probes the peer before admitting its first command. An explicit unsupported
-response enables cached legacy one-request execution when no signal is
-supplied; a timeout, malformed reply, or lost reservation response never does.
-When a signal is supplied to an old peer, the host refuses with a rebuild
-instruction rather than claiming the command was cancellable. Standby-pool
-deployments must publish a new container group profile revision containing the
-current worker, and microVM deployments must rebuild their golden guest image,
-before opting into this path.
+This protocol requires a worker or microVM guest image built from the same
+release as the host. Readiness carries the protocol version, and missing,
+older, or newer versions are refused immediately before a sandbox handle can
+be published. There is no cached capability downgrade and no identity-less
+execution path, even when the caller supplied no signal. Standby-pool
+deployments must publish a matching container group profile revision before
+the host revision, and microVM deployments must rebuild and validate the
+golden guest image before the host begins admitting it. A custom Firecracker
+orchestrator can import `FIRECRACKER_AGENT_PROTOCOL_VERSION` and apply the same
+exact-version fence before a slot enters its warm freelist.
 
 The process-group wording is deliberate. An ordinary shell and its descendants
 share the group; a program that deliberately creates a new session can escape
