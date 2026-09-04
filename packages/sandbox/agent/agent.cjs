@@ -57,6 +57,8 @@ const fs = require('node:fs/promises')
 const { constants: osConstants } = require('node:os')
 const path = require('node:path')
 
+const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
+
 // --- config (mirrors worker/server.js env contract) -----------------------
 
 const WORKSPACE_ROOT = process.env.NAMZU_SANDBOX_WORKSPACE || '/workspace'
@@ -438,7 +440,7 @@ function handleReserveExecution(socket) {
 	})
 	writeFrame(socket, {
 		ok: true,
-		protocolVersion: 2,
+		protocolVersion: FIRECRACKER_AGENT_PROTOCOL_VERSION,
 		executionId,
 		leaseExpiresAt,
 	})
@@ -1053,6 +1055,7 @@ function dispatch(socket, req) {
 	if (op === 'healthz') {
 		writeFrame(socket, {
 			ok: !agentRetiring,
+			protocolVersion: FIRECRACKER_AGENT_PROTOCOL_VERSION,
 			...(agentRetiring ? { retiring: true } : {}),
 		})
 		socket.end()
@@ -1182,6 +1185,7 @@ async function main() {
 // Export the pure pieces so the vitest loopback peer can drive the
 // agent in-process without spawning a separate node binary.
 module.exports = {
+	FIRECRACKER_AGENT_PROTOCOL_VERSION,
 	frame,
 	FrameReader,
 	handleConnection,

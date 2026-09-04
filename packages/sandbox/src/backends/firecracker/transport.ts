@@ -66,8 +66,8 @@ import type {
 } from '@namzu/sdk'
 import { OperationDeadline, OperationDeadlineExpired } from '../readiness.js'
 import {
+	REMOTE_EXECUTION_PROTOCOL_VERSION,
 	RemoteCancellationUnknownError,
-	RemoteCancellationUnsupportedError,
 	type RemoteExecutionAdapter,
 	RemoteExecutionController,
 	RemoteProtocolError,
@@ -216,6 +216,9 @@ const DEFAULT_EXECUTION_TIMEOUT_MS = 5 * 60_000
 const EXECUTION_TRANSPORT_GRACE_MS = 10_000
 const POST_RESPONSE_CLOSE_TIMEOUT_MS = 1_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+/** Exact guest wire version accepted by this Firecracker transport. */
+export const FIRECRACKER_AGENT_PROTOCOL_VERSION = REMOTE_EXECUTION_PROTOCOL_VERSION
 
 /** Framing: 8 hex digits of payload byte length, then `\n`, then payload. */
 const LENGTH_PREFIX_HEX = 8
@@ -739,8 +742,8 @@ export class VsockAgentTransport {
 			typeof response.error === 'string' &&
 			response.error.startsWith('unknown_op:')
 		) {
-			throw new RemoteCancellationUnsupportedError(
-				'This microVM agent does not support the execution-cancellation lease protocol. Rebuild the guest image before passing SandboxExecOptions.signal; refusing rather than pretending cancellation is active.',
+			throw new RemoteProtocolError(
+				`The microVM guest does not implement Firecracker agent protocol ${FIRECRACKER_AGENT_PROTOCOL_VERSION}. Rebuild the golden image from the same Namzu release before admitting commands.`,
 			)
 		}
 		if (response.ok === false && response.error === 'agent_retiring') {
@@ -755,13 +758,25 @@ export class VsockAgentTransport {
 		return await this.request<unknown>({ op: 'cancel-execution', body: { executionId } }, signal)
 	}
 
-	/** Liveness probe. Returns true on an `{ ok: true }` healthz reply. */
+	/** Readiness probe. A healthy guest must also speak the exact host protocol. */
 	async healthz(signal?: AbortSignal): Promise<boolean> {
 		try {
-			const res = await this.request<{ ok?: boolean }>({ op: 'healthz' }, signal)
-			return res.ok === true
-		} catch {
+			const res = await this.request<{ ok?: boolean; protocolVersion?: unknown }>(
+				{ op: 'healthz' },
+				signal,
+			)
+			if (res.ok !== true) return false
+			if (res.protocolVersion !== FIRECRACKER_AGENT_PROTOCOL_VERSION) {
+				const actual =
+					res.protocolVersion === undefined ? 'missing' : JSON.stringify(res.protocolVersion)
+				throw new RemoteProtocolError(
+					`Firecracker guest protocol version mismatch: expected ${FIRECRACKER_AGENT_PROTOCOL_VERSION}, received ${actual}. Rebuild the golden image from the same Namzu release.`,
+				)
+			}
+			return true
+		} catch (error) {
 			if (signal?.aborted) throw signal.reason
+			if (error instanceof RemoteProtocolError) throw error
 			return false
 		}
 	}
@@ -785,6 +800,7 @@ export class VsockAgentTransport {
 				lastErr = new Error('healthz returned not-ok')
 			} catch (err) {
 				lastErr = err
+				if (err instanceof RemoteProtocolError) throw err
 				if (err instanceof OperationDeadlineExpired) break
 			}
 			try {
