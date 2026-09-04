@@ -1,6 +1,15 @@
 export interface WorkingState {
 	task: string
 	plan: PlanSlot[]
+	/**
+	 * Facts pinned by tools, by key. A tool that knows something the model
+	 * must not lose — what its controls do, where the piece is, what has
+	 * already failed — pins it with a key, and a later pin under the same
+	 * key replaces it. Pins live in the working-memory slot, so they are in
+	 * front of the model every iteration and survive compaction; the
+	 * rule-based extractor below only guesses, a pin is stated.
+	 */
+	pins: Map<string, PinSlot>
 	files: Map<string, FileSlot>
 	decisions: string[]
 	failures: string[]
@@ -19,6 +28,20 @@ export interface WorkingState {
 	 * of the state".
 	 */
 	evicted: Record<string, number>
+}
+
+export interface PinSlot {
+	key: string
+	text: string
+	/** The tool that pinned it. */
+	source: string
+	updatedAt: number
+}
+
+/** What a tool result carries to pin a fact; see `ToolResult.workingState`. */
+export interface WorkingStatePin {
+	readonly key: string
+	readonly text: string
 }
 
 export interface PlanSlot {

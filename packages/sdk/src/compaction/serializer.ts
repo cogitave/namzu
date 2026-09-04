@@ -58,6 +58,20 @@ function renderToolResults(results: { tool: string; summary: string }[], evicted
 	return lines.join('\n')
 }
 
+/** The pinned-facts section alone, or null when nothing is pinned. */
+export function renderPins(state: WorkingState): string | null {
+	const pins = state.pins ? [...state.pins.values()] : []
+	if (pins.length === 0) return null
+	const lines = pins.map((p) => `- **${p.key}**: ${p.text} _(${p.source})_`)
+	const dropped = state.evicted.pins ?? 0
+	if (dropped > 0) {
+		lines.push(
+			`- _(${dropped} older ${dropped === 1 ? 'pin' : 'pins'} dropped to stay within the pin budget)_`,
+		)
+	}
+	return `${SECTION_HEADERS.pins}\n\n${lines.join('\n')}`
+}
+
 export function serializeState(state: WorkingState): string {
 	const sections: string[] = []
 
@@ -74,6 +88,8 @@ export function serializeState(state: WorkingState): string {
 	if (state.plan.length > 0) {
 		sections.push(`${SECTION_HEADERS.plan}\n\n${renderPlan(state.plan)}`)
 	}
+	const pinned = renderPins(state)
+	if (pinned) sections.push(pinned)
 
 	if (state.environment.length > 0) {
 		sections.push(

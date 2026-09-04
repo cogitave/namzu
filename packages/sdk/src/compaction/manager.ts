@@ -1,10 +1,23 @@
 import type { CompactionConfig } from '../config/runtime.js'
-import type { FileAction, FileSlot, PlanSlot, ToolResultSlot, WorkingState } from './types.js'
+import type {
+	FileAction,
+	FileSlot,
+	PinSlot,
+	PlanSlot,
+	ToolResultSlot,
+	WorkingState,
+} from './types.js'
+
+/** Pins kept at most; the oldest is dropped past this, and the drop is counted. */
+export const MAX_PINS = 40
+/** Characters one pin may carry; a pin is a fact, not a document. */
+export const MAX_PIN_CHARS = 600
 
 function createEmptyState(): WorkingState {
 	return {
 		task: '',
 		plan: [],
+		pins: new Map<string, PinSlot>(),
 		files: new Map<string, FileSlot>(),
 		decisions: [],
 		failures: [],
@@ -32,6 +45,30 @@ export class WorkingStateManager {
 
 	setPlan(plan: PlanSlot[]): void {
 		this.state.plan = plan
+	}
+
+	/** Pin a fact under `key`, replacing what that key held; empty text unpins. */
+	pin(key: string, text: string, source: string): void {
+		const k = key.trim()
+		if (k.length === 0) return
+		const body = text.trim().slice(0, MAX_PIN_CHARS)
+		if (body.length === 0) {
+			this.state.pins?.delete(k)
+			return
+		}
+		if (!this.state.pins) this.state.pins = new Map()
+		this.state.pins.delete(k)
+		this.state.pins.set(k, { key: k, text: body, source, updatedAt: Date.now() })
+		while (this.state.pins.size > MAX_PINS) {
+			const oldest = [...this.state.pins.values()].sort((a, b) => a.updatedAt - b.updatedAt)[0]
+			if (!oldest) break
+			this.state.pins.delete(oldest.key)
+			this.state.evicted.pins = (this.state.evicted.pins ?? 0) + 1
+		}
+	}
+
+	unpin(key: string): void {
+		this.state.pins?.delete(key.trim())
 	}
 
 	trackFile(path: string, action: FileAction): void {
@@ -116,6 +153,7 @@ export class WorkingStateManager {
 		let count = 0
 		if (this.state.task) count++
 		count += this.state.plan.length
+		count += this.state.pins?.size ?? 0
 		count += this.state.files.size
 		count += this.state.decisions.length
 		count += this.state.failures.length

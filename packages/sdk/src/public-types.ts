@@ -278,6 +278,8 @@ export type {
 	PlanSlot,
 	ToolResultSlot,
 	WorkingState,
+	PinSlot,
+	WorkingStatePin,
 } from './compaction/index.js'
 export type * from './eval/index.js'
 export type * from './types/guardrail/index.js'

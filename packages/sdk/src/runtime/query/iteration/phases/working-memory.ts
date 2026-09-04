@@ -1,3 +1,4 @@
+import { renderPins } from '../../../../compaction/serializer.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import { createSystemMessage } from '../../../../types/message/index.js'
 import type { IterationContext } from './context.js'
@@ -37,22 +38,30 @@ export function isWorkingMemoryMessage(content: string | null | undefined): bool
  */
 export async function refreshWorkingMemory(ctx: IterationContext): Promise<void> {
 	const provider = ctx.workingMemoryProvider
-	if (!provider) return
+	// What the tools pinned joins the slot beside what the host provides: a
+	// pin exists to be in front of the model every iteration, and until this
+	// the working state reached the history only through a compaction
+	// summary. No provider and no pins leaves the history untouched.
+	const pinned = ctx.workingStateManager ? renderPins(ctx.workingStateManager.getState()) : null
+	if (!provider && !pinned) return
 
-	let block: string
-	try {
-		block =
-			(await provider({
-				runId: ctx.runMgr.id,
-				iteration: ctx.runMgr.currentIteration,
-			})) ?? ''
-	} catch (err) {
-		ctx.log.warn('workingMemoryProvider failed; keeping prior slot', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			'exception.message': err instanceof Error ? err.message : String(err),
-		})
-		return
+	let block = ''
+	if (provider) {
+		try {
+			block =
+				(await provider({
+					runId: ctx.runMgr.id,
+					iteration: ctx.runMgr.currentIteration,
+				})) ?? ''
+		} catch (err) {
+			ctx.log.warn('workingMemoryProvider failed; keeping prior slot', {
+				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				'exception.message': err instanceof Error ? err.message : String(err),
+			})
+			return
+		}
 	}
+	if (pinned) block = block.trim() ? `${block.trim()}\n\n${pinned}` : pinned
 
 	const msgs = ctx.runMgr.messages
 

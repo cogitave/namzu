@@ -1,6 +1,6 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { WorkingStateManager } from './manager.js'
-import type { FileSlot, PlanSlot, ToolResultSlot, WorkingState } from './types.js'
+import type { FileSlot, PinSlot, PlanSlot, ToolResultSlot, WorkingState } from './types.js'
 
 /**
  * The working state in a form that survives a process boundary.
@@ -26,6 +26,8 @@ import type { FileSlot, PlanSlot, ToolResultSlot, WorkingState } from './types.j
 export interface WorkingStateSnapshot {
 	readonly task: string
 	readonly plan: readonly PlanSlot[]
+	/** Absent in snapshots written before pins existed; restored as none. */
+	readonly pins?: readonly PinSlot[]
 	readonly files: readonly FileSlot[]
 	readonly decisions: readonly string[]
 	readonly failures: readonly string[]
@@ -47,6 +49,7 @@ export function snapshotWorkingState(manager: WorkingStateManager): WorkingState
 	return {
 		task: state.task,
 		plan: [...state.plan],
+		pins: [...(state.pins?.values() ?? [])],
 		files: [...state.files.values()],
 		decisions: [...state.decisions],
 		failures: [...state.failures],
@@ -76,6 +79,7 @@ export function restoreWorkingState(
 	const state: WorkingState = {
 		task: snapshot.task,
 		plan: [...snapshot.plan],
+		pins: new Map((snapshot.pins ?? []).map((p) => [p.key, p])),
 		files: new Map(snapshot.files.map((f) => [f.path, f])),
 		decisions: [...snapshot.decisions],
 		failures: [...snapshot.failures],

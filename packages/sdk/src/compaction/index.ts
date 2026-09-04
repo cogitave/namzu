@@ -1,10 +1,12 @@
 export type {
-	WorkingState,
-	PlanSlot,
-	FileSlot,
-	FileAction,
-	ToolResultSlot,
 	CompactionStrategy,
+	FileAction,
+	FileSlot,
+	PinSlot,
+	PlanSlot,
+	ToolResultSlot,
+	WorkingState,
+	WorkingStatePin,
 } from './types.js'
 
 export type {

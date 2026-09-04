@@ -1329,3 +1329,4 @@ export type {
 	MutableLogSinkCounters,
 } from './utils/log/types.js'
 export type { JobProcess } from './runtime/jobs/registry.js'
+export { WORKING_STATE_MIME } from './connector/mcp/adapter.js'

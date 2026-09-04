@@ -1,5 +1,8 @@
 # Documentation update log
 
+## 2026-09-05
+* **Creation**: [Pinned facts](/sdk/pinned-facts.md) — `ToolResult.workingState` and the MCP working-state resource; tools can now state facts into the working-memory slot.
+
 ## 2026-09-04
 * **Creation**: [Memory](/cli/memory.md) — a project memory file beside the user one; `#note` and `/memory` write to the project by default; injected sections are capped.
 * **Creation**: [Ids](/sdk/ids.md) — the `thd_` compatibility machinery is gone, retired prefixes are refused, a session can be created under a chosen id; the CLI mints its tenant and topic.

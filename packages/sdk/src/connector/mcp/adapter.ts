@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
+import type { WorkingStatePin } from '../../compaction/types.js'
 import { type UntrustedEnvelope, wrapUntrusted } from '../../tools/untrusted-envelope.js'
 import type {
 	MCPJsonSchema,
@@ -11,6 +12,28 @@ import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/i
 import type { MCPClient } from './client.js'
 import { MCPHttpRedirectError } from './http-redirect.js'
 import { admitMcpImageBatch } from './image-admission.js'
+
+/** The resource type an MCP server returns to pin facts into working memory. */
+export const WORKING_STATE_MIME = 'application/vnd.namzu.working-state+json'
+
+function parsePins(text: string | undefined): WorkingStatePin[] {
+	if (!text) return []
+	try {
+		const raw: unknown = JSON.parse(text)
+		if (!Array.isArray(raw)) return []
+		return raw
+			.filter(
+				(p): p is { key: string; text: string } =>
+					typeof p === 'object' &&
+					p !== null &&
+					typeof (p as { key?: unknown }).key === 'string' &&
+					typeof (p as { text?: unknown }).text === 'string',
+			)
+			.map((p) => ({ key: p.key, text: p.text }))
+	} catch {
+		return []
+	}
+}
 import { inlineSchemaRefs } from './schema-refs.js'
 
 /**
@@ -579,7 +602,15 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 	// modelled `image` and `resource` blocks all along. Pass them through
 	// as model-visible content when any are present.
 	const blocks: ToolResultBlock[] = []
+	const pins: WorkingStatePin[] = []
 	for (const block of result.content) {
+		if (block.type === 'resource' && block.resource?.mimeType === WORKING_STATE_MIME) {
+			// A server pins facts by returning them as a resource of this type:
+			// a JSON array of { key, text }. Not text for the model; the kernel
+			// keeps them in the working-memory slot.
+			for (const pin of parsePins(block.resource.text)) pins.push(pin)
+			continue
+		}
 		if (block.type === 'text') {
 			blocks.push({ type: 'text', text: block.text })
 		} else if (block.type === 'image') {
@@ -620,6 +651,7 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 	const output = [visibleText, invalidImageNotice].filter((part) => part.length > 0).join('\n')
 
 	return {
+		...(pins.length > 0 ? { workingState: pins } : {}),
 		success: !result.isError,
 		output,
 		...(hasRichContent ? { content: blocks } : {}),

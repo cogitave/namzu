@@ -497,6 +497,14 @@ export interface ToolResult {
 	 * what it sets here.
 	 */
 	retryable?: boolean
+	/**
+	 * Facts this result pins into the run's working memory, by key. The
+	 * kernel keeps them in the working-memory slot — in front of the model
+	 * every iteration, across compaction — and a later pin under the same
+	 * key replaces the earlier one. For what a tool knows and the model
+	 * must not lose: what its controls do, where things are, what failed.
+	 */
+	workingState?: readonly import('../../compaction/types.js').WorkingStatePin[]
 }
 
 export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInput> {

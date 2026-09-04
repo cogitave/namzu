@@ -1600,6 +1600,9 @@ export class ToolExecutor {
 
 		if (this.workingStateManager) {
 			extractFromToolResult(this.workingStateManager, toolName, output, effectiveIsError)
+			for (const pin of result.workingState ?? []) {
+				this.workingStateManager.pin(pin.key, pin.text, toolName)
+			}
 		}
 
 		if (result.success) {

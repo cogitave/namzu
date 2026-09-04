@@ -12,6 +12,7 @@ export const SHELL_TOOLS = new Set(['bash'])
 export const SEARCH_TOOLS = new Set(['glob', 'grep'])
 
 export const SECTION_HEADERS = {
+	pins: '## Pinned by tools',
 	task: '## Task',
 	userRequirements: '## User Requirements',
 	plan: '## Plan',
