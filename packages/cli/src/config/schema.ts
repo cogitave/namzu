@@ -55,6 +55,14 @@ export type HookEvent = ShellHookEvent
 export type HookEntry = ShellHookEntry
 export type HooksConfig = ShellHooksConfig
 
+/** See `NamzuCliConfig.limits`. */
+export interface RunLimitsConfig {
+	/** Model calls one run may make. Default 50. */
+	readonly maxIterations?: number
+	/** Tokens one run may spend in total, prompt and completion. Default 1,000,000. */
+	readonly tokenBudget?: number
+}
+
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
 	/**
@@ -155,6 +163,13 @@ export interface NamzuCliConfig {
 	readonly mcpServers?: McpServersConfig
 	/** Executable extension bundles. Absent keeps discovery and imports off. */
 	readonly plugins?: PluginConfig
+	/**
+	 * How far one run may go before the kernel stops it. Headless `run` and
+	 * `run-stream` read these; `--max-iterations` and `--token-budget` override
+	 * them for one run. Absent means the defaults a chat turn gets: 50 model
+	 * calls and one million tokens, which a long autonomous task outgrows.
+	 */
+	readonly limits?: RunLimitsConfig
 	/**
 	 * Isolation for the commands this CLI runs.
 	 *

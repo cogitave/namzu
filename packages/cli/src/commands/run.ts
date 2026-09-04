@@ -110,6 +110,8 @@ export const runCommand: CommandDef = {
 		'  --resume <id>         Resume that conversation, and no other',
 		'  --gate <command>      Must pass before the run may finish; repeatable',
 		'  --gate-retries <n>    Fix attempts a failing gate allows (default 3)',
+		'  --max-iterations <n>  Model calls this run may make (default 50)',
+		'  --token-budget <n>    Tokens this run may spend in total (default 1000000)',
 		'  --permission-mode <m> prompt | accept-edits | auto | strict | plan —',
 		'                        what happens to a call no [permissions] rule',
 		'                        decided (default: auto)',
@@ -160,6 +162,11 @@ export const runCommand: CommandDef = {
 	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
 		let ctx = bootstrapCtx
 		const flags = parseRunFlags(rawArgs)
+		// The run's leash: the config file's limits, with a flag overriding each.
+		const limitsFromFlags = {
+			...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
+			...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
+		}
 		if (flags.unknown.length > 0) {
 			// A shell caller learns about a bad argument from `$?`, so this is 64
 			// rather than the in-band error event the streaming sibling emits.
@@ -328,6 +335,9 @@ export const runCommand: CommandDef = {
 			...(ctx.config.web ? { web: ctx.config.web } : {}),
 			...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
 			...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
+			...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
+				? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
+				: {}),
 			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		})
 		if (!session.hasProvider) {

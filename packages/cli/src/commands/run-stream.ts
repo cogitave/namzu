@@ -161,6 +161,11 @@ export const runStreamCommand: CommandDef = {
 		}
 
 		const flags = parseRunFlags(rawArgs)
+		// The run's leash: the config file's limits, with a flag overriding each.
+		const limitsFromFlags = {
+			...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
+			...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
+		}
 		if (flags.unknown.length > 0) return fail(unknownOptionMessage(flags.unknown))
 		// `--continue` and `--resume` parse here because the two commands share one
 		// parser, and this command reads neither. Accepting a flag and doing
@@ -334,6 +339,9 @@ export const runStreamCommand: CommandDef = {
 			...(ctx.config.web ? { web: ctx.config.web } : {}),
 			...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
 			...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
+			...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
+				? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
+				: {}),
 			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		})
 		if (!session.hasProvider) {

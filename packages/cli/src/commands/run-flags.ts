@@ -27,6 +27,14 @@ import type { ReviewAnswer } from '@namzu/sdk'
 
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
 
+/** A whole number above zero, or a thrown message naming the flag. */
+function positiveInteger(value: string, flag: string): number {
+	const n = Number(value.trim())
+	if (!Number.isInteger(n) || n <= 0)
+		throw new Error(`${flag} takes a whole number above zero, got ${value}`)
+	return n
+}
+
 export interface RunFlags {
 	session: string | null
 	model: string | null
@@ -53,6 +61,10 @@ export interface RunFlags {
 	/** --resume <id>: pick up this conversation and no other. */
 	resume: string | null
 	skills: string[]
+	/** `--max-iterations <n>`: model calls this run may make before it is stopped. */
+	maxIterations: number | null
+	/** `--token-budget <n>`: total tokens this run may spend before it is stopped. */
+	tokenBudget: number | null
 	/**
 	 * `--gate '<command>'`, repeatable — commands that must pass before the
 	 * run is allowed to settle.
@@ -92,6 +104,8 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		continueLast: false,
 		resume: null,
 		skills: [],
+		maxIterations: null,
+		tokenBudget: null,
 		gates: [],
 		gateRetries: null,
 		unknown: [],
@@ -136,6 +150,28 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				trimmed((v) => {
 					out.permissionMode = v
 				}),
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'max-iterations',
+				(v) => {
+					out.maxIterations = positiveInteger(v, '--max-iterations')
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'token-budget',
+				(v) => {
+					out.tokenBudget = positiveInteger(v, '--token-budget')
+				},
 				idx,
 			)
 		)

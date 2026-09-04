@@ -39,6 +39,7 @@ import type {
 	PluginConfig,
 	ProfileConfig,
 	ProfilesConfig,
+	RunLimitsConfig,
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
 } from './schema.js'
@@ -641,6 +642,17 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return raw as WebConfig
 	},
+	limits: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'maxIterations' && key !== 'tokenBudget')
+				return invalidConfigValue(context, [key], 'is not a limit (maxIterations, tokenBudget)')
+			const value = (v as Record<string, unknown>)[key]
+			if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)
+				return invalidConfigValue(context, [key], 'must be a whole number above zero')
+		}
+		return v as RunLimitsConfig
+	},
 	plugins: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const known = new Set(['enabled', 'autoDiscovery', 'allowedScopes', 'hookTimeoutMs'])
@@ -911,6 +923,7 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// and its provenance are the reviewable source of this authority.
 	plugins: undefined,
 	sandbox: undefined,
+	limits: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A hook runs a command with the operator's authority; the file is the only

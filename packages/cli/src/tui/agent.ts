@@ -110,6 +110,7 @@ import type {
 	CompactionCliConfig,
 	HooksConfig,
 	PluginConfig,
+	RunLimitsConfig,
 	SandboxConfig,
 	WebConfig,
 } from '../config/schema.js'
@@ -1209,6 +1210,8 @@ export interface AgentSessionOptions {
 	readonly additionalDirectories?: readonly string[]
 	/** See `NamzuCliConfig.compaction`. Absent means the kernel's structured strategy. */
 	readonly compaction?: CompactionCliConfig
+	/** See `NamzuCliConfig.limits`: how many model calls and tokens one run may spend. */
+	readonly limits?: RunLimitsConfig
 	/**
 	 * Where this session's run events are recorded, if anywhere.
 	 *
@@ -2211,6 +2214,7 @@ export async function createAgentSession(
 								pathBuilder,
 								workingDirectory: cwd,
 								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
+								...(options.limits ? { limits: options.limits } : {}),
 								sandboxWorkspace,
 								rules: options.rules,
 								reviewAnswer: options.reviewAnswer,
@@ -2329,8 +2333,8 @@ export async function createAgentSession(
 							model,
 							...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 							timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
-							tokenBudget: 1_000_000,
-							maxIterations: 50,
+							tokenBudget: options.limits?.tokenBudget ?? 1_000_000,
+							maxIterations: options.limits?.maxIterations ?? 50,
 							maxResponseTokens: 8192,
 							permissionMode: 'auto',
 						},
@@ -2339,6 +2343,7 @@ export async function createAgentSession(
 						...(systemPrompt ? { systemPrompt } : {}),
 						workingDirectory: cwd,
 						...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
+						...(options.limits ? { limits: options.limits } : {}),
 						// No `onPermission`: there is nobody at a drainer's terminal, so a
 						// prompt would block the pass forever on a run nobody is watching.
 						// The gate's deny rules still apply.
@@ -2879,6 +2884,8 @@ interface RunTurnParams {
 	readonly workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
 	readonly additionalDirectories?: readonly string[]
+	/** See `NamzuCliConfig.limits`. */
+	readonly limits?: RunLimitsConfig
 	/** The project tree a sandboxed turn is rooted at. */
 	readonly sandboxWorkspace: 'working-directory' | 'ephemeral'
 	/** Operator rules for this run, already compiled. */
@@ -2933,6 +2940,7 @@ async function* runTurn({
 	scope,
 	pathBuilder,
 	workingDirectory,
+	limits,
 	additionalDirectories,
 	sandboxWorkspace,
 	rules,
@@ -2997,8 +3005,8 @@ async function* runTurn({
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
-				tokenBudget: 1_000_000,
-				maxIterations: 50,
+				tokenBudget: limits?.tokenBudget ?? 1_000_000,
+				maxIterations: limits?.maxIterations ?? 50,
 				maxResponseTokens: 8192,
 				permissionMode: 'auto',
 			},
