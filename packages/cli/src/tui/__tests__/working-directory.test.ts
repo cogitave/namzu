@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import {
+	BackgroundJobRegistry,
 	type ToolRegistry,
 	asProjectId,
 	asSessionId,
@@ -142,7 +143,7 @@ describe('createAgentSession runs where it is told to', () => {
 	)
 
 	it.runIf(process.platform !== 'win32')(
-		'does not advertise host background jobs inside the default sandbox',
+		'hands background jobs and the default sandbox to the same run',
 		async () => {
 			const { createAgentSession } = await import('../agent.js')
 			const session = await createAgentSession(prefs, detectedAnthropic(), {
@@ -151,28 +152,38 @@ describe('createAgentSession runs where it is told to', () => {
 				scope: scope(),
 			})
 
-			for await (const _ of session.send([{ role: 'user', content: 'inspect', timestamp: 0 }])) {
-				// The query mock captures the exact registry shown to the provider.
-			}
-			const registry = queryCalls[0]?.tools as ToolRegistry
-			const tools = registry.getCallableTools()
-			const bash = tools.find((tool) => tool.name === 'bash')
+			try {
+				for await (const _ of session.send([{ role: 'user', content: 'inspect', timestamp: 0 }])) {
+					// The query mock captures the exact registry shown to the provider.
+				}
+				const registry = queryCalls[0]?.tools as ToolRegistry
+				const tools = registry.getCallableTools()
+				const bash = tools.find((tool) => tool.name === 'bash')
 
-			// Whether this host actually enforces an isolation control is a
-			// platform fact. The default sandbox can be attached and honestly
-			// report `unconfined` on a host whose kernel offers no supported tier;
-			// background-job reachability must not depend on pretending otherwise.
-			expect(session.sandbox.workspace).toBe('working-directory')
-			expect(tools.map((tool) => tool.name)).not.toContain('job')
-			expect(
-				bash?.inputSchema.parse({
-					command: 'sleep 1',
+				// The CLI supplies both capabilities. The executor binds job starts
+				// to sandbox.spawnDetached, or withholds them when it is absent.
+				// This boundary test must not remove the published tool surface.
+				expect(session.sandbox.workspace).toBe('working-directory')
+				expect(queryCalls).toHaveLength(1)
+				expect(queryCalls[0]).toMatchObject({
+					workingDirectory: workDir,
+					backgroundJobs: expect.any(BackgroundJobRegistry),
+					backgroundJobOwner: scope().sessionId,
+					sandboxProvider: expect.objectContaining({ create: expect.any(Function) }),
+					runConfig: { sandbox: { workspace: 'working-directory' } },
+				})
+				expect(tools.map((tool) => tool.name)).toContain('job')
+				expect(
+					bash?.inputSchema.parse({ command: 'sleep 1', run_in_background: true }),
+				).toMatchObject({
 					run_in_background: true,
-				}),
-			).not.toHaveProperty('run_in_background')
-			expect(JSON.stringify(bash?.modelInputSchema)).not.toContain('run_in_background')
-			expect(bash?.description).toMatch(/foreground|serialized/i)
-			await session.close()
+				})
+				expect(registry.toLLMTools(['bash'])[0]?.function.parameters).toHaveProperty(
+					'properties.run_in_background',
+				)
+			} finally {
+				await session.close()
+			}
 		},
 	)
 
@@ -192,6 +203,8 @@ describe('createAgentSession runs where it is told to', () => {
 		const tools = registry.getCallableTools()
 		const bash = tools.find((tool) => tool.name === 'bash')
 
+		expect(queryCalls[0]?.sandboxProvider).toBeUndefined()
+		expect(queryCalls[0]?.workingDirectory).toBe(workDir)
 		expect(tools.map((tool) => tool.name)).toContain('job')
 		expect(bash?.inputSchema.parse({ command: 'sleep 1', run_in_background: true })).toMatchObject({
 			run_in_background: true,

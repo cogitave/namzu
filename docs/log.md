@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Update**: [Background jobs in the CLI](/cli/background-jobs.md) — corrected the index's obsolete claim that sandboxed sessions have no background jobs; regression coverage now checks both CLI exposure and sandbox-owned execution.
 * **Creation**: [Project and session state](/cli/project-state.md) — new subdirectories share the checkout-root Project, existing directory bindings remain reachable, and identity and Topic initialization publish one winner across concurrent launches.
 * **Update**: [Memory](/cli/memory.md) — new project notes use the checkout-root file; existing directory-local memory keeps precedence.
 * **Update**: [Ids](/sdk/ids.md) — checked IDs require a nonempty portable suffix and session storage validates path components before using them.

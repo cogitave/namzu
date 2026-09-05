@@ -1,6 +1,8 @@
+import { ChildProcess, spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
@@ -16,6 +18,16 @@ import type { RunEvent } from '../../../types/run/index.js'
 import type { Sandbox, SandboxProvider } from '../../../types/sandbox/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
+
+vi.mock('node:child_process', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('node:child_process')>()
+	return {
+		...actual,
+		spawn: vi.fn(() => {
+			throw new Error('a sandboxed background job must not spawn on the host')
+		}),
+	}
+})
 
 registerMock()
 
@@ -55,12 +67,14 @@ function params(input: {
 	readonly provider: MockLLMProvider
 	readonly sandbox: Sandbox
 	readonly backgroundJobs: BackgroundJobRegistry
+	readonly env?: Record<string, string>
 }) {
 	return {
 		provider: input.provider,
 		tools: input.tools,
 		runConfig: {
 			model: 'mock',
+			env: input.env,
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,
 			maxIterations: 3,
@@ -85,6 +99,82 @@ function params(input: {
 }
 
 describe('a sandbox and a host background registry are not one capability', () => {
+	it('starts and stops a background job through the sandbox instead of spawning on the host', async () => {
+		const cwd = await workdir()
+		const owner = 'ses_sandbox_jobs'
+		const command = 'printf sandbox-output'
+		const jobs = new BackgroundJobRegistry()
+		const child = new ChildProcess()
+		const output = new PassThrough()
+		const errors = new PassThrough()
+		child.stdout = output
+		child.stderr = errors
+		const kill = vi.fn((signal: NodeJS.Signals) => {
+			child.emit('close', null, signal)
+		})
+		const spawnDetached = vi.fn(() => ({ child, kill }))
+		const boundary: Sandbox = { ...sandbox(), spawnDetached }
+		const tools = new ToolRegistry()
+		tools.register(BashTool)
+		const seen: RunEvent[] = []
+		vi.mocked(spawn).mockClear()
+
+		try {
+			await drainQuery(
+				{
+					...params({
+						cwd,
+						tools,
+						provider: new MockLLMProvider({
+							turns: [
+								{
+									toolCalls: [
+										{
+											id: 'call_detached',
+											name: 'bash',
+											args: { command, run_in_background: true },
+										},
+									],
+								},
+								{ text: 'done' },
+							],
+						}),
+						sandbox: boundary,
+						backgroundJobs: jobs,
+						env: { NAMZU_JOB_FIXTURE: 'sandbox' },
+					}),
+					backgroundJobOwner: owner,
+				},
+				(event) => {
+					seen.push(event)
+				},
+			)
+
+			expect(spawnDetached).toHaveBeenCalledExactlyOnceWith('/bin/sh', ['-c', command], {
+				cwd,
+				env: expect.objectContaining({ NAMZU_JOB_FIXTURE: 'sandbox' }),
+			})
+			expect(boundary.exec).not.toHaveBeenCalled()
+			expect(spawn).not.toHaveBeenCalled()
+			expect(seen.find((event) => event.type === 'tool_completed')).toMatchObject({
+				isError: false,
+				result: expect.stringContaining('Started background job'),
+			})
+			expect(jobs.list(owner)).toHaveLength(1)
+			const job = jobs.list(owner)[0]
+			if (!job) throw new Error('Expected the run to register a sandbox-owned job')
+			expect(job).toMatchObject({ owner, command, status: 'running' })
+			output.write('sandbox-output')
+			expect(jobs.read(job.id).chunk).toBe('sandbox-output')
+		} finally {
+			await jobs.killOwner(owner)
+			output.destroy()
+			errors.destroy()
+		}
+		expect(kill).toHaveBeenCalledExactlyOnceWith('SIGTERM')
+		expect(jobs.list(owner)[0]?.status).toBe('killed')
+	})
+
 	it('withholds the host process capability from every tool context', async () => {
 		const observed: Array<{ sandbox: boolean; backgroundJobs: boolean }> = []
 		const tools = new ToolRegistry()
