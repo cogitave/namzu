@@ -44,6 +44,26 @@ describe('every RunEvent has a decided place on the SSE wire', () => {
 		expect(shape).toMatchSnapshot()
 	})
 
+	it('says how a background job ended: an exit code when it exited, a signal when it was killed', () => {
+		// The two optional fields are spread conditionally so a consumer never
+		// sees `exit_code: undefined` or `signal: undefined`; the fixture set
+		// exercises one side of each, this the other.
+		const base = {
+			type: 'background_job_exited' as const,
+			runId: RID,
+			jobId: 'job_1',
+			command: 'sleep 30',
+		}
+
+		const exited = mapRunToStreamEvent({ ...base, status: 'exited', exitCode: 0 }, RID)
+		expect(exited?.data).toMatchObject({ status: 'exited', exit_code: 0 })
+		expect(exited?.data).not.toHaveProperty('signal')
+
+		const killed = mapRunToStreamEvent({ ...base, status: 'killed', signal: 'SIGTERM' }, RID)
+		expect(killed?.data).toMatchObject({ status: 'killed', signal: 'SIGTERM' })
+		expect(killed?.data).not.toHaveProperty('exit_code')
+	})
+
 	it('declines nothing by accident: every null is a decision with a name', () => {
 		// A `null` from the mapper means "this runtime's business, not the
 		// wire's". Listed explicitly so ADDING one shows up in review — an
