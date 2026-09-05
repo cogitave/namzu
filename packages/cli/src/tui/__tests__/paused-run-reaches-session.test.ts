@@ -81,6 +81,7 @@ it('publishes checkpoint identity, classification and remedy from session.send',
 	expect(events).toEqual([
 		{
 			kind: 'paused',
+			runId: 'run_pause_reach',
 			checkpointId: 'cp_pause_reach',
 			reason: 'slow down',
 			failure: {

@@ -128,6 +128,9 @@ function sessionFixture(providerSummary = 'a-provider', close = vi.fn()): AgentS
 		resumeDurable: async () => {
 			throw new Error('not used by the TUI')
 		},
+		resumePaused: () => {
+			throw new Error('resumePaused is not part of this test')
+		},
 		close,
 		approvalLatched: () => false,
 		resetApprovalLatch: () => {},

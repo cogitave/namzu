@@ -18,7 +18,7 @@ generated: { by: human:bahadirarda, at: 2026-09-05T00:00:00Z }
 | 1 | The run failed, or stopped before it was finished: a provider error, an iteration cap, a token budget, a cancellation, a refused answer. Any text on stdout is partial and stderr says why. | Treat the output as incomplete. Re-running blindly repeats the same stop. |
 | 2 | No prompt was supplied. | Fix the invocation. |
 | 64 | An argument was wrong. | Fix the invocation. |
-| 75 | The provider paused the run — a rate limit or an outage — and the kernel kept a checkpoint, named on stderr. Any text on stdout is partial. | Wait, then run again. Stderr carries the provider's retry delay when it gave one. |
+| 75 | The provider paused the run — a rate limit or an outage — and the kernel kept a checkpoint, named on stderr. Any text on stdout is partial. With `--wait-for-provider` the run waits and resumes on its own first, and 75 means the wait budget ran out. | Wait, then run again. Stderr carries the provider's retry delay when it gave one. Or give the run a wait budget and let it resume itself. |
 | 77 | The folder has not been trusted and nothing ran. | Trust the folder once interactively, or pass `--trust` for this run. |
 
 ## Why a pause is not a failure

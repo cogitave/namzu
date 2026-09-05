@@ -56,6 +56,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 			resumeDurable: async () => {
 				throw new Error('not used by the TUI')
 			},
+			resumePaused: () => {
+				throw new Error('resumePaused is not part of this test')
+			},
 			close: async () => {},
 			approvalLatched: () => false,
 			resetApprovalLatch: () => {},

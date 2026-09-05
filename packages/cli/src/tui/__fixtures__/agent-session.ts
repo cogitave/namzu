@@ -77,6 +77,13 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 		resumeDurable: async () => {
 			throw new Error('fakeAgentSession: resumeDurable was not stubbed for this test')
 		},
+		// Same reasoning: a default that quietly yielded `done` would let a test
+		// about waiting for the provider pass while resuming nothing.
+		resumePaused: (): AsyncIterable<AgentEvent> => ({
+			[Symbol.asyncIterator]() {
+				throw new Error('fakeAgentSession: resumePaused was not stubbed for this test')
+			},
+		}),
 		close: async () => {},
 		...overrides,
 	}

@@ -188,6 +188,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 			),
 		).toEqual({
 			kind: 'paused',
+			runId: String(runId),
 			checkpointId: 'cp_7',
 			reason: 'slow down',
 			failure,

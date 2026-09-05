@@ -151,6 +151,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 			resumeDurable: async () => {
 				throw new Error('not used')
 			},
+			resumePaused: () => {
+				throw new Error('resumePaused is not part of this test')
+			},
 			close: async () => {},
 			send: async function* (messages: readonly Message[]): AsyncIterable<AgentEvent> {
 				if (sendOverride.current) {

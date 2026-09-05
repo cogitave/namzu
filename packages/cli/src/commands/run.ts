@@ -20,6 +20,7 @@ import { relative } from 'node:path'
 
 import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, asSessionId, generateSessionId } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
+import type { AgentEvent } from '../tui/agent.js'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
@@ -33,9 +34,10 @@ import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
-import { describeRunInterruption } from '../tui/run-interruption.js'
+import { describeRunInterruption, retryAfterMs } from '../tui/run-interruption.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
+import { duration, pauseWait } from './provider-wait.js'
 import { resolveResume } from './resume.js'
 import {
 	applyProviderFlags,
@@ -112,6 +114,9 @@ export const runCommand: CommandDef = {
 		'  --gate-retries <n>    Fix attempts a failing gate allows (default 3)',
 		'  --max-iterations <n>  Model calls this run may make (default 50)',
 		'  --token-budget <n>    Tokens this run may spend in total (default 1000000)',
+		'  --wait-for-provider <d>  Wait out provider pauses (a rate limit, an outage)',
+		'                        for up to this long in total — 90s, 30m, 2h — resuming',
+		'                        from the checkpoint each time (default: none; exit 75)',
 		'  --permission-mode <m> prompt | accept-edits | auto | strict | plan —',
 		'                        what happens to a call no [permissions] rule',
 		'                        decided (default: auto)',
@@ -154,6 +159,13 @@ export const runCommand: CommandDef = {
 		'',
 		'Needs a provider. Set a credential in the environment, or run namzu',
 		'once to pick one interactively.',
+		'',
+		'A run the provider pauses keeps a checkpoint. Without --wait-for-provider',
+		'it exits 75 at once and a wrapper decides when to run again; with it, the',
+		"run waits the provider's own delay when it named one (otherwise a minute,",
+		'doubling, at most fifteen) and resumes from the checkpoint in this process,',
+		'until the budget is spent. The `limits.waitForProviderMs` config key sets',
+		'the same budget for every run in the folder.',
 		'',
 		'Exit codes: 0 on a reply, 1 on a failed or unfinished run, 2 when no',
 		'prompt was supplied, 64 when an argument is wrong, 75 when the provider',
@@ -404,24 +416,71 @@ export const runCommand: CommandDef = {
 		}
 
 		let text = ''
-		let failed: string | null = null
-		let paused = false
 		let stopReason: StopReason | undefined
-		for await (const event of session.send(
-			[...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }],
-			extraSystem ? { extraSystem } : undefined,
-		)) {
-			if (event.kind === 'delta') text += event.text
-			else if (event.kind === 'tool-start')
-				ctx.formatter.info(`⏺ ${event.toolName} ${event.summary}`)
-			// stderr, like every other status line, so it reaches a person
-			// watching without contaminating the answer a caller piped.
-			else if (event.kind === 'context') ctx.formatter.info(event.text)
-			else if (event.kind === 'error' || event.kind === 'paused') {
-				failed = describeRunInterruption(event)
-				paused = event.kind === 'paused'
-			} else if (event.kind === 'done') stopReason = event.stopReason
+		// Written from inside `consume`, so held on an object: a `let` assigned
+		// only in a closure is `null` as far as the type checker can see, and
+		// every read after the loop would narrow it to `never`.
+		const stop: { failed: string | null; paused: Extract<AgentEvent, { kind: 'paused' }> | null } =
+			{
+				failed: null,
+				paused: null,
+			}
+		const consume = async (stream: AsyncIterable<AgentEvent>): Promise<void> => {
+			stop.failed = null
+			stop.paused = null
+			for await (const event of stream) {
+				if (event.kind === 'delta') text += event.text
+				else if (event.kind === 'tool-start')
+					ctx.formatter.info(`⏺ ${event.toolName} ${event.summary}`)
+				// stderr, like every other status line, so it reaches a person
+				// watching without contaminating the answer a caller piped.
+				else if (event.kind === 'context') ctx.formatter.info(event.text)
+				else if (event.kind === 'error' || event.kind === 'paused') {
+					stop.failed = describeRunInterruption(event)
+					if (event.kind === 'paused') stop.paused = event
+				} else if (event.kind === 'done') stopReason = event.stopReason
+			}
 		}
+		await consume(
+			session.send(
+				[...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }],
+				extraSystem ? { extraSystem } : undefined,
+			),
+		)
+
+		// A provider pause is answered by waiting, when the caller gave time to
+		// wait with. The kernel kept a checkpoint; the run resumes from it in
+		// this process, with its own context, rather than being re-prompted from
+		// notes by a wrapper that saw exit 75. A pause with no provider behind
+		// it is not waited on: that is a run parked on something else.
+		const waitBudgetMs = flags.waitForProviderMs ?? ctx.config.limits?.waitForProviderMs ?? 0
+		let waits = 0
+		let waitedMs = 0
+		while (stop.paused && waitBudgetMs > 0 && (stop.paused.providerError || stop.paused.failure)) {
+			const paused = stop.paused
+			const asked = retryAfterMs(paused)
+			const decision = pauseWait({
+				waited: waits,
+				...(asked !== undefined ? { retryAfterMs: asked } : {}),
+				waitedMs,
+				budgetMs: waitBudgetMs,
+			})
+			if (decision.kind === 'stop') {
+				stop.failed = `${stop.failed}\nNot resumed: ${decision.reason}.`
+				break
+			}
+			waits += 1
+			ctx.formatter.info(
+				`provider paused the run: waiting ${duration(decision.delayMs)}, then resuming from ${paused.checkpointId} (wait ${waits}, ${duration(waitedMs)} of ${duration(waitBudgetMs)} spent)`,
+			)
+			await new Promise<void>((resolve) => setTimeout(resolve, decision.delayMs))
+			waitedMs += decision.delayMs
+			await consume(
+				session.resumePaused({ runId: paused.runId, checkpointId: paused.checkpointId }),
+			)
+		}
+		const failed = stop.failed
+		const paused = stop.paused !== null
 
 		// Every exit below this point releases the session first. A stdio tool
 		// server is a child process, and a `run` that returns without closing

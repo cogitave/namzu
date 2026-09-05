@@ -26,11 +26,13 @@ import {
 	BOOT_EVENT_NAMES,
 	type BackgroundJob,
 	BackgroundJobRegistry,
+	type CheckpointId,
 	type CheckpointStore,
 	type CompactionConfig,
 	type CompactionResult,
 	type CostInfo,
 	DefaultPathBuilder,
+	DiskCheckpointStore,
 	DiskMemoryStore,
 	DiskTaskStore,
 	type DurableRunEntry,
@@ -358,6 +360,8 @@ export type AgentEvent =
 	| {
 			/** A recoverable run stopped with an addressable checkpoint. */
 			readonly kind: 'paused'
+			/** The run that paused: with the checkpoint, what `resumePaused` needs. */
+			readonly runId: string
 			readonly checkpointId: string
 			readonly reason: string
 			readonly failure?: Extract<RunEvent, { type: 'run_paused' }>['failure']
@@ -477,6 +481,14 @@ export interface ResumeDurableParams {
 	 * cannot overwrite the record of whoever took the run over.
 	 */
 	readonly claimFence?: FencingToken
+	readonly signal?: AbortSignal
+}
+
+export interface ResumePausedParams {
+	/** The run the `paused` event named. */
+	readonly runId: string
+	/** The checkpoint the `paused` event named. */
+	readonly checkpointId: string
 	readonly signal?: AbortSignal
 }
 
@@ -681,6 +693,22 @@ export interface AgentSession {
 	 * resumed past — the answer is a human's, not a drainer's.
 	 */
 	resumeDurable(params: ResumeDurableParams): Promise<ResumeOutcome>
+	/**
+	 * Continue THIS session's own run after the provider paused it, from the
+	 * checkpoint the pause named, streaming events as the resumed run makes
+	 * them.
+	 *
+	 * `resumeDurable` is for a run some other process started and takes the
+	 * listing and the store the caller found it in. A pause inside this
+	 * session already knows both: the run's scope is this session's and its
+	 * checkpoints are in the store the turn wrote to. What a headless caller
+	 * lacked was a way to say "wait, then go on" — it could only exit and be
+	 * re-prompted from whatever notes the run left behind, losing the run's
+	 * own context. A run parked on a human decision is not resumed past: it
+	 * comes back as an error naming the fact, because the answer is a
+	 * person's.
+	 */
+	resumePaused(params: ResumePausedParams): AsyncIterable<AgentEvent>
 	/**
 	 * Cancel and settle live sends, compactions and durable resumes, then release
 	 * what the session holds — today, the external tool servers.
@@ -2006,6 +2034,210 @@ export async function createAgentSession(
 		reasoningEffortDefault = undefined
 		effortNotice = `Reasoning effort levels could not be established for this session: ${describeError(error)}`
 	}
+	/**
+	 * The kernel's resume with this session's half of the run attached: the
+	 * provider, the tools, the working directory, the doctrine — the part a
+	 * checkpoint cannot carry. `resumeDurable` and `resumePaused` differ only
+	 * in where the run and its store come from.
+	 */
+	const kernelResume = ({
+		entry,
+		checkpointStore,
+		claimFence,
+		signal,
+		checkpointId,
+		listener,
+	}: Omit<ResumeDurableParams, 'entry'> & {
+		/** The run's address; a durable listing carries more, and only this is needed. */
+		readonly entry: Pick<DurableRunEntry, 'tenantId' | 'projectId' | 'sessionId' | 'runId'>
+		readonly checkpointId?: CheckpointId
+		readonly listener?: (event: RunEvent) => void
+	}): Promise<ResumeOutcome> =>
+		operations.promise(signal, async (ownedSignal) => {
+			// The same prelude a turn runs, and for the same reasons: a lapsed
+			// OAuth token has to be renewed before the provider is used, and the
+			// fallback chain has to be built AFTER that so its members do not
+			// hold a client the refresh just replaced.
+			await prepareProviderCredential(ownedSignal)
+			const pluginSkills = pluginRuntime
+				? await currentPluginSkills(pluginRuntime.skills)
+				: undefined
+			const memoryPrompt = composeMemoryPrompt(readMemory(undefined, cwd))
+			const environmentPrompt = composeEnvironmentPrompt({
+				...(await readEnvironmentFacts(cwd)),
+				additionalDirectories: [...directories],
+			})
+			const systemPrompt =
+				[
+					NAMZU_IDENTITY,
+					NAMZU_WORKING_DOCTRINE,
+					NAMZU_DELEGATION_DOCTRINE,
+					environmentPrompt,
+					memoryPrompt,
+				]
+					.filter((s): s is string => Boolean(s))
+					.join('\n\n') || undefined
+
+			const resumeHandler = makeResumeHandler(
+				approval,
+				undefined,
+				options.permissionMode,
+				(name, input) => isPromptExempt(registry, name, input),
+			)
+			if (delegatedResumeHandlers.has(entry.runId)) {
+				throw new Error(`Run ${entry.runId} already owns a delegated review channel.`)
+			}
+			delegatedResumeHandlers.set(entry.runId, resumeHandler)
+			try {
+				return await resumeRun({
+					provider,
+					fallbackProviders: fallbackPlan.build(currentToken),
+					tools: registry,
+					pluginManager: pluginRuntime?.manager,
+					skillRegistry: pluginRuntime?.skills,
+					skills: pluginSkills,
+					taskStore,
+					// The same availability the original run registered under.
+					// A resumed run re-registers the task tools; leaving them at
+					// the kernel's `deferred` default would hand the model a plan
+					// it started with active tools and can no longer update.
+					runtimeToolOverrides: {
+						task_create: 'active',
+						task_update: 'active',
+						task_list: 'active',
+					},
+					...(subagentGateway ? { taskGateway: subagentGateway } : {}),
+					authorizationGate: gateFor(options.rules),
+					compactionConfig: compactionConfigFor(options.compaction),
+					projectInstructionContext: projectInstructions.createRunContext(),
+					pathBuilder,
+					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
+					...(options.sandbox?.teardownTimeoutMs !== undefined
+						? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
+						: {}),
+					// NOT `emergencySave`, unlike a turn. The manager is a singleton
+					// whose `attach` detaches whoever held it before, so a caller
+					// resuming several runs in one process would leave only the last
+					// one covered — and would look covered. A turn owns its process
+					// end to end; a drainer does not.
+					runConfig: {
+						model,
+						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
+						timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+						tokenBudget: options.limits?.tokenBudget ?? 1_000_000,
+						maxIterations: options.limits?.maxIterations ?? 50,
+						maxResponseTokens: 8192,
+						permissionMode: 'auto',
+					},
+					agentId: 'namzu',
+					agentName: 'namzu',
+					...(systemPrompt ? { systemPrompt } : {}),
+					workingDirectory: cwd,
+					...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
+					...(options.limits ? { limits: options.limits } : {}),
+					// No `onPermission`: there is nobody at a drainer's terminal, so a
+					// prompt would block the pass forever on a run nobody is watching.
+					// The gate's deny rules still apply.
+					// One presenter for the whole stream, built from the registry this
+					// scope already holds. It was the absence of the registry HERE that
+					// forced presentation to be name matching: `toAgentEvent` was pure
+					// over a `RunEvent` and could not ask a tool anything.
+					resumeHandler,
+					signal: ownedSignal,
+					// Attribution comes from the ENTRY, not from this session: the run
+					// belongs to whoever started it, and stamping the drainer's ids onto
+					// it would file another tenant's work under this one.
+					tenantId: entry.tenantId,
+					projectId: entry.projectId,
+					sessionId: entry.sessionId,
+					// …except the topic, which no checkpoint records — see
+					// `RunStateScope`. This one is the drainer's, and honestly so:
+					// supplied here rather than pretended to have been recovered.
+					topicId: scope.topicId,
+					scope: { ...entry, topicId: scope.topicId },
+					checkpointStore,
+					...(claimFence !== undefined ? { claimFence } : {}),
+					...(checkpointId !== undefined ? { checkpointId } : {}),
+					...(listener ? { listener } : {}),
+				})
+			} finally {
+				if (delegatedResumeHandlers.get(entry.runId) === resumeHandler) {
+					delegatedResumeHandlers.delete(entry.runId)
+				}
+			}
+		})
+	/**
+	 * `resumeRun` drains the loop and returns a settled run; the events go to a
+	 * listener. A small queue turns that into the stream `send` gives, so a
+	 * headless caller renders a resumed run exactly as it rendered the turn.
+	 */
+	const resumePausedStream = ({
+		runId,
+		checkpointId,
+		signal,
+	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
+		const queue: RunEvent[] = []
+		let wake: (() => void) | undefined
+		let settled = false
+		let failure: Error | undefined
+		const presenter = createToolPresenter(registry)
+		// The store the turn's run manager wrote to, built the same way it
+		// built it (see the kernel's `RunPersistence`): the session directory's
+		// `runs/`, attributed to this tenant and project.
+		const store = new DiskCheckpointStore(
+			{ baseDir: join(pathBuilder.sessionDir(scope.projectId, scope.sessionId), 'runs') },
+			{ tenantId: scope.tenantId, projectId: scope.projectId, sessionId: scope.sessionId },
+		)
+		const entry = {
+			tenantId: scope.tenantId,
+			projectId: scope.projectId,
+			sessionId: scope.sessionId,
+			runId: runId as RunId,
+		}
+		const outcome = kernelResume({
+			entry,
+			checkpointStore: store,
+			...(signal ? { signal } : {}),
+			checkpointId: checkpointId as CheckpointId,
+			listener: (event) => {
+				queue.push(event)
+				wake?.()
+			},
+		})
+			.then((result) => {
+				if (!result.resumed) {
+					failure = new Error(
+						result.reason === 'no-checkpoint'
+							? `no checkpoint ${checkpointId} is recorded for run ${runId}`
+							: `run ${runId} is parked on a decision only a person can answer`,
+					)
+				}
+			})
+			.catch((err: unknown) => {
+				failure = err instanceof Error ? err : new Error(String(err))
+			})
+			.finally(() => {
+				settled = true
+				wake?.()
+			})
+		return (async function* () {
+			for (;;) {
+				while (queue.length > 0) {
+					const next = queue.shift()
+					if (!next) break
+					const mapped = toAgentEvent(next, presenter)
+					if (mapped) yield mapped
+				}
+				if (settled) break
+				await new Promise<void>((resolve) => {
+					wake = resolve
+				})
+				wake = undefined
+			}
+			await outcome
+			if (failure) yield { kind: 'error', message: failure.message }
+		})()
+	}
 	return {
 		hasProvider: true,
 		sandbox: {
@@ -2262,117 +2494,13 @@ export async function createAgentSession(
 				})(),
 			),
 		resumeDurable: ({ entry, checkpointStore, claimFence, signal }) =>
-			operations.promise(signal, async (ownedSignal) => {
-				// The same prelude a turn runs, and for the same reasons: a lapsed
-				// OAuth token has to be renewed before the provider is used, and the
-				// fallback chain has to be built AFTER that so its members do not
-				// hold a client the refresh just replaced.
-				await prepareProviderCredential(ownedSignal)
-				const pluginSkills = pluginRuntime
-					? await currentPluginSkills(pluginRuntime.skills)
-					: undefined
-				const memoryPrompt = composeMemoryPrompt(readMemory(undefined, cwd))
-				const environmentPrompt = composeEnvironmentPrompt({
-					...(await readEnvironmentFacts(cwd)),
-					additionalDirectories: [...directories],
-				})
-				const systemPrompt =
-					[
-						NAMZU_IDENTITY,
-						NAMZU_WORKING_DOCTRINE,
-						NAMZU_DELEGATION_DOCTRINE,
-						environmentPrompt,
-						memoryPrompt,
-					]
-						.filter((s): s is string => Boolean(s))
-						.join('\n\n') || undefined
-
-				const resumeHandler = makeResumeHandler(
-					approval,
-					undefined,
-					options.permissionMode,
-					(name, input) => isPromptExempt(registry, name, input),
-				)
-				if (delegatedResumeHandlers.has(entry.runId)) {
-					throw new Error(`Run ${entry.runId} already owns a delegated review channel.`)
-				}
-				delegatedResumeHandlers.set(entry.runId, resumeHandler)
-				try {
-					return await resumeRun({
-						provider,
-						fallbackProviders: fallbackPlan.build(currentToken),
-						tools: registry,
-						pluginManager: pluginRuntime?.manager,
-						skillRegistry: pluginRuntime?.skills,
-						skills: pluginSkills,
-						taskStore,
-						// The same availability the original run registered under.
-						// A resumed run re-registers the task tools; leaving them at
-						// the kernel's `deferred` default would hand the model a plan
-						// it started with active tools and can no longer update.
-						runtimeToolOverrides: {
-							task_create: 'active',
-							task_update: 'active',
-							task_list: 'active',
-						},
-						...(subagentGateway ? { taskGateway: subagentGateway } : {}),
-						authorizationGate: gateFor(options.rules),
-						compactionConfig: compactionConfigFor(options.compaction),
-						projectInstructionContext: projectInstructions.createRunContext(),
-						pathBuilder,
-						...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
-						...(options.sandbox?.teardownTimeoutMs !== undefined
-							? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
-							: {}),
-						// NOT `emergencySave`, unlike a turn. The manager is a singleton
-						// whose `attach` detaches whoever held it before, so a caller
-						// resuming several runs in one process would leave only the last
-						// one covered — and would look covered. A turn owns its process
-						// end to end; a drainer does not.
-						runConfig: {
-							model,
-							...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
-							timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
-							tokenBudget: options.limits?.tokenBudget ?? 1_000_000,
-							maxIterations: options.limits?.maxIterations ?? 50,
-							maxResponseTokens: 8192,
-							permissionMode: 'auto',
-						},
-						agentId: 'namzu',
-						agentName: 'namzu',
-						...(systemPrompt ? { systemPrompt } : {}),
-						workingDirectory: cwd,
-						...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
-						...(options.limits ? { limits: options.limits } : {}),
-						// No `onPermission`: there is nobody at a drainer's terminal, so a
-						// prompt would block the pass forever on a run nobody is watching.
-						// The gate's deny rules still apply.
-						// One presenter for the whole stream, built from the registry this
-						// scope already holds. It was the absence of the registry HERE that
-						// forced presentation to be name matching: `toAgentEvent` was pure
-						// over a `RunEvent` and could not ask a tool anything.
-						resumeHandler,
-						signal: ownedSignal,
-						// Attribution comes from the ENTRY, not from this session: the run
-						// belongs to whoever started it, and stamping the drainer's ids onto
-						// it would file another tenant's work under this one.
-						tenantId: entry.tenantId,
-						projectId: entry.projectId,
-						sessionId: entry.sessionId,
-						// …except the topic, which no checkpoint records — see
-						// `RunStateScope`. This one is the drainer's, and honestly so:
-						// supplied here rather than pretended to have been recovered.
-						topicId: scope.topicId,
-						scope: { ...entry, topicId: scope.topicId },
-						checkpointStore,
-						...(claimFence !== undefined ? { claimFence } : {}),
-					})
-				} finally {
-					if (delegatedResumeHandlers.get(entry.runId) === resumeHandler) {
-						delegatedResumeHandlers.delete(entry.runId)
-					}
-				}
+			kernelResume({
+				entry,
+				checkpointStore,
+				...(claimFence !== undefined ? { claimFence } : {}),
+				...(signal ? { signal } : {}),
 			}),
+		resumePaused: (params) => resumePausedStream(params),
 	}
 }
 
@@ -3288,6 +3416,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// the SDK had explicitly stopped.
 			return {
 				kind: 'paused',
+				runId: String(event.runId),
 				checkpointId: event.checkpointId,
 				reason: event.reason,
 				...(event.failure ? { failure: event.failure } : {}),
@@ -3721,6 +3850,9 @@ function emptySession(
 		// wrong answer, on the one path where the answer is destructive.
 		resumeDurable: async () => {
 			throw new Error(errorHint)
+		},
+		resumePaused: async function* () {
+			yield { kind: 'error', message: 'no provider: nothing to resume' }
 		},
 		close: async () => {
 			// Nothing was ever connected on this path.

@@ -117,6 +117,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				resumeDurable: async () => {
 					throw new Error('not used')
 				},
+				resumePaused: () => {
+					throw new Error('resumePaused is not part of this test')
+				},
 				close: async () => {},
 				send: (messages, sendOptions) => sendImplementation(messages, sendOptions, bound),
 			}

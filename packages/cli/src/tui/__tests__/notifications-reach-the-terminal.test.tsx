@@ -148,6 +148,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 			resumeDurable: async () => {
 				throw new Error('not used by the TUI')
 			},
+			resumePaused: () => {
+				throw new Error('resumePaused is not part of this test')
+			},
 			close: async () => {},
 			send: async function* (messages, opts): AsyncIterable<AgentEvent> {
 				const turn = sendCalls
@@ -187,6 +190,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				} else if (script.outcome === 'paused') {
 					yield {
 						kind: 'paused',
+						runId: 'run_rate_7',
 						checkpointId: 'cp_rate_7',
 						reason: 'request rejected after retries',
 						failure: {

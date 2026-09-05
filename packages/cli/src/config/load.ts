@@ -645,8 +645,12 @@ const CONFIG_READERS: ConfigReaders = {
 	limits: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'maxIterations' && key !== 'tokenBudget')
-				return invalidConfigValue(context, [key], 'is not a limit (maxIterations, tokenBudget)')
+			if (key !== 'maxIterations' && key !== 'tokenBudget' && key !== 'waitForProviderMs')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a limit (maxIterations, tokenBudget, waitForProviderMs)',
+				)
 			const value = (v as Record<string, unknown>)[key]
 			if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)
 				return invalidConfigValue(context, [key], 'must be a whole number above zero')

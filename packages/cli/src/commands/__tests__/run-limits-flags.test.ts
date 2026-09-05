@@ -22,3 +22,18 @@ describe('--max-iterations and --token-budget', () => {
 		expect(() => parseRunFlags(['--max-iterations', '1.5'])).toThrow(/--max-iterations/)
 	})
 })
+
+describe('--wait-for-provider', () => {
+	it('parses a duration into milliseconds', () => {
+		expect(parseRunFlags(['--wait-for-provider', '30m', 'go']).waitForProviderMs).toBe(1_800_000)
+		expect(parseRunFlags(['--wait-for-provider', '90s']).waitForProviderMs).toBe(90_000)
+	})
+
+	it('is absent by default, so the config key decides', () => {
+		expect(parseRunFlags(['go']).waitForProviderMs).toBeNull()
+	})
+
+	it('refuses a duration it cannot read, naming the flag', () => {
+		expect(() => parseRunFlags(['--wait-for-provider', 'a while'])).toThrow(/--wait-for-provider/)
+	})
+})

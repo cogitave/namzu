@@ -83,6 +83,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 			resumeDurable: async () => {
 				throw new Error('not used by export chooser')
 			},
+			resumePaused: () => {
+				throw new Error('resumePaused is not part of this test')
+			},
 			close: async () => {},
 			send: async function* (_messages: readonly Message[]): AsyncIterable<AgentEvent> {
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent

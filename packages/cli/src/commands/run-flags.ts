@@ -26,6 +26,7 @@ import { DEFAULT_GATE_MAX_RETRIES, createCommandGate } from '@namzu/sdk'
 import type { ReviewAnswer } from '@namzu/sdk'
 
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
+import { durationMs } from './provider-wait.js'
 
 /** A whole number above zero, or a thrown message naming the flag. */
 function positiveInteger(value: string, flag: string): number {
@@ -65,6 +66,12 @@ export interface RunFlags {
 	maxIterations: number | null
 	/** `--token-budget <n>`: total tokens this run may spend before it is stopped. */
 	tokenBudget: number | null
+	/**
+	 * `--wait-for-provider <duration>`: how long the run may spend waiting out
+	 * provider pauses (a rate limit, an outage) before it gives up with 75.
+	 * Milliseconds; null means the flag was not given and the config decides.
+	 */
+	waitForProviderMs: number | null
 	/**
 	 * `--gate '<command>'`, repeatable — commands that must pass before the
 	 * run is allowed to settle.
@@ -106,6 +113,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		skills: [],
 		maxIterations: null,
 		tokenBudget: null,
+		waitForProviderMs: null,
 		gates: [],
 		gateRetries: null,
 		unknown: [],
@@ -171,6 +179,17 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				'token-budget',
 				(v) => {
 					out.tokenBudget = positiveInteger(v, '--token-budget')
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'wait-for-provider',
+				(v) => {
+					out.waitForProviderMs = durationMs(v, '--wait-for-provider')
 				},
 				idx,
 			)

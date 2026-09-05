@@ -1,7 +1,7 @@
 import type { AgentEvent } from './agent.js'
 import { terminalDisplayText } from './terminal-display.js'
 
-type Interruption = Extract<AgentEvent, { kind: 'error' | 'paused' }>
+export type Interruption = Extract<AgentEvent, { kind: 'error' | 'paused' }>
 
 /** One terminal-safe line, bounded so a provider response cannot own the screen. */
 function line(value: string, max = 480): string {
@@ -9,7 +9,8 @@ function line(value: string, max = 480): string {
 	return clean.length <= max ? clean : `${clean.slice(0, Math.max(0, max - 1))}…`
 }
 
-function retryAfterMs(event: Interruption): number | undefined {
+/** The delay the provider asked for, from either place the event can carry it. */
+export function retryAfterMs(event: Interruption): number | undefined {
 	const direct = event.providerError?.retryAfterMs
 	const projected = event.failure?.details?.retryAfterMs
 	const value = typeof direct === 'number' ? direct : projected

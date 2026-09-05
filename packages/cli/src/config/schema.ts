@@ -61,6 +61,12 @@ export interface RunLimitsConfig {
 	readonly maxIterations?: number
 	/** Tokens one run may spend in total, prompt and completion. Default 1,000,000. */
 	readonly tokenBudget?: number
+	/**
+	 * Milliseconds a headless run may spend waiting out provider pauses — a
+	 * rate limit, an outage — resuming from its checkpoint after each, before
+	 * it stops with exit code 75. Default 0: a pause ends the run at once.
+	 */
+	readonly waitForProviderMs?: number
 }
 
 /** See `NamzuCliConfig.compaction`. */

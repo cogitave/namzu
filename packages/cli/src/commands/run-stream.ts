@@ -179,6 +179,14 @@ export const runStreamCommand: CommandDef = {
 				'run-stream does not take --continue or --resume; they are `namzu run` options. Bind history with --session <id>, which keys a persisted conversation in this folder.',
 			)
 		}
+		// Same reasoning for the wait budget: this command streams a pause to its
+		// host as an event and the host decides when to resume; a flag it accepted
+		// and ignored would promise a wait that never happens.
+		if (flags.waitForProviderMs !== null) {
+			return fail(
+				'run-stream does not take --wait-for-provider; it is a `namzu run` option. A host reads the paused event and resumes when it chooses.',
+			)
+		}
 		const sessionKey = flags.session
 		const prompt = flags.rest.join(' ').trim()
 		if (!prompt) return fail('no prompt — pass it as an argument')
