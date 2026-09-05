@@ -132,6 +132,9 @@ function send(o) { process.stdout.write(JSON.stringify(o) + '\\n') }
 /** Starts, and never answers. The case a request timeout cannot cover. */
 const SILENT_SERVER = 'setInterval(() => {}, 1000)\n'
 
+/** The working server, 600ms late to its own stdin: a slow boot, not a wedge. */
+const SLOW_SERVER = `setTimeout(() => {${WORKING_SERVER}}, 600)\n`
+
 async function startOrigin(
 	handler: (
 		request: IncomingMessage,
@@ -183,9 +186,13 @@ describe('a declared server', () => {
 				return
 			}
 			if (message.method === 'tools/list') {
-				response
-					.writeHead(200, { 'Content-Type': 'application/json' })
-					.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { tools: [] } }))
+				response.writeHead(200, { 'Content-Type': 'application/json' }).end(
+					JSON.stringify({
+						jsonrpc: '2.0',
+						id: message.id,
+						result: { tools: [] },
+					}),
+				)
 				return
 			}
 			response.writeHead(202).end()
@@ -328,6 +335,63 @@ describe('a server that does not work is named, never merely absent', () => {
 		expect(Date.now() - started, 'the deadline has to actually bound it').toBeLessThan(30_000)
 		await mcp.close()
 	}, 40_000)
+
+	it('gives a slow server the connect deadline its spec asks for', async () => {
+		// The default deadline is for a wedged server; a Python SDK server that
+		// cold-boots in 15-20s is a working server it refuses. Proven both ways
+		// with one server: too short a deadline names its own value in the
+		// failure, a longer one connects and brings the tools.
+		const server = writeServer('slow.js', SLOW_SERVER)
+
+		const short = await connectMcpServers(
+			{
+				slow: {
+					command: process.execPath,
+					args: [server],
+					connectTimeoutMs: 150,
+				},
+			},
+			{ cwd: dir },
+		)
+		expect(short.connected).toEqual([])
+		expect(short.failed[0]?.reason).toContain('did not answer within 150ms')
+		await short.close()
+
+		const patient = await connectMcpServers(
+			{
+				slow: {
+					command: process.execPath,
+					args: [server],
+					connectTimeoutMs: 8_000,
+				},
+			},
+			{ cwd: dir },
+		)
+		expect(patient.failed).toEqual([])
+		expect(patient.connected[0]?.toolCount).toBe(2)
+		await patient.close()
+	}, 20_000)
+
+	it('refuses a connect deadline that is not a positive number of milliseconds', async () => {
+		// Not defaulted: silently running with 10s would produce the failure the
+		// operator was configuring away, and blame the server for it.
+		const server = writeServer('tickets.js', WORKING_SERVER)
+		const mcp = await connectMcpServers(
+			{
+				tickets: {
+					command: process.execPath,
+					args: [server],
+					connectTimeoutMs: -1,
+				},
+			},
+			{ cwd: dir },
+		)
+
+		expect(mcp.connected).toEqual([])
+		expect(mcp.failed[0]?.name).toBe('tickets')
+		expect(mcp.failed[0]?.reason).toContain('connectTimeoutMs')
+		await mcp.close()
+	})
 
 	it('does not let one broken server take the working ones with it', async () => {
 		const good = writeServer('tickets.js', WORKING_SERVER)

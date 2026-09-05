@@ -156,8 +156,10 @@ export const runCommand: CommandDef = {
 		'once to pick one interactively.',
 		'',
 		'Exit codes: 0 on a reply, 1 on a failed or unfinished run, 2 when no',
-		'prompt was supplied, 64 when an argument is wrong, 77 when the folder',
-		'has not been trusted and nothing ran.',
+		'prompt was supplied, 64 when an argument is wrong, 75 when the provider',
+		'paused the run (a rate limit or an outage) and a checkpoint was kept —',
+		'wait, then run again — and 77 when the folder has not been trusted and',
+		'nothing ran.',
 	].join('\n'),
 	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
 		let ctx = bootstrapCtx
@@ -403,6 +405,7 @@ export const runCommand: CommandDef = {
 
 		let text = ''
 		let failed: string | null = null
+		let paused = false
 		let stopReason: StopReason | undefined
 		for await (const event of session.send(
 			[...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }],
@@ -416,6 +419,7 @@ export const runCommand: CommandDef = {
 			else if (event.kind === 'context') ctx.formatter.info(event.text)
 			else if (event.kind === 'error' || event.kind === 'paused') {
 				failed = describeRunInterruption(event)
+				paused = event.kind === 'paused'
 			} else if (event.kind === 'done') stopReason = event.stopReason
 		}
 
@@ -439,7 +443,12 @@ export const runCommand: CommandDef = {
 			ctx.formatter.error({
 				message: `${failed}${partial ? ' — the output above is partial' : ''}`,
 			})
-			return 1
+			// A pause is not a failure: the provider said "not now" (a rate
+			// limit, an outage) and the kernel kept a checkpoint. A wrapper that
+			// re-runs on 1 would hammer a limited provider and give up on a
+			// finished-looking failure alike; 75 (EX_TEMPFAIL, the sysexits
+			// convention for "try again later") lets it back off instead.
+			return paused ? 75 : 1
 		}
 
 		// The text prints either way. Partial output is real output, and a

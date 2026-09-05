@@ -38,7 +38,11 @@ vi.mock('../../tui/agent.js', () => ({
 	createAgentSession: vi.fn(async () => sessionStub),
 }))
 
-function contextCapturing(): { ctx: CommandContext; printed: string[]; errors: string[] } {
+function contextCapturing(): {
+	ctx: CommandContext
+	printed: string[]
+	errors: string[]
+} {
 	const printed: string[] = []
 	const errors: string[] = []
 	const ctx = {
@@ -70,7 +74,10 @@ async function runWith(events: unknown[]): Promise<{
 }> {
 	streaming(events)
 	const { ctx, printed, errors } = contextCapturing()
-	const code = (await runCommand.handler({ rawArgs: ['hello'], ctx } as never)) as number
+	const code = (await runCommand.handler({
+		rawArgs: ['hello'],
+		ctx,
+	} as never)) as number
 	return { code, printed, errors }
 }
 
@@ -113,7 +120,9 @@ describe('namzu run exit code reflects whether the run finished', () => {
 		expect(code).toBe(1)
 	})
 
-	it('exits 1, keeps partial output and names a resumable checkpoint', async () => {
+	it('exits 75 on a pause, keeps partial output and names a resumable checkpoint', async () => {
+		// 75 is EX_TEMPFAIL: a wrapper can tell "the provider said not now" from
+		// a run that failed, and wait instead of re-running into the same limit.
 		const { code, printed, errors } = await runWith([
 			{ kind: 'delta', text: 'useful partial answer' },
 			{
@@ -128,7 +137,7 @@ describe('namzu run exit code reflects whether the run finished', () => {
 			},
 		])
 
-		expect(code).toBe(1)
+		expect(code).toBe(75)
 		expect(printed.join('')).toContain('useful partial answer')
 		expect(errors.join('')).toContain('Run paused [provider.rate_limit]')
 		expect(errors.join('')).toContain('Checkpoint preserved: cp_9')

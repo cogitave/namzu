@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-05
+* **Creation**: [Tool servers](/cli/mcp-servers.md) — the `mcpServers` config key documented; `connectTimeoutMs` gives one server a longer connect deadline than the 10s default.
+* **Creation**: [Exit codes of a headless run](/cli/run-exit-codes.md) — `namzu run` exits 75 (EX_TEMPFAIL) when the provider paused the run, so a wrapper can wait instead of retrying or giving up.
 * **Creation**: [Pinned facts](/sdk/pinned-facts.md) — `ToolResult.workingState` and the MCP working-state resource; tools can now state facts into the working-memory slot.
 
 ## 2026-09-04

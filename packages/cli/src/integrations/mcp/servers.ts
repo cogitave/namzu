@@ -82,6 +82,17 @@ export interface McpServerSpec {
 	/** HTTP: the server's endpoint. */
 	readonly url?: string
 	readonly headers?: Readonly<Record<string, string>>
+	/**
+	 * How long THIS server gets to connect, hand shake and list its tools, in
+	 * milliseconds. Default {@link CONNECT_TIMEOUT_MS}.
+	 *
+	 * The default is sized for a wedged server, not a slow one. A server whose
+	 * first spawn is genuinely slow — a Python SDK server cold-boots in 15-20s
+	 * on some machines — is a working server the default refuses, and a
+	 * headless run that needs it stops before its first turn. Raise this for
+	 * that server alone; the others keep the bound that protects the session.
+	 */
+	readonly connectTimeoutMs?: number
 }
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
@@ -178,6 +189,22 @@ async function withDeadline<T>(work: Promise<T>, ms: number, what: string): Prom
 
 const reasonOf = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
+/**
+ * The connect deadline a spec asks for, or why it cannot have it.
+ *
+ * Refused rather than defaulted: a value that is not a positive number is an
+ * operator who mistyped the key they were relying on, and silently running
+ * with 10s would produce the very failure they were configuring away.
+ */
+export function connectDeadlineFor(spec: McpServerSpec): number | string {
+	const ms = spec.connectTimeoutMs
+	if (ms === undefined) return CONNECT_TIMEOUT_MS
+	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) {
+		return `connectTimeoutMs must be a positive number of milliseconds, got ${JSON.stringify(ms)}`
+	}
+	return ms
+}
+
 export async function connectMcpServers(
 	config: McpServersConfig | undefined,
 	options: { readonly cwd: string },
@@ -201,12 +228,17 @@ export async function connectMcpServers(
 			startupFailed.push({ name, reason: transport })
 			continue
 		}
+		const deadline = connectDeadlineFor(spec)
+		if (typeof deadline === 'string') {
+			startupFailed.push({ name, reason: deadline })
+			continue
+		}
 		const client = new MCPClient({ serverName: name, transport })
 		try {
-			await withDeadline(client.connect(), CONNECT_TIMEOUT_MS, `server "${name}"`)
+			await withDeadline(client.connect(), deadline, `server "${name}"`)
 			const listed = await withDeadline(
 				client.listTools(),
-				CONNECT_TIMEOUT_MS,
+				deadline,
 				`server "${name}" listing its tools`,
 			)
 			// Adapted once, then read twice. Adapting a second time to collect
