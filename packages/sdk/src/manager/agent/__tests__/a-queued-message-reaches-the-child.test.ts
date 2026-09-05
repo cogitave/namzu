@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -91,7 +93,11 @@ function definition(agent: Agent<BaseAgentConfig, BaseAgentResult>): AgentDefini
 		},
 		typedAgent: agent,
 		configBuilder: () =>
-			({ model: 'test', tokenBudget: 1_000, timeoutMs: 10_000 }) as BaseAgentConfig,
+			({
+				model: 'test',
+				tokenBudget: 1_000,
+				timeoutMs: 10_000,
+			}) as BaseAgentConfig,
 	} as AgentDefinition
 }
 
@@ -111,7 +117,11 @@ async function harness(opts: { hold?: boolean } = {}) {
 	const topicStore = new InMemoryTopicStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
 	const topic = await topicStore.createTopic({ projectId: project.id, title: 't' }, TENANT)
-	const parentActor = { kind: 'agent', agentId: 'sup' as AgentId, tenantId: TENANT } as const
+	const parentActor = {
+		kind: 'agent',
+		agentId: 'sup' as AgentId,
+		tenantId: TENANT,
+	} as const
 	const parentSession = await store.createSession(
 		{ topicId: topic.id, projectId: project.id, currentActor: parentActor },
 		TENANT,
@@ -138,7 +148,7 @@ async function harness(opts: { hold?: boolean } = {}) {
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId: TENANT,
 		topicId: topic.id,
 		sessionId: parentSession.id,
@@ -174,7 +184,9 @@ describe('a message queued for a child reaches it', () => {
 	it('hands the child exactly what was queued, once', async () => {
 		// Queued while the child is RUNNING, which is the only moment
 		// `continueTask` is for.
-		const { manager, task, seen, release, running } = await harness({ hold: true })
+		const { manager, task, seen, release, running } = await harness({
+			hold: true,
+		})
 		await running
 		const drain = seen.configs[0]?.inboundMessages
 		expect(drain).toBeDefined()

@@ -66,7 +66,7 @@ function run(opts: {
 	turns?: {
 		text?: string
 		usage?: Partial<typeof USAGE>
-		error?: { message: string }
+		error?: { message: string; status?: number }
 		toolCalls?: { name: string; args: Record<string, unknown> }[]
 	}[]
 	fallbackProviders?: { provider: LLMProvider; model?: string }[]
@@ -142,7 +142,7 @@ describe('a run against a catalogued model', () => {
 		const settled = await run({
 			providerId: 'anthropic',
 			model: 'claude-opus-5',
-			turns: [{ error: { message: 'head is down' } }],
+			turns: [{ error: { message: 'head rejected authentication', status: 401 } }],
 			fallbackProviders: [
 				{
 					provider: new ProviderWearing(

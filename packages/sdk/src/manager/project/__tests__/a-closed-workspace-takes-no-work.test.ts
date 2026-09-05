@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -98,7 +100,11 @@ async function harness() {
 	const threadStore = new InMemoryTopicStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'w' }, TENANT)
 	const thread = await threadStore.createTopic({ projectId: project.id, title: 't' }, TENANT)
-	const parentActor = { kind: 'agent', agentId: 'sup' as AgentId, tenantId: TENANT } as const
+	const parentActor = {
+		kind: 'agent',
+		agentId: 'sup' as AgentId,
+		tenantId: TENANT,
+	} as const
 	const parentSession = await store.createSession(
 		{ topicId: thread.id, projectId: project.id, currentActor: parentActor },
 		TENANT,
@@ -110,7 +116,10 @@ async function harness() {
 	let n = 0
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
-		threadManager: new TopicManager({ topicStore: threadStore, sessionStore: store }),
+		threadManager: new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		}),
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
 		summaryMaterializer: new SessionSummaryMaterializer({
@@ -124,7 +133,7 @@ async function harness() {
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId: TENANT,
 		topicId: thread.id,
 		sessionId: parentSession.id,
@@ -143,7 +152,13 @@ async function harness() {
 			context,
 		)
 
-	return { store, project, parentSession, projects: new ProjectManager({ store }), spawn }
+	return {
+		store,
+		project,
+		parentSession,
+		projects: new ProjectManager({ store }),
+		spawn,
+	}
 }
 
 describe('a closed workspace takes no new work', () => {
@@ -299,7 +314,9 @@ describe('a store that cannot answer the precondition', () => {
 	it('refuses to archive rather than assuming the workspace is empty', async () => {
 		const h = await harness()
 		await h.store.updateSession({ ...h.parentSession, status: 'active' }, TENANT)
-		const blind = new ProjectManager({ store: storeWithoutTheListing(h.store) })
+		const blind = new ProjectManager({
+			store: storeWithoutTheListing(h.store),
+		})
 
 		await expect(blind.archive(h.project.id, TENANT)).rejects.toThrow(/listSessionsByProject/)
 	})
@@ -307,7 +324,9 @@ describe('a store that cannot answer the precondition', () => {
 	it('leaves the workspace open after refusing', async () => {
 		// The refusal has to happen before the write, or it is only a message.
 		const h = await harness()
-		const blind = new ProjectManager({ store: storeWithoutTheListing(h.store) })
+		const blind = new ProjectManager({
+			store: storeWithoutTheListing(h.store),
+		})
 
 		await blind.archive(h.project.id, TENANT).catch(() => undefined)
 

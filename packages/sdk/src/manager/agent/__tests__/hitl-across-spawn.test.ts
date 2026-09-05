@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
@@ -78,7 +80,10 @@ async function harness() {
 	const seen: BaseAgentConfig[] = []
 	const store = new InMemorySessionStore()
 	const threadStore = new InMemoryTopicStore()
-	const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
+	const threadManager = new TopicManager({
+		topicStore: threadStore,
+		sessionStore: store,
+	})
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
 	const thread = await threadStore.createTopic({ projectId: project.id, title: 'hitl' }, tenant)
 	const parent = await store.createSession(
@@ -141,7 +146,7 @@ async function harness() {
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budgetTracker: { total: 100_000, remaining: 100_000 },
+			budget: TokenBudget.create(100_000, budgetRunId()),
 			tenantId: tenant,
 			topicId: thread.id,
 			sessionId: parent.id,
@@ -173,7 +178,9 @@ async function harness() {
 describe('a child is reviewed by the same person as its parent', () => {
 	it('inherits the parent channel', async () => {
 		const h = await harness()
-		const handler = vi.fn(async () => ({ action: 'approve_tools' })) as unknown as ResumeHandler
+		const handler = vi.fn(async () => ({
+			action: 'approve_tools',
+		})) as unknown as ResumeHandler
 
 		await h.spawn(h.context({ resumeHandler: handler }))
 
@@ -247,7 +254,9 @@ describe('a child built by a configBuilder inherits it too', () => {
 		const h = await harness()
 		const handler = vi.fn() as unknown as ResumeHandler
 
-		await h.spawn(h.context({ resumeHandler: handler }), { agentId: 'built-worker' })
+		await h.spawn(h.context({ resumeHandler: handler }), {
+			agentId: 'built-worker',
+		})
 
 		expect(h.seen[0]?.resumeHandler).toBe(handler)
 	})
@@ -259,7 +268,10 @@ describe('a child built by a configBuilder inherits it too', () => {
 			agentId: 'built-worker',
 			// These are configuration hints, not authority. A child cannot turn
 			// itself back into the root or attach to an unrelated parent run.
-			configOverrides: { depth: 0, parentRunId: 'cdde1da5-4639-4efc-803c-cfa923f6a714' as never },
+			configOverrides: {
+				depth: 0,
+				parentRunId: 'cdde1da5-4639-4efc-803c-cfa923f6a714' as never,
+			},
 		})
 
 		expect(h.seen[0]?.depth).toBe(1)

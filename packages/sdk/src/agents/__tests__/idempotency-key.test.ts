@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll } from 'vitest'
 import { describe, expect, it } from 'vitest'
 
 import { ToolRegistry } from '../../registry/index.js'
@@ -35,7 +39,18 @@ function blockingProvider() {
 		async *chatStream() {
 			calls++
 			await gate
-			yield { id: 'c', delta: { content: 'ok' }, finishReason: 'stop' }
+			yield {
+				id: 'c',
+				delta: { content: 'ok' },
+				finishReason: 'stop',
+				usage: {
+					promptTokens: 1,
+					completionTokens: 1,
+					totalTokens: 2,
+					cachedTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			}
 		},
 	}
 
@@ -78,13 +93,18 @@ const config = (provider: unknown, idempotencyKey?: string): ReactiveAgentConfig
 		tokenBudget: 1_000,
 		timeoutMs: 10_000,
 		sessionId: '46bf2fa8-7b48-40ea-bd28-fa94f4fa05e6',
-		topicId: 'thr_1',
+		topicId: '6c7b77d4-088c-4eb5-9615-887e2c3551d5',
 		projectId: 'a0dab60c-1b56-4235-8c96-81fb213b4fbf',
-		tenantId: 'ten_1',
+		tenantId: '0c092a74-e701-49ed-b52c-ab7c1b577981',
 		...(idempotencyKey ? { idempotencyKey } : {}),
 	}) as unknown as ReactiveAgentConfig
 
-const input: AgentInput = { messages: [{ role: 'user', content: 'go' }] } as AgentInput
+const workingDirectory = mkdtempSync(join(tmpdir(), 'namzu-idempotency-'))
+afterAll(() => rmSync(workingDirectory, { recursive: true, force: true }))
+const input: AgentInput = {
+	messages: [{ role: 'user', content: 'go' }],
+	workingDirectory,
+} as AgentInput
 
 const agent = () =>
 	new ReactiveAgent({

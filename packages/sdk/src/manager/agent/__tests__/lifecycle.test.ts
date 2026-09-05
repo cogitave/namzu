@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_MANAGER_DEFAULTS } from '../../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
+import { TokenBudget } from '../../../run/token-budget.js'
 import { LocalTaskScheduler } from '../../../scheduler/local.js'
 import {
 	DefaultCapacityValidator,
@@ -29,6 +30,7 @@ import type { ActorRef } from '../../../types/session/actor.js'
 import type { SummaryId, TopicId } from '../../../types/session/ids.js'
 import type { DeliverableRef } from '../../../types/summary/deliverable.js'
 import { ZERO_COST } from '../../../utils/cost.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
@@ -84,7 +86,7 @@ function makeDefinition(agent: Agent<BaseAgentConfig, BaseAgentResult>): AgentDe
 
 function successResult(): BaseAgentResult {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
+		runId: budgetRunId(),
 		status: 'completed',
 		usage: { ...EMPTY_TOKEN_USAGE },
 		cost: { ...ZERO_COST },
@@ -97,7 +99,7 @@ function successResult(): BaseAgentResult {
 
 function failureResult(error: string): BaseAgentResult {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
+		runId: budgetRunId(),
 		status: 'failed',
 		usage: { ...EMPTY_TOKEN_USAGE },
 		cost: { ...ZERO_COST },
@@ -109,7 +111,11 @@ function failureResult(error: string): BaseAgentResult {
 }
 
 function user(tid: TenantId = tenant): ActorRef {
-	return { kind: 'user', userId: 'e04738b9-b828-4251-9b35-bc3bc8a2adf8' as UserId, tenantId: tid }
+	return {
+		kind: 'user',
+		userId: 'e04738b9-b828-4251-9b35-bc3bc8a2adf8' as UserId,
+		tenantId: tid,
+	}
 }
 
 function agentActor(id: string, tid: TenantId = tenant): ActorRef {
@@ -134,7 +140,10 @@ async function buildHarness(
 ): Promise<Harness> {
 	const store = new InMemorySessionStore()
 	const threadStore = new InMemoryTopicStore()
-	const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
+	const threadManager = new TopicManager({
+		topicStore: threadStore,
+		sessionStore: store,
+	})
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const thread = await threadStore.createTopic(
 		{ projectId: project.id, title: 'lifecycle-test' },
@@ -190,7 +199,7 @@ function buildContext(
 		parentAgentId: 'parent-agent',
 		parentAbortController: new AbortController(),
 		depth,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId,
 		topicId,
 		sessionId: parentSessionId,
@@ -361,7 +370,11 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		let parentId: SessionId = harness.parentSession.id
 		for (let i = 0; i < 4; i++) {
 			const child = await harness.store.createSession(
-				{ topicId: harness.topicId, projectId: harness.projectId, currentActor: agentActor('c') },
+				{
+					topicId: harness.topicId,
+					projectId: harness.projectId,
+					currentActor: agentActor('c'),
+				},
 				tenant,
 			)
 			await harness.store.createSubSession(
@@ -435,7 +448,11 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		// Seed c1 under parentSession, c2 under c1.
 		const c1 = await harness.store.createSession(
-			{ topicId: harness.topicId, projectId: harness.projectId, currentActor: agentActor('c1') },
+			{
+				topicId: harness.topicId,
+				projectId: harness.projectId,
+				currentActor: agentActor('c1'),
+			},
 			tenant,
 		)
 		await harness.store.createSubSession(
@@ -448,7 +465,11 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 			tenant,
 		)
 		const c2 = await harness.store.createSession(
-			{ topicId: harness.topicId, projectId: harness.projectId, currentActor: agentActor('c2') },
+			{
+				topicId: harness.topicId,
+				projectId: harness.projectId,
+				currentActor: agentActor('c2'),
+			},
 			tenant,
 		)
 		await harness.store.createSubSession(
@@ -590,7 +611,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 	})
 
 	it('does not derive the child deadline from the TOKEN budget', async () => {
-		// The fallback used to be `context.budgetTracker.remaining` — a token
+		// The fallback used to be `context.budget.remaining` — a token
 		// count read as milliseconds. It hid for so long because a six-figure
 		// token budget lands in a plausible range of milliseconds.
 		const seen: BaseAgentConfig[] = []
@@ -600,7 +621,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+		context.budget = TokenBudget.create(100_000, budgetRunId())
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-deadline', harness.parentSession.id, harness.projectId),
@@ -624,7 +645,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budgetTracker = { total: 100_000, remaining: 20 }
+		context.budget = TokenBudget.create(20, budgetRunId())
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-small', harness.parentSession.id, harness.projectId),
@@ -644,14 +665,14 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		const childAgent = makeAgent('child-broke', async () => successResult())
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budgetTracker = { total: 100_000, remaining: 1 }
+		context.budget = TokenBudget.create(1, budgetRunId())
 
 		await expect(
 			harness.manager.sendMessage(
 				buildOptions('child-broke', harness.parentSession.id, harness.projectId),
 				context,
 			),
-		).rejects.toThrow(/allocates 0 to the child/)
+		).rejects.toThrow(/finite positive integer/)
 	})
 
 	it('siblings divide ONE budget pool when spawned THROUGH THE GATEWAY', async () => {
@@ -665,7 +686,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+		context.budget = TokenBudget.create(100_000, budgetRunId())
 
 		// Go through the GATEWAY, which is where the clone was: calling
 		// `manager.sendMessage` directly always shared the tracker, so a test
@@ -709,7 +730,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		}))
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+		context.budget = TokenBudget.create(100_000, budgetRunId())
 
 		const gateway = new LocalTaskScheduler(harness.manager, context)
 		const handle = await gateway.createTask({
@@ -721,7 +742,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 
 		// Reserved 50_000, spent 1_000: the pool is down by what was used,
 		// not by what was set aside.
-		expect(context.budgetTracker.remaining).toBe(99_000)
+		expect(context.budget.remaining).toBe(99_000)
 	})
 
 	it('keeps a concurrent sibling reservation until it settles', async () => {
@@ -737,7 +758,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+		context.budget = TokenBudget.create(100_000, budgetRunId())
 
 		const gateway = new LocalTaskScheduler(harness.manager, context)
 		const first = await gateway.createTask({
@@ -746,11 +767,11 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 			workingDirectory: '/tmp',
 		})
 
-		expect(context.budgetTracker.remaining).toBe(50_000)
+		expect(context.budget.remaining).toBe(50_000)
 
 		release?.()
 		await waitForTask(harness.manager, first.taskId)
-		expect(context.budgetTracker.remaining).toBe(100_000)
+		expect(context.budget.remaining).toBe(100_000)
 	})
 })
 
@@ -877,10 +898,10 @@ describe('a concurrent fan-out shares one budget', () => {
 		)
 
 		// ONE tracker, shared, as a real parent's context is.
-		const shared = { total: 100_000, remaining: 100_000 }
+		const shared = TokenBudget.create(100_000, budgetRunId())
 		const context = {
 			...buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
-			budgetTracker: shared,
+			budget: shared,
 		}
 
 		await Promise.allSettled(
@@ -900,7 +921,7 @@ describe('a concurrent fan-out shares one budget', () => {
 		expect(allocations.length, 'every sibling should have started').toBe(4)
 		expect(
 			handedOut,
-			`four siblings were handed ${allocations.join(' + ')} from a pool of ${shared.total}`,
-		).toBeLessThanOrEqual(shared.total)
+			`four siblings were handed ${allocations.join(' + ')} from a pool of ${shared.limit}`,
+		).toBeLessThanOrEqual(shared.limit)
 	})
 })

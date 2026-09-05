@@ -1,3 +1,4 @@
+import type { TokenBudget } from '../../run/token-budget.js'
 import type { TaskId } from '../ids/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { CancelCause } from '../run/cancel-cause.js'
@@ -101,6 +102,9 @@ export interface CreateTaskOptions {
 }
 
 export interface TaskScheduler {
+	/** Authority under which this scheduler reserves and meters child execution. */
+	readonly budget?: TokenBudget
+
 	createTask(options: CreateTaskOptions): Promise<TaskHandle>
 
 	waitForTask(taskId: TaskId): Promise<TaskHandle>

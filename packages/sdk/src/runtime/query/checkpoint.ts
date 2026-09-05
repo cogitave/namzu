@@ -87,6 +87,8 @@ export function projectEmergencyToCheckpoint(dump: EmergencySaveData): Iteration
 		iteration: dump.currentIteration,
 		messages: dump.messages,
 		tokenUsage: dump.tokenUsage,
+		budgetBinding: dump.budgetBinding,
+		budgetAccountId: dump.budgetAccountId,
 		costInfo: { ...ZERO_COST, unpricedTokens: dump.tokenUsage.totalTokens },
 		guardState: {
 			iterationCount: dump.currentIteration,
@@ -266,6 +268,8 @@ export class CheckpointManager {
 			iteration,
 			messages: [...runMgr.messages],
 			tokenUsage: { ...runMgr.tokenUsage },
+			budgetBinding: runMgr.budget?.binding,
+			budgetAccountId: runMgr.budget?.accountId,
 			costInfo: { ...runMgr.costInfo },
 			guardState: {
 				iterationCount: runMgr.currentIteration,
@@ -277,6 +281,7 @@ export class CheckpointManager {
 			traceContext: this.traceSource?.(),
 		}
 
+		await runMgr.budget?.flush()
 		await this.store.writeCheckpoint(this.scope, checkpoint, this.claimFence)
 		this.lastCreatedId = checkpoint.id
 		return checkpoint

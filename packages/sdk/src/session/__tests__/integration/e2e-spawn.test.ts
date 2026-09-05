@@ -1,4 +1,6 @@
+import { TokenBudget } from '../../../run/token-budget.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 /**
  * End-to-end SubSession spawn flow.
  *
@@ -125,7 +127,10 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const registry = new AgentRegistry()
 		registry.register(buildDefinition(buildAgent('worker')))
 
-		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
+		const threadManager = new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		})
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
@@ -144,7 +149,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budgetTracker: { total: 100_000, remaining: 100_000 },
+			budget: TokenBudget.create(100_000, budgetRunId()),
 			tenantId: tenant,
 			topicId: thread.id,
 			sessionId: parentSession.id,
@@ -250,7 +255,10 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const registry = new AgentRegistry()
 		registry.register(buildDefinition(buildAgent('worker')))
 
-		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
+		const threadManager = new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		})
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
@@ -273,7 +281,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 				parentAgentId: 'supervisor',
 				parentAbortController: new AbortController(),
 				depth: 0,
-				budgetTracker: { total: 10_000, remaining: 10_000 },
+				budget: TokenBudget.create(10_000, budgetRunId()),
 				tenantId: tenant,
 				topicId: thread.id,
 				sessionId: parentSession.id,

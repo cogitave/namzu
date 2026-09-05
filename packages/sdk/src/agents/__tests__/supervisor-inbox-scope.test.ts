@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { TokenBudget } from '../../run/token-budget.js'
+import { generateRunId } from '../../utils/id.js'
 
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolNameCollisionError, ToolRegistry } from '../../registry/tool/execute.js'
@@ -22,6 +24,7 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
  * being handed every other run's completions.
  */
 class HostGateway implements TaskScheduler {
+	budget = TokenBudget.create(200_000, generateRunId()).reserve(100_000)
 	readonly listeners = new Set<(h: TaskHandle) => void>()
 
 	async createTask(): Promise<TaskHandle> {
@@ -60,10 +63,11 @@ const collidingTool = defineTool({
 })
 
 async function runOnce(
-	scheduler: TaskScheduler,
+	scheduler: HostGateway,
 	id: string,
 	options: { collide?: boolean } = {},
 ): Promise<void> {
+	scheduler.budget = TokenBudget.create(200_000, generateRunId()).reserve(100_000)
 	const agent = new SupervisorAgent({
 		id,
 		name: 'Supervisor',
@@ -81,7 +85,9 @@ async function runOnce(
 			workingDirectory: await mkdtemp(join(tmpdir(), 'namzu-inbox-scope-')),
 		} as never,
 		{
-			provider: new MockLLMProvider({ turns: [{ text: 'nothing to delegate' }] }),
+			provider: new MockLLMProvider({
+				turns: [{ text: 'nothing to delegate' }],
+			}),
 			agentIds: ['worker'],
 			scheduler,
 			tools,

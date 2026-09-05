@@ -15,9 +15,8 @@ export interface RoutingDecision {
 	 *
 	 * Routing runs before the delegate's run exists, so it has no
 	 * `RunPersistence` to accumulate into. Reporting it here lets the
-	 * router fold it into the result it returns, instead of the caller
-	 * seeing only the delegate's usage and under-reporting every routed
-	 * run by one model call.
+	 * router report its own model usage. The separate budget summary includes
+	 * both routing and every delegated descendant.
 	 */
 	usage?: TokenUsage
 }

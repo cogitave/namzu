@@ -1,3 +1,4 @@
+import type { TokenBudget } from '../../run/token-budget.js'
 import type { ActorRef } from '../../types/session/actor.js'
 import type { WorkspaceBackendKind } from '../../types/workspace/ref.js'
 import type { ResumeHandler } from '../hitl/index.js'
@@ -37,7 +38,8 @@ export interface AgentTaskContext {
 
 	depth: number
 
-	budgetTracker: AgentTaskBudget
+	/** Shared authority for this parent and every delegated descendant. */
+	budget: TokenBudget
 
 	factoryOptions?: AgentFactoryOptions
 
@@ -112,11 +114,8 @@ export interface AgentTaskContext {
 	parentActor: ActorRef
 }
 
-export interface AgentTaskBudget {
-	total: number
-
-	remaining: number
-}
+/** Budget authority shared by an agent task and its descendants. */
+export type AgentTaskBudget = TokenBudget
 
 export interface AgentTask {
 	taskId: TaskId
@@ -126,18 +125,6 @@ export interface AgentTask {
 	context: AgentTaskContext
 	state: AgentTaskState
 	result?: BaseAgentResult
-
-	/**
-	 * Tokens reserved from the shared pool when this child was spawned.
-	 *
-	 * A RESERVATION, not a spend: it is subtracted up front so siblings
-	 * cannot each be promised the same headroom, and the unused part is
-	 * returned when the child settles. Without the return, a pool shrank
-	 * by the full allocation every spawn regardless of what the child
-	 * actually used, so a long session ran out of budget while almost none
-	 * of it had been spent.
-	 */
-	budgetReservation?: number
 
 	pendingMessages: Message[]
 	createdAt: number

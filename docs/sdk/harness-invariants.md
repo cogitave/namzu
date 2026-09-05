@@ -49,21 +49,20 @@ The regression suite is
 Hard-stop request counts are covered by
 `packages/sdk/src/runtime/query/__tests__/hard-stop-does-not-spend.test.ts`.
 
-## Remaining aggregate-budget boundary
+## One budget for the delegation tree
 
-A child reservation is enforced within the manager's task pool. The pool is
-separate from the parent query's own usage counter: this release does not yet
-provide a single conserved token wallet for an entire delegation tree.
-`SupervisorAgent` constructs both its delegation pool and its query from the
-configured budget, and returns the parent query's usage. Charging child totals
-only after completion would not protect concurrent work or durable resume.
+The parent and its descendants now share one [token budget ledger](token-budgets.md).
+The parent cannot spend a child's reserved allowance. Nested children reserve
+from their own parent's account, and measured overshoot remains debt against
+every ancestor. A final child result reconciles its own cumulative usage rather
+than charging that usage a second time.
 
-The CLI's initial task pool now follows the configured run token budget instead
-of an unconditional one million tokens. This removes an allocation mismatch;
-it does not make the separate pools aggregate accounting. The next architectural
-step is one shared reservation ledger, charging measured requests once across
-all descendants and restoring unsettled reservations on resume. Token and cost
-reports must distinguish parent usage from subtree usage until that exists.
+The canonical ledger is persisted independently of message checkpoints. Resuming
+an older checkpoint retains the latest known spend and outstanding reservations.
+A lost provider receipt prevents further admission; it is not treated as zero
+usage. `Run.tokenUsage` describes the run itself, while `Run.budget.treeTokens`
+includes descendants. The ledger records tokens; dollar limits remain local to
+the run and its priced usage.
 
 ## Bounded live evidence
 
@@ -84,6 +83,14 @@ change and passing output without another tool call. The application home
 contained one Project and one Session. The corrected stream emitted one terminal
 event. Both runs used local sandboxed execution. The provider usage was reported
 as unpriced, so a monetary total cannot be inferred from the zero cost field.
+
+After aggregate accounting was added, a separate one-request check used the
+same small model and `low` effort with a 12,000-token cap. It returned the exact
+requested marker without tools. Its 4,520 reported tokens matched the live
+own/tree counters and the single persisted receipt, leaving 7,480 tokens and
+no unresolved requests. It created one Project and emitted one terminal event.
+This checks real provider usage reaching the ledger; concurrent delegation and
+restart conservation are exercised separately by deterministic regressions.
 
 This establishes the tested file-edit, error-recovery, conversation and root
 binding paths. It does not establish long-horizon reliability or a benchmark

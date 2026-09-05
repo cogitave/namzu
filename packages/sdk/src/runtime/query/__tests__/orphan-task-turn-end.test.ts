@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId } from '../../../utils/id.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -29,6 +31,7 @@ function orphanTaskGateway(): TaskScheduler {
 		createdAt: Date.now(),
 	}
 	return {
+		budget: TokenBudget.create(200_000, generateRunId()).reserve(100_000),
 		createTask: async () => handle,
 		waitForTask: () => new Promise<TaskHandle>(() => {}),
 		continueTask: async () => {},
@@ -57,7 +60,9 @@ describe('end of turn with running agent tasks', () => {
 	// out instead of completing.
 	it('ends the run promptly instead of busy-waiting on orphan tasks', async () => {
 		// One text turn, no tools — the mock's default script shape.
-		const provider = new MockLLMProvider({ turns: [{ text: 'Final answer.' }] })
+		const provider = new MockLLMProvider({
+			turns: [{ text: 'Final answer.' }],
+		})
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-orphan-task-'))
 		workdirs.push(workingDirectory)
 		const events: RunEvent[] = []

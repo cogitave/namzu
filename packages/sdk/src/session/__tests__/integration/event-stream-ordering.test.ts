@@ -1,3 +1,5 @@
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 /**
  * Integration — event stream ordering + lineage + schemaVersion envelope.
  *
@@ -147,19 +149,27 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						parentSessionId: childSessionId,
 						tenantId: config.tenantId,
 						projectId: config.projectId,
-						parentActor: { kind: 'agent', agentId: 'mid' as never, tenantId: config.tenantId },
+						parentActor: {
+							kind: 'agent',
+							agentId: 'mid' as never,
+							tenantId: config.tenantId,
+						},
 					},
 					{
 						parentRunId: '8cc97616-d576-4130-b20c-5a1c2a2ad7c2' as RunId,
 						parentAgentId: 'mid',
 						parentAbortController: new AbortController(),
 						depth: 1,
-						budgetTracker: { total: 10_000, remaining: 10_000 },
+						budget: TokenBudget.create(10_000, budgetRunId()),
 						tenantId: config.tenantId,
 						topicId: config.topicId,
 						sessionId: childSessionId,
 						projectId: config.projectId,
-						parentActor: { kind: 'agent', agentId: 'mid' as never, tenantId: config.tenantId },
+						parentActor: {
+							kind: 'agent',
+							agentId: 'mid' as never,
+							tenantId: config.tenantId,
+						},
 					},
 					(ev) => {
 						nestedEventsCaptured.push(ev)
@@ -275,7 +285,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						parentAgentId: 'mid',
 						parentAbortController: new AbortController(),
 						depth: 1,
-						budgetTracker: { total: 10_000, remaining: 10_000 },
+						budget: TokenBudget.create(10_000, budgetRunId()),
 						tenantId: config.tenantId,
 						topicId: config.topicId,
 						sessionId: config.sessionId,

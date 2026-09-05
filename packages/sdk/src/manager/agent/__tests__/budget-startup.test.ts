@@ -1,5 +1,7 @@
 import { getEventListeners } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -105,7 +107,11 @@ async function harness(configBuilder: NonNullable<AgentDefinition['configBuilder
 	}
 	const registry = new AgentRegistry()
 	registry.register({
-		info: { ...metadata, tools: [], defaults: { model: 'mock', tokenBudget: 1_000 } },
+		info: {
+			...metadata,
+			tools: [],
+			defaults: { model: 'mock', tokenBudget: 1_000 },
+		},
 		typedAgent: agent,
 		configBuilder,
 	})
@@ -125,7 +131,7 @@ async function harness(configBuilder: NonNullable<AgentDefinition['configBuilder
 		parentAgentId: 'parent',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 1_000, remaining: 1_000 },
+		budget: TokenBudget.create(1_000, budgetRunId()),
 		tenantId,
 		topicId: topic.id,
 		sessionId: parent.id,
@@ -159,7 +165,7 @@ function config(tokenBudget: number): BaseAgentConfig {
 
 async function expectRolledBack(h: Awaited<ReturnType<typeof harness>>) {
 	expect(h.run).not.toHaveBeenCalled()
-	expect(h.context.budgetTracker.remaining).toBe(1_000)
+	expect(h.context.budget.remaining).toBe(1_000)
 	expect(getEventListeners(h.context.parentAbortController.signal, 'abort')).toEqual([])
 	expect(h.manager.listByParent(h.context.parentRunId)).toEqual([])
 	expect(await h.store.getChildren(h.parent.id, h.context.tenantId)).toEqual([])
@@ -182,7 +188,7 @@ describe('a child runs inside its reservation', () => {
 
 		expect(h.run.mock.calls[0]?.[1].tokenBudget).toBe(expected)
 		expect(sharedConfig).toEqual(config(requested))
-		expect(h.context.budgetTracker.remaining).toBe(980)
+		expect(h.context.budget.remaining).toBe(980)
 	})
 
 	it('keeps a caller override below the reservation even when the builder forwards it', async () => {
@@ -207,9 +213,11 @@ describe('a child runs inside its reservation', () => {
 	it('refuses a nonfinite allocation before provisioning', async () => {
 		const h = await harness(() => config(100))
 		h.options.budgetAllocation = { tokenBudget: Number.NaN }
-		await expect(h.manager.sendMessage(h.options, h.context)).rejects.toThrow('finite and positive')
+		await expect(h.manager.sendMessage(h.options, h.context)).rejects.toThrow(
+			'finite positive integer',
+		)
 		expect(h.backend.create).not.toHaveBeenCalled()
-		expect(h.context.budgetTracker.remaining).toBe(1_000)
+		expect(h.context.budget.remaining).toBe(1_000)
 	})
 })
 
@@ -287,5 +295,178 @@ describe('startup owns its resources until the child invocation starts', () => {
 		vi.spyOn(h.store, 'updateSubSession').mockRejectedValueOnce(failure)
 		await expect(h.manager.sendMessage(h.options, h.context)).rejects.toBe(failure)
 		await expectRolledBack(h)
+	})
+})
+
+describe('parent and descendants share one spending authority', () => {
+	it('deducts parent model spend before allocating a child', async () => {
+		const h = await harness(() => config(1_000))
+		h.context.budget.recordUsage({
+			...EMPTY_TOKEN_USAGE,
+			totalTokens: 380,
+			completionTokens: 380,
+		})
+		const task = await h.manager.sendMessage(h.options, h.context)
+		await h.manager.waitForCompletion(task.taskId)
+		expect(h.run.mock.calls[0]?.[1].tokenBudget).toBe(310)
+		expect(h.context.budget.treeTokens).toBe(400)
+		expect(h.context.budget.remaining).toBe(600)
+	})
+
+	it('inherits the allocated authority after builder and caller overrides', async () => {
+		const unrelated = TokenBudget.create(100_000, budgetRunId())
+		const h = await harness(() => ({ ...config(1_000), budget: unrelated }))
+		h.options.configOverrides = { budget: unrelated }
+		const task = await h.manager.sendMessage(h.options, h.context)
+		await h.manager.waitForCompletion(task.taskId)
+		const handed = h.run.mock.calls[0]?.[1].budget
+		expect(handed).toBe(task.context.budget)
+		expect(handed).not.toBe(unrelated)
+		expect(handed?.rootRunId).toBe(h.context.budget.rootRunId)
+		expect(unrelated.treeTokens).toBe(0)
+	})
+
+	it('counts grandchildren once while each result reports only its own spend', async () => {
+		const h = await harness(() => config(1_000))
+		h.run.mockImplementation(async (_input, childConfig) => {
+			const child = childConfig.budget!
+			const grandchild = child.reserve(120)
+			grandchild.bindRun(generateRunId())
+			grandchild.settle(40)
+			return {
+				runId: generateRunId(),
+				status: 'completed',
+				usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 30, completionTokens: 30 },
+				cost: ZERO_COST,
+				iterations: 1,
+				durationMs: 1,
+				messages: [],
+			}
+		})
+		const task = await h.manager.sendMessage(h.options, h.context)
+		await h.manager.waitForCompletion(task.taskId)
+		expect(h.context.budget.treeTokens).toBe(70)
+		expect(h.context.budget.remaining).toBe(930)
+		expect(task.context.budget.ownTokens).toBe(30)
+	})
+
+	it('retains observed usage when a child throws before returning a result', async () => {
+		const h = await harness(() => config(1_000))
+		h.run.mockImplementation(async (_input, childConfig) => {
+			childConfig.budget!.bindRun(generateRunId())
+			childConfig.budget!.recordUsage({
+				...EMPTY_TOKEN_USAGE,
+				totalTokens: 70,
+				completionTokens: 70,
+			})
+			throw new Error('failed after model work')
+		})
+		const task = await h.manager.sendMessage(h.options, h.context)
+		await h.manager.waitForCompletion(task.taskId)
+		expect(task.result?.usage.totalTokens).toBe(70)
+		expect(task.result?.runId).toBe(task.context.budget.runId)
+		expect(task.result?.cost.unpricedTokens).toBe(70)
+		expect(h.context.budget.remaining).toBe(500)
+		expect(h.context.budget.summary().reservedTokens).toBe(430)
+	})
+
+	it('charges actual overage instead of hiding spend above the child reservation', async () => {
+		const h = await harness(() => config(1_000))
+		h.run.mockResolvedValue({
+			runId: generateRunId(),
+			status: 'completed',
+			usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 600, completionTokens: 600 },
+			cost: ZERO_COST,
+			iterations: 1,
+			durationMs: 1,
+			messages: [],
+		})
+		const task = await h.manager.sendMessage(h.options, h.context)
+		await h.manager.waitForCompletion(task.taskId)
+		expect(h.context.budget.treeTokens).toBe(600)
+		expect(h.context.budget.remaining).toBe(400)
+	})
+
+	it('keeps an in-flight request charged through cancellation and reconciles its late receipt', async () => {
+		const h = await harness(() => config(1_000))
+		let release!: () => void
+		const held = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		let markStarted!: () => void
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve
+		})
+		h.run.mockImplementation(async (_input, childConfig) => {
+			const budget = childConfig.budget!
+			const runId = generateRunId()
+			budget.bindRun(runId)
+			const requestId = await budget.beginRequest()
+			markStarted()
+			await held
+			const usage = {
+				...EMPTY_TOKEN_USAGE,
+				totalTokens: 30,
+				completionTokens: 30,
+			}
+			await budget.finishRequest(requestId, usage)
+			return {
+				runId,
+				status: 'cancelled',
+				usage,
+				cost: ZERO_COST,
+				iterations: 1,
+				durationMs: 1,
+				messages: [],
+			}
+		})
+		const task = await h.manager.sendMessage(h.options, h.context)
+		await started
+		h.manager.cancel(task.taskId)
+		expect(h.context.budget.remaining).toBeLessThanOrEqual(500)
+		release()
+		await vi.waitFor(() => expect(h.context.budget.treeTokens).toBe(30))
+		await vi.waitFor(() => expect(h.context.budget.remaining).toBe(970))
+		expect(task.state).toBe('canceled')
+	})
+})
+
+it('holds the grant after cancellation until a child without a request marker actually returns', async () => {
+	const h = await harness(() => config(1_000))
+	let release!: () => void
+	const held = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	h.run.mockImplementation(async () => {
+		await held
+		return {
+			runId: generateRunId(),
+			status: 'cancelled',
+			usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 80, completionTokens: 80 },
+			cost: ZERO_COST,
+			iterations: 1,
+			durationMs: 1,
+			messages: [],
+		}
+	})
+	const task = await h.manager.sendMessage(h.options, h.context)
+	h.manager.cancel(task.taskId)
+	expect(h.context.budget.remaining).toBe(500)
+	release()
+	await vi.waitFor(() => expect(h.context.budget.treeTokens).toBe(80))
+	expect(h.context.budget.remaining).toBe(920)
+})
+
+it('does not refund an unmetered throwing invocation as though it had spent zero', async () => {
+	const h = await harness(() => config(1_000))
+	h.run.mockRejectedValue(new Error('custom worker lost its receipt'))
+	const task = await h.manager.sendMessage(h.options, h.context)
+	await h.manager.waitForCompletion(task.taskId)
+	expect(task.state).toBe('failed')
+	expect(h.context.budget.remaining).toBe(500)
+	expect(h.context.budget.summary()).toMatchObject({
+		treeTokens: 0,
+		reservedTokens: 500,
+		unsettledChildren: 1,
 	})
 })

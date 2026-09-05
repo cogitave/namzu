@@ -24,6 +24,7 @@ import type { DetectedProvider, Preferences } from '../../integrations/providers
 
 const queryCalls: Array<{
 	provider: LLMProvider
+	taskScheduler?: unknown
 	fallbackProviders?: readonly { provider: LLMProvider; model?: string }[]
 }> = []
 
@@ -105,6 +106,8 @@ describe('a declared chain reaches the turn', () => {
 		)
 
 		expect(queryCalls).toHaveLength(1)
+		expect(queryCalls[0]?.taskScheduler).toBeDefined()
+		expect(queryCalls[0]).not.toHaveProperty('taskGateway')
 		const chain = queryCalls[0]?.fallbackProviders ?? []
 		expect(chain).toHaveLength(1)
 		expect(chain[0]?.provider.id).toBe('openai')
@@ -123,7 +126,10 @@ describe('a declared chain reaches the turn', () => {
 
 	it('leaves out a fallback that has no credential rather than letting it 401 later', async () => {
 		await runOneTurn(
-			{ version: 3, providers: [{ id: 'anthropic' }, { id: 'openai' }] } as Preferences,
+			{
+				version: 3,
+				providers: [{ id: 'anthropic' }, { id: 'openai' }],
+			} as Preferences,
 			detected('anthropic'),
 		)
 

@@ -12,6 +12,8 @@ import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ProjectId, TopicId } from '../session/ids.js'
 import type { StopReason } from './stop-reason.js'
+import { validateTokenBudgetBinding } from './token-budget-store.js'
+import type { TokenBudgetBinding } from './token-budget-store.js'
 
 /**
  * Everything needed to pick a run back up in a DIFFERENT process.
@@ -32,17 +34,17 @@ import type { StopReason } from './stop-reason.js'
  * host's job on the way back in, which is exactly why they are absent.
  */
 export interface RunState {
+	/** Reference to the canonical tree ledger; a checkpoint never resets it. */
+	readonly budgetBinding?: TokenBudgetBinding
+	/** Also present for non-durable accounts; those require the live authority on resume. */
+	readonly budgetAccountId?: string
 	/**
-	 * Schema version. A v1 snapshot (the pre-NZ-TOPIC-03 shape — `threadId`
-	 * instead of `topicId`) and a v2 snapshot (the shape between NZ-TOPIC-03
-	 * and NZ-TOPIC-04 — `topicId` already the field name, but its value can
-	 * carry a UUID topic ID) are both coerced forward
-	 * by {@link parseRunState}; any other unrecognized version is refused
-	 * with a clear failure rather than a partial restore, because silently
-	 * dropping fields this build does not know about is the outcome worth
-	 * failing loudly to avoid.
+	 * Schema version. Versions 1–3 are coerced forward by {@link parseRunState}.
+	 * Version 4 carries aggregate token authority references; earlier readers
+	 * must refuse it rather than silently discarding that authority on resume.
+	 * Other unrecognized versions are refused instead of partially restored.
 	 */
-	readonly version: 3
+	readonly version: 4
 
 	readonly runId: RunId
 	readonly sessionId: SessionId
@@ -100,7 +102,7 @@ export class RunStateVersionError extends Error {
 	}
 }
 
-export const RUN_STATE_VERSION = 3 as const
+export const RUN_STATE_VERSION = 4 as const
 
 /** The shape `RunState` had before NZ-TOPIC-03: `threadId`, not `topicId`. */
 const RUN_STATE_LEGACY_VERSION = 1
@@ -112,8 +114,13 @@ const RUN_STATE_LEGACY_VERSION = 1
  */
 const RUN_STATE_PRE_PREFIX_VERSION = 2
 
+/** Before checkpoints referred to a canonical aggregate token ledger. */
+const RUN_STATE_PRE_BUDGET_VERSION = 3
+
 /** Require UUIDs on every supplied identity field without rewriting records. */
 function requireEntityIds(record: Record<string, unknown>): Record<string, unknown> {
+	if (record.budgetBinding !== undefined) validateTokenBudgetBinding(record.budgetBinding)
+	if (record.budgetAccountId !== undefined) asRunId(record.budgetAccountId as string)
 	const validators = {
 		runId: asRunId,
 		parentRunId: asRunId,
@@ -138,8 +145,8 @@ function requireEntityIds(record: Record<string, unknown>): Record<string, unkno
  * and read by another, possibly weeks later and possibly after an SDK
  * upgrade; a silent partial restore there produces a run that looks healthy
  * and has lost its budgets. Failing loudly is the only honest option — for
- * every version this build does not otherwise recognize. Versions 1 and 2
- * are the exceptions: both are coerced forward rather than refused, the
+ * every version this build does not otherwise recognize. Versions 1 through 3
+ * are the exceptions: they are coerced forward rather than refused, the
  * same shape-tolerant rename `store/schema.ts`'s migrations use for the
  * on-disk session record, because a host that parks a run across either
  * release boundary would otherwise have every in-flight snapshot refused
@@ -164,6 +171,14 @@ export function parseRunState(json: string | unknown): RunState {
 	}
 	const record = raw as Record<string, unknown>
 	const version = record.version
+	if (
+		(version === RUN_STATE_LEGACY_VERSION ||
+			version === RUN_STATE_PRE_PREFIX_VERSION ||
+			version === RUN_STATE_PRE_BUDGET_VERSION) &&
+		(record.budgetBinding !== undefined || record.budgetAccountId !== undefined)
+	) {
+		throw new RunStateVersionError(version, RUN_STATE_VERSION)
+	}
 
 	if (version === RUN_STATE_LEGACY_VERSION) {
 		const { threadId, ...rest } = record
@@ -177,7 +192,7 @@ export function parseRunState(json: string | unknown): RunState {
 		} as RunState
 	}
 
-	if (version === RUN_STATE_PRE_PREFIX_VERSION) {
+	if (version === RUN_STATE_PRE_PREFIX_VERSION || version === RUN_STATE_PRE_BUDGET_VERSION) {
 		return {
 			...requireEntityIds(record),
 			version: RUN_STATE_VERSION,

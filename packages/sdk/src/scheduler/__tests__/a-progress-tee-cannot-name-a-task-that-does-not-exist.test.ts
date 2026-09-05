@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { TokenBudget } from '../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../utils/id.js'
 
 import { fixtureId } from '../../test-support/ids.js'
 import type { Agent } from '../../types/agent/core.js'
@@ -41,7 +43,11 @@ class TalksDuringSpawn implements AgentManagerContract {
 
 	/** The child says something once the caller holds its handle. */
 	speakNow(): void {
-		this.lastListener?.({ type: 'iteration_started', runId: RUN, iteration: 99 } as never)
+		this.lastListener?.({
+			type: 'iteration_started',
+			runId: RUN,
+			iteration: 99,
+		} as never)
 	}
 
 	async sendMessage(
@@ -52,7 +58,11 @@ class TalksDuringSpawn implements AgentManagerContract {
 		this.lastListener = listener
 		// The child is alive and streaming before the caller holds its handle.
 		for (let i = 0; i < this.emitsBeforeResolve; i += 1) {
-			listener?.({ type: 'iteration_started', runId: RUN, iteration: i } as never)
+			listener?.({
+				type: 'iteration_started',
+				runId: RUN,
+				iteration: i,
+			} as never)
 		}
 		await Promise.resolve()
 		return {
@@ -99,7 +109,7 @@ function context(): AgentTaskContext {
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId: '2e7341cb-d8d3-424e-bf70-53ceffaf2557' as TenantId,
 		topicId: 'c0e05744-2c2e-498d-a947-77633d012e7c' as TopicId,
 		sessionId: '6124baf7-07f6-4cf6-93c0-b9d238e322bb' as SessionId,
@@ -124,8 +134,14 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 		gateway.onTaskProgress?.(() => {})
 
 		await expect(
-			gateway.createTask({ agentId: 'worker', prompt: 'go', workingDirectory: '/tmp' }),
-		).resolves.toMatchObject({ taskId: 'de2626c4-4798-48fc-acd4-5a4c03489cbf' })
+			gateway.createTask({
+				agentId: 'worker',
+				prompt: 'go',
+				workingDirectory: '/tmp',
+			}),
+		).resolves.toMatchObject({
+			taskId: 'de2626c4-4798-48fc-acd4-5a4c03489cbf',
+		})
 	})
 
 	it('still forwards those events to the host listener', async () => {
@@ -136,7 +152,11 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 			seen.push(e.type)
 		})
 
-		await gateway.createTask({ agentId: 'worker', prompt: 'go', workingDirectory: '/tmp' })
+		await gateway.createTask({
+			agentId: 'worker',
+			prompt: 'go',
+			workingDirectory: '/tmp',
+		})
 
 		expect(seen).toEqual(['iteration_started', 'iteration_started', 'iteration_started'])
 	})
@@ -150,7 +170,11 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 		const progressed: TaskId[] = []
 		gateway.onTaskProgress?.((id) => progressed.push(id))
 
-		await gateway.createTask({ agentId: 'worker', prompt: 'go', workingDirectory: '/tmp' })
+		await gateway.createTask({
+			agentId: 'worker',
+			prompt: 'go',
+			workingDirectory: '/tmp',
+		})
 		// The one emitted mid-spawn is not attributed — there was no id yet.
 		expect(progressed).toEqual([])
 
@@ -170,7 +194,11 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 
 		const launched = await Promise.all(
 			[1, 2, 3, 4].map(() =>
-				gateway.createTask({ agentId: 'worker', prompt: 'go', workingDirectory: '/tmp' }),
+				gateway.createTask({
+					agentId: 'worker',
+					prompt: 'go',
+					workingDirectory: '/tmp',
+				}),
 			),
 		)
 

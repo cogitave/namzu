@@ -18,6 +18,7 @@ export * from './events.js'
 export * from './metadata.js'
 export * from './emergency.js'
 export * from './state.js'
+export * from './token-budget-store.js'
 export type { Lineage } from './lineage.js'
 export type {
 	SubsessionIdledEvent,

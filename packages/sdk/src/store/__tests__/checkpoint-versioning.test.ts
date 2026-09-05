@@ -7,6 +7,7 @@ import { removeTempDirAsync } from '../../__fixtures__/temp-dir.js'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { RunId } from '../../types/ids/index.js'
 import { RunDiskStore } from '../run/disk.js'
+import { defineSchema, migrate } from '../schema.js'
 
 /**
  * A checkpoint was written bare and read with a cast. Two consequences,
@@ -83,7 +84,9 @@ describe('a checkpoint on disk', () => {
 		) as {
 			schemaVersion?: number
 		}
-		expect(raw.schemaVersion).toBe(1)
+		expect(raw.schemaVersion).toBe(2)
+		const previousReader = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
+		expect(() => migrate(previousReader, raw)).toThrow('schema version 2')
 	})
 
 	it('round-trips through the stamp without losing anything', async () => {

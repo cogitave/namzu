@@ -405,6 +405,7 @@ export const runStreamCommand: CommandDef = {
 		let assistantText = ''
 		let conversationMessages: readonly Message[] | undefined
 		let terminalEvent: Extract<AgentEvent, { kind: 'done' }> | undefined
+		let budget: Extract<AgentEvent, { kind: 'usage' }>['budget']
 		try {
 			for await (const event of session.send(messages, {
 				...(extraSystem ? { extraSystem } : {}),
@@ -414,6 +415,7 @@ export const runStreamCommand: CommandDef = {
 				},
 			})) {
 				if (event.kind === 'delta') assistantText += event.text
+				if ('budget' in event && event.budget) budget = event.budget
 				if (event.kind === 'done') terminalEvent = event
 				else write(event)
 			}
@@ -469,7 +471,10 @@ export const runStreamCommand: CommandDef = {
 			}
 		}
 
-		write(terminalEvent ?? { kind: 'done' })
+		write({
+			...(terminalEvent ?? { kind: 'done' as const }),
+			...(budget ? { budget } : {}),
+		})
 		return 0
 	},
 }

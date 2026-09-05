@@ -8,6 +8,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { DiskTokenBudgetStore } from '../../../store/run/token-budget-disk.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type {
@@ -236,9 +237,18 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		return tools
 	}
 
+	const budgetDirectories = new WeakMap<InMemoryCheckpointStore, string>()
 	async function baseParams(store: InMemoryCheckpointStore) {
+		let budgetDirectory = budgetDirectories.get(store)
+		if (!budgetDirectory) {
+			budgetDirectory = await mkWorkdir()
+			budgetDirectories.set(store, budgetDirectory)
+		}
 		return {
 			checkpointStore: store,
+			// Each resumed runtime has a different cwd and a fresh store instance.
+			// Its durable token ledger travels alongside the checkpoint backend.
+			tokenBudgetStore: new DiskTokenBudgetStore({ baseDir: budgetDirectory }),
 			runConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
@@ -334,8 +344,8 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		const questionId = request?.type === 'user_question' ? request.question.questionId : ''
 
 		// A second runtime: new provider, new registry, new tool instance,
-		// nothing carried in memory from the run that parked. The store and
-		// the decision are the only things that cross.
+		// nothing carried in memory from the run that parked. The checkpoint
+		// backend, token ledger and decision are the only things that cross.
 		const seen: { outcome?: ToolPauseOutcome } = {}
 		const asked = vi.fn()
 

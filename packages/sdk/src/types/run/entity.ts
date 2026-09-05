@@ -1,3 +1,4 @@
+import type { TokenBudgetSummary } from '../../run/token-budget.js'
 import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
@@ -6,6 +7,7 @@ import type { AgentRunConfig } from './config.js'
 import type { ReplayAttribution } from './replay.js'
 import type { StepResult } from './step.js'
 import type { StopReason } from './stop-reason.js'
+import type { TokenBudgetBinding } from './token-budget-store.js'
 
 export interface RunStateMetadata {
 	agentId: string
@@ -67,7 +69,10 @@ export interface Run {
 	status: RunExecutionStatus
 	metadata: RunStateMetadata
 	messages: Message[]
+	/** Usage of this invocation only; descendant spend is in budget. */
 	tokenUsage: TokenUsage
+	budget?: TokenBudgetSummary
+	budgetBinding?: TokenBudgetBinding
 	costInfo: CostInfo
 	currentIteration: number
 	startedAt: number

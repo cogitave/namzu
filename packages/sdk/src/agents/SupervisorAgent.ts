@@ -21,6 +21,7 @@ import type { ActorRef } from '../types/session/actor.js'
 import { ZERO_COST } from '../utils/cost.js'
 import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
+import { resolveAgentBudget } from './budget.js'
 
 /**
  * Build the authoritative per-task ledger from the gateway's task handles.
@@ -131,6 +132,14 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		// on one path and `undefined` on another — a half-migration that
 		// fails silently, which is worse than not renaming the field.
 		const configuredScheduler = config.scheduler
+		const budget = await resolveAgentBudget(
+			input,
+			{ ...config, budget: config.budget ?? configuredScheduler?.budget },
+			runId,
+		)
+		if (configuredScheduler && configuredScheduler.budget !== budget) {
+			throw new Error('Injected task scheduler must share the supervisor token budget authority')
+		}
 
 		let gateway: TaskScheduler
 		if (configuredScheduler) {
@@ -155,10 +164,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// the increment when it constructs the child. Resetting a delegated
 				// supervisor to zero here made every grandchild depth one again.
 				depth: config.depth ?? 0,
-				budgetTracker: {
-					total: config.tokenBudget,
-					remaining: config.tokenBudget,
-				},
+				budget,
 				factoryOptions: mergedFactoryOptions,
 				// The supervisor already hands this to its OWN run. Handing it to
 				// the spawn context makes a worker's REVIEW-tier calls reach the
@@ -365,6 +371,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					runtimeToolOverrides: input.runtimeToolOverrides,
 					runtimeContext: input.runtimeContext,
 					taskScheduler: gateway,
+					budget,
 					completionInbox,
 					advisory: config.advisory,
 					invocationState: childInvocationState,
@@ -414,6 +421,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				status: run.status === 'completed' ? 'completed' : 'failed',
 				stopReason: run.stopReason,
 				usage: run.tokenUsage,
+				budget: budget.summary(),
 				cost: run.costInfo,
 				iterations: run.currentIteration,
 				durationMs: Date.now() - startTime,

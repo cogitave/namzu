@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -109,7 +111,11 @@ async function spawnWith(options: {
 	const threadStore = new InMemoryTopicStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
 	const thread = await threadStore.createTopic({ projectId: project.id, title: 't' }, TENANT)
-	const parentActor = { kind: 'agent', agentId: 'sup' as AgentId, tenantId: TENANT } as const
+	const parentActor = {
+		kind: 'agent',
+		agentId: 'sup' as AgentId,
+		tenantId: TENANT,
+	} as const
 	const parentSession = await store.createSession(
 		{ topicId: thread.id, projectId: project.id, currentActor: parentActor },
 		TENANT,
@@ -122,7 +128,10 @@ async function spawnWith(options: {
 	let n = 0
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
-		threadManager: new TopicManager({ topicStore: threadStore, sessionStore: store }),
+		threadManager: new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		}),
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
 		summaryMaterializer: new SessionSummaryMaterializer({
@@ -136,7 +145,7 @@ async function spawnWith(options: {
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId: TENANT,
 		topicId: thread.id,
 		sessionId: parentSession.id,
@@ -163,7 +172,9 @@ async function spawnWith(options: {
 
 describe('an environment survives a configBuilder that never heard of it', () => {
 	it('reaches a child whose builder sets none', async () => {
-		const config = await spawnWith({ overrideEnv: { API_BASE: 'https://staging' } })
+		const config = await spawnWith({
+			overrideEnv: { API_BASE: 'https://staging' },
+		})
 
 		expect(config?.env).toEqual({ API_BASE: 'https://staging' })
 	})

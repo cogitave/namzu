@@ -1,4 +1,6 @@
+import { TokenBudget } from '../../../run/token-budget.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 /**
  * Shared test fixtures for the Task 10 integration coverage matrix.
  *
@@ -287,10 +289,7 @@ export function buildTaskContext(params: {
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: params.depth ?? 0,
-		budgetTracker: {
-			total: params.budget ?? 100_000,
-			remaining: params.budget ?? 100_000,
-		},
+		budget: TokenBudget.create(params.budget ?? 100_000, params.parentRunId ?? budgetRunId()),
 		tenantId: params.tenantId,
 		topicId: params.topicId,
 		sessionId: params.sessionId,

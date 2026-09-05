@@ -417,15 +417,33 @@ export const runCommand: CommandDef = {
 		}
 
 		let text = ''
+		const measured: {
+			usage?: Extract<AgentEvent, { kind: 'usage' }>
+			budget?: Extract<AgentEvent, { kind: 'done' }>['budget']
+		} = {}
+		const jsonResult = (value: string) => ({
+			text: value,
+			...(measured.usage
+				? {
+						usage: {
+							totalTokens: measured.usage.totalTokens,
+							cost: measured.usage.cost,
+						},
+					}
+				: {}),
+			...(measured.budget ? { budget: measured.budget } : {}),
+		})
 		let stopReason: StopReason | undefined
 		// Written from inside `consume`, so held on an object: a `let` assigned
 		// only in a closure is `null` as far as the type checker can see, and
 		// every read after the loop would narrow it to `never`.
-		const stop: { failed: string | null; paused: Extract<AgentEvent, { kind: 'paused' }> | null } =
-			{
-				failed: null,
-				paused: null,
-			}
+		const stop: {
+			failed: string | null
+			paused: Extract<AgentEvent, { kind: 'paused' }> | null
+		} = {
+			failed: null,
+			paused: null,
+		}
 		const consume = async (stream: AsyncIterable<AgentEvent>): Promise<void> => {
 			stop.failed = null
 			stop.paused = null
@@ -437,9 +455,16 @@ export const runCommand: CommandDef = {
 				// watching without contaminating the answer a caller piped.
 				else if (event.kind === 'context') ctx.formatter.info(event.text)
 				else if (event.kind === 'error' || event.kind === 'paused') {
+					if (event.budget) measured.budget = event.budget
 					stop.failed = describeRunInterruption(event)
 					if (event.kind === 'paused') stop.paused = event
-				} else if (event.kind === 'done') stopReason = event.stopReason
+				} else if (event.kind === 'usage') {
+					measured.usage = event
+					if (event.budget) measured.budget = event.budget
+				} else if (event.kind === 'done') {
+					stopReason = event.stopReason
+					if (event.budget) measured.budget = event.budget
+				}
 			}
 		}
 		await consume(
@@ -482,7 +507,10 @@ export const runCommand: CommandDef = {
 			await new Promise<void>((resolve) => setTimeout(resolve, decision.delayMs))
 			waitedMs += decision.delayMs
 			await consume(
-				session.resumePaused({ runId: paused.runId, checkpointId: paused.checkpointId }),
+				session.resumePaused({
+					runId: paused.runId,
+					checkpointId: paused.checkpointId,
+				}),
 			)
 		}
 		const failed = stop.failed
@@ -497,13 +525,19 @@ export const runCommand: CommandDef = {
 		// interrupted, which is exactly the run somebody wanted the record of.
 		await sessionExport?.shutdown()
 
+		if (measured.budget) {
+			ctx.formatter.info(
+				`Tokens: ${measured.budget.ownTokens} own · ${measured.budget.treeTokens} including descendants`,
+			)
+		}
+
 		if (failed) {
 			// A provider can pause or fail after producing useful text. The TUI
 			// keeps that partial answer and a shell caller deserves the same bytes;
 			// the non-zero verdict is what prevents it being mistaken for complete.
 			const partial = text.trim()
 			if (partial) {
-				ctx.formatter.print(ctx.formatter.name === 'json' ? { text: partial } : partial)
+				ctx.formatter.print(ctx.formatter.name === 'json' ? jsonResult(partial) : partial)
 			}
 			ctx.formatter.error({
 				message: `${failed}${partial ? ' — the output above is partial' : ''}`,
@@ -525,7 +559,7 @@ export const runCommand: CommandDef = {
 		// `max_iterations` stop reports `status: 'completed'`. The sharp case is
 		// the guardrail — a REFUSED answer exited 0 with empty text, so
 		// `namzu run … > out.txt && deploy` proceeded on the empty file.
-		ctx.formatter.print(ctx.formatter.name === 'json' ? { text: text.trim() } : text.trim())
+		ctx.formatter.print(ctx.formatter.name === 'json' ? jsonResult(text.trim()) : text.trim())
 		if (stopReason && stopReason !== 'end_turn') {
 			ctx.formatter.error({
 				message: `run did not finish normally: ${stopReason}${text.trim() ? ' — the output above is partial' : ''}`,

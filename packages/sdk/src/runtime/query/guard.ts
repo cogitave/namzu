@@ -110,6 +110,14 @@ export class GuardCoordinator {
 		}
 
 		const limitResult = checkLimitsDetailed(this.limitConfig, limitState)
+		if (!abortSignal.aborted && runMgr.budget && runMgr.budget.remaining <= 0) {
+			return {
+				shouldStop: true,
+				forceFinalize: false,
+				stopReason: 'token_budget',
+				isCancelled: false,
+			}
+		}
 
 		if (limitResult.type === 'hard_stop') {
 			return {

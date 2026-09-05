@@ -1,3 +1,4 @@
+import type { TokenBudget } from '../../run/token-budget.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import type { Logger } from '../../utils/logger.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
@@ -152,6 +153,8 @@ export interface AgentRunConfig {
  * Convention #17).
  */
 export interface RunPersistenceConfig {
+	/** Shared account for this invocation and its delegated descendants. */
+	budget?: TokenBudget
 	runId: RunId
 	agentId: string
 	agentName: string

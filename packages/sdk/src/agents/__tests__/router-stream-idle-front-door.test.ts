@@ -139,7 +139,9 @@ function routerConfig(
 				description: 'fallback route',
 			},
 		],
-		invocationState: { tenantId: 'c004aafd-bb23-4ddf-b517-9dd435403415' as TenantId },
+		invocationState: {
+			tenantId: 'c004aafd-bb23-4ddf-b517-9dd435403415' as TenantId,
+		},
 	}
 }
 
@@ -161,7 +163,7 @@ async function withinSafety<T>(operation: Promise<T>): Promise<T> {
 }
 
 describe('RouterAgent owns the liveness of its routing model call', () => {
-	it('aborts a stalled routing transport and delegates through its declared fallback', async () => {
+	it('aborts a stalled transport and refuses fallback until its spend is known', async () => {
 		const provider = new AbortAwareRoutingStall()
 		const delegate = recordingDelegate()
 		const caller = new AbortController()
@@ -173,16 +175,12 @@ describe('RouterAgent owns the liveness of its routing model call', () => {
 			description: 'routes after a bounded model decision',
 		})
 		try {
-			const result = await withinSafety(
-				router.run(routerInput(caller.signal), routerConfig(provider, delegate.agent, 10)),
-			)
-
-			expect(result.status).toBe('completed')
-			expect(result.result).toBe('fallback delegate answered')
-			expect(result.selectedRoute).toBe('fallback-worker')
-			expect(result.routingDecision.routingSource).toBe('fallback')
-			expect(delegate.calls()).toBe(1)
-			expect(delegate.receivedConfig()?.invocationState?.parentChain).toEqual(['idle-router'])
+			await expect(
+				withinSafety(
+					router.run(routerInput(caller.signal), routerConfig(provider, delegate.agent, 10)),
+				),
+			).rejects.toThrow(/in-flight request|unresolved/)
+			expect(delegate.calls()).toBe(0)
 			expect(provider.transportSignals).toHaveLength(1)
 			expect(provider.transportSignals[0]).not.toBe(caller.signal)
 			expect(provider.transportSignals[0]?.aborted).toBe(true)

@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { SupervisorAgent } from '../../../agents/SupervisorAgent.js'
@@ -155,14 +157,16 @@ describe('a subagent cannot question the operator', () => {
 		const resumeHandler = vi.fn(
 			async (
 				_request: Parameters<ResumeHandler>[0],
-			): Promise<Awaited<ReturnType<ResumeHandler>>> => ({ action: 'approve_tools' }),
+			): Promise<Awaited<ReturnType<ResumeHandler>>> => ({
+				action: 'approve_tools',
+			}),
 		)
 		const context: AgentTaskContext = {
 			parentRunId: '7925f8f2-fc1a-4990-9de9-4461959f7bf1' as never,
 			parentAgentId: 'root-supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budgetTracker: { total: 100_000, remaining: 100_000 },
+			budget: TokenBudget.create(100_000, budgetRunId()),
 			resumeHandler,
 			tenantId: TENANT,
 			topicId: topic.id,

@@ -44,7 +44,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 	it.each([
 		['the parent query is cancelled after launch', 'caller-live', 'cancelled', 1] as const,
 		['the parent query is cancelled during construction', 'caller-late', 'cancelled', 1] as const,
-		['the subagent runtime is closed', 'runtime', 'completed', 2] as const,
+		['the subagent runtime is closed', 'runtime', 'completed', 1] as const,
 	])(
 		'aborts the real child transport as parent when %s',
 		async (_label, authority, expectedStatus, expectedParentRequests) => {
@@ -65,7 +65,10 @@ describe('a CLI blocking delegation ends with its parent', () => {
 							{
 								id: 'call_late_marker',
 								name: 'write',
-								args: { path: 'late-marker.txt', content: 'must not be written' },
+								args: {
+									path: 'late-marker.txt',
+									content: 'must not be written',
+								},
 							},
 						],
 					},
@@ -97,6 +100,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 				resolveParent: parent.resolveParent,
 				cwd: workingDirectory,
 				model: 'mock-model',
+				tokenBudget: 100_000,
 				buildProvider: () => childProvider,
 				...(authority === 'caller-late'
 					? {
@@ -138,6 +142,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 			})
 			const caller = new AbortController()
 			const pending = drainQuery({
+				taskScheduler: gateway,
 				provider: parentProvider,
 				tools: parentTools,
 				runConfig: {
@@ -176,6 +181,10 @@ describe('a CLI blocking delegation ends with its parent', () => {
 			])
 
 			expect(run.status).toBe(expectedStatus)
+			if (authority === 'runtime') {
+				expect(run.stopReason).toBe('token_budget')
+				expect(run.budget?.poisoned).toBe(true)
+			}
 			if (authority === 'caller-late') {
 				expect(childCalls).toBe(0)
 				releaseCreation.resolve(undefined)

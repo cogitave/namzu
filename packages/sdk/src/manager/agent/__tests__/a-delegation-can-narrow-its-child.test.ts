@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -128,7 +130,11 @@ async function spawn(opts: {
 	const topicStore = new InMemoryTopicStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
 	const topic = await topicStore.createTopic({ projectId: project.id, title: 't' }, TENANT)
-	const parentActor = { kind: 'agent', agentId: 'sup' as AgentId, tenantId: TENANT } as const
+	const parentActor = {
+		kind: 'agent',
+		agentId: 'sup' as AgentId,
+		tenantId: TENANT,
+	} as const
 	const parentSession = await store.createSession(
 		{ topicId: topic.id, projectId: project.id, currentActor: parentActor },
 		TENANT,
@@ -161,7 +167,7 @@ async function spawn(opts: {
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId: TENANT,
 		topicId: topic.id,
 		sessionId: parentSession.id,
@@ -205,7 +211,10 @@ describe('a delegation can narrow the child it spawns', () => {
 		// inside the builder arm the stamp read correctly and left a caller
 		// here holding a scope that did nothing — a narrower child requested
 		// and a wider one delivered.
-		const [config] = await spawn({ withBuilder: false, spawns: [{ deny: ['bash'] }] })
+		const [config] = await spawn({
+			withBuilder: false,
+			spawns: [{ deny: ['bash'] }],
+		})
 
 		expect(config?.deniedTools).toEqual(['bash'])
 	})

@@ -29,6 +29,7 @@ import {
 	type HostCommandOutcome,
 	type ReasoningEffort,
 	type SerializableHostCommand,
+	type TokenBudgetSummary,
 	kernelHostCommands,
 } from '@namzu/sdk'
 
@@ -263,6 +264,7 @@ export interface SlashContext {
 	 * a question someone asked on purpose.
 	 */
 	readonly usage: {
+		readonly budget?: TokenBudgetSummary
 		readonly totalTokens: number
 		readonly cost: CostInfo
 		/**
@@ -855,7 +857,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (ctx, args) => {
 			const which = args.join(' ').trim().toLowerCase()
 			if (which === 'config') {
-				return { kind: 'message', role: 'system', content: renderConfigDebug(ctx.configDebug) }
+				return {
+					kind: 'message',
+					role: 'system',
+					content: renderConfigDebug(ctx.configDebug),
+				}
 			}
 			if (which === 'tools') {
 				const tools = ctx.availableTools()
@@ -869,7 +875,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				}
 			}
 			if (which.length > 0) {
-				return { kind: 'message', role: 'system', content: 'Usage: /status [config|tools]' }
+				return {
+					kind: 'message',
+					role: 'system',
+					content: 'Usage: /status [config|tools]',
+				}
 			}
 			return { kind: 'message', role: 'system', content: renderStatus(ctx) }
 		},
@@ -1142,6 +1152,17 @@ export function renderCost(
 		}`,
 		'',
 	]
+
+	if (usage.budget) {
+		lines.push(
+			`Tree tokens (including descendants): ${usage.budget.treeTokens.toLocaleString('en-US')}`,
+			`Tree limit: ${usage.budget.limit === 0 ? 'unlimited' : usage.budget.limit.toLocaleString('en-US')}`,
+			"Cost above covers this run's own model calls.",
+			'',
+		)
+		if (usage.budget.poisoned)
+			lines.push('Further spending is blocked until unresolved usage is reconciled.', '')
+	}
 
 	if (unpriced) {
 		lines.push(

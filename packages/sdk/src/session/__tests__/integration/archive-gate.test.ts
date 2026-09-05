@@ -1,3 +1,5 @@
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 /**
  * Integration — Topic archive gate enforced at session-creation ingress
  * sites (Phase 2.6).
@@ -296,7 +298,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 					parentAgentId: 'supervisor',
 					parentAbortController: new AbortController(),
 					depth: 0,
-					budgetTracker: { total: 10_000, remaining: 10_000 },
+					budget: TokenBudget.create(10_000, budgetRunId()),
 					tenantId: DEFAULT_TENANT,
 					topicId: topic.id,
 					sessionId: session.id,

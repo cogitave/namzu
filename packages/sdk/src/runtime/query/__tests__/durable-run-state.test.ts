@@ -27,6 +27,21 @@ import { type RunStateScope, loadRunState } from '../run-state.js'
  */
 
 const RUN_ID = '54bf5651-0b7b-443e-a3c6-05170fe66108' as RunId
+
+describe('aggregate budget snapshot versioning', () => {
+	it('upgrades pre-budget version 3 without inventing aggregate authority', () => {
+		const state = parseRunState({ version: 3, runId: RUN_ID })
+		expect(state.version).toBe(4)
+		expect(state.budgetBinding).toBeUndefined()
+		expect(state.budgetAccountId).toBeUndefined()
+	})
+
+	it.each([1, 2, 3])('refuses budget authority mislabeled as version %s', (version) => {
+		expect(() => parseRunState({ version, runId: RUN_ID, budgetAccountId: RUN_ID })).toThrow(
+			RunStateVersionError,
+		)
+	})
+})
 let baseDir: string
 let store: DiskCheckpointStore
 let scope: RunStateScope

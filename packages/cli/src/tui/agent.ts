@@ -69,6 +69,7 @@ import {
 	type TaskScheduler,
 	type TaskStore,
 	type TenantId,
+	type TokenBudgetSummary,
 	type ToolCallView,
 	type ToolDefinition,
 	type ToolPresenter,
@@ -244,6 +245,8 @@ export type AgentEvent =
 	  }
 	| {
 			readonly kind: 'usage'
+			/** Parent and all descendants, reported separately from own usage. */
+			readonly budget?: TokenBudgetSummary
 			/** CUMULATIVE run spend. Grows every turn; never a context size. */
 			readonly totalTokens: number
 			/**
@@ -356,10 +359,15 @@ export type AgentEvent =
 	 * a turn is the run-level `StopReason` — did it answer, or did it run out
 	 * of budget, iterations, time, or permission to say what it produced.
 	 */
-	| { readonly kind: 'done'; readonly stopReason?: StopReason }
+	| {
+			readonly kind: 'done'
+			readonly stopReason?: StopReason
+			readonly budget?: TokenBudgetSummary
+	  }
 	| {
 			/** A recoverable run stopped with an addressable checkpoint. */
 			readonly kind: 'paused'
+			readonly budget?: TokenBudgetSummary
 			/** The run that paused: with the checkpoint, what `resumePaused` needs. */
 			readonly runId: string
 			readonly checkpointId: string
@@ -370,6 +378,7 @@ export type AgentEvent =
 	  }
 	| {
 			readonly kind: 'error'
+			readonly budget?: TokenBudgetSummary
 			readonly message: string
 			readonly failure?: Extract<RunEvent, { type: 'run_failed' }>['failure']
 			readonly providerError?: Extract<RunEvent, { type: 'run_failed' }>['providerError']
@@ -1645,7 +1654,11 @@ export async function createAgentSession(
 		add: async (path) => {
 			const absolute = resolve(cwd, path)
 			if (absolute === resolve(cwd))
-				return { added: false, path: absolute, reason: 'That is the working directory.' }
+				return {
+					added: false,
+					path: absolute,
+					reason: 'That is the working directory.',
+				}
 			if (directories.includes(absolute))
 				return { added: false, path: absolute, reason: 'Already added.' }
 			const entry = await stat(absolute).catch(() => null)
@@ -2114,7 +2127,9 @@ export async function createAgentSession(
 						task_list: 'active',
 					},
 					...(subagentRuntime
-						? { taskGateway: await subagentRuntime.gatewayForRun(entry.runId) }
+						? {
+								taskScheduler: await subagentRuntime.gatewayForRun(entry.runId),
+							}
 						: {}),
 					authorizationGate: gateFor(options.rules),
 					compactionConfig: compactionConfigFor(options.compaction),
@@ -2196,8 +2211,14 @@ export async function createAgentSession(
 		// built it (see the kernel's `RunPersistence`): the session directory's
 		// `runs/`, attributed to this tenant and project.
 		const store = new DiskCheckpointStore(
-			{ baseDir: join(pathBuilder.sessionDir(scope.projectId, scope.sessionId), 'runs') },
-			{ tenantId: scope.tenantId, projectId: scope.projectId, sessionId: scope.sessionId },
+			{
+				baseDir: join(pathBuilder.sessionDir(scope.projectId, scope.sessionId), 'runs'),
+			},
+			{
+				tenantId: scope.tenantId,
+				projectId: scope.projectId,
+				sessionId: scope.sessionId,
+			},
 		)
 		const entry = {
 			tenantId: scope.tenantId,
@@ -2440,7 +2461,10 @@ export async function createAgentSession(
 								compactionConfig: compactionConfigFor(options.compaction),
 								...(options.compaction?.consolidate ? { consolidateInto: memoryStore } : {}),
 								...(jobRegistry
-									? { backgroundJobs: jobRegistry, backgroundJobOwner: jobOwner }
+									? {
+											backgroundJobs: jobRegistry,
+											backgroundJobOwner: jobOwner,
+										}
 									: {}),
 								// Constructed HERE, per turn, and that is not an optimisation to
 								// undo. `refreshTokenIfNeeded` above replaces the head's client
@@ -2895,9 +2919,11 @@ export interface RunScope {
 /** What `/add-dir` talks to. */
 export interface SessionDirectories {
 	list(): readonly string[]
-	add(
-		path: string,
-	): Promise<{ readonly added: boolean; readonly path: string; readonly reason?: string }>
+	add(path: string): Promise<{
+		readonly added: boolean
+		readonly path: string
+		readonly reason?: string
+	}>
 }
 
 /** The newest user turn's text, for labels. */
@@ -3132,7 +3158,7 @@ async function* runTurn({
 			// turn. An admitted send owns the exact run-scoped authority above.
 			...(!opts?.goalRound ? { deniedTools: SESSION_GOAL_TOOL_NAMES } : {}),
 			taskStore,
-			...(taskGateway ? { taskGateway } : {}),
+			...(taskGateway ? { taskScheduler: taskGateway } : {}),
 			// `gateFor`, not the bare default: the default's `rules` is a hardcoded
 			// empty array, so passing it here discarded the operator's rules on the
 			// path that runs every top-level turn. The sub-agent path called
@@ -3368,6 +3394,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			return {
 				kind: 'usage',
 				totalTokens: event.usage.totalTokens,
+				...(event.budget ? { budget: event.budget } : {}),
 				cost: event.cost,
 				...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),
 				...(event.contextMeasuredBy !== undefined
@@ -3431,6 +3458,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// the SDK had explicitly stopped.
 			return {
 				kind: 'paused',
+				...(event.budget ? { budget: event.budget } : {}),
 				runId: String(event.runId),
 				checkpointId: event.checkpointId,
 				reason: event.reason,
@@ -3446,6 +3474,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// answer was refused.
 			return {
 				kind: 'done',
+				...(event.budget ? { budget: event.budget } : {}),
 				...(event.stopReason ? { stopReason: event.stopReason } : {}),
 			}
 		case 'run_failed':
@@ -3455,6 +3484,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// still forcing every host to parse prose.
 			return {
 				kind: 'error',
+				...(event.budget ? { budget: event.budget } : {}),
 				message: event.error,
 				...(event.failure ? { failure: event.failure } : {}),
 				...(event.providerError ? { providerError: event.providerError } : {}),

@@ -309,10 +309,20 @@ describe('the query loop reaches tool-result images', () => {
 					id: 'tool-turn',
 					choices: [{ delta: {}, finish_reason: 'tool_calls' }],
 				},
+				{
+					id: 'tool-turn',
+					choices: [],
+					usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+				},
 			],
 			[
 				{ id: 'answer', choices: [{ delta: { content: 'done' } }] },
 				{ id: 'answer', choices: [{ delta: {}, finish_reason: 'stop' }] },
+				{
+					id: 'answer',
+					choices: [],
+					usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+				},
 			],
 		])
 		const tools = new ToolRegistry()
@@ -360,6 +370,8 @@ describe('the query loop reaches tool-result images', () => {
 		})
 
 		expect(run.status).toBe('completed')
+		expect(run.stopReason).toBe('end_turn')
+		expect(run.tokenUsage.totalTokens).toBe(40)
 		expect(requests).toHaveLength(2)
 		const second = requests[1] as { messages: Array<{ role: string; content: unknown }> }
 		const toolAt = second.messages.findIndex((message) => message.role === 'tool')

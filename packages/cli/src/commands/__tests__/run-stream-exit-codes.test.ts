@@ -326,3 +326,36 @@ describe('flags this command does not implement', () => {
 		expect(r.out).toContain('--session')
 	})
 })
+
+it('keeps own usage separate and carries the latest tree snapshot into a synthesized terminal event', async () => {
+	const budget = {
+		limit: 1_000,
+		ownTokens: 90,
+		treeTokens: 250,
+		reservedTokens: 0,
+		remainingTokens: 750,
+		inFlightRequests: 0,
+		unsettledChildren: 0,
+		poisoned: false,
+	}
+	vi.mocked(createAgentSession).mockImplementation(async () =>
+		fakeAgentSession({
+			send: async function* () {
+				yield {
+					kind: 'usage',
+					totalTokens: 90,
+					cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 90 },
+					budget,
+				}
+				yield { kind: 'error', message: 'stopped', budget }
+			},
+		}),
+	)
+	const result = await run(['hello'])
+	const events = result.out
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line))
+	expect(events.find((event) => event.kind === 'usage')).toMatchObject({ totalTokens: 90, budget })
+	expect(events.at(-1)).toEqual({ kind: 'done', budget })
+})

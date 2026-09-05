@@ -67,6 +67,8 @@ export interface ServingMember {
 }
 
 export interface WithProviderFallbackOptions {
+	/** Additional live admission policy before selecting another provider. */
+	readonly canFallback?: () => boolean
 	readonly log?: Logger
 	/**
 	 * Called once per swap, with the member that serves from here on.
@@ -409,6 +411,7 @@ export function withProviderFallback(
 				// time, instead of settling as `cancelled`. The retry decorator
 				// guards the same way and for the same reason.
 				if (isAbortError(err) || params.signal?.aborted) throw err
+				if (options.canFallback?.() === false) throw err
 
 				const next = cursor + 1
 				const to = members[next]

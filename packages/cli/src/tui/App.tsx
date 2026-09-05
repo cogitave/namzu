@@ -398,6 +398,7 @@ type ChoicePickerState =
 const STREAM_RELEASE_MS = 250
 
 type StreamState = {
+	lastUsage?: Extract<AgentEvent, { kind: 'usage' }>
 	assistantId: string | null
 	text: string
 	/** Exact provider-visible conversation state returned by the settled kernel run. */
@@ -850,6 +851,7 @@ export function App({
 		})
 	}, [session])
 	const [usage, setUsage] = useState<{
+		budget?: Extract<AgentEvent, { kind: 'usage' }>['budget']
 		totalTokens: number
 		cost: CostInfo
 		/**
@@ -3598,6 +3600,19 @@ export function App({
 					st.assistantId = null
 				}
 			}
+			if (event.kind !== 'usage' && 'budget' in event && event.budget) {
+				const budget = event.budget
+				const own = st.lastUsage
+				setUsage((previous) => ({
+					totalTokens: budget.ownTokens,
+					budget,
+					cost: {
+						...(own?.cost ?? { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 }),
+						unpricedTokens: (own?.cost.unpricedTokens ?? 0) + Math.max(0, budget.ownTokens - (own?.totalTokens ?? 0)),
+					},
+					...(own && previous?.context ? { context: previous.context } : {}),
+				}))
+			}
 			switch (event.kind) {
 				case 'delta': {
 					setState('thinking')
@@ -3741,8 +3756,10 @@ export function App({
 					break
 				}
 				case 'usage':
+					st.lastUsage = event
 					setUsage({
 						totalTokens: event.totalTokens,
+						...(event.budget ? { budget: event.budget } : {}),
 						cost: event.cost,
 						...(event.contextTokens !== undefined && event.contextWindowTokens !== undefined
 							? {

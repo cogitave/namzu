@@ -2,9 +2,11 @@ import { AUTO_CONTINUATION_USER_MESSAGE } from '../../constants/continuation.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import { resolveModelPricing } from '../../pricing/index.js'
+import type { TokenBudget } from '../../run/token-budget.js'
 import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
 import { RunDiskStore } from '../../store/run/disk.js'
 import { getActiveSpanContext } from '../../telemetry/runtime-accessors.js'
+import { mergeTokenUsage } from '../../types/common/index.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
@@ -38,6 +40,7 @@ export interface PricingSubject {
 }
 
 export class RunPersistence {
+	readonly budget?: TokenBudget
 	private run: Run
 	private runStore: RunStore
 	private checkpointStore: CheckpointStore
@@ -54,6 +57,7 @@ export class RunPersistence {
 	private readonly _projectId: ProjectId
 
 	constructor(config: RunPersistenceConfig) {
+		this.budget = config.budget
 		this.pricing = config.pricing
 		this.log = config.log
 		this._sessionId = config.sessionId
@@ -148,11 +152,24 @@ export class RunPersistence {
 	}
 
 	get tokenUsage(): TokenUsage {
-		return this.run.tokenUsage
+		return this.budget
+			? mergeTokenUsage(this.run.tokenUsage, this.budget.ownUsage)
+			: this.run.tokenUsage
 	}
 
 	get costInfo(): CostInfo {
-		return this.run.costInfo
+		const unpriced = Math.max(0, this.tokenUsage.totalTokens - this.run.tokenUsage.totalTokens)
+		return unpriced > 0
+			? { ...this.run.costInfo, unpricedTokens: this.run.costInfo.unpricedTokens + unpriced }
+			: this.run.costInfo
+	}
+
+	private syncBudget(): void {
+		if (!this.budget) return
+		this.run.costInfo = this.costInfo
+		this.run.tokenUsage = this.tokenUsage
+		this.run.budget = this.budget.summary()
+		this.run.budgetBinding = this.budget.binding
 	}
 
 	get currentIteration(): number {
@@ -160,11 +177,18 @@ export class RunPersistence {
 	}
 
 	getRun(): Readonly<Run> {
-		return this.run
+		if (!this.budget) return this.run
+		return {
+			...this.run,
+			tokenUsage: this.tokenUsage,
+			costInfo: this.costInfo,
+			budget: this.budget.summary(),
+			budgetBinding: this.budget.binding,
+		}
 	}
 
 	getSession(): Readonly<Run> {
-		return this.run
+		return this.getRun()
 	}
 
 	getRunStore(): RunStore {
@@ -525,6 +549,8 @@ export class RunPersistence {
 		this.run.tokenUsage = { ...tokenUsage }
 		this.run.costInfo = { ...costInfo }
 		this.run.currentIteration = currentIteration
+		this.budget?.recordUsage(tokenUsage)
+		this.syncBudget()
 	}
 
 	/**
@@ -588,7 +614,9 @@ export class RunPersistence {
 			id: generateEmergencySaveId(),
 			runId: this.run.id,
 			messages: this.run.messages,
-			tokenUsage: this.run.tokenUsage,
+			tokenUsage: this.tokenUsage,
+			budgetBinding: this.budget?.binding,
+			budgetAccountId: this.budget?.accountId,
 			currentIteration: this.run.currentIteration,
 			startedAt: this.run.startedAt,
 			savedAt: Date.now(),
@@ -673,6 +701,8 @@ export class RunPersistence {
 	}
 
 	async persist(): Promise<void> {
+		await this.budget?.flush()
+		this.syncBudget()
 		await this.runStore.writeRunMeta(this.run)
 		await this.runStore.writeMessages(this.run, this._lastEventSeq)
 		// Optional on the contract: a backend whose runs are already queryable

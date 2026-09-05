@@ -1,6 +1,7 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
+import { withTokenBudget } from '../provider/token-budget.js'
 import { FallbackResolver } from '../runtime/decision/fallback.js'
 import { DecisionParser } from '../runtime/decision/parser.js'
 import type {
@@ -18,6 +19,7 @@ import type { RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
 import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
+import { resolveAgentBudget } from './budget.js'
 
 export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentResult> {
 	readonly type = 'router' as const
@@ -71,88 +73,124 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		const startTime = Date.now()
 		const runId = this.createRunId()
 		this.bindRun(runId, config.logger)
+		const budget = await resolveAgentBudget(input, config, runId)
+		const budgetConfig = { ...config, budget }
+		try {
+			await this.emitEvent({ type: 'run_started', runId }, listener)
 
-		await this.emitEvent({ type: 'run_started', runId }, listener)
+			const decision = await this.route(input, budgetConfig, streamIdleTimeoutMs, signal)
 
-		const decision = await this.route(input, config, streamIdleTimeoutMs, signal)
+			let targetRoute = config.routes.find((r) => r.agentId === decision.agentId)
 
-		let targetRoute = config.routes.find((r) => r.agentId === decision.agentId)
+			if (!targetRoute) {
+				const fallback = config.fallbackAgentId
+					? config.routes.find((r) => r.agentId === config.fallbackAgentId)
+					: undefined
 
-		if (!targetRoute) {
-			const fallback = config.fallbackAgentId
-				? config.routes.find((r) => r.agentId === config.fallbackAgentId)
-				: undefined
+				if (!fallback) {
+					const errorMsg = `No route found for "${decision.agentId}"`
 
-			if (!fallback) {
-				const errorMsg = `No route found for "${decision.agentId}"`
+					await this.emitEvent(
+						{
+							type: 'run_failed',
+							runId,
+							error: errorMsg,
+							budget: budget.summary(),
+						},
+						listener,
+					)
 
-				await this.emitEvent({ type: 'run_failed', runId, error: errorMsg }, listener)
-
-				return {
-					runId,
-					status: 'failed',
-					stopReason: 'error',
-					usage: { ...EMPTY_TOKEN_USAGE },
-					cost: { ...ZERO_COST },
-					iterations: 1,
-					durationMs: Date.now() - startTime,
-					messages: input.messages,
-					lastError: errorMsg,
-					selectedRoute: decision.agentId,
-					routingDecision: decision,
-					delegateResult: {
+					return {
 						runId,
 						status: 'failed',
-						usage: { ...EMPTY_TOKEN_USAGE },
-						cost: { ...ZERO_COST },
-						iterations: 0,
-						durationMs: 0,
-						messages: [],
-					},
+						stopReason: 'error',
+						usage: budget.ownUsage,
+						budget: budget.summary(),
+						cost: { ...ZERO_COST, unpricedTokens: budget.ownTokens },
+						iterations: 1,
+						durationMs: Date.now() - startTime,
+						messages: input.messages,
+						lastError: errorMsg,
+						selectedRoute: decision.agentId,
+						routingDecision: decision,
+						delegateResult: {
+							runId,
+							status: 'failed',
+							usage: { ...EMPTY_TOKEN_USAGE },
+							cost: { ...ZERO_COST },
+							iterations: 0,
+							durationMs: 0,
+							messages: [],
+						},
+					}
 				}
+
+				decision.agentId = fallback.agentId
+				targetRoute = fallback
 			}
 
-			decision.agentId = fallback.agentId
-			targetRoute = fallback
-		}
+			if (!config.invocationState) {
+				throw new Error(
+					'RouterAgent requires invocationState with tenantId in config (session-hierarchy.md §12.1).',
+				)
+			}
+			const childInvocationState = deriveChildState(config.invocationState, this.metadata.id)
+			const allocation = Number.isFinite(budget.remaining)
+				? Math.floor(budget.remaining)
+				: config.tokenBudget || 200_000
+			const childBudget = budget.reserve(allocation)
+			await childBudget.flush()
+			let delegateResult: RouterAgentResult['delegateResult']
+			try {
+				delegateResult = await targetRoute.agent.run(
+					input,
+					{
+						...config,
+						budget: childBudget,
+						tokenBudget: allocation,
+						parentRunId: runId,
+						depth: (config.depth ?? 0) + 1,
+						invocationState: childInvocationState,
+					},
+					listener,
+				)
+				childBudget.bindRun(delegateResult.runId)
+				childBudget.settle(delegateResult.usage.totalTokens)
+			} finally {
+				// A thrown custom delegate supplies no final usage receipt.
+				// Its reservation stays held until an authoritative settlement.
+				await childBudget.flush()
+			}
 
-		if (!config.invocationState) {
-			throw new Error(
-				'RouterAgent requires invocationState with tenantId in config (session-hierarchy.md §12.1).',
+			await this.emitEvent(
+				{
+					type: 'run_completed',
+					budget: budget.summary(),
+					runId,
+					result: delegateResult.result ?? '',
+				},
+				listener,
 			)
-		}
-		const childInvocationState = deriveChildState(config.invocationState, this.metadata.id)
-		const delegateResult = await targetRoute.agent.run(
-			input,
-			{ ...config, invocationState: childInvocationState },
-			listener,
-		)
 
-		await this.emitEvent(
-			{
-				type: 'run_completed',
+			return {
 				runId,
-				result: delegateResult.result ?? '',
-			},
-			listener,
-		)
-
-		return {
-			runId,
-			status: delegateResult.status,
-			stopReason: delegateResult.stopReason,
-			// Routing is a model call the run paid for; reporting only the
-			// delegate's usage silently under-reports every routed run.
-			usage: accumulateTokenUsage(delegateResult.usage, decision.usage ?? EMPTY_TOKEN_USAGE),
-			cost: delegateResult.cost,
-			iterations: delegateResult.iterations + 1,
-			durationMs: Date.now() - startTime,
-			messages: delegateResult.messages,
-			result: delegateResult.result,
-			lastError: delegateResult.lastError,
-			selectedRoute: decision.agentId,
-			routingDecision: decision,
-			delegateResult,
+				status: delegateResult.status,
+				stopReason: delegateResult.stopReason,
+				usage: budget.ownUsage,
+				budget: budget.summary(),
+				cost: { ...ZERO_COST, unpricedTokens: budget.ownTokens },
+				iterations: delegateResult.iterations + 1,
+				durationMs: Date.now() - startTime,
+				messages: delegateResult.messages,
+				result: delegateResult.result,
+				lastError: delegateResult.lastError,
+				selectedRoute: decision.agentId,
+				routingDecision: decision,
+				delegateResult,
+			}
+		} finally {
+			budget.settle()
+			await budget.flush()
 		}
 	}
 
@@ -197,7 +235,10 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		}
 
 		if (config.fallbackAgentId) {
-			fallbackStrategies.push({ type: 'fixed', agentId: config.fallbackAgentId })
+			fallbackStrategies.push({
+				type: 'fixed',
+				agentId: config.fallbackAgentId,
+			})
 		}
 
 		fallbackStrategies.push({ type: 'first_route' })
@@ -221,10 +262,13 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		// Every routing attempt is a billed model call; a fallback after
 		// three failed parses still cost three calls.
 		let routingUsage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
-		const routingProvider = withStreamIdleTimeout(config.provider, {
-			idleTimeoutMs: streamIdleTimeoutMs,
-			log,
-		})
+		const routingProvider = withStreamIdleTimeout(
+			config.budget ? withTokenBudget(config.provider, config.budget) : config.provider,
+			{
+				idleTimeoutMs: streamIdleTimeoutMs,
+				log,
+			},
+		)
 
 		for (let attempt = 0; attempt < maxRetries; attempt++) {
 			try {
@@ -297,6 +341,9 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			}
 		}
 
-		return { ...fallbackResolver.resolve(userContent, validAgentIds), usage: routingUsage }
+		return {
+			...fallbackResolver.resolve(userContent, validAgentIds),
+			usage: routingUsage,
+		}
 	}
 }

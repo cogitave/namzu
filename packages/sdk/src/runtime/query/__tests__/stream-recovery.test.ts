@@ -99,7 +99,7 @@ describe('query stream recovery', () => {
 		workdirs = []
 	})
 
-	it('turns an idle stream with partial tool JSON into retryable tool feedback', async () => {
+	it('retains partial-tool recovery evidence but stops spending without a final usage receipt', async () => {
 		const provider = new IdleDuringToolInputProvider()
 		const actualWrite = vi.fn(async () => ({
 			success: true,
@@ -145,8 +145,10 @@ describe('query stream recovery', () => {
 		)
 
 		expect(run.status).toBe('completed')
-		expect(run.result).toBe('Recovered after retry guidance.')
-		expect(provider.calls).toBe(2)
+		expect(run.result).toBeUndefined()
+		expect(run.stopReason).toBe('token_budget')
+		expect(run.budget).toMatchObject({ poisoned: true, inFlightRequests: 1 })
+		expect(provider.calls).toBe(1)
 		expect(actualWrite).not.toHaveBeenCalled()
 
 		expect(events.some((event) => event.type === 'run_failed')).toBe(false)

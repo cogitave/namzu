@@ -1,4 +1,6 @@
+import { TokenBudget } from '../../../run/token-budget.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 /**
  * Integration — AgentManager.provisionSpawn compensating rollback.
  *
@@ -167,7 +169,10 @@ describe('provisionSpawn compensating rollback', () => {
 		const failingDriver = new FailingWorkspaceDriver()
 		workspaceRegistry.register(failingDriver)
 
-		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
+		const threadManager = new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		})
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
@@ -181,7 +186,7 @@ describe('provisionSpawn compensating rollback', () => {
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budgetTracker: { total: 100_000, remaining: 100_000 },
+			budget: TokenBudget.create(100_000, budgetRunId()),
 			tenantId: tenant,
 			topicId: thread.id,
 			sessionId: parentSession.id,
@@ -261,7 +266,10 @@ describe('provisionSpawn compensating rollback', () => {
 		const workspaceRegistry = new WorkspaceBackendRegistry()
 		workspaceRegistry.register(new FailingWorkspaceDriver())
 
-		const threadManager = new TopicManager({ topicStore: threadStore, sessionStore: store })
+		const threadManager = new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		})
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
@@ -275,7 +283,7 @@ describe('provisionSpawn compensating rollback', () => {
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budgetTracker: { total: 100_000, remaining: 100_000 },
+			budget: TokenBudget.create(100_000, budgetRunId()),
 			tenantId: tenant,
 			topicId: thread.id,
 			sessionId: parentSession.id,

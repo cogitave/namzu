@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { TokenBudget } from '../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../utils/id.js'
 
 import type { AgentManagerContract } from '../../types/agent/manager.js'
 import type { AgentTask, AgentTaskContext } from '../../types/agent/task.js'
@@ -41,7 +43,7 @@ function context(): AgentTaskContext {
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 1_000_000, remaining: 1_000_000 },
+		budget: TokenBudget.create(1_000_000, budgetRunId()),
 		tenantId: '0655203a-fe49-4e68-bb77-0f3889421e4c' as never,
 		sessionId: '314d67db-e2b9-420a-9f10-cee9b361a899' as never,
 		projectId: '8e77b3c0-cb1f-4ed2-b6d4-fd16fff77c89' as never,

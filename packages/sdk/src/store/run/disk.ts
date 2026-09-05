@@ -30,6 +30,13 @@ import { defineSchema, migrate, stamp } from '../schema.js'
  * the shape changes.
  */
 const SCHEMA = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
+// Older readers must refuse ledger-bound checkpoints instead of dropping their
+// budget authority. Other run-store records retain their existing schema.
+const CHECKPOINT_SCHEMA = defineSchema({
+	kind: 'run-checkpoint',
+	current: 2,
+	migrations: { 1: (record) => record },
+})
 
 /**
  * One finished tool call, recovered from the transcript.
@@ -198,6 +205,8 @@ export class RunDiskStore implements RunStore {
 			status: run.status,
 			metadata: run.metadata,
 			tokenUsage: run.tokenUsage,
+			budget: run.budget,
+			budgetBinding: run.budgetBinding,
 			currentIteration: run.currentIteration,
 			startedAt: run.startedAt,
 			endedAt: run.endedAt,
@@ -251,7 +260,7 @@ export class RunDiskStore implements RunStore {
 		// as if it were the older shape, and the refusal that exists to
 		// prevent exactly that never fires. The stamp is what gives the
 		// migration chain something to hang on.
-		await atomicWriteJson(join(cpDir, `${checkpoint.id}.json`), stamp(SCHEMA, checkpoint))
+		await atomicWriteJson(join(cpDir, `${checkpoint.id}.json`), checkpoint, CHECKPOINT_SCHEMA)
 	}
 
 	async readCheckpoint(checkpointId: CheckpointId): Promise<IterationCheckpoint | null> {
@@ -617,8 +626,8 @@ export async function readCheckpointsIn(runDir: string): Promise<IterationCheckp
 	return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
 }
 
-async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
+async function atomicWriteJson(filePath: string, value: unknown, schema = SCHEMA): Promise<void> {
+	await atomicWriteFile(filePath, JSON.stringify(stamp(schema, value), null, 2))
 }
 
 /**
@@ -662,7 +671,7 @@ function hasUsableBudgets(record: Partial<IterationCheckpoint>): boolean {
 }
 
 function parseCheckpoint(content: string, file: string): IterationCheckpoint {
-	const parsed = migrate<unknown>(SCHEMA, JSON.parse(content))
+	const parsed = migrate<unknown>(CHECKPOINT_SCHEMA, JSON.parse(content))
 	const record = parsed as Partial<IterationCheckpoint> | null
 
 	if (

@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
 import { PlanManager } from '../../manager/plan/lifecycle.js'
 import { RunPersistence } from '../../manager/run/persistence.js'
+import type { TokenBudget } from '../../run/token-budget.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
 import { ActivityStore } from '../../store/activity/memory.js'
 import { type ActivityTrackingConfig, resolveActivityTracking } from '../../types/activity/index.js'
@@ -29,6 +30,7 @@ import { type Logger, resolveLogger } from '../../utils/logger.js'
  *
  */
 export interface RunContextConfig {
+	budget?: TokenBudget
 	/**
 	 * The mode this conversation was left in, when the run config names none.
 	 *
@@ -214,6 +216,7 @@ export class RunContextFactory {
 
 		const runMgr = new RunPersistence({
 			runId,
+			budget: config.budget,
 			agentId: config.agentId,
 			agentName: config.agentName,
 			runConfig: config.runConfig,

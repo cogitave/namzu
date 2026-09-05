@@ -51,3 +51,24 @@ describe('mergeTokenUsage (within-turn, per-field max)', () => {
 		expect(accumulateTokenUsage(t1, t2).promptTokens).toBe(200)
 	})
 })
+
+describe('reasoning usage survives streamed and ledger snapshots', () => {
+	it('retains the reported reasoning subset without adding it to total spend', () => {
+		const initial = {
+			promptTokens: 10,
+			completionTokens: 20,
+			totalTokens: 30,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+			reasoningTokens: 15,
+		}
+		const later = {
+			promptTokens: 0,
+			completionTokens: 25,
+			totalTokens: 25,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		}
+		expect(mergeTokenUsage(initial, later)).toMatchObject({ totalTokens: 35, reasoningTokens: 15 })
+	})
+})

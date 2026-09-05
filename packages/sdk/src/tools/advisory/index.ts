@@ -77,7 +77,9 @@ export function buildAdvisoryTools(opts: AdvisoryToolsOptions): ToolDefinition[]
 		permissions: [],
 		readOnly: true,
 		destructive: false,
-		concurrencySafe: true,
+		// Consultations debit one run account and one per-run advisory quota.
+		// Serial execution makes the next admission see the preceding receipt.
+		concurrencySafe: false,
 		async execute({ advisor_id, question, domain, urgency, include_context }) {
 			const budgetCheck = advisoryCtx.checkBudget()
 			if (!budgetCheck.allowed) {

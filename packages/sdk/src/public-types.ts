@@ -421,3 +421,20 @@ export type {
 
 // Existing Topic snapshots can initialize an in-memory delegation store.
 export type { Topic, TopicStatus } from './types/topic/entity.js'
+
+export type {
+	TokenBudgetAccountSnapshot,
+	TokenBudgetRequestSnapshot,
+	TokenBudgetSnapshot,
+	TokenBudgetSummary,
+	TokenBudgetPersistence,
+} from './run/token-budget.js'
+export type {
+	TokenBudgetStore,
+	TokenBudgetScope,
+	TokenBudgetBinding,
+} from './types/run/token-budget-store.js'
+export type {
+	DiskTokenBudgetStoreConfig,
+	OpenTokenBudgetOptions,
+} from './store/run/token-budget-disk.js'

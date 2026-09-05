@@ -97,6 +97,10 @@ export class LocalTaskScheduler implements TaskScheduler {
 		}
 	}
 
+	get budget() {
+		return this.taskContext.budget
+	}
+
 	async createTask(options: CreateTaskOptions): Promise<TaskHandle> {
 		// Filled once the spawn resolves. A box rather than a bare binding
 		// because the assignment happens AFTER the `await` that the reader is
@@ -140,13 +144,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 						}
 					: {}),
 			},
-			// The budget tracker is SHARED on purpose and must not be cloned.
-			// `AgentManager.spawn` debits it (`remaining -= allocatedTokens`)
-			// so siblings divide one pool; handing each spawn a fresh copy
-			// made the debit land on a throwaway object, so every child saw
-			// the parent's untouched `remaining` and N children were each
-			// allocated `maxBudgetFraction` of the SAME number — N x 50% of a
-			// budget that only had 100% in it.
+			// Every sibling reserves from this same authority before provisioning.
 			this.taskContext,
 			// The host's listener still sees everything it always did; this
 			// only tees off the fact that SOMETHING happened, which is what an

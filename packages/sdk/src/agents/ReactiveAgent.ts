@@ -70,6 +70,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				skills: config.skills,
 				basePrompt: config.basePrompt,
 				provider: config.provider,
+				...(config.budget ? { budget: config.budget } : {}),
 				tools: config.tools,
 				...(input.attachmentStore ? { attachmentStore: input.attachmentStore } : {}),
 				...(config.attachmentResolveTimeoutMs !== undefined
@@ -186,6 +187,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 			status: run.status,
 			stopReason: run.stopReason,
 			usage: run.tokenUsage,
+			...(run.budget ? { budget: run.budget } : {}),
 			cost: run.costInfo,
 			iterations: run.currentIteration,
 			durationMs: Date.now() - startTime,

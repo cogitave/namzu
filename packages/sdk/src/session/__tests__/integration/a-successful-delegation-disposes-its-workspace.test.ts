@@ -1,4 +1,6 @@
+import { TokenBudget } from '../../../run/token-budget.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 /**
  * A worktree provisioned for a delegated child outlived the child that used it.
  *
@@ -189,7 +191,10 @@ async function harness(
 		summaryMaterializer: materializer,
 		workspaceRegistry,
 		capacity: new DefaultCapacityValidator(store),
-		threadManager: new TopicManager({ topicStore: threadStore, sessionStore: store }),
+		threadManager: new TopicManager({
+			topicStore: threadStore,
+			sessionStore: store,
+		}),
 	})
 
 	const taskContext: AgentTaskContext = {
@@ -197,7 +202,7 @@ async function harness(
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId: tenant,
 		topicId: thread.id,
 		sessionId: parentSession.id,

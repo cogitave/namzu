@@ -132,7 +132,7 @@ describe('the provider idle bound reaches a real query', () => {
 		}
 	})
 
-	it('keeps the idle cause through generic AbortError, retries, then falls over', async () => {
+	it('keeps the idle cause and refuses retry or fallback while spend is unresolved', async () => {
 		const primary = new GenericAbortStallProvider()
 		const fallback = new MockLLMProvider({ turns: [{ text: 'fallback answered' }] })
 		const caller = new AbortController()
@@ -153,19 +153,16 @@ describe('the provider idle bound reaches a real query', () => {
 				},
 			)
 
-			expect(run.status).toBe('completed')
-			expect(run.result).toBe('fallback answered')
-			expect(primary.calls).toBe(2)
-			expect(primary.transportSignals).toHaveLength(2)
+			expect(run.status).toBe('failed')
+			expect(run.result).toBeUndefined()
+			expect(run.lastProviderError).toMatchObject({ kind: 'network', providerId: 'idle-primary' })
+			expect(run.budget).toMatchObject({ poisoned: true, inFlightRequests: 1 })
+			expect(primary.calls).toBe(1)
+			expect(primary.transportSignals).toHaveLength(1)
 			expect(primary.transportSignals.every((signal) => signal.aborted)).toBe(true)
-			expect(fallback.requests).toHaveLength(1)
-			expect(events.find((event) => event.type === 'provider_fallback')).toMatchObject({
-				type: 'provider_fallback',
-				fromProviderId: 'idle-primary',
-				toProviderId: fallback.id,
-				code: 'network',
-			})
-			expect(events.some((event) => event.type === 'run_failed')).toBe(false)
+			expect(fallback.requests).toHaveLength(0)
+			expect(events.some((event) => event.type === 'provider_fallback')).toBe(false)
+			expect(events.some((event) => event.type === 'provider_retry')).toBe(false)
 			expect(caller.signal.aborted).toBe(false)
 		} finally {
 			clearTimeout(safety)

@@ -449,3 +449,42 @@ describe('toAgentEvent carries the context figures across', () => {
 		).toMatchObject({ totalTokens: 500_000, contextTokens: 40_000 })
 	})
 })
+
+it('preserves own usage and the separate tree summary through usage and terminal events', () => {
+	const budget = {
+		limit: 1_000,
+		ownTokens: 90,
+		treeTokens: 250,
+		reservedTokens: 0,
+		remainingTokens: 750,
+		inFlightRequests: 0,
+		unsettledChildren: 0,
+		poisoned: false,
+	}
+	const usage = toAgentEvent(
+		{
+			type: 'token_usage_updated',
+			runId,
+			usage: { totalTokens: 90 },
+			cost: { totalCost: 0.5, cacheDiscount: 0, unpricedTokens: 0 },
+			budget,
+		} as unknown as RunEvent,
+		presenter,
+	)
+	expect(usage).toMatchObject({ kind: 'usage', totalTokens: 90, budget })
+	for (const type of ['run_completed', 'run_failed', 'run_paused'] as const) {
+		const mapped = toAgentEvent(
+			{
+				type,
+				runId,
+				budget,
+				error: 'stopped',
+				result: 'answer',
+				checkpointId: 'checkpoint',
+				reason: 'paused',
+			} as unknown as RunEvent,
+			presenter,
+		)
+		expect(mapped).toHaveProperty('budget', budget)
+	}
+})

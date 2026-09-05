@@ -6,6 +6,8 @@ export { InMemoryRunStore } from './run/memory.js'
 export { DiskCheckpointStore } from './run/checkpoint-disk.js'
 export type { DiskCheckpointStoreAttribution } from './run/checkpoint-disk.js'
 export { InMemoryCheckpointStore } from './run/checkpoint-memory.js'
+export { DiskTokenBudgetStore, openTokenBudget } from './run/token-budget-disk.js'
+export type { DiskTokenBudgetStoreConfig, OpenTokenBudgetOptions } from './run/token-budget-disk.js'
 // The refusing entry point to the optional listing capability, plus the two
 // projections a host implementing its own backend actually calls: one turns
 // a run's checkpoints into a row, the other applies the contract's filter,

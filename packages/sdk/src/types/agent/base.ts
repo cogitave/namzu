@@ -1,3 +1,4 @@
+import type { TokenBudget } from '../../run/token-budget.js'
 import type { ProjectInstructionContext } from '../../runtime/query/project-instructions.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import type { Logger } from '../../utils/logger.js'
@@ -19,6 +20,8 @@ export type AgentContextLevel = 'full' | 'standard' | 'minimal'
 export interface BaseAgentConfig {
 	model: string
 	tokenBudget: number
+	/** Aggregate authority inherited by descendants; supplied independently of the numeric local cap. */
+	budget?: TokenBudget
 	timeoutMs: number
 	/** See {@link import('../run/config.js').AgentRunConfig.streamIdleTimeoutMs}. */
 	streamIdleTimeoutMs?: number
@@ -271,6 +274,9 @@ export interface AgentInput {
 }
 
 export interface BaseAgentResult {
+	/** Aggregate tree accounting, separate from this invocation's own usage. */
+	budget?: ReturnType<TokenBudget['summary']>
+
 	runId: RunId
 	status: RunExecutionStatus
 	stopReason?: StopReason

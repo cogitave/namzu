@@ -34,6 +34,8 @@ import {
 } from '../../provider/fallback.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../../provider/idle-timeout.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
+import { withTokenBudget } from '../../provider/token-budget.js'
+import type { TokenBudget } from '../../run/token-budget.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import { resolveAttachments } from '../../store/attachment/index.js'
 import {
@@ -96,6 +98,7 @@ import type { PromoteMemory } from '../../types/run/memory-promotion.js'
 import { memoryCandidateFor } from '../../types/run/memory-promotion.js'
 import type { RunState } from '../../types/run/state.js'
 import type { RunStore } from '../../types/run/store.js'
+import type { TokenBudgetStore } from '../../types/run/token-budget-store.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
@@ -147,11 +150,16 @@ import {
 	teardownSandbox,
 } from './sandbox-lifecycle.js'
 import { SteeringBinding, type SteeringChannel } from './steering.js'
+import { resolveQueryBudget } from './token-budget.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
 
 export interface QueryParams {
+	/** One account shared with the task scheduler and descendant runs. */
+	budget?: TokenBudget
+	/** Canonical tree ledger; defaults to disk beside the root run. */
+	tokenBudgetStore?: TokenBudgetStore
 	/**
 	 * Notice when the model issues the identical tool call repeatedly, and
 	 * say so on the next `tool_result`. Defaults on.
@@ -1046,6 +1054,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// generating it twice would silently hand the log and the run two
 	// different ids.
 	const runId = params.runId ?? generateRunId()
+	const budget = await resolveQueryBudget(params, runId, selectedResumeState)
 	const log = RunContextFactory.buildLogger({
 		agentName: params.agentName,
 		runConfig,
@@ -1088,9 +1097,14 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			idleTimeoutMs: streamIdleTimeoutMs,
 			log,
 		})
+		const metered = withTokenBudget(withIdleBound, budget)
 		return params.retry === false
-			? withIdleBound
-			: withProviderRetry(withIdleBound, { config: params.retry, log })
+			? metered
+			: withProviderRetry(metered, {
+					config: params.retry,
+					log,
+					canRetry: () => budget.remaining > 0,
+				})
 	}
 	// Who is serving right now, for the run RECORD rather than for the request.
 	//
@@ -1109,6 +1123,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		})),
 		{
 			log,
+			canFallback: () => budget.remaining > 0,
 			onSwap: (to) => {
 				serving.current = to
 				// `ctx` is declared below and is initialized before anything can
@@ -1264,6 +1279,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	}
 
 	const ctx = RunContextFactory.build({
+		budget,
 		...(topicState ? { topicPermissionMode: topicState.permissionMode } : {}),
 		...(params.permissionModeRef ? { permissionModeRef: params.permissionModeRef } : {}),
 		agentId: params.agentId,
@@ -1836,10 +1852,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// explicitly chosen provider/cancellation policy.
 		const boundedAdvisors = params.advisory.advisors.map((advisor) => ({
 			...advisor,
-			provider: withStreamIdleTimeout(advisor.provider, {
-				idleTimeoutMs: streamIdleTimeoutMs,
-				log: ctx.log,
-			}),
+			provider: withTokenBudget(
+				withStreamIdleTimeout(advisor.provider, {
+					idleTimeoutMs: streamIdleTimeoutMs,
+					log: ctx.log,
+				}),
+				budget,
+			),
 		}))
 		const advisorRegistry = new AdvisorRegistry(boundedAdvisors, params.advisory.defaultAdvisorId)
 		// A budget the runtime cannot measure is refused here rather than

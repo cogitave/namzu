@@ -2,6 +2,7 @@ import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import { isCallerAbortError, isProviderRequestError } from '../../provider/errors.js'
+import { TokenBudgetAdmissionError } from '../../provider/token-budget.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { GENAI, NAMZU } from '../../telemetry/attributes.js'
 import { explainError } from '../../types/errors/catalog.js'
@@ -85,6 +86,7 @@ export class ResultAssembler {
 
 		await emitEvent({
 			type: 'run_completed',
+			budget: runMgr.budget?.summary(),
 			runId: runMgr.id,
 			result: runMgr.getRun().result ?? '',
 			// Read AFTER `markCompleted`, which is where a run that was stopped
@@ -133,6 +135,11 @@ export class ResultAssembler {
 			yield* this.completeRun(rootSpan)
 			return
 		}
+		if (err instanceof TokenBudgetAdmissionError) {
+			runMgr.setStopReason('token_budget')
+			yield* this.completeRun(rootSpan)
+			return
+		}
 		const errorMessage = toErrorMessage(err)
 		// The classifier at the provider boundary already walked the cause
 		// chain over status, errno and `Retry-After`, so a fully-populated
@@ -176,6 +183,7 @@ export class ResultAssembler {
 
 			await emitEvent({
 				type: 'run_paused',
+				budget: runMgr.budget?.summary(),
 				runId: runMgr.id,
 				checkpointId: resumeFrom,
 				reason: errorMessage,
@@ -219,6 +227,7 @@ export class ResultAssembler {
 
 		await emitEvent({
 			type: 'run_failed',
+			budget: runMgr.budget?.summary(),
 			runId: runMgr.id,
 			error: errorMessage,
 			failure,

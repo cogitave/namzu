@@ -17,7 +17,7 @@ describe('CLI delegation uses the parent token limit', () => {
 	it.each([
 		{ tokenBudget: 1_000, expectedChildBudget: 500 },
 		{ tokenBudget: undefined, expectedChildBudget: 500_000 },
-		{ tokenBudget: 0, expectedChildBudget: undefined },
+		{ tokenBudget: 0, expectedChildBudget: 200_000 },
 		{ tokenBudget: 1, expectedChildBudget: undefined },
 	])('reserves from $tokenBudget without inventing extra budget', async (testCase) => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-parent-budget-'))
@@ -53,9 +53,10 @@ describe('CLI delegation uses the parent token limit', () => {
 			}
 			expect(result.success).toBe(true)
 			expect(provider.requests).toHaveLength(1)
-			const runs = readdirSync(stateRoot, { recursive: true, encoding: 'utf8' }).filter((file) =>
-				file.endsWith('/run.json'),
-			)
+			const runs = readdirSync(stateRoot, {
+				recursive: true,
+				encoding: 'utf8',
+			}).filter((file) => file.endsWith('/run.json'))
 			expect(runs).toHaveLength(1)
 			const run = JSON.parse(readFileSync(join(stateRoot, runs[0]!), 'utf8'))
 			expect(run.metadata.config.tokenBudget).toBe(testCase.expectedChildBudget)

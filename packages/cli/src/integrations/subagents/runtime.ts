@@ -60,6 +60,7 @@ import {
 	filterToolsNamed,
 	generateSummaryId,
 	mcpJsonSchemaToZod,
+	openTokenBudget,
 	requireOpenProject,
 } from '@namzu/sdk'
 
@@ -125,7 +126,7 @@ export interface SubagentRuntimeOptions {
 	readonly resolveParent: (runId: RunId) => Promise<SubagentParent>
 	readonly cwd: string
 	readonly model: string
-	/** Initial delegation pool for each parent run; defaults to the CLI's one million tokens. */
+	/** Aggregate parent-and-descendant limit; defaults to the CLI's one million tokens. */
 	readonly tokenBudget?: number
 	/** Durable layout for child runs; omitted preserves the SDK default. */
 	readonly pathBuilder?: PathBuilder
@@ -228,7 +229,7 @@ const refuseUnownedChildReview: ResumeHandler = async () => ({
 
 /**
  * Stand up the AgentManager + gateway + `Agent` tool. Returns the tool to
- * register on the parent and the gateway to pass to `query({ taskGateway })`.
+ * register on the parent and the gateway to pass to `query({ taskScheduler })`.
  */
 export async function createSubagentRuntime(
 	opts: SubagentRuntimeOptions,
@@ -315,7 +316,12 @@ export async function createSubagentRuntime(
 		const topicStore = new InMemoryTopicStore([topic])
 		const parentActor: ActorRef = { kind: 'agent', agentId: 'namzu', tenantId }
 		const session = await store.createSession(
-			{ id: sessionId, topicId: topic.id, projectId: project.id, currentActor: parentActor },
+			{
+				id: sessionId,
+				topicId: topic.id,
+				projectId: project.id,
+				currentActor: parentActor,
+			},
 			tenantId,
 		)
 		await store.updateSession({ ...session, status: 'active' }, tenantId)
@@ -324,13 +330,21 @@ export async function createSubagentRuntime(
 			{ childTimeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS },
 			{
 				sessionStore: store,
-				summaryMaterializer: new SessionSummaryMaterializer({ store, generateSummaryId }),
+				summaryMaterializer: new SessionSummaryMaterializer({
+					store,
+					generateSummaryId,
+				}),
 				workspaceRegistry: new WorkspaceBackendRegistry(),
 				capacity: new DefaultCapacityValidator(store),
 				topicManager: new TopicManager({ topicStore, sessionStore: store }),
 			},
 		)
-		return { manager, store, topicId: topic.id, projectUpdatedAt: project.updatedAt.getTime() }
+		return {
+			manager,
+			store,
+			topicId: topic.id,
+			projectUpdatedAt: project.updatedAt.getTime(),
+		}
 	}
 
 	const refreshLimits = async (shared: SessionRuntime, parent: SubagentParent): Promise<void> => {
@@ -384,6 +398,17 @@ export async function createSubagentRuntime(
 		if (!pending) {
 			pending = (async (): Promise<ParentRuntime> => {
 				const parent = await resolveParent(runId)
+				const budget = await openTokenBudget({
+					scope: {
+						tenantId: parent.project.tenantId,
+						projectId: parent.project.id,
+						sessionId: parent.sessionId,
+						runId,
+					},
+					limit: opts.tokenBudget ?? 1_000_000,
+					pathBuilder: opts.pathBuilder,
+					workingDirectory: opts.cwd,
+				})
 				const lease = await acquireSession(parent)
 				const { manager } = lease.shared
 				const parentAbortController = new AbortController()
@@ -403,15 +428,16 @@ export async function createSubagentRuntime(
 					parentAgentId: 'namzu',
 					parentAbortController,
 					depth: 0,
-					budgetTracker: {
-						total: opts.tokenBudget ?? 1_000_000,
-						remaining: opts.tokenBudget ?? 1_000_000,
-					},
+					budget,
 					tenantId: parent.project.tenantId,
 					topicId: parent.topic.id,
 					sessionId: parent.sessionId,
 					projectId: parent.project.id,
-					parentActor: { kind: 'agent', agentId: 'namzu', tenantId: parent.project.tenantId },
+					parentActor: {
+						kind: 'agent',
+						agentId: 'namzu',
+						tenantId: parent.project.tenantId,
+					},
 				}
 				const runtime: ParentRuntime = {
 					gateway: new ParentTaskScheduler(manager, taskContext, opts.onEvent, async () => {

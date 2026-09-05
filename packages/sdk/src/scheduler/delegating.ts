@@ -136,7 +136,10 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 				// Checked at registration, not at the call. A capability that
 				// claims a method the object does not have is a lie the caller
 				// would otherwise find mid-delegation, with a worker running.
-				throw new DelegateCapabilityMismatchError({ id: delegate.id, capability: 'continue' })
+				throw new DelegateCapabilityMismatchError({
+					id: delegate.id,
+					capability: 'continue',
+				})
 			}
 			this.byId.set(delegate.id, delegate)
 		}
@@ -147,11 +150,21 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 		return this.byId.get(agentId)
 	}
 
+	get budget() {
+		return this.config.local?.budget
+	}
+
 	async createTask(options: CreateTaskOptions): Promise<TaskHandle> {
 		const delegate = this.byId.get(options.agentId)
 		if (!delegate) {
 			if (!this.config.local) throw new NoDelegateError({ agentId: options.agentId })
 			return await this.config.local.createTask(options)
+		}
+
+		if (this.budget) {
+			throw new Error(
+				'Foreign delegates cannot run under a shared token budget without a metering contract',
+			)
 		}
 
 		const taskId = generateTaskId()
@@ -180,7 +193,9 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 		entry.settled = (async () => {
 			let result: DelegateResult
 			try {
-				result = await delegate.dispatch(request, { signal: controller.signal })
+				result = await delegate.dispatch(request, {
+					signal: controller.signal,
+				})
 			} catch (err) {
 				// A delegate that threw failed; it did not vanish. Leaving the
 				// handle `running` would have `waitForTask` hang forever on a
@@ -245,7 +260,10 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 			// Refused, not silently dropped. A no-op here has the parent
 			// believe it steered a worker that never heard it — and it would
 			// go on believing that until the answer came back unchanged.
-			throw new DelegateCapabilityError({ id: entry.delegate.id, capability: 'continue' })
+			throw new DelegateCapabilityError({
+				id: entry.delegate.id,
+				capability: 'continue',
+			})
 		}
 		await entry.delegate.continue(message)
 	}
@@ -257,7 +275,10 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 			return
 		}
 		if (!entry.delegate.capabilities.cancel) {
-			throw new DelegateCapabilityError({ id: entry.delegate.id, capability: 'cancel' })
+			throw new DelegateCapabilityError({
+				id: entry.delegate.id,
+				capability: 'cancel',
+			})
 		}
 		controllerAbort(entry, cause)
 	}

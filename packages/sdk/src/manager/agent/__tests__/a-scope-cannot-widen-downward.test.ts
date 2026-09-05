@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { TokenBudget } from '../../../run/token-budget.js'
+import { generateRunId as budgetRunId } from '../../../utils/id.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -7,7 +9,7 @@ import { SessionSummaryMaterializer } from '../../../session/summary/materialize
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
-import { fixtureId, fixtureUuid } from '../../../test-support/ids.js'
+import { fixtureUuid } from '../../../test-support/ids.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
@@ -35,7 +37,10 @@ import { AgentManager } from '../lifecycle.js'
 const TENANT = '6d1a11b0-6c19-4225-9896-fd3dd9710117' as TenantId
 
 /** Records every config it is run with, in spawn order. */
-function recordingAgent(seen: { configs: BaseAgentConfig[]; contexts: AgentTaskContext[] }) {
+function recordingAgent(
+	seen: { configs: BaseAgentConfig[]; contexts: AgentTaskContext[] },
+	held: Promise<void>,
+) {
 	return {
 		type: 'reactive',
 		metadata: {
@@ -49,8 +54,9 @@ function recordingAgent(seen: { configs: BaseAgentConfig[]; contexts: AgentTaskC
 		},
 		async run(_input: unknown, config: BaseAgentConfig): Promise<BaseAgentResult> {
 			seen.configs.push(config)
+			await held
 			return {
-				runId: fixtureId.run('child'),
+				runId: budgetRunId(),
 				status: 'completed',
 				result: 'ok',
 				usage: { ...EMPTY_TOKEN_USAGE },
@@ -80,7 +86,11 @@ function definition(agent: Agent<BaseAgentConfig, BaseAgentResult>): AgentDefini
 		},
 		typedAgent: agent,
 		configBuilder: () =>
-			({ model: 'test', tokenBudget: 1_000, timeoutMs: 10_000 }) as BaseAgentConfig,
+			({
+				model: 'test',
+				tokenBudget: 1_000,
+				timeoutMs: 10_000,
+			}) as BaseAgentConfig,
 	} as AgentDefinition
 }
 
@@ -92,20 +102,31 @@ async function spawnChain(denies: (readonly string[] | undefined)[]): Promise<{
 	configs: BaseAgentConfig[]
 	recorded: (readonly string[] | undefined)[]
 }> {
-	const seen = { configs: [] as BaseAgentConfig[], contexts: [] as AgentTaskContext[] }
+	const seen = {
+		configs: [] as BaseAgentConfig[],
+		contexts: [] as AgentTaskContext[],
+	}
 	const store = new InMemorySessionStore()
 	const topicStore = new InMemoryTopicStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
 	const topic = await topicStore.createTopic({ projectId: project.id, title: 't' }, TENANT)
-	const rootActor = { kind: 'agent', agentId: 'sup' as AgentId, tenantId: TENANT } as const
+	const rootActor = {
+		kind: 'agent',
+		agentId: 'sup' as AgentId,
+		tenantId: TENANT,
+	} as const
 	const parentSession = await store.createSession(
 		{ topicId: topic.id, projectId: project.id, currentActor: rootActor },
 		TENANT,
 	)
 	await store.updateSession({ ...parentSession, status: 'active' }, TENANT)
 
+	let release!: () => void
+	const held = new Promise<void>((resolve) => {
+		release = resolve
+	})
 	const registry = new AgentRegistry()
-	registry.register(definition(recordingAgent(seen)))
+	registry.register(definition(recordingAgent(seen, held)))
 
 	let n = 0
 	const manager = new AgentManager(registry, undefined, {
@@ -124,7 +145,7 @@ async function spawnChain(denies: (readonly string[] | undefined)[]): Promise<{
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId: TENANT,
 		topicId: topic.id,
 		sessionId: parentSession.id,
@@ -133,26 +154,32 @@ async function spawnChain(denies: (readonly string[] | undefined)[]): Promise<{
 	} as AgentTaskContext
 
 	const recorded: (readonly string[] | undefined)[] = []
-	for (const deny of denies) {
-		const task = await manager.sendMessage(
-			{
-				agentId: 'worker',
-				input: { messages: [], workingDirectory: '/tmp' } as never,
-				parentSessionId: context.sessionId,
-				tenantId: TENANT,
-				projectId: project.id,
-				parentActor: context.parentActor,
-				...(deny ? { toolScope: { deny: [...deny] } } : {}),
-			} as never,
-			context,
-		)
-		await manager.waitForCompletion(task.taskId)
-		recorded.push(manager.getSpawnRecord(task.taskId)?.resolvedToolDenies)
-		// The next level spawns from the child's own context, exactly as a
-		// running child does when it delegates.
-		context = task.context
+	const launched: import('../../../types/ids/index.js').TaskId[] = []
+	try {
+		for (const deny of denies) {
+			const task = await manager.sendMessage(
+				{
+					agentId: 'worker',
+					input: { messages: [], workingDirectory: '/tmp' } as never,
+					parentSessionId: context.sessionId,
+					tenantId: TENANT,
+					projectId: project.id,
+					parentActor: context.parentActor,
+					...(deny ? { toolScope: { deny: [...deny] } } : {}),
+				} as never,
+				context,
+			)
+			launched.push(task.taskId)
+			recorded.push(manager.getSpawnRecord(task.taskId)?.resolvedToolDenies)
+			// The next level spawns from the child's own context, exactly as a
+			// running child does when it delegates.
+			context = task.context
+		}
+	} finally {
+		release()
+		await Promise.all(launched.map((taskId) => manager.waitForCompletion(taskId)))
+		manager.dispose()
 	}
-
 	return { configs: seen.configs, recorded }
 }
 

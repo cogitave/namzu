@@ -128,7 +128,7 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 		return dir
 	}
 
-	it('aborts a stalled advisor privately, swallows that phase failure, and completes the run', async () => {
+	it('aborts a stalled advisor privately and stops further spend while its usage is unresolved', async () => {
 		const main = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ name: 'echo', args: { text: 'ready' } }] },
@@ -149,9 +149,9 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 			})
 
 			expect(run.status).toBe('completed')
-			expect(run.stopReason).toBe('end_turn')
-			expect(run.result).toBe('main run completed')
-			expect(main.requests).toHaveLength(2)
+			expect(run.stopReason).toBe('token_budget')
+			expect(run.budget).toMatchObject({ poisoned: true, inFlightRequests: 1, remainingTokens: 0 })
+			expect(main.requests).toHaveLength(1)
 			expect(advisor.transportSignals).toHaveLength(1)
 			expect(advisor.transportSignals[0]?.aborted).toBe(true)
 			expect(advisor.transportSignals[0]?.reason).toMatchObject({
@@ -162,7 +162,7 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 			expect(events.some((event) => event.type === 'run_failed')).toBe(false)
 			expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
 				type: 'run_completed',
-				stopReason: 'end_turn',
+				stopReason: 'token_budget',
 			})
 			expect(caller.signal.aborted).toBe(false)
 		} finally {

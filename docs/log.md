@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Creation**: [Token budgets](/sdk/token-budgets.md) — one authority for parent and descendant tokens, atomic reservations, durable request receipts and conservative restart behavior; own usage remains separate from tree totals.
+* **Update**: [Run limits](/cli/run-limits.md), [Run exit codes](/cli/run-exit-codes.md) and [Harness invariants](/sdk/harness-invariants.md) — aggregate delegation accounting, CLI scheduler wiring and checkpoint references to the canonical ledger.
 * **Update**: [Ids](/sdk/ids.md) and [Project and session state](/cli/project-state.md) — UUID-only entity admission, one checkout-root binding without legacy directory overrides, and durable drain Topic resolution from its Session.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — one multimodal token estimate across context decisions, conservative rich-content scoring and safe result recovery; replaces the obsolete implementation plan.
 * **Update**: [Run limits](/cli/run-limits.md) — explicit headless reasoning effort, hard stops without post-budget model calls, and one terminal streaming event after persistence.

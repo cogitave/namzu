@@ -109,6 +109,7 @@ async function emitContextUsageSnapshot(
 		type: 'token_usage_updated',
 		runId: ctx.runMgr.id,
 		usage: { ...ctx.runMgr.tokenUsage },
+		budget: ctx.runMgr.budget?.summary(),
 		cost: { ...ctx.runMgr.costInfo },
 		contextTokens,
 		contextMeasuredBy: 'estimate',

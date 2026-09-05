@@ -41,6 +41,8 @@ export const DEFAULT_PROVIDER_RETRY: ProviderRetryConfig = {
 }
 
 export interface WithProviderRetryOptions {
+	/** Additional live admission policy, checked before scheduling a retry. */
+	readonly canRetry?: () => boolean
 	readonly config?: Partial<ProviderRetryConfig>
 	readonly log?: Logger
 	/** Seam for deterministic tests. */
@@ -113,6 +115,7 @@ export function withProviderRetry(
 				return
 			} catch (err) {
 				if (isAbortError(err) || params.signal?.aborted) throw err
+				if (options.canRetry?.() === false) throw err
 				// A driver that already classified its own failure keeps that
 				// classification — `classifyProviderError` reads its `kind`
 				// first and does not re-guess.

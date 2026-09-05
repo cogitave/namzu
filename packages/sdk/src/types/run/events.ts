@@ -1,3 +1,4 @@
+import type { TokenBudgetSummary } from '../../run/token-budget.js'
 import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
 import type { CostInfo, PlatformError, TokenUsage } from '../common/index.js'
@@ -504,6 +505,7 @@ type CoreRunEvent =
 	  }
 	| {
 			type: 'run_paused'
+			budget?: TokenBudgetSummary
 			runId: RunId
 			checkpointId: CheckpointId
 			reason: string
@@ -583,6 +585,7 @@ type CoreRunEvent =
 	  }
 	| {
 			type: 'run_completed'
+			budget?: TokenBudgetSummary
 			runId: RunId
 			result: string
 			stopReason?: StopReason
@@ -612,6 +615,7 @@ type CoreRunEvent =
 	 */
 	| {
 			type: 'run_failed'
+			budget?: TokenBudgetSummary
 			runId: RunId
 			error: string
 			failure?: PlatformError
@@ -669,6 +673,8 @@ type CoreRunEvent =
 	  }
 	| {
 			type: 'token_usage_updated'
+			/** Aggregate tree spend, distinct from this run's own usage. */
+			budget?: TokenBudgetSummary
 			runId: RunId
 			usage: TokenUsage
 			cost: CostInfo

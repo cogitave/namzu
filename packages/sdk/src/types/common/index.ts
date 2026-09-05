@@ -85,6 +85,9 @@ export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsa
 		totalTokens: Math.max(current.totalTokens, next.totalTokens, promptTokens + completionTokens),
 		cachedTokens: Math.max(current.cachedTokens, next.cachedTokens),
 		cacheWriteTokens: Math.max(current.cacheWriteTokens, next.cacheWriteTokens),
+		...(current.reasoningTokens !== undefined || next.reasoningTokens !== undefined
+			? { reasoningTokens: Math.max(current.reasoningTokens ?? 0, next.reasoningTokens ?? 0) }
+			: {}),
 	}
 }
 

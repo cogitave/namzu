@@ -789,6 +789,7 @@ export class IterationOrchestrator {
 						type: 'token_usage_updated',
 						runId: runMgr.id,
 						usage: runMgr.tokenUsage,
+						budget: runMgr.budget?.summary(),
 						cost: runMgr.costInfo,
 						...contextFigures,
 					})

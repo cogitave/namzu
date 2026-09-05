@@ -1,5 +1,4 @@
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
-import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { GENAI } from '../../constants/telemetry/index.js'
 import type { AgentRegistry } from '../../registry/agent/definitions.js'
 import {
@@ -198,29 +197,36 @@ export class AgentManager {
 
 		context.parentAbortController.signal.throwIfAborted()
 
-		// The allocation is computed INSIDE the spawn lock, not here. Reading
-		// the parent's remaining budget at this point and debiting it after
-		// `provisionSpawn` put the two halves of a read-modify-write on either
-		// side of an await — so N siblings launched from one turn all read the
-		// same undebited number and each took a fraction of it. Measured: four
-		// concurrent children were handed 50 000 + 50 000 + 50 000 + 50 000
-		// from a pool of 100 000.
-		//
-		// `create_task`'s own description instructs exactly this shape ("'fan
-		// out 8 specialists' is one assistant message with 8 create_task
-		// blocks"), so the documented usage was the reproduction.
-		//
-		// Nothing pinned it because the only concurrent test built a fresh
-		// context per call — each spawn got its own tracker, which measures
-		// width and not budget.
-
-		// Phase 6: SubSession + child Session + WorkspaceRef triple. Happens
-		// before taskId minting so a capacity failure short-circuits cleanly
-		// with no observable state change.
-		//
-		// The allocation now travels with it, because the read and the debit
-		// have to be on the same side of every await to mean anything.
-		const { spawnRecord, allocatedTokens } = await this.provisionSpawn(options, context)
+		// Reserve synchronously before provisioning yields. The authority is shared
+		// across managers and nested sessions, while the session lock below only
+		// serializes filesystem capacity checks.
+		const remaining = context.budget.remaining
+		const maxAllocation = Number.isFinite(remaining)
+			? Math.floor(remaining * this.config.maxBudgetFraction)
+			: (options.budgetAllocation?.tokenBudget ??
+				(options.configOverrides?.tokenBudget === 0
+					? 200_000
+					: (options.configOverrides?.tokenBudget ?? 200_000)))
+		const allocatedTokens = Math.min(
+			options.budgetAllocation?.tokenBudget ?? maxAllocation,
+			maxAllocation,
+		)
+		if (!Number.isSafeInteger(allocatedTokens) || allocatedTokens <= 0) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message: `Cannot spawn "${options.agentId}": the parent has ${remaining} tokens remaining; a child allocation must be a finite positive integer.`,
+			})
+		}
+		const childBudget = context.budget.reserve(allocatedTokens)
+		let spawnRecord: ChildSpawnRecord
+		try {
+			await childBudget.flush()
+			spawnRecord = await this.provisionSpawn(options, context)
+		} catch (error) {
+			childBudget.settle(0)
+			await childBudget.flush()
+			throw error
+		}
 		let childAbortController: AbortController | undefined
 		let agentTask: AgentTask | undefined
 		try {
@@ -263,7 +269,7 @@ export class AgentManager {
 				parentAgentId: context.parentAgentId,
 				parentAbortController: context.parentAbortController,
 				depth: context.depth + 1,
-				budgetTracker: context.budgetTracker,
+				budget: childBudget,
 				factoryOptions: context.factoryOptions,
 				tenantId: context.tenantId,
 				topicId: context.topicId,
@@ -280,7 +286,6 @@ export class AgentManager {
 				childAbortController,
 				context: childContext,
 				state: 'pending',
-				budgetReservation: allocatedTokens,
 				pendingMessages: [],
 				createdAt: Date.now(),
 				runEventListener: listener,
@@ -438,6 +443,7 @@ export class AgentManager {
 			// into depth zero or attach it to a different parent run.
 			childConfig.parentRunId = context.parentRunId
 			childConfig.depth = context.depth + 1
+			childConfig.budget = childBudget
 			// The reservation is the execution ceiling, regardless of a builder's
 			// defaults or configOverrides. Zero means unlimited to query(), so it
 			// must inherit the finite allocation rather than erase that ceiling.
@@ -451,6 +457,7 @@ export class AgentManager {
 				childConfig.tokenBudget === 0
 					? allocatedTokens
 					: Math.min(childConfig.tokenBudget, allocatedTokens)
+			childBudget.narrow(childConfig.tokenBudget)
 
 			// Stamped AFTER the builder, for the fourth time and the same reason:
 			// a `configBuilder` is written by whoever registered the agent and
@@ -494,8 +501,18 @@ export class AgentManager {
 			childConfig.inboundMessages = () => this.drainMessages(taskId)
 			childAbortController.signal.throwIfAborted()
 
-			this.runChild(agentTask, options, childConfig, listener).catch((err) => {
-				this.markFailed(taskId, toErrorMessage(err))
+			await childBudget.flush()
+			childAbortController.signal.throwIfAborted()
+			this.runChild(agentTask, options, childConfig, listener).catch(async (err) => {
+				// A thrown invocation supplied no final usage receipt. Keep its
+				// reservation, including when its task handle was canceled or evicted.
+				let failure = err
+				try {
+					await childBudget.flush()
+				} catch (writeError) {
+					failure = writeError
+				}
+				this.markFailed(taskId, toErrorMessage(failure))
 			})
 
 			return agentTask
@@ -507,7 +524,8 @@ export class AgentManager {
 				await this.rollbackUnstartedSpawn(agentTask, spawnRecord, err)
 			} else {
 				childAbortController?.abort()
-				context.budgetTracker.remaining += allocatedTokens
+				childBudget.settle(0)
+				await childBudget.flush()
 				await this.rollbackSpawnResources(spawnRecord)
 			}
 			throw err
@@ -520,7 +538,8 @@ export class AgentManager {
 		reason: unknown,
 	): Promise<void> {
 		agentTask.childAbortController.abort()
-		this.releaseBudget(agentTask, 0)
+		agentTask.context.budget.settle(0)
+		await agentTask.context.budget.flush()
 		if (!isTerminalAgentTaskState(agentTask.state)) {
 			agentTask.state = 'failed'
 			const error = toErrorMessage(reason)
@@ -706,7 +725,7 @@ export class AgentManager {
 	private async provisionSpawn(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-	): Promise<{ spawnRecord: ChildSpawnRecord; allocatedTokens: number }> {
+	): Promise<ChildSpawnRecord> {
 		const key = options.parentSessionId
 		const queued = (this.spawnLocks.get(key) ?? Promise.resolve()).then(
 			() => this.provisionSpawnUnlocked(options, context),
@@ -732,42 +751,7 @@ export class AgentManager {
 	private async provisionSpawnUnlocked(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-	): Promise<{ spawnRecord: ChildSpawnRecord; allocatedTokens: number }> {
-		// Read the parent's remaining budget HERE, inside the lock, so that
-		// concurrent siblings queue behind one another rather than all reading
-		// the same untouched number. The debit at the end of this method closes
-		// the pair: read and write are now on the same side of every await.
-		const maxAllocation = Math.floor(
-			context.budgetTracker.remaining * this.config.maxBudgetFraction,
-		)
-		const allocatedTokens = Math.min(
-			options.budgetAllocation?.tokenBudget ?? maxAllocation,
-			maxAllocation,
-		)
-
-		// Budget exhaustion must not INVERT into no budget at all. Downstream,
-		// `tokenBudget: 0` means "uncapped" (`LimitChecker`: `tokenBudget > 0
-		// && total >= tokenBudget`), and `maxAllocation` floors to 0 as soon as
-		// the parent's remaining drops below `1 / maxBudgetFraction`. So the
-		// most depleted parent in the tree was the one that spawned an
-		// unlimited child. Refuse instead: a delegated child must have a
-		// finite reservation before it can start.
-		//
-		// Refusing before any provisioning work also preserves the property the
-		// debit's placement was chosen for: a spawn this call rejects makes no
-		// state change at all, and burns no allocation.
-		if (!Number.isFinite(allocatedTokens) || allocatedTokens <= 0) {
-			throw new NamzuError({
-				code: 'invalid_config',
-				message: `Cannot spawn "${options.agentId}": the parent has ${context.budgetTracker.remaining} tokens remaining, which allocates ${allocatedTokens} to the child — a child allocation must be finite and positive; a token budget of 0 means UNLIMITED downstream.`,
-				details: {
-					agentId: options.agentId,
-					parentRemaining: context.budgetTracker.remaining,
-					maxBudgetFraction: this.config.maxBudgetFraction,
-				},
-			})
-		}
-
+	): Promise<ChildSpawnRecord> {
 		// Phase 9: deps are unconditional required. Every spawn produces a
 		// SubSession + Session + WorkspaceRef triple (Convention #0: no
 		// partial/legacy path).
@@ -935,24 +919,14 @@ export class AgentManager {
 			throw err
 		}
 
-		// Debited only now, with the provisioning committed. Every path that
-		// could still have thrown is behind us, so a rejected spawn leaves the
-		// parent's budget untouched — the property the debit's original
-		// placement was chosen for, kept while closing the race that placement
-		// opened.
-		context.budgetTracker.remaining -= allocatedTokens
-
 		return {
-			spawnRecord: {
-				subSessionId: subSession.id,
-				childSessionId: childSession.id,
-				tenantId: context.tenantId,
-				parentSessionId: options.parentSessionId,
-				rootSessionId,
-				childDepth,
-				workspaceRef,
-			},
-			allocatedTokens,
+			subSessionId: subSession.id,
+			childSessionId: childSession.id,
+			tenantId: context.tenantId,
+			parentSessionId: options.parentSessionId,
+			rootSessionId,
+			childDepth,
+			workspaceRef,
 		}
 	}
 
@@ -974,6 +948,9 @@ export class AgentManager {
 		const childListener = this.wrapChildListener(listener, spawnRecord)
 
 		const result = await agentTask.agent.run(input, childConfig, childListener)
+		agentTask.context.budget.bindRun(result.runId)
+		agentTask.context.budget.settle(result.usage?.totalTokens)
+		await agentTask.context.budget.flush()
 		await this.finalizeChild(agentTask, result)
 	}
 
@@ -1106,44 +1083,10 @@ export class AgentManager {
 		this.markCompleted(agentTask.taskId, result)
 	}
 
-	/**
-	 * Return the unspent part of a settled child's reservation.
-	 *
-	 * The debit at spawn reserves headroom so siblings cannot each be
-	 * promised the same tokens. Nothing returned it, so a pool shrank by
-	 * the full allocation on every spawn no matter what the child used: at
-	 * a half-pool fraction, ten delegations left a parent with a
-	 * thousandth of its budget and the next spawn was refused for a budget
-	 * that had barely been spent.
-	 *
-	 * Idempotent — the reservation is cleared as it is returned, so a
-	 * second terminal transition for the same task cannot credit twice.
-	 * Spend above the reservation returns nothing rather than going
-	 * negative; the child was capped at its allocation, so that case means
-	 * the accounting was already wrong and inventing headroom would hide
-	 * it.
-	 */
-	private releaseBudget(agentTask: AgentTask, spent: number): void {
-		const reserved = agentTask.budgetReservation
-		if (reserved === undefined) return
-		agentTask.budgetReservation = undefined
-
-		const unused = Math.max(0, reserved - Math.max(0, spent))
-		if (unused === 0) return
-		agentTask.context.budgetTracker.remaining += unused
-		this.log.debug('Returned unspent child budget', {
-			'namzu.task.id': agentTask.taskId,
-			'namzu.manager.reserved': reserved,
-			'namzu.manager.spent': spent,
-			'namzu.manager.returned': unused,
-		})
-	}
-
 	private markCompleted(taskId: TaskId, result: BaseAgentResult): void {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
-		this.releaseBudget(agentTask, result.usage?.totalTokens ?? 0)
 		agentTask.result = result
 		agentTask.completedAt = Date.now()
 		this.updateState(taskId, 'completed')
@@ -1163,16 +1106,12 @@ export class AgentManager {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
-		// A child that failed still spent whatever it spent, and holding the
-		// rest of its reservation would punish the parent twice for one
-		// failure.
-		this.releaseBudget(agentTask, agentTask.result?.usage?.totalTokens ?? 0)
-
 		agentTask.result = {
-			runId: agentTask.context.parentRunId,
+			runId: agentTask.context.budget.runId ?? agentTask.context.parentRunId,
 			status: 'failed',
-			usage: { ...EMPTY_TOKEN_USAGE },
-			cost: { ...ZERO_COST },
+			usage: agentTask.context.budget.ownUsage,
+			budget: agentTask.context.budget.summary(),
+			cost: { ...ZERO_COST, unpricedTokens: agentTask.context.budget.ownTokens },
 			iterations: 0,
 			durationMs: Date.now() - agentTask.createdAt,
 			messages: [],

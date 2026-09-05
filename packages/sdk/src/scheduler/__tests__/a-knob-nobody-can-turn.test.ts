@@ -1,6 +1,8 @@
 import type { Span } from '@opentelemetry/api'
 import { describe, expect, it } from 'vitest'
+import { TokenBudget } from '../../run/token-budget.js'
 import { fixtureUuid } from '../../test-support/ids.js'
+import { generateRunId as budgetRunId } from '../../utils/id.js'
 
 import type { Agent } from '../../types/agent/core.js'
 import type { AgentManagerContract } from '../../types/agent/manager.js'
@@ -98,7 +100,7 @@ function context(): AgentTaskContext {
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budgetTracker: { total: 100_000, remaining: 100_000 },
+		budget: TokenBudget.create(100_000, budgetRunId()),
 		tenantId: '26cb9b08-e09d-4d11-ba43-157344a7ddba' as TenantId,
 		topicId: '7f33de5a-7605-4ed7-a5fe-58faba5547e8' as TopicId,
 		sessionId: '428dc9ee-7a75-4951-94e7-95347290e17d' as SessionId,
@@ -173,7 +175,10 @@ describe('a delegated run is built with the config its caller asked for', () => 
 
 describe('a task-specific event observer', () => {
 	const events = [
-		{ type: 'run_started' as const, runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId },
+		{
+			type: 'run_started' as const,
+			runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
+		},
 		{
 			type: 'iteration_started' as const,
 			runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,

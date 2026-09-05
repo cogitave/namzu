@@ -489,6 +489,7 @@ describe('Ctrl+T', () => {
 			resolveParent: parentFixture.resolveParent,
 			cwd: work,
 			model: 'mock-model',
+			tokenBudget: 100_000,
 			buildProvider: () => {
 				const child = new MockLLMProvider({ responseText: 'child completed' })
 				return {
@@ -530,6 +531,7 @@ describe('Ctrl+T', () => {
 			})
 			sendOverride.current = async function* (messages) {
 				const events = query({
+					taskScheduler: await runtime.gatewayForRun(parentFixture.scope.runId),
 					provider: parent,
 					tools,
 					runConfig: {

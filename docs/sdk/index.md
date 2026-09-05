@@ -9,3 +9,5 @@ The kernel.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.
 
 * [Harness invariants](harness-invariants.md) - Ownership, budget conservation, result recovery and bounded live execution evidence.
+
+* [Token budgets](token-budgets.md) - Shared parent and descendant accounting, durable reservations and explicit recovery boundaries.
