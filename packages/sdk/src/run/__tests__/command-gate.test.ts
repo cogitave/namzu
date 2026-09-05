@@ -20,7 +20,11 @@ import type { RunId } from '../../types/ids/index.js'
 import type { AnswerReview, AnswerReviewContext } from '../../types/run/answer-review.js'
 import { clipOutput, createCommandGate } from '../command-gate.js'
 
-const CONTEXT: AnswerReviewContext = { runId: 'run_x' as RunId, iteration: 1, messages: [] }
+const CONTEXT: AnswerReviewContext = {
+	runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as RunId,
+	iteration: 1,
+	messages: [],
+}
 
 function result(over: Partial<CommandResult> = {}): CommandResult {
 	return { exitCode: 0, stdout: '', stderr: '', durationMs: 1, ...over }

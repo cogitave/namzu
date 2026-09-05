@@ -8,8 +8,8 @@ import { __resetProcessSinkForTests, installProcessSink } from '../utils/log/pro
 
 import { InMemoryCredentialVault } from './InMemoryCredentialVault.js'
 
-const tenant = 'tnt_acme' as TenantId
-const connector = 'conn_x' as never
+const tenant = '078cb473-016b-4133-bd1a-05ea1312dd39' as TenantId
+const connector = 'af841f01-728f-4a61-99ef-7ebc1b62d61b' as never
 
 /**
  * `store()` and `revoke()` used to write caller-supplied text straight into
@@ -63,7 +63,8 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 		const { chunks, stream } = captureSink()
 		installProcessSink(jsonLinesSink(stream), 'info')
 
-		const hostileTenant = 'tnt_x\n[2026-01-01T00:00:00Z] [ERROR] [audit] forged' as TenantId
+		const hostileTenant =
+			'6ab233e0-9e27-4517-8861-61d4b85f396e\n[2026-01-01T00:00:00Z] [ERROR] [audit] forged' as TenantId
 		const vault = new InMemoryCredentialVault(hostLogger(jsonLinesSink(stream), 'info'))
 
 		await vault.store(hostileTenant, connector, 'k', {
@@ -104,8 +105,8 @@ describe('InMemoryCredentialVault — a hostile label cannot forge a second log 
 describe('InMemoryCredentialVault — scoped authority', () => {
 	it('atomically checks tenant and connector before returning secret material', async () => {
 		const vault = new InMemoryCredentialVault()
-		const otherTenant = 'tnt_other' as TenantId
-		const otherConnector = 'conn_other' as ConnectorId
+		const otherTenant = '03857320-0500-482a-85e0-add350d8ffdd' as TenantId
+		const otherConnector = 'c9774468-a5d3-4d05-83c0-363b4e3a671f' as ConnectorId
 		const credentials = { token: 'original' }
 		const input: AuthConfig = { type: 'bearer', credentials }
 		const ref = await vault.store(tenant, connector, 'k', input)
@@ -125,7 +126,7 @@ describe('InMemoryCredentialVault — scoped authority', () => {
 
 	it('scopes tenant deletion while retaining explicit host-authority revoke', async () => {
 		const vault = new InMemoryCredentialVault()
-		const otherTenant = 'tnt_other' as TenantId
+		const otherTenant = '03857320-0500-482a-85e0-add350d8ffdd' as TenantId
 		const ref = await vault.store(tenant, connector, 'k', { type: 'none' })
 
 		expect(await vault.revokeForTenant(otherTenant, ref.id)).toBe(false)

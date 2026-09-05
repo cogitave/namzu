@@ -67,15 +67,15 @@ async function fixture(): Promise<{
 }
 
 describe('DiskMemoryStore storage-key containment', () => {
-	it('retains legacy memory alongside new opaque IDs after a cold reopen', async () => {
+	it('retains existing UUID memory alongside newly generated IDs after a cold reopen', async () => {
 		const baseDir = await mkdtemp(join(tmpdir(), 'namzu-memory-mixed-'))
 		roots.push(baseDir)
 		const memoryDir = join(baseDir, 'memory')
 		const contentDir = join(memoryDir, 'content')
-		const legacyId = asMemoryId('mem_Legacy-1')
-		const legacy = {
-			id: legacyId,
-			title: 'legacy',
+		const existingId = asMemoryId('5c99ecf2-d9ce-4c88-bd5e-e462bf484332')
+		const existing = {
+			id: existingId,
+			title: 'existing',
 			summary: 'keep history',
 			tags: [],
 			status: 'active',
@@ -83,12 +83,16 @@ describe('DiskMemoryStore storage-key containment', () => {
 			updatedAt: 1,
 		}
 		await mkdir(contentDir, { recursive: true })
-		await writeFile(join(memoryDir, 'index.json'), JSON.stringify([legacy]))
-		const legacyBytes = JSON.stringify({ id: legacyId, content: 'legacy content', format: 'text' })
-		await writeFile(join(contentDir, `${legacyId}.json`), legacyBytes)
+		await writeFile(join(memoryDir, 'index.json'), JSON.stringify([existing]))
+		const existingBytes = JSON.stringify({
+			id: existingId,
+			content: 'existing content',
+			format: 'text',
+		})
+		await writeFile(join(contentDir, `${existingId}.json`), existingBytes)
 
 		const reader = new DiskMemoryStore({ baseDir })
-		expect((await reader.list()).entries.map((row) => row.id)).toEqual([legacyId])
+		expect((await reader.list()).entries.map((row) => row.id)).toEqual([existingId])
 		const { entry } = await new DiskMemoryStore({ baseDir }).create({
 			title: 'current',
 			summary: 'new opaque ID',
@@ -96,12 +100,12 @@ describe('DiskMemoryStore storage-key containment', () => {
 		})
 		for (const store of [reader, new DiskMemoryStore({ baseDir })]) {
 			expect(new Set((await store.list()).entries.map((row) => row.id))).toEqual(
-				new Set([legacyId, entry.id]),
+				new Set([existingId, entry.id]),
 			)
-			expect(await store.get(legacyId)).toMatchObject({ content: 'legacy content' })
+			expect(await store.get(existingId)).toMatchObject({ content: 'existing content' })
 			expect(await store.get(entry.id)).toMatchObject({ content: 'current content' })
 		}
-		expect(await readFile(join(contentDir, `${legacyId}.json`), 'utf8')).toBe(legacyBytes)
+		expect(await readFile(join(contentDir, `${existingId}.json`), 'utf8')).toBe(existingBytes)
 	})
 
 	it.each([

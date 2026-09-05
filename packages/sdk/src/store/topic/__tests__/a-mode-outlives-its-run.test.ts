@@ -22,9 +22,9 @@ import { DiskTopicStateStore, InMemoryTopicStateStore } from '../state.js'
  * nothing about the mode.
  */
 
-const TOPIC = 'top_mode' as TopicId
-const TENANT = 'tnt_mode' as TenantId
-const OTHER = 'tnt_other' as TenantId
+const TOPIC = '1078c62f-ac7f-4177-846b-ed95ce9ba757' as TopicId
+const TENANT = '6b2f1735-a078-4da3-8e7f-0761076230f6' as TenantId
+const OTHER = '03857320-0500-482a-85e0-add350d8ffdd' as TenantId
 
 const dirs: string[] = []
 

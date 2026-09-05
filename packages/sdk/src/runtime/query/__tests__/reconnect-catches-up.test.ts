@@ -43,11 +43,11 @@ const LOG = {
 }
 
 const SCOPE: RunStateScope = {
-	tenantId: 'tnt_re' as TenantId,
-	projectId: 'prj_re' as ProjectId,
-	sessionId: 'ses_re' as SessionId,
-	runId: 'run_re' as RunId,
-	topicId: 'top_re' as TopicId,
+	tenantId: 'f9a63b7d-293a-44dc-8437-c7aaa838030a' as TenantId,
+	projectId: 'e1b45cba-6ba4-4344-b729-0e1ae32006c0' as ProjectId,
+	sessionId: '5d7ae317-76ee-4da2-af79-58339cc3d4cd' as SessionId,
+	runId: 'fbc2d6ad-2dbb-479e-a1fe-6f5c93d92739' as RunId,
+	topicId: '0f20d062-dd85-4cc2-8a88-73846d81f64f' as TopicId,
 }
 
 const dirs: string[] = []

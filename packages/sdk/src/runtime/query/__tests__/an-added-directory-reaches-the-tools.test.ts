@@ -53,10 +53,10 @@ async function readThroughQuery(added: boolean) {
 		messages: [createUserMessage('read it')],
 		workingDirectory: cwd,
 		...(added ? { additionalDirectories: [shared] } : {}),
-		sessionId: 'ses_d' as SessionId,
-		topicId: 'top_d' as TopicId,
-		projectId: 'prj_d' as ProjectId,
-		tenantId: 'tnt_d' as TenantId,
+		sessionId: '3bd5ef45-8a0c-4fe7-8b55-f4453d7d8e43' as SessionId,
+		topicId: '78bd1b88-07a8-43ba-b3c1-cc02468a3781' as TopicId,
+		projectId: '38018058-7f48-4a66-8cac-67bc513451f4' as ProjectId,
+		tenantId: '56b14123-e653-4cef-ac96-21f2d79d9bbd' as TenantId,
 	})
 	return result.messages
 		.filter((m: Message) => m.role === 'tool' && typeof m.content === 'string')

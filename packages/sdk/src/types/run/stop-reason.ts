@@ -17,19 +17,8 @@ export type StopReason =
 	 * declaring one, arriving at a model the price catalogue has no row for.
 	 * `costInfo.unpricedTokens` says how much of the run it covers.
 	 *
-	 * ## The closing call is outside the budget, deliberately
-	 *
-	 * Every hard stop is followed by one more model call — `requestFinalResponse`
-	 * asks for a closing summary, and the guard does not run again before or
-	 * after it. That is pre-existing and true of `cost_limit` and
-	 * `token_budget` alike, and it is stated here rather than left to be
-	 * discovered because for THIS reason it cannot be otherwise: the model that
-	 * triggered the stop is by definition one with no rate, so the closing
-	 * call's cost is unmeasurable by construction. Bounding it would mean
-	 * refusing to close the run at all, which loses the work.
-	 *
-	 * Its tokens are counted, so `costInfo.unpricedTokens` includes them and
-	 * the run reports honestly what it could not price.
+	 * A hard stop issues no further model request. Completed messages and
+	 * tool results remain in the run even when no closing prose was produced.
 	 */
 	| 'cost_unmeasurable'
 	| 'timeout'
@@ -71,7 +60,7 @@ export type StopReason =
  *
  * The union of the finish reasons providers report, normalised into a
  * provider-agnostic vocabulary. `forced_finalize` is a Namzu-specific value
- * emitted by the orchestrator when iteration limits force a final response
+ * emitted by the orchestrator when budget warnings request a final response
  * without a model-issued stop reason.
  */
 export type MessageStopReason =

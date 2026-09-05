@@ -1,3 +1,4 @@
+import { fixtureUuid } from '../test-support/ids.js'
 /**
  * Current-code invariants asserted (2026-04-21, ses_006 Phase 1):
  *
@@ -46,7 +47,7 @@ function makeLogger(): Logger {
 }
 
 function runId(n: number): RunId {
-	return `run_${n}` as RunId
+	return fixtureUuid(`run_${n}`) as RunId
 }
 
 describe('AgentBus', () => {

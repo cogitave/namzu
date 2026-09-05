@@ -29,7 +29,7 @@ import { ToolExecutor } from '../executor.js'
  * Process-level: the program runs in a real worker thread.
  */
 
-const RUN_ID = 'run_nested' as RunId
+const RUN_ID = '46e8ada9-5274-4684-97e3-5231c5873d07' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

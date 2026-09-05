@@ -29,8 +29,8 @@ import { drainQuery } from '../index.js'
 
 registerMock()
 
-const TOPIC = 'top_live' as TopicId
-const TENANT = 'tnt_live' as TenantId
+const TOPIC = 'ea90d7ce-f064-47c2-8b09-737628c3f396' as TopicId
+const TENANT = '2fc58f27-8652-4962-af41-c7aeed0ba090' as TenantId
 
 const dirs: string[] = []
 
@@ -99,9 +99,9 @@ async function run(opts: {
 		agentName: 'A',
 		messages: [createUserMessage('go')],
 		workingDirectory,
-		sessionId: 'ses_l' as SessionId,
+		sessionId: 'ee440126-6cde-4d31-8f9b-e7dac1ed9172' as SessionId,
 		topicId: TOPIC,
-		projectId: 'prj_l' as ProjectId,
+		projectId: '611720e5-2e5f-4879-94fe-b5cec87af5c1' as ProjectId,
 		tenantId: TENANT,
 		...(opts.topicStateStore ? { topicStateStore: opts.topicStateStore } : {}),
 		...(opts.modeRef ? { permissionModeRef: opts.modeRef } : {}),
@@ -247,9 +247,9 @@ describe('the mode is read live, not frozen at run start', () => {
 			agentName: 'A',
 			messages: [createUserMessage('go')],
 			workingDirectory,
-			sessionId: 'ses_b' as SessionId,
+			sessionId: 'e94d8d65-e063-4b5c-9f27-4d464e9d67d4' as SessionId,
 			topicId: TOPIC,
-			projectId: 'prj_b' as ProjectId,
+			projectId: 'ed1cd416-04e4-4aad-ba05-2d5cf148ea1e' as ProjectId,
 			tenantId: TENANT,
 			permissionModeRef: modeRef,
 		})

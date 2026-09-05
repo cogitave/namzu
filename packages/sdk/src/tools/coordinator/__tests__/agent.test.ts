@@ -21,7 +21,7 @@ import { buildAgentTool } from '../agent.js'
 
 function makeContext(): ToolContext {
 	return {
-		runId: 'run_test' as never,
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -51,7 +51,7 @@ function fakeGateway(handle: TaskHandle, completed: TaskHandle): TaskScheduler {
 	}
 }
 
-const taskId = 'task_subagent' as TaskId
+const taskId = '4537218c-2f1d-4794-a483-1f5223f62928' as TaskId
 
 const launched: TaskHandle = {
 	taskId,
@@ -66,7 +66,7 @@ describe('buildAgentTool', () => {
 			...launched,
 			state: 'completed',
 			result: {
-				runId: 'run_inner' as never,
+				runId: '04e408dd-fdea-4f1a-aae1-cb426d5850ed' as never,
 				status: 'completed',
 				usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } as never,
 				cost: { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 } as never,
@@ -103,7 +103,7 @@ describe('buildAgentTool', () => {
 			...launched,
 			state: 'completed',
 			result: {
-				runId: 'run_inner' as never,
+				runId: '04e408dd-fdea-4f1a-aae1-cb426d5850ed' as never,
 				status: 'failed',
 				usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } as never,
 				cost: { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 } as never,

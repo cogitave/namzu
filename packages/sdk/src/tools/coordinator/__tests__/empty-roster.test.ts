@@ -36,7 +36,12 @@ function toolsFor(allowedAgentIds: string[], resumeHandler?: unknown) {
 		gateway,
 		workingDirectory: '/tmp/test',
 		allowedAgentIds,
-		...(resumeHandler ? { resumeHandler: resumeHandler as never, runId: 'run_1' as never } : {}),
+		...(resumeHandler
+			? {
+					resumeHandler: resumeHandler as never,
+					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+				}
+			: {}),
 	})
 }
 

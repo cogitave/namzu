@@ -96,10 +96,10 @@ describe('MCP rich-result provenance reaches the provider', () => {
 			agentName: 'MCP Rich Provenance',
 			messages: [createUserMessage('inspect the remote screenshot')],
 			workingDirectory,
-			sessionId: 'ses_mcp_rich_provenance' as SessionId,
-			topicId: 'top_mcp_rich_provenance' as TopicId,
-			projectId: 'prj_mcp_rich_provenance' as ProjectId,
-			tenantId: 'tnt_mcp_rich_provenance' as TenantId,
+			sessionId: '8a1ccfc0-b9c8-44f6-a812-ebd98160a686' as SessionId,
+			topicId: '66559199-00c4-4b81-b857-a9b6db538301' as TopicId,
+			projectId: '0644e4fc-6f12-40e1-8177-a2842c7ee676' as ProjectId,
+			tenantId: '4b8cb414-5849-47bb-9a97-b2f0440a5f51' as TenantId,
 		})
 
 		expect(run.status).toBe('completed')
@@ -179,10 +179,10 @@ describe('MCP rich-result provenance reaches the provider', () => {
 			agentName: 'MCP Image Admission',
 			messages: [createUserMessage('inspect the remote screenshot')],
 			workingDirectory,
-			sessionId: 'ses_mcp_image_admission' as SessionId,
-			topicId: 'top_mcp_image_admission' as TopicId,
-			projectId: 'prj_mcp_image_admission' as ProjectId,
-			tenantId: 'tnt_mcp_image_admission' as TenantId,
+			sessionId: '9018a8c5-df20-4ec3-b1f2-9394c747a518' as SessionId,
+			topicId: '1d2bcd5f-40e5-4a08-a5a4-0d8085d9fe66' as TopicId,
+			projectId: '78578ccf-fa85-48f5-af22-5d713d0e834f' as ProjectId,
+			tenantId: 'c1ad96f2-bc90-409b-9c6d-6b2e62f66f27' as TenantId,
 		})
 
 		expect(run.status).toBe('completed')

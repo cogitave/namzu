@@ -30,10 +30,10 @@ function spyManager(): {
 		sendMessage: vi.fn(async (_options: unknown, context: AgentTaskContext) => {
 			contexts.push(context)
 			return {
-				taskId: 'task_1',
+				taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91',
 				status: 'completed',
 				result: {
-					runId: 'run_child',
+					runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a',
 					status: 'completed',
 					usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
 					cost: { totalCost: 0 },
@@ -98,10 +98,10 @@ async function runSupervisor(resumeHandler?: ResumeHandler, depth?: number) {
 				tokenBudget: 100_000,
 				timeoutMs: 30_000,
 				maxIterations: 4,
-				sessionId: 'ses_sup',
-				topicId: 'top_sup',
-				projectId: 'prj_sup',
-				tenantId: 'tnt_sup',
+				sessionId: '8b71f555-ab2b-4a78-be42-3109378b5888',
+				topicId: '18fd1af5-acfa-402d-b733-693691c1820e',
+				projectId: 'f00d2464-af09-4609-99e5-79def1ea043d',
+				tenantId: '17621f97-7a3a-4a70-b704-29f1441d224b',
 				...(resumeHandler ? { resumeHandler } : {}),
 				...(depth !== undefined ? { depth } : {}),
 			} as never,

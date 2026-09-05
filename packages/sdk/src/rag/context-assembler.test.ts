@@ -31,8 +31,8 @@ function result(
 	return {
 		chunk: {
 			id: `c_${content.slice(0, 3)}` as ChunkId,
-			documentId: 'doc_1' as DocumentId,
-			knowledgeBaseId: 'kb_1' as KnowledgeBaseId,
+			documentId: 'dcee443a-501c-4019-9c85-21a72c3ccfa7' as DocumentId,
+			knowledgeBaseId: '5a2348f9-0d2e-4f9f-ae33-b8de032a1675' as KnowledgeBaseId,
 			tenantId: 't_1' as TenantId,
 			content,
 			index: 0,

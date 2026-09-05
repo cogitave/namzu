@@ -158,6 +158,32 @@ describe('clearStaleToolResults', () => {
 		expect(second.charsReclaimed).toBe(0)
 	})
 
+	it('counts only the results newly cleared in each pass', () => {
+		const first = clearStaleToolResults(conversation([{ tool: 'step', output: big(10_000) }]), {
+			keepRecentToolResults: 0,
+		})
+		const before = [...first.messages, ...conversation([{ tool: 'step', output: big(2_000) }])]
+		const second = clearStaleToolResults(before, { keepRecentToolResults: 0 })
+		const payloadSize = (messages: readonly Message[]) =>
+			messages.reduce(
+				(sum, m) =>
+					sum + (m.role === 'tool' && typeof m.content === 'string' ? m.content.length : 0),
+				0,
+			)
+		expect(second.clearedCount).toBe(1)
+		expect(second.charsReclaimed).toBe(payloadSize(before) - payloadSize(second.messages))
+		expect(String(second.messages.at(-1)?.content)).toContain(
+			'do not repeat a state-changing action',
+		)
+	})
+
+	it('does not replace a small result with a larger placeholder when the minimum is disabled', () => {
+		const messages = conversation([{ tool: 'step', output: 'state changed' }])
+		const result = clearStaleToolResults(messages, { keepRecentToolResults: 0, minCharsToClear: 0 })
+		expect(result.clearedCount).toBe(0)
+		expect(result.messages).toEqual(messages)
+	})
+
 	it('reports the NET saving, not the gross one', () => {
 		// A caller uses this number to decide "was that enough?", so
 		// overstating it would send it back to summarize when it need not.

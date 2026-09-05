@@ -30,7 +30,7 @@ import { runToolReview } from './tool-review.js'
  * never an absent record.
  */
 
-const RUN_ID = 'run_denial_test' as RunId
+const RUN_ID = '91977d69-9b92-46f6-baa5-d077027fed93' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -160,7 +160,7 @@ function harness(opts: {
 			markCancelled: vi.fn(),
 			recordAudit,
 		},
-		checkpointMgr: { create: async () => ({ id: 'cp_1' }) },
+		checkpointMgr: { create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) },
 		emitEvent: async () => {},
 		drainPending: async function* () {},
 		resumeHandler: async () => opts.decision ?? ({ action: 'approve_tools' } as HITLResumeDecision),

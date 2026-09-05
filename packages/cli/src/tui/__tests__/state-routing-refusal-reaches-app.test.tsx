@@ -33,7 +33,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => {
 		throw new Error('split histories require an explicit repair')
 	},
-	startConversation: async () => 'ses_unreachable',
+	startConversation: async () => '26ea525e-8c2c-49ff-b379-a988b2f1b0c4',
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	replaceConversation: async () => {},

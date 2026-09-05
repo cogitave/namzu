@@ -1,3 +1,4 @@
+import { fixtureUuid } from '../../../test-support/ids.js'
 /**
  * Shared test fixtures for the Task 10 integration coverage matrix.
  *
@@ -41,8 +42,8 @@ import type { ExecFile, ExecFileResult } from '../../workspace/git-worktree.js'
 import { GitWorktreeDriver } from '../../workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 
-export const DEFAULT_TENANT = 'tnt_alpha' as TenantId
-export const OTHER_TENANT = 'tnt_beta' as TenantId
+export const DEFAULT_TENANT = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+export const OTHER_TENANT = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
 
 export function stubLogger() {
 	return {
@@ -96,7 +97,7 @@ export function buildAgent(
 			capabilities: BASE_CAPABILITIES,
 		},
 		run: async (_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> => ({
-			runId: `run_${id}_result` as RunId,
+			runId: fixtureUuid(`run_${id}_result`) as RunId,
 			status: 'completed',
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -198,7 +199,7 @@ export function buildHarness(options: IntegrationHarnessOptions = {}): Integrati
 
 	let counter = 0
 	const generateSummaryId =
-		options.summaryIdGenerator ?? (() => `sum_test_${++counter}` as SummaryId)
+		options.summaryIdGenerator ?? (() => fixtureUuid(`sum_test_${++counter}`) as SummaryId)
 
 	const materializer = new SessionSummaryMaterializer({
 		store,
@@ -248,7 +249,8 @@ export async function seedActiveParent(
 	},
 ) {
 	const tenantId = options?.tenantId ?? harness.tenantId
-	const actor: ActorRef = options?.actor ?? userActor('usr_root', tenantId)
+	const actor: ActorRef =
+		options?.actor ?? userActor('e04738b9-b828-4251-9b35-bc3bc8a2adf8', tenantId)
 	const project = await harness.store.createProject(
 		{ tenantId, name: options?.projectName ?? 'integration-project' },
 		tenantId,
@@ -281,7 +283,7 @@ export function buildTaskContext(params: {
 	parentRunId?: RunId
 }): AgentTaskContext {
 	return {
-		parentRunId: params.parentRunId ?? ('run_parent' as RunId),
+		parentRunId: params.parentRunId ?? ('c0250b29-330b-445f-b11d-2926ffd9059c' as RunId),
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: params.depth ?? 0,

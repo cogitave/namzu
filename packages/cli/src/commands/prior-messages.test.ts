@@ -43,7 +43,7 @@ describe('stateless Message[] parsing', () => {
 				],
 				source: {
 					type: 'goal-round',
-					goalId: 'goal_exact',
+					goalId: 'dca78db6-51ae-4f67-8b03-dd1857582651',
 					objective: 'finish it',
 					goalRevision: 2,
 					round: 1,

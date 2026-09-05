@@ -14,7 +14,13 @@ import type { PersistedRunEvent } from '../events.js'
  */
 
 const event = (seq: number): PersistedRunEvent =>
-	({ type: 'iteration_started', runId: 'run_1', iteration: seq, seq, timestamp: 1 }) as never
+	({
+		type: 'iteration_started',
+		runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		iteration: seq,
+		seq,
+		timestamp: 1,
+	}) as never
 
 describe('what a cursor is owed', () => {
 	it('reports complete when the cursor is already at the head', () => {

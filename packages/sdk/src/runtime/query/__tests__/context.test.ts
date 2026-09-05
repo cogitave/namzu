@@ -21,10 +21,10 @@ function mockProvider(): LLMProvider {
 }
 
 function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.build>[0]> = {}) {
-	const sessionId = 'ses_test' as SessionId
-	const topicId = 'top_test' as TopicId
-	const projectId = 'prj_test' as ProjectId
-	const tenantId = 'tnt_test' as TenantId
+	const sessionId = 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede' as SessionId
+	const topicId = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
+	const projectId = '08c9b09c-4412-478c-878b-dc94927c760f' as ProjectId
+	const tenantId = 'a8e039fb-e8d3-4206-9ed8-4cb17d5d8222' as TenantId
 	const runConfig: AgentRunConfig = {
 		model: 'test',
 		tokenBudget: 1_000,
@@ -80,7 +80,9 @@ describe('RunContextFactory.build', () => {
 		const ctx = RunContextFactory.build(cfg)
 
 		// Layout lives under projects/{pid}/sessions/{sid} — no `.namzu/threads/`.
-		expect(posix(ctx.outputDir)).toContain('/.namzu/projects/prj_test/sessions/ses_test')
+		expect(posix(ctx.outputDir)).toContain(
+			'/.namzu/projects/08c9b09c-4412-478c-878b-dc94927c760f/sessions/fea5c0c7-1d0f-46cc-9844-c3a8f90afede',
+		)
 		expect(ctx.outputDir).not.toContain('threads')
 	})
 
@@ -95,15 +97,21 @@ describe('RunContextFactory.build', () => {
 	})
 
 	it('reuses the runId supplied by the caller', () => {
-		const runId = 'run_fixed' as RunId
+		const runId = '32dac363-0593-4feb-b737-d1c7a195a51b' as RunId
 		const ctx = RunContextFactory.build(buildConfig({ runId }))
 		expect(ctx.runId).toBe(runId)
 	})
 
 	it('DefaultPathBuilder lays out runs under sessions/{sessionId}/runs', () => {
 		const builder = new DefaultPathBuilder('/base/.namzu')
-		const runDir = builder.runDir('prj_x' as ProjectId, 'ses_y' as SessionId, 'run_z' as RunId)
-		expect(posix(runDir)).toBe('/base/.namzu/projects/prj_x/sessions/ses_y/runs/run_z')
+		const runDir = builder.runDir(
+			'3f488113-b658-4c23-833c-69d1e9072a19' as ProjectId,
+			'a5969474-3d01-47d2-9887-476be3e4dcb4' as SessionId,
+			'f324d96c-eb82-495b-ada1-02447f83cf65' as RunId,
+		)
+		expect(posix(runDir)).toBe(
+			'/base/.namzu/projects/3f488113-b658-4c23-833c-69d1e9072a19/sessions/a5969474-3d01-47d2-9887-476be3e4dcb4/runs/f324d96c-eb82-495b-ada1-02447f83cf65',
+		)
 	})
 
 	it("carries the caller's stop reason across into the run", () => {
@@ -147,7 +155,7 @@ describe('RunContextFactory.buildLogger', () => {
 		const sink: LogSink = { emit: (record) => records.push(record) }
 
 		const cfg = buildConfig()
-		const runId = 'run_built' as RunId
+		const runId = 'ae683305-c07d-4685-a4db-e1aef4680237' as RunId
 		const log = RunContextFactory.buildLogger({
 			agentName: cfg.agentName,
 			runConfig: { ...cfg.runConfig, logger: hostLogger(sink) },
@@ -188,7 +196,7 @@ describe('RunContextFactory.buildLogger', () => {
 		RunContextFactory.buildLogger({
 			agentName: cfg.agentName,
 			runConfig: cfg.runConfig,
-			runId: 'run_silent' as RunId,
+			runId: '892557f8-96dc-4ce9-b958-ec6917ddad2c' as RunId,
 			sessionId: cfg.sessionId,
 			topicId: cfg.topicId,
 			projectId: cfg.projectId,
@@ -227,7 +235,7 @@ describe('RunContextFactory.buildLogger', () => {
 		const log = RunContextFactory.buildLogger({
 			agentName: cfg.agentName,
 			runConfig: { ...cfg.runConfig, logger: marker },
-			runId: 'run_marker' as RunId,
+			runId: 'b177e5bf-5b2a-4006-83df-04313ca307d7' as RunId,
 			sessionId: cfg.sessionId,
 			topicId: cfg.topicId,
 			projectId: cfg.projectId,
@@ -247,7 +255,7 @@ describe('RunContextFactory.build accepts a pre-built logger', () => {
 
 	it('uses config.log unchanged instead of constructing its own via buildLogger', () => {
 		const cfg = buildConfig()
-		const runId = 'run_prebuilt' as RunId
+		const runId = 'd4f86af4-7306-4cd3-bafa-4afdb81a3c25' as RunId
 		const preBuilt = RunContextFactory.buildLogger({
 			agentName: cfg.agentName,
 			runConfig: cfg.runConfig,
@@ -267,7 +275,7 @@ describe('RunContextFactory.build accepts a pre-built logger', () => {
 		const records: LogRecord[] = []
 		const sink: LogSink = { emit: (record) => records.push(record) }
 
-		const runId = 'run_auto' as RunId
+		const runId = '05a0d6cb-6960-41b7-9e67-ed4dbed4e3cb' as RunId
 		const base = buildConfig({ runId })
 		const ctx = RunContextFactory.build({
 			...base,

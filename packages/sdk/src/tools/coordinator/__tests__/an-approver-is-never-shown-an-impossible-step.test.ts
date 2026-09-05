@@ -28,7 +28,7 @@ import { buildCoordinatorTools } from '../index.js'
  * the human is never shown the bad step at all.
  */
 
-const RUN = 'run_roster' as RunId
+const RUN = 'a306accf-4719-43e0-b98b-a1bbf8706acd' as RunId
 
 function unusedGateway(): TaskScheduler {
 	return {

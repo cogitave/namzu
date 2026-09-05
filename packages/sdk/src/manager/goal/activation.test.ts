@@ -6,9 +6,9 @@ import { SessionGoalActivation } from './activation.js'
 
 function goal(revision: number): SessionGoal {
 	return {
-		id: asGoalId('goal_activation'),
-		sessionId: asSessionId('ses_activation'),
-		tenantId: asTenantId('tnt_activation'),
+		id: asGoalId('1a16aa34-d9e2-4205-9eb5-6673e85b1aa3'),
+		sessionId: asSessionId('c4455024-5b00-4a2e-af8e-e1441af216af'),
+		tenantId: asTenantId('906303b7-9b60-4a9c-9e2f-7893f01d0b9d'),
 		revision,
 		objective: 'finish',
 		phase: 'active',

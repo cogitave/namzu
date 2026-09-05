@@ -12,8 +12,8 @@ import { revisionFileSegment } from '../../kv/revision-record-store.js'
 import { DiskMessageFeedbackStore } from '../disk.js'
 import type { MessageFeedback } from '../types.js'
 
-const RUN = asRunId('run_feedback_revisions')
-const MESSAGE = asMessageId('msg_feedback_revisions')
+const RUN = asRunId('d88d8c70-ef52-4939-8900-ddbf3db56c24')
+const MESSAGE = asMessageId('d426df02-d98e-4071-804e-1fd14087299c')
 const roots: string[] = []
 
 afterEach(async () => {
@@ -95,7 +95,7 @@ describe('feedback revision commits', () => {
 	})
 
 	it('refuses an unsafe legacy message id without rewriting its existing feedback', async () => {
-		const legacyMessage = unchecked<MessageId>('msg_feedback.legacy ü')
+		const legacyMessage = unchecked<MessageId>('1e2fbbcb-d241-4d76-a6b8-98ab03f68a06.legacy ü')
 		const { feedbackDir, store } = await fixture([legacyMessage])
 		const runDir = join(feedbackDir, RUN)
 		const oldName = `${legacyMessage.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`
@@ -206,16 +206,20 @@ describe('feedback revision commits', () => {
 		const immutable = join(feedbackDir, RUN, '.revisions', revisionFileSegment(MESSAGE), '1.json')
 		const body = JSON.parse(await readFile(immutable, 'utf8')) as Record<string, unknown>
 		await unlink(projection)
-		await writeFile(immutable, JSON.stringify({ ...body, messageId: 'msg_someone_else' }), 'utf8')
+		await writeFile(
+			immutable,
+			JSON.stringify({ ...body, messageId: '2dac81fa-6824-4f5a-8610-ff5a301937c2' }),
+			'utf8',
+		)
 
 		await expect(store.listMessageFeedback({ runId: RUN })).rejects.toThrow(/record key mismatch/)
 	})
 
 	it('deduplicates projection and commit discovery in message-id order', async () => {
 		const messages = [
-			asMessageId('msg_feedback_z'),
-			asMessageId('msg_feedback_a'),
-			asMessageId('msg_feedback_m'),
+			asMessageId('fe82144c-b585-42f8-9ee7-b5c4be558498'),
+			asMessageId('b44d2900-30c8-4730-9730-7512b8e0e7e1'),
+			asMessageId('dd282921-cf7d-4c7d-839e-5b1cec95692d'),
 		]
 		const { store } = await fixture(messages)
 		for (const messageId of messages) {
@@ -236,8 +240,8 @@ describe('feedback revision commits', () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-message-collision-'))
 		roots.push(root)
 		const feedbackDir = join(root, 'feedback')
-		const first = unchecked<MessageId>('msg_collision/a')
-		const second = unchecked<MessageId>('msg_collision?a')
+		const first = unchecked<MessageId>('e2ce3042-11d1-413b-a923-0008dd52b71b/a')
+		const second = unchecked<MessageId>('e2ce3042-11d1-413b-a923-0008dd52b71b?a')
 		const exists = vi.fn(async () => true)
 		const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir }, exists)
 
@@ -265,7 +269,7 @@ describe('feedback revision commits', () => {
 		const exists = vi.fn(async () => true)
 		const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir }, exists, () => 1)
 		const missingPrefix = '../../outside' as typeof RUN
-		const traversal = unchecked<RunId>('run_x/../../outside')
+		const traversal = unchecked<RunId>('f4e0af37-43f7-48fd-82b0-f1b1c68881d3/../../outside')
 		const escapedTarget = join(feedbackDir, traversal)
 
 		await expect(
@@ -298,7 +302,7 @@ describe('feedback revision commits', () => {
 		roots.push(root)
 		const runsDir = join(root, 'runs')
 		const feedbackDir = join(root, 'feedback')
-		const traversal = unchecked<RunId>('run_x/../../outside')
+		const traversal = unchecked<RunId>('f4e0af37-43f7-48fd-82b0-f1b1c68881d3/../../outside')
 		const escapedRunDir = join(runsDir, traversal)
 		await mkdir(escapedRunDir, { recursive: true })
 		await writeFile(

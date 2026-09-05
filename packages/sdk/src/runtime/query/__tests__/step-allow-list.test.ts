@@ -85,7 +85,7 @@ class NamesTool implements LLMProvider {
 
 		if (this.calls === 1) {
 			yield {
-				id: 'msg_1',
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 				delta: {
 					toolCalls: [
 						{
@@ -97,12 +97,22 @@ class NamesTool implements LLMProvider {
 					],
 				},
 			}
-			yield { id: 'msg_1', delta: {}, finishReason: 'tool_calls', usage: ZERO_USAGE }
+			yield {
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
+				delta: {},
+				finishReason: 'tool_calls',
+				usage: ZERO_USAGE,
+			}
 			return
 		}
 
-		yield { id: 'msg_2', delta: { content: 'done' } }
-		yield { id: 'msg_2', delta: {}, finishReason: 'stop', usage: ZERO_USAGE }
+		yield { id: 'efe8f849-85cf-4b94-8bc7-cad64f257419', delta: { content: 'done' } }
+		yield {
+			id: 'efe8f849-85cf-4b94-8bc7-cad64f257419',
+			delta: {},
+			finishReason: 'stop',
+			usage: ZERO_USAGE,
+		}
 	}
 }
 
@@ -147,10 +157,10 @@ async function run(opts: {
 				maxIterations: 3,
 				maxResponseTokens: 256,
 			},
-			sessionId: 'ses_allow' as SessionId,
-			topicId: 'top_allow' as TopicId,
-			projectId: 'prj_allow' as ProjectId,
-			tenantId: 'tnt_allow' as TenantId,
+			sessionId: 'a4414db7-426c-41b7-8986-1d3ee4f331d3' as SessionId,
+			topicId: '46e8b987-7e38-4cc6-8b4e-62c2f15f6ace' as TopicId,
+			projectId: 'ae9bcc79-c3e3-4420-8049-1f4b6ea81211' as ProjectId,
+			tenantId: 'b5ce1794-d566-48c9-a981-066472adacde' as TenantId,
 		},
 		(event) => {
 			if (event.type === 'tool_completed') output += event.result ?? ''

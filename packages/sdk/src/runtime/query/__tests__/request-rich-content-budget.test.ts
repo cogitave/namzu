@@ -286,20 +286,20 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		).toEqual([original[0], original[2]])
 	})
 
-	it('uses the same projection on the separate limit-closing request', async () => {
+	it('uses the same projection on an empty-response recovery with remaining budget', async () => {
 		const image = { data: 'AAAA', mediaType: 'image/png' }
 		const provider = new MockLLMProvider({
-			turns: [{ text: 'closing answer' }],
+			turns: [{ text: '' }, { text: 'closing answer' }],
 		})
 
 		const settled = await run({
 			provider,
 			messages: [{ role: 'user', content: 'finish', attachments: [image] }],
-			runConfig: { maxIterations: 0, maxRequestRichContentBytes: 1 },
+			runConfig: { maxIterations: 2, maxRequestRichContentBytes: 1 },
 		})
 
-		expect(provider.requests).toHaveLength(1)
-		const sent = provider.requests[0]?.messages.find(
+		expect(provider.requests).toHaveLength(2)
+		const sent = provider.requests[1]?.messages.find(
 			(message): message is UserMessage =>
 				message.role === 'user' && message.content.startsWith('finish'),
 		)

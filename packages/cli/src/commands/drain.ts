@@ -24,14 +24,14 @@
 
 import {
 	DiskCheckpointStore,
+	DiskSessionStore,
 	InvalidIdError,
 	asProjectId,
 	asSessionId,
 	asTenantId,
-	asTopicId,
 	drainRuns,
 } from '@namzu/sdk'
-import type { DurableRunEntry, ProjectId, SessionId, TenantId } from '@namzu/sdk'
+import type { DurableRunEntry, ProjectId, Session, SessionId, TenantId } from '@namzu/sdk'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
@@ -313,6 +313,24 @@ export const drainCommand: CommandDef = {
 			return 1
 		}
 
+		let owningSession: Session | null
+		try {
+			owningSession = await new DiskSessionStore({ rootDir: stateRoot }).getSession(
+				scope.sessionId,
+				scope.tenantId,
+			)
+			if (!owningSession || owningSession.projectId !== scope.projectId) {
+				throw new Error(
+					`Session ${scope.sessionId} is not persisted under Project ${scope.projectId}`,
+				)
+			}
+		} catch (error) {
+			ctx.formatter.error({
+				message: `cannot resolve the drain session's topic: ${error instanceof Error ? error.message : String(error)}`,
+			})
+			return EXIT_USAGE
+		}
+
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
 			scope: {
@@ -321,7 +339,7 @@ export const drainCommand: CommandDef = {
 				// and Session would create generated state for a scope the operator
 				// never named, then resume the run under a different one.
 				sessionId: scope.sessionId,
-				topicId: asTopicId('top_namzu-cli'),
+				topicId: owningSession.topicId,
 				projectId: scope.projectId,
 				tenantId: scope.tenantId,
 			},

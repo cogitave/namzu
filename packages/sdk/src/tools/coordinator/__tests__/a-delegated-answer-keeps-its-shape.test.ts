@@ -23,14 +23,14 @@ import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import { buildAgentTool } from '../agent.js'
 import { buildCoordinatorTools } from '../index.js'
 
-const taskId = 'task_child' as TaskId
+const taskId = '58ac7bbb-f72f-4550-ae65-0c968c08971d' as TaskId
 
 /** The serialized form the child's structured answer must reach the parent as. */
 const SERIALIZED = JSON.stringify({ orderId: 'A-1', refunded: true, amountUsd: 42 })
 
 function makeContext(): ToolContext {
 	return {
-		runId: 'run_parent' as never,
+		runId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},

@@ -84,7 +84,7 @@ function makeCtx(opts: {
 		workingStateManager: manager,
 		log: makeLogger(),
 		runMgr: {
-			id: 'run_1' as RunId,
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
 			currentIteration: 3,
 			messages: opts.messages,
 		},

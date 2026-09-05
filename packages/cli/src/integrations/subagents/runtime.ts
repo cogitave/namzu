@@ -125,6 +125,8 @@ export interface SubagentRuntimeOptions {
 	readonly resolveParent: (runId: RunId) => Promise<SubagentParent>
 	readonly cwd: string
 	readonly model: string
+	/** Initial delegation pool for each parent run; defaults to the CLI's one million tokens. */
+	readonly tokenBudget?: number
 	/** Durable layout for child runs; omitted preserves the SDK default. */
 	readonly pathBuilder?: PathBuilder
 	/** Root every child allocation at the session workspace or a fresh temp tree. */
@@ -401,7 +403,10 @@ export async function createSubagentRuntime(
 					parentAgentId: 'namzu',
 					parentAbortController,
 					depth: 0,
-					budgetTracker: { total: 1_000_000, remaining: 1_000_000 },
+					budgetTracker: {
+						total: opts.tokenBudget ?? 1_000_000,
+						remaining: opts.tokenBudget ?? 1_000_000,
+					},
 					tenantId: parent.project.tenantId,
 					topicId: parent.topic.id,
 					sessionId: parent.sessionId,

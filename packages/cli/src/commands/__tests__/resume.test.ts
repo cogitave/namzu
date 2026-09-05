@@ -54,14 +54,17 @@ describe('asking for nothing', () => {
 
 describe('--continue', () => {
 	it('takes the most recent conversation', async () => {
-		recent('ses_new', 'ses_old')
+		recent('11de68ce-02f2-49e4-a7e4-7f29355d7aaf', '16209b19-849b-4d93-a8f9-eca83fa41092')
 		vi.mocked(loadResumableConversation).mockResolvedValue([
 			{ role: 'user', content: 'hi', timestamp: 0 },
 		] as never)
 
 		const out = await resolveResume(sessions, { continueLast: true, sessionId: null }, CWD)
 
-		expect(out).toMatchObject({ kind: 'resumed', sessionId: 'ses_new' })
+		expect(out).toMatchObject({
+			kind: 'resumed',
+			sessionId: '11de68ce-02f2-49e4-a7e4-7f29355d7aaf',
+		})
 	})
 
 	it('refuses with its OWN sentence when there is nothing here', async () => {
@@ -92,36 +95,58 @@ describe('--continue', () => {
 
 describe('--resume <id>', () => {
 	it('takes the conversation it was given, not the most recent', async () => {
-		recent('ses_new')
+		recent('11de68ce-02f2-49e4-a7e4-7f29355d7aaf')
 		vi.mocked(loadResumableConversation).mockResolvedValue([
 			{ role: 'user', content: 'hi', timestamp: 0 },
 		] as never)
 
-		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_wanted' }, CWD)
+		const out = await resolveResume(
+			sessions,
+			{ continueLast: false, sessionId: '5064e985-7567-4b67-8229-ca50b5b99e32' },
+			CWD,
+		)
 
-		expect(out).toMatchObject({ kind: 'resumed', sessionId: 'ses_wanted' })
+		expect(out).toMatchObject({
+			kind: 'resumed',
+			sessionId: '5064e985-7567-4b67-8229-ca50b5b99e32',
+		})
 		expect(listRecent).not.toHaveBeenCalled()
-		expect(loadResumableConversation).toHaveBeenCalledWith(sessions, 'ses_wanted')
+		expect(loadResumableConversation).toHaveBeenCalledWith(
+			sessions,
+			'5064e985-7567-4b67-8229-ca50b5b99e32',
+		)
 	})
 
 	it('refuses an exact id the store cannot admit, and names the cause', async () => {
 		// THE case. Starting fresh would hand back something indistinguishable
 		// from what was asked for.
 		vi.mocked(loadResumableConversation).mockRejectedValue(
-			new Error('Conversation ses_gone was not found — resume conversation rejected'),
+			new Error(
+				'Conversation 44506c4e-e950-400d-89c4-f0e733e1c764 was not found — resume conversation rejected',
+			),
 		)
 
-		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_gone' }, CWD)
+		const out = await resolveResume(
+			sessions,
+			{ continueLast: false, sessionId: '44506c4e-e950-400d-89c4-f0e733e1c764' },
+			CWD,
+		)
 
 		expect(out.kind).toBe('error')
-		expect(out).toMatchObject({ message: expect.stringContaining('ses_gone') })
+		expect(out).toMatchObject({
+			message: expect.stringContaining('44506c4e-e950-400d-89c4-f0e733e1c764'),
+		})
 		expect(out).toMatchObject({ message: expect.stringContaining('was not found') })
 	})
 
 	it('names the cwd searched by an exact-id refusal', async () => {
 		vi.mocked(loadResumableConversation).mockRejectedValue(new Error('not found'))
 
-		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_gone' }, CWD)
+		const out = await resolveResume(
+			sessions,
+			{ continueLast: false, sessionId: '44506c4e-e950-400d-89c4-f0e733e1c764' },
+			CWD,
+		)
 
 		expect(out).toMatchObject({ message: expect.stringContaining(CWD) })
 	})
@@ -131,7 +156,11 @@ describe('--resume <id>', () => {
 		// exactly like a resumed session to the user and to the model.
 		vi.mocked(loadResumableConversation).mockRejectedValue(new Error('transcript is corrupt'))
 
-		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_a' }, CWD)
+		const out = await resolveResume(
+			sessions,
+			{ continueLast: false, sessionId: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d' },
+			CWD,
+		)
 
 		expect(out.kind).toBe('error')
 		expect(out).toMatchObject({ message: expect.stringContaining('transcript is corrupt') })
@@ -140,7 +169,11 @@ describe('--resume <id>', () => {
 	it('refuses an empty transcript rather than calling it resumed', async () => {
 		vi.mocked(loadResumableConversation).mockResolvedValue([])
 
-		const out = await resolveResume(sessions, { continueLast: false, sessionId: 'ses_a' }, CWD)
+		const out = await resolveResume(
+			sessions,
+			{ continueLast: false, sessionId: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d' },
+			CWD,
+		)
 
 		expect(out.kind).toBe('error')
 		expect(out).toMatchObject({ message: expect.stringContaining('no messages') })
@@ -149,7 +182,11 @@ describe('--resume <id>', () => {
 
 describe('the two flags together', () => {
 	it('refuses, because they name different conversations', async () => {
-		const out = await resolveResume(sessions, { continueLast: true, sessionId: 'ses_a' }, CWD)
+		const out = await resolveResume(
+			sessions,
+			{ continueLast: true, sessionId: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d' },
+			CWD,
+		)
 
 		expect(out.kind).toBe('error')
 		expect(out).toMatchObject({ message: expect.stringContaining('Pass one') })

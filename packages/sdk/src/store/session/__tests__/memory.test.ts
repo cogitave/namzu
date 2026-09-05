@@ -7,23 +7,23 @@ import type { TopicId } from '../../../types/session/ids.js'
 import type { SubSession } from '../../../types/session/sub-session.js'
 import { InMemorySessionStore } from '../memory.js'
 
-const TEST_THREAD_ID = 'top_test' as TopicId
+const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
 function userActor(tenantId: TenantId): ActorRef {
-	return { kind: 'user', userId: 'usr_a' as UserId, tenantId }
+	return { kind: 'user', userId: '9ce05013-3bcc-4835-86b3-15e7b9251801' as UserId, tenantId }
 }
 
 function agentActor(tenantId: TenantId, parent?: ActorRef): ActorRef {
 	return {
 		kind: 'agent',
-		agentId: 'agt_a' as AgentId,
+		agentId: '297e7108-719e-42f6-aa3b-f3b42d1ad2c5' as AgentId,
 		tenantId,
 		...(parent !== undefined && { parentActor: parent }),
 	}
 }
 
-const tenantA = 'tnt_alpha' as TenantId
-const tenantB = 'tnt_beta' as TenantId
+const tenantA = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+const tenantB = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
 
 async function seed(store: InMemorySessionStore, tenantId: TenantId) {
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
@@ -198,7 +198,7 @@ describe('InMemorySessionStore', () => {
 
 	it('drill returns null for missing sessions', async () => {
 		const store = new InMemorySessionStore()
-		const missing = 'ses_missing' as SessionId
+		const missing = '1ef9ce34-f888-4928-9659-b4f6388670a9' as SessionId
 		expect(await store.drill(missing, tenantA)).toBeNull()
 	})
 
@@ -240,7 +240,9 @@ describe('InMemorySessionStore', () => {
 	it('deleteSession is idempotent (missing session → no throw)', async () => {
 		const store = new InMemorySessionStore()
 		// Never seeded — just assert no throw.
-		await expect(store.deleteSession('ses_missing' as SessionId, tenantA)).resolves.toBeUndefined()
+		await expect(
+			store.deleteSession('1ef9ce34-f888-4928-9659-b4f6388670a9' as SessionId, tenantA),
+		).resolves.toBeUndefined()
 	})
 
 	it('deleteSession rejects cross-tenant', async () => {
@@ -346,8 +348,8 @@ describe('InMemorySessionStore', () => {
 	})
 
 	describe('listSessions(topicId, tenantId)', () => {
-		const threadX = 'top_x' as TopicId
-		const threadY = 'top_y' as TopicId
+		const threadX = '5c8a352b-b97a-4b96-a7bd-e1425205de59' as TopicId
+		const threadY = '100121a3-969c-4f1a-a87b-812ee86b9d44' as TopicId
 
 		it('returns [] when the thread has no sessions', async () => {
 			const store = new InMemorySessionStore()

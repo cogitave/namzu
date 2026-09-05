@@ -53,7 +53,7 @@ describe('a filesystem that cannot publish a claim', () => {
 
 	beforeEach(async () => {
 		dir = await mkdtemp(join(tmpdir(), 'namzu-fs-'))
-		runDir = join(dir, 'run_a')
+		runDir = join(dir, '90a466e2-f869-4a3c-b750-f2156342ff40')
 		await mkdir(runDir, { recursive: true })
 		linkFails = null
 		writeFileFails = null

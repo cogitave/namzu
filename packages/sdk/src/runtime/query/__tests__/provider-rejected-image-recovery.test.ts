@@ -110,10 +110,10 @@ async function runFixture(
 			agentName: 'Image Recovery Refusal',
 			messages,
 			workingDirectory: await workingDirectory(),
-			sessionId: 'ses_image_recovery_refusal' as SessionId,
-			topicId: 'top_image_recovery_refusal' as TopicId,
-			projectId: 'prj_image_recovery_refusal' as ProjectId,
-			tenantId: 'tnt_image_recovery_refusal' as TenantId,
+			sessionId: '1facb730-1762-4583-82ee-3b51eb21bcce' as SessionId,
+			topicId: '89b5ba11-b552-44f2-87bf-a506c57b9476' as TopicId,
+			projectId: 'ced4d0a7-6c32-4525-93ca-8dc8cd05140f' as ProjectId,
+			tenantId: 'd754cc0f-50c6-4bc4-8f2a-c5eb2bfdc657' as TenantId,
 			...(signal ? { signal } : {}),
 		},
 		(event) => {
@@ -170,10 +170,10 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 				agentName: 'Image Recovery',
 				messages,
 				workingDirectory: await workingDirectory(),
-				sessionId: 'ses_image_recovery' as SessionId,
-				topicId: 'top_image_recovery' as TopicId,
-				projectId: 'prj_image_recovery' as ProjectId,
-				tenantId: 'tnt_image_recovery' as TenantId,
+				sessionId: '8cc31c7e-5ab1-4dc8-a9aa-c74344665a48' as SessionId,
+				topicId: '5e295a1f-984e-48df-96f5-6810b8b67237' as TopicId,
+				projectId: 'edb43aa8-4dcc-4cd7-8ff1-29814922d3d8' as ProjectId,
+				tenantId: '694ebd50-4e52-4849-9eba-9e236502bfb5' as TenantId,
 			},
 			(event) => {
 				events.push(event)
@@ -242,10 +242,10 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 				agentName: 'Image Recovery',
 				messages: run.messages,
 				workingDirectory: await workingDirectory(),
-				sessionId: 'ses_image_recovery_next' as SessionId,
-				topicId: 'top_image_recovery_next' as TopicId,
-				projectId: 'prj_image_recovery_next' as ProjectId,
-				tenantId: 'tnt_image_recovery_next' as TenantId,
+				sessionId: '9a101286-5be1-4edd-a06b-c9d21ebbc46c' as SessionId,
+				topicId: '30c569ec-4b2d-403d-933b-3bde1eeef523' as TopicId,
+				projectId: '00664a2a-1beb-410c-a2da-fbc40fea893c' as ProjectId,
+				tenantId: '41b4da1e-167a-49df-86da-ca47bc2464da' as TenantId,
 			},
 			(event) => {
 				nextEvents.push(event)
@@ -402,7 +402,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 		expect(JSON.stringify(run.messages)).not.toContain('provider-rejected')
 	})
 
-	it('uses the same recovery on the separate limit-closing request', async () => {
+	it('issues no image-recovery request when the iteration budget is exhausted', async () => {
 		const provider = new RejectsOneImageProvider()
 		const events: RunEvent[] = []
 		const run = await drainQuery(
@@ -423,24 +423,25 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 					createUserMessage('finish', [{ data: 'aW52YWxpZC1pbWFnZQ==', mediaType: 'image/png' }]),
 				],
 				workingDirectory: await workingDirectory(),
-				sessionId: 'ses_image_recovery_final' as SessionId,
-				topicId: 'top_image_recovery_final' as TopicId,
-				projectId: 'prj_image_recovery_final' as ProjectId,
-				tenantId: 'tnt_image_recovery_final' as TenantId,
+				sessionId: '08c41f56-bc30-41a2-8fc2-a61ce52af0ea' as SessionId,
+				topicId: '60fe0ee7-5c81-488a-bb0d-540c879ce387' as TopicId,
+				projectId: '8ba1d7cf-509e-47f8-9ccb-a135082ed433' as ProjectId,
+				tenantId: 'bfcfa694-c160-499f-b8e1-7271f0a5a82b' as TenantId,
 			},
 			(event) => {
 				events.push(event)
 			},
 		)
 
-		expect(provider.requests).toHaveLength(2)
-		expect(run.result).toContain('Recovered without losing the attachment.')
-		expect(JSON.stringify(run.messages)).toContain('provider-rejected')
+		expect(provider.requests).toHaveLength(0)
+		expect(run.stopReason).toBe('max_iterations')
+		expect(JSON.stringify(run.messages)).toContain('aW52YWxpZC1pbWFnZQ==')
+		expect(JSON.stringify(run.messages)).not.toContain('provider-rejected')
 		expect(
 			events.some(
 				(event) =>
 					event.type === 'message_history_repaired' && event.source === 'provider-rejected-image',
 			),
-		).toBe(true)
+		).toBe(false)
 	})
 })

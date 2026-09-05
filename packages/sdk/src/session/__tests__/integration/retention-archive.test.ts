@@ -23,7 +23,7 @@ import { DiskArchiveBackend } from '../../retention/disk-backend.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, agentActor, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'top_test' as TopicId
+const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
 async function seedIdleSubSession(store: InMemorySessionStore) {
 	const project = await store.createProject(
@@ -31,11 +31,19 @@ async function seedIdleSubSession(store: InMemorySessionStore) {
 		DEFAULT_TENANT,
 	)
 	const parent = await store.createSession(
-		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+		{
+			topicId: TEST_THREAD_ID,
+			projectId: project.id,
+			currentActor: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
+		},
 		DEFAULT_TENANT,
 	)
 	const child = await store.createSession(
-		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_w') },
+		{
+			topicId: TEST_THREAD_ID,
+			projectId: project.id,
+			currentActor: agentActor('f3e96ab1-b287-4117-bda9-bb0c78eeb909'),
+		},
 		DEFAULT_TENANT,
 	)
 	const sub = await store.createSubSession(
@@ -43,7 +51,7 @@ async function seedIdleSubSession(store: InMemorySessionStore) {
 			parentSessionId: parent.id,
 			childSessionId: child.id,
 			kind: 'agent_spawn',
-			spawnedBy: userActor('usr_a'),
+			spawnedBy: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
 		},
 		DEFAULT_TENANT,
 	)
@@ -119,7 +127,7 @@ describe('Integration — retention archive / restore', () => {
 		expect(bundle.messages).toHaveLength(2)
 		expect(bundle.messages[0]?.id).toBe(msg1Id)
 		expect(bundle.messages[1]?.id).toBe(msg2Id)
-		expect(bundle.messages[0]?.id.startsWith('msg_restored_')).toBe(false)
+		expect(bundle.messages[0]?.id.startsWith('9da865bb-8464-48ec-9aa9-573faacc5567')).toBe(false)
 
 		await manager.restore(sub.id, DEFAULT_TENANT)
 		const after = await store.getSubSession(sub.id, DEFAULT_TENANT)
@@ -154,7 +162,7 @@ describe('Integration — retention archive / restore', () => {
 			kind: 'git-worktree',
 			async create() {
 				return {
-					id: 'wsp_x' as WorkspaceId,
+					id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as WorkspaceId,
 					meta: {
 						backend: 'git-worktree',
 						repoRoot: '/r',
@@ -176,7 +184,7 @@ describe('Integration — retention archive / restore', () => {
 		})
 
 		const workspaceRef: WorkspaceRef = {
-			id: 'wsp_live' as WorkspaceId,
+			id: '08f6dbd8-6056-49e9-a8f3-5e5c4d6d67f0' as WorkspaceId,
 			meta: { backend: 'git-worktree', repoRoot: '/r', branch: 'main', worktreePath: '/r/y' },
 			createdAt: new Date(),
 		}

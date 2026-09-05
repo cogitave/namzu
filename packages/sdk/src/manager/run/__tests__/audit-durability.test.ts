@@ -32,17 +32,17 @@ function stubStore(overrides: Partial<RunStore> = {}): RunStore {
 
 function makeRunMgr(opts: { runStore: RunStore; log?: Logger }): RunPersistence {
 	return new RunPersistence({
-		runId: 'run_audit_durability' as RunId,
+		runId: 'dc81839f-f51d-48c8-8ef2-32742d4d25cc' as RunId,
 		agentId: 'agent_audit_durability',
 		agentName: 'Audit Durability Test Agent',
 		runConfig: { model: 'test-model', timeoutMs: 1000, tokenBudget: 1000 },
 		providerId: 'mock',
 		outputDir: '/tmp/namzu-audit-durability-test',
 		log: opts.log ?? NOOP_LOGGER,
-		sessionId: 'ses_audit_durability' as SessionId,
-		topicId: 'top_audit_durability' as TopicId,
-		tenantId: 'tnt_audit_durability' as TenantId,
-		projectId: 'prj_audit_durability' as ProjectId,
+		sessionId: '3efd3f38-47ed-48aa-9aeb-75c1bf4c7d42' as SessionId,
+		topicId: '6bccfa45-862d-493b-a181-194a61f6d49c' as TopicId,
+		tenantId: 'ae7d9a84-fd2c-44dc-a13a-b39a0ac3af24' as TenantId,
+		projectId: '9e900b27-8ece-47fa-98ea-f1adb56e4ebf' as ProjectId,
 		runStore: opts.runStore,
 	})
 }

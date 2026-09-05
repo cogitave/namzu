@@ -47,7 +47,7 @@ describe('editable prompt projection', () => {
 	it('excludes automatic goal prompts while preserving their durable user ordinal', () => {
 		const automatic = createUserMessage('internal continuation', undefined, {
 			type: 'goal-round',
-			goalId: asGoalId('goal_edit_projection'),
+			goalId: asGoalId('a49ba776-21ed-4536-bce8-c8995da7ed21'),
 			objective: 'finish',
 			goalRevision: 2,
 			round: 1,

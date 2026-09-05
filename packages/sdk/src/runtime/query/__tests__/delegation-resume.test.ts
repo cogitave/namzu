@@ -30,7 +30,7 @@ import { planCrashResume, recoverCompletedCalls } from '../resume-pending.js'
  * blocking, they fail — which is exactly when somebody needs to know.
  */
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 
 function makeLogger(): Logger {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger
@@ -106,7 +106,10 @@ describe('a fan-out interrupted part-way through', () => {
 		// The ordinary repair strips the assistant turn and lets the model
 		// re-issue every delegation — which is precisely the second run.
 		const plan = planCrashResume(
-			{ id: 'cp_1' as CheckpointId, messages: fanOut() } as IterationCheckpoint,
+			{
+				id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
+				messages: fanOut(),
+			} as IterationCheckpoint,
 			new Map([['w1', {}]]),
 			makeLogger(),
 		)
@@ -118,7 +121,10 @@ describe('a fan-out interrupted part-way through', () => {
 	it('names the workers that will actually run', async () => {
 		const log = makeLogger()
 		planCrashResume(
-			{ id: 'cp_1' as CheckpointId, messages: fanOut() } as IterationCheckpoint,
+			{
+				id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
+				messages: fanOut(),
+			} as IterationCheckpoint,
 			new Map([
 				['w1', {}],
 				['w2', {}],
@@ -139,7 +145,10 @@ describe('a fan-out interrupted part-way through', () => {
 		// costs only a round trip.
 		expect(
 			planCrashResume(
-				{ id: 'cp_1' as CheckpointId, messages: fanOut() } as IterationCheckpoint,
+				{
+					id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
+					messages: fanOut(),
+				} as IterationCheckpoint,
 				new Map(),
 				makeLogger(),
 			),

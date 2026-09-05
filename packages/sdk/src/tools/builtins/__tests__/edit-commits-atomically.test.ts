@@ -22,7 +22,7 @@ vi.mock('../atomic-write-file.js', () => ({ atomicWriteFile }))
 
 function makeContext(workingDirectory: string): ToolContext {
 	return {
-		runId: 'run_atomic' as ToolContext['runId'],
+		runId: '08a51934-b0f7-4d06-850e-d7e4e7c4dfad' as ToolContext['runId'],
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},

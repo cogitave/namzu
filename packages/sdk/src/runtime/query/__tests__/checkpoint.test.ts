@@ -8,16 +8,16 @@ import { generateEmergencySaveId } from '../../../utils/id.js'
 import { CheckpointManager, projectEmergencyToCheckpoint } from '../checkpoint.js'
 
 const TEST_SCOPE: CheckpointRunScope = {
-	tenantId: 'tnt_test' as TenantId,
-	projectId: 'prj_test' as ProjectId,
-	sessionId: 'ses_test' as SessionId,
-	runId: 'run_test' as RunId,
+	tenantId: 'a8e039fb-e8d3-4206-9ed8-4cb17d5d8222' as TenantId,
+	projectId: '08c9b09c-4412-478c-878b-dc94927c760f' as ProjectId,
+	sessionId: 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede' as SessionId,
+	runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
 }
 
 function makeCheckpoint(overrides: Partial<IterationCheckpoint> = {}): IterationCheckpoint {
 	return {
-		id: 'cp_test_a' as CheckpointId,
-		runId: 'run_test' as RunId,
+		id: 'f627471b-ebe8-4887-90de-f6b94301d7ba' as CheckpointId,
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
 		iteration: 1,
 		messages: [{ role: 'user', content: 'hello' }],
 		tokenUsage: {
@@ -50,7 +50,7 @@ describe('CheckpointManager.listEntries', () => {
 	it('projects stored checkpoints to CheckpointListEntry', async () => {
 		const store = makeStoreStub([
 			makeCheckpoint({
-				id: 'cp_a' as CheckpointId,
+				id: 'a705a249-5a8d-47b0-9d06-f4b18cb741fe' as CheckpointId,
 				iteration: 1,
 				createdAt: 1000,
 				messages: [
@@ -59,7 +59,7 @@ describe('CheckpointManager.listEntries', () => {
 				],
 			}),
 			makeCheckpoint({
-				id: 'cp_b' as CheckpointId,
+				id: '97fe065e-1670-458c-be39-9243fcf7e783' as CheckpointId,
 				iteration: 2,
 				createdAt: 2000,
 				messages: [
@@ -75,15 +75,15 @@ describe('CheckpointManager.listEntries', () => {
 
 		expect(entries).toHaveLength(2)
 		expect(entries[0]).toEqual({
-			id: 'cp_a',
-			runId: 'run_test',
+			id: 'a705a249-5a8d-47b0-9d06-f4b18cb741fe',
+			runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2',
 			iteration: 1,
 			createdAt: 1000,
 			messageCount: 2,
 		})
 		expect(entries[1]).toEqual({
-			id: 'cp_b',
-			runId: 'run_test',
+			id: '97fe065e-1670-458c-be39-9243fcf7e783',
+			runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2',
 			iteration: 2,
 			createdAt: 2000,
 			messageCount: 3,
@@ -111,8 +111,8 @@ describe('CheckpointManager.listEntries', () => {
 
 function makeEmergencyDump(overrides: Partial<EmergencySaveData> = {}): EmergencySaveData {
 	return {
-		id: 'esave_dump_a' as EmergencySaveId,
-		runId: 'run_victim' as RunId,
+		id: '62a8dfef-4bd6-467b-ab11-4c4003b62ac9' as EmergencySaveId,
+		runId: 'e57e7d3d-2047-411e-b876-29615951227a' as RunId,
 		messages: [
 			{ role: 'user', content: 'before the crash' },
 			{ role: 'assistant', content: 'working' },
@@ -137,7 +137,7 @@ describe('projectEmergencyToCheckpoint', () => {
 		const dump = makeEmergencyDump()
 		const cp = projectEmergencyToCheckpoint(dump)
 
-		expect(cp.runId).toBe('run_victim')
+		expect(cp.runId).toBe('e57e7d3d-2047-411e-b876-29615951227a')
 		expect(cp.iteration).toBe(7)
 		expect(cp.messages).toBe(dump.messages)
 		expect(cp.tokenUsage).toBe(dump.tokenUsage)
@@ -158,11 +158,13 @@ describe('projectEmergencyToCheckpoint', () => {
 	})
 
 	it('derives a deterministic CheckpointId from the emergency save id', () => {
-		const dump = makeEmergencyDump({ id: 'esave_xyz123' as EmergencySaveId })
+		const dump = makeEmergencyDump({
+			id: 'eceea0d8-4d0e-4123-b812-f7a9349ea05c' as EmergencySaveId,
+		})
 		const cp1 = projectEmergencyToCheckpoint(dump)
 		const cp2 = projectEmergencyToCheckpoint(dump)
 
-		expect(cp1.id).toBe('cp_emergency_xyz123')
+		expect(cp1.id).toBe(dump.id)
 		expect(cp1.id).toBe(cp2.id)
 	})
 

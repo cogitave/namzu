@@ -73,10 +73,10 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 			provider,
 			tools: new ToolRegistry(),
 			systemPrompt: 'hold',
-			sessionId: 'ses_fan' as never,
-			topicId: 'top_fan' as never,
-			projectId: 'prj_fan' as never,
-			tenantId: 'tnt_fan' as never,
+			sessionId: 'd49d1ad2-8ebd-40cb-9100-011222d0f3c8' as never,
+			topicId: '301b2633-a464-461a-ae0d-f593c87c1b1d' as never,
+			projectId: '5c0eb88b-e546-43d0-9a57-343ad4550e80' as never,
+			tenantId: 'c8c2d788-3684-4a87-aa3a-30df4e97d5cb' as never,
 		}
 
 		// Start one run on each shell; neither resolves, and neither should

@@ -44,10 +44,10 @@ import { InMemoryVectorStore, cosineSimilarity } from './vector-store.js'
 
 const T1 = 'tenant_1' as TenantId
 const T2 = 'tenant_2' as TenantId
-const KB1 = 'kb_1' as KnowledgeBaseId
-const KB2 = 'kb_2' as KnowledgeBaseId
-const D1 = 'doc_1' as DocumentId
-const D2 = 'doc_2' as DocumentId
+const KB1 = '5a2348f9-0d2e-4f9f-ae33-b8de032a1675' as KnowledgeBaseId
+const KB2 = '992dc873-511d-4ab2-adbb-3a7ad0004b04' as KnowledgeBaseId
+const D1 = 'dcee443a-501c-4019-9c85-21a72c3ccfa7' as DocumentId
+const D2 = '5add3636-c641-4fac-acec-670bb0c3554e' as DocumentId
 
 function chunk(id: string, overrides: Partial<Chunk> = {}): Chunk {
 	return {

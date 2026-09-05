@@ -37,14 +37,14 @@ class CountingManager {
 
 function context(): AgentTaskContext {
 	return {
-		parentRunId: 'run_p' as never,
+		parentRunId: '5eba9421-a64b-4bf1-94b0-b0c3985daf28' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
 		budgetTracker: { total: 1_000_000, remaining: 1_000_000 },
-		tenantId: 'tnt_g' as never,
-		sessionId: 'ses_g' as never,
-		projectId: 'prj_g' as never,
+		tenantId: '0655203a-fe49-4e68-bb77-0f3889421e4c' as never,
+		sessionId: '314d67db-e2b9-420a-9f10-cee9b361a899' as never,
+		projectId: '8e77b3c0-cb1f-4ed2-b6d4-fd16fff77c89' as never,
 	} as unknown as AgentTaskContext
 }
 

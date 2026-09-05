@@ -7,17 +7,17 @@ import type { ActorRef } from '../../../types/session/actor.js'
 import type { TopicId } from '../../../types/session/ids.js'
 import { TopicManager } from '../lifecycle.js'
 
-const MISSING_TOPIC_ID = 'top_missing' as TopicId
+const MISSING_TOPIC_ID = '6d02dee0-83ba-46af-92f4-6494f468e8e3' as TopicId
 
-const tenantA = 'tnt_alpha' as TenantId
-const tenantB = 'tnt_beta' as TenantId
+const tenantA = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+const tenantB = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
 
 function userActor(tenantId: TenantId): ActorRef {
-	return { kind: 'user', userId: 'usr_a' as UserId, tenantId }
+	return { kind: 'user', userId: '9ce05013-3bcc-4835-86b3-15e7b9251801' as UserId, tenantId }
 }
 
 function agentActor(tenantId: TenantId): ActorRef {
-	return { kind: 'agent', agentId: 'agt_a' as AgentId, tenantId }
+	return { kind: 'agent', agentId: '297e7108-719e-42f6-aa3b-f3b42d1ad2c5' as AgentId, tenantId }
 }
 
 async function harness(tenantId: TenantId = tenantA) {

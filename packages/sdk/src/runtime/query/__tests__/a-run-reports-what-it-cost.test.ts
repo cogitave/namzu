@@ -162,20 +162,13 @@ describe('a run against a catalogued model', () => {
 		expect(settled.costInfo.inputCostPer1M).toBe(1)
 	})
 
-	it('prices the closing summary too, when a guard forces one', async () => {
-		// `requestFinalResponse` is a real model call on a path of its own: it
-		// fires after a hard stop, has no `servedBy` to read, and asks
-		// `runMgr.servingProviderId` instead. Nothing else here reaches it, so
-		// without this case that call could be attributed to no model at all —
-		// or to an empty provider id — and every other assertion would hold.
-		// The turn asks for a tool, so the loop wants another iteration — and a
-		// token budget the first turn already blew through means the guard
-		// hard-stops instead and asks for a closing summary. A turn that simply
-		// answered would end on `end_turn` and never reach the guard.
+	it('prices a closing summary requested while the warning reserve remains', async () => {
+		// The first turn crosses 90% without exhausting the budget. Its closing
+		// summary is another priced turn, admitted while headroom still exists.
 		const settled = await run({
 			providerId: 'anthropic',
 			model: 'claude-opus-5',
-			tokenBudget: 1_000,
+			tokenBudget: 2_200,
 			maxIterations: 10,
 			withEchoTool: true,
 			turns: [
@@ -183,14 +176,18 @@ describe('a run against a catalogued model', () => {
 					toolCalls: [{ name: 'echo', args: { text: 'hi' } }],
 					usage: { promptTokens: 1_000, completionTokens: 1_000, totalTokens: 2_000 },
 				},
+				{
+					text: 'Closing summary',
+					usage: { promptTokens: 50, completionTokens: 50, totalTokens: 100 },
+				},
 			],
 		})
 
-		expect(settled.stopReason).toBe('token_budget')
+		expect(settled.stopReason).toBe('end_turn')
 		expect(settled.costInfo.unpricedTokens).toBe(0)
 		// Two calls, both priced: the turn and the forced summary.
-		expect(settled.tokenUsage.totalTokens).toBe(4_000)
-		expect(settled.costInfo.totalCost).toBeCloseTo(0.06, 6)
+		expect(settled.tokenUsage.totalTokens).toBe(2_100)
+		expect(settled.costInfo.totalCost).toBeCloseTo(0.0315, 6)
 	})
 
 	it('reports a genuinely free run as free, not as unknown', async () => {

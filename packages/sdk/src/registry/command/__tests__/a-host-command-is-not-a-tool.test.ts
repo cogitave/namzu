@@ -24,7 +24,7 @@ import { kernelHostCommands } from '../kernel-commands.js'
  * discovered something.
  */
 
-const RUN = 'run_cmd' as RunId
+const RUN = 'bc6b7912-fe1e-479d-9d8a-af494bd39153' as RunId
 
 async function storeWith(subjects: string[]): Promise<InMemoryTaskStore> {
 	const store = new InMemoryTaskStore()

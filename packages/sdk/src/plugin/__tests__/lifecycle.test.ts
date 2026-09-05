@@ -12,7 +12,7 @@ describe('PluginLifecycleManager', () => {
 	let toolRegistry: ToolRegistryContract
 	let logger: Logger
 
-	const mockRunId = 'run_test' as RunId
+	const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
 	const mockPluginId = 'plugin_test' as PluginId
 
 	beforeEach(() => {

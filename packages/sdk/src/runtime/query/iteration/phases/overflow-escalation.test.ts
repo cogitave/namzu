@@ -61,7 +61,7 @@ function makeCtx(messages: Message[]): { ctx: IterationContext; log: Logger } {
 		log,
 		tools: { toLLMTools: () => [] },
 		runMgr: {
-			id: 'run_1' as RunId,
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
 			currentIteration: 6,
 			messages,
 			lastPromptTokens: undefined,
@@ -112,6 +112,19 @@ describe('a forced pass on a context the estimate thinks is fine', () => {
 })
 
 describe('what counts as relief', () => {
+	it('recognizes evicted user images as relief even when their accompanying text is short', async () => {
+		const messages: Message[] = [
+			createSystemMessage('floor'),
+			createUserMessage('Old screenshot.', [{ mediaType: 'image/png', data: 'a'.repeat(400_000) }]),
+		]
+		for (let i = 0; i < 8; i++) {
+			messages.push(createUserMessage(`turn ${i}`), createAssistantMessage('ok'))
+		}
+		const { ctx } = makeCtx(messages)
+		expect(await relieveOverflow(ctx)).toBe(true)
+		expect(ctx.runMgr.messages.some((m) => m.role === 'user' && m.attachments?.length)).toBe(false)
+	})
+
 	it('refuses when there is nothing at all to shed', async () => {
 		const { ctx, log } = makeCtx([
 			createSystemMessage('system floor'),

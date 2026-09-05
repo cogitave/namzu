@@ -15,7 +15,7 @@ import { DEFAULT_TOOL_TIMEOUT_MS, ToolExecutor } from '../executor.js'
  * existed at all: `bash` defaulted to one hour, MCP stdio to forever.
  */
 
-const RUN_ID = 'run_timeout' as RunId
+const RUN_ID = 'a1210bd5-9811-41e1-bbcb-6c63b91947e3' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

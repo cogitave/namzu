@@ -150,7 +150,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						parentActor: { kind: 'agent', agentId: 'mid' as never, tenantId: config.tenantId },
 					},
 					{
-						parentRunId: 'run_mid' as RunId,
+						parentRunId: '8cc97616-d576-4130-b20c-5a1c2a2ad7c2' as RunId,
 						parentAgentId: 'mid',
 						parentAbortController: new AbortController(),
 						depth: 1,
@@ -168,7 +168,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 				await manager.waitForCompletion(task2.taskId)
 
 				return {
-					runId: 'run_mid_result' as RunId,
+					runId: '4d918726-00c0-4f5b-a4d0-54b188151122' as RunId,
 					status: 'completed',
 					usage: { ...EMPTY_TOKEN_USAGE },
 					cost: { ...ZERO_COST },
@@ -271,7 +271,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						},
 					},
 					{
-						parentRunId: 'run_mid_inner' as RunId,
+						parentRunId: 'f64c42f1-6cc3-4570-b4d4-3c238b349f53' as RunId,
 						parentAgentId: 'mid',
 						parentAbortController: new AbortController(),
 						depth: 1,
@@ -292,7 +292,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 				)
 				await harness.manager.waitForCompletion(inner.taskId)
 				return {
-					runId: 'run_mid_done' as RunId,
+					runId: '8c9192e7-6500-4e97-b1e4-a95ae35eaec1' as RunId,
 					status: 'completed',
 					usage: { ...EMPTY_TOKEN_USAGE },
 					cost: { ...ZERO_COST },
@@ -363,10 +363,10 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 				// Emit a core event inside the child's run via the listener passed in.
 				await listener?.({
 					type: 'run_started',
-					runId: 'run_child_inner' as RunId,
+					runId: '2dfdb2e2-390f-47fd-9213-65d80ee062af' as RunId,
 				})
 				return {
-					runId: 'run_child_inner' as RunId,
+					runId: '2dfdb2e2-390f-47fd-9213-65d80ee062af' as RunId,
 					status: 'completed',
 					usage: { ...EMPTY_TOKEN_USAGE },
 					cost: { ...ZERO_COST },

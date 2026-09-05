@@ -38,8 +38,8 @@ import type { ConnectorId, ConnectorInstanceId } from '../../../types/ids/index.
 
 import { MCPConnectorBridge } from './adapter.js'
 
-const CID = 'conn_http' as ConnectorId
-const IID = 'ci_abc' as ConnectorInstanceId
+const CID = 'dafa33b2-7035-47d2-986c-8a6d2ef338f3' as ConnectorId
+const IID = 'e0b5ce04-31ce-4655-93be-258fc113e8b4' as ConnectorInstanceId
 
 function makeDefinition(overrides: Partial<ConnectorDefinition> = {}): ConnectorDefinition {
 	return {

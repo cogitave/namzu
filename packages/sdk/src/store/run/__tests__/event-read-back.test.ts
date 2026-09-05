@@ -36,14 +36,19 @@ async function baseDir(): Promise<string> {
 }
 
 const numbered = (seq: number): RunEvent =>
-	({ type: 'iteration_started', runId: 'run_1', iteration: seq, seq }) as never
+	({
+		type: 'iteration_started',
+		runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		iteration: seq,
+		seq,
+	}) as never
 
 /** Both shipped implementations, bound to the same run id. */
 async function backends(): Promise<[string, RunStore][]> {
 	const disk = new RunDiskStore({ baseDir: await baseDir(), logger: LOG })
-	await disk.initRun('run_1')
+	await disk.initRun('37ddff8e-e13f-4e57-937f-d048fa323f5e')
 	const memory = new InMemoryRunStore()
-	await memory.initRun('run_1')
+	await memory.initRun('37ddff8e-e13f-4e57-937f-d048fa323f5e')
 	return [
 		['disk', disk],
 		['memory', memory],
@@ -97,7 +102,7 @@ describe('the two backends answer the same', () => {
 		for (const [name, store] of await backends()) {
 			await store.appendEvent({
 				type: 'tool_completed',
-				runId: 'run_1',
+				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 				toolUseId: 'call_1',
 				toolName: 'echo',
 				result: 'hi',
@@ -120,10 +125,10 @@ describe('the two backends answer the same', () => {
 describe('the in-memory store starts a different run empty', () => {
 	it('does not report the previous run’s events as the new one’s', async () => {
 		const store = new InMemoryRunStore()
-		await store.initRun('run_first')
+		await store.initRun('111b6f53-2d7f-4bfc-bbe1-56df51712736')
 		await store.appendEvent(numbered(1))
 
-		await store.initRun('run_second')
+		await store.initRun('3140f049-2def-4029-8534-4bcc8840fc38')
 
 		// Evidence attributed to the wrong run is worse than none: it is wrong
 		// and it looks right. The disk store gets this for free — a different id
@@ -134,10 +139,10 @@ describe('the in-memory store starts a different run empty', () => {
 
 	it('keeps the log when rebound to the SAME run', async () => {
 		const store = new InMemoryRunStore()
-		await store.initRun('run_same')
+		await store.initRun('25badb60-e8f3-4710-aaed-95a83d506a9c')
 		await store.appendEvent(numbered(1))
 
-		await store.initRun('run_same')
+		await store.initRun('25badb60-e8f3-4710-aaed-95a83d506a9c')
 
 		expect((await store.readEvents()).map((e) => e.seq)).toEqual([1])
 	})
@@ -146,14 +151,16 @@ describe('the in-memory store starts a different run empty', () => {
 describe('a transcript written before events were numbered', () => {
 	it('reads its lines back at their positions rather than losing them', async () => {
 		const dir = await baseDir()
-		const runDir = join(dir, 'run_legacy')
+		const runDir = join(dir, '1e2cd7b1-df8e-4f19-9f3b-4f0281300ae7')
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_legacy')
+		await store.initRun('1e2cd7b1-df8e-4f19-9f3b-4f0281300ae7')
 		// Exactly what the old emitter wrote: a timestamp, and no seq at all.
 		await writeFile(
 			join(runDir, 'transcript.jsonl'),
 			`${['run_started', 'iteration_started', 'run_completed']
-				.map((type) => JSON.stringify({ type, runId: 'run_legacy', timestamp: 1 }))
+				.map((type) =>
+					JSON.stringify({ type, runId: '1e2cd7b1-df8e-4f19-9f3b-4f0281300ae7', timestamp: 1 }),
+				)
 				.join('\n')}\n`,
 			'utf-8',
 		)
@@ -170,10 +177,10 @@ describe('a transcript written before events were numbered', () => {
 	it('keeps the positions stable once sequenced events are appended after it', async () => {
 		const dir = await baseDir()
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_mixed')
+		await store.initRun('2cff8233-1823-46cf-9028-b20b37044abe')
 		await writeFile(
-			join(dir, 'run_mixed', 'transcript.jsonl'),
-			`${JSON.stringify({ type: 'run_started', runId: 'run_mixed' })}\n`,
+			join(dir, '2cff8233-1823-46cf-9028-b20b37044abe', 'transcript.jsonl'),
+			`${JSON.stringify({ type: 'run_started', runId: '2cff8233-1823-46cf-9028-b20b37044abe' })}\n`,
 			'utf-8',
 		)
 
@@ -185,10 +192,10 @@ describe('a transcript written before events were numbered', () => {
 	it('gives an unstamped line a timestamp that cannot be mistaken for a real one', async () => {
 		const dir = await baseDir()
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_undated')
+		await store.initRun('c51dc6e5-3efd-45d0-9d07-9901a6bd408a')
 		await writeFile(
-			join(dir, 'run_undated', 'transcript.jsonl'),
-			`${JSON.stringify({ type: 'run_started', runId: 'run_undated' })}\n`,
+			join(dir, 'c51dc6e5-3efd-45d0-9d07-9901a6bd408a', 'transcript.jsonl'),
+			`${JSON.stringify({ type: 'run_started', runId: 'c51dc6e5-3efd-45d0-9d07-9901a6bd408a' })}\n`,
 			'utf-8',
 		)
 
@@ -199,11 +206,11 @@ describe('a transcript written before events were numbered', () => {
 describe('a transcript cut off mid-write', () => {
 	it('can refuse the torn record when a caller needs a completeness proof', async () => {
 		const dir = await baseDir()
-		const runDir = join(dir, 'run_torn_strict')
+		const runDir = join(dir, '4b4f7e08-b889-4a47-95f6-ff7f4ad52d5e')
 		await mkdir(runDir, { recursive: true })
 		await writeFile(
 			join(runDir, 'transcript.jsonl'),
-			'{"type":"run_started","runId":"run_torn_strict","seq":1,"timestamp":1}',
+			'{"type":"run_started","runId":"4b4f7e08-b889-4a47-95f6-ff7f4ad52d5e","seq":1,"timestamp":1}',
 			'utf-8',
 		)
 
@@ -214,12 +221,12 @@ describe('a transcript cut off mid-write', () => {
 
 	it('can refuse a malformed middle record instead of skipping it', async () => {
 		const dir = await baseDir()
-		const runDir = join(dir, 'run_malformed_strict')
+		const runDir = join(dir, 'dbe108b1-4f50-49a1-8b09-a8a21eb39aa8')
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_malformed_strict')
+		await store.initRun('dbe108b1-4f50-49a1-8b09-a8a21eb39aa8')
 		await writeFile(
 			join(runDir, 'transcript.jsonl'),
-			`${JSON.stringify({ type: 'run_started', runId: 'run_malformed_strict', seq: 1, timestamp: 1 })}\nnot-json\n${JSON.stringify({ type: 'run_completed', runId: 'run_malformed_strict', seq: 3, timestamp: 3 })}\n`,
+			`${JSON.stringify({ type: 'run_started', runId: 'dbe108b1-4f50-49a1-8b09-a8a21eb39aa8', seq: 1, timestamp: 1 })}\nnot-json\n${JSON.stringify({ type: 'run_completed', runId: 'dbe108b1-4f50-49a1-8b09-a8a21eb39aa8', seq: 3, timestamp: 3 })}\n`,
 			'utf-8',
 		)
 
@@ -232,12 +239,12 @@ describe('a transcript cut off mid-write', () => {
 
 	it('can refuse a sequence gap even when every line is valid JSON', async () => {
 		const dir = await baseDir()
-		const runDir = join(dir, 'run_gap_strict')
+		const runDir = join(dir, '653fca2c-a330-4c1d-b779-80985af84556')
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_gap_strict')
+		await store.initRun('653fca2c-a330-4c1d-b779-80985af84556')
 		await writeFile(
 			join(runDir, 'transcript.jsonl'),
-			`${JSON.stringify({ type: 'run_started', runId: 'run_gap_strict', seq: 1, timestamp: 1 })}\n${JSON.stringify({ type: 'run_completed', runId: 'run_gap_strict', seq: 3, timestamp: 3 })}\n`,
+			`${JSON.stringify({ type: 'run_started', runId: '653fca2c-a330-4c1d-b779-80985af84556', seq: 1, timestamp: 1 })}\n${JSON.stringify({ type: 'run_completed', runId: '653fca2c-a330-4c1d-b779-80985af84556', seq: 3, timestamp: 3 })}\n`,
 			'utf-8',
 		)
 
@@ -248,9 +255,9 @@ describe('a transcript cut off mid-write', () => {
 
 	it('loses the fragment and nothing after it', async () => {
 		const dir = await baseDir()
-		const runDir = join(dir, 'run_torn')
+		const runDir = join(dir, '69f32250-b3d2-4f37-bda2-c9a58c1228e2')
 		const first = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await first.initRun('run_torn')
+		await first.initRun('69f32250-b3d2-4f37-bda2-c9a58c1228e2')
 		await first.appendEvent(numbered(1))
 		// The shape a hard kill during `appendFile` leaves: a line with no
 		// newline on the end of it.
@@ -258,7 +265,7 @@ describe('a transcript cut off mid-write', () => {
 
 		// A different process picks the run up and appends the next event.
 		const second = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await second.initRun('run_torn')
+		await second.initRun('69f32250-b3d2-4f37-bda2-c9a58c1228e2')
 		await second.appendEvent(numbered(3))
 
 		const events = await second.readEvents()
@@ -272,13 +279,23 @@ describe('a transcript cut off mid-write', () => {
 	it('does not touch a transcript that ends properly', async () => {
 		const dir = await baseDir()
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_intact')
+		await store.initRun('33feff5e-98bc-4395-bc16-c06999204246')
 		await store.appendEvent(numbered(1))
-		const before = await readFile(join(dir, 'run_intact', 'transcript.jsonl'), 'utf-8')
+		const before = await readFile(
+			join(dir, '33feff5e-98bc-4395-bc16-c06999204246', 'transcript.jsonl'),
+			'utf-8',
+		)
 
-		await new RunDiskStore({ baseDir: dir, logger: LOG }).initRun('run_intact')
+		await new RunDiskStore({ baseDir: dir, logger: LOG }).initRun(
+			'33feff5e-98bc-4395-bc16-c06999204246',
+		)
 
-		expect(await readFile(join(dir, 'run_intact', 'transcript.jsonl'), 'utf-8')).toBe(before)
+		expect(
+			await readFile(
+				join(dir, '33feff5e-98bc-4395-bc16-c06999204246', 'transcript.jsonl'),
+				'utf-8',
+			),
+		).toBe(before)
 	})
 })
 
@@ -286,14 +303,16 @@ describe('reading a run without binding a store to it', () => {
 	it('answers from the directory, and creates nothing', async () => {
 		const dir = await baseDir()
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_free')
+		await store.initRun('05e9d03d-7c77-431c-bd06-8e2470b59f62')
 		await store.appendEvent(numbered(1))
 
 		// The point of the free function: binding a store to read would mkdir the
 		// run directory, and a read that mints an empty run then reports it as
 		// having no events is indistinguishable from a run that genuinely has
 		// none.
-		expect((await readRunEventsIn(join(dir, 'run_free'))).map((e) => e.seq)).toEqual([1])
-		expect(await readRunEventsIn(join(dir, 'run_that_never_existed'))).toEqual([])
+		expect(
+			(await readRunEventsIn(join(dir, '05e9d03d-7c77-431c-bd06-8e2470b59f62'))).map((e) => e.seq),
+		).toEqual([1])
+		expect(await readRunEventsIn(join(dir, 'c1ee7f19-d863-4dc8-9aba-aa9297044a35'))).toEqual([])
 	})
 })

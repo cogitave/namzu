@@ -49,7 +49,7 @@ function childTools(): ToolRegistry {
 
 function context(): ToolContext {
 	return {
-		runId: asRunId('run_parent_review'),
+		runId: asRunId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'),
 		abortSignal: new AbortController().signal,
 	} as ToolContext
 }
@@ -66,7 +66,10 @@ describe('a delegated write uses the parent run authority', () => {
 			const review = vi.fn<ResumeHandler>(async (request) =>
 				request.type === 'tool_review' ? decision : { action: 'continue' },
 			)
-			const parent = await subagentParentFixture(cwd, asRunId('run_parent_review'))
+			const parent = await subagentParentFixture(
+				cwd,
+				asRunId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'),
+			)
 			const runtime = await createSubagentRuntime({
 				resolveParent: parent.resolveParent,
 				cwd,
@@ -89,7 +92,7 @@ describe('a delegated write uses the parent run authority', () => {
 				buildTools: childTools,
 				authorizationGate: reviewGate,
 				resolveResumeHandler: (runId) =>
-					runId === asRunId('run_parent_review') ? review : undefined,
+					runId === asRunId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32') ? review : undefined,
 				sandboxProvider: new LocalSandboxProvider(NOOP_LOGGER),
 				sandboxWorkspace: 'working-directory',
 			})
@@ -123,7 +126,7 @@ describe('a delegated write uses the parent run authority', () => {
 	it('refuses a reviewed write when the parent review channel is missing', async () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-child-unowned-review-'))
 		workdirs.push(cwd)
-		const parent = await subagentParentFixture(cwd, asRunId('run_parent_review'))
+		const parent = await subagentParentFixture(cwd, asRunId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'))
 		const runtime = await createSubagentRuntime({
 			resolveParent: parent.resolveParent,
 			cwd,

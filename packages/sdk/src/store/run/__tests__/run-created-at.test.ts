@@ -18,9 +18,9 @@ import { listDurableRuns, toDurableRunEntry } from '../listing.js'
  * that is stable, right up until a paging caller loses a run.
  */
 
-const T1 = 'tnt_stamp' as TenantId
-const P1 = 'prj_stamp' as ProjectId
-const S1 = 'ses_stamp' as SessionId
+const T1 = '038717e3-8a85-4368-9eaf-76905189040f' as TenantId
+const P1 = '9dee05f6-1081-4293-ac75-304915b287e5' as ProjectId
+const S1 = '27cef15e-ab9f-4807-99aa-370ac4185289' as SessionId
 
 function scope(runId: string): CheckpointRunScope {
 	return { tenantId: T1, projectId: P1, sessionId: S1, runId: runId as RunId }
@@ -41,9 +41,9 @@ function runMgr(runId: string, startedAt: number): RunPersistence {
 describe('the run attribution stamp', () => {
 	it('is the run’s own start, not the clock at the first checkpoint', async () => {
 		const store = new InMemoryCheckpointStore()
-		const manager = new CheckpointManager(store, scope('run_a'))
+		const manager = new CheckpointManager(store, scope('90a466e2-f869-4a3c-b750-f2156342ff40'))
 
-		const cp = await manager.create(runMgr('run_a', 1_000), 1)
+		const cp = await manager.create(runMgr('90a466e2-f869-4a3c-b750-f2156342ff40', 1_000), 1)
 
 		// Taking `Date.now()` here would record when the run first became
 		// DURABLE, which is a different and later fact than when it was
@@ -55,31 +55,31 @@ describe('the run attribution stamp', () => {
 
 	it('is identical on every checkpoint of the run, even if the run’s clock moves', async () => {
 		const store = new InMemoryCheckpointStore()
-		const manager = new CheckpointManager(store, scope('run_a'))
+		const manager = new CheckpointManager(store, scope('90a466e2-f869-4a3c-b750-f2156342ff40'))
 
-		const first = await manager.create(runMgr('run_a', 1_000), 1)
+		const first = await manager.create(runMgr('90a466e2-f869-4a3c-b750-f2156342ff40', 1_000), 1)
 		// A second manager call whose run object reports a different start.
 		// Nothing in the SDK does this today, and the field's whole value is
 		// that nothing ever can.
-		const second = await manager.create(runMgr('run_a', 9_999), 2)
+		const second = await manager.create(runMgr('90a466e2-f869-4a3c-b750-f2156342ff40', 9_999), 2)
 
 		expect(second.runCreatedAt).toBe(first.runCreatedAt)
 	})
 
 	it('survives a resume in a new process', async () => {
 		const store = new InMemoryCheckpointStore()
-		const original = await new CheckpointManager(store, scope('run_a')).create(
-			runMgr('run_a', 1_000),
-			1,
-		)
+		const original = await new CheckpointManager(
+			store,
+			scope('90a466e2-f869-4a3c-b750-f2156342ff40'),
+		).create(runMgr('90a466e2-f869-4a3c-b750-f2156342ff40', 1_000), 1)
 
 		// A resumed run is the same run under the same id, but a fresh
 		// `RunPersistence` mints a fresh start instant. Without the adopt, the
 		// stamp would step forward on every resume — the exact motion it
 		// exists to avoid.
-		const resumed = new CheckpointManager(store, scope('run_a'))
+		const resumed = new CheckpointManager(store, scope('90a466e2-f869-4a3c-b750-f2156342ff40'))
 		await resumed.restore(original.id)
-		const next = await resumed.create(runMgr('run_a', 8_000), 2)
+		const next = await resumed.create(runMgr('90a466e2-f869-4a3c-b750-f2156342ff40', 8_000), 2)
 
 		expect(next.runCreatedAt).toBe(1_000)
 
@@ -89,7 +89,10 @@ describe('the run attribution stamp', () => {
 
 	it('is not inherited by a replay fork, which is a new run', async () => {
 		const store = new InMemoryCheckpointStore()
-		await new CheckpointManager(store, scope('run_a')).create(runMgr('run_a', 1_000), 1)
+		await new CheckpointManager(store, scope('90a466e2-f869-4a3c-b750-f2156342ff40')).create(
+			runMgr('90a466e2-f869-4a3c-b750-f2156342ff40', 1_000),
+			1,
+		)
 
 		// A fork reads its origin through the SOURCE run's scope, inside
 		// `prepareReplayState`, and then starts a fresh run — so its own
@@ -101,13 +104,16 @@ describe('the run attribution stamp', () => {
 		// and it threw `not_found`, which is the proof: a manager can only
 		// read checkpoints under its own run id, so a fork could not inherit
 		// even if the code tried to let it.
-		const fork = new CheckpointManager(store, scope('run_fork'))
-		const forked = await fork.create(runMgr('run_fork', 7_000), 1)
+		const fork = new CheckpointManager(store, scope('21bcfc9d-16d7-49a8-ab22-0fd8036cc2b5'))
+		const forked = await fork.create(runMgr('21bcfc9d-16d7-49a8-ab22-0fd8036cc2b5', 7_000), 1)
 
 		expect(forked.runCreatedAt).toBe(7_000)
 
 		const page = await listDurableRuns(store, { tenantId: T1 }, { orderBy: 'createdAt' })
-		expect(page.entries.map((e) => e.runId)).toEqual(['run_a', 'run_fork'])
+		expect(page.entries.map((e) => e.runId)).toEqual([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'21bcfc9d-16d7-49a8-ab22-0fd8036cc2b5',
+		])
 	})
 
 	it('reads as the earliest recorded value across a run’s checkpoints', async () => {
@@ -116,11 +122,11 @@ describe('the run attribution stamp', () => {
 		// what makes the read unable to move when a later checkpoint is added,
 		// even if some future writer breaks the invariant.
 		const entry = toDurableRunEntry(
-			scope('run_a'),
+			scope('90a466e2-f869-4a3c-b750-f2156342ff40'),
 			[
-				{ ...base('cp_1', 10), runCreatedAt: 500 },
-				{ ...base('cp_2', 20), runCreatedAt: 900 },
-				base('cp_3', 30),
+				{ ...base('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 10), runCreatedAt: 500 },
+				{ ...base('7802b395-981e-430a-86c7-058cb79dbaf9', 20), runCreatedAt: 900 },
+				base('c534c8ba-5d65-413c-8d53-0fcbbf1aa392', 30),
 			],
 			0,
 		)
@@ -138,21 +144,21 @@ describe('the run attribution stamp', () => {
 		// dropped the stamp would take its run out of the oldest-first inbox
 		// at the exact moment the run entered it.
 		const store = new InMemoryCheckpointStore()
-		const manager = new CheckpointManager(store, scope('run_a'))
+		const manager = new CheckpointManager(store, scope('90a466e2-f869-4a3c-b750-f2156342ff40'))
 
-		const created = await manager.create(runMgr('run_a', 1_000), 1)
+		const created = await manager.create(runMgr('90a466e2-f869-4a3c-b750-f2156342ff40', 1_000), 1)
 		const parked = await manager.park(created, {
 			type: 'plan_approval',
-			runId: 'run_a' as RunId,
+			runId: '90a466e2-f869-4a3c-b750-f2156342ff40' as RunId,
 			checkpointId: created.id,
 			plan: { steps: [] } as never,
 		})
 		const resolved = await manager.unpark(parked.id, { action: 'approve_plan' })
 
-		const second = await manager.create(runMgr('run_a', 1_000), 2)
+		const second = await manager.create(runMgr('90a466e2-f869-4a3c-b750-f2156342ff40', 1_000), 2)
 		const parkedAgain = await manager.park(second, {
 			type: 'plan_approval',
-			runId: 'run_a' as RunId,
+			runId: '90a466e2-f869-4a3c-b750-f2156342ff40' as RunId,
 			checkpointId: second.id,
 			plan: { steps: [] } as never,
 		})
@@ -167,8 +173,8 @@ describe('the run attribution stamp', () => {
 		// would put that run in the "never recorded" bucket for no reason, and
 		// a crashed run is exactly the one an operator is looking for.
 		const projected = projectEmergencyToCheckpoint({
-			id: 'esave_x',
-			runId: 'run_a' as RunId,
+			id: 'aafdfeab-28a6-4104-88ff-d8b118e0e412',
+			runId: '90a466e2-f869-4a3c-b750-f2156342ff40' as RunId,
 			currentIteration: 3,
 			messages: [],
 			tokenUsage: {
@@ -186,7 +192,11 @@ describe('the run attribution stamp', () => {
 	})
 
 	it('is absent, not zero, when nothing recorded it', async () => {
-		const entry = toDurableRunEntry(scope('run_a'), [base('cp_1', 10)], 0)
+		const entry = toDurableRunEntry(
+			scope('90a466e2-f869-4a3c-b750-f2156342ff40'),
+			[base('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 10)],
+			0,
+		)
 		// Zero is a date. "Not recorded" is not, and a caller has to be able
 		// to tell them apart to render one of them honestly.
 		expect(entry?.runCreatedAt).toBeUndefined()
@@ -197,7 +207,7 @@ describe('the run attribution stamp', () => {
 function base(id: string, createdAt: number) {
 	return {
 		id: id as never,
-		runId: 'run_a' as RunId,
+		runId: '90a466e2-f869-4a3c-b750-f2156342ff40' as RunId,
 		iteration: 1,
 		messages: [],
 		tokenUsage: {

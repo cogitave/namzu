@@ -19,7 +19,7 @@ import { RunQuery, RunTranscriptUnavailableError } from '../index.js'
  * nobody kept.
  */
 
-const RUN = 'run_q' as RunId
+const RUN = '22951021-e8cd-4454-815c-4a420d9d53fe' as RunId
 
 let seq = 0
 const event = (type: string, over: Record<string, unknown> = {}): PersistedRunEvent =>
@@ -126,8 +126,11 @@ describe('the full transcript is complete', () => {
 		reset()
 		const events = [
 			event('run_started'),
-			event('run_paused', { checkpointId: 'cp_1', reason: 'retry' }),
-			event('run_resuming', { fromCheckpointId: 'cp_1' }),
+			event('run_paused', {
+				checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c',
+				reason: 'retry',
+			}),
+			event('run_resuming', { fromCheckpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }),
 			event('run_completed'),
 		]
 		const query = new RunQuery({

@@ -23,8 +23,8 @@ import { DiskTaskStore } from '../disk.js'
  * The in-memory store keys by task id alone, so nothing caught it.
  */
 
-const DEFAULT = 'run_default' as RunId
-const OTHER = 'run_actual' as RunId
+const DEFAULT = '1f405a99-8132-4449-9570-ebaa191ec909' as RunId
+const OTHER = '1415ce5b-c47e-41ab-8308-f187097fdb47' as RunId
 
 describe('a task created under a different run than the store default', () => {
 	let dir: string
@@ -68,7 +68,7 @@ describe('a task created under a different run than the store default', () => {
 	it('is still not found when it genuinely does not exist', async () => {
 		// The lookup widened to every run; it must not start inventing
 		// tasks, or "not found" stops meaning anything.
-		expect(await store.get('task_nope' as never)).toBeUndefined()
+		expect(await store.get('cba0e01f-b5a4-4b3a-9895-8beeaf637aa8' as never)).toBeUndefined()
 	})
 
 	it('is found under the default run too', async () => {
@@ -78,27 +78,30 @@ describe('a task created under a different run than the store default', () => {
 	})
 
 	it.each([false, true])(
-		'reopens mixed task/run IDs across runs (tenant scoped: %s)',
+		'reopens generated and caller-assigned UUIDs across runs (tenant scoped: %s)',
 		async (scoped) => {
 			const tenantId = scoped ? generateTenantId() : undefined
 			const config = { baseDir: dir, defaultRunId: DEFAULT, tenantId }
 			const writer = new DiskTaskStore(config)
 			const opaqueRun = generateRunId()
 			const current = await writer.create({ subject: 'current task', runId: opaqueRun })
-			const legacy = await writer.create({ subject: 'legacy task', runId: OTHER })
-			const legacyId = asTaskId('task_Legacy-1')
+			const existing = await writer.create({ subject: 'existing task', runId: OTHER })
+			const suppliedId = asTaskId('7d9b63d8-3b4f-4569-af4f-969629c6fed1')
 			const runDir = tenantId
 				? join(dir, 'tenants', tenantId, 'tasks', OTHER)
 				: join(dir, 'tasks', OTHER)
-			await rename(join(runDir, `${legacy.id}.json`), join(runDir, `${legacyId}.json`))
-			await writeFile(join(runDir, `${legacyId}.json`), JSON.stringify({ ...legacy, id: legacyId }))
+			await rename(join(runDir, `${existing.id}.json`), join(runDir, `${suppliedId}.json`))
+			await writeFile(
+				join(runDir, `${suppliedId}.json`),
+				JSON.stringify({ ...existing, id: suppliedId }),
+			)
 
 			const cold = () => new DiskTaskStore(config)
 			expect(await cold().get(current.id)).toMatchObject({ id: current.id, runId: opaqueRun })
-			expect(await cold().get(legacyId)).toMatchObject({ id: legacyId, runId: OTHER })
+			expect(await cold().get(suppliedId)).toMatchObject({ id: suppliedId, runId: OTHER })
 			expect(await cold().claim(current.id, 'worker')).toMatchObject({ owner: 'worker' })
-			expect(await cold().update(legacyId, { status: 'in_progress' })).toMatchObject({
-				id: legacyId,
+			expect(await cold().update(suppliedId, { status: 'in_progress' })).toMatchObject({
+				id: suppliedId,
 				status: 'in_progress',
 			})
 			expect(await cold().delete(current.id)).toBe(true)

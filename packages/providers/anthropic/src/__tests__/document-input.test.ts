@@ -19,7 +19,9 @@ import { ANTHROPIC_CAPABILITIES, AnthropicProvider } from '../client.js'
 
 const PDF = 'JVBERi0xLjQKJSVFT0Y='
 
-function providerCapturing(seen: { body?: Record<string, unknown> }): AnthropicProvider {
+function providerCapturing(seen: {
+	body?: Record<string, unknown>
+}): AnthropicProvider {
 	const provider = new AnthropicProvider({ apiKey: 'test-key' })
 	// The vendor client is the only seam; replace its one method.
 	;(provider as unknown as { client: { messages: { create: unknown } } }).client = {
@@ -27,7 +29,10 @@ function providerCapturing(seen: { body?: Record<string, unknown> }): AnthropicP
 			create: vi.fn(async (body: Record<string, unknown>) => {
 				seen.body = body
 				return (async function* () {
-					yield { type: 'message_start', message: { id: 'msg_1' } }
+					yield {
+						type: 'message_start',
+						message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+					}
 					yield { type: 'message_delta', delta: { stop_reason: 'end_turn' } }
 				})()
 			}),
@@ -68,7 +73,11 @@ describe('a document attachment reaches the wire as a document', () => {
 		)
 
 		const doc = blocksOf(body).find((b) => b.type === 'document')
-		expect(doc?.source).toEqual({ type: 'base64', media_type: 'application/pdf', data: PDF })
+		expect(doc?.source).toEqual({
+			type: 'base64',
+			media_type: 'application/pdf',
+			data: PDF,
+		})
 		// The bug in one assertion: it used to be an image block.
 		expect(blocksOf(body).some((b) => b.type === 'image')).toBe(false)
 	})
@@ -78,13 +87,21 @@ describe('a document attachment reaches the wire as a document', () => {
 			withAttachments([{ type: 'document', data: PDF, mediaType: 'application/pdf' }]),
 		)
 
-		expect(blocksOf(body)[0]).toMatchObject({ type: 'text', text: 'summarize this' })
+		expect(blocksOf(body)[0]).toMatchObject({
+			type: 'text',
+			text: 'summarize this',
+		})
 	})
 
 	it('carries the name so the model can refer to the file', async () => {
 		const body = await bodyFor(
 			withAttachments([
-				{ type: 'document', data: PDF, mediaType: 'application/pdf', name: 'lease.pdf' },
+				{
+					type: 'document',
+					data: PDF,
+					mediaType: 'application/pdf',
+					name: 'lease.pdf',
+				},
 			]),
 		)
 

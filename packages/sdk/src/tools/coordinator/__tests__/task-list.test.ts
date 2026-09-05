@@ -19,7 +19,7 @@ import { buildCoordinatorTools } from '../index.js'
 
 function makeContext(): ToolContext {
 	return {
-		runId: 'run_test' as never,
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -79,7 +79,7 @@ function handle(input: {
 		completedAt: input.completedAt,
 		result: input.lastError
 			? ({
-					runId: 'run_x' as never,
+					runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
 					status: input.state === 'failed' ? 'failed' : 'completed',
 					usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } as never,
 					cost: { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 } as never,
@@ -125,20 +125,20 @@ describe('coordinator agent_task_list tool', () => {
 	it('lists every task with state, agent, and timing', async () => {
 		const seeded = [
 			handle({
-				id: 'task_a',
+				id: 'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
 				agentId: 'solution-architecture',
 				state: 'completed',
 				createdAt: 0,
 				completedAt: 5000,
 			}),
 			handle({
-				id: 'task_b',
+				id: '5863b7eb-6c0d-40c1-9b33-408da6461561',
 				agentId: 'enterprise-architecture',
 				state: 'running',
 				createdAt: 1000,
 			}),
 			handle({
-				id: 'task_c',
+				id: '8dc70104-0fad-4e35-a385-4312f8c78579',
 				agentId: 'solution-architecture',
 				state: 'failed',
 				createdAt: 2000,
@@ -153,8 +153,10 @@ describe('coordinator agent_task_list tool', () => {
 		expect(result.output).toMatch(/1 running/)
 		expect(result.output).toMatch(/1 completed/)
 		expect(result.output).toMatch(/1 failed/)
-		expect(result.output).toMatch(/task_a → solution-architecture \[completed\]/)
-		expect(result.output).toMatch(/task_c .* error: bash exit 1/)
+		expect(result.output).toMatch(
+			/db5cf4d3-8120-40b4-8680-e8a81ebbc973 → solution-architecture \[completed\]/,
+		)
+		expect(result.output).toMatch(/8dc70104-0fad-4e35-a385-4312f8c78579 .* error: bash exit 1/)
 		const data = result.data as { items: unknown[]; summary: { total: number } }
 		expect(data.summary.total).toBe(3)
 		expect(data.items).toHaveLength(3)
@@ -163,14 +165,14 @@ describe('coordinator agent_task_list tool', () => {
 	it('filters by state', async () => {
 		const seeded = [
 			handle({
-				id: 'task_a',
+				id: 'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
 				agentId: 'solution-architecture',
 				state: 'completed',
 				createdAt: 0,
 				completedAt: 5000,
 			}),
 			handle({
-				id: 'task_b',
+				id: '5863b7eb-6c0d-40c1-9b33-408da6461561',
 				agentId: 'enterprise-architecture',
 				state: 'running',
 				createdAt: 1000,
@@ -181,8 +183,8 @@ describe('coordinator agent_task_list tool', () => {
 		expect(result.success).toBe(true)
 		const data = result.data as { items: Array<{ task_id: string }> }
 		expect(data.items).toHaveLength(1)
-		expect(data.items[0]?.task_id).toBe('task_b')
-		expect(result.output).not.toMatch(/task_a/)
+		expect(data.items[0]?.task_id).toBe('5863b7eb-6c0d-40c1-9b33-408da6461561')
+		expect(result.output).not.toMatch(/db5cf4d3-8120-40b4-8680-e8a81ebbc973/)
 	})
 
 	it('handles an empty gateway', async () => {
@@ -243,7 +245,7 @@ describe('coordinator agent_task_list tool', () => {
 describe('agent_task_list frames what a worker said', () => {
 	function withResult(text: string): TaskHandle {
 		return {
-			taskId: 'task_r' as TaskId,
+			taskId: '42ab4c72-65be-4d86-ab44-947091ee7c3b' as TaskId,
 			agentId: 'reviewer',
 			state: 'completed',
 			createdAt: 0,
@@ -271,7 +273,7 @@ describe('agent_task_list frames what a worker said', () => {
 		const output = await render('the findings')
 
 		expect(output).toContain('agent="reviewer"')
-		expect(output).toContain('task="task_r"')
+		expect(output).toContain('task="42ab4c72-65be-4d86-ab44-947091ee7c3b"')
 	})
 
 	it('does not let the worker close the envelope early', async () => {
@@ -288,12 +290,17 @@ describe('agent_task_list frames what a worker said', () => {
 		const closing = output.lastIndexOf('</namzu-untrusted>')
 		expect(closing).toBeGreaterThan(-1)
 		expect(output.indexOf('truncated')).toBeGreaterThan(closing)
-		expect(output).toContain('call wait_for_task with "task_r"')
+		expect(output).toContain('call wait_for_task with "42ab4c72-65be-4d86-ab44-947091ee7c3b"')
 	})
 
 	it('says nothing extra for a task that produced no output', async () => {
 		const tool = await agentTaskListOver([
-			handle({ id: 'task_none', agentId: 'reviewer', state: 'running', createdAt: 0 }),
+			handle({
+				id: 'fedd2ba4-ebfa-42b3-b6af-76f06e73464a',
+				agentId: 'reviewer',
+				state: 'running',
+				createdAt: 0,
+			}),
 		])
 
 		const out = await tool.execute({}, makeContext())

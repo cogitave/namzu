@@ -102,7 +102,7 @@ function registerPing(): ToolRegistry {
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
 	return {
-		runId: 'run_call_id' as RunId,
+		runId: '618cebea-d93d-4c12-983a-6d9dc775bed4' as RunId,
 		workingDirectory: tmpdir(),
 		abortSignal: new AbortController().signal,
 		env: {},

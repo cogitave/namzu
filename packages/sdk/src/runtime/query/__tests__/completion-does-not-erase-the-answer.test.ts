@@ -97,7 +97,7 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 		)
 
 		/**
-		 * One tool call, then the iteration ceiling forces a closing turn. The
+		 * One tool call reaches the budget warning and requests a closing turn. The
 		 * worker settles DURING that closing turn — after the last in-loop
 		 * drain, so the only thing left to deliver it is the exit path.
 		 */
@@ -121,7 +121,12 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 							],
 						},
 					}
-					yield { id: 'm1', delta: {}, finishReason: 'tool_calls', usage: ZERO_USAGE }
+					yield {
+						id: 'm1',
+						delta: {},
+						finishReason: 'tool_calls',
+						usage: { ...ZERO_USAGE, promptTokens: 90_000, totalTokens: 90_000 },
+					}
 					return
 				}
 				announce?.(completed())
@@ -145,13 +150,13 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
-				maxIterations: 1,
+				maxIterations: 2,
 				maxResponseTokens: 256,
 			},
-			sessionId: 'ses_answer' as SessionId,
-			topicId: 'top_answer' as TopicId,
-			projectId: 'prj_answer' as ProjectId,
-			tenantId: 'tnt_answer' as TenantId,
+			sessionId: '8dafee27-1f8c-4c98-ae12-e8e3d95c6e66' as SessionId,
+			topicId: '51e2b083-ce84-4bbc-add0-1bfda5129fa5' as TopicId,
+			projectId: '659030d0-f440-4f04-ae07-c3f90f0c3904' as ProjectId,
+			tenantId: '4efa64c6-e069-4124-828c-2ff40c8a2a3d' as TenantId,
 		})
 
 		// Both halves, because either one alone is satisfied by a broken fix:

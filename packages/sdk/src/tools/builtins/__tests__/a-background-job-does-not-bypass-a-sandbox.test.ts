@@ -9,7 +9,7 @@ const REFUSAL = SANDBOX_CANNOT_DETACH
 
 function sandbox(): Sandbox {
 	return {
-		id: 'sbx_test' as SandboxId,
+		id: '51281012-1dd1-444d-98b8-487422669dff' as SandboxId,
 		status: 'ready',
 		rootDir: '/workspace',
 		environment: 'basic',
@@ -42,7 +42,7 @@ it('refuses a direct background call instead of changing its execution boundary'
 	} satisfies BackgroundJobRegistryRef
 	const boundary = sandbox()
 	const context: ToolContext = {
-		runId: 'run_test' as RunId,
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
 		workingDirectory: '/workspace',
 		abortSignal: new AbortController().signal,
 		env: {},

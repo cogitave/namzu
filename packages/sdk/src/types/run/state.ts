@@ -1,7 +1,13 @@
-import { asTopicId } from '../../utils/id.js'
+import {
+	asCheckpointId,
+	asProjectId,
+	asRunId,
+	asSessionId,
+	asTenantId,
+	asTopicId,
+} from '../../utils/id.js'
 import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PendingDecision } from '../hitl/index.js'
-import { RetiredIdPrefixError } from '../ids/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ProjectId, TopicId } from '../session/ids.js'
@@ -30,7 +36,7 @@ export interface RunState {
 	 * Schema version. A v1 snapshot (the pre-NZ-TOPIC-03 shape — `threadId`
 	 * instead of `topicId`) and a v2 snapshot (the shape between NZ-TOPIC-03
 	 * and NZ-TOPIC-04 — `topicId` already the field name, but its value can
-	 * carry a safe legacy topic ID) are both coerced forward
+	 * carry a UUID topic ID) are both coerced forward
 	 * by {@link parseRunState}; any other unrecognized version is refused
 	 * with a clear failure rather than a partial restore, because silently
 	 * dropping fields this build does not know about is the outcome worth
@@ -106,12 +112,20 @@ const RUN_STATE_LEGACY_VERSION = 1
  */
 const RUN_STATE_PRE_PREFIX_VERSION = 2
 
-/** Accept current and legacy topic IDs without renaming persisted keys. */
-function requireTopicId(record: Record<string, unknown>): Record<string, unknown> {
-	const topicId = record.topicId
-	if (typeof topicId === 'string') {
-		if (topicId.startsWith('thd_')) throw new RetiredIdPrefixError(topicId, 'top_')
-		asTopicId(topicId)
+/** Require UUIDs on every supplied identity field without rewriting records. */
+function requireEntityIds(record: Record<string, unknown>): Record<string, unknown> {
+	const validators = {
+		runId: asRunId,
+		parentRunId: asRunId,
+		sessionId: asSessionId,
+		projectId: asProjectId,
+		tenantId: asTenantId,
+		topicId: asTopicId,
+		checkpointId: asCheckpointId,
+	}
+	for (const [field, validate] of Object.entries(validators)) {
+		const value = record[field]
+		if (value !== undefined) validate(value as string)
 	}
 	return record
 }
@@ -131,7 +145,7 @@ function requireTopicId(record: Record<string, unknown>): Record<string, unknown
  * release boundary would otherwise have every in-flight snapshot refused
  * on the way back in. `threadId` is renamed only when present (v1), and
  * topic IDs are validated without changing their value. Retired `thd_`
- * values are refused; current opaque IDs and safe legacy `top_` values
+ * values are refused; opaque UUIDs
  * are preserved. An absent topic field is not added.
  * Nothing here re-persists the coerced snapshot — a host that calls
  * `parseRunState` and then serializes the result back out upgrades the
@@ -158,14 +172,14 @@ export function parseRunState(json: string | unknown): RunState {
 			...(threadId !== undefined ? { topicId: threadId } : {}),
 		}
 		return {
-			...requireTopicId(withTopicId),
+			...requireEntityIds(withTopicId),
 			version: RUN_STATE_VERSION,
 		} as RunState
 	}
 
 	if (version === RUN_STATE_PRE_PREFIX_VERSION) {
 		return {
-			...requireTopicId(record),
+			...requireEntityIds(record),
 			version: RUN_STATE_VERSION,
 		} as RunState
 	}
@@ -173,5 +187,5 @@ export function parseRunState(json: string | unknown): RunState {
 	if (version !== RUN_STATE_VERSION) {
 		throw new RunStateVersionError(version, RUN_STATE_VERSION)
 	}
-	return requireTopicId(record) as unknown as RunState
+	return requireEntityIds(record) as unknown as RunState
 }

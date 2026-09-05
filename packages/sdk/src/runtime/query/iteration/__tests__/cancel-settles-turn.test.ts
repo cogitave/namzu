@@ -21,7 +21,7 @@ import { streamProviderTurn } from '../stream-turn.js'
  * that skipped it, which is the opposite of what its frequency deserves.
  */
 
-const RUN_ID = 'run_cancel' as RunId
+const RUN_ID = '99cb3afe-b8f6-4a9b-9f17-e906b5edc175' as RunId
 
 interface Written {
 	instrument: string

@@ -11,8 +11,8 @@
  * not simply be reused: that worker races raw `claimRun` calls, and what is
  * under test here is the loop that composes claim, work and release.
  *
- * Each run it takes gets a checkpoint whose id names the holder and the
- * fence, written WITH that fence. The id is how the parent tells which
+ * Each run it takes gets a checkpoint recording the holder and the
+ * fence in its messages, written WITH that fence. That record tells which
  * process did which run; the fence is what the store checks. A drainer that
  * passed the entry but not the claim would write unfenced checkpoints that
  * still look right in a listing.
@@ -33,17 +33,18 @@ const [, , dist, baseDir, tenantId, projectId, sessionId, holder, ttlMs, mode, b
 const from = (rel) => new URL(rel, `file://${dist.replace(/\\/g, '/')}/`).href
 const { DiskCheckpointStore } = await import(from('store/run/checkpoint-disk.js'))
 const { drainRuns } = await import(from('run/drain.js'))
+const { generateCheckpointId } = await import(from('utils/id.js'))
 
 const store = new DiskCheckpointStore({ baseDir }, { tenantId, projectId, sessionId })
 
 let seq = 0
-function checkpoint(runId, id) {
+function checkpoint(runId, marker) {
 	seq += 1
 	return {
-		id,
+		id: generateCheckpointId(),
 		runId,
 		iteration: 2,
-		messages: [],
+		messages: [{ role: 'assistant', content: JSON.stringify({ marker: 'drain-worker', ...marker }) }],
 		tokenUsage: {
 			promptTokens: 1,
 			completionTokens: 1,
@@ -91,7 +92,7 @@ const result = await drainRuns({
 		// makes the fence path observable during a drain.
 		await store.writeCheckpoint(
 			entry,
-			checkpoint(entry.runId, `cp_${kind}_${holder}_${claim.fence}`),
+			checkpoint(entry.runId, { kind, holder, fence: claim.fence }),
 			claim.fence,
 		)
 		// A deliberately superseded write, at a fence below every holding this
@@ -100,7 +101,7 @@ const result = await drainRuns({
 		// here at the moment of an ordinary drain rather than only in the
 		// dead-holder scenario.
 		try {
-			await store.writeCheckpoint(entry, checkpoint(entry.runId, `cp_probe_${holder}_0`), 0)
+			await store.writeCheckpoint(entry, checkpoint(entry.runId, { kind: 'probe', holder, fence: 0 }), 0)
 			probes.push({ runId: entry.runId, fencedOut: false })
 		} catch {
 			probes.push({ runId: entry.runId, fencedOut: true })

@@ -144,7 +144,7 @@ describe('compaction:no-split-tool-pair — wired at its real call site', () => 
 		)
 		const events: RunEvent[] = []
 		const ctx = {
-			runMgr: { id: 'run_invariant', messages, currentIteration: 1 },
+			runMgr: { id: 'ab94d3c0-4f08-417b-b411-66f6b869f37e', messages, currentIteration: 1 },
 			runConfig: { model: 'mock-model' },
 			compactionConfig: {
 				strategy: 'custom',

@@ -42,7 +42,7 @@ function session(
 	json(join(dir, 'session.json'), {
 		id: sessionId,
 		projectId,
-		topicId: 'top_cli',
+		topicId: '889a000d-16f9-46e1-9033-87d8e5927609',
 		tenantId: 'ten_unknown',
 	})
 	writeFileSync(
@@ -75,15 +75,15 @@ describe('read-only state inventory', () => {
 				format === 'uuid' || (format === 'mixed' && legacy.startsWith('run_'))
 					? randomUUID()
 					: legacy
-			const projectId = id('prj_project')
-			const candidateId = id('ses_candidate')
-			const nonemptyId = id('ses_nonempty')
-			const sourceId = id('ses_source')
-			const forkId = id('ses_fork')
-			const parentRunId = id('run_parent')
-			const childRunId = id('run_child')
-			const parentCheckpointId = id('cp_parent')
-			const childCheckpointId = id('cp_large')
+			const projectId = id('66d4ce64-d2ff-431b-9118-21526c08e843')
+			const candidateId = id('a3baf845-eb6b-4e1e-bdcf-6eb7796a4ce4')
+			const nonemptyId = id('cfcefaba-ff1d-4aa3-8128-9e4c4e6c7c9f')
+			const sourceId = id('be4aded1-82e6-4494-9caf-334514c0ac8e')
+			const forkId = id('4e1542d3-722a-4a72-bcd6-238e44c0da82')
+			const parentRunId = id('c0250b29-330b-445f-b11d-2926ffd9059c')
+			const childRunId = id('4721e070-5ba2-425a-bf5a-8cc927907e9a')
+			const parentCheckpointId = id('dfbbd9ea-62c0-47fd-a21f-4d133b931c27')
+			const childCheckpointId = id('d78abd23-164b-4f72-8766-6987ad7e97ef')
 			mkdirSync(join(state, 'projects', projectId), { recursive: true })
 			chmodSync(join(state, 'projects'), 0o755)
 			json(join(state, 'cli.json'), { projectId })
@@ -116,7 +116,7 @@ describe('read-only state inventory', () => {
 			writeFileSync(largeCheckpoint, '')
 			truncateSync(largeCheckpoint, 8 * 1024 * 1024)
 			json(join(nonempty, 'runs', 'emergency', `${parentRunId}.json`), {
-				id: 'esave_one',
+				id: '776e5308-a9c1-4de6-91c4-164ebeabbc95',
 			})
 
 			const attachments = join(home, '.namzu', 'attachments', 'aa')
@@ -270,7 +270,14 @@ describe('read-only state inventory', () => {
 	it('counts oversized metadata bytes but skips semantic validation instead of parsing it', async () => {
 		const cwd = temporary('oversized-project')
 		const home = temporary('oversized-home')
-		const sessionDir = join(cwd, '.namzu', 'projects', 'prj_large', 'sessions', 'ses_large')
+		const sessionDir = join(
+			cwd,
+			'.namzu',
+			'projects',
+			'7c2d1c6c-3338-4280-9d19-3be9efe7ad80',
+			'sessions',
+			'77849dcc-64a7-483e-8ae4-6c123112cd93',
+		)
 		mkdirSync(sessionDir, { recursive: true })
 		const record = join(sessionDir, 'session.json')
 		writeFileSync(record, '')
@@ -298,7 +305,11 @@ describe('read-only state inventory', () => {
 		const cwd = temporary('oversized-origin-project')
 		const home = temporary('oversized-origin-home')
 		const state = join(cwd, '.namzu')
-		const dir = session(state, 'prj_large', 'ses_large')
+		const dir = session(
+			state,
+			'7c2d1c6c-3338-4280-9d19-3be9efe7ad80',
+			'77849dcc-64a7-483e-8ae4-6c123112cd93',
+		)
 		const evidence = join(dir, 'turns.jsonl')
 		truncateSync(evidence, 65 * 1024)
 
@@ -342,7 +353,7 @@ describe('read-only state inventory', () => {
 		const cwd = temporary('relative-root-project')
 		const home = temporary('relative-root-home')
 		const state = join(cwd, '.namzu')
-		const projectId = 'prj_relative'
+		const projectId = 'a70a2aef-9d30-408e-b51a-b4517fe936d5'
 		json(join(state, 'cli.json'), { projectId })
 		json(join(state, 'projects', projectId, 'project.json'), {
 			id: projectId,

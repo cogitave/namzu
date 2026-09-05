@@ -28,7 +28,7 @@ import type { Chunk, EmbeddingProvider, TenantScope, VectorStore } from '../type
 import { HttpEmbeddingProvider } from './embedding.js'
 import { DefaultIngestionPipeline } from './ingestion.js'
 
-const KB = 'kb_1' as KnowledgeBaseId
+const KB = '5a2348f9-0d2e-4f9f-ae33-b8de032a1675' as KnowledgeBaseId
 const TENANT = 't_1' as TenantId
 const scope: TenantScope = { tenantId: TENANT }
 
@@ -184,8 +184,8 @@ describe('DefaultIngestionPipeline — remove', () => {
 	it('delegates to vectorStore.deleteByDocument', async () => {
 		const vs = makeVectorStore()
 		const pipeline = new DefaultIngestionPipeline(vs, makeEmbedder())
-		await pipeline.remove('doc_9' as DocumentId)
-		expect(vs.deleteByDocument).toHaveBeenCalledWith('doc_9')
+		await pipeline.remove('4d8c6bde-56b4-402f-9f3a-2e06e07f1bda' as DocumentId)
+		expect(vs.deleteByDocument).toHaveBeenCalledWith('4d8c6bde-56b4-402f-9f3a-2e06e07f1bda')
 	})
 })
 

@@ -32,13 +32,13 @@ describe('Integration — capacity caps at spawn sites', () => {
 
 		// Build a depth-4 ancestry chain under the project. Each layer flips to
 		// `active` so it is a legal spawn parent via the real AgentManager.
-		const chainActors: ActorRef[] = [userActor('usr_root')]
+		const chainActors: ActorRef[] = [userActor('e04738b9-b828-4251-9b35-bc3bc8a2adf8')]
 		let parentSessionId = (
 			await harness.store.createSession(
 				{
 					topicId: thread.id,
 					projectId: project.id,
-					currentActor: chainActors[0] ?? userActor('usr_root'),
+					currentActor: chainActors[0] ?? userActor('e04738b9-b828-4251-9b35-bc3bc8a2adf8'),
 				},
 				DEFAULT_TENANT,
 			)
@@ -74,14 +74,14 @@ describe('Integration — capacity caps at spawn sites', () => {
 			projectId: project.id,
 			topicId: thread.id,
 			tenantId: DEFAULT_TENANT,
-			parentActor: userActor('usr_root'),
+			parentActor: userActor('e04738b9-b828-4251-9b35-bc3bc8a2adf8'),
 		})
 		const options = buildSendMessageOptions({
 			agentId: 'worker',
 			parentSessionId: tail,
 			projectId: project.id,
 			tenantId: DEFAULT_TENANT,
-			parentActor: userActor('usr_root'),
+			parentActor: userActor('e04738b9-b828-4251-9b35-bc3bc8a2adf8'),
 		})
 
 		await expect(harness.manager.sendMessage(options, context)).rejects.toBeInstanceOf(

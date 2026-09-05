@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Run limits
-description: How far one headless run may go before the kernel stops it — the limits config key, the --max-iterations and --token-budget flags, and what the defaults were sized for.
+description: How far one headless run may go before the kernel stops it — the limits config key, the --max-iterations and --token-budget flags, explicit reasoning effort, and budget enforcement.
 resource: packages/cli/src/commands/run-flags.ts
 tags: [cli, run, config]
 status: stable
@@ -16,6 +16,28 @@ Every run has two leashes: how many model calls it may make and how many tokens 
 - **`--max-iterations <n>`** and **`--token-budget <n>`** on `run` and `run-stream` override the file for one run.
 
 The interactive session keeps the chat-turn defaults; a turn there is a conversation, not a task. Context size is a separate matter and is governed by [compaction](context-and-compaction.md), which keeps the working set under the model's window however long the run goes.
+
+## Reasoning effort and budget enforcement
+
+`run` and `run-stream` accept `--effort <level>`. An explicit level reaches the
+provider unchanged; omitting it preserves the provider default. The parser
+accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` and `ultra`;
+the selected model must support the chosen level. Unsupported levels are
+errors, never silently mapped to a different level. The flag applies to the
+main run; separately configured delegation has its own model settings.
+
+An exhausted iteration, token, cost or elapsed-time guard stops without making
+an additional model call just to produce a closing summary. Finalization advice
+may be sent while budget remains. Stop reasons continue to distinguish finished
+work from exhaustion. Token and cost limits are checked between calls using
+reported usage; an in-flight response can cross a threshold, so these are not
+provider-side billing caps. Delegation starts with the configured token budget,
+but parent and child usage do not yet share one aggregate tree wallet; see
+[Harness invariants](../sdk/harness-invariants.md).
+
+`run-stream` emits one terminal `done` event, after session cleanup and the
+attempt to persist history. A persistence notice precedes that terminal event;
+its stop reason is preserved.
 
 ## Waiting for the provider
 

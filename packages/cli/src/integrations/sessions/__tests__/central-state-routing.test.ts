@@ -83,7 +83,7 @@ describe('central CLI state routing', () => {
 		expect(existsSync(join(nested, '.namzu'))).toBe(false)
 	})
 
-	it('preserves a previous exact-directory binding when the checkout also has history', async () => {
+	it('uses only the checkout root even when an older directory binding exists', async () => {
 		const root = await temp('namzu-existing-checkout-')
 		const stateRoot = await temp('namzu-existing-home-')
 		const nested = join(root, 'packages', 'cli')
@@ -101,12 +101,12 @@ describe('central CLI state routing', () => {
 		const fromRoot = await openSessions(root, { stateRoot })
 		const reopened = await openSessions(nested, { stateRoot })
 
-		expect(reopened.projectId).toBe(oldProject.id)
-		expect(reopened.projectId).not.toBe(fromRoot.projectId)
+		expect(reopened.projectId).not.toBe(oldProject.id)
+		expect(reopened.projectId).toBe(fromRoot.projectId)
 		expect(reopened.topicId).toBe(original.topicId)
 		expect(await loadConversation(reopened, id)).toEqual([message])
 		const report = await inspectNamzuState({ cwd: nested, env: { NAMZU_HOME: stateRoot } })
-		expect(report.projectBinding).toMatchObject({ status: 'bound', projectId: oldProject.id })
+		expect(report.projectBinding).toMatchObject({ status: 'bound', projectId: fromRoot.projectId })
 	})
 
 	it('keeps nested repositories and worktrees in separate Projects', async () => {
@@ -130,7 +130,7 @@ describe('central CLI state routing', () => {
 
 	it.each([
 		'{broken',
-		JSON.stringify({ window: 'run_wrong_kind' }),
+		JSON.stringify({ window: 'ses_retired-format' }),
 		JSON.stringify({ window: 'ses_../escape' }),
 		JSON.stringify({ window: 'ses_' }),
 		JSON.stringify({ window: '8b48f83e-8461-48b2-a0f5-95f4cb' }),
@@ -156,7 +156,10 @@ describe('central CLI state routing', () => {
 		const stateRoot = await temp('namzu-desktop-mixed-home-')
 		const sessions = await openSessions(workspace, { stateRoot })
 		const generated = await startConversation(sessions)
-		const legacy = await startConversation(sessions, asSessionId('ses_Legacy-1'))
+		const legacy = await startConversation(
+			sessions,
+			asSessionId('c9e2190e-7298-4132-a0d7-f7d1ebc2341b'),
+		)
 		const message = createUserMessage('Keep the exact conversation binding')
 		for (const id of [generated, legacy]) await appendMessages(sessions, id, [message])
 		const mappings = { generated, legacy }

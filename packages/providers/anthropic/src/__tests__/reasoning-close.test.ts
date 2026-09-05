@@ -48,8 +48,15 @@ async function chunksOf(events: unknown[]): Promise<StreamChunk[]> {
 }
 
 const THINKING_STREAM = [
-	{ type: 'message_start', message: { id: 'msg_1' } },
-	{ type: 'content_block_start', index: 0, content_block: { type: 'thinking' } },
+	{
+		type: 'message_start',
+		message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+	},
+	{
+		type: 'content_block_start',
+		index: 0,
+		content_block: { type: 'thinking' },
+	},
 	{
 		type: 'content_block_delta',
 		index: 0,
@@ -67,7 +74,11 @@ const THINKING_STREAM = [
 	},
 	{ type: 'content_block_stop', index: 0 },
 	{ type: 'content_block_start', index: 1, content_block: { type: 'text' } },
-	{ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'the answer' } },
+	{
+		type: 'content_block_delta',
+		index: 1,
+		delta: { type: 'text_delta', text: 'the answer' },
+	},
 	{ type: 'message_delta', delta: { stop_reason: 'end_turn' } },
 ]
 
@@ -97,7 +108,13 @@ describe('a reasoning block streams, then closes', () => {
 			kind: 'namzu-anthropic-reasoning',
 			version: 1,
 			route: { providerId: 'anthropic', model: 'm', chainIndex: 0 },
-			blocks: [{ type: 'thinking', thinking: 'step one then two', signature: 'sig-abc' }],
+			blocks: [
+				{
+					type: 'thinking',
+					thinking: 'step one then two',
+					signature: 'sig-abc',
+				},
+			],
 		})
 	})
 
@@ -132,11 +149,27 @@ describe('a reasoning block streams, then closes', () => {
 		const reasoning = reasoningOf(
 			await chunksOf([
 				{ type: 'message_start', message: { id: 'm' } },
-				{ type: 'content_block_start', index: 0, content_block: { type: 'thinking' } },
-				{ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'a' } },
+				{
+					type: 'content_block_start',
+					index: 0,
+					content_block: { type: 'thinking' },
+				},
+				{
+					type: 'content_block_delta',
+					index: 0,
+					delta: { type: 'thinking_delta', thinking: 'a' },
+				},
 				{ type: 'content_block_stop', index: 0 },
-				{ type: 'content_block_start', index: 1, content_block: { type: 'thinking' } },
-				{ type: 'content_block_delta', index: 1, delta: { type: 'thinking_delta', thinking: 'b' } },
+				{
+					type: 'content_block_start',
+					index: 1,
+					content_block: { type: 'thinking' },
+				},
+				{
+					type: 'content_block_delta',
+					index: 1,
+					delta: { type: 'thinking_delta', thinking: 'b' },
+				},
 				{ type: 'content_block_stop', index: 1 },
 			]),
 		)
@@ -157,7 +190,10 @@ describe('a reasoning block streams, then closes', () => {
 			]),
 		)
 
-		expect(reasoning[0]).toMatchObject({ type: 'redacted_thinking', encrypted: 'opaque-bytes' })
+		expect(reasoning[0]).toMatchObject({
+			type: 'redacted_thinking',
+			encrypted: 'opaque-bytes',
+		})
 		expect(reasoning[0]?.text).toBeUndefined()
 	})
 
@@ -197,11 +233,15 @@ describe('thinking can be asked for', () => {
 	})
 
 	it('enables it without a budget when none was named', async () => {
-		expect((await bodyFor({ type: 'enabled' })).thinking).toEqual({ type: 'enabled' })
+		expect((await bodyFor({ type: 'enabled' })).thinking).toEqual({
+			type: 'enabled',
+		})
 	})
 
 	it('can turn it off on a model where it is on by default', async () => {
-		expect((await bodyFor({ type: 'disabled' })).thinking).toEqual({ type: 'disabled' })
+		expect((await bodyFor({ type: 'disabled' })).thinking).toEqual({
+			type: 'disabled',
+		})
 	})
 
 	it('says nothing at all when the caller did not ask', async () => {
@@ -228,7 +268,11 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 					blocks: reasoning.map((block) =>
 						block.type === 'redacted_thinking'
 							? { type: 'redacted_thinking', data: block.encrypted }
-							: { type: 'thinking', thinking: block.text, signature: block.signature },
+							: {
+									type: 'thinking',
+									thinking: block.text,
+									signature: block.signature,
+								},
 					),
 				},
 			},
@@ -262,7 +306,11 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 		})
 		const blocks = messages[1]?.content as Record<string, unknown>[]
 
-		expect(blocks[0]).toEqual({ type: 'thinking', thinking: 'step one', signature: 'sig-abc' })
+		expect(blocks[0]).toEqual({
+			type: 'thinking',
+			thinking: 'step one',
+			signature: 'sig-abc',
+		})
 	})
 
 	it('puts the reasoning first, as the wire requires', async () => {
@@ -281,7 +329,13 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 			role: 'assistant',
 			content: null,
 			reasoning: [{ type: 'thinking', text: 'i should read it', signature: 'sig' }],
-			toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{}' } }],
+			toolCalls: [
+				{
+					id: 'call_1',
+					type: 'function',
+					function: { name: 'read', arguments: '{}' },
+				},
+			],
 		})
 		const blocks = messages[1]?.content as Record<string, unknown>[]
 
@@ -296,11 +350,17 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 		})
 		const blocks = messages[1]?.content as Record<string, unknown>[]
 
-		expect(blocks[0]).toEqual({ type: 'redacted_thinking', data: 'opaque-bytes' })
+		expect(blocks[0]).toEqual({
+			type: 'redacted_thinking',
+			data: 'opaque-bytes',
+		})
 	})
 
 	it('leaves an assistant turn that did not reason as a plain string', async () => {
-		const messages = await messagesFor({ role: 'assistant', content: 'just an answer' })
+		const messages = await messagesFor({
+			role: 'assistant',
+			content: 'just an answer',
+		})
 
 		expect(messages[1]?.content).toBe('just an answer')
 	})
@@ -387,7 +447,10 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 			content: 'answer',
 			reasoning: [{ type: 'thinking', text: 'step one', signature: 'sig' }],
 		})
-		const messages = await messagesFor(sourced, { enrich: false, model: 'next-model' })
+		const messages = await messagesFor(sourced, {
+			enrich: false,
+			model: 'next-model',
+		})
 
 		expect(messages[1]).toEqual({ role: 'assistant', content: 'answer' })
 	})

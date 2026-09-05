@@ -18,6 +18,7 @@ import {
 	generateRunId,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
+import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	type CliSessions,
@@ -117,7 +118,7 @@ async function publishCompleteRun(
 		recordedEvent('run_started', runId, 1),
 		recordedEvent('message_completed', runId, 2, {
 			iteration: 1,
-			messageId: 'msg_export_1',
+			messageId: 'd53c902a-8b83-4bc7-a411-f35d1c45d869',
 			stopReason: 'tool_use',
 			content: 'I will **check**.',
 		}),
@@ -134,7 +135,7 @@ async function publishCompleteRun(
 		}),
 		recordedEvent('message_completed', runId, 5, {
 			iteration: 2,
-			messageId: 'msg_export_2',
+			messageId: '3eb3518f-84c1-46b4-b806-1efdfad0582b',
 			stopReason: 'end_turn',
 			content: 'Done.',
 		}),
@@ -203,7 +204,7 @@ async function publishSimpleTurn(
 		recordedEvent('run_started', runId, 1),
 		recordedEvent('message_completed', runId, 2, {
 			iteration: 1,
-			messageId: `msg_${runId}`,
+			messageId: fixtureUuid(`msg_${runId}`),
 			stopReason: 'end_turn',
 			content: assistantText,
 		}),
@@ -232,7 +233,7 @@ describe('verified conversation Markdown', () => {
 		const sessionId = await startConversation(sessions)
 		const user = createUserMessage('internal model continuation prompt', undefined, {
 			type: 'goal-round',
-			goalId: asGoalId('goal_export_round'),
+			goalId: asGoalId('04f88189-bd8e-4ae6-b9a7-ea8e21da4ee1'),
 			objective: 'finish the release',
 			goalRevision: 2,
 			round: 1,
@@ -291,7 +292,7 @@ describe('verified conversation Markdown', () => {
 		expect(projected.markdown.match(/^## User$/gm)).toHaveLength(1)
 	})
 
-	it.each([generateRunId(), asRunId('run_Legacy-1')])(
+	it.each([generateRunId(), asRunId('0382c0bd-c56f-42dc-a477-80174625c693')])(
 		'exports verified Markdown for run %s',
 		async (runId) => {
 			const root = await cwd()
@@ -328,7 +329,7 @@ describe('verified conversation Markdown', () => {
 			new DefaultPathBuilder(sessions.root).runDir(
 				sessions.projectId,
 				sibling,
-				asRunId('run_sibling'),
+				asRunId('e91e1416-09b3-4b55-8f32-748aa6e38f7a'),
 			),
 			{ recursive: true },
 		)
@@ -364,7 +365,7 @@ describe('verified conversation Markdown', () => {
 		},
 	)
 
-	it.each([generateRunId(), asRunId('run_unbound')])(
+	it.each([generateRunId(), asRunId('30ae63ad-6292-422e-bae9-3f7394b67017')])(
 		'refuses an unbound run inside the same session: %s',
 		async (unboundId) => {
 			const sessions = await openSessions(await cwd())

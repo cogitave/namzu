@@ -7,7 +7,7 @@ import { SessionSummaryMaterializer } from '../../../session/summary/materialize
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
-import { fixtureId } from '../../../test-support/ids.js'
+import { fixtureId, fixtureUuid } from '../../../test-support/ids.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
@@ -35,7 +35,7 @@ import { AgentManager } from '../lifecycle.js'
  * forward a field it was never told about.
  */
 
-const TENANT = 'tnt_queue' as TenantId
+const TENANT = '340e4ce6-5673-47ee-97d5-f9bbdc2dfc0f' as TenantId
 
 function recordingAgent(
 	seen: { configs: BaseAgentConfig[]; running?: () => void },
@@ -129,12 +129,12 @@ async function harness(opts: { hold?: boolean } = {}) {
 		capacity: new DefaultCapacityValidator(store),
 		summaryMaterializer: new SessionSummaryMaterializer({
 			store,
-			generateSummaryId: () => `sum_${++n}` as SummaryId,
+			generateSummaryId: () => fixtureUuid(`sum_${++n}`) as SummaryId,
 		}),
 	})
 
 	const context: AgentTaskContext = {
-		parentRunId: 'run_parent' as never,
+		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,

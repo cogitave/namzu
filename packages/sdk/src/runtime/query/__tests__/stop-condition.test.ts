@@ -27,7 +27,7 @@ import { IterationOrchestrator } from '../iteration/index.js'
  * budget stopped it, burning the whole envelope after the work was done.
  */
 
-const RUN_ID = 'run_stop' as RunId
+const RUN_ID = '3272edce-8a11-4314-b326-4c7fb578cc40' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -149,7 +149,8 @@ function buildCtx(opts: {
 		emitEvent: async () => {},
 		drainPending: function* (): Generator<RunEvent> {},
 		checkpointMgr: {
-			create: async () => ({ id: 'cp_1' }) as unknown as IterationCheckpoint,
+			create: async () =>
+				({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as unknown as IterationCheckpoint,
 		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		// No plan gate in these cases; the loop consults it before iterating.

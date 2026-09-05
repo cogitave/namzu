@@ -46,9 +46,9 @@ describe('buildAskUserQuestionTool', () => {
 		const result = await ask(async (request) => {
 			requests.push(request)
 			return { action: 'answer_question', selectedOptionIds: ['opt_2'] }
-		}, context('run_from_context'))
+		}, context('21ddbb1c-53ca-4cb0-980f-6657740ccd23'))
 		expect(requests).toHaveLength(1)
-		expect(requests[0]?.runId).toBe('run_from_context')
+		expect(requests[0]?.runId).toBe('21ddbb1c-53ca-4cb0-980f-6657740ccd23')
 		expect(result.data).toMatchObject({ selected: [{ id: 'opt_2', label: 'Private' }] })
 	})
 
@@ -59,9 +59,9 @@ describe('buildAskUserQuestionTool', () => {
 				requests.push(request)
 				return { action: 'answer_question', selectedOptionIds: ['opt_1'] }
 			},
-			context('run_from_context'),
-			'run_pinned' as RunId,
+			context('21ddbb1c-53ca-4cb0-980f-6657740ccd23'),
+			'97a5c348-1137-4d3a-af2c-1965f6b8030f' as RunId,
 		)
-		expect(requests[0]?.runId).toBe('run_pinned')
+		expect(requests[0]?.runId).toBe('97a5c348-1137-4d3a-af2c-1965f6b8030f')
 	})
 })

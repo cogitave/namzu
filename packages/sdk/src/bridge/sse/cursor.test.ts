@@ -12,7 +12,7 @@ import { mapRunToStreamEvent } from './mapper.js'
  * repository has shipped one of those before.
  */
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 
 describe('the wire carries the cursor', () => {
 	it('stamps <runId>:<seq> on a recorded event', () => {
@@ -21,21 +21,21 @@ describe('the wire carries the cursor', () => {
 			RID,
 		)
 
-		expect(mapped?.id).toBe('run_1:12')
+		expect(mapped?.id).toBe('37ddff8e-e13f-4e57-937f-d048fa323f5e:12')
 	})
 
 	it('keys on the event’s OWN run, not the stream it arrives on', () => {
 		// A parent's stream carries its children's events, each numbered in the
 		// child's log. Stamping the enclosing run here produces a cursor that
 		// addresses the wrong sequence — and it looks right.
-		const child = 'run_child' as RunId
+		const child = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId
 
 		const mapped = mapRunToStreamEvent(
 			{ type: 'iteration_started', runId: child, iteration: 1, seq: 3 } as RunEvent,
 			RID,
 		)
 
-		expect(mapped?.id).toBe('run_child:3')
+		expect(mapped?.id).toBe('4721e070-5ba2-425a-bf5a-8cc927907e9a:3')
 	})
 
 	it('leaves the id off an event that is not recoverable', () => {

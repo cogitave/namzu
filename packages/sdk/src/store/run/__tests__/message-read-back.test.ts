@@ -34,9 +34,9 @@ async function baseDir(): Promise<string> {
 
 async function backends(): Promise<[string, RunStore][]> {
 	const disk = new RunDiskStore({ baseDir: await baseDir(), logger: LOG })
-	await disk.initRun('run_messages')
+	await disk.initRun('4df6f44c-825b-4240-9aca-4c583dcc5d00')
 	const memory = new InMemoryRunStore()
-	await memory.initRun('run_messages')
+	await memory.initRun('4df6f44c-825b-4240-9aca-4c583dcc5d00')
 	return [
 		['disk', disk],
 		['memory', memory],
@@ -97,15 +97,15 @@ describe('reading disk snapshots without creating a run', () => {
 	it('refuses the exact crash window after terminal evidence but before message publication', async () => {
 		const dir = await baseDir()
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_crash_window')
+		await store.initRun('38c4a6f2-db75-4392-a019-1fe7f4d2773b')
 		await store.appendEvent({
 			type: 'run_started',
-			runId: 'run_crash_window',
+			runId: '38c4a6f2-db75-4392-a019-1fe7f4d2773b',
 			seq: 1,
 		} as never)
 		await store.appendEvent({
 			type: 'compaction_shed',
-			runId: 'run_crash_window',
+			runId: '38c4a6f2-db75-4392-a019-1fe7f4d2773b',
 			iteration: 1,
 			reason: 'threshold',
 			messages: [createUserMessage('shed before the crash')],
@@ -113,14 +113,14 @@ describe('reading disk snapshots without creating a run', () => {
 		} as never)
 		await store.appendEvent({
 			type: 'run_completed',
-			runId: 'run_crash_window',
+			runId: '38c4a6f2-db75-4392-a019-1fe7f4d2773b',
 			result: '',
 			seq: 3,
 		} as never)
 		// `persist()` writes this metadata first. The simulated process dies
 		// before `writeMessages`, which is the ambiguity this contract closes.
 		await store.writeRunMeta({
-			id: 'run_crash_window' as RunId,
+			id: '38c4a6f2-db75-4392-a019-1fe7f4d2773b' as RunId,
 			status: 'completed',
 			metadata: {},
 			tokenUsage: {},
@@ -138,7 +138,7 @@ describe('reading disk snapshots without creating a run', () => {
 
 	it('reports a missing file as unavailable and creates nothing', async () => {
 		const dir = await baseDir()
-		const missing = join(dir, 'run_missing')
+		const missing = join(dir, '2d4692b7-c804-46a8-9844-68007671f067')
 
 		expect(await readRunMessagesIn(missing)).toEqual({
 			kind: 'unavailable',
@@ -149,9 +149,9 @@ describe('reading disk snapshots without creating a run', () => {
 
 	it('preserves old raw arrays as readable but unverified', async () => {
 		const dir = await baseDir()
-		const runDir = join(dir, 'run_legacy')
+		const runDir = join(dir, '1e2cd7b1-df8e-4f19-9f3b-4f0281300ae7')
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_legacy')
+		await store.initRun('1e2cd7b1-df8e-4f19-9f3b-4f0281300ae7')
 		await writeFile(
 			join(runDir, 'messages.json'),
 			JSON.stringify([createUserMessage('legacy content')]),
@@ -169,9 +169,9 @@ describe('reading disk snapshots without creating a run', () => {
 		['a wrong object shape', JSON.stringify({ messages: [] })],
 	])('refuses %s rather than degrading it to an empty snapshot', async (_name, raw) => {
 		const dir = await baseDir()
-		const runDir = join(dir, 'run_malformed')
+		const runDir = join(dir, '8f0153ed-d172-4d0f-9381-d4acef0595ff')
 		const store = new RunDiskStore({ baseDir: dir, logger: LOG })
-		await store.initRun('run_malformed')
+		await store.initRun('8f0153ed-d172-4d0f-9381-d4acef0595ff')
 		await writeFile(join(runDir, 'messages.json'), raw, 'utf-8')
 
 		await expect(readRunMessagesIn(runDir)).rejects.toThrow('Invalid run message snapshot')
@@ -181,10 +181,10 @@ describe('reading disk snapshots without creating a run', () => {
 describe('the in-memory store starts a different run unpublished', () => {
 	it('does not carry a previous run snapshot across a rebind', async () => {
 		const store = new InMemoryRunStore()
-		await store.initRun('run_first')
+		await store.initRun('111b6f53-2d7f-4bfc-bbe1-56df51712736')
 		await store.writeMessages(runWith([createUserMessage('first')]), 3)
 
-		await store.initRun('run_second')
+		await store.initRun('3140f049-2def-4029-8534-4bcc8840fc38')
 
 		expect(await store.readMessages()).toEqual({
 			kind: 'unavailable',

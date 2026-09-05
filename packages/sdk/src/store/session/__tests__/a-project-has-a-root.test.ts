@@ -39,8 +39,8 @@ async function temp(prefix: string): Promise<string> {
 	return dir
 }
 
-const TENANT_A = 'tnt_a' as TenantId
-const TENANT_B = 'tnt_b' as TenantId
+const TENANT_A = '17697cab-7e61-4b71-be7c-ea8e4c418a35' as TenantId
+const TENANT_B = '1d776c54-769e-46b0-81d2-8b99079a99ef' as TenantId
 
 type Factory = { name: string; make: () => Promise<SessionStore> }
 

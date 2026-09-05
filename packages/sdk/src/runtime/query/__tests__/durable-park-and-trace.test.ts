@@ -35,18 +35,18 @@ import {
  * run id, not even that.
  */
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 const SCOPE: CheckpointRunScope = {
 	runId: RID,
 	tenantId: 'ten_1' as never,
-	projectId: 'prj_1' as never,
-	sessionId: 'ses_1' as never,
+	projectId: 'a0dab60c-1b56-4235-8c96-81fb213b4fbf' as never,
+	sessionId: '46bf2fa8-7b48-40ea-bd28-fa94f4fa05e6' as never,
 }
 
 const request = (): HITLDecisionRequest => ({
 	type: 'tool_review',
 	runId: RID,
-	checkpointId: 'cp_x' as CheckpointId,
+	checkpointId: 'f496fad2-a721-4bb9-9a40-b959b0f3ecf8' as CheckpointId,
 	toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
 })
 
@@ -229,7 +229,9 @@ describe('the trace a checkpoint was taken inside', () => {
 	it('never fails a resume over telemetry', async () => {
 		// A missing checkpoint here must not throw: the restore path
 		// immediately after reports it far better than a tracing helper can.
-		expect(await manager.readTraceContext('cp_missing' as CheckpointId)).toBeUndefined()
+		expect(
+			await manager.readTraceContext('e8e27c68-a53c-4003-9fbe-3349649af71a' as CheckpointId),
+		).toBeUndefined()
 	})
 
 	it('refuses an all-zero trace id rather than emitting an orphan', async () => {

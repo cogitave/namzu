@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
+import { fixtureUuid } from '../../../test-support/ids.js'
 
 import { findPendingCheckpoint } from '../../../runtime/query/checkpoint.js'
 import type { HITLDecisionRequest, IterationCheckpoint } from '../../../types/hitl/index.js'
@@ -33,10 +34,10 @@ import { listDurableRuns } from '../listing.js'
  * and by reporting an empty page when it means "I cannot tell".
  */
 
-const T1 = 'tnt_one' as TenantId
-const T2 = 'tnt_two' as TenantId
-const P1 = 'prj_one' as ProjectId
-const S1 = 'ses_one' as SessionId
+const T1 = 'be2e1b02-07b4-4701-9729-1a38db543631' as TenantId
+const T2 = 'c4e41c2e-014b-4c48-8dc6-617b04c10910' as TenantId
+const P1 = '8e4560fc-ca33-4bba-9e3d-f0bdb5949c9f' as ProjectId
+const S1 = '8940a870-873a-4868-ac8a-17f6cbfe540e' as SessionId
 
 function scope(runId: string, over: Partial<CheckpointRunScope> = {}): CheckpointRunScope {
 	return {
@@ -66,7 +67,7 @@ function checkpoint(
 ): IterationCheckpoint {
 	cpSeq += 1
 	return {
-		id: `cp_${cpSeq}` as CheckpointId,
+		id: fixtureUuid(`cp_${cpSeq}`) as CheckpointId,
 		runId: runId as RunId,
 		...(runCreatedAt !== undefined ? { runCreatedAt } : {}),
 		iteration: 1,
@@ -89,7 +90,7 @@ function request(runId: string): HITLDecisionRequest {
 	return {
 		type: 'tool_review',
 		runId: runId as RunId,
-		checkpointId: 'cp_placeholder' as CheckpointId,
+		checkpointId: 'b0eaa3c0-592d-4b65-a406-54d696379fb4' as CheckpointId,
 		toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
 	}
 }
@@ -153,37 +154,67 @@ describe('an approval inbox, through an injected store', () => {
 
 		// Three parked runs across two tenants, one of them a SUB-run —
 		// which is the case the only pre-existing listing skipped outright.
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1, outstanding('run_a')))
 		await store.writeCheckpoint(
-			scope('run_b', { parentRunId: 'run_a' as RunId }),
-			checkpoint('run_b', 2, outstanding('run_b')),
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000001',
+				1,
+				outstanding('00000000-0000-4000-8000-000000000001'),
+			),
 		)
 		await store.writeCheckpoint(
-			scope('run_c', { tenantId: T2 }),
-			checkpoint('run_c', 3, outstanding('run_c')),
+			scope('00000000-0000-4000-8000-000000000002', {
+				parentRunId: '00000000-0000-4000-8000-000000000001' as RunId,
+			}),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000002',
+				2,
+				outstanding('00000000-0000-4000-8000-000000000002'),
+			),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000003', { tenantId: T2 }),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000003',
+				3,
+				outstanding('00000000-0000-4000-8000-000000000003'),
+			),
 		)
 		// …and a run of the same tenant that is not parked at all.
-		await store.writeCheckpoint(scope('run_d'), checkpoint('run_d', 4))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000004'),
+			checkpoint('00000000-0000-4000-8000-000000000004', 4),
+		)
 
 		const page = await listDurableRuns(store, ALL, { park: ['outstanding'], now: NOW })
 
-		expect(page.entries.map((e) => e.runId)).toEqual(['run_a', 'run_b'])
+		expect(page.entries.map((e) => e.runId)).toEqual([
+			'00000000-0000-4000-8000-000000000001',
+			'00000000-0000-4000-8000-000000000002',
+		])
 		// A row that cannot name its parent cannot be addressed, and a
 		// sub-run's checkpoints live under its parent.
-		expect(page.entries[1]?.parentRunId).toBe('run_a')
+		expect(page.entries[1]?.parentRunId).toBe('00000000-0000-4000-8000-000000000001')
 		expect(page.entries[0]?.parentRunId).toBeUndefined()
 	})
 
 	it('narrows to a project and to a session, not only to a tenant', async () => {
 		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1))
 		await store.writeCheckpoint(
-			scope('run_b', { projectId: 'prj_other' as ProjectId }),
-			checkpoint('run_b', 2),
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 1),
 		)
 		await store.writeCheckpoint(
-			scope('run_c', { sessionId: 'ses_other' as SessionId }),
-			checkpoint('run_c', 3),
+			scope('00000000-0000-4000-8000-000000000002', {
+				projectId: 'dd33c142-d050-42d8-9d06-6167dd8b27d1' as ProjectId,
+			}),
+			checkpoint('00000000-0000-4000-8000-000000000002', 2),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000003', {
+				sessionId: '73321b05-67f6-4328-93cc-5bc436e22727' as SessionId,
+			}),
+			checkpoint('00000000-0000-4000-8000-000000000003', 3),
 		)
 
 		// One tenant can hold many projects and one project many sessions. A
@@ -194,18 +225,22 @@ describe('an approval inbox, through an injected store', () => {
 			(await listDurableRuns(store, { tenantId: T1, projectId: P1 }, { now: NOW })).entries.map(
 				(e) => e.runId,
 			),
-		).toEqual(['run_a', 'run_c'])
+		).toEqual(['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000003'])
 		expect(
 			(
 				await listDurableRuns(store, { tenantId: T1, projectId: P1, sessionId: S1 }, { now: NOW })
 			).entries.map((e) => e.runId),
-		).toEqual(['run_a'])
+		).toEqual(['00000000-0000-4000-8000-000000000001'])
 	})
 
 	it('hands a row straight back to the read that answers it', async () => {
 		const store = new InMemoryCheckpointStore()
-		const cp = checkpoint('run_a', 1, outstanding('run_a'))
-		await store.writeCheckpoint(scope('run_a'), cp)
+		const cp = checkpoint(
+			'00000000-0000-4000-8000-000000000001',
+			1,
+			outstanding('00000000-0000-4000-8000-000000000001'),
+		)
+		await store.writeCheckpoint(scope('00000000-0000-4000-8000-000000000001'), cp)
 
 		const page = await listDurableRuns(store, ALL, { park: ['outstanding'], now: NOW })
 		const entry = page.entries[0] as DurableRunEntry
@@ -219,10 +254,34 @@ describe('an approval inbox, through an injected store', () => {
 
 	it('agrees with findPendingCheckpoint about which runs are outstanding', async () => {
 		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1, outstanding('run_a')))
-		await store.writeCheckpoint(scope('run_b'), checkpoint('run_b', 2, expired('run_b')))
-		await store.writeCheckpoint(scope('run_c'), checkpoint('run_c', 3, resolved('run_c')))
-		await store.writeCheckpoint(scope('run_d'), checkpoint('run_d', 4))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000001',
+				1,
+				outstanding('00000000-0000-4000-8000-000000000001'),
+			),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000002'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000002',
+				2,
+				expired('00000000-0000-4000-8000-000000000002'),
+			),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000003'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000003',
+				3,
+				resolved('00000000-0000-4000-8000-000000000003'),
+			),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000004'),
+			checkpoint('00000000-0000-4000-8000-000000000004', 4),
+		)
 
 		const all = await listDurableRuns(store, ALL, { now: NOW })
 
@@ -251,16 +310,30 @@ describe('park state', () => {
 	})
 
 	it('separates the sweep queue from the inbox queue', async () => {
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1, outstanding('run_a')))
-		await store.writeCheckpoint(scope('run_b'), checkpoint('run_b', 2, expired('run_b')))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000001',
+				1,
+				outstanding('00000000-0000-4000-8000-000000000001'),
+			),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000002'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000002',
+				2,
+				expired('00000000-0000-4000-8000-000000000002'),
+			),
+		)
 
 		// `hitlParkTtlMs` documents a host sweep as the reclamation path.
 		// This is the enumeration that sweep never had.
 		const sweep = await listDurableRuns(store, ALL, { park: ['expired'], now: NOW })
-		expect(sweep.entries.map((e) => e.runId)).toEqual(['run_b'])
+		expect(sweep.entries.map((e) => e.runId)).toEqual(['00000000-0000-4000-8000-000000000002'])
 
 		const inbox = await listDurableRuns(store, ALL, { park: ['outstanding'], now: NOW })
-		expect(inbox.entries.map((e) => e.runId)).toEqual(['run_a'])
+		expect(inbox.entries.map((e) => e.runId)).toEqual(['00000000-0000-4000-8000-000000000001'])
 	})
 
 	it('reads an answer given after the deadline as answered, not as expired', async () => {
@@ -268,9 +341,9 @@ describe('park state', () => {
 		// Reporting a decision a human actually made as an expiry nobody made
 		// destroys exactly the fact it exists to keep.
 		await store.writeCheckpoint(
-			scope('run_a'),
-			checkpoint('run_a', 1, {
-				request: request('run_a'),
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 1, {
+				request: request('00000000-0000-4000-8000-000000000001'),
 				parkedAt: NOW - 10_000,
 				deadlineAt: NOW - 5_000,
 				resolvedAt: NOW - 4_000,
@@ -288,14 +361,21 @@ describe('park state', () => {
 		// an inbox that took the newest would report the live park as
 		// nothing.
 		await store.writeCheckpoint(
-			scope('run_a'),
-			checkpoint('run_a', 1, {
-				request: request('run_a'),
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 1, {
+				request: request('00000000-0000-4000-8000-000000000001'),
 				parkedAt: NOW - 9_000,
 				deadlineAt: NOW + 10_000,
 			}),
 		)
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 2, resolved('run_a')))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000001',
+				2,
+				resolved('00000000-0000-4000-8000-000000000001'),
+			),
+		)
 
 		const page = await listDurableRuns(store, ALL, { park: ['outstanding'], now: NOW })
 		expect(page.entries).toHaveLength(1)
@@ -304,17 +384,17 @@ describe('park state', () => {
 
 	it('prefers the newest of two outstanding parks', async () => {
 		await store.writeCheckpoint(
-			scope('run_a'),
-			checkpoint('run_a', 1, {
-				request: request('run_a'),
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 1, {
+				request: request('00000000-0000-4000-8000-000000000001'),
 				parkedAt: NOW - 9_000,
 				deadlineAt: NOW + 1_000,
 			}),
 		)
 		await store.writeCheckpoint(
-			scope('run_a'),
-			checkpoint('run_a', 2, {
-				request: request('run_a'),
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 2, {
+				request: request('00000000-0000-4000-8000-000000000001'),
 				parkedAt: NOW - 100,
 				deadlineAt: NOW + 1_000,
 			}),
@@ -325,7 +405,14 @@ describe('park state', () => {
 	})
 
 	it('judges expiry against the supplied clock, not the wall clock', async () => {
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1, outstanding('run_a')))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000001',
+				1,
+				outstanding('00000000-0000-4000-8000-000000000001'),
+			),
+		)
 
 		expect(
 			(await listDurableRuns(store, ALL, { park: ['outstanding'], now: NOW })).entries,
@@ -339,7 +426,13 @@ describe('park state', () => {
 // ── ordering and paging ──────────────────────────────────────────────────
 
 describe('paging', () => {
-	const ids = ['run_e', 'run_a', 'run_d', 'run_b', 'run_c']
+	const ids = [
+		'00000000-0000-4000-8000-000000000005',
+		'00000000-0000-4000-8000-000000000001',
+		'00000000-0000-4000-8000-000000000004',
+		'00000000-0000-4000-8000-000000000002',
+		'00000000-0000-4000-8000-000000000003',
+	]
 
 	async function seed(): Promise<InMemoryCheckpointStore> {
 		const store = new InMemoryCheckpointStore()
@@ -352,11 +445,11 @@ describe('paging', () => {
 	it('walks every run exactly once and then stops', async () => {
 		const store = await seed()
 		expect(await walk(store, { limit: 2, now: NOW })).toEqual([
-			'run_a',
-			'run_b',
-			'run_c',
-			'run_d',
-			'run_e',
+			'00000000-0000-4000-8000-000000000001',
+			'00000000-0000-4000-8000-000000000002',
+			'00000000-0000-4000-8000-000000000003',
+			'00000000-0000-4000-8000-000000000004',
+			'00000000-0000-4000-8000-000000000005',
 		])
 	})
 
@@ -377,12 +470,18 @@ describe('paging', () => {
 		expect(first.cursor).toBeDefined()
 
 		const last = await listDurableRuns(store, ALL, { limit: 2, cursor: first.cursor, now: NOW })
-		expect(last.entries.map((e) => e.runId)).toEqual(['run_d', 'run_e'])
+		expect(last.entries.map((e) => e.runId)).toEqual([
+			'00000000-0000-4000-8000-000000000004',
+			'00000000-0000-4000-8000-000000000005',
+		])
 		expect(last.cursor).toBeUndefined()
 
 		// And a page that fills exactly, with more behind it, still carries one.
 		const middle = await listDurableRuns(store, ALL, { limit: 2, now: NOW })
-		expect(middle.entries.map((e) => e.runId)).toEqual(['run_a', 'run_b'])
+		expect(middle.entries.map((e) => e.runId)).toEqual([
+			'00000000-0000-4000-8000-000000000001',
+			'00000000-0000-4000-8000-000000000002',
+		])
 		expect(middle.cursor).toBeDefined()
 	})
 
@@ -390,19 +489,25 @@ describe('paging', () => {
 		const store = await seed()
 
 		const first = await listDurableRuns(store, ALL, { limit: 2, now: NOW })
-		expect(first.entries.map((e) => e.runId)).toEqual(['run_a', 'run_b'])
+		expect(first.entries.map((e) => e.runId)).toEqual([
+			'00000000-0000-4000-8000-000000000001',
+			'00000000-0000-4000-8000-000000000002',
+		])
 
 		// `run_a` checkpoints again between pages. Ordered by any timestamp
 		// this store can derive, it would jump the queue and shove a run past
 		// the cursor — silently dropping it from a sweep.
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 10_000))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 10_000),
+		)
 
 		expect(await walk(store, { limit: 2, now: NOW })).toEqual([
-			'run_a',
-			'run_b',
-			'run_c',
-			'run_d',
-			'run_e',
+			'00000000-0000-4000-8000-000000000001',
+			'00000000-0000-4000-8000-000000000002',
+			'00000000-0000-4000-8000-000000000003',
+			'00000000-0000-4000-8000-000000000004',
+			'00000000-0000-4000-8000-000000000005',
 		])
 	})
 
@@ -411,10 +516,10 @@ describe('paging', () => {
 		const page = await listDurableRuns(store, ALL, { limit: 0, now: NOW })
 		// A limit of zero that returned an empty page would read as "no runs
 		// are parked" — the failure this whole listing exists to avoid.
-		expect(page.entries.map((e) => e.runId)).toEqual(['run_a'])
+		expect(page.entries.map((e) => e.runId)).toEqual(['00000000-0000-4000-8000-000000000001'])
 
 		const next = await listDurableRuns(store, ALL, { limit: 0, cursor: page.cursor, now: NOW })
-		expect(next.entries.map((e) => e.runId)).toEqual(['run_b'])
+		expect(next.entries.map((e) => e.runId)).toEqual(['00000000-0000-4000-8000-000000000002'])
 	})
 })
 
@@ -424,9 +529,18 @@ describe('ordering by when the run was attributed', () => {
 	/** Seeded so that id order and creation order disagree completely. */
 	async function seed(): Promise<InMemoryCheckpointStore> {
 		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 50, undefined, 500))
-		await store.writeCheckpoint(scope('run_b'), checkpoint('run_b', 50, undefined, 400))
-		await store.writeCheckpoint(scope('run_c'), checkpoint('run_c', 50, undefined, 300))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 50, undefined, 500),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000002'),
+			checkpoint('00000000-0000-4000-8000-000000000002', 50, undefined, 400),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000003'),
+			checkpoint('00000000-0000-4000-8000-000000000003', 50, undefined, 300),
+		)
 		return store
 	}
 
@@ -440,7 +554,11 @@ describe('ordering by when the run was attributed', () => {
 			(await listDurableRuns(store, ALL, { orderBy: 'createdAt', now: NOW })).entries.map(
 				(e) => e.runId,
 			),
-		).toEqual(['run_c', 'run_b', 'run_a'])
+		).toEqual([
+			'00000000-0000-4000-8000-000000000003',
+			'00000000-0000-4000-8000-000000000002',
+			'00000000-0000-4000-8000-000000000001',
+		])
 	})
 
 	it('leaves the default alone', async () => {
@@ -448,9 +566,9 @@ describe('ordering by when the run was attributed', () => {
 		// Changing the default order would be a changed default, and a caller
 		// paging today would silently start walking a different sequence.
 		expect((await listDurableRuns(store, ALL, { now: NOW })).entries.map((e) => e.runId)).toEqual([
-			'run_a',
-			'run_b',
-			'run_c',
+			'00000000-0000-4000-8000-000000000001',
+			'00000000-0000-4000-8000-000000000002',
+			'00000000-0000-4000-8000-000000000003',
 		])
 	})
 
@@ -458,31 +576,34 @@ describe('ordering by when the run was attributed', () => {
 		const store = await seed()
 
 		const first = await listDurableRuns(store, ALL, { orderBy: 'createdAt', limit: 1, now: NOW })
-		expect(first.entries.map((e) => e.runId)).toEqual(['run_c'])
+		expect(first.entries.map((e) => e.runId)).toEqual(['00000000-0000-4000-8000-000000000003'])
 
 		// The oldest run checkpoints again mid-pagination. This is the exact
 		// move that breaks a listing sorted on `latestCheckpointAt`; the
 		// attribution stamp does not move, so the walk is unaffected.
-		await store.writeCheckpoint(scope('run_c'), checkpoint('run_c', 9_000, undefined, 300))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000003'),
+			checkpoint('00000000-0000-4000-8000-000000000003', 9_000, undefined, 300),
+		)
 
 		expect(await walk(store, { orderBy: 'createdAt', limit: 1, now: NOW })).toEqual([
-			'run_c',
-			'run_b',
-			'run_a',
+			'00000000-0000-4000-8000-000000000003',
+			'00000000-0000-4000-8000-000000000002',
+			'00000000-0000-4000-8000-000000000001',
 		])
 	})
 
 	it('does not move when the oldest checkpoint is pruned away', async () => {
 		const store = new InMemoryCheckpointStore()
-		const first = checkpoint('run_a', 10, undefined, 300)
-		const second = checkpoint('run_a', 20, undefined, 300)
-		await store.writeCheckpoint(scope('run_a'), first)
-		await store.writeCheckpoint(scope('run_a'), second)
+		const first = checkpoint('00000000-0000-4000-8000-000000000001', 10, undefined, 300)
+		const second = checkpoint('00000000-0000-4000-8000-000000000001', 20, undefined, 300)
+		await store.writeCheckpoint(scope('00000000-0000-4000-8000-000000000001'), first)
+		await store.writeCheckpoint(scope('00000000-0000-4000-8000-000000000001'), second)
 
 		// Pruning deletes oldest-first, which is what disqualified every other
 		// timestamp. The stamp is on every checkpoint, so pruning cannot reach
 		// a value the survivors also hold.
-		await store.deleteCheckpoint(scope('run_a'), first.id)
+		await store.deleteCheckpoint(scope('00000000-0000-4000-8000-000000000001'), first.id)
 
 		const page = await listDurableRuns(store, ALL, { orderBy: 'createdAt', now: NOW })
 		expect(page.entries[0]?.runCreatedAt).toBe(300)
@@ -490,8 +611,14 @@ describe('ordering by when the run was attributed', () => {
 
 	it('puts runs whose creation was never recorded first, and says so on the row', async () => {
 		const store = await seed()
-		await store.writeCheckpoint(scope('run_z'), checkpoint('run_z', 60))
-		await store.writeCheckpoint(scope('run_y'), checkpoint('run_y', 60))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000026'),
+			checkpoint('00000000-0000-4000-8000-000000000026', 60),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000025'),
+			checkpoint('00000000-0000-4000-8000-000000000025', 60),
+		)
 
 		const page = await listDurableRuns(store, ALL, { orderBy: 'createdAt', now: NOW })
 
@@ -500,15 +627,27 @@ describe('ordering by when the run was attributed', () => {
 		// that predates the stamp — and therefore predates every run that has
 		// one. `runCreatedAt` stays absent so a caller renders "unknown"
 		// rather than a time nobody recorded.
-		expect(page.entries.map((e) => e.runId)).toEqual(['run_y', 'run_z', 'run_c', 'run_b', 'run_a'])
+		expect(page.entries.map((e) => e.runId)).toEqual([
+			'00000000-0000-4000-8000-000000000025',
+			'00000000-0000-4000-8000-000000000026',
+			'00000000-0000-4000-8000-000000000003',
+			'00000000-0000-4000-8000-000000000002',
+			'00000000-0000-4000-8000-000000000001',
+		])
 		expect(page.entries[0]?.runCreatedAt).toBeUndefined()
 		expect(page.entries[2]?.runCreatedAt).toBe(300)
 	})
 
 	it('tells "not recorded" apart from "recorded as the epoch"', async () => {
 		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 10, undefined, 0))
-		await store.writeCheckpoint(scope('run_z'), checkpoint('run_z', 10))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 10, undefined, 0),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000026'),
+			checkpoint('00000000-0000-4000-8000-000000000026', 10),
+		)
 
 		// Zero is a recorded time; absence is not a time at all. Ordering by a
 		// timestamp alone would collapse the two and interleave them by id —
@@ -516,23 +655,26 @@ describe('ordering by when the run was attributed', () => {
 		// own rather than standing a number in for it.
 		const page = await listDurableRuns(store, ALL, { orderBy: 'createdAt', now: NOW })
 		expect(page.entries.map((e) => [e.runId, e.runCreatedAt])).toEqual([
-			['run_z', undefined],
-			['run_a', 0],
+			['00000000-0000-4000-8000-000000000026', undefined],
+			['00000000-0000-4000-8000-000000000001', 0],
 		])
 	})
 
 	it('pages across the boundary between unrecorded and recorded runs', async () => {
 		const store = await seed()
-		await store.writeCheckpoint(scope('run_z'), checkpoint('run_z', 60))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000026'),
+			checkpoint('00000000-0000-4000-8000-000000000026', 60),
+		)
 
 		// The cursor has to carry the rank as well as the time, or the first
 		// stamped row compares against a stand-in timestamp and the walk
 		// either repeats the unrecorded runs or skips the oldest recorded one.
 		expect(await walk(store, { orderBy: 'createdAt', limit: 1, now: NOW })).toEqual([
-			'run_z',
-			'run_c',
-			'run_b',
-			'run_a',
+			'00000000-0000-4000-8000-000000000026',
+			'00000000-0000-4000-8000-000000000003',
+			'00000000-0000-4000-8000-000000000002',
+			'00000000-0000-4000-8000-000000000001',
 		])
 	})
 
@@ -542,7 +684,11 @@ describe('ordering by when the run was attributed', () => {
 		// is not part of the contract. Refusing beats silently treating it as
 		// a position and returning a page from nowhere.
 		await expect(
-			listDurableRuns(store, ALL, { orderBy: 'createdAt', cursor: 'run_c', now: NOW }),
+			listDurableRuns(store, ALL, {
+				orderBy: 'createdAt',
+				cursor: '00000000-0000-4000-8000-000000000003',
+				now: NOW,
+			}),
 		).rejects.toThrow(/not a cursor this listing issued/)
 	})
 })
@@ -615,37 +761,59 @@ describe('the disk store', () => {
 		// `initRun` nests exactly one level at every depth, so a grandchild
 		// sits beside the top-level runs rather than beneath its grandparent.
 		// A walk that assumed a growing tree would miss it.
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1, outstanding('run_a')))
 		await store.writeCheckpoint(
-			scope('run_b', { parentRunId: 'run_a' as RunId }),
-			checkpoint('run_b', 2, outstanding('run_b')),
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000001',
+				1,
+				outstanding('00000000-0000-4000-8000-000000000001'),
+			),
 		)
 		await store.writeCheckpoint(
-			scope('run_c', { parentRunId: 'run_b' as RunId }),
-			checkpoint('run_c', 3, outstanding('run_c')),
+			scope('00000000-0000-4000-8000-000000000002', {
+				parentRunId: '00000000-0000-4000-8000-000000000001' as RunId,
+			}),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000002',
+				2,
+				outstanding('00000000-0000-4000-8000-000000000002'),
+			),
+		)
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000003', {
+				parentRunId: '00000000-0000-4000-8000-000000000002' as RunId,
+			}),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000003',
+				3,
+				outstanding('00000000-0000-4000-8000-000000000003'),
+			),
 		)
 
 		const page = await listDurableRuns(store, ALL, { now: NOW })
 
 		expect(page.entries.map((e) => [e.runId, e.parentRunId])).toEqual([
-			['run_a', undefined],
-			['run_b', 'run_a'],
-			['run_c', 'run_b'],
+			['00000000-0000-4000-8000-000000000001', undefined],
+			['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001'],
+			['00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000002'],
 		])
 	})
 
-	it('lists and resumes opaque and legacy runs from a fresh store at every depth', async () => {
+	it('lists and resumes generated and caller-assigned UUIDs from a fresh store at every depth', async () => {
 		const current = generateRunId()
-		const legacy = 'run_Legacy-1' as RunId
+		const supplied = '0382c0bd-c56f-42dc-a477-80174625c693' as RunId
 		const grandchild = generateRunId()
 		const scopes = [
 			scope(current),
-			scope(legacy, { parentRunId: current }),
-			scope(grandchild, { parentRunId: legacy }),
+			scope(supplied, { parentRunId: current }),
+			scope(grandchild, { parentRunId: supplied }),
 		]
 		const checkpoints = scopes.map((binding, index) => ({
 			...checkpoint(binding.runId, index + 1, outstanding(binding.runId)),
-			id: index === 1 ? ('cp_Legacy-1' as CheckpointId) : generateCheckpointId(),
+			id:
+				index === 1
+					? ('04a4cbd7-4c0a-40d8-9115-f06725087f75' as CheckpointId)
+					: generateCheckpointId(),
 		}))
 		for (const [index, binding] of scopes.entries()) {
 			const cp = checkpoints[index]
@@ -659,8 +827,8 @@ describe('the disk store', () => {
 		expect(new Set(page.entries.map((row) => [row.runId, row.parentRunId]))).toEqual(
 			new Set([
 				[current, undefined],
-				[legacy, current],
-				[grandchild, legacy],
+				[supplied, current],
+				[grandchild, supplied],
 			]),
 		)
 		for (const entry of page.entries) {
@@ -673,15 +841,17 @@ describe('the disk store', () => {
 
 	it('does not report the empty shell directory a nested run leaves behind', async () => {
 		await store.writeCheckpoint(
-			scope('run_b', { parentRunId: 'run_a' as RunId }),
-			checkpoint('run_b', 1),
+			scope('00000000-0000-4000-8000-000000000002', {
+				parentRunId: '00000000-0000-4000-8000-000000000001' as RunId,
+			}),
+			checkpoint('00000000-0000-4000-8000-000000000002', 1),
 		)
 
 		// `mkdir -p` created `<dir>/run_a/children/run_b`, so `run_a` exists
 		// as a directory holding nothing. A run with no durable state is not
 		// something a sweeper could resume.
 		const page = await listDurableRuns(store, ALL, { now: NOW })
-		expect(page.entries.map((e) => e.runId)).toEqual(['run_b'])
+		expect(page.entries.map((e) => e.runId)).toEqual(['00000000-0000-4000-8000-000000000002'])
 	})
 
 	it('does not let a warmed root-run binding answer a child-run scope', async () => {
@@ -696,7 +866,10 @@ describe('the disk store', () => {
 	})
 
 	it('does not create a directory for a run it merely looked at', async () => {
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 1),
+		)
 		const before = await listDurableRuns(store, ALL, { now: NOW })
 		const after = await listDurableRuns(store, ALL, { now: NOW })
 		// Binding a per-run store would `mkdir` the run directory, so a
@@ -705,27 +878,54 @@ describe('the disk store', () => {
 	})
 
 	it('reports another tenant as empty rather than as an isolation failure', async () => {
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1))
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 1),
+		)
 		// The caller asked a scoped question, not for a specific record —
 		// the same reasoning `listSessions` already states for sessions that
 		// share a thread id across tenants.
 		expect((await listDurableRuns(store, { tenantId: T2 }, { now: NOW })).entries).toEqual([])
 		expect(
-			(await listDurableRuns(store, { tenantId: T1, projectId: 'prj_other' as ProjectId })).entries,
+			(
+				await listDurableRuns(store, {
+					tenantId: T1,
+					projectId: 'dd33c142-d050-42d8-9d06-6167dd8b27d1' as ProjectId,
+				})
+			).entries,
 		).toEqual([])
 	})
 
 	it('refuses to list when it was never told what tree it holds', async () => {
 		const anonymous = new DiskCheckpointStore({ baseDir: dir })
-		await anonymous.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1))
+		await anonymous.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint('00000000-0000-4000-8000-000000000001', 1),
+		)
 		// A row stamped with a guessed tenant is a row a sweeper would resume
 		// under the wrong isolation boundary.
 		await expect(listDurableRuns(anonymous, ALL)).rejects.toThrow(/without attribution/)
 	})
 
 	it('refuses the whole listing when a checkpoint file is damaged', async () => {
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1, outstanding('run_a')))
-		await writeFile(join(dir, 'run_a', 'checkpoints', 'cp_broken.json'), '{}', 'utf-8')
+		await store.writeCheckpoint(
+			scope('00000000-0000-4000-8000-000000000001'),
+			checkpoint(
+				'00000000-0000-4000-8000-000000000001',
+				1,
+				outstanding('00000000-0000-4000-8000-000000000001'),
+			),
+		)
+		await writeFile(
+			join(
+				dir,
+				'00000000-0000-4000-8000-000000000001',
+				'checkpoints',
+				'a7c850a9-fb32-41d6-9c6c-012956b6c236.json',
+			),
+			'{}',
+			'utf-8',
+		)
 
 		// A damaged file that dropped the run from the listing is the
 		// missing-park failure one level up: an approval a human is owed,
@@ -736,9 +936,28 @@ describe('the disk store', () => {
 	it('reads back the same runs the in-memory store does', async () => {
 		const memory = new InMemoryCheckpointStore()
 		const rows: [CheckpointRunScope, IterationCheckpoint][] = [
-			[scope('run_a'), checkpoint('run_a', 1, outstanding('run_a'))],
-			[scope('run_b', { parentRunId: 'run_a' as RunId }), checkpoint('run_b', 2, expired('run_b'))],
-			[scope('run_c'), checkpoint('run_c', 3)],
+			[
+				scope('00000000-0000-4000-8000-000000000001'),
+				checkpoint(
+					'00000000-0000-4000-8000-000000000001',
+					1,
+					outstanding('00000000-0000-4000-8000-000000000001'),
+				),
+			],
+			[
+				scope('00000000-0000-4000-8000-000000000002', {
+					parentRunId: '00000000-0000-4000-8000-000000000001' as RunId,
+				}),
+				checkpoint(
+					'00000000-0000-4000-8000-000000000002',
+					2,
+					expired('00000000-0000-4000-8000-000000000002'),
+				),
+			],
+			[
+				scope('00000000-0000-4000-8000-000000000003'),
+				checkpoint('00000000-0000-4000-8000-000000000003', 3),
+			],
 		]
 		for (const [s, cp] of rows) {
 			await store.writeCheckpoint(s, cp)

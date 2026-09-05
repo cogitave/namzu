@@ -29,6 +29,7 @@ const seen: {
 	scope: Record<string, unknown> | undefined
 	provider: string | undefined
 	model: string | undefined
+	effort: string | undefined
 } = {
 	prompt: null,
 	cwd: undefined,
@@ -36,6 +37,7 @@ const seen: {
 	scope: undefined,
 	provider: undefined,
 	model: undefined,
+	effort: undefined,
 }
 
 /**
@@ -89,7 +91,8 @@ vi.mock('../../tui/agent.js', () => ({
 			return fakeAgentSession({
 				instructionFiles: instructions.loaded,
 				skippedInstructionFiles: instructions.skipped,
-				send: (messages) => {
+				send: (messages, options) => {
+					seen.effort = options?.effort
 					// `Message.content` is a union, not a string: a tool result carries
 					// blocks. The hand-written stub this replaced declared it as
 					// `{ content: string }`, which type-checked only because it was
@@ -132,6 +135,7 @@ async function run(
 	seen.scope = undefined
 	seen.provider = undefined
 	seen.model = undefined
+	seen.effort = undefined
 	instructions.loaded = []
 	instructions.skipped = []
 	setup?.()
@@ -139,6 +143,15 @@ async function run(
 	const code = (await runCommand.handler({ rawArgs, ctx } as never)) as number
 	return { code, errors }
 }
+
+describe('headless reasoning effort', () => {
+	it('forwards low to the run instead of adding it to the prompt', async () => {
+		const { code } = await run(['--effort', 'low', 'hello'])
+		expect(code).toBe(0)
+		expect(seen.effort).toBe('low')
+		expect(seen.prompt).toBe('hello')
+	})
+})
 
 describe('namzu run reads its options instead of reciting them', () => {
 	it('works in --cwd and keeps it out of the prompt', async () => {

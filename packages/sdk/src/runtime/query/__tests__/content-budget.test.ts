@@ -8,12 +8,8 @@ import { describeDroppedContent, measureContentBytes } from '../tool-output-budg
  * that produced it, and that is the single largest payload a tool result
  * can carry.
  *
- * Worse than uncontrolled cost: when the TEXT half truncated, the rich
- * half was dropped with it, silently. Dropping is correct — the preview is
- * no longer the tool's own payload, so an image alongside it would be
- * illustrating something the model can no longer read — but the model saw
- * a preview and had no way to know an image had ever existed, so it
- * reasoned as though the tool returned text only.
+ * Text and native content have independent budgets. A large caption must
+ * not consume an image's encoded-byte allowance or cause it to disappear.
  */
 
 describe('naming what a truncated result took with it', () => {
@@ -61,13 +57,14 @@ describe('measuring the rich channel', () => {
 		expect(measureContentBytes([{ type: 'image', data: 'x'.repeat(500) }])).toBe(500)
 	})
 
-	it('adds every block together', () => {
+	it('adds only rich payloads and leaves text to the text budget', () => {
 		expect(
 			measureContentBytes([
 				{ type: 'text', text: 'ab' },
 				{ type: 'image', data: 'xyz' },
+				{ type: 'document', data: 'abcd' },
 			]),
-		).toBe(5)
+		).toBe(7)
 	})
 
 	it('is zero for a result with no rich channel', () => {

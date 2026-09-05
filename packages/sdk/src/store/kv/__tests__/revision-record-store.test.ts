@@ -172,7 +172,16 @@ describe('revision filesystem segments', () => {
 	})
 
 	it('round-trips every canonical segment without admitting aliases', () => {
-		const inputs = ['msg_plain', '../x', 'a\\b', '', '~empty', '\ud800', 'ü', '%2F']
+		const inputs = [
+			'61ae0498-5e5e-4421-9d7a-1af12fb5a51b',
+			'../x',
+			'a\\b',
+			'',
+			'~empty',
+			'\ud800',
+			'ü',
+			'%2F',
+		]
 		for (const input of inputs) {
 			expect(decodeRevisionFileSegment(revisionFileSegment(input))).toBe(input)
 		}

@@ -24,7 +24,7 @@ import type { ConnectorId } from '../../types/ids/index.js'
 
 import { ScopedConnectorRegistry } from './scoped.js'
 
-const CID = 'conn_http' as ConnectorId
+const CID = 'dafa33b2-7035-47d2-986c-8a6d2ef338f3' as ConnectorId
 
 describe('ScopedConnectorRegistry', () => {
 	describe('set + getAt + remove', () => {
@@ -120,7 +120,7 @@ describe('ScopedConnectorRegistry', () => {
 			r.set({ scope: { scope: 'org', scopeId: 'org_1' }, connectorId: CID })
 			r.set({
 				scope: { scope: 'org', scopeId: 'org_1' },
-				connectorId: 'conn_other' as ConnectorId,
+				connectorId: 'c9774468-a5d3-4d05-83c0-363b4e3a671f' as ConnectorId,
 			})
 			r.set({ scope: { scope: 'project', scopeId: 'proj_1' }, connectorId: CID })
 			expect(r.listAtScope({ scope: 'org', scopeId: 'org_1' })).toHaveLength(2)

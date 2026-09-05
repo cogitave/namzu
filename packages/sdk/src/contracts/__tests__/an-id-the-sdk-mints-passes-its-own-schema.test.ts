@@ -46,7 +46,7 @@ describe('id schemas use the same spelling contract as constructors', () => {
 			const pattern = new RegExp(json.pattern)
 			const id = generate()
 			expect(pattern.test(id)).toBe(true)
-			expect(pattern.test(`${prefix}Selected-A_1`)).toBe(true)
+			expect(pattern.test(`${prefix}Selected-A_1`)).toBe(false)
 			expect(pattern.test(`${id}\n`)).toBe(false)
 			expect(pattern.test(`${prefix}../outside`)).toBe(false)
 			// Existing callers can keep composing the exported ZodString schema.
@@ -54,26 +54,23 @@ describe('id schemas use the same spelling contract as constructors', () => {
 		},
 	)
 
-	it.each(contracts)(
-		'$name accepts minted and established safe ids unchanged',
-		({ schema, generate, parse, prefix }) => {
-			const accepted = [
-				...Array.from({ length: 20 }, () => generate()),
-				`${prefix}selected`,
-				`${prefix}Selected-A_1`,
-				'550E8400-E29B-41D4-A716-446655440000',
-			]
-			for (const id of accepted) {
-				expect(schema.parse(id)).toBe(id)
-				expect(parse(id)).toBe(id)
-			}
-		},
-	)
+	it.each(contracts)('$name accepts UUIDs unchanged', ({ schema, generate, parse }) => {
+		const accepted = [
+			...Array.from({ length: 20 }, () => generate()),
+			'550E8400-E29B-41D4-A716-446655440000',
+		]
+		for (const id of accepted) {
+			expect(schema.parse(id)).toBe(id)
+			expect(parse(id)).toBe(id)
+		}
+	})
 
 	it.each(contracts)(
-		'$name refuses invalid segments and mismatched legacy kinds',
+		'$name refuses invalid segments and all prefixed IDs',
 		({ schema, parse, prefix }) => {
 			const refused = [
+				`${prefix}selected`,
+				`${prefix}Selected-A_1`,
 				`${prefix}../../etc`,
 				`${prefix}..`,
 				`${prefix}a/b`,

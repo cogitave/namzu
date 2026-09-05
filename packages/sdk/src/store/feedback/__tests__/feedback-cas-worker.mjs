@@ -2,16 +2,16 @@
  * Real-process contender for feedback update CAS.
  *
  * Usage:
- * node feedback-cas-worker.mjs <distDir> <feedbackDir> <runsDir> <prefix> <count> <worker> <barrierMs>
+ * node feedback-cas-worker.mjs <distDir> <feedbackDir> <runsDir> <scopeJson> <worker> <barrierMs>
  */
 
-const [, , dist, feedbackDir, runsDir, prefix, countRaw, worker, barrierRaw] = process.argv
-const count = Number(countRaw)
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const [, , dist, feedbackDir, runsDir, scopeJson, worker, barrierRaw] = process.argv
+const { runId, ids } = JSON.parse(scopeJson)
 const barrier = Number(barrierRaw)
-const diskModule = new URL(
-	'store/feedback/disk.js',
-	`file://${dist.replace(/\\\\/g, '/')}/`,
-).href
+const diskModule = pathToFileURL(join(dist, 'store/feedback/disk.js')).href
 
 const wait = barrier - Date.now()
 if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
@@ -21,12 +21,11 @@ const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir, runsDir })
 const won = []
 const unexpected = []
 
-for (let i = 0; i < count; i++) {
-	const messageId = `${prefix}${i}`
+for (const messageId of ids) {
 	const rating = worker === 'w0' ? 'good' : 'bad'
 	try {
 		const record = await store.putMessageFeedback({
-			runId: 'run_feedback_update_proc',
+			runId,
 			messageId,
 			rating,
 			note: worker,

@@ -46,7 +46,7 @@ const createInput = {
 }
 
 const validEntry = {
-	id: 'mem_valid',
+	id: '118e57db-4533-4312-8edc-acf25594eabc',
 	title: 'valid title',
 	summary: 'valid summary',
 	tags: ['valid'],
@@ -60,7 +60,7 @@ describe('DiskMemoryStore index admission', () => {
 		['non-array top level', { entries: [] }],
 		['non-object entry', [null]],
 		['non-string id', [{ ...validEntry, id: 1 }]],
-		['non-canonical id', [{ ...validEntry, id: 'run_wrong_kind' }]],
+		['prefixed id', [{ ...validEntry, id: 'mem_previously_safe' }]],
 		['duplicate id', [validEntry, { ...validEntry, title: 'duplicate' }]],
 		['non-string title', [{ ...validEntry, title: null }]],
 		['non-string summary', [{ ...validEntry, summary: null }]],

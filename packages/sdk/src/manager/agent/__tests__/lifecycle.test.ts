@@ -11,6 +11,7 @@ import { SessionSummaryMaterializer } from '../../../session/summary/materialize
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
+import { fixtureUuid } from '../../../test-support/ids.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -21,7 +22,7 @@ import type {
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { AgentId, RunId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
 import type { ActorRef } from '../../../types/session/actor.js'
@@ -31,8 +32,8 @@ import { ZERO_COST } from '../../../utils/cost.js'
 import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
-const tenant = 'tnt_alpha' as TenantId
-const otherTenant = 'tnt_beta' as TenantId
+const tenant = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+const otherTenant = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
 
 const capabilities: AgentCapabilities = {
 	supportsTools: false,
@@ -83,7 +84,7 @@ function makeDefinition(agent: Agent<BaseAgentConfig, BaseAgentResult>): AgentDe
 
 function successResult(): BaseAgentResult {
 	return {
-		runId: 'run_test' as import('../../../types/ids/index.js').RunId,
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
 		status: 'completed',
 		usage: { ...EMPTY_TOKEN_USAGE },
 		cost: { ...ZERO_COST },
@@ -96,7 +97,7 @@ function successResult(): BaseAgentResult {
 
 function failureResult(error: string): BaseAgentResult {
 	return {
-		runId: 'run_test' as import('../../../types/ids/index.js').RunId,
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
 		status: 'failed',
 		usage: { ...EMPTY_TOKEN_USAGE },
 		cost: { ...ZERO_COST },
@@ -108,7 +109,7 @@ function failureResult(error: string): BaseAgentResult {
 }
 
 function user(tid: TenantId = tenant): ActorRef {
-	return { kind: 'user', userId: 'usr_root' as UserId, tenantId: tid }
+	return { kind: 'user', userId: 'e04738b9-b828-4251-9b35-bc3bc8a2adf8' as UserId, tenantId: tid }
 }
 
 function agentActor(id: string, tid: TenantId = tenant): ActorRef {
@@ -150,7 +151,7 @@ async function buildHarness(
 	let summaryCounter = 0
 	const materializer = new SessionSummaryMaterializer({
 		store,
-		generateSummaryId: () => `sum_test_${++summaryCounter}` as SummaryId,
+		generateSummaryId: () => fixtureUuid(`sum_test_${++summaryCounter}`) as SummaryId,
 	})
 
 	const registry = new AgentRegistry()
@@ -185,7 +186,7 @@ function buildContext(
 	depth = 0,
 ): AgentTaskContext {
 	return {
-		parentRunId: 'run_parent' as import('../../../types/ids/index.js').RunId,
+		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
 		parentAgentId: 'parent-agent',
 		parentAbortController: new AbortController(),
 		depth,

@@ -25,7 +25,7 @@ import { ToolExecutor } from '../executor.js'
  * guard against clearing error results silently excluded vetoed ones.
  */
 
-const RUN_ID = 'run_veto' as RunId
+const RUN_ID = '5fb9bccf-9833-4de4-98ea-007296e4f93f' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

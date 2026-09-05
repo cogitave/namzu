@@ -9,8 +9,8 @@ export function cliProjectRoot(workingDirectory: string): string {
 }
 
 /**
- * Keep existing directory-bound history reachable. New directories share their
- * checkout's Project; an older, more specific binding remains authoritative.
+ * Every directory in one checkout resolves through the same root binding.
+ * Directory-specific historical bindings do not override that scope.
  * The caller supplies a canonical working directory, never a symlink alias.
  */
 export async function findCliProject(
@@ -18,8 +18,5 @@ export async function findCliProject(
 	workingDirectory: string,
 	tenantId: TenantId,
 ): Promise<Project | null> {
-	const exact = await store.findProjectByRootPath(workingDirectory, tenantId)
-	if (exact) return exact
-	const root = cliProjectRoot(workingDirectory)
-	return root === workingDirectory ? null : store.findProjectByRootPath(root, tenantId)
+	return store.findProjectByRootPath(cliProjectRoot(workingDirectory), tenantId)
 }

@@ -31,11 +31,11 @@ const SCOPE_ARGS = [
 	'--store',
 	'/tmp/runs',
 	'--tenant',
-	'tnt_x',
+	'6ab233e0-9e27-4517-8861-61d4b85f396e',
 	'--project',
-	'prj_x',
+	'3f488113-b658-4c23-833c-69d1e9072a19',
 	'--session',
-	'ses_x',
+	'02b19846-c793-4e21-9c6e-21962a7d2de5',
 ]
 
 function ctxAt(level: 'debug' | 'warn'): CommandContext {

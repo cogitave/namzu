@@ -1,11 +1,16 @@
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { IS_WINDOWS } from '../../../test-support/paths.js'
 
-import { DEFAULT_MAX_TOOL_OUTPUT_CHARS, applyToolOutputBudget } from '../tool-output-budget.js'
+import {
+	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+	SPILL_MARKER,
+	applyToolOutputBudget,
+} from '../tool-output-budget.js'
 
 /**
  * Nothing capped tool output. `read` returned a whole file when `limit` was
@@ -77,7 +82,29 @@ describe('applyToolOutputBudget', () => {
 		expect(out.truncated).toBe(true)
 		expect(out.spillPath).toBeUndefined()
 		expect(out.output).toContain('not retained')
+		expect(out.output).toContain('do not repeat a state-changing action')
 		expect(out.output.length).toBeLessThanOrEqual(1_000)
+	})
+
+	it.each([
+		'../escaped',
+		'../../escaped',
+		'/absolute/path',
+		'nested/call',
+		'C:\\outside',
+		'nul\0id',
+	])('keeps the opaque correlation ID %j inside the spill directory', (toolUseId) => {
+		const spillDir = join(dir, 'outputs')
+		const out = applyToolOutputBudget({
+			...base,
+			toolUseId,
+			output: 'x'.repeat(2_000),
+			maxChars: 1_000,
+			spillDir,
+		})
+		expect(out.spillPath).toBeDefined()
+		expect(dirname(out.spillPath as string)).toBe(spillDir)
+		expect(readFileSync(out.spillPath as string, 'utf-8')).toBe('x'.repeat(2_000))
 	})
 
 	it('honours a small positive cap even when the full diagnostic cannot fit', () => {
@@ -89,6 +116,21 @@ describe('applyToolOutputBudget', () => {
 
 		expect(out.truncated).toBe(true)
 		expect(out.output.length).toBeLessThanOrEqual(64)
+	})
+
+	it('keeps the spill pointer when only a compact recovery notice fits beside an omission', () => {
+		const output = 'model evidence '.repeat(1_000)
+		const out = applyToolOutputBudget({
+			...base,
+			output,
+			maxChars: 350,
+			notice: '[1 image omitted]',
+			spillDir: dir,
+		})
+		expect(out.output.length).toBeLessThanOrEqual(350)
+		expect(out.output).toContain('[1 image omitted]')
+		expect(out.output).toContain(`${SPILL_MARKER} ${out.spillPath}`)
+		expect(readFileSync(out.spillPath as string, 'utf8')).toBe(output)
 	})
 
 	it('never throws when the spill directory is unusable — the call still returns', () => {
@@ -117,7 +159,7 @@ describe('applyToolOutputBudget', () => {
 /**
  * What the spill is allowed to write over, and who is allowed to read it.
  *
- * The spill path is `<spillDir>/<toolUseId>.txt` — fully predictable to
+ * The spill path is `<spillDir>/<sha256(toolUseId)>.txt` — fully predictable to
  * anything that has seen the tool call. The write used the default `w` flag,
  * which creates-or-truncates and follows a symlink, so anything able to create
  * a file in that directory first could redirect the kernel's write onto a file
@@ -144,7 +186,10 @@ describe('the spill refuses to write through something already at its path', () 
 		writeFileSync(victim, 'ORIGINAL', 'utf-8')
 		const spillDir = join(dir, 'spill')
 		mkdirSync(spillDir, { recursive: true })
-		symlinkSync(victim, join(spillDir, 'call_1.txt'))
+		symlinkSync(
+			victim,
+			join(spillDir, `${createHash('sha256').update('call_1').digest('hex')}.txt`),
+		)
 
 		const errors: string[] = []
 		const out = applyToolOutputBudget({
@@ -166,7 +211,11 @@ describe('the spill refuses to write through something already at its path', () 
 		// act on — it loses the path, not the preview.
 		const spillDir = join(dir, 'spill')
 		mkdirSync(spillDir, { recursive: true })
-		writeFileSync(join(spillDir, 'call_1.txt'), 'squatter', 'utf-8')
+		writeFileSync(
+			join(spillDir, `${createHash('sha256').update('call_1').digest('hex')}.txt`),
+			'squatter',
+			'utf-8',
+		)
 
 		const errors: string[] = []
 		const out = applyToolOutputBudget({
@@ -185,7 +234,12 @@ describe('the spill refuses to write through something already at its path', () 
 		// message has to distinguish them. Folding EEXIST back into the
 		// generic message fails this.
 		expect(errors[0]).toContain('Refused to overwrite')
-		expect(readFileSync(join(spillDir, 'call_1.txt'), 'utf-8')).toBe('squatter')
+		expect(
+			readFileSync(
+				join(spillDir, `${createHash('sha256').update('call_1').digest('hex')}.txt`),
+				'utf-8',
+			),
+		).toBe('squatter')
 	})
 
 	it.skipIf(IS_WINDOWS)('creates the directory and the file owner-only', () => {

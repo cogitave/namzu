@@ -30,7 +30,7 @@ import { planPendingResume } from '../resume-pending.js'
  * recorded answer is handed to it instead of a second question.
  */
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 
 function makeLogger(): Logger {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger
@@ -80,7 +80,7 @@ describe('recording the park', () => {
 		parks.bind({
 			record: async (q) => {
 				recorded.push(q.questionId)
-				return 'cp_real' as CheckpointId
+				return '1987ac99-6017-40a3-8e0a-2de666031408' as CheckpointId
 			},
 			resolve: async () => {},
 		})
@@ -99,14 +99,14 @@ describe('recording the park', () => {
 		expect(recorded).toEqual(['t1'])
 		// The synthetic id was never written anywhere, so a host given it
 		// could not read the checkpoint back.
-		expect(seenCheckpointId).toBe('cp_real')
+		expect(seenCheckpointId).toBe('1987ac99-6017-40a3-8e0a-2de666031408')
 	})
 
 	it('clears the park once the answer arrives', async () => {
 		const resolved: string[] = []
 		const parks = new QuestionParkBinding()
 		parks.bind({
-			record: async () => 'cp_real' as CheckpointId,
+			record: async () => '1987ac99-6017-40a3-8e0a-2de666031408' as CheckpointId,
 			resolve: async (id) => {
 				resolved.push(id)
 			},
@@ -117,7 +117,7 @@ describe('recording the park', () => {
 
 		// An approval queue that keeps serving an answered question is the
 		// same defect the tool-review park already fixed.
-		expect(resolved).toEqual(['cp_real'])
+		expect(resolved).toEqual(['1987ac99-6017-40a3-8e0a-2de666031408'])
 	})
 
 	it('still asks when the park cannot be recorded', async () => {
@@ -138,12 +138,17 @@ describe('recording the park', () => {
 		// did before any of this existed.
 		const parks = new QuestionParkBinding()
 		expect(await parks.record({ questionId: 't1' } as never)).toBeNull()
-		await expect(parks.resolve('cp_x' as CheckpointId, answer('t1'))).resolves.toBeUndefined()
+		await expect(
+			parks.resolve('f496fad2-a721-4bb9-9a40-b959b0f3ecf8' as CheckpointId, answer('t1')),
+		).resolves.toBeUndefined()
 	})
 
 	it('stops writing into a run that has settled', async () => {
 		const parks = new QuestionParkBinding()
-		parks.bind({ record: async () => 'cp_real' as CheckpointId, resolve: async () => {} })
+		parks.bind({
+			record: async () => '1987ac99-6017-40a3-8e0a-2de666031408' as CheckpointId,
+			resolve: async () => {},
+		})
 		parks.unbind()
 
 		expect(await parks.record({ questionId: 't1' } as never)).toBeNull()
@@ -173,7 +178,7 @@ describe('re-entering the tool with the answer', () => {
 		parks.bind({
 			record: async (q) => {
 				recorded.push(q.questionId)
-				return 'cp_real' as CheckpointId
+				return '1987ac99-6017-40a3-8e0a-2de666031408' as CheckpointId
 			},
 			resolve: async () => {},
 		})
@@ -247,14 +252,14 @@ describe('planning the resume', () => {
 
 	const checkpoint = (questionId: string, messages = parkedTurn()): IterationCheckpoint =>
 		({
-			id: 'cp_1' as CheckpointId,
+			id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 			messages,
 			pending: {
 				parkedAt: 0,
 				request: {
 					type: 'user_question',
 					runId: RID,
-					checkpointId: 'cp_1' as CheckpointId,
+					checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 					question: {
 						questionId,
 						question: 'Which?',

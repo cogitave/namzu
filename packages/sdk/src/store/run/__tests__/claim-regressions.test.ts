@@ -22,18 +22,18 @@ import { listDurableRuns } from '../listing.js'
  * them fails here rather than probabilistically on a loaded machine.
  */
 
-const T1 = 'tnt_reg' as TenantId
-const P1 = 'prj_reg' as ProjectId
-const S1 = 'ses_reg' as SessionId
+const T1 = 'd99e433c-7868-4ae2-89dd-549e0e509bec' as TenantId
+const P1 = '0665f1a1-4515-46c4-93db-0c5eefdb466c' as ProjectId
+const S1 = '8ee56505-5d4a-4f0e-ad19-dcf55528055d' as SessionId
 
-function scope(runId = 'run_a'): CheckpointRunScope {
+function scope(runId = '90a466e2-f869-4a3c-b750-f2156342ff40'): CheckpointRunScope {
 	return { tenantId: T1, projectId: P1, sessionId: S1, runId: runId as RunId }
 }
 
 function checkpoint(id: string): IterationCheckpoint {
 	return {
 		id: id as never,
-		runId: 'run_a' as RunId,
+		runId: '90a466e2-f869-4a3c-b750-f2156342ff40' as RunId,
 		iteration: 1,
 		messages: [],
 		tokenUsage: {
@@ -55,7 +55,7 @@ describe('claim regressions', () => {
 
 	beforeEach(async () => {
 		dir = await mkdtemp(join(tmpdir(), 'namzu-reg-'))
-		runDir = join(dir, 'run_a')
+		runDir = join(dir, '90a466e2-f869-4a3c-b750-f2156342ff40')
 		await mkdir(runDir, { recursive: true })
 	})
 
@@ -163,12 +163,12 @@ describe('claim regressions', () => {
 			{ baseDir: dir },
 			{ tenantId: T1, projectId: P1, sessionId: S1 },
 		)
-		await store.writeCheckpoint(scope(), checkpoint('cp_1'))
+		await store.writeCheckpoint(scope(), checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c'))
 		await mkdir(join(runDir, 'claims'), { recursive: true })
 		await writeFile(join(runDir, 'claims', '2.json'), 'not json', 'utf-8')
 
 		const page = await listDurableRuns(store, { tenantId: T1 }, { claimed: false, now: 5_000 })
-		expect(page.entries.map((e) => e.runId)).toEqual(['run_a'])
+		expect(page.entries.map((e) => e.runId)).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		// Present on the row and marked expired: reclaimable, which is true.
 		expect(page.entries[0]?.claim?.fence).toBe(2)
 		expect(page.entries[0]?.claim?.expired).toBe(true)
@@ -186,9 +186,9 @@ describe('claim regressions', () => {
 		await mkdir(join(runDir, 'claims'), { recursive: true })
 		await writeFile(join(runDir, 'claims', '9.json'), '{{{ corrupt', 'utf-8')
 
-		await expect(store.writeCheckpoint(scope(), checkpoint('cp_2'), 3)).rejects.toThrow(
-			/no longer holds it/,
-		)
+		await expect(
+			store.writeCheckpoint(scope(), checkpoint('7802b395-981e-430a-86c7-058cb79dbaf9'), 3),
+		).rejects.toThrow(/no longer holds it/)
 	})
 
 	it('presents the fence on checkpoints a RUN writes, not only on direct store calls', async () => {
@@ -219,7 +219,7 @@ describe('claim regressions', () => {
 		manager.setClaimFence(stale?.fence)
 
 		const runMgr = {
-			id: 'run_a' as RunId,
+			id: '90a466e2-f869-4a3c-b750-f2156342ff40' as RunId,
 			messages: [],
 			currentIteration: 1,
 			tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },

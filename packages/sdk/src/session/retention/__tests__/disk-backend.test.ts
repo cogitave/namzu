@@ -13,27 +13,27 @@ import type { SessionSummaryRef } from '../../../types/summary/ref.js'
 import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import { DiskArchiveBackend } from '../disk-backend.js'
 
-const tenantA = 'tnt_alpha' as TenantId
+const tenantA = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
 
 function fakeSessionId(): SessionId {
-	return 'ses_fake_1' as SessionId
+	return 'f7eb5982-9b0f-40a3-bb3d-3a904e8f8419' as SessionId
 }
 
 function fakeSubSessionId(): SubSessionId {
-	return 'sub_fake_1' as SubSessionId
+	return '47269817-b866-4cd8-90c9-defa7c7f3622' as SubSessionId
 }
 
 function buildMessages(sessionId: SessionId): SessionMessage[] {
 	return [
 		{
-			id: 'msg_1' as MessageId,
+			id: '116b88f1-7300-4be5-a05d-f2a87105f095' as MessageId,
 			sessionId,
 			tenantId: tenantA,
 			message: createUserMessage('hello'),
 			at: new Date('2026-04-01T00:00:00Z'),
 		},
 		{
-			id: 'msg_2' as MessageId,
+			id: 'efe8f849-85cf-4b94-8bc7-cad64f257419' as MessageId,
 			sessionId,
 			tenantId: tenantA,
 			message: createUserMessage('world'),
@@ -44,7 +44,7 @@ function buildMessages(sessionId: SessionId): SessionMessage[] {
 
 function buildSummary(sessionId: SessionId): SessionSummaryRef {
 	return {
-		id: 'sum_disk_archive_1' as SummaryId,
+		id: '78da4a2f-1cb4-41c6-99bc-ae9757eab756' as SummaryId,
 		sessionRef: sessionId,
 		tenantId: tenantA,
 		outcome: { status: 'succeeded' },
@@ -58,7 +58,7 @@ function buildSummary(sessionId: SessionId): SessionSummaryRef {
 
 function buildWorkspace(): WorkspaceRef {
 	return {
-		id: 'wsp_archive_1' as WorkspaceId,
+		id: 'aeb879d5-b263-4712-998e-596dc7c3e50d' as WorkspaceId,
 		meta: {
 			backend: 'git-worktree',
 			repoRoot: '/repo',

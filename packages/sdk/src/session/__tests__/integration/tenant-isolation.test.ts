@@ -18,7 +18,7 @@ import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../../../types
 import { TenantIsolationError } from '../../errors.js'
 import { DEFAULT_TENANT, OTHER_TENANT, agentActor, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'top_test' as TopicId
+const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
 async function seedTenantAResources() {
 	const store = new InMemorySessionStore()
@@ -27,11 +27,19 @@ async function seedTenantAResources() {
 		DEFAULT_TENANT,
 	)
 	const parent = await store.createSession(
-		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+		{
+			topicId: TEST_THREAD_ID,
+			projectId: project.id,
+			currentActor: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
+		},
 		DEFAULT_TENANT,
 	)
 	const child = await store.createSession(
-		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
+		{
+			topicId: TEST_THREAD_ID,
+			projectId: project.id,
+			currentActor: agentActor('297e7108-719e-42f6-aa3b-f3b42d1ad2c5'),
+		},
 		DEFAULT_TENANT,
 	)
 	const sub = await store.createSubSession(
@@ -39,7 +47,7 @@ async function seedTenantAResources() {
 			parentSessionId: parent.id,
 			childSessionId: child.id,
 			kind: 'agent_spawn',
-			spawnedBy: userActor('usr_a'),
+			spawnedBy: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
 		},
 		DEFAULT_TENANT,
 	)
@@ -83,7 +91,7 @@ describe('Integration — tenant isolation', () => {
 					parentSessionId: parent.id,
 					childSessionId: child.id,
 					kind: 'agent_spawn',
-					spawnedBy: userActor('usr_intruder', OTHER_TENANT),
+					spawnedBy: userActor('e93025a0-5a11-4550-bbd6-6725502637ec', OTHER_TENANT),
 				},
 				OTHER_TENANT,
 			),
@@ -123,7 +131,7 @@ describe('Integration — tenant isolation', () => {
 	it('drill on a missing session returns null (deny-by-default surface without leaking tenant info)', async () => {
 		const { store } = await seedTenantAResources()
 		const view = await store.drill(
-			'ses_never_existed' as Parameters<typeof store.drill>[0],
+			'733219d1-222d-491e-86d7-a0f2bbb8a610' as Parameters<typeof store.drill>[0],
 			OTHER_TENANT,
 		)
 		// Missing session for the queried tenant returns null (Convention #5).
@@ -153,7 +161,7 @@ describe('Integration — tenant isolation', () => {
 		await expect(
 			store.recordSummary(
 				{
-					id: 'sum_intruder' as SummaryId,
+					id: '5cdf8341-309c-467a-9d26-a17ac95e2af6' as SummaryId,
 					sessionRef: parent.id,
 					tenantId: OTHER_TENANT,
 					outcome: { status: 'succeeded' },
@@ -173,7 +181,7 @@ describe('Integration — tenant isolation', () => {
 		await store.updateSession({ ...parent, status: 'active' }, DEFAULT_TENANT)
 		await store.recordSummary(
 			{
-				id: 'sum_ok' as SummaryId,
+				id: '40316f31-714f-48c8-9eed-50d170666631' as SummaryId,
 				sessionRef: parent.id,
 				tenantId: DEFAULT_TENANT,
 				outcome: { status: 'succeeded' },
@@ -205,7 +213,7 @@ describe('Integration — tenant isolation', () => {
 				{
 					topicId: TEST_THREAD_ID,
 					projectId: project.id,
-					currentActor: userActor('usr_intruder', OTHER_TENANT),
+					currentActor: userActor('e93025a0-5a11-4550-bbd6-6725502637ec', OTHER_TENANT),
 				},
 				OTHER_TENANT,
 			),
@@ -241,7 +249,7 @@ describe('Integration — tenant isolation', () => {
 			{
 				topicId: TEST_THREAD_ID,
 				projectId: otherProject.id,
-				currentActor: userActor('usr_other', OTHER_TENANT),
+				currentActor: userActor('64c9ee89-1d73-4b86-a19c-d123e45bf4ea', OTHER_TENANT),
 			},
 			OTHER_TENANT,
 		)
@@ -252,7 +260,7 @@ describe('Integration — tenant isolation', () => {
 					parentSessionId: parent.id, // DEFAULT_TENANT
 					childSessionId: otherChild.id, // OTHER_TENANT
 					kind: 'agent_spawn',
-					spawnedBy: userActor('usr_a'),
+					spawnedBy: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
 				},
 				DEFAULT_TENANT,
 			),
@@ -274,7 +282,11 @@ describe('Integration — tenant isolation', () => {
 			await store.createProject({ tenantId: DEFAULT_TENANT, name: 'del' }, DEFAULT_TENANT)
 		).id
 		const lonely = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project, currentActor: userActor('usr_lonely') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project,
+				currentActor: userActor('f77b9d92-b0bd-4133-b1d8-cd30272fe062'),
+			},
 			DEFAULT_TENANT,
 		)
 		await expect(store.deleteSession(lonely.id, OTHER_TENANT)).rejects.toBeInstanceOf(
@@ -286,7 +298,10 @@ describe('Integration — tenant isolation', () => {
 		const { store } = await seedTenantAResources()
 		// Missing id via correct tenant → null, not thrown. Confirms the
 		// missing-resource fast-path doesn't pre-empt the tenant check.
-		const missing = await store.getSubSession('sub_never_existed' as SubSessionId, DEFAULT_TENANT)
+		const missing = await store.getSubSession(
+			'54d64cdd-ad95-41ac-bbb4-3d740b766d24' as SubSessionId,
+			DEFAULT_TENANT,
+		)
 		expect(missing).toBeNull()
 	})
 })

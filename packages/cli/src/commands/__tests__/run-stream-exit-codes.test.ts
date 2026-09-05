@@ -104,6 +104,39 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+describe('one terminal event per streamed run', () => {
+	it('keeps the stop reason and emits done once', async () => {
+		const { out, code } = await run(['hello'])
+		expect(code).toBe(0)
+		const events = out
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line))
+		expect(events.filter((event) => event.kind === 'done')).toEqual([
+			{ kind: 'done', stopReason: 'end_turn' },
+		])
+		expect(events.at(-1)?.kind).toBe('done')
+	})
+	it('reports a stream exception before a single terminal event', async () => {
+		vi.mocked(createAgentSession).mockResolvedValue(
+			fakeAgentSession({
+				send: async function* () {
+					yield { kind: 'done', stopReason: 'end_turn' }
+					throw new Error('stream teardown failed')
+				},
+			}),
+		)
+		const { out } = await run(['hello'])
+		const events = out
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line))
+		expect(events.filter((event) => event.kind === 'done')).toHaveLength(1)
+		expect(events.at(-1)?.kind).toBe('done')
+		expect(out).toContain('stream teardown failed')
+	})
+})
+
 describe('exit 0 — the caller can reach the run by sending something else', () => {
 	it('an unknown option', async () => {
 		const r = await run(['--format', 'json', 'hello'])
@@ -175,7 +208,7 @@ describe('exit 0 — the caller can reach the run by sending something else', ()
 				send: async function* () {
 					yield {
 						kind: 'paused',
-						checkpointId: 'cp_stream_4',
+						checkpointId: 'b1039b53-5dda-40f1-a6db-6f54a4e9374d',
 						reason: 'slow down',
 						failure: {
 							code: 'provider_error',
@@ -191,7 +224,7 @@ describe('exit 0 — the caller can reach the run by sending something else', ()
 
 		expect(r.code).toBe(0)
 		expect(r.out).toContain('"kind":"paused"')
-		expect(r.out).toContain('"checkpointId":"cp_stream_4"')
+		expect(r.out).toContain('"checkpointId":"b1039b53-5dda-40f1-a6db-6f54a4e9374d"')
 		expect(r.out).toContain('"retryAfterMs":4000')
 		expect(r.out).toContain('"kind":"done"')
 	})
@@ -287,7 +320,7 @@ describe('flags this command does not implement', () => {
 	})
 
 	it('refuses --resume the same way', async () => {
-		const r = await run(['--resume', 'ses_123', 'hello'])
+		const r = await run(['--resume', '5be5e0e7-6c3c-4013-971a-f75c0d2d2538', 'hello'])
 		expect(r.code).toBe(0)
 		reported(r)
 		expect(r.out).toContain('--session')

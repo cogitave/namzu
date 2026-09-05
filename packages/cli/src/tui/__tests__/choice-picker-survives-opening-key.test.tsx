@@ -120,12 +120,12 @@ vi.mock('../../integrations/updates.js', () => ({
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({
-		tenantId: 'tnt_feedback',
-		projectId: 'prj_feedback',
-		topicId: 'top_feedback',
+		tenantId: 'ffdee53d-8d81-4568-b200-16a0c30cbb2f',
+		projectId: 'b908c84b-ed5b-4dc3-aae8-e3483885fc5f',
+		topicId: 'b9b7cdfe-6476-4e49-9af7-15d0a7e6c502',
 		root: '/tmp/.namzu',
 	}),
-	startConversation: async () => 'ses_feedback',
+	startConversation: async () => '0dd41fd1-f1a5-44cf-8b18-619da7d08376',
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	replaceConversation: async () => {},
@@ -192,8 +192,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 				yield {
 					kind: 'delta',
 					text: 'A completed answer with an exact feedback identity.',
-					runId: 'run_feedback',
-					messageId: 'msg_feedback',
+					runId: '9a344531-d11f-45be-8b1b-1ee6a6975fbb',
+					messageId: '1e2fbbcb-d241-4d76-a6b8-98ab03f68a06',
 				} as AgentEvent
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 			},
@@ -287,15 +287,15 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 	await waitUntil(screen, () => feedback.writes.length === 1)
 	expect(feedback.writes).toEqual([
 		expect.objectContaining({
-			runId: 'run_feedback',
-			messageId: 'msg_feedback',
+			runId: '9a344531-d11f-45be-8b1b-1ee6a6975fbb',
+			messageId: '1e2fbbcb-d241-4d76-a6b8-98ab03f68a06',
 			rating: 'good',
 		}),
 	])
 	expect(feedback.configs).toEqual([
 		{
-			rootDir: '/tmp/.namzu/projects/prj_feedback/sessions/ses_feedback/feedback',
-			runsDir: '/tmp/.namzu/projects/prj_feedback/sessions/ses_feedback/runs',
+			rootDir: '/tmp/.namzu/projects/b908c84b-ed5b-4dc3-aae8-e3483885fc5f/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/feedback',
+			runsDir: '/tmp/.namzu/projects/b908c84b-ed5b-4dc3-aae8-e3483885fc5f/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/runs',
 		},
 	])
 })

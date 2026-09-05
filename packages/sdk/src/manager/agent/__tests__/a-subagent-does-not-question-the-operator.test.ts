@@ -38,7 +38,7 @@ import { AgentManager } from '../lifecycle.js'
  * actual escape at this boundary.
  */
 
-const TENANT = 'tnt_root_question' as TenantId
+const TENANT = 'ce6d0071-5a0a-4b31-80b0-c5edbd9b88f9' as TenantId
 const dirs: string[] = []
 
 afterEach(async () => {
@@ -47,7 +47,11 @@ afterEach(async () => {
 })
 
 const actor = (tenantId: TenantId): ActorRef =>
-	({ kind: 'user', userId: 'usr_root', tenantId }) as unknown as ActorRef
+	({
+		kind: 'user',
+		userId: 'e04738b9-b828-4251-9b35-bc3bc8a2adf8',
+		tenantId,
+	}) as unknown as ActorRef
 
 function hostTool(name: string, execute = vi.fn(async () => ({ success: true, output: 'ok' }))) {
 	return {
@@ -118,7 +122,7 @@ describe('a subagent cannot question the operator', () => {
 			capacity: new DefaultCapacityValidator(store),
 			summaryMaterializer: new SessionSummaryMaterializer({
 				store,
-				generateSummaryId: () => 'sum_child_question' as never,
+				generateSummaryId: () => 'cad397a3-add4-4032-9202-427109b1c6c9' as never,
 			}),
 		})
 		registry.register({
@@ -154,7 +158,7 @@ describe('a subagent cannot question the operator', () => {
 			): Promise<Awaited<ReturnType<ResumeHandler>>> => ({ action: 'approve_tools' }),
 		)
 		const context: AgentTaskContext = {
-			parentRunId: 'run_root' as never,
+			parentRunId: '7925f8f2-fc1a-4990-9de9-4461959f7bf1' as never,
 			parentAgentId: 'root-supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,

@@ -9,6 +9,7 @@ import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 
 import type { ProjectId, RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
+import { generateRunId } from '../../../utils/id.js'
 import { DiskCheckpointStore } from '../checkpoint-disk.js'
 import { InMemoryCheckpointStore } from '../checkpoint-memory.js'
 import {
@@ -38,9 +39,9 @@ import { claimRun, releaseRun } from '../listing.js'
  */
 
 const scope = (runId: string): CheckpointRunScope => ({
-	tenantId: 'tnt_claim' as TenantId,
-	projectId: 'prj_claim' as ProjectId,
-	sessionId: 'ses_claim' as SessionId,
+	tenantId: 'd965b097-7bb9-49d8-8e87-ae3ea8e5c92a' as TenantId,
+	projectId: 'b11dd958-01ae-4beb-b8c1-2974b302f067' as ProjectId,
+	sessionId: '33891631-121c-4ffe-8646-2771607de4fa' as SessionId,
 	runId: runId as RunId,
 })
 
@@ -105,22 +106,26 @@ describe('the two shipped stores, side by side', () => {
 				new DiskCheckpointStore(
 					{ baseDir: dir },
 					{
-						tenantId: 'tnt_claim' as TenantId,
-						projectId: 'prj_claim' as ProjectId,
-						sessionId: 'ses_claim' as SessionId,
+						tenantId: 'd965b097-7bb9-49d8-8e87-ae3ea8e5c92a' as TenantId,
+						projectId: 'b11dd958-01ae-4beb-b8c1-2974b302f067' as ProjectId,
+						sessionId: '33891631-121c-4ffe-8646-2771607de4fa' as SessionId,
 					},
 				),
 			]
 
 			const nextFences: number[] = []
 			for (const store of stores) {
-				const first = await claimRun(store, scope('run_parity'), {
+				const first = await claimRun(store, scope('a7e188ff-348a-4e51-a0dc-0c163ba0d1f4'), {
 					holder: 'w1',
 					ttlMs: 60_000,
 					now: 1,
 				})
-				await releaseRun(store, scope('run_parity'), first?.fence as number)
-				const second = await claimRun(store, scope('run_parity'), {
+				await releaseRun(
+					store,
+					scope('a7e188ff-348a-4e51-a0dc-0c163ba0d1f4'),
+					first?.fence as number,
+				)
+				const second = await claimRun(store, scope('a7e188ff-348a-4e51-a0dc-0c163ba0d1f4'), {
 					holder: 'w2',
 					ttlMs: 60_000,
 					now: 2,
@@ -157,15 +162,18 @@ describe('a store that cannot arbitrate', () => {
 		// Skipping an absent optional method is the natural thing to do and
 		// the fatal one: every worker would proceed believing it holds a run
 		// nobody arbitrated.
-		await expect(claimRun(cannot, scope('run_a'), { holder: 'w1', ttlMs: 1_000 })).rejects.toThrow(
-			/does not implement `claimRun`/,
-		)
+		await expect(
+			claimRun(cannot, scope('90a466e2-f869-4a3c-b750-f2156342ff40'), {
+				holder: 'w1',
+				ttlMs: 1_000,
+			}),
+		).rejects.toThrow(/does not implement `claimRun`/)
 	})
 
 	it('refuses to release rather than pretending it did', async () => {
-		await expect(releaseRun(cannot, scope('run_a'), 1)).rejects.toThrow(
-			/does not implement `releaseRun`/,
-		)
+		await expect(
+			releaseRun(cannot, scope('90a466e2-f869-4a3c-b750-f2156342ff40'), 1),
+		).rejects.toThrow(/does not implement `releaseRun`/)
 	})
 })
 
@@ -204,7 +212,7 @@ describe('processes racing for one run', () => {
 	 * tell a reclaim from a fresh take, and one of the two tests below is about
 	 * exactly that difference.
 	 */
-	async function race(prefix: string, workers = 3): Promise<Map<string, number[]>> {
+	async function race(runIds: readonly RunId[], workers = 3): Promise<Map<string, number[]>> {
 		// Built output, not source: separate node processes with no loader,
 		// sharing nothing but `dir`.
 		const dist = join(here, '..', '..', '..', '..', 'dist')
@@ -217,7 +225,7 @@ describe('processes racing for one run', () => {
 
 		const results = await Promise.all(
 			Array.from({ length: workers }, (_, i) =>
-				exec(process.execPath, [worker, dist, dir, prefix, String(RUNS), `w${i}`, '60000', at]),
+				exec(process.execPath, [worker, dist, dir, JSON.stringify(runIds), `w${i}`, '60000', at]),
 			),
 		)
 
@@ -233,7 +241,7 @@ describe('processes racing for one run', () => {
 	}
 
 	it('issues each run to exactly one worker', async () => {
-		const claims = await race('run_fresh_')
+		const claims = await race(Array.from({ length: RUNS }, generateRunId))
 		expect(claims.size).toBe(RUNS)
 		// None claimed twice. Two holders of one run both restore the same
 		// checkpoint, both execute its tools and both write under one run id.
@@ -258,8 +266,9 @@ describe('processes racing for one run', () => {
 		// re-ran the fresh case above under a different name while its comment
 		// claimed otherwise. The fence assertion below is what makes the
 		// difference observable: 8 can only come from having read the 7.
-		for (let i = 0; i < RUNS; i++) {
-			const claimsDir = join(dir, `run_dead_${i}`, 'claims')
+		const runIds = Array.from({ length: RUNS }, generateRunId)
+		for (const runId of runIds) {
+			const claimsDir = join(dir, runId, 'claims')
 			await mkdir(claimsDir, { recursive: true })
 			await writeFile(
 				join(claimsDir, '7.json'),
@@ -268,7 +277,7 @@ describe('processes racing for one run', () => {
 			)
 		}
 
-		const claims = await race('run_dead_')
+		const claims = await race(runIds)
 		expect(claims.size).toBe(RUNS)
 		expect([...claims.values()].filter((f) => f.length !== 1)).toEqual([])
 		// Every reclaimer landed on 8: it read the dead holder's 7 and took the

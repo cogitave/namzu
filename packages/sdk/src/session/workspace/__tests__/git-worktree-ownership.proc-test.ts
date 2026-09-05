@@ -58,7 +58,7 @@ describe('the Git worktree driver owns one canonical directory', () => {
 				logger: stubLogger(),
 			})
 			const forged: WorkspaceRef = {
-				id: 'wsp_forged' as unknown as WorkspaceRef['id'],
+				id: 'f8572a15-e0c5-491c-a42f-9125015aac2f' as unknown as WorkspaceRef['id'],
 				createdAt: new Date(),
 				meta: {
 					backend: 'git-worktree',
@@ -154,7 +154,7 @@ describe('the Git worktree driver owns one canonical directory', () => {
 			logger: stubLogger(),
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_missing' as unknown as WorkspaceRef['id'],
+			id: '627d8473-9bdf-4312-be8c-33d951df39a7' as unknown as WorkspaceRef['id'],
 			createdAt: new Date(),
 			meta: {
 				backend: 'git-worktree',

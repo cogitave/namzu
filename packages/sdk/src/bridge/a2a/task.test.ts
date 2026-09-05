@@ -40,7 +40,7 @@ import {
 } from './task.js'
 
 const baseRun: WireRun = {
-	id: 'run_1' as RunId,
+	id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
 	project_id: null,
 	agent_id: 'coder',
 	status: 'running',
@@ -78,7 +78,7 @@ describe('runStatusToA2AState', () => {
 describe('runToA2ATask', () => {
 	it('sets id + contextId from run.id + run.project_id', () => {
 		const task = runToA2ATask({ ...baseRun, project_id: 'proj_9' as ProjectId })
-		expect(task.id).toBe('run_1')
+		expect(task.id).toBe('37ddff8e-e13f-4e57-937f-d048fa323f5e')
 		expect(task.contextId).toBe('proj_9')
 	})
 
@@ -136,7 +136,7 @@ describe('runToA2ATask', () => {
 		})
 		expect(withResult.artifacts).toHaveLength(1)
 		const artifact = withResult.artifacts?.[0]
-		expect(artifact?.artifactId).toBe('run_1-result')
+		expect(artifact?.artifactId).toBe(`${baseRun.id}-result`)
 		expect(artifact?.name).toBe('Agent Response')
 		expect(artifact?.parts).toEqual([{ kind: 'text', text: 'done' }])
 		expect(artifact?.metadata).toMatchObject({

@@ -36,10 +36,10 @@ class NoRetryStallProvider implements LLMProvider {
 }
 
 const scope = {
-	sessionId: 'ses_idle_front' as SessionId,
-	topicId: 'top_idle_front' as TopicId,
-	projectId: 'prj_idle_front' as ProjectId,
-	tenantId: 'tnt_idle_front' as TenantId,
+	sessionId: '52bdb4b0-b8f4-44c3-9e9e-acc5340904db' as SessionId,
+	topicId: '309c39f1-d4c8-44e9-b7e1-fd47375e6e4b' as TopicId,
+	projectId: '155a7982-54ec-43a1-a680-6ef2e18f0a2f' as ProjectId,
+	tenantId: '84635f63-5785-42b8-8318-bf3e17a61c21' as TenantId,
 }
 
 describe('agent front doors preserve the provider idle override', () => {

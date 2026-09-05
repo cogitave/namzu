@@ -9,11 +9,11 @@ import type { EmergencySaveData } from '../../../../types/run/emergency.js'
 import type { Mutation } from '../../../../types/run/replay.js'
 import { prepareReplayState } from '../prepare.js'
 
-const RUN_ID = 'run_source' as RunId
+const RUN_ID = '773652d8-a3bf-4154-b92c-322af6d773e4' as RunId
 
 function makeCheckpoint(overrides: Partial<IterationCheckpoint>): IterationCheckpoint {
 	return {
-		id: 'cp_default' as CheckpointId,
+		id: '40144495-50fc-4842-9e2b-41543a128a64' as CheckpointId,
 		runId: RUN_ID,
 		iteration: 1,
 		messages: [{ role: 'user', content: 'hi' }],
@@ -65,7 +65,7 @@ describe('prepareReplayState', () => {
 
 	it('resolves a specific CheckpointId and returns the checkpoint messages', async () => {
 		const cp = makeCheckpoint({
-			id: 'cp_one' as CheckpointId,
+			id: '17f1fb6b-0479-40a1-bf1e-115de23b0ba3' as CheckpointId,
 			iteration: 3,
 			messages: [
 				{ role: 'user', content: 'start' },
@@ -77,21 +77,30 @@ describe('prepareReplayState', () => {
 		const prepared = await prepareReplayState({
 			baseDir,
 			runId: RUN_ID,
-			fromCheckpoint: 'cp_one' as CheckpointId,
+			fromCheckpoint: '17f1fb6b-0479-40a1-bf1e-115de23b0ba3' as CheckpointId,
 		})
 
-		expect(prepared.sourceCheckpoint.id).toBe('cp_one')
+		expect(prepared.sourceCheckpoint.id).toBe('17f1fb6b-0479-40a1-bf1e-115de23b0ba3')
 		expect(prepared.messages).toEqual(cp.messages)
 		expect(prepared.attribution.sourceRunId).toBe(RUN_ID)
-		expect(prepared.attribution.fromCheckpointId).toBe('cp_one')
+		expect(prepared.attribution.fromCheckpointId).toBe('17f1fb6b-0479-40a1-bf1e-115de23b0ba3')
 		expect(prepared.attribution.mutations).toEqual([])
 		expect(prepared.attribution.replayedAt).toBeGreaterThan(0)
 	})
 
 	it("resolves 'latest' to the checkpoint with the highest iteration", async () => {
-		await seedCheckpoint(baseDir, makeCheckpoint({ id: 'cp_a' as CheckpointId, iteration: 1 }))
-		await seedCheckpoint(baseDir, makeCheckpoint({ id: 'cp_b' as CheckpointId, iteration: 5 }))
-		await seedCheckpoint(baseDir, makeCheckpoint({ id: 'cp_c' as CheckpointId, iteration: 3 }))
+		await seedCheckpoint(
+			baseDir,
+			makeCheckpoint({ id: 'a705a249-5a8d-47b0-9d06-f4b18cb741fe' as CheckpointId, iteration: 1 }),
+		)
+		await seedCheckpoint(
+			baseDir,
+			makeCheckpoint({ id: '97fe065e-1670-458c-be39-9243fcf7e783' as CheckpointId, iteration: 5 }),
+		)
+		await seedCheckpoint(
+			baseDir,
+			makeCheckpoint({ id: 'f7908c7d-9d45-4d5b-a8c0-11e9f59d9510' as CheckpointId, iteration: 3 }),
+		)
 
 		const prepared = await prepareReplayState({
 			baseDir,
@@ -99,7 +108,7 @@ describe('prepareReplayState', () => {
 			fromCheckpoint: 'latest',
 		})
 
-		expect(prepared.sourceCheckpoint.id).toBe('cp_b')
+		expect(prepared.sourceCheckpoint.id).toBe('97fe065e-1670-458c-be39-9243fcf7e783')
 		expect(prepared.sourceCheckpoint.iteration).toBe(5)
 	})
 
@@ -118,7 +127,7 @@ describe('prepareReplayState', () => {
 			prepareReplayState({
 				baseDir,
 				runId: RUN_ID,
-				fromCheckpoint: 'cp_missing' as CheckpointId,
+				fromCheckpoint: 'e8e27c68-a53c-4003-9fbe-3349649af71a' as CheckpointId,
 			}),
 		).rejects.toThrow(/not found/)
 	})
@@ -130,7 +139,7 @@ describe('prepareReplayState', () => {
 			toolCalls: [{ id: 'call_a', type: 'function', function: { name: 'noop', arguments: '{}' } }],
 		}
 		const cp = makeCheckpoint({
-			id: 'cp_with_tool' as CheckpointId,
+			id: '77b62568-8f82-427b-ba26-8cf13e67bece' as CheckpointId,
 			messages: [{ role: 'user', content: 'run tool' }, assistantMsg],
 		})
 		await seedCheckpoint(baseDir, cp)
@@ -146,7 +155,7 @@ describe('prepareReplayState', () => {
 		const prepared = await prepareReplayState({
 			baseDir,
 			runId: RUN_ID,
-			fromCheckpoint: 'cp_with_tool' as CheckpointId,
+			fromCheckpoint: '77b62568-8f82-427b-ba26-8cf13e67bece' as CheckpointId,
 			mutate: mutations,
 		})
 
@@ -159,7 +168,7 @@ describe('prepareReplayState', () => {
 	})
 
 	it.each([
-		['esave_xyz', 'cp_emergency_xyz'],
+		['550e8400-e29b-41d4-a716-446655440000', '550e8400-e29b-41d4-a716-446655440000'],
 		['5985bc78-64b1-438b-972f-96d5dc0c5af0', '5985bc78-64b1-438b-972f-96d5dc0c5af0'],
 	])('resolves emergency dump %s with stable projection %s', async (emergencyId, checkpointId) => {
 		const dump: EmergencySaveData = {

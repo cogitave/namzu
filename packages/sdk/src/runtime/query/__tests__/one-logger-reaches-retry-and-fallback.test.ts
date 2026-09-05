@@ -169,10 +169,10 @@ describe('the run logger reaches withProviderRetry, withProviderFallback and bui
 			agentId: 'agent_shared_logger',
 			agentName: 'Shared Logger Agent',
 			workingDirectory: await mkWorkdir(),
-			sessionId: 'ses_shared' as SessionId,
-			topicId: 'top_shared' as TopicId,
-			projectId: 'prj_shared' as ProjectId,
-			tenantId: 'tnt_shared' as TenantId,
+			sessionId: '5aabc908-376a-4234-a859-27c11efa0629' as SessionId,
+			topicId: '234deb8e-6874-4e58-aec2-cc71f02a9acc' as TopicId,
+			projectId: '26d5a654-f9c9-4e11-b85f-e9fa5eba024e' as ProjectId,
+			tenantId: '548e2211-1612-4921-92d1-67f29ef4c05e' as TenantId,
 			messages: [createUserMessage('hello')],
 		})
 

@@ -2,7 +2,7 @@ import type { Id } from './brand.js'
 
 /**
  * Entity ids are opaque branded strings. Factories mint UUIDs; checked
- * constructors also preserve safe ids written with earlier type prefixes.
+ * constructors reject every other spelling, including earlier type prefixes.
  * A RunId cannot be assigned to a SessionId even though their wire shapes
  * are identical. Persisted records and typed fields establish the kind,
  * not the spelling of the id.
@@ -88,8 +88,7 @@ export type KnowledgeBaseRef = Id<'KnowledgeBaseRef'>
 // Session hierarchy identities; types/session/ids.ts re-exports these.
 export type ProjectId = Id<'ProjectId'>
 /**
- * A topic is distinct from its project. Legacy `top_` values remain valid;
- * the ambiguous pre-0.2 `thd_` container prefix remains retired.
+ * A topic is distinct from its project; each carries its own opaque UUID.
  */
 export type TopicId = Id<'TopicId'>
 export type SubSessionId = Id<'SubSessionId'>
@@ -99,9 +98,8 @@ export type SummaryId = Id<'SummaryId'>
 export type DeliverableId = Id<'DeliverableId'>
 
 /**
- * A persisted record carries a retired or mismatched legacy prefix. Readers
- * must not guess its kind or silently rewrite references. UUIDs are accepted
- * independently of these legacy prefixes by the checked constructors.
+ * @deprecated All prefixed IDs are rejected by InvalidIdError. This error
+ * remains exported for callers that referenced the earlier exception type.
  */
 export class RetiredIdPrefixError extends Error {
 	constructor(

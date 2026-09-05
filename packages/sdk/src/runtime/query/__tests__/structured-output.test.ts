@@ -32,7 +32,7 @@ import { IterationOrchestrator } from '../iteration/index.js'
  * mismatch surfaced as a ZodError AFTER the run had paid for itself.
  */
 
-const RUN_ID = 'run_so' as RunId
+const RUN_ID = '070b6782-57c9-48a7-9237-79bdc514c060' as RunId
 
 const SCHEMA = z.object({
 	verdict: z.enum(['pass', 'fail']),
@@ -159,7 +159,8 @@ function harness(opts: {
 		emitEvent: async () => {},
 		drainPending: function* (): Generator<RunEvent> {},
 		checkpointMgr: {
-			create: async () => ({ id: 'cp_1' }) as unknown as IterationCheckpoint,
+			create: async () =>
+				({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as unknown as IterationCheckpoint,
 		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		planManager: { active: null } as unknown as PlanManager,

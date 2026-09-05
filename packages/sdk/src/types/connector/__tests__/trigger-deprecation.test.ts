@@ -67,7 +67,7 @@ describe('the connector-trigger migration window', () => {
 			event: 'issue.created',
 		}
 		const definition: ConnectorDefinition = {
-			id: 'conn_host_subscription' as ConnectorId,
+			id: 'ac804b45-7a99-41cb-83ee-90304785ce29' as ConnectorId,
 			name: 'Host subscription',
 			description: 'The host, not the SDK, dispatches this event',
 			connectionType: 'custom',

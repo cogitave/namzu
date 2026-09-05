@@ -26,11 +26,11 @@ import { RunDiskStore } from '../run/disk.js'
  * every limit, so the guard that exists to stop it never stops it.
  */
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 
 function checkpoint(overrides: Partial<IterationCheckpoint> = {}): IterationCheckpoint {
 	return {
-		id: 'cp_1' as CheckpointId,
+		id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 		runId: RID,
 		iteration: 2,
 		messages: [],
@@ -75,7 +75,12 @@ describe('a checkpoint on disk', () => {
 		// parses, so asking the store back cannot tell a stamped file from
 		// an unstamped one. The stamp only does its job if it is in the
 		// bytes another build will read.
-		const raw = JSON.parse(await readFile(join(dir, RID, 'checkpoints', 'cp_1.json'), 'utf-8')) as {
+		const raw = JSON.parse(
+			await readFile(
+				join(dir, RID, 'checkpoints', '62d8ff8a-122d-4369-8274-e1f1dc479c1c.json'),
+				'utf-8',
+			),
+		) as {
 			schemaVersion?: number
 		}
 		expect(raw.schemaVersion).toBe(1)
@@ -93,23 +98,26 @@ describe('a checkpoint on disk', () => {
 	it('reads an unstamped record written before this existed', async () => {
 		// Optional-additive is the established practice here; an older file
 		// must keep working.
-		const { ...bare } = checkpoint({ id: 'cp_old' as CheckpointId })
-		await writeRaw('cp_old', bare)
+		const { ...bare } = checkpoint({ id: '1c3ddf84-c909-49e2-ba08-862f7b279d85' as CheckpointId })
+		await writeRaw('1c3ddf84-c909-49e2-ba08-862f7b279d85', bare)
 
-		expect((await store.readCheckpoint('cp_old' as CheckpointId))?.iteration).toBe(2)
+		expect(
+			(await store.readCheckpoint('1c3ddf84-c909-49e2-ba08-862f7b279d85' as CheckpointId))
+				?.iteration,
+		).toBe(2)
 	})
 
 	it('refuses a record from a future version rather than reading it partially', async () => {
-		await writeRaw('cp_future', {
-			...checkpoint({ id: 'cp_future' as CheckpointId }),
+		await writeRaw('25cb7aeb-2cc1-44bd-9a2f-0fe4ee6e4701', {
+			...checkpoint({ id: '25cb7aeb-2cc1-44bd-9a2f-0fe4ee6e4701' as CheckpointId }),
 			schemaVersion: 99,
 		})
 
 		// Reading it with today's parser silently drops the fields this
 		// build does not know about, and writing it back loses them.
-		await expect(store.readCheckpoint('cp_future' as CheckpointId)).rejects.toThrow(
-			/schema version 99/,
-		)
+		await expect(
+			store.readCheckpoint('25cb7aeb-2cc1-44bd-9a2f-0fe4ee6e4701' as CheckpointId),
+		).rejects.toThrow(/schema version 99/)
 	})
 })
 
@@ -134,42 +142,48 @@ describe('budget state a resume dereferences', () => {
 	}
 
 	it('refuses a checkpoint with no cost information', async () => {
-		const { costInfo: _dropped, ...rest } = checkpoint({ id: 'cp_nocost' as CheckpointId })
-		await writeRaw('cp_nocost', rest)
+		const { costInfo: _dropped, ...rest } = checkpoint({
+			id: 'b4d6bed6-564a-40bc-abc7-8491eee78516' as CheckpointId,
+		})
+		await writeRaw('b4d6bed6-564a-40bc-abc7-8491eee78516', rest)
 
 		// A run that resumes with an undefined cap is worse than one that
 		// refuses to resume: it looks healthy and never stops.
-		await expect(store.readCheckpoint('cp_nocost' as CheckpointId)).rejects.toThrow(
-			/malformed budget state/,
-		)
+		await expect(
+			store.readCheckpoint('b4d6bed6-564a-40bc-abc7-8491eee78516' as CheckpointId),
+		).rejects.toThrow(/malformed budget state/)
 	})
 
 	it('refuses a NaN budget, which compares false against every limit', async () => {
-		await writeRaw('cp_nan', {
-			...checkpoint({ id: 'cp_nan' as CheckpointId }),
+		await writeRaw('724ac6ec-829d-450c-9fb8-302e5d3d6b0a', {
+			...checkpoint({ id: '724ac6ec-829d-450c-9fb8-302e5d3d6b0a' as CheckpointId }),
 			// JSON has no NaN; this is what a serialized one becomes.
 			costInfo: { totalCost: null },
 		})
 
-		await expect(store.readCheckpoint('cp_nan' as CheckpointId)).rejects.toThrow(
-			/malformed budget state/,
-		)
+		await expect(
+			store.readCheckpoint('724ac6ec-829d-450c-9fb8-302e5d3d6b0a' as CheckpointId),
+		).rejects.toThrow(/malformed budget state/)
 	})
 
 	it('refuses a missing guard state', async () => {
-		const { guardState: _dropped, ...rest } = checkpoint({ id: 'cp_noguard' as CheckpointId })
-		await writeRaw('cp_noguard', rest)
+		const { guardState: _dropped, ...rest } = checkpoint({
+			id: '8f6bb748-e023-41c3-ad3c-e00d42539faf' as CheckpointId,
+		})
+		await writeRaw('8f6bb748-e023-41c3-ad3c-e00d42539faf', rest)
 
-		await expect(store.readCheckpoint('cp_noguard' as CheckpointId)).rejects.toThrow(
-			/malformed budget state/,
-		)
+		await expect(
+			store.readCheckpoint('8f6bb748-e023-41c3-ad3c-e00d42539faf' as CheckpointId),
+		).rejects.toThrow(/malformed budget state/)
 	})
 
 	it('applies the same refusal to the listing path', async () => {
 		// Two read paths disagreeing about whether damage matters is how the
 		// lenient one gets trusted.
-		const { costInfo: _dropped, ...rest } = checkpoint({ id: 'cp_listed' as CheckpointId })
-		await writeRaw('cp_listed', rest)
+		const { costInfo: _dropped, ...rest } = checkpoint({
+			id: 'aa3cf6e8-6548-4518-bdbe-a5fa1ca8f476' as CheckpointId,
+		})
+		await writeRaw('aa3cf6e8-6548-4518-bdbe-a5fa1ca8f476', rest)
 
 		await expect(store.listCheckpoints()).rejects.toThrow(/malformed budget state/)
 	})
@@ -177,7 +191,7 @@ describe('budget state a resume dereferences', () => {
 	it('accepts a zero budget, which is a real value', async () => {
 		await store.writeCheckpoint(
 			checkpoint({
-				id: 'cp_zero' as CheckpointId,
+				id: 'b47cc7d3-0532-46ff-93cf-b31718ef012c' as CheckpointId,
 				tokenUsage: {
 					promptTokens: 0,
 					completionTokens: 0,
@@ -190,6 +204,8 @@ describe('budget state a resume dereferences', () => {
 			}),
 		)
 
-		expect(await store.readCheckpoint('cp_zero' as CheckpointId)).not.toBeNull()
+		expect(
+			await store.readCheckpoint('b47cc7d3-0532-46ff-93cf-b31718ef012c' as CheckpointId),
+		).not.toBeNull()
 	})
 })

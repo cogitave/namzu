@@ -36,11 +36,11 @@ import type { RunStateScope } from '../run-state.js'
  */
 
 const SCOPE: RunStateScope = {
-	tenantId: 'tnt_resume' as TenantId,
-	projectId: 'prj_resume' as ProjectId,
-	sessionId: 'ses_resume' as SessionId,
-	runId: 'run_resume' as RunId,
-	topicId: 'top_resume' as TopicId,
+	tenantId: '31bdf543-d0dc-4022-b64a-09f4d6e8b377' as TenantId,
+	projectId: 'e8110271-6961-4eb4-ac8c-7f55ea83839a' as ProjectId,
+	sessionId: 'a89fa2a8-3672-4495-9a89-ad85ddaf0b50' as SessionId,
+	runId: '9dbf5ebc-ce42-425d-aeee-c60e281113c2' as RunId,
+	topicId: '3cd0ae75-30ea-4858-ae2c-ca6aed6ebe25' as TopicId,
 }
 
 const ZERO_USAGE = {
@@ -185,11 +185,11 @@ describe('a run is picked back up from its store', () => {
 	})
 
 	it.each([
-		['sessionId', 'ses_other' as SessionId],
-		['topicId', 'top_other' as TopicId],
-		['projectId', 'prj_other' as ProjectId],
-		['tenantId', 'tnt_other' as TenantId],
-		['parentRunId', 'run_other_parent' as RunId],
+		['sessionId', '73321b05-67f6-4328-93cc-5bc436e22727' as SessionId],
+		['topicId', '25c69d31-6765-49e0-848e-a189eca3c19a' as TopicId],
+		['projectId', 'dd33c142-d050-42d8-9d06-6167dd8b27d1' as ProjectId],
+		['tenantId', '03857320-0500-482a-85e0-add350d8ffdd' as TenantId],
+		['parentRunId', 'e53b7b64-32f3-4439-8cb1-6c1d13ec5d96' as RunId],
 	] as const)('refuses a mismatched %s before provider work', async (field, value) => {
 		const store = new InMemoryCheckpointStore()
 		await store.writeCheckpoint(SCOPE, checkpoint())
@@ -205,7 +205,10 @@ describe('a run is picked back up from its store', () => {
 
 	it('refuses a checkpoint attributed to a different run than its lookup scope', async () => {
 		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint({ runId: 'run_checkpoint_other' as RunId }))
+		await store.writeCheckpoint(
+			SCOPE,
+			checkpoint({ runId: 'a2c2d074-2ed9-4653-b4b9-7d0589265864' as RunId }),
+		)
 		const candidate = await baseParams(store)
 
 		await expect(resumeRun(candidate)).rejects.toMatchObject({

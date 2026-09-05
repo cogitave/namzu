@@ -37,3 +37,17 @@ describe('--wait-for-provider', () => {
 		expect(() => parseRunFlags(['--wait-for-provider', 'a while'])).toThrow(/--wait-for-provider/)
 	})
 })
+
+describe('--effort', () => {
+	it('preserves an explicit low effort and keeps it out of the prompt', () => {
+		const flags = parseRunFlags(['--effort', 'low', 'go'])
+		expect(flags.effort).toBe('low')
+		expect(flags.rest).toEqual(['go'])
+		expect(parseRunFlags(['--effort=medium']).effort).toBe('medium')
+		expect(parseRunFlags(['go']).effort).toBeNull()
+	})
+	it('rejects invalid levels without silently using a provider default', () => {
+		expect(() => parseRunFlags(['--effort', 'cheap'])).toThrow(/--effort/)
+		expect(() => parseRunFlags(['--effort='])).toThrow(/--effort/)
+	})
+})

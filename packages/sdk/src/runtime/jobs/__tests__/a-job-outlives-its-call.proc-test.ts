@@ -25,7 +25,7 @@ import {
  * registry holds the process for its whole life instead.
  */
 
-const OWNER = 'run_a'
+const OWNER = '90a466e2-f869-4a3c-b750-f2156342ff40'
 const dirs: string[] = []
 
 afterEach(async () => {
@@ -197,7 +197,7 @@ describe('a job dies with its owner', () => {
 			registry.start({ owner: OWNER, command: 'sleep 30', workingDirectory: cwd }),
 		]
 		const theirs = registry.start({
-			owner: 'run_b',
+			owner: 'fe818a89-6a50-4e51-8a91-5f108ad85280',
 			command: 'sleep 30',
 			workingDirectory: cwd,
 		})
@@ -207,7 +207,7 @@ describe('a job dies with its owner', () => {
 		for (const job of mine) expect(registry.get(job.id).status).toBe('killed')
 		// Scoped. One run tearing down must not reach into another's work.
 		expect(registry.get(theirs.id).status).toBe('running')
-		await registry.killOwner('run_b')
+		await registry.killOwner('fe818a89-6a50-4e51-8a91-5f108ad85280')
 	})
 
 	it('says `killed`, not `exited`, for a job this registry stopped', async () => {
@@ -260,11 +260,15 @@ describe('the bounds refuse rather than adjust', () => {
 		const cwd = await workdir()
 		registry.start({ owner: OWNER, command: 'sleep 30', workingDirectory: cwd })
 
-		const theirs = registry.start({ owner: 'run_b', command: 'sleep 30', workingDirectory: cwd })
+		const theirs = registry.start({
+			owner: 'fe818a89-6a50-4e51-8a91-5f108ad85280',
+			command: 'sleep 30',
+			workingDirectory: cwd,
+		})
 
 		expect(theirs.status).toBe('running')
 		await registry.killOwner(OWNER)
-		await registry.killOwner('run_b')
+		await registry.killOwner('fe818a89-6a50-4e51-8a91-5f108ad85280')
 	})
 
 	it('frees a slot when a job ends', async () => {

@@ -72,7 +72,11 @@ describe('Codex request projection', () => {
 			accessToken: 'access',
 			accountId: 'account',
 		})
-		;(provider as unknown as { client: { responses: { create: typeof create } } }).client = {
+		;(
+			provider as unknown as {
+				client: { responses: { create: typeof create } }
+			}
+		).client = {
 			responses: { create },
 		}
 
@@ -212,7 +216,11 @@ describe('Codex request projection', () => {
 				role: 'user',
 				content: [
 					{ type: 'input_text', text: 'compare' },
-					{ type: 'input_image', detail: 'auto', image_url: 'data:image/png;base64,UE5H' },
+					{
+						type: 'input_image',
+						detail: 'auto',
+						image_url: 'data:image/png;base64,UE5H',
+					},
 					{
 						type: 'input_image',
 						detail: 'auto',
@@ -243,7 +251,14 @@ describe('Codex request projection', () => {
 			user({
 				role: 'user',
 				content: 'stored',
-				attachments: [{ type: 'stored', ref: 'ref_1', kind: 'image', mediaType: 'image/png' }],
+				attachments: [
+					{
+						type: 'stored',
+						ref: 'ref_1',
+						kind: 'image',
+						mediaType: 'image/png',
+					},
+				],
 			}),
 		).toThrow(/unresolved stored attachment/)
 		expect(() =>
@@ -251,7 +266,12 @@ describe('Codex request projection', () => {
 				role: 'user',
 				content: 'pdf',
 				attachments: [
-					{ type: 'document', data: 'UERG', mediaType: 'application/pdf', name: 'x.pdf' },
+					{
+						type: 'document',
+						data: 'UERG',
+						mediaType: 'application/pdf',
+						name: 'x.pdf',
+					},
 				],
 			}),
 		).toThrow(/does not support document input/)
@@ -415,7 +435,7 @@ it('sends the Codex account-routed Responses wire and streams text, tools and re
 					output: [
 						{
 							type: 'message',
-							id: 'msg_1',
+							id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 							role: 'assistant',
 							status: 'completed',
 							content: [{ type: 'output_text', text: 'hello', annotations: [] }],

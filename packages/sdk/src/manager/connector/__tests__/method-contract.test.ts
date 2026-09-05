@@ -22,8 +22,8 @@ import type { ToolContext } from '../../../types/tool/index.js'
 import { asConnectorId } from '../../../utils/id.js'
 import { ConnectorManager } from '../lifecycle.js'
 
-const CONNECTOR_ID = asConnectorId('conn_method_contract')
-const OTHER_ID = asConnectorId('conn_mutated_projection')
+const CONNECTOR_ID = asConnectorId('0d61cea4-5fb3-41db-896f-1f9a6cd2cefe')
+const OTHER_ID = asConnectorId('2642707d-28fe-4a14-b30e-02775700f3ed')
 
 class ContractConnector extends BaseConnector<Record<string, never>> {
 	readonly id = CONNECTOR_ID

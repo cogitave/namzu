@@ -104,7 +104,7 @@ export interface ShellHookEntry {
 export type ShellHooksConfig = { readonly [event in ShellHookEvent]?: readonly ShellHookEntry[] }
 
 /** The plugin id host shell hooks register under when the host names none. */
-export const SHELL_HOOKS_PLUGIN_ID: PluginId = asPluginId('plg_shell-hooks')
+export const SHELL_HOOKS_PLUGIN_ID: PluginId = asPluginId('6d6f6bec-9d54-485b-90ca-52edbac1009d')
 
 export const DEFAULT_SHELL_HOOK_TIMEOUT_MS = 30_000
 export const MAX_SHELL_HOOK_TIMEOUT_MS = 10 * 60_000

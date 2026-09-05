@@ -38,7 +38,7 @@ function recordingProvider(): { provider: AdvisorDefinition['provider']; calls: 
 
 function advisor(over: Partial<AdvisorDefinition> = {}): AdvisorDefinition {
 	return {
-		id: 'adv_1',
+		id: '14dec49a-1a5d-460a-9c0c-6a2b60568cba',
 		name: 'Reviewer',
 		provider: recordingProvider().provider,
 		model: 'mock-model',
@@ -101,7 +101,11 @@ describe('what the advisor actually receives', () => {
 
 		await executor.consult(
 			advisor({ provider }),
-			{ advisorId: 'adv_1', question: 'what next?', includeContext: true },
+			{
+				advisorId: '14dec49a-1a5d-460a-9c0c-6a2b60568cba',
+				question: 'what next?',
+				includeContext: true,
+			},
 			{ messages: [{ role: 'user', content: 'deploy is failing', timestamp: 1 }], iteration: 2 },
 		)
 
@@ -115,7 +119,11 @@ describe('what the advisor actually receives', () => {
 
 		await executor.consult(
 			advisor({ provider }),
-			{ advisorId: 'adv_1', question: 'what next?', includeContext: false },
+			{
+				advisorId: '14dec49a-1a5d-460a-9c0c-6a2b60568cba',
+				question: 'what next?',
+				includeContext: false,
+			},
 			{ messages: [{ role: 'user', content: 'deploy is failing', timestamp: 1 }], iteration: 2 },
 		)
 
@@ -128,7 +136,11 @@ describe('what the advisor actually receives', () => {
 
 		await executor.consult(
 			advisor({ provider }),
-			{ advisorId: 'adv_1', question: 'what next?', urgency: 'high' },
+			{
+				advisorId: '14dec49a-1a5d-460a-9c0c-6a2b60568cba',
+				question: 'what next?',
+				urgency: 'high',
+			},
 			{ messages: [], iteration: 1 },
 		)
 
@@ -143,7 +155,7 @@ describe('what the advisor actually receives', () => {
 
 		await executor.consult(
 			advisor({ provider }),
-			{ advisorId: 'adv_1', question: 'what next?', urgency: 'low' },
+			{ advisorId: '14dec49a-1a5d-460a-9c0c-6a2b60568cba', question: 'what next?', urgency: 'low' },
 			{ messages: [], iteration: 1 },
 		)
 
@@ -157,12 +169,20 @@ describe('what the advisor actually receives', () => {
 
 		await executor.consult(
 			a,
-			{ advisorId: 'adv_1', question: 'what next?', urgency: 'normal' },
+			{
+				advisorId: '14dec49a-1a5d-460a-9c0c-6a2b60568cba',
+				question: 'what next?',
+				urgency: 'normal',
+			},
 			{ messages: [], iteration: 1 },
 		)
 		await executor.consult(
 			a,
-			{ advisorId: 'adv_1', question: 'what next?', urgency: 'high' },
+			{
+				advisorId: '14dec49a-1a5d-460a-9c0c-6a2b60568cba',
+				question: 'what next?',
+				urgency: 'high',
+			},
 			{ messages: [], iteration: 1 },
 		)
 
@@ -182,7 +202,7 @@ describe('what the advisor actually receives', () => {
 
 		await executor.consult(
 			advisor({ provider }),
-			{ advisorId: 'adv_1', question: 'what next?' },
+			{ advisorId: '14dec49a-1a5d-460a-9c0c-6a2b60568cba', question: 'what next?' },
 			{ messages: [], iteration: 1 },
 		)
 

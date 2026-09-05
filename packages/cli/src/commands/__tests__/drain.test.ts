@@ -17,7 +17,7 @@ import type { CommandContext } from '../types.js'
 
 const drainRuns = vi.fn()
 const constructedStores: unknown[] = []
-const agentSpies = vi.hoisted(() => ({ createAgentSession: vi.fn() }))
+const agentSpies = vi.hoisted(() => ({ createAgentSession: vi.fn(), getSession: vi.fn() }))
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
@@ -25,6 +25,9 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 		...actual,
 		configureLogger: () => {},
 		drainRuns: (params: unknown) => drainRuns(params),
+		DiskSessionStore: class {
+			getSession = agentSpies.getSession
+		},
 		DiskCheckpointStore: class {
 			constructor(config: unknown, attribution: unknown) {
 				constructedStores.push({ config, attribution })
@@ -90,22 +93,29 @@ const SCOPE_ARGS = [
 	'--store',
 	'/tmp/runs',
 	'--tenant',
-	'tnt_x',
+	'6ab233e0-9e27-4517-8861-61d4b85f396e',
 	'--project',
-	'prj_x',
+	'3f488113-b658-4c23-833c-69d1e9072a19',
 	'--session',
-	'ses_x',
+	'02b19846-c793-4e21-9c6e-21962a7d2de5',
 ]
 
 const ENTRY = {
-	tenantId: 'tnt_x',
-	projectId: 'prj_x',
-	sessionId: 'ses_x',
-	runId: 'run_1',
+	tenantId: '6ab233e0-9e27-4517-8861-61d4b85f396e',
+	projectId: '3f488113-b658-4c23-833c-69d1e9072a19',
+	sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5',
+	runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 	checkpointCount: 2,
-	latestCheckpointId: 'cp_2',
+	latestCheckpointId: '7802b395-981e-430a-86c7-058cb79dbaf9',
 	latestCheckpointAt: 5,
 }
+
+agentSpies.getSession.mockResolvedValue({
+	id: ENTRY.sessionId,
+	projectId: ENTRY.projectId,
+	tenantId: ENTRY.tenantId,
+	topicId: '66b7abae-e8da-4a77-9f42-3405e7b7d5f5',
+})
 
 const CLAIM = { holder: 'w', fence: 7, expiresAt: Date.now() + 60_000 }
 
@@ -115,7 +125,7 @@ function drainsOneRun(): void {
 		await params.onRun(ENTRY, CLAIM)
 		return {
 			listed: 1,
-			drained: ['run_1'],
+			drained: ['37ddff8e-e13f-4e57-937f-d048fa323f5e'],
 			skipped: [],
 			stale: [],
 			failed: [],
@@ -127,7 +137,7 @@ function drainsOneRun(): void {
 
 describe('refusing a pass whose scope nobody named', () => {
 	it('refuses without a store rather than defaulting to a path', () => {
-		const flags = parseDrainFlags(['--tenant', 'tnt_x'])
+		const flags = parseDrainFlags(['--tenant', '6ab233e0-9e27-4517-8861-61d4b85f396e'])
 		expect(flags.store).toBeNull()
 	})
 
@@ -149,22 +159,39 @@ describe('refusing a pass whose scope nobody named', () => {
 	// listed nothing — and "no runs" is the same output as a scope that really
 	// is empty, so the typo was invisible.
 	it.each([
-		['tenant', { tenant: 'prj_a', project: 'prj_a', session: 'ses_a' }, 'tnt_'],
-		['project', { tenant: 'tnt_a', project: 'ses_a', session: 'ses_a' }, 'prj_'],
-		['session', { tenant: 'tnt_a', project: 'prj_a', session: 'tnt_a' }, 'ses_'],
-	])('refuses a --%s that is not one, naming the prefix it wanted', (_flag, flags, prefix) => {
-		const result = resolveDrainScope(flags)
-		expect(result).toMatchObject({ error: expect.stringContaining(prefix) })
-		expect(result).toMatchObject({
-			error: expect.stringContaining('--tenant, --project and --session'),
-		})
-	})
+		['tenant', { tenant: 'tnt_old', project: ENTRY.projectId, session: ENTRY.sessionId }, 'tenant'],
+		[
+			'project',
+			{ tenant: ENTRY.tenantId, project: 'prj_old', session: ENTRY.sessionId },
+			'project',
+		],
+		[
+			'session',
+			{ tenant: ENTRY.tenantId, project: ENTRY.projectId, session: 'ses_unsupported_identifier' },
+			'session',
+		],
+	])(
+		'refuses a --%s that is not one, naming the entity field it rejected',
+		(_flag, flags, prefix) => {
+			const result = resolveDrainScope(flags)
+			expect(result).toMatchObject({ error: expect.stringContaining(prefix) })
+			expect(result).toMatchObject({
+				error: expect.stringContaining('--tenant, --project and --session'),
+			})
+		},
+	)
 
-	it('takes the full prefix when it is given', () => {
-		expect(resolveDrainScope({ tenant: 'tnt_a', project: 'prj_a', session: 'ses_a' })).toEqual({
-			tenantId: 'tnt_a',
-			projectId: 'prj_a',
-			sessionId: 'ses_a',
+	it('accepts UUIDs in every scope field', () => {
+		expect(
+			resolveDrainScope({
+				tenant: '17697cab-7e61-4b71-be7c-ea8e4c418a35',
+				project: '912b9ccc-bd50-44fc-80fd-0229154e8a81',
+				session: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d',
+			}),
+		).toEqual({
+			tenantId: '17697cab-7e61-4b71-be7c-ea8e4c418a35',
+			projectId: '912b9ccc-bd50-44fc-80fd-0229154e8a81',
+			sessionId: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d',
 		})
 	})
 
@@ -173,7 +200,10 @@ describe('refusing a pass whose scope nobody named', () => {
 		// so `tnt_x` really is unrecognised once `--tenat` failed to consume
 		// it — and reporting only the typo would leave the operator reading a
 		// refusal that does not mention the id they thought they passed.
-		expect(parseDrainFlags(['--tenat', 'tnt_x']).unknown).toEqual(['--tenat', 'tnt_x'])
+		expect(parseDrainFlags(['--tenat', '6ab233e0-9e27-4517-8861-61d4b85f396e']).unknown).toEqual([
+			'--tenat',
+			'6ab233e0-9e27-4517-8861-61d4b85f396e',
+		])
 	})
 
 	it('reads a value written with an equals sign', () => {
@@ -188,7 +218,10 @@ describe('the command refuses before it opens anything', () => {
 	it('exits 64 with no --store, and never reaches the drain', async () => {
 		drainRuns.mockClear()
 		const { ctx, errors } = contextCapturing()
-		const code = await drainCommand.handler({ ctx, rawArgs: ['--tenant', 'tnt_x'] })
+		const code = await drainCommand.handler({
+			ctx,
+			rawArgs: ['--tenant', '6ab233e0-9e27-4517-8861-61d4b85f396e'],
+		})
 		expect(code).toBe(64)
 		expect(errors[0]).toContain('--store is required')
 		expect(drainRuns).not.toHaveBeenCalled()
@@ -205,6 +238,15 @@ describe('the command refuses before it opens anything', () => {
 })
 
 describe('the drain is actually reached', () => {
+	it('refuses a checkpoint-only scope without its persisted Session before creating a provider', async () => {
+		agentSpies.createAgentSession.mockClear()
+		agentSpies.getSession.mockResolvedValueOnce(null)
+		const { ctx, errors } = contextCapturing()
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(64)
+		expect(errors.join(' ')).toContain('cannot resolve the drain session')
+		expect(agentSpies.createAgentSession).not.toHaveBeenCalled()
+	})
+
 	it('drains the scope the operator named, under a holder and a lease', async () => {
 		drainRuns.mockClear()
 		agentSpies.createAgentSession.mockClear()
@@ -219,7 +261,11 @@ describe('the drain is actually reached', () => {
 		expect(code).toBe(0)
 		expect(drainRuns).toHaveBeenCalledTimes(1)
 		expect(drainRuns.mock.calls[0]?.[0]).toMatchObject({
-			scope: { tenantId: 'tnt_x', projectId: 'prj_x', sessionId: 'ses_x' },
+			scope: {
+				tenantId: '6ab233e0-9e27-4517-8861-61d4b85f396e',
+				projectId: '3f488113-b658-4c23-833c-69d1e9072a19',
+				sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5',
+			},
 			holder: 'w_one',
 			ttlMs: 1000,
 			maxConcurrent: 3,
@@ -228,10 +274,10 @@ describe('the drain is actually reached', () => {
 		expect(agentSpies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({
 			stateRoot: process.env.NAMZU_HOME,
 			scope: {
-				tenantId: 'tnt_x',
-				projectId: 'prj_x',
-				sessionId: 'ses_x',
-				topicId: 'top_namzu-cli',
+				tenantId: '6ab233e0-9e27-4517-8861-61d4b85f396e',
+				projectId: '3f488113-b658-4c23-833c-69d1e9072a19',
+				sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5',
+				topicId: '66b7abae-e8da-4a77-9f42-3405e7b7d5f5',
 			},
 		})
 	})
@@ -264,7 +310,7 @@ describe('the resume is actually reached, carrying the fence', () => {
 			entry: { runId: string }
 			claimFence: number
 		}
-		expect(params.entry.runId).toBe('run_1')
+		expect(params.entry.runId).toBe('37ddff8e-e13f-4e57-937f-d048fa323f5e')
 		// Deleting `claimFence` here leaves every durable write the resumed run
 		// makes unfenced — so a drainer stalled past its lease overwrites the
 		// record of whoever took the run over, with no error anywhere. This
@@ -285,7 +331,10 @@ describe('the resume is actually reached, carrying the fence', () => {
 		const code = await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
 
 		expect(code).toBe(0)
-		expect(printed[0]).toMatchObject({ awaitingDecision: ['run_1'], resumed: 0 })
+		expect(printed[0]).toMatchObject({
+			awaitingDecision: ['37ddff8e-e13f-4e57-937f-d048fa323f5e'],
+			resumed: 0,
+		})
 	})
 
 	it('reports a run with nothing to continue as its own outcome', async () => {
@@ -304,7 +353,10 @@ describe('the resume is actually reached, carrying the fence', () => {
 		// person and the other is a dead end, and an operator who cannot tell
 		// them apart either chases a human who owes nothing or ignores one who
 		// does.
-		expect(printed[0]).toMatchObject({ noCheckpoint: ['run_1'], awaitingDecision: [] })
+		expect(printed[0]).toMatchObject({
+			noCheckpoint: ['37ddff8e-e13f-4e57-937f-d048fa323f5e'],
+			awaitingDecision: [],
+		})
 	})
 })
 
@@ -316,7 +368,7 @@ describe('what the pass reports', () => {
 			drained: [],
 			skipped: [],
 			stale: [],
-			failed: [{ runId: 'run_bad', error: 'provider refused' }],
+			failed: [{ runId: '98f4c7fe-b91e-4662-8e97-3fb709d90a6a', error: 'provider refused' }],
 			unreleased: [],
 			stopped: false,
 		})
@@ -325,7 +377,7 @@ describe('what the pass reports', () => {
 		const code = await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
 
 		expect(code).toBe(1)
-		expect(errors.join(' ')).toContain('run_bad: provider refused')
+		expect(errors.join(' ')).toContain('98f4c7fe-b91e-4662-8e97-3fb709d90a6a: provider refused')
 	})
 
 	it('surfaces a refusal from the drain rather than reporting an empty pass', async () => {
@@ -346,11 +398,11 @@ describe('what the pass reports', () => {
 		drainRuns.mockClear()
 		drainRuns.mockResolvedValueOnce({
 			listed: 1,
-			drained: ['run_1'],
+			drained: ['37ddff8e-e13f-4e57-937f-d048fa323f5e'],
 			skipped: [],
 			stale: [],
 			failed: [],
-			unreleased: [{ runId: 'run_1', error: 'disk went away' }],
+			unreleased: [{ runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e', error: 'disk went away' }],
 			stopped: false,
 		})
 		const { ctx, errors, printed } = contextCapturing()
@@ -362,6 +414,8 @@ describe('what the pass reports', () => {
 		// operator watching throughput has to be given.
 		expect(code).toBe(0)
 		expect(errors.join(' ')).toContain('lease not released')
-		expect(printed[0]).toMatchObject({ unreleased: [{ runId: 'run_1' }] })
+		expect(printed[0]).toMatchObject({
+			unreleased: [{ runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' }],
+		})
 	})
 })

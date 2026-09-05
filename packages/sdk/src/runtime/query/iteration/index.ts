@@ -312,8 +312,9 @@ export class IterationOrchestrator {
 						'namzu.runtime.input_tokens': runMgr.tokenUsage.promptTokens,
 						'namzu.runtime.output_tokens': runMgr.tokenUsage.completionTokens,
 					})
-					await this.requestFinalResponse(model, stopReason)
-					yield* this.ctx.drainPending()
+					// A hard stop has no budget left for another model request.
+					// Closing prose is requested at the warning threshold while
+					// headroom remains; the completed work is already in history.
 					runMgr.setStopReason(stopReason)
 					break
 				}
@@ -1079,12 +1080,13 @@ export class IterationOrchestrator {
 							continue
 						}
 
+						let closingStopReason: StopReason | undefined
 						if (!hasContent && !forceFinalize) {
 							this.ctx.log.warn('Empty completion detected — requesting final summary', {
 								[NAMZU.ITERATION]: iterationNum,
 								'namzu.runtime.finish_reason': response.finishReason,
 							})
-							await this.requestFinalResponse(model, 'end_turn')
+							closingStopReason = await this.requestFinalResponse(model, 'end_turn')
 							yield* this.ctx.drainPending()
 						}
 
@@ -1115,7 +1117,10 @@ export class IterationOrchestrator {
 						// also settle as `end_turn`, and there the deferred predicate
 						// is not why the run ended: those decided the answer
 						// themselves.
-						runMgr.setStopReason(stopWasDeferredForOutstandingWork ? 'stop_condition' : 'end_turn')
+						runMgr.setStopReason(
+							closingStopReason ??
+								(stopWasDeferredForOutstandingWork ? 'stop_condition' : 'end_turn'),
+						)
 						break
 					}
 
@@ -2029,7 +2034,10 @@ export class IterationOrchestrator {
 		})
 	}
 
-	private async requestFinalResponse(model: string, reason: StopReason): Promise<void> {
+	private async requestFinalResponse(
+		model: string,
+		reason: StopReason,
+	): Promise<StopReason | undefined> {
 		const lastAssistant = [...this.ctx.runMgr.messages]
 			.reverse()
 			.find((m) => m.role === 'assistant')
@@ -2040,8 +2048,16 @@ export class IterationOrchestrator {
 			lastAssistant.content.length > 0
 
 		if (hasResult) return
+		// An empty completion may itself have exhausted the run. This fallback
+		// is another billed request, so it must pass the same hard limits as
+		// the next normal iteration and preserve their unfinished stop reason.
+		const guardResult = this.ctx.guard.beforeIteration(
+			this.ctx.runMgr,
+			this.ctx.abortController.signal,
+		)
+		if (guardResult.shouldStop) return guardResult.stopReason
 
-		this.ctx.log.info('Requesting final response before limit enforcement', {
+		this.ctx.log.info('Requesting final response after empty completion', {
 			'namzu.runtime.reason': reason,
 		})
 
@@ -2145,6 +2161,7 @@ export class IterationOrchestrator {
 				'exception.message': toErrorMessage(err),
 			})
 		}
+		return undefined
 	}
 }
 

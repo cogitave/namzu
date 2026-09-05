@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SubagentActivityMonitor } from '../activity.js'
 
-const runId = 'run_child' as RunId
+const runId = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId
 const taskId = 'tsk_child' as TaskId
 
 function handle(state: TaskHandle['state'] = 'completed'): TaskHandle {
@@ -161,7 +161,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			type: 'text_delta',
 			runId,
 			iteration: 1,
-			messageId: 'msg_child' as never,
+			messageId: '1da50733-c95c-497d-bce1-7daba192276c' as never,
 			text: 'found it',
 		} as RunEvent)
 

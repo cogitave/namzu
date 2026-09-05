@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -38,10 +39,10 @@ describe('feedback survives the process that recorded it', () => {
 		dirs.push(root)
 		const runsDir = join(root, 'runs')
 		const feedbackDir = join(root, 'feedback')
-		await mkdir(join(runsDir, 'run_proc'), { recursive: true })
+		await mkdir(join(runsDir, 'ea18dfb2-57ba-47cc-b667-56a2426d0584'), { recursive: true })
 		await writeFile(
-			join(runsDir, 'run_proc', 'transcript.jsonl'),
-			`${JSON.stringify({ seq: 1, type: 'text_delta', runId: 'run_proc', messageId: 'msg_p1' })}\n`,
+			join(runsDir, 'ea18dfb2-57ba-47cc-b667-56a2426d0584', 'transcript.jsonl'),
+			`${JSON.stringify({ seq: 1, type: 'text_delta', runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584', messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a' })}\n`,
 		)
 
 		const common = `const { DiskMessageFeedbackStore } = await import(${JSON.stringify(DIST)})
@@ -49,19 +50,19 @@ describe('feedback survives the process that recorded it', () => {
 
 		run(`(async () => {
 			${common}
-			await store.putMessageFeedback({ runId: 'run_proc', messageId: 'msg_p1', rating: 'bad', note: 'wrong file', expectedVersion: 0 })
+			await store.putMessageFeedback({ runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584', messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a', rating: 'bad', note: 'wrong file', expectedVersion: 0 })
 		})()`)
 
 		const out = run(`(async () => {
 			${common}
-			const listed = await store.listMessageFeedback({ runId: 'run_proc' })
+			const listed = await store.listMessageFeedback({ runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584' })
 			process.stdout.write(JSON.stringify(listed))
 		})()`)
 
 		expect(JSON.parse(out)).toEqual([
 			expect.objectContaining({
-				runId: 'run_proc',
-				messageId: 'msg_p1',
+				runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584',
+				messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a',
 				rating: 'bad',
 				note: 'wrong file',
 				ownerVersion: 1,
@@ -77,10 +78,10 @@ describe('feedback survives the process that recorded it', () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-proc2-'))
 		dirs.push(root)
 		const runsDir = join(root, 'runs')
-		await mkdir(join(runsDir, 'run_proc'), { recursive: true })
+		await mkdir(join(runsDir, 'ea18dfb2-57ba-47cc-b667-56a2426d0584'), { recursive: true })
 		await writeFile(
-			join(runsDir, 'run_proc', 'transcript.jsonl'),
-			`${JSON.stringify({ seq: 1, type: 'text_delta', runId: 'run_proc', messageId: 'msg_p1' })}\n`,
+			join(runsDir, 'ea18dfb2-57ba-47cc-b667-56a2426d0584', 'transcript.jsonl'),
+			`${JSON.stringify({ seq: 1, type: 'text_delta', runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584', messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a' })}\n`,
 		)
 		const feedbackDir = join(root, 'feedback')
 
@@ -88,7 +89,7 @@ describe('feedback survives the process that recorded it', () => {
 			const { DiskMessageFeedbackStore } = await import(${JSON.stringify(DIST)})
 			const store = new DiskMessageFeedbackStore({ rootDir: ${JSON.stringify(feedbackDir)}, runsDir: ${JSON.stringify(runsDir)} })
 			try {
-				await store.putMessageFeedback({ runId: 'run_proc', messageId: 'msg_p1', rating: '${rating}', expectedVersion: 0 })
+				await store.putMessageFeedback({ runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584', messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a', rating: '${rating}', expectedVersion: 0 })
 				process.stdout.write('ok')
 			} catch (err) { process.stdout.write(err.name) }
 		})()`
@@ -102,9 +103,9 @@ describe('feedback survives the process that recorded it', () => {
 		dirs.push(root)
 		const runsDir = join(root, 'runs')
 		const feedbackDir = join(root, 'feedback')
-		const runDir = join(runsDir, 'run_feedback_update_proc')
-		const prefix = 'msg_feedback_update_proc_'
-		const ids = Array.from({ length: UPDATE_RECORDS }, (_, index) => `${prefix}${index}`)
+		const runId = randomUUID()
+		const runDir = join(runsDir, runId)
+		const ids = Array.from({ length: UPDATE_RECORDS }, () => randomUUID())
 		await mkdir(runDir, { recursive: true })
 		await writeFile(
 			join(runDir, 'transcript.jsonl'),
@@ -113,7 +114,7 @@ describe('feedback survives the process that recorded it', () => {
 					JSON.stringify({
 						seq: index + 1,
 						type: 'text_delta',
-						runId: 'run_feedback_update_proc',
+						runId,
 						messageId,
 					}),
 				)
@@ -127,7 +128,7 @@ describe('feedback survives the process that recorded it', () => {
 		})
 		for (const messageId of ids) {
 			await seed.putMessageFeedback({
-				runId: 'run_feedback_update_proc' as never,
+				runId: runId as never,
 				messageId: messageId as never,
 				rating: 'good',
 				expectedVersion: 0,
@@ -147,8 +148,7 @@ describe('feedback survives the process that recorded it', () => {
 						DIST_DIR,
 						feedbackDir,
 						runsDir,
-						prefix,
-						String(UPDATE_RECORDS),
+						JSON.stringify({ runId, ids }),
 						`w${index}`,
 						barrier,
 					],
@@ -181,7 +181,7 @@ describe('feedback survives the process that recorded it', () => {
 		const durable = await new DiskMessageFeedbackStore({
 			rootDir: feedbackDir,
 			runsDir,
-		}).listMessageFeedback({ runId: 'run_feedback_update_proc' as never })
+		}).listMessageFeedback({ runId: runId as never })
 		expect(durable).toHaveLength(UPDATE_RECORDS)
 		for (const record of durable) {
 			const winners = byId.get(record.messageId)

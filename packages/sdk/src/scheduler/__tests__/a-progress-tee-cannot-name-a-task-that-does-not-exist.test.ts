@@ -30,7 +30,7 @@ import { LocalTaskScheduler } from '../local.js'
  * three dead.
  */
 
-const RUN = 'run_tee' as RunId
+const RUN = 'd2f20511-18bd-4774-a2a4-641ccbf9e701' as RunId
 
 /** Emits a run event DURING the spawn, before it resolves. */
 class TalksDuringSpawn implements AgentManagerContract {
@@ -56,7 +56,7 @@ class TalksDuringSpawn implements AgentManagerContract {
 		}
 		await Promise.resolve()
 		return {
-			taskId: 'task_spoke_early' as TaskId,
+			taskId: 'de2626c4-4798-48fc-acd4-5a4c03489cbf' as TaskId,
 			agentId: options.agentId,
 			agent: {} as Agent<never, never>,
 			childAbortController: new AbortController(),
@@ -100,11 +100,15 @@ function context(): AgentTaskContext {
 		parentAbortController: new AbortController(),
 		depth: 0,
 		budgetTracker: { total: 100_000, remaining: 100_000 },
-		tenantId: 'tnt_t' as TenantId,
-		topicId: 'top_t' as TopicId,
-		sessionId: 'ses_t' as SessionId,
-		projectId: 'prj_t' as ProjectId,
-		parentActor: { kind: 'agent', agentId: 'supervisor' as AgentId, tenantId: 'tnt_t' as TenantId },
+		tenantId: '2e7341cb-d8d3-424e-bf70-53ceffaf2557' as TenantId,
+		topicId: 'c0e05744-2c2e-498d-a947-77633d012e7c' as TopicId,
+		sessionId: '6124baf7-07f6-4cf6-93c0-b9d238e322bb' as SessionId,
+		projectId: 'ca339f52-3636-4e0a-81ca-4e86e8d8b8b2' as ProjectId,
+		parentActor: {
+			kind: 'agent',
+			agentId: 'supervisor' as AgentId,
+			tenantId: '2e7341cb-d8d3-424e-bf70-53ceffaf2557' as TenantId,
+		},
 	} as AgentTaskContext
 }
 
@@ -121,7 +125,7 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 
 		await expect(
 			gateway.createTask({ agentId: 'worker', prompt: 'go', workingDirectory: '/tmp' }),
-		).resolves.toMatchObject({ taskId: 'task_spoke_early' })
+		).resolves.toMatchObject({ taskId: 'de2626c4-4798-48fc-acd4-5a4c03489cbf' })
 	})
 
 	it('still forwards those events to the host listener', async () => {
@@ -154,7 +158,7 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 		// which is the case an idle bound is actually measuring.
 		manager.speakNow()
 
-		expect(progressed).toEqual(['task_spoke_early' as TaskId])
+		expect(progressed).toEqual(['de2626c4-4798-48fc-acd4-5a4c03489cbf' as TaskId])
 	})
 
 	it('survives a concurrent fan-out, which is how this was found', async () => {

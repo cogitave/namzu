@@ -71,7 +71,10 @@ const PAGE_CITATION = {
 describe('a cited passage reaches the caller', () => {
 	it('emits the citation on the chunk delta', async () => {
 		const chunks = await chunksOf([
-			{ type: 'message_start', message: { id: 'msg_1' } },
+			{
+				type: 'message_start',
+				message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+			},
 			citationEvent(PAGE_CITATION),
 			{ type: 'message_delta', delta: { stop_reason: 'end_turn' } },
 		])
@@ -85,7 +88,10 @@ describe('a cited passage reaches the caller', () => {
 
 	it('does not emit it as text — a citation is not prose', async () => {
 		const chunks = await chunksOf([
-			{ type: 'message_start', message: { id: 'msg_1' } },
+			{
+				type: 'message_start',
+				message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+			},
 			citationEvent(PAGE_CITATION),
 		])
 
@@ -94,7 +100,10 @@ describe('a cited passage reaches the caller', () => {
 
 	it('reads a character-offset citation as char, not as a page', async () => {
 		const chunks = await chunksOf([
-			{ type: 'message_start', message: { id: 'msg_1' } },
+			{
+				type: 'message_start',
+				message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+			},
 			citationEvent({
 				cited_text: 'clause 4',
 				document_index: 1,
@@ -112,7 +121,10 @@ describe('a cited passage reaches the caller', () => {
 
 	it('reads a block citation as block', async () => {
 		const chunks = await chunksOf([
-			{ type: 'message_start', message: { id: 'msg_1' } },
+			{
+				type: 'message_start',
+				message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+			},
 			citationEvent({
 				cited_text: 'row 7',
 				document_index: 0,
@@ -130,9 +142,16 @@ describe('a cited passage reaches the caller', () => {
 
 	it('carries several citations through in order', async () => {
 		const chunks = await chunksOf([
-			{ type: 'message_start', message: { id: 'msg_1' } },
+			{
+				type: 'message_start',
+				message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+			},
 			citationEvent({ ...PAGE_CITATION, cited_text: 'first' }),
-			{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: ' and ' } },
+			{
+				type: 'content_block_delta',
+				index: 0,
+				delta: { type: 'text_delta', text: ' and ' },
+			},
 			citationEvent({ ...PAGE_CITATION, cited_text: 'second' }),
 		])
 
@@ -146,7 +165,10 @@ describe('a cited passage reaches the caller', () => {
 describe('a citation that cannot be checked is dropped, not guessed', () => {
 	it('drops one with no location, rather than inventing a page', async () => {
 		const chunks = await chunksOf([
-			{ type: 'message_start', message: { id: 'msg_1' } },
+			{
+				type: 'message_start',
+				message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+			},
 			citationEvent({ cited_text: 'somewhere', document_index: 0 }),
 		])
 
@@ -157,8 +179,15 @@ describe('a citation that cannot be checked is dropped, not guessed', () => {
 
 	it('drops one with no text', async () => {
 		const chunks = await chunksOf([
-			{ type: 'message_start', message: { id: 'msg_1' } },
-			citationEvent({ document_index: 0, start_page_number: 1, end_page_number: 1 }),
+			{
+				type: 'message_start',
+				message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+			},
+			citationEvent({
+				document_index: 0,
+				start_page_number: 1,
+				end_page_number: 1,
+			}),
 		])
 
 		expect(chunks.some((c) => c.delta.citation)).toBe(false)
@@ -166,9 +195,16 @@ describe('a citation that cannot be checked is dropped, not guessed', () => {
 
 	it('leaves the rest of the stream intact around a dropped one', async () => {
 		const chunks = await chunksOf([
-			{ type: 'message_start', message: { id: 'msg_1' } },
+			{
+				type: 'message_start',
+				message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+			},
 			citationEvent({ cited_text: 'no location' }),
-			{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'answer' } },
+			{
+				type: 'content_block_delta',
+				index: 0,
+				delta: { type: 'text_delta', text: 'answer' },
+			},
 			{ type: 'message_delta', delta: { stop_reason: 'end_turn' } },
 		])
 
@@ -200,12 +236,16 @@ describe('citations are requested only when the caller asked to check the answer
 		} as unknown as ChatCompletionParams)) {
 			// drain
 		}
-		const messages = seen.body?.messages as Array<{ content: Record<string, unknown>[] }>
+		const messages = seen.body?.messages as Array<{
+			content: Record<string, unknown>[]
+		}>
 		return messages[0]?.content.find((b) => b.type === 'document') ?? {}
 	}
 
 	it('enables them when the attachment asked for them', async () => {
-		expect(await documentBlockFor(true)).toMatchObject({ citations: { enabled: true } })
+		expect(await documentBlockFor(true)).toMatchObject({
+			citations: { enabled: true },
+		})
 	})
 
 	it('leaves them off by default — they are not free', async () => {

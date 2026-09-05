@@ -6,14 +6,22 @@ import type { ActorRef } from '../../../types/session/actor.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { DefaultCapacityValidator, DelegationCapacityExceeded } from '../capacity.js'
 
-const tenant = 'tnt_alpha' as TenantId
+const tenant = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
 
 function user(): ActorRef {
-	return { kind: 'user', userId: 'usr_a' as UserId, tenantId: tenant }
+	return {
+		kind: 'user',
+		userId: '9ce05013-3bcc-4835-86b3-15e7b9251801' as UserId,
+		tenantId: tenant,
+	}
 }
 
 function agent(): ActorRef {
-	return { kind: 'agent', agentId: 'agt_a' as AgentId, tenantId: tenant }
+	return {
+		kind: 'agent',
+		agentId: '297e7108-719e-42f6-aa3b-f3b42d1ad2c5' as AgentId,
+		tenantId: tenant,
+	}
 }
 
 async function seedProject(store: InMemorySessionStore) {

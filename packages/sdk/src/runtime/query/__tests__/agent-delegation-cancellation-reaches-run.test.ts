@@ -29,7 +29,7 @@ function deferred<T>(): Deferred<T> {
 	}
 }
 
-const taskId = 'task_agent_cancel' as TaskId
+const taskId = '044235ba-6410-4e13-86f3-809d748fece0' as TaskId
 const launched: TaskHandle = {
 	taskId,
 	agentId: 'worker',
@@ -134,10 +134,10 @@ describe('blocking Agent delegation cancellation reaches the child', () => {
 			agentName: 'Parent Agent',
 			messages: [createUserMessage('delegate this')],
 			workingDirectory,
-			sessionId: 'ses_agent_cancel' as SessionId,
-			topicId: 'top_agent_cancel' as TopicId,
-			projectId: 'prj_agent_cancel' as ProjectId,
-			tenantId: 'tnt_agent_cancel' as TenantId,
+			sessionId: '7f746f14-f084-4ae2-84a1-641990485a14' as SessionId,
+			topicId: '77fd4bec-d00d-4445-9a54-a2881fc0cb86' as TopicId,
+			projectId: '30d2ef5c-2b29-4ca2-888a-27fd70b26fbc' as ProjectId,
+			tenantId: 'c65ed688-b851-449f-853e-2a41dc68f48d' as TenantId,
 			signal: caller.signal,
 		})
 

@@ -66,7 +66,7 @@ function agentMetadata(): AgentMetadata {
 }
 
 class TestConnector extends BaseConnector<Record<string, never>> {
-	readonly id = 'conn_test' as ConnectorId
+	readonly id = '062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId
 	readonly name = 'Test'
 	readonly description = 'Test connector'
 	readonly connectionType: ConnectionType = 'custom'
@@ -98,7 +98,7 @@ describe('a host-injected logger reaches the agent, connector AND vault layers',
 		// Connector layer.
 		const registry = new ConnectorRegistry()
 		registry.register({
-			id: 'conn_test' as ConnectorId,
+			id: '062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId,
 			name: 'Test',
 			description: 'Test connector',
 			connectionType: 'custom',
@@ -107,16 +107,21 @@ describe('a host-injected logger reaches the agent, connector AND vault layers',
 		})
 		const manager = new ConnectorManager({ registry, log: marked })
 		await manager.createInstance(
-			{ connectorId: 'conn_test' as ConnectorId, name: 'x' },
+			{ connectorId: '062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId, name: 'x' },
 			new TestConnector(),
 		)
 
 		// Vault layer.
 		const vault = new InMemoryCredentialVault(marked)
-		await vault.store('t_test' as TenantId, 'conn_test' as ConnectorId, 'label', {
-			type: 'api_key',
-			credentials: { apiKey: 'sk-test' },
-		})
+		await vault.store(
+			't_test' as TenantId,
+			'062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId,
+			'label',
+			{
+				type: 'api_key',
+				credentials: { apiKey: 'sk-test' },
+			},
+		)
 
 		const agentRecords = records.filter((r) => r.message === 'agent layer reached')
 		const connectorRecords = records.filter((r) => r.message === 'Connector instance created')

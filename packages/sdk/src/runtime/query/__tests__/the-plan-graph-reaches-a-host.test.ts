@@ -17,7 +17,7 @@ import { EventTranslator } from '../events.js'
  * smallest change that lets a host draw the plan the model has in mind.
  */
 
-const RUN = 'run_graph' as RunId
+const RUN = 'b20a3380-db4f-47a7-b446-d48bcbbbdfef' as RunId
 
 const LOG = {
 	info: vi.fn(),
@@ -48,10 +48,10 @@ function persistence(): RunPersistence {
 		// Nothing may be written: the injected store is not a filesystem.
 		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
-		sessionId: 'ses_graph',
-		topicId: 'top_graph',
-		projectId: 'prj_graph',
-		tenantId: 'tnt_graph',
+		sessionId: '661ca27b-88d4-4c9c-9c61-a2f296ac9aae',
+		topicId: 'bcc64cd7-b81a-4dff-a633-203f1a03a837',
+		projectId: 'b0f376f8-52af-4302-bf4f-d7bcf3cf34c3',
+		tenantId: 'a8bb2035-b5d5-4866-815b-a67fc7085cc6',
 		runStore: new InMemoryRunStore(),
 		// biome-ignore lint/suspicious/noExplicitAny: branded id types are not
 		// what this test is about; the wiring is.

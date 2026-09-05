@@ -46,12 +46,16 @@ function makeEmbedder(): EmbeddingProvider {
 describe('DefaultKnowledgeBase', () => {
 	it('uses the id provided in config when set', () => {
 		const kb = new DefaultKnowledgeBase(
-			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			{
+				id: '21aa11ee-25cb-42fe-82ea-fb6c5f604c80' as KnowledgeBaseId,
+				name: 'kb',
+				tenantId: TENANT,
+			},
 			makeVectorStore(),
 			makeEmbedder(),
 		)
-		expect(kb.id).toBe('kb_fixed')
-		expect(kb.config.id).toBe('kb_fixed')
+		expect(kb.id).toBe('21aa11ee-25cb-42fe-82ea-fb6c5f604c80')
+		expect(kb.config.id).toBe('21aa11ee-25cb-42fe-82ea-fb6c5f604c80')
 	})
 
 	it('generates an id when none is provided', () => {
@@ -66,7 +70,11 @@ describe('DefaultKnowledgeBase', () => {
 	it('ingest delegates to the ingestion pipeline and carries metadata through', async () => {
 		const vs = makeVectorStore()
 		const kb = new DefaultKnowledgeBase(
-			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			{
+				id: '21aa11ee-25cb-42fe-82ea-fb6c5f604c80' as KnowledgeBaseId,
+				name: 'kb',
+				tenantId: TENANT,
+			},
 			vs,
 			makeEmbedder(),
 		)
@@ -76,14 +84,18 @@ describe('DefaultKnowledgeBase', () => {
 		)
 		expect(vs.upsert).toHaveBeenCalled()
 		const chunks = vi.mocked(vs.upsert).mock.calls[0]?.[0] ?? []
-		expect(chunks[0]?.knowledgeBaseId).toBe('kb_fixed')
+		expect(chunks[0]?.knowledgeBaseId).toBe('21aa11ee-25cb-42fe-82ea-fb6c5f604c80')
 		expect(chunks[0]?.tenantId).toBe(TENANT)
 	})
 
 	it('forwards ingest cancellation to the embedding operation', async () => {
 		const embedder = makeEmbedder()
 		const kb = new DefaultKnowledgeBase(
-			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			{
+				id: '21aa11ee-25cb-42fe-82ea-fb6c5f604c80' as KnowledgeBaseId,
+				name: 'kb',
+				tenantId: TENANT,
+			},
 			makeVectorStore(),
 			embedder,
 		)
@@ -100,7 +112,11 @@ describe('DefaultKnowledgeBase', () => {
 		const vs = makeVectorStore()
 		vs.upsert = vi.fn(() => new Promise<never>(() => {}))
 		const kb = new DefaultKnowledgeBase(
-			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			{
+				id: '21aa11ee-25cb-42fe-82ea-fb6c5f604c80' as KnowledgeBaseId,
+				name: 'kb',
+				tenantId: TENANT,
+			},
 			vs,
 			makeEmbedder(),
 		)
@@ -123,19 +139,26 @@ describe('DefaultKnowledgeBase', () => {
 	it('remove delegates to vectorStore.deleteByDocument', async () => {
 		const vs = makeVectorStore()
 		const kb = new DefaultKnowledgeBase({ name: 'kb', tenantId: TENANT }, vs, makeEmbedder())
-		await kb.remove('doc_1' as DocumentId)
-		expect(vs.deleteByDocument).toHaveBeenCalledWith('doc_1')
+		await kb.remove('dcee443a-501c-4019-9c85-21a72c3ccfa7' as DocumentId)
+		expect(vs.deleteByDocument).toHaveBeenCalledWith('dcee443a-501c-4019-9c85-21a72c3ccfa7')
 	})
 
 	it('clear delegates to vectorStore.deleteByKnowledgeBase with id + tenantId', async () => {
 		const vs = makeVectorStore()
 		const kb = new DefaultKnowledgeBase(
-			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			{
+				id: '21aa11ee-25cb-42fe-82ea-fb6c5f604c80' as KnowledgeBaseId,
+				name: 'kb',
+				tenantId: TENANT,
+			},
 			vs,
 			makeEmbedder(),
 		)
 		await kb.clear()
-		expect(vs.deleteByKnowledgeBase).toHaveBeenCalledWith('kb_fixed', TENANT)
+		expect(vs.deleteByKnowledgeBase).toHaveBeenCalledWith(
+			'21aa11ee-25cb-42fe-82ea-fb6c5f604c80',
+			TENANT,
+		)
 	})
 
 	it('query delegates to retriever', async () => {
@@ -150,7 +173,11 @@ describe('DefaultKnowledgeBase', () => {
 		const vs = makeVectorStore()
 		vs.search = vi.fn(() => new Promise<never>(() => {}))
 		const kb = new DefaultKnowledgeBase(
-			{ id: 'kb_fixed' as KnowledgeBaseId, name: 'kb', tenantId: TENANT },
+			{
+				id: '21aa11ee-25cb-42fe-82ea-fb6c5f604c80' as KnowledgeBaseId,
+				name: 'kb',
+				tenantId: TENANT,
+			},
 			vs,
 			makeEmbedder(),
 		)

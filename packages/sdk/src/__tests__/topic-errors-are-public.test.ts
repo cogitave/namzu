@@ -9,7 +9,7 @@ import {
 } from '../index.js'
 import type { TenantId, UserId } from '../index.js'
 
-const tenantId = 'tnt_topic_public' as TenantId
+const tenantId = 'dd604c5b-120a-4bc4-8df0-b908a16491fd' as TenantId
 
 async function setup() {
 	const sessionStore = new InMemorySessionStore()
@@ -74,7 +74,7 @@ describe('Topic errors are a package-root contract', () => {
 				projectId: project.id,
 				currentActor: {
 					kind: 'user',
-					userId: 'usr_topic_public' as UserId,
+					userId: '5be65c69-3237-4e23-a2a7-8f8daa3e7c1b' as UserId,
 					tenantId,
 				},
 			},

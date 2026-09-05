@@ -60,34 +60,44 @@ function gatewayOver(manager: ReturnType<typeof managerWith>, trackedIds: string
 
 describe('a finished task stays listed after it is evicted', () => {
 	it('lists a task the manager still holds', () => {
-		const tasks = new Map([['task_a', terminalTask('task_a', 'completed')]])
-		const gateway = gatewayOver(managerWith(tasks), ['task_a'])
+		const tasks = new Map([
+			[
+				'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
+				terminalTask('db5cf4d3-8120-40b4-8680-e8a81ebbc973', 'completed'),
+			],
+		])
+		const gateway = gatewayOver(managerWith(tasks), ['db5cf4d3-8120-40b4-8680-e8a81ebbc973'])
 
-		gateway.rememberSettled('task_a' as TaskId)
-		tasks.delete('task_a')
+		gateway.rememberSettled('db5cf4d3-8120-40b4-8680-e8a81ebbc973' as TaskId)
+		tasks.delete('db5cf4d3-8120-40b4-8680-e8a81ebbc973')
 
 		const listed = gateway.listTasks()
 		expect(listed).toHaveLength(1)
-		expect(listed[0]?.taskId).toBe('task_a')
+		expect(listed[0]?.taskId).toBe('db5cf4d3-8120-40b4-8680-e8a81ebbc973')
 		expect(listed[0]?.state).toBe('completed')
 	})
 
 	it('keeps a failure visible, which is the one that matters most', () => {
-		const tasks = new Map([['task_b', terminalTask('task_b', 'failed')]])
-		const gateway = gatewayOver(managerWith(tasks), ['task_b'])
+		const tasks = new Map([
+			[
+				'5863b7eb-6c0d-40c1-9b33-408da6461561',
+				terminalTask('5863b7eb-6c0d-40c1-9b33-408da6461561', 'failed'),
+			],
+		])
+		const gateway = gatewayOver(managerWith(tasks), ['5863b7eb-6c0d-40c1-9b33-408da6461561'])
 
-		gateway.rememberSettled('task_b' as TaskId)
-		tasks.delete('task_b')
+		gateway.rememberSettled('5863b7eb-6c0d-40c1-9b33-408da6461561' as TaskId)
+		tasks.delete('5863b7eb-6c0d-40c1-9b33-408da6461561')
 
 		expect(gateway.listTasks()[0]?.state).toBe('failed')
 	})
 
 	it('prefers the live task over the remembered one while both exist', () => {
-		const live = terminalTask('task_c', 'completed')
-		const tasks = new Map([['task_c', live]])
-		const gateway = gatewayOver(managerWith(tasks), ['task_c'])
+		const live = terminalTask('8dc70104-0fad-4e35-a385-4312f8c78579', 'completed')
+		const tasks = new Map([['8dc70104-0fad-4e35-a385-4312f8c78579', live]])
+		const gateway = gatewayOver(managerWith(tasks), ['8dc70104-0fad-4e35-a385-4312f8c78579'])
 
-		gateway.rememberSettled('task_c' as TaskId)
+		gateway.rememberSettled('8dc70104-0fad-4e35-a385-4312f8c78579' as TaskId)
 		// The snapshot is now stale. The live record is authoritative: a
 		// remembered handle must never shadow state still being updated —
 		// a `continueTask` reopens a task the gateway already snapshotted.
@@ -99,7 +109,7 @@ describe('a finished task stays listed after it is evicted', () => {
 	})
 
 	it('reports nothing for a tracked id that never settled and is already gone', () => {
-		const gateway = gatewayOver(managerWith(new Map()), ['task_d'])
+		const gateway = gatewayOver(managerWith(new Map()), ['62c5cf06-4b48-44d0-9a23-18aebedb7aca'])
 
 		// Nothing to report is still correct here — the point is that a task
 		// which DID settle is not silently indistinguishable from this.
@@ -108,11 +118,24 @@ describe('a finished task stays listed after it is evicted', () => {
 
 	it('lists every worker after all of them are evicted', () => {
 		const tasks = new Map([
-			['task_1', terminalTask('task_1', 'completed')],
-			['task_2', terminalTask('task_2', 'failed')],
-			['task_3', terminalTask('task_3', 'completed')],
+			[
+				'5f5d0823-8327-45fd-a288-bf8fd5f45f91',
+				terminalTask('5f5d0823-8327-45fd-a288-bf8fd5f45f91', 'completed'),
+			],
+			[
+				'03eb571b-898d-47d6-b40f-5b770fd5fca1',
+				terminalTask('03eb571b-898d-47d6-b40f-5b770fd5fca1', 'failed'),
+			],
+			[
+				'4ac175ca-d84b-4186-a41b-49ed90846838',
+				terminalTask('4ac175ca-d84b-4186-a41b-49ed90846838', 'completed'),
+			],
 		])
-		const gateway = gatewayOver(managerWith(tasks), ['task_1', 'task_2', 'task_3'])
+		const gateway = gatewayOver(managerWith(tasks), [
+			'5f5d0823-8327-45fd-a288-bf8fd5f45f91',
+			'03eb571b-898d-47d6-b40f-5b770fd5fca1',
+			'4ac175ca-d84b-4186-a41b-49ed90846838',
+		])
 
 		for (const id of tasks.keys()) gateway.rememberSettled(id as TaskId)
 		tasks.clear()

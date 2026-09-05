@@ -15,6 +15,9 @@
  * Every case pins an invariant this kernel has broken at least once.
  */
 
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	MockLLMProvider,
 	ToolRegistry,
@@ -22,133 +25,146 @@ import {
 	completionScorer,
 	drainQuery,
 	evalRunFromRun,
+	generateProjectId,
+	generateSessionId,
+	generateTenantId,
+	generateTopicId,
 	runExperiment,
 	stepBudgetScorer,
 	trajectoryScorer,
-} from '@namzu/sdk'
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { z } from 'zod'
+} from "@namzu/sdk";
+import { z } from "zod";
 
-const TOOL_NAMES = ['read_file', 'write_file', 'search']
+const TOOL_NAMES = ["read_file", "write_file", "search"];
 
 /**
  * @param {readonly string[]} failing
  * @returns {ToolRegistry}
  */
 function registry(failing = []) {
-	const tools = new ToolRegistry()
+	const tools = new ToolRegistry();
 	for (const name of TOOL_NAMES) {
 		tools.register({
 			name,
 			description: `${name}, for the eval suite`,
-			inputSchema: z.object({ path: z.string().optional(), query: z.string().optional() }),
+			inputSchema: z.object({
+				path: z.string().optional(),
+				query: z.string().optional(),
+			}),
 			// Declared, not defaulted. Without these the permission gate parks
 			// for an approval no one is there to give, and the suite hangs
 			// rather than failing — which is how a gate reports success by
 			// never finishing.
-			category: 'custom',
+			category: "custom",
 			permissions: [],
 			readOnly: true,
 			destructive: false,
 			concurrencySafe: true,
 			execute: async () =>
 				failing.includes(name)
-					? { success: false, output: '', error: `${name} refused` }
+					? { success: false, output: "", error: `${name} refused` }
 					: { success: true, output: `${name} ok` },
-		})
+		});
 	}
-	return tools
+	return tools;
 }
 
 /** @param {{turns: unknown[], maxIterations?: number, prepareStep?: unknown, failing?: string[]}} input */
 async function runCase(input) {
-	const provider = new MockLLMProvider({ turns: input.turns })
+	const provider = new MockLLMProvider({ turns: input.turns });
 	const run = await drainQuery({
 		provider,
 		tools: registry(input.failing),
 		runConfig: {
-			model: 'mock-model',
+			model: "mock-model",
 			timeoutMs: 30_000,
 			tokenBudget: 1_000_000,
 			maxIterations: input.maxIterations ?? 8,
 			maxResponseTokens: 512,
 		},
-		agentId: 'agent_eval',
-		agentName: 'Eval Agent',
+		agentId: "agent_eval",
+		agentName: "Eval Agent",
 		// A fresh directory per case. Pointed at the repo root, every run
 		// wrote into the repo's own live `.namzu/` state — a suite that
 		// mutates the tree it is measuring is not a measurement, and sharing
 		// that directory with real sessions is how this suite first hung.
-		workingDirectory: await mkdtemp(join(tmpdir(), 'namzu-eval-')),
-		sessionId: 'ses_eval',
-		threadId: 'thd_eval',
-		projectId: 'prj_eval',
-		tenantId: 'tnt_eval',
-		messages: [{ role: 'user', content: 'go', timestamp: 1 }],
+		workingDirectory: await mkdtemp(join(tmpdir(), "namzu-eval-")),
+		sessionId: generateSessionId(),
+		topicId: generateTopicId(),
+		projectId: generateProjectId(),
+		tenantId: generateTenantId(),
+		messages: [{ role: "user", content: "go", timestamp: 1 }],
 		// An eval can never wait on a human, by definition. Left to default,
 		// a tool call parks for an approval nobody is there to give and the
 		// whole suite hangs — which reads as a PASSING gate, because a
 		// promise that never settles takes the process to exit zero.
 		resumeHandler: autoApproveHandler,
 		...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
-	})
+	});
 
-	return evalRunFromRun(run)
+	return evalRunFromRun(run);
 }
 
-const call = (id, name) => ({ id, name, rawArguments: '{}' })
+const call = (id, name) => ({ id, name, rawArguments: "{}" });
 
 export default async function toolLoop() {
 	return runExperiment({
-		name: 'kernel/tool-loop',
+		name: "kernel/tool-loop",
 		scorers: [trajectoryScorer(), completionScorer(), stepBudgetScorer(8)],
 		run: (input) => runCase(input),
 		cases: [
 			{
-				name: 'a turn with no tool calls settles on its text',
-				input: { turns: [{ text: 'the answer' }] },
+				name: "a turn with no tool calls settles on its text",
+				input: { turns: [{ text: "the answer" }] },
 				expectedTools: [],
-				expected: 'the answer',
+				expected: "the answer",
 			},
 			{
-				name: 'every tool call in one turn runs, in the order it was issued',
+				name: "every tool call in one turn runs, in the order it was issued",
 				input: {
 					turns: [
-						{ toolCalls: [call('a', 'read_file'), call('b', 'search'), call('c', 'write_file')] },
-						{ text: 'done' },
+						{
+							toolCalls: [
+								call("a", "read_file"),
+								call("b", "search"),
+								call("c", "write_file"),
+							],
+						},
+						{ text: "done" },
 					],
 				},
 				// Order is load-bearing: results are written back by index so
 				// `tool_result` order matches `tool_use` order. A batch that
 				// reordered them would keep working until a provider noticed.
-				expectedTools: ['read_file', 'search', 'write_file'],
-				expected: 'done',
+				expectedTools: ["read_file", "search", "write_file"],
+				expected: "done",
 			},
 			{
-				name: 'a failing tool goes back to the model instead of killing the run',
+				name: "a failing tool goes back to the model instead of killing the run",
 				input: {
-					turns: [{ toolCalls: [call('a', 'read_file')] }, { text: 'recovered' }],
-					failing: ['read_file'],
+					turns: [
+						{ toolCalls: [call("a", "read_file")] },
+						{ text: "recovered" },
+					],
+					failing: ["read_file"],
 				},
-				expectedTools: ['read_file'],
-				expected: 'recovered',
+				expectedTools: ["read_file"],
+				expected: "recovered",
 			},
 			{
-				name: 'a forced tool choice applies to the step that asked and no further',
+				name: "a forced tool choice applies to the step that asked and no further",
 				input: {
-					turns: [{ toolCalls: [call('a', 'read_file')] }, { text: 'after' }],
-					prepareStep: () => ({ toolChoice: 'required' }),
+					turns: [{ toolCalls: [call("a", "read_file")] }, { text: "after" }],
+					prepareStep: () => ({ toolChoice: "required" }),
 				},
 				// A forced choice that persisted would make the model call a
 				// tool, read the result, and be forced again — an agent that
 				// cannot stop. It stops here because the knob lives on the step.
-				expectedTools: ['read_file'],
-				expected: 'after',
+				expectedTools: ["read_file"],
+				expected: "after",
 			},
 		],
-	})
+	});
 }
 
-export const tags = ['kernel', 'ci']
+export const tags = ["kernel", "ci"];

@@ -32,7 +32,7 @@ const presenter = createToolPresenter(new ToolRegistry())
 function fallbackEvent(over: Partial<Record<string, unknown>> = {}): RunEvent {
 	return {
 		type: 'provider_fallback',
-		runId: 'run_1',
+		runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 		iteration: 2,
 		fromIndex: 0,
 		fromProviderId: 'anthropic',

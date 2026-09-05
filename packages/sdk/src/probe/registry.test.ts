@@ -40,7 +40,7 @@ describe('ProbeRegistry — typed dispatch', () => {
 		reg.dispatch(
 			{
 				type: 'tool_executing',
-				runId: 'run_1' as never,
+				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 				toolName: 'fs.read',
 				input: {},
 			} as never,
@@ -285,7 +285,12 @@ describe('ProbeRegistry — catch-all', () => {
 			buildProbeContext(),
 		)
 		reg.dispatch(
-			{ type: 'lock_acquired', lockId: 'lock_1' as never, filePath: '/x', owner: 'r' as never },
+			{
+				type: 'lock_acquired',
+				lockId: 'b7ea7540-90a1-4c5c-a746-7013a1a78408' as never,
+				filePath: '/x',
+				owner: 'r' as never,
+			},
 			buildProbeContext(),
 		)
 		expect(seen).toEqual(['tool_executing', 'lock_acquired'])

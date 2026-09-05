@@ -71,14 +71,8 @@ function stripTrailingSlashes(value: string): string {
 	return value.slice(0, end)
 }
 
-/**
- * Checked once at module load, not per instance.
- *
- * `'conn_http' as const` typed this as its own literal, which satisfied
- * `ConnectorId` only because the id types are still structural. The
- * constructor is what makes the prefix a fact rather than a spelling.
- */
-const HTTP_CONNECTOR_ID = asConnectorId('conn_http')
+/** Stable UUID for this built-in definition, checked once at module load. */
+const HTTP_CONNECTOR_ID = asConnectorId('dafa33b2-7035-47d2-986c-8a6d2ef338f3')
 
 export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 	readonly id = HTTP_CONNECTOR_ID

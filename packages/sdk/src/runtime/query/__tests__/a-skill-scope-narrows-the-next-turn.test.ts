@@ -19,7 +19,7 @@ import { ToolExecutor } from '../executor.js'
  * alongside the skill it loaded.
  */
 
-const RUN_ID = 'run_scope' as RunId
+const RUN_ID = 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

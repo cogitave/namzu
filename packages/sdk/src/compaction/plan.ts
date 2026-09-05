@@ -1,10 +1,10 @@
 import type { CompactionConfig } from '../config/runtime.js'
-import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import type { Message } from '../types/message/index.js'
 import { findSafeTrimIndex } from './dangling.js'
 import { buildGoal } from './salience/goal.js'
 import { scoreMessages } from './salience/score.js'
 import { type WorkingSetPlan, planWorkingSet } from './salience/working-set.js'
+import { estimateMessageTokens, estimateMessagesTokens } from './token-estimate.js'
 import { clearStaleToolResults } from './tool-result-editing.js'
 
 /**
@@ -92,24 +92,6 @@ export interface CompactionPlanInput {
 }
 
 /**
- * How many characters a message's content is worth.
- *
- * An image costs far fewer tokens than its base64 length divided by four —
- * but under-counting it to zero is the worse error: it let a run full of
- * screenshots read as an empty context.
- */
-function measureContentChars(content: unknown): number {
-	if (typeof content === 'string') return content.length
-	if (!Array.isArray(content)) return 0
-	let total = 0
-	for (const block of content as readonly Record<string, unknown>[]) {
-		if (block.type === 'text' && typeof block.text === 'string') total += block.text.length
-		else if (block.type === 'image' && typeof block.data === 'string') total += block.data.length
-	}
-	return total
-}
-
-/**
  * The last index whose tail fits in `budgetTokens`, walking backwards.
  *
  * Replaces the naive count boundary and nothing else — the caller runs the
@@ -130,7 +112,7 @@ export function naiveKeepStartByTokens(messages: readonly Message[], budgetToken
 	let tokens = 0
 	let start = messages.length
 	for (let index = messages.length - 1; index >= 0; index--) {
-		const cost = Math.ceil(measureContentChars(messages[index]?.content) / CHARS_PER_TOKEN)
+		const cost = estimateMessageTokens(messages[index] as Message)
 		// Checked BEFORE adding, so the boundary never includes a message
 		// that pushes the tail over. Adding first and trimming after would
 		// admit one oversized message on every run.
@@ -199,7 +181,8 @@ export function planCompaction(input: CompactionPlanInput): CompactionPlan {
 		})
 
 		if (edit.clearedCount > 0) {
-			const reclaimedTokens = Math.ceil(edit.charsReclaimed / CHARS_PER_TOKEN)
+			const reclaimedTokens =
+				estimateMessagesTokens(input.messages) - estimateMessagesTokens(edit.messages)
 			// NOT on a forced pass. A forced pass runs because the provider
 			// REJECTED the prompt as too long, which is a measurement — and
 			// answering it with the same estimate the provider just refuted

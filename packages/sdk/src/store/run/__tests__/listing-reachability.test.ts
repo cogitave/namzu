@@ -52,10 +52,10 @@ describe('the store a host actually gets', () => {
 			providerId: 'mock',
 			outputDir: dir,
 			log: LOG,
-			sessionId: 'ses_reach',
-			topicId: 'top_reach',
-			projectId: 'prj_reach',
-			tenantId: 'tnt_reach',
+			sessionId: 'f72f19ec-f321-49d6-9797-5e0607be2ca1',
+			topicId: 'ad3adcfd-a2cd-47c7-80ff-d3424c05885d',
+			projectId: '6a2eb356-e7e5-4f2c-9110-cbb4b66770d9',
+			tenantId: '464d44b5-2bac-41e8-ab85-2cea9200a32e',
 			...(parentRunId ? { parentRunId } : {}),
 			// biome-ignore lint/suspicious/noExplicitAny: the config's branded id
 			// types are not what this test is about; the wiring is.
@@ -88,11 +88,14 @@ describe('the store a host actually gets', () => {
 	}
 
 	it('can enumerate the runs it just persisted, parent and child alike', async () => {
-		const parent = persistence('run_parent')
+		const parent = persistence('c0250b29-330b-445f-b11d-2926ffd9059c')
 		await parent.init()
 		await park(parent)
 
-		const child = persistence('run_child', 'run_parent')
+		const child = persistence(
+			'4721e070-5ba2-425a-bf5a-8cc927907e9a',
+			'c0250b29-330b-445f-b11d-2926ffd9059c',
+		)
 		await child.init()
 		await park(child)
 
@@ -104,11 +107,14 @@ describe('the store a host actually gets', () => {
 			sessionId: parent.sessionId,
 		})
 
-		expect(page.entries.map((e) => e.runId)).toEqual(['run_child', 'run_parent'])
+		expect(page.entries.map((e) => e.runId)).toEqual([
+			'4721e070-5ba2-425a-bf5a-8cc927907e9a',
+			'c0250b29-330b-445f-b11d-2926ffd9059c',
+		])
 		expect(page.entries.every((e) => e.park?.state === 'outstanding')).toBe(true)
 		// The attribution the path does not record has to come back on the row,
 		// or the row addresses nothing.
-		expect(page.entries[0]?.tenantId).toBe('tnt_reach')
-		expect(page.entries[0]?.parentRunId).toBe('run_parent')
+		expect(page.entries[0]?.tenantId).toBe('464d44b5-2bac-41e8-ab85-2cea9200a32e')
+		expect(page.entries[0]?.parentRunId).toBe('c0250b29-330b-445f-b11d-2926ffd9059c')
 	})
 })

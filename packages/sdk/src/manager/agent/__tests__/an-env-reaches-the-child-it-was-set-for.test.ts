@@ -7,7 +7,7 @@ import { SessionSummaryMaterializer } from '../../../session/summary/materialize
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
-import { fixtureId } from '../../../test-support/ids.js'
+import { fixtureId, fixtureUuid } from '../../../test-support/ids.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
@@ -39,7 +39,7 @@ import { AgentManager } from '../lifecycle.js'
  * to hold is that the manager applies it.
  */
 
-const TENANT = 'tnt_env' as TenantId
+const TENANT = '33fc383e-e313-4cb9-b631-111dd8ebaa3f' as TenantId
 
 /** Records the config it is run with, so the assertion is on what shipped. */
 function recordingAgent(seen: { config?: BaseAgentConfig }) {
@@ -127,12 +127,12 @@ async function spawnWith(options: {
 		capacity: new DefaultCapacityValidator(store),
 		summaryMaterializer: new SessionSummaryMaterializer({
 			store,
-			generateSummaryId: () => `sum_${++n}` as SummaryId,
+			generateSummaryId: () => fixtureUuid(`sum_${++n}`) as SummaryId,
 		}),
 	})
 
 	const context: AgentTaskContext = {
-		parentRunId: 'run_parent' as never,
+		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,

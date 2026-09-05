@@ -33,8 +33,8 @@ import {
 	createConnectorTools,
 } from './definitions.js'
 
-const CID = 'conn_http' as ConnectorId
-const IID = 'ci_abc123' as ConnectorInstanceId
+const CID = 'dafa33b2-7035-47d2-986c-8a6d2ef338f3' as ConnectorId
+const IID = '5a51586c-ed89-4c09-9032-30b665c2b682' as ConnectorInstanceId
 
 function makeInstance(overrides: Partial<ConnectorInstance> = {}): ConnectorInstance {
 	return {
@@ -196,7 +196,7 @@ describe('createConnectorListTool', () => {
 			listInstances: vi.fn(() => [
 				makeInstance({ id: IID }),
 				makeInstance({
-					id: 'ci_def' as ConnectorInstanceId,
+					id: 'da6a2895-bdfd-4882-b357-9442f47d1af5' as ConnectorInstanceId,
 					status: 'disconnected',
 				}),
 			]),
@@ -205,7 +205,9 @@ describe('createConnectorListTool', () => {
 		const result = await tool.execute({}, ctx)
 		expect(result.success).toBe(true)
 		expect(result.output).toContain(`- ${IID} (${CID}): default [connected]`)
-		expect(result.output).toContain(`- ci_def (${CID}): default [disconnected]`)
+		expect(result.output).toContain(
+			`- da6a2895-bdfd-4882-b357-9442f47d1af5 (${CID}): default [disconnected]`,
+		)
 		expect(result.data).toBeDefined()
 	})
 })

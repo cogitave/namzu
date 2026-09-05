@@ -49,7 +49,7 @@ function recordingProvider(options: { workingDirectory?: boolean } = { workingDi
 		create: async (config: SandboxCreateConfig) => {
 			seen.push(config)
 			return {
-				id: 'sbx_test',
+				id: '51281012-1dd1-444d-98b8-487422669dff',
 				rootDir: config.workingDirectory ?? join(tmpdir(), 'namzu-ephemeral'),
 				exec: async () => ({ stdout: '', stderr: '', exitCode: 0, timedOut: false }),
 				dispose: async () => {},
@@ -82,10 +82,10 @@ async function run(opts: {
 		agentName: 'Sandboxed',
 		messages: [createUserMessage('go')],
 		...(opts.withWorkingDirectory ? { workingDirectory } : {}),
-		sessionId: 'ses_s' as SessionId,
-		topicId: 'top_s' as TopicId,
-		projectId: 'prj_s' as ProjectId,
-		tenantId: 'tnt_s' as TenantId,
+		sessionId: '1e0301cb-9455-48d1-a22a-76f7bcae0981' as SessionId,
+		topicId: 'f85fe271-5d7f-43be-b197-75d2e0b019bb' as TopicId,
+		projectId: '77591058-6566-4123-826e-b2c57da6bb8a' as ProjectId,
+		tenantId: '5ebe0c1e-9c3b-4abc-870d-affb0cea1850' as TenantId,
 	})
 
 	return { seen, run: result }
@@ -166,10 +166,10 @@ describe('what a sandbox is rooted at', () => {
 			agentId: 'agent_s',
 			agentName: 'Sandboxed',
 			messages: [createUserMessage('go')],
-			sessionId: 'ses_s' as SessionId,
-			topicId: 'top_s' as TopicId,
-			projectId: 'prj_s' as ProjectId,
-			tenantId: 'tnt_s' as TenantId,
+			sessionId: '1e0301cb-9455-48d1-a22a-76f7bcae0981' as SessionId,
+			topicId: 'f85fe271-5d7f-43be-b197-75d2e0b019bb' as TopicId,
+			projectId: '77591058-6566-4123-826e-b2c57da6bb8a' as ProjectId,
+			tenantId: '5ebe0c1e-9c3b-4abc-870d-affb0cea1850' as TenantId,
 		})
 
 		expect(failed.status).toBe('failed')
@@ -196,10 +196,10 @@ describe('what a sandbox is rooted at', () => {
 			agentId: 'agent_s',
 			agentName: 'Sandboxed',
 			messages: [createUserMessage('go')],
-			sessionId: 'ses_s' as SessionId,
-			topicId: 'top_s' as TopicId,
-			projectId: 'prj_s' as ProjectId,
-			tenantId: 'tnt_s' as TenantId,
+			sessionId: '1e0301cb-9455-48d1-a22a-76f7bcae0981' as SessionId,
+			topicId: 'f85fe271-5d7f-43be-b197-75d2e0b019bb' as TopicId,
+			projectId: '77591058-6566-4123-826e-b2c57da6bb8a' as ProjectId,
+			tenantId: '5ebe0c1e-9c3b-4abc-870d-affb0cea1850' as TenantId,
 		})
 
 		expect(failed.status).toBe('failed')

@@ -16,10 +16,10 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
 import { runAgent } from '../runAgent.js'
 
 const scope = {
-	sessionId: 'ses_rich_front' as SessionId,
-	topicId: 'top_rich_front' as TopicId,
-	projectId: 'prj_rich_front' as ProjectId,
-	tenantId: 'tnt_rich_front' as TenantId,
+	sessionId: '3cdbce22-edce-4f36-aec7-644f29f72a87' as SessionId,
+	topicId: 'd3df3586-e05b-4c3c-9e82-9381af89004f' as TopicId,
+	projectId: '1ec83217-ec48-42c8-acfb-0a37c43c4872' as ProjectId,
+	tenantId: '46200af0-33d2-4831-89b5-dfa19e427570' as TenantId,
 }
 
 const image = { data: 'A'.repeat(8), mediaType: 'image/png' }

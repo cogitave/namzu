@@ -31,7 +31,7 @@ function unusedGateway(): TaskScheduler {
 
 function testToolContext(): ToolContext {
 	return {
-		runId: 'run_approve_plan_test' as RunId,
+		runId: '302e1709-cddd-42e2-b4f7-56186ce7faa2' as RunId,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -40,7 +40,7 @@ function testToolContext(): ToolContext {
 }
 
 async function executeApprovePlan(approval: PlanApprovalResponse) {
-	const pm = new PlanManager('run_approve_plan_test' as RunId, async () => approval)
+	const pm = new PlanManager('302e1709-cddd-42e2-b4f7-56186ce7faa2' as RunId, async () => approval)
 	const tools = buildCoordinatorTools({
 		gateway: unusedGateway(),
 		workingDirectory: '/tmp/test',

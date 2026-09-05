@@ -62,7 +62,13 @@ import type { CostInfo } from '../../types/common/index.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
 import type { ProjectId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
-import { asCheckpointId, asProjectId, asRunId, asSessionId, asTenantId } from '../../utils/id.js'
+import {
+	asProjectId,
+	asRunId,
+	asSessionId,
+	asTenantId,
+	generateCheckpointId,
+} from '../../utils/id.js'
 import { claimRun, listDurableRuns, releaseRun } from './listing.js'
 
 /**
@@ -167,13 +173,13 @@ export interface CheckpointStoreConformanceOptions {
 
 /** The tenant/project/session every case addresses unless it needs a second. */
 const BINDING: CheckpointStoreBinding = {
-	tenantId: asTenantId('tnt_conformance'),
-	projectId: asProjectId('prj_conformance'),
-	sessionId: asSessionId('ses_conformance'),
+	tenantId: asTenantId('528cd907-2b3e-4524-b67d-bcf63bfd4b60'),
+	projectId: asProjectId('e74a687e-883b-43e9-a1e4-0c254b9d9eb1'),
+	sessionId: asSessionId('5abc3e06-d1a0-4036-84f4-903b11b1d781'),
 }
 
 /** A tenant no backend under test holds runs for. */
-const FOREIGN_TENANT = asTenantId('tnt_conformance_other')
+const FOREIGN_TENANT = asTenantId('4ddf9f0b-a8c3-4f53-853b-1c604fc1ba52')
 
 /** Fixed instant, so every expiry in a case is judged against one clock. */
 const NOW = 5_000_000
@@ -191,12 +197,9 @@ const NO_COST: CostInfo = {
 	unpricedTokens: 0,
 }
 
-let checkpointSeq = 0
-
 function checkpoint(runId: string): IterationCheckpoint {
-	checkpointSeq += 1
 	return {
-		id: asCheckpointId(`cp_conformance_${checkpointSeq}`),
+		id: generateCheckpointId(),
 		runId: asRunId(runId),
 		iteration: 1,
 		messages: [],
@@ -213,7 +216,7 @@ function checkpoint(runId: string): IterationCheckpoint {
 	}
 }
 
-function runScope(binding: CheckpointStoreBinding, runId = 'run_conformance_a') {
+function runScope(binding: CheckpointStoreBinding, runId = '5c84eacc-d287-4155-ac3b-336deb7b2d63') {
 	return { ...binding, runId: asRunId(runId) }
 }
 
@@ -427,7 +430,7 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 						})
 						await store.writeCheckpoint(
 							runScope(BINDING),
-							checkpoint('run_conformance_a'),
+							checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
 							claim?.fence,
 						)
 						const written = await store.listCheckpoints(runScope(BINDING))
@@ -446,7 +449,10 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 						// A host that adopts claims on one worker must not break the
 						// workers that have not adopted them yet. Refusing here would
 						// make the capability impossible to roll out incrementally.
-						await store.writeCheckpoint(runScope(BINDING), checkpoint('run_conformance_a'))
+						await store.writeCheckpoint(
+							runScope(BINDING),
+							checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
+						)
 						const written = await store.listCheckpoints(runScope(BINDING))
 						expect(written.length).toBe(1)
 					}),
@@ -476,7 +482,7 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 							() =>
 								store.writeCheckpoint(
 									runScope(BINDING),
-									checkpoint('run_conformance_a'),
+									checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
 									first?.fence,
 								),
 							/no longer holds it/,
@@ -515,7 +521,7 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 							() =>
 								store.writeCheckpoint(
 									runScope(BINDING),
-									checkpoint('run_conformance_a'),
+									checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
 									stale?.fence,
 								),
 							/no longer holds it/,
@@ -543,7 +549,7 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 							() =>
 								store.writeCheckpoint(
 									runScope(BINDING),
-									checkpoint('run_conformance_a'),
+									checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
 									claim?.fence,
 								),
 							/no longer holds it/,
@@ -559,8 +565,8 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 					'answers nothing for a tenant it does not hold',
 					withStore(async (store) => {
 						await store.writeCheckpoint(
-							runScope(BINDING, 'run_conformance_a'),
-							checkpoint('run_conformance_a'),
+							runScope(BINDING, '5c84eacc-d287-4155-ac3b-336deb7b2d63'),
+							checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
 						)
 
 						const foreign = await listDurableRuns(store, { tenantId: FOREIGN_TENANT })
@@ -575,13 +581,13 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 					'answers nothing for a project it does not hold',
 					withStore(async (store) => {
 						await store.writeCheckpoint(
-							runScope(BINDING, 'run_conformance_a'),
-							checkpoint('run_conformance_a'),
+							runScope(BINDING, '5c84eacc-d287-4155-ac3b-336deb7b2d63'),
+							checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
 						)
 
 						const foreign = await listDurableRuns(store, {
 							tenantId: BINDING.tenantId,
-							projectId: asProjectId('prj_conformance_other'),
+							projectId: asProjectId('f89abf78-869a-40b1-8463-9a3051be514f'),
 						})
 						expect(foreign.entries.map((e) => e.runId)).toEqual([])
 					}),
@@ -610,18 +616,18 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 					'rebuilds an addressable row for every run it holds',
 					withStore(async (store) => {
 						await store.writeCheckpoint(
-							runScope(BINDING, 'run_conformance_a'),
-							checkpoint('run_conformance_a'),
+							runScope(BINDING, '5c84eacc-d287-4155-ac3b-336deb7b2d63'),
+							checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
 						)
 						await store.writeCheckpoint(
-							runScope(BINDING, 'run_conformance_b'),
-							checkpoint('run_conformance_b'),
+							runScope(BINDING, '31e7abcd-79c7-4720-ad81-f57f89d1ec63'),
+							checkpoint('31e7abcd-79c7-4720-ad81-f57f89d1ec63'),
 						)
 
 						const page = await listDurableRuns(store, { tenantId: BINDING.tenantId })
 						expect(page.entries.map((e) => e.runId)).toEqual([
-							'run_conformance_a',
-							'run_conformance_b',
+							'31e7abcd-79c7-4720-ad81-f57f89d1ec63',
+							'5c84eacc-d287-4155-ac3b-336deb7b2d63',
 						])
 						// A row that cannot be turned back into a scope is a report,
 						// not a work queue.
@@ -641,24 +647,28 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 						'keeps one tenant’s runs out of another tenant’s listing',
 						withStore(async (store) => {
 							await store.writeCheckpoint(
-								runScope(BINDING, 'run_conformance_a'),
-								checkpoint('run_conformance_a'),
+								runScope(BINDING, '5c84eacc-d287-4155-ac3b-336deb7b2d63'),
+								checkpoint('5c84eacc-d287-4155-ac3b-336deb7b2d63'),
 							)
 							await store.writeCheckpoint(
 								{
 									tenantId: FOREIGN_TENANT,
 									projectId: BINDING.projectId,
 									sessionId: BINDING.sessionId,
-									runId: asRunId('run_conformance_z'),
+									runId: asRunId('a8085004-143d-49b4-9beb-8c396f723803'),
 								},
-								checkpoint('run_conformance_z'),
+								checkpoint('a8085004-143d-49b4-9beb-8c396f723803'),
 							)
 
 							const mine = await listDurableRuns(store, { tenantId: BINDING.tenantId })
-							expect(mine.entries.map((e) => e.runId)).toEqual(['run_conformance_a'])
+							expect(mine.entries.map((e) => e.runId)).toEqual([
+								'5c84eacc-d287-4155-ac3b-336deb7b2d63',
+							])
 
 							const theirs = await listDurableRuns(store, { tenantId: FOREIGN_TENANT })
-							expect(theirs.entries.map((e) => e.runId)).toEqual(['run_conformance_z'])
+							expect(theirs.entries.map((e) => e.runId)).toEqual([
+								'a8085004-143d-49b4-9beb-8c396f723803',
+							])
 						}),
 					)
 				}
@@ -667,15 +677,19 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 					it(
 						'shows the queue reader which runs nobody holds',
 						withStore(async (store) => {
-							for (const id of ['run_conformance_a', 'run_conformance_b', 'run_conformance_c'])
+							for (const id of [
+								'5c84eacc-d287-4155-ac3b-336deb7b2d63',
+								'31e7abcd-79c7-4720-ad81-f57f89d1ec63',
+								'727c095d-acad-4264-89f6-66cadc0bb644',
+							])
 								await store.writeCheckpoint(runScope(BINDING, id), checkpoint(id))
 
-							await claimRun(store, runScope(BINDING, 'run_conformance_a'), {
+							await claimRun(store, runScope(BINDING, '5c84eacc-d287-4155-ac3b-336deb7b2d63'), {
 								holder: 'w1',
 								ttlMs: 60_000,
 								now: NOW,
 							})
-							await claimRun(store, runScope(BINDING, 'run_conformance_b'), {
+							await claimRun(store, runScope(BINDING, '31e7abcd-79c7-4720-ad81-f57f89d1ec63'), {
 								holder: 'w1',
 								ttlMs: 1_000,
 								now: NOW,
@@ -691,8 +705,8 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 							// forever — the failure the lease exists to prevent,
 							// reintroduced by the filter that reads it.
 							expect(free.entries.map((e) => e.runId)).toEqual([
-								'run_conformance_b',
-								'run_conformance_c',
+								'31e7abcd-79c7-4720-ad81-f57f89d1ec63',
+								'727c095d-acad-4264-89f6-66cadc0bb644',
 							])
 
 							const taken = await listDurableRuns(
@@ -700,7 +714,9 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 								{ tenantId: BINDING.tenantId },
 								{ claimed: true, now: NOW + 2_000 },
 							)
-							expect(taken.entries.map((e) => e.runId)).toEqual(['run_conformance_a'])
+							expect(taken.entries.map((e) => e.runId)).toEqual([
+								'5c84eacc-d287-4155-ac3b-336deb7b2d63',
+							])
 							expect(taken.entries[0]?.claim?.holder).toBe('w1')
 							expect(taken.entries[0]?.claim?.expired).toBe(false)
 						}),

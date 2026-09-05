@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { RetiredIdPrefixError } from '../../types/ids/index.js'
+import { InvalidIdError } from '../../utils/id.js'
 
 import type { ProjectId, SessionId, TenantId, TopicId, UserId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -21,10 +21,14 @@ import {
  * or checked but never stamped, is the same silent read it replaces.
  */
 
-const TENANT = 'tnt_schema' as TenantId
-const TOPIC = 'top_schema' as TopicId
+const TENANT = '07442843-84b9-4ee1-81db-b1f7db0ae95d' as TenantId
+const TOPIC = '80a023ab-f66c-477b-82a9-09a74c6bbc18' as TopicId
 
-const actor = (): ActorRef => ({ kind: 'user', userId: 'usr_a' as UserId, tenantId: TENANT })
+const actor = (): ActorRef => ({
+	kind: 'user',
+	userId: '9ce05013-3bcc-4835-86b3-15e7b9251801' as UserId,
+	tenantId: TENANT,
+})
 
 let rootDir: string
 let store: DiskSessionStore
@@ -129,7 +133,7 @@ describe('what comes back off disk', () => {
 describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 	it('refuses a pre-rename session.json whose thread id carries the retired prefix', async () => {
 		const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
-		const sessionId = 'ses_legacy' as SessionId
+		const sessionId = 'aa6b8154-57fd-4b3b-96e3-2acf52b6e087' as SessionId
 		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
 		await mkdir(dir, { recursive: true })
 		// Exactly what every session.json on a user's disk looks like before
@@ -156,7 +160,7 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		// v1 chains through v1->v2 (rename) and v2->v3 (prefix check) in one
 		// migrate() call; a record that still carries the retired `thd_`
 		// prefix is refused there, not rewritten.
-		await expect(store.getSession(sessionId, TENANT)).rejects.toThrow(RetiredIdPrefixError)
+		await expect(store.getSession(sessionId, TENANT)).rejects.toThrow(InvalidIdError)
 	})
 
 	it('a legacy record survives a subsequent write at the current schema version', async () => {
@@ -164,12 +168,12 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		// gets upgraded on disk: migrate() only runs on read, so the v1 shape
 		// persists until something writes the session back.
 		const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
-		const sessionId = 'ses_legacy2' as SessionId
+		const sessionId = 'dc584794-9668-4f3f-909e-9ecacbc519c0' as SessionId
 		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
 		await mkdir(dir, { recursive: true })
 		const legacy = {
 			id: sessionId,
-			threadId: 'top_legacy2',
+			threadId: '0afbe4be-1015-4491-b866-52c54bc7472b',
 			projectId: project.id,
 			tenantId: TENANT,
 			status: 'idle',
@@ -188,7 +192,7 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 
 		const rewritten = JSON.parse(await readFile(join(dir, 'session.json'), 'utf-8'))
 		expect(rewritten.schemaVersion).toBe(4)
-		expect(rewritten.topicId).toBe('top_legacy2')
+		expect(rewritten.topicId).toBe('0afbe4be-1015-4491-b866-52c54bc7472b')
 		expect(rewritten.threadId).toBeUndefined()
 	})
 
@@ -205,15 +209,19 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		// key. `toEqual` treats an undefined-valued extra property as no
 		// difference; `toStrictEqual` does not.
 		const messageLine = {
-			id: 'msg_x',
-			sessionId: 'ses_x',
+			id: '1424e839-3768-4813-8d3d-e5190867e5d3',
+			sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5',
 			tenantId: TENANT,
 			message: createUserMessage('hi'),
 			at: new Date().toISOString(),
 		}
 		expect(migrateSessionStoreThreadIdToTopicId({ ...messageLine })).toStrictEqual(messageLine)
 
-		const subsessionLine = { id: 'sub_x', parentSessionId: 'ses_a', childSessionId: 'ses_b' }
+		const subsessionLine = {
+			id: '9a68f2da-b1da-4caf-b105-453764e3930a',
+			parentSessionId: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d',
+			childSessionId: 'e94d8d65-e063-4b5c-9f27-4d464e9d67d4',
+		}
 		expect(migrateSessionStoreThreadIdToTopicId({ ...subsessionLine })).toStrictEqual(
 			subsessionLine,
 		)
@@ -221,16 +229,16 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 
 	it('migrateSessionStoreThreadIdToTopicId renames threadId and removes it when present', () => {
 		const legacySession = {
-			id: 'ses_x',
-			threadId: 'top_x',
-			projectId: 'prj_x',
+			id: '02b19846-c793-4e21-9c6e-21962a7d2de5',
+			threadId: '5c8a352b-b97a-4b96-a7bd-e1425205de59',
+			projectId: '3f488113-b658-4c23-833c-69d1e9072a19',
 			tenantId: TENANT,
 		}
 		const migrated = migrateSessionStoreThreadIdToTopicId({ ...legacySession })
 		expect(migrated).toStrictEqual({
-			id: 'ses_x',
-			topicId: 'top_x',
-			projectId: 'prj_x',
+			id: '02b19846-c793-4e21-9c6e-21962a7d2de5',
+			topicId: '5c8a352b-b97a-4b96-a7bd-e1425205de59',
+			projectId: '3f488113-b658-4c23-833c-69d1e9072a19',
 			tenantId: TENANT,
 		})
 		expect('threadId' in migrated).toBe(false)
@@ -240,7 +248,7 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 describe('topicId prefix check (v2→v3)', () => {
 	it('refuses a v2 session.json whose topicId still carries the retired thd_ prefix', async () => {
 		const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
-		const sessionId = 'ses_v2legacy' as SessionId
+		const sessionId = 'a9c22285-9c77-4a3d-8250-e8965d3b70b3' as SessionId
 		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
 		await mkdir(dir, { recursive: true })
 		// Exactly what NZ-TOPIC-03 alone (pre-NZ-TOPIC-04) wrote: field already
@@ -261,17 +269,17 @@ describe('topicId prefix check (v2→v3)', () => {
 		}
 		await writeFile(join(dir, 'session.json'), JSON.stringify(v2Record), 'utf-8')
 
-		await expect(store.getSession(sessionId, TENANT)).rejects.toThrow(RetiredIdPrefixError)
+		await expect(store.getSession(sessionId, TENANT)).rejects.toThrow(InvalidIdError)
 	})
 
 	it('running the migration a second time is a no-op: file bytes are unchanged because a read never writes', async () => {
 		const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
-		const sessionId = 'ses_v2idem' as SessionId
+		const sessionId = 'a5f73ac0-5289-4ea5-a497-dedf960866a5' as SessionId
 		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
 		await mkdir(dir, { recursive: true })
 		const v2Record = {
 			id: sessionId,
-			topicId: 'top_idem',
+			topicId: '3f30de7b-8a18-4ae8-a7f6-cc8c1d1a4742',
 			projectId: project.id,
 			tenantId: TENANT,
 			status: 'idle',
@@ -302,14 +310,14 @@ describe('topicId prefix check (v2→v3)', () => {
 	})
 
 	it('migrateSessionStoreTopicIdPrefix leaves a record with no topicId untouched (same reference)', () => {
-		const projectLine = { id: 'prj_x', tenantId: TENANT, name: 'p' }
+		const projectLine = { id: '3f488113-b658-4c23-833c-69d1e9072a19', tenantId: TENANT, name: 'p' }
 		expect(migrateSessionStoreTopicIdPrefix(projectLine)).toBe(projectLine)
 	})
 
-	it.each(['top_already', '5985bc78-64b1-438b-972f-96d5dc0c5af0'])(
+	it.each(['030c4c5d-1987-40b7-b197-bb1860fab281', '5985bc78-64b1-438b-972f-96d5dc0c5af0'])(
 		'migrateSessionStoreTopicIdPrefix preserves the recognized topic ID %s',
 		(topicId) => {
-			const record = { id: 'ses_x', topicId, tenantId: TENANT }
+			const record = { id: '02b19846-c793-4e21-9c6e-21962a7d2de5', topicId, tenantId: TENANT }
 			// Reference equality, not just value equality: proves the no-op branch
 			// returns the SAME object rather than a fresh shallow copy.
 			expect(migrateSessionStoreTopicIdPrefix(record)).toBe(record)
@@ -317,7 +325,12 @@ describe('topicId prefix check (v2→v3)', () => {
 	)
 
 	it('migrateSessionStoreTopicIdPrefix refuses a thd_-prefixed topicId instead of rewriting it', () => {
-		const record = { id: 'ses_x', topicId: 'thd_rewrite', tenantId: TENANT, extra: 'kept' }
-		expect(() => migrateSessionStoreTopicIdPrefix(record)).toThrow(RetiredIdPrefixError)
+		const record = {
+			id: '02b19846-c793-4e21-9c6e-21962a7d2de5',
+			topicId: 'thd_rewrite',
+			tenantId: TENANT,
+			extra: 'kept',
+		}
+		expect(() => migrateSessionStoreTopicIdPrefix(record)).toThrow(InvalidIdError)
 	})
 })

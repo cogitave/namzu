@@ -28,7 +28,7 @@ import { WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WebFetchTool, WebSearchTool 
  */
 
 const context = (over: Partial<ToolContext> = {}): ToolContext => ({
-	runId: 'run_web' as RunId,
+	runId: 'b9dc517e-37ed-4289-afcd-b0d081254384' as RunId,
 	workingDirectory: '/tmp',
 	abortSignal: new AbortController().signal,
 	env: {},

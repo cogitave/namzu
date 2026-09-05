@@ -14,7 +14,7 @@ import type { TopicId } from '../../../types/session/ids.js'
 import { TenantIsolationError } from '../../errors.js'
 import { DEFAULT_TENANT, agentActor, buildHarness, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'top_test' as TopicId
+const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
 describe('Integration — hierarchy lifecycle', () => {
 	it('creates Tenant → Project → Session → SubSession with properly branded IDs', async () => {
@@ -25,10 +25,14 @@ describe('Integration — hierarchy lifecycle', () => {
 		expect(project.id).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
-		expect(project.tenantId.startsWith('tnt_')).toBe(true)
+		expect(project.tenantId).toBe(tenant)
 
 		const session = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
+			},
 			tenant,
 		)
 		expect(session.id).toMatch(
@@ -41,7 +45,11 @@ describe('Integration — hierarchy lifecycle', () => {
 		expect(session.previousActors).toEqual([])
 
 		const childSession = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_worker') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: agentActor('b8f09df7-1720-46cf-9a2e-d63542de60d2'),
+			},
 			tenant,
 		)
 		const subSession = await store.createSubSession(
@@ -49,7 +57,7 @@ describe('Integration — hierarchy lifecycle', () => {
 				parentSessionId: session.id,
 				childSessionId: childSession.id,
 				kind: 'agent_spawn',
-				spawnedBy: userActor('usr_a'),
+				spawnedBy: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
 			},
 			tenant,
 		)
@@ -68,15 +76,27 @@ describe('Integration — hierarchy lifecycle', () => {
 
 		const project = await store.createProject({ tenantId: tenant, name: 'drill' }, tenant)
 		const parent = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_root') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: userActor('e04738b9-b828-4251-9b35-bc3bc8a2adf8'),
+			},
 			tenant,
 		)
 		const childA = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: agentActor('297e7108-719e-42f6-aa3b-f3b42d1ad2c5'),
+			},
 			tenant,
 		)
 		const childB = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_b') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: agentActor('965fee81-5ea3-4efb-a75e-ed08ff17a9ec'),
+			},
 			tenant,
 		)
 		await store.createSubSession(
@@ -84,7 +104,7 @@ describe('Integration — hierarchy lifecycle', () => {
 				parentSessionId: parent.id,
 				childSessionId: childA.id,
 				kind: 'agent_spawn',
-				spawnedBy: userActor('usr_root'),
+				spawnedBy: userActor('e04738b9-b828-4251-9b35-bc3bc8a2adf8'),
 			},
 			tenant,
 		)
@@ -93,7 +113,7 @@ describe('Integration — hierarchy lifecycle', () => {
 				parentSessionId: parent.id,
 				childSessionId: childB.id,
 				kind: 'agent_spawn',
-				spawnedBy: userActor('usr_root'),
+				spawnedBy: userActor('e04738b9-b828-4251-9b35-bc3bc8a2adf8'),
 			},
 			tenant,
 		)
@@ -113,7 +133,7 @@ describe('Integration — hierarchy lifecycle', () => {
 	it('drill returns null for unknown session (deny-by-default)', async () => {
 		const { store } = buildHarness()
 		const view = await store.drill(
-			'ses_missing' as Parameters<typeof store.drill>[0],
+			'1ef9ce34-f888-4928-9659-b4f6388670a9' as Parameters<typeof store.drill>[0],
 			DEFAULT_TENANT,
 		)
 		expect(view).toBeNull()
@@ -124,9 +144,9 @@ describe('Integration — hierarchy lifecycle', () => {
 		const tenant = DEFAULT_TENANT
 
 		const project = await store.createProject({ tenantId: tenant, name: 'actors' }, tenant)
-		const userA = userActor('usr_a')
-		const userB = userActor('usr_b')
-		const userC = userActor('usr_c')
+		const userA = userActor('9ce05013-3bcc-4835-86b3-15e7b9251801')
+		const userB = userActor('9087e28b-e385-43ab-908e-140e46fb01a9')
+		const userC = userActor('7aea217f-b4e1-4f30-854f-6bbcce0af439')
 
 		const session = await store.createSession(
 			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userA },
@@ -163,11 +183,19 @@ describe('Integration — hierarchy lifecycle', () => {
 
 		const project = await store.createProject({ tenantId: tenant, name: 'cycle' }, tenant)
 		const sA = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
+			},
 			tenant,
 		)
 		const sB = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_b') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: userActor('9087e28b-e385-43ab-908e-140e46fb01a9'),
+			},
 			tenant,
 		)
 
@@ -177,7 +205,7 @@ describe('Integration — hierarchy lifecycle', () => {
 				parentSessionId: sA.id,
 				childSessionId: sB.id,
 				kind: 'agent_spawn',
-				spawnedBy: userActor('usr_a'),
+				spawnedBy: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
 			},
 			tenant,
 		)
@@ -190,7 +218,7 @@ describe('Integration — hierarchy lifecycle', () => {
 				parentSessionId: sB.id,
 				childSessionId: sA.id,
 				kind: 'agent_spawn',
-				spawnedBy: userActor('usr_b'),
+				spawnedBy: userActor('9087e28b-e385-43ab-908e-140e46fb01a9'),
 			},
 			tenant,
 		)
@@ -204,11 +232,19 @@ describe('Integration — hierarchy lifecycle', () => {
 
 		const project = await store.createProject({ tenantId: tenant, name: 'lifecycle' }, tenant)
 		const parent = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
+			},
 			tenant,
 		)
 		const child = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: agentActor('297e7108-719e-42f6-aa3b-f3b42d1ad2c5'),
+			},
 			tenant,
 		)
 		const sub = await store.createSubSession(
@@ -216,7 +252,7 @@ describe('Integration — hierarchy lifecycle', () => {
 				parentSessionId: parent.id,
 				childSessionId: child.id,
 				kind: 'agent_spawn',
-				spawnedBy: userActor('usr_a'),
+				spawnedBy: userActor('9ce05013-3bcc-4835-86b3-15e7b9251801'),
 			},
 			tenant,
 		)
@@ -240,7 +276,10 @@ describe('Integration — hierarchy lifecycle', () => {
 			DEFAULT_TENANT,
 		)
 		await expect(
-			store.getProject(projectA.id, 'tnt_other' as typeof DEFAULT_TENANT),
+			store.getProject(
+				projectA.id,
+				'03857320-0500-482a-85e0-add350d8ffdd' as typeof DEFAULT_TENANT,
+			),
 		).rejects.toBeInstanceOf(TenantIsolationError)
 	})
 })

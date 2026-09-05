@@ -29,9 +29,9 @@ import type { ToolRegistryContract } from '../../types/tool/index.js'
 
 import { ConnectorToolRouter } from './router.js'
 
-const CID = 'conn_http' as ConnectorId
-const IID1 = 'ci_a' as ConnectorInstanceId
-const IID2 = 'ci_b' as ConnectorInstanceId
+const CID = 'dafa33b2-7035-47d2-986c-8a6d2ef338f3' as ConnectorId
+const IID1 = 'ef160288-fb1d-4d84-8b1f-a5c5569d10d2' as ConnectorInstanceId
+const IID2 = 'dade91b9-7a23-496a-bee5-da4f12dfc86d' as ConnectorInstanceId
 
 function makeDefinition(): ConnectorDefinition {
 	return {

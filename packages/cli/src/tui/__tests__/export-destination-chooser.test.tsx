@@ -29,7 +29,7 @@ vi.mock('../../integrations/updates.js', () => ({
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
-	startConversation: async () => 'ses_export_fixture',
+	startConversation: async () => 'b9ed92cf-8742-4028-ab32-103e762049fe',
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	replaceConversation: async () => {},
@@ -153,7 +153,7 @@ it('chooses a file, prefills its session filename, and writes the verified proje
 	screen.press('2')
 	await waitUntil(screen, () => painted(screen).includes('Save conversation'))
 	output = painted(screen)
-	expect(output).toContain('namzu-conversation-ses_export_fixture.md')
+	expect(output).toContain('namzu-conversation-b9ed92cf-8742-4028-ab32-103e762049fe.md')
 	expect(exportState.projectionCalls).toEqual([])
 
 	screen.press('\x15')
@@ -162,7 +162,7 @@ it('chooses a file, prefills its session filename, and writes the verified proje
 	await waitUntil(screen, () => exportState.fileWrites.length === 1)
 	await waitUntil(screen, () => painted(screen).includes('Exported 2 turns'))
 
-	expect(exportState.projectionCalls).toEqual(['ses_export_fixture'])
+	expect(exportState.projectionCalls).toEqual(['b9ed92cf-8742-4028-ab32-103e762049fe'])
 	expect(exportState.fileWrites).toEqual([
 		{ markdown: MARKDOWN, path: 'reports/final.md', cwd: '/workspace' },
 	])
@@ -184,6 +184,6 @@ it('sends the same verified projection as one truthful OSC 52 clipboard request'
 	expect(painted(screen)).toContain('Terminal, multiplexer or remote-session policy may ignore')
 	expect(painted(screen)).toContain('OSC 52; if the clipboard did not change')
 	expect(painted(screen)).not.toContain('Copied conversation')
-	expect(exportState.projectionCalls).toEqual(['ses_export_fixture'])
+	expect(exportState.projectionCalls).toEqual(['b9ed92cf-8742-4028-ab32-103e762049fe'])
 	expect(exportState.fileWrites).toEqual([])
 })

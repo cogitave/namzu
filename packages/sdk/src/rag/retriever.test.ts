@@ -37,13 +37,13 @@ import type {
 import { DefaultRetriever } from './retriever.js'
 
 const TENANT = 't_1' as TenantId
-const KB = 'kb_1' as KnowledgeBaseId
+const KB = '5a2348f9-0d2e-4f9f-ae33-b8de032a1675' as KnowledgeBaseId
 const scope: TenantScope = { tenantId: TENANT }
 
 function chunk(id: string, content: string): Chunk {
 	return {
 		id: id as ChunkId,
-		documentId: 'doc_1' as DocumentId,
+		documentId: 'dcee443a-501c-4019-9c85-21a72c3ccfa7' as DocumentId,
 		knowledgeBaseId: KB,
 		tenantId: TENANT,
 		content,

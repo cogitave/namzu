@@ -45,10 +45,10 @@ const request = {
 
 describe('a pause raised from inside a tool', () => {
 	it('records a durable park and returns the human answer', async () => {
-		const record = vi.fn(async () => 'cp_1' as never)
+		const record = vi.fn(async () => '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as never)
 		const resolve = vi.fn(async () => {})
 		const pause = createToolPause({
-			runId: 'run_1' as never,
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async (r) =>
 				ANSWER(r.type === 'user_question' ? r.question.questionId : '', 'staging'),
@@ -59,7 +59,7 @@ describe('a pause raised from inside a tool', () => {
 		expect(record).toHaveBeenCalledTimes(1)
 		// Cleared once answered, so an approval queue stops serving it.
 		expect(resolve).toHaveBeenCalledWith(
-			'cp_1',
+			'62d8ff8a-122d-4369-8274-e1f1dc479c1c',
 			expect.objectContaining({ action: 'answer_question' }),
 		)
 	})
@@ -76,7 +76,7 @@ describe('a pause raised from inside a tool', () => {
 		const name = 'confirm production: eu/west'
 		const requests: HITLDecisionRequest[] = []
 		const pause = createToolPause({
-			runId: 'run_1' as never,
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId,
 			parkHandler: async (park) => {
 				requests.push(park)
@@ -100,7 +100,7 @@ describe('a pause raised from inside a tool', () => {
 
 	it('refuses an answer addressed to a different pause', async () => {
 		const pause = createToolPause({
-			runId: 'run_1' as never,
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ANSWER('call_1:some_other_pause', 'production'),
 		})
@@ -113,7 +113,7 @@ describe('a pause raised from inside a tool', () => {
 
 	it('reports an unanswered pause as its own outcome, never as consent', async () => {
 		const pause = createToolPause({
-			runId: 'run_1' as never,
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ({ action: 'continue' }),
 		})
@@ -125,7 +125,7 @@ describe('a pause raised from inside a tool', () => {
 
 	it('reports an abort separately from silence', async () => {
 		const pause = createToolPause({
-			runId: 'run_1' as never,
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ({ action: 'abort', reason: 'stop' }),
 		})
@@ -135,7 +135,7 @@ describe('a pause raised from inside a tool', () => {
 
 	it('drops a selection the tool never offered', async () => {
 		const pause = createToolPause({
-			runId: 'run_1' as never,
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ANSWER('call_1:target_environment', 'delete_everything'),
 		})
@@ -144,7 +144,7 @@ describe('a pause raised from inside a tool', () => {
 	})
 
 	it('answers from a resumed run without parking again', async () => {
-		const record = vi.fn(async () => 'cp_1' as never)
+		const record = vi.fn(async () => '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as never)
 		const answers = new PendingAnswers()
 		answers.set(
 			pauseId('call_1', 'target_environment'),
@@ -153,7 +153,7 @@ describe('a pause raised from inside a tool', () => {
 
 		const parkHandler = vi.fn(async () => ({ action: 'continue' }) as HITLResumeDecision)
 		const pause = createToolPause({
-			runId: 'run_1' as never,
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler,
 			recorder: { record, resolve: async () => {} },
@@ -172,7 +172,7 @@ describe('a pause raised from inside a tool', () => {
 		// the built-in question tool has: the await works, only the
 		// cross-process handoff is missing.
 		const pause = createToolPause({
-			runId: 'run_1' as never,
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ANSWER('call_1:target_environment', 'staging'),
 			recorder: new QuestionParkBinding(),

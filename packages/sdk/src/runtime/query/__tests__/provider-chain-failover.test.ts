@@ -59,10 +59,10 @@ function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory
 		agentId: 'agent_test',
 		agentName: 'Test Agent',
 		workingDirectory,
-		sessionId: 'ses_chain' as SessionId,
-		topicId: 'top_chain' as TopicId,
-		projectId: 'prj_chain' as ProjectId,
-		tenantId: 'tnt_chain' as TenantId,
+		sessionId: 'c55e8872-156b-4d43-a201-002b73edbead' as SessionId,
+		topicId: 'f7c23e2b-da9f-49ff-82ba-4678419818d3' as TopicId,
+		projectId: '850b8164-d47a-4520-b26a-a30823f25d60' as ProjectId,
+		tenantId: '6de37f4f-b32a-485b-ae46-f7de42b4a1f1' as TenantId,
 		// No sleeping in a unit test: every fallover here is on a code the retry
 		// decorator declines anyway, but an accidental retryable status must not
 		// park the suite for 16 seconds.

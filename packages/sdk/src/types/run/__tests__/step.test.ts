@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { fixtureUuid } from '../../../test-support/ids.js'
 
 import type { StepResult, StopConditionState } from '../step.js'
 import { anyOf, hasToolCall, stepCountIs } from '../step.js'
@@ -16,7 +17,7 @@ function step(n: number, toolNames: string[] = []): StepResult {
 	return {
 		stepNumber: n,
 		model: 'm',
-		messageId: `msg_${n}` as StepResult['messageId'],
+		messageId: fixtureUuid(`msg_${n}`) as StepResult['messageId'],
 		content: null,
 		toolCalls: toolNames.map((name, i) => ({
 			id: `c${n}_${i}`,

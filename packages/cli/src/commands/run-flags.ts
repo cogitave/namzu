@@ -23,7 +23,7 @@ import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { DEFAULT_GATE_MAX_RETRIES, createCommandGate } from '@namzu/sdk'
-import type { ReviewAnswer } from '@namzu/sdk'
+import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
 import { durationMs } from './provider-wait.js'
@@ -40,6 +40,8 @@ export interface RunFlags {
 	session: string | null
 	model: string | null
 	provider: string | null
+	/** Exact reasoning effort forwarded to the selected provider. */
+	effort: ReasoningEffort | null
 	/** Where the agent works: filesystem tools, sub-agents, session store, skills. */
 	cwd: string | null
 	/** How calls no `[permissions]` rule decided are resolved: prompt/auto/strict. */
@@ -104,6 +106,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		session: null,
 		model: null,
 		provider: null,
+		effort: null,
 		cwd: null,
 		permissionMode: null,
 		skipPermissions: false,
@@ -133,6 +136,30 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 	const trimmed = (assign: (v: string | null) => void) => (v: string) => assign(v.trim() || null)
 	for (const idx = { v: 0 }; idx.v < rawArgs.length; idx.v++) {
 		const a = rawArgs[idx.v]
+		if (
+			take(
+				a,
+				'effort',
+				(value) => {
+					const levels = [
+						'none',
+						'minimal',
+						'low',
+						'medium',
+						'high',
+						'xhigh',
+						'max',
+						'ultra',
+					] as const satisfies readonly ReasoningEffort[]
+					const level = levels.find((entry) => entry === value)
+					if (level === undefined)
+						throw new Error(`--effort takes one of ${levels.join(', ')}; got ${value}`)
+					out.effort = level
+				},
+				idx,
+			)
+		)
+			continue
 		// End of options. Everything after it is prompt, verbatim — the escape
 		// for a prompt that legitimately begins with a dash, which is the only
 		// case the refusal below would otherwise take away.

@@ -169,7 +169,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					yield actual.toAgentEvent(
 						{
 							type: 'compaction_completed',
-							runId: 'run_auto_compaction' as RunId,
+							runId: '4ac54cdc-8544-408d-9644-81a89368a5a0' as RunId,
 							iteration: 2,
 							messagesBefore: 40,
 							messagesAfter: 6,
@@ -184,7 +184,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					yield actual.toAgentEvent(
 						{
 							type: 'token_usage_updated',
-							runId: 'run_auto_compaction' as RunId,
+							runId: '4ac54cdc-8544-408d-9644-81a89368a5a0' as RunId,
 							usage: { ...ZERO_USAGE, totalTokens: 9_500 },
 							cost: { totalCost: 0.19, cacheDiscount: 0, unpricedTokens: 0 },
 							contextTokens: 20_000,

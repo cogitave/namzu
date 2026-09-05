@@ -32,7 +32,7 @@ class IdleDuringToolInputProvider implements LLMProvider {
 
 		if (this.calls === 1) {
 			yield {
-				id: 'msg_1',
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 				delta: {
 					toolCalls: [
 						{
@@ -45,7 +45,7 @@ class IdleDuringToolInputProvider implements LLMProvider {
 				},
 			}
 			yield {
-				id: 'msg_1',
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 				delta: {
 					toolCalls: [
 						{
@@ -62,11 +62,11 @@ class IdleDuringToolInputProvider implements LLMProvider {
 		}
 
 		yield {
-			id: 'msg_2',
+			id: 'efe8f849-85cf-4b94-8bc7-cad64f257419',
 			delta: { content: 'Recovered after retry guidance.' },
 		}
 		yield {
-			id: 'msg_2',
+			id: 'efe8f849-85cf-4b94-8bc7-cad64f257419',
 			delta: {},
 			finishReason: 'stop',
 			usage: ZERO_USAGE,
@@ -134,10 +134,10 @@ describe('query stream recovery', () => {
 				agentName: 'Test Agent',
 				messages: [createUserMessage('write the file')],
 				workingDirectory,
-				sessionId: 'ses_stream_recovery' as SessionId,
-				topicId: 'top_stream_recovery' as TopicId,
-				projectId: 'prj_stream_recovery' as ProjectId,
-				tenantId: 'tnt_stream_recovery' as TenantId,
+				sessionId: 'e86cd939-0ef9-4824-a4fe-6b9e851c1974' as SessionId,
+				topicId: 'cc9902c4-9754-4cbe-b4b7-c33d033766be' as TopicId,
+				projectId: '38151cce-7294-4000-b702-bf368837c731' as ProjectId,
+				tenantId: '3656c057-2bfd-4643-9a40-b456338506a7' as TenantId,
 			},
 			(event) => {
 				events.push(event)
@@ -201,10 +201,10 @@ describe('query stream recovery', () => {
 				agentName: 'Test Agent',
 				messages: [createUserMessage('fail with classified metadata')],
 				workingDirectory,
-				sessionId: 'ses_provider_error' as SessionId,
-				topicId: 'top_provider_error' as TopicId,
-				projectId: 'prj_provider_error' as ProjectId,
-				tenantId: 'tnt_provider_error' as TenantId,
+				sessionId: '71d49427-a03e-4e5a-a865-3287786a3b77' as SessionId,
+				topicId: '14371173-7de5-4506-b5d4-a26b3d3f8a10' as TopicId,
+				projectId: 'cf5fdd6c-a93d-4e2e-9e70-76aba7aeb9a6' as ProjectId,
+				tenantId: 'fb80e705-99b1-4aa1-b1ba-c42dda4eea5c' as TenantId,
 			},
 			(event) => {
 				events.push(event)

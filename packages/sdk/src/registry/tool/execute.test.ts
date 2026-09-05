@@ -66,7 +66,7 @@ function makeTool(name: string, overrides: Partial<ToolDefinition> = {}): ToolDe
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 	return {
-		runId: 'run_1' as RunId,
+		runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -621,7 +621,7 @@ describe('ToolRegistry — execute', () => {
 			makeContext({
 				permissionContext: {
 					mode: 'plan',
-					runId: 'run_1',
+					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 					workingDirectory: '/tmp',
 				},
 			}),
@@ -640,7 +640,7 @@ describe('ToolRegistry — execute', () => {
 			makeContext({
 				permissionContext: {
 					mode: 'plan',
-					runId: 'run_1',
+					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 					workingDirectory: '/tmp',
 				},
 			}),
@@ -767,7 +767,7 @@ describe('ToolRegistry — execute', () => {
 			makeContext({
 				permissionContext: {
 					mode: 'plan',
-					runId: 'run_1',
+					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 					workingDirectory: '/tmp',
 				},
 			}),

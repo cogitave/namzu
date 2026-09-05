@@ -59,8 +59,8 @@ function stream(events: unknown[]): AsyncIterable<AgentEvent> {
 
 const PAUSE = {
 	kind: 'paused',
-	runId: 'run_7',
-	checkpointId: 'cp_9',
+	runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+	checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
 	reason: 'slow down',
 	// A millisecond, so the test waits for real rather than faking a clock:
 	// the delay is the provider's number, and the policy honours it.
@@ -100,9 +100,16 @@ describe('a paused run, given time to wait', () => {
 		const { code, printed, infos, errors } = await run(['--wait-for-provider', '30s', 'hello'])
 
 		expect(code).toBe(0)
-		expect(resumed).toHaveBeenCalledWith({ runId: 'run_7', checkpointId: 'cp_9' })
-		expect(printed.join('')).toBe('first half, second half from cp_9')
-		expect(infos.join('\n')).toMatch(/waiting 1 second, then resuming from cp_9/)
+		expect(resumed).toHaveBeenCalledWith({
+			runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+			checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
+		})
+		expect(printed.join('')).toBe(
+			'first half, second half from 227436b6-3082-4bdc-a441-7e828e479876',
+		)
+		expect(infos.join('\n')).toMatch(
+			/waiting 1 second, then resuming from 227436b6-3082-4bdc-a441-7e828e479876/,
+		)
 		expect(errors).toEqual([])
 	})
 
@@ -118,7 +125,7 @@ describe('a paused run, given time to wait', () => {
 		expect(code).toBe(75)
 		expect(resumed).not.toHaveBeenCalled()
 		expect(errors.join('')).toContain('Not resumed:')
-		expect(errors.join('')).toContain('Checkpoint preserved: cp_9')
+		expect(errors.join('')).toContain('Checkpoint preserved: 227436b6-3082-4bdc-a441-7e828e479876')
 	})
 
 	it('reads the budget from limits.waitForProviderMs when the flag is absent', async () => {
@@ -147,7 +154,12 @@ describe('a paused run, given time to wait', () => {
 		// waiting would resume it into the same park.
 		sessionStub.send = (() =>
 			stream([
-				{ kind: 'paused', runId: 'run_7', checkpointId: 'cp_9', reason: 'parked' },
+				{
+					kind: 'paused',
+					runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+					checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
+					reason: 'parked',
+				},
 			])) as AgentSession['send']
 		const resumed = vi.fn()
 		sessionStub.resumePaused = resumed as unknown as AgentSession['resumePaused']
@@ -164,7 +176,7 @@ describe('a paused run, given time to wait', () => {
 		sessionStub.resumePaused = (() => {
 			calls += 1
 			return calls === 1
-				? stream([{ ...PAUSE, checkpointId: 'cp_10' }])
+				? stream([{ ...PAUSE, checkpointId: 'bd9701a4-993d-4294-ad4f-a3b6c1193b99' }])
 				: stream([
 						{ kind: 'delta', text: 'done at last' },
 						{ kind: 'done', stopReason: 'end_turn' },

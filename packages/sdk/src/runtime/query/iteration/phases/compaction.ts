@@ -11,6 +11,7 @@ import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { buildCompactionMessage, isCompactionMessage } from '../../../../compaction/summary.js'
+import { estimateMessagesTokens } from '../../../../compaction/token-estimate.js'
 import { buildVerifiedSummaryWithBoundedProvider } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
@@ -37,16 +38,11 @@ export { isCompactionMessage } from '../../../../compaction/summary.js'
  * fraction of itself.
  */
 const MIN_RELIEF_FRACTION = 0.02
-const MIN_RELIEF_CHARS = 2_000
+const MIN_RELIEF_TOKENS = 500
 
 /**
- * Model-visible size of a message body, in characters.
- *
- * An image block is measured by its base64 payload because that is what
- * actually occupies the request. It is NOT what the model is billed for —
- * an image costs far fewer tokens than its base64 length divided by four —
- * but under-counting it to zero is the worse error: it let a run full of
- * screenshots read as an empty context.
+ * Serialized content size, only for byte-volume telemetry. This is never
+ * converted to prompt tokens: compressed image bytes are not model text.
  */
 function measureContentChars(content: unknown): number {
 	if (typeof content === 'string') return content.length
@@ -57,23 +53,6 @@ function measureContentChars(content: unknown): number {
 		else if (block.type === 'image' && typeof block.data === 'string') total += block.data.length
 	}
 	return total
-}
-
-function estimateMessageTokens(messages: readonly Message[]): number {
-	let chars = 0
-	for (const msg of messages) {
-		// `content` is `string | ToolResultBlock[]`. On an array, `.length` is
-		// the BLOCK COUNT, so a tool result carrying a 400 KB screenshot
-		// contributed 1 — and the estimate that decides when to compact read
-		// near zero for exactly the runs that need compacting most.
-		chars += measureContentChars(msg.content)
-		if (msg.role === 'assistant' && msg.toolCalls) {
-			for (const tc of msg.toolCalls) {
-				chars += tc.function.name.length + tc.function.arguments.length
-			}
-		}
-	}
-	return Math.ceil(chars / CHARS_PER_TOKEN)
 }
 
 /**
@@ -100,7 +79,7 @@ function estimateToolCatalogTokens(ctx: IterationContext): number {
 }
 
 function estimateTokens(ctx: IterationContext): number {
-	return estimateMessageTokens(ctx.runMgr.messages) + estimateToolCatalogTokens(ctx)
+	return estimateMessagesTokens(ctx.runMgr.messages) + estimateToolCatalogTokens(ctx)
 }
 
 type ToolResultClearPlan = Extract<CompactionPlan, { kind: 'cleared' }>
@@ -214,7 +193,7 @@ export function measureContext(ctx: IterationContext): {
 	if (reported !== undefined && reported > 0) {
 		const measuredThrough = ctx.runMgr.lastPromptMessageCount ?? ctx.runMgr.messages.length
 		const appended = ctx.runMgr.messages.slice(measuredThrough)
-		return { tokens: reported + estimateMessageTokens(appended), source: 'provider' }
+		return { tokens: reported + estimateMessagesTokens(appended), source: 'provider' }
 	}
 	return { tokens: estimateTokens(ctx), source: 'estimate' }
 }
@@ -240,22 +219,25 @@ export function measureContext(ctx: IterationContext): {
 export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 	const before = ctx.runMgr.messages.length
 	const beforeChars = totalChars(ctx.runMgr.messages)
+	const beforeTokens = estimateMessagesTokens(ctx.runMgr.messages)
 
 	await runCompactionCheck(ctx, { force: true })
 
 	const shed = beforeChars - totalChars(ctx.runMgr.messages)
+	const tokensShed = beforeTokens - estimateMessagesTokens(ctx.runMgr.messages)
 	// A shed has to be big enough to plausibly change the provider's verdict.
 	// Any positive number used to count, so clearing a single short tool
 	// result reported success, the turn was retried against a prompt that was
 	// still over the window, and the retry burned a call to learn nothing.
 	// The floor is a fraction of what was there rather than a constant: what
 	// counts as meaningful scales with the prompt.
-	const meaningful = Math.max(MIN_RELIEF_CHARS, beforeChars * MIN_RELIEF_FRACTION)
-	if (shed < meaningful) {
+	const meaningful = Math.max(MIN_RELIEF_TOKENS, beforeTokens * MIN_RELIEF_FRACTION)
+	if (tokensShed < meaningful) {
 		ctx.log.warn('Context overflow with too little left to shed — the prompt is irreducible', {
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			'namzu.runtime.messages': before,
 			'namzu.runtime.chars_shed': shed,
+			'namzu.runtime.tokens_shed': tokensShed,
 			'namzu.runtime.needed_at_least': Math.ceil(meaningful),
 		})
 		return false
@@ -266,6 +248,7 @@ export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 		'namzu.runtime.messages_before': before,
 		'namzu.runtime.messages_after': ctx.runMgr.messages.length,
 		'namzu.runtime.chars_shed': shed,
+		'namzu.runtime.tokens_shed': tokensShed,
 	})
 	return true
 }

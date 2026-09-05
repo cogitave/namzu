@@ -18,10 +18,10 @@ import { InMemoryCredentialVault } from '../../../vault/InMemoryCredentialVault.
 import { ConnectorManager } from '../lifecycle.js'
 import { TenantConnectorManager } from '../tenant.js'
 
-const TENANT_A = 'tnt_a' as TenantId
-const TENANT_B = 'tnt_b' as TenantId
-const CONNECTOR_A = 'conn_a' as ConnectorId
-const CONNECTOR_B = 'conn_b' as ConnectorId
+const TENANT_A = '17697cab-7e61-4b71-be7c-ea8e4c418a35' as TenantId
+const TENANT_B = '1d776c54-769e-46b0-81d2-8b99079a99ef' as TenantId
+const CONNECTOR_A = '0d14a2c3-cb4d-45f4-8784-65e346e4fa86' as ConnectorId
+const CONNECTOR_B = '4f7cc074-39e0-4c26-b816-7c828a841542' as ConnectorId
 
 class RecordingConnector extends BaseConnector<Record<string, never>> {
 	readonly id: ConnectorId
@@ -165,13 +165,19 @@ describe('TenantConnectorManager credential authority', () => {
 
 		await expect(
 			manager.connectWithCredential(TENANT_B, tenantBInstance.id, ref.id),
-		).rejects.toThrow(/unavailable for tenant "tnt_b" and connector "conn_a"/)
+		).rejects.toThrow(
+			/unavailable for tenant "1d776c54-769e-46b0-81d2-8b99079a99ef" and connector "0d14a2c3-cb4d-45f4-8784-65e346e4fa86"/,
+		)
 		await expect(
 			manager.connectWithCredential(TENANT_A, connectorBInstance.id, ref.id),
-		).rejects.toThrow(/unavailable for tenant "tnt_a" and connector "conn_b"/)
+		).rejects.toThrow(
+			/unavailable for tenant "17697cab-7e61-4b71-be7c-ea8e4c418a35" and connector "4f7cc074-39e0-4c26-b816-7c828a841542"/,
+		)
 		await expect(
 			manager.connectWithCredential(TENANT_A, mutatedConnectorAInstance.id, connectorBRef.id),
-		).rejects.toThrow(/unavailable for tenant "tnt_a" and connector "conn_a"/)
+		).rejects.toThrow(
+			/unavailable for tenant "17697cab-7e61-4b71-be7c-ea8e4c418a35" and connector "0d14a2c3-cb4d-45f4-8784-65e346e4fa86"/,
+		)
 		expect(tenantBInstance.config.auth).toBeUndefined()
 		expect(connectorBInstance.config.auth).toBeUndefined()
 		expect(tenantBConnector.connectCalls).toHaveLength(0)
@@ -337,7 +343,9 @@ describe('ConnectorManager auth admission', () => {
 				{ connectorId: CONNECTOR_A, name: 'wrong implementation' },
 				new RecordingConnector(CONNECTOR_B, ['bearer']),
 			),
-		).rejects.toThrow(/implementation id "conn_b" does not match requested definition "conn_a"/)
+		).rejects.toThrow(
+			/implementation id "4f7cc074-39e0-4c26-b816-7c828a841542" does not match requested definition "0d14a2c3-cb4d-45f4-8784-65e346e4fa86"/,
+		)
 		await expect(
 			manager.createInstance(
 				{ connectorId: CONNECTOR_A, name: 'wrong same-id implementation' },

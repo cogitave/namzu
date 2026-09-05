@@ -23,7 +23,7 @@ import { drainQuery } from '../index.js'
  */
 function orphanTaskGateway(): TaskScheduler {
 	const handle: TaskHandle = {
-		taskId: 'task_orphan' as TaskId,
+		taskId: '767282e1-1b87-441c-99c6-d1ec1dbbe591' as TaskId,
 		agentId: 'agent_worker',
 		state: 'running',
 		createdAt: Date.now(),
@@ -80,10 +80,10 @@ describe('end of turn with running agent tasks', () => {
 				messages: [createUserMessage('do the thing')],
 				workingDirectory,
 				taskScheduler: orphanTaskGateway(),
-				sessionId: 'ses_orphan_task' as SessionId,
-				topicId: 'top_orphan_task' as TopicId,
-				projectId: 'prj_orphan_task' as ProjectId,
-				tenantId: 'tnt_orphan_task' as TenantId,
+				sessionId: '4eca65f2-aafa-4af8-8abc-e869fd8c1559' as SessionId,
+				topicId: 'bf48a2eb-9909-4358-b2e2-e241132e16a1' as TopicId,
+				projectId: 'e896ea6a-8cff-43b5-9073-51759cbac6a7' as ProjectId,
+				tenantId: '75bd4ec2-2e01-49b1-9f40-b7133540a54e' as TenantId,
 			},
 			(event) => {
 				events.push(event)

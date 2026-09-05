@@ -85,10 +85,10 @@ async function run(opts: {
 		agentName: 'A',
 		messages: [createUserMessage('go')],
 		workingDirectory,
-		sessionId: 'ses_r' as SessionId,
-		topicId: 'top_r' as TopicId,
-		projectId: 'prj_r' as ProjectId,
-		tenantId: 'tnt_r' as TenantId,
+		sessionId: '4867992e-5fe0-44ac-8ad3-84768354abe1' as SessionId,
+		topicId: '62a3b800-6711-4be4-9574-b8821f466408' as TopicId,
+		projectId: 'f4feb4a0-1fe7-447e-a5bb-29988d224bb0' as ProjectId,
+		tenantId: '945ca78a-e487-433d-a206-e2b9c64485c9' as TenantId,
 		...(opts.advisory === false ? { repeatCallAdvisory: false } : {}),
 	})
 	return result.messages

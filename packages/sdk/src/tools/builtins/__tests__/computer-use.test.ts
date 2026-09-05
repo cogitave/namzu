@@ -56,7 +56,7 @@ function makeHost(overrides: Partial<ComputerUseCapabilities> = {}): {
 
 function makeContext(): ToolContext {
 	return {
-		runId: 'run_test' as never,
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},

@@ -17,8 +17,8 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 			(async function* (): AsyncGenerator<RunEvent, Run> {
 				yield {
 					type: 'run_paused',
-					runId: 'run_pause_reach' as never,
-					checkpointId: 'cp_pause_reach' as never,
+					runId: 'dcc4e6b8-5dbe-453f-a4e4-61e076a09185' as never,
+					checkpointId: '02400658-7072-4cd3-b006-1e7c822072ac' as never,
 					reason: 'slow down',
 					failure: {
 						code: 'provider_error',
@@ -81,8 +81,8 @@ it('publishes checkpoint identity, classification and remedy from session.send',
 	expect(events).toEqual([
 		{
 			kind: 'paused',
-			runId: 'run_pause_reach',
-			checkpointId: 'cp_pause_reach',
+			runId: 'dcc4e6b8-5dbe-453f-a4e4-61e076a09185',
+			checkpointId: '02400658-7072-4cd3-b006-1e7c822072ac',
 			reason: 'slow down',
 			failure: {
 				code: 'provider_error',

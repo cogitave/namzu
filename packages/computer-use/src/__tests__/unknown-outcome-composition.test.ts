@@ -9,7 +9,7 @@ import { runCommandOrThrow } from '../util/spawn.js'
 
 function makeContext(workingDirectory: string): ToolContext {
 	return {
-		runId: 'run_computer_use_unknown' as RunId,
+		runId: '841a0019-cca9-4434-8d34-004d29bbffcf' as RunId,
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},

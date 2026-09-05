@@ -61,7 +61,7 @@ describe('a spilled result', () => {
 		expect(text).toMatch(/read|grep/)
 		// Re-running a tool that returned megabytes is the advice this
 		// replaces.
-		expect(text).not.toContain('Call the tool again')
+		expect(text).not.toContain('do not repeat a state-changing action')
 	})
 
 	it('still reclaims most of the content', () => {
@@ -86,8 +86,10 @@ describe('an ordinary large result', () => {
 		expect(clearedText(clear(history(long)).messages)).toMatch(/characters elided/)
 	})
 
-	it('still advises re-running when there is nothing on disk', () => {
-		expect(clearedText(clear(history(long)).messages)).toContain('Call the tool again')
+	it('does not suggest replaying a state-changing tool to recover missing output', () => {
+		expect(clearedText(clear(history(long)).messages)).toContain(
+			'do not repeat a state-changing action',
+		)
 	})
 
 	it('is still recognisable as cleared', () => {
@@ -110,7 +112,7 @@ describe('a result barely over the threshold', () => {
 			keepRecentToolResults: 0,
 			minCharsToClear: 100,
 		})
-		const text = clearedText(messages)
+		const text = String(messages.find((m) => m.role === 'tool')?.content)
 		// The three lines the agent was reasoning from used to go with it.
 		expect(text).toContain('IMPORTANT-FIRST-LINE')
 		expect(text).toContain('IMPORTANT-LAST-LINE')

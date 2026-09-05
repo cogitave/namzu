@@ -12,7 +12,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { InMemoryCheckpointStore } from '../../store/run/checkpoint-memory.js'
-import { fixtureId } from '../../test-support/ids.js'
+import { fixtureId, fixtureUuid } from '../../test-support/ids.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
 import type { CheckpointId, ProjectId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type {
@@ -22,9 +22,9 @@ import type {
 } from '../../types/run/checkpoint-store.js'
 import { drainRuns } from '../drain.js'
 
-const TENANT = 'tnt_drain' as TenantId
-const PROJECT = 'prj_drain' as ProjectId
-const SESSION = 'ses_drain' as SessionId
+const TENANT = '988097f6-b538-4e9a-a5ec-d6bf9864204a' as TenantId
+const PROJECT = 'baa3f1b2-7a3d-4291-ba2e-694e4b02352b' as ProjectId
+const SESSION = '5b2340e7-1a7e-45e3-97bd-c297d5334dd9' as SessionId
 
 const listingScope = { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION }
 
@@ -38,7 +38,7 @@ let seq = 0
 function checkpoint(runId: string, parked: boolean): IterationCheckpoint {
 	seq += 1
 	return {
-		id: `cp_${seq}` as CheckpointId,
+		id: fixtureUuid(`cp_${seq}`) as CheckpointId,
 		runId: runId as RunId,
 		iteration: 1,
 		messages: [],
@@ -58,7 +58,7 @@ function checkpoint(runId: string, parked: boolean): IterationCheckpoint {
 						request: {
 							type: 'tool_review',
 							runId: runId as RunId,
-							checkpointId: `cp_${seq}` as CheckpointId,
+							checkpointId: fixtureUuid(`cp_${seq}`) as CheckpointId,
 							toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
 						},
 						parkedAt: 1_000,
@@ -154,7 +154,7 @@ describe('refusing a store that cannot arbitrate a queue', () => {
 	})
 
 	it('refuses a store that cannot release, rather than draining runs it can never give back', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		const noRelease = without(store, 'releaseRun')
 		const onRun = vi.fn()
 		await expect(
@@ -178,21 +178,21 @@ describe('refusing a store that cannot arbitrate a queue', () => {
 
 describe('refusing configuration that cannot mean what it says', () => {
 	it('refuses an empty holder', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		await expect(
 			drainRuns({ store, scope: listingScope, holder: '  ', ttlMs, onRun: () => {} }),
 		).rejects.toThrow(/`holder` is empty/)
 	})
 
 	it('refuses a lease that has already expired', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		await expect(
 			drainRuns({ store, scope: listingScope, holder, ttlMs: 0, onRun: () => {} }),
 		).rejects.toThrow(/ttlMs must be a positive number/)
 	})
 
 	it('refuses a concurrency of zero rather than reporting an empty pass', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		const onRun = vi.fn()
 		await expect(
 			drainRuns({ store, scope: listingScope, holder, ttlMs, onRun, maxConcurrent: 0 }),
@@ -203,7 +203,11 @@ describe('refusing configuration that cannot mean what it says', () => {
 
 describe('one pass over the queue', () => {
 	it('takes every unclaimed run and hands each one its own claim', async () => {
-		const store = await seeded(['run_a', 'run_b', 'run_c'])
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+			'61d260b3-706f-452e-8528-f7fd5f736b18',
+		])
 		const seen: { runId: string; fence: number; holder: string }[] = []
 
 		const result = await drainRuns({
@@ -217,12 +221,24 @@ describe('one pass over the queue', () => {
 		})
 
 		expect(result.listed).toBe(3)
-		expect([...result.drained].sort()).toEqual(['run_a', 'run_b', 'run_c'])
+		expect([...result.drained].sort()).toEqual(
+			[
+				'90a466e2-f869-4a3c-b750-f2156342ff40',
+				'fe818a89-6a50-4e51-8a91-5f108ad85280',
+				'61d260b3-706f-452e-8528-f7fd5f736b18',
+			].sort(),
+		)
 		expect(result.skipped).toEqual([])
 		expect(result.failed).toEqual([])
 		expect(result.unreleased).toEqual([])
 		expect(result.stopped).toBe(false)
-		expect(seen.map((s) => s.runId).sort()).toEqual(['run_a', 'run_b', 'run_c'])
+		expect(seen.map((s) => s.runId).sort()).toEqual(
+			[
+				'90a466e2-f869-4a3c-b750-f2156342ff40',
+				'fe818a89-6a50-4e51-8a91-5f108ad85280',
+				'61d260b3-706f-452e-8528-f7fd5f736b18',
+			].sort(),
+		)
 		// A fence per run, and the holder the caller named. Asserted because a
 		// drainer that passed the ENTRY and not the claim would still look
 		// correct on every count above.
@@ -230,7 +246,10 @@ describe('one pass over the queue', () => {
 	})
 
 	it('gives every run back, so a second pass sees the same queue', async () => {
-		const store = await seeded(['run_a', 'run_b'])
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+		])
 		await drainRuns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} })
 
 		const second = await drainRuns({
@@ -243,7 +262,9 @@ describe('one pass over the queue', () => {
 		// Without the release, both runs would still be held at their first
 		// fence and this pass would list nothing — the failure that makes a
 		// drainer look like it drained the queue exactly once and then broke.
-		expect([...second.drained].sort()).toEqual(['run_a', 'run_b'])
+		expect([...second.drained].sort()).toEqual(
+			['90a466e2-f869-4a3c-b750-f2156342ff40', 'fe818a89-6a50-4e51-8a91-5f108ad85280'].sort(),
+		)
 		// And the second holding is a NEW fence, which is what proves the first
 		// one was surrendered rather than renewed.
 		const page = await store.listDurableRuns(listingScope, {})
@@ -251,7 +272,10 @@ describe('one pass over the queue', () => {
 	})
 
 	it('releases a run whose work threw, and keeps going', async () => {
-		const store = await seeded(['run_a', 'run_b'])
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+		])
 		const result = await drainRuns({
 			store,
 			scope: listingScope,
@@ -262,19 +286,26 @@ describe('one pass over the queue', () => {
 			},
 		})
 
-		expect(result.failed).toEqual([{ runId: 'run_a', error: 'the work blew up' }])
+		expect(result.failed).toEqual([
+			{ runId: '90a466e2-f869-4a3c-b750-f2156342ff40', error: 'the work blew up' },
+		])
 		// The other run was still drained. A drainer that stopped at the first
 		// failure leaves the rest of the queue for nobody.
-		expect(result.drained).toEqual(['run_b'])
+		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
 		// And the FAILED run is back on the queue immediately rather than stuck
 		// for a full lease — the case a `finally` exists for, and the one a
 		// release-on-success-only implementation gets wrong.
 		const page = await store.listDurableRuns(listingScope, { claimed: false })
-		expect(page.entries.map((e) => e.runId).sort()).toEqual(['run_a', 'run_b'])
+		expect(page.entries.map((e) => e.runId).sort()).toEqual(
+			['90a466e2-f869-4a3c-b750-f2156342ff40', 'fe818a89-6a50-4e51-8a91-5f108ad85280'].sort(),
+		)
 	})
 
 	it('skips a run somebody else took between the listing and the claim', async () => {
-		const store = await seeded(['run_a', 'run_b'])
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+		])
 		// The race the `null` return exists for: listed as free, gone by the
 		// time this drainer asked.
 		const raced = facade(store, {
@@ -284,8 +315,8 @@ describe('one pass over the queue', () => {
 
 		const result = await drainRuns({ store: raced, scope: listingScope, holder, ttlMs, onRun })
 
-		expect(result.skipped).toEqual(['run_a'])
-		expect(result.drained).toEqual(['run_b'])
+		expect(result.skipped).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
+		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
 		// Not a failure. "Somebody got there first" is the ordinary outcome of
 		// two readers on one queue, and reporting it as a fault would make a
 		// healthy two-worker deployment look broken.
@@ -294,7 +325,7 @@ describe('one pass over the queue', () => {
 	})
 
 	it('reports a lease it could not hand back without losing the work', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		const stuck = facade(store, {
 			releaseRun: async () => {
 				throw new Error('disk went away')
@@ -310,13 +341,15 @@ describe('one pass over the queue', () => {
 		// The work succeeded and is reported as such; the release problem is a
 		// separate fact with a separate consequence (throughput, never
 		// correctness), so it does not masquerade as a failed run.
-		expect(result.drained).toEqual(['run_a'])
+		expect(result.drained).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		expect(result.failed).toEqual([])
-		expect(result.unreleased).toEqual([{ runId: 'run_a', error: 'disk went away' }])
+		expect(result.unreleased).toEqual([
+			{ runId: '90a466e2-f869-4a3c-b750-f2156342ff40', error: 'disk went away' },
+		])
 	})
 
 	it('does not rethrow a release failure over the work failure it is unwinding', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		const stuck = facade(store, {
 			releaseRun: async () => {
 				throw new Error('disk went away')
@@ -334,13 +367,21 @@ describe('one pass over the queue', () => {
 		// The caller has to be able to see WHY the run failed. A `finally` that
 		// throws replaces the original error, and the operator then debugs the
 		// disk instead of the run.
-		expect(result.failed).toEqual([{ runId: 'run_a', error: 'the work blew up' }])
-		expect(result.unreleased.map((u) => u.runId)).toEqual(['run_a'])
+		expect(result.failed).toEqual([
+			{ runId: '90a466e2-f869-4a3c-b750-f2156342ff40', error: 'the work blew up' },
+		])
+		expect(result.unreleased.map((u) => u.runId)).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 	})
 
 	it('never offers a run another worker currently holds', async () => {
-		const store = await seeded(['run_a', 'run_b'])
-		await store.claimRun(scope('run_a'), { holder: 'other_worker', ttlMs: 60_000 })
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+		])
+		await store.claimRun(scope('90a466e2-f869-4a3c-b750-f2156342ff40'), {
+			holder: 'other_worker',
+			ttlMs: 60_000,
+		})
 
 		const result = await drainRuns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} })
 
@@ -348,12 +389,16 @@ describe('one pass over the queue', () => {
 		// listed held runs would spend a claim attempt on every one of them
 		// every pass.
 		expect(result.listed).toBe(1)
-		expect(result.drained).toEqual(['run_b'])
+		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
 	})
 
 	it('offers a run whose holder has expired, because that is what expiry means', async () => {
-		const store = await seeded(['run_a'])
-		await store.claimRun(scope('run_a'), { holder: 'crashed', ttlMs: 1, now: 1_000 })
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
+		await store.claimRun(scope('90a466e2-f869-4a3c-b750-f2156342ff40'), {
+			holder: 'crashed',
+			ttlMs: 1,
+			now: 1_000,
+		})
 
 		const result = await drainRuns({
 			store,
@@ -364,7 +409,7 @@ describe('one pass over the queue', () => {
 			now: 100_000,
 		})
 
-		expect(result.drained).toEqual(['run_a'])
+		expect(result.drained).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		// The reclaimer's fence is strictly greater than the dead holder's, so
 		// the dead holder's late write is refused rather than accepted beside
 		// this one.
@@ -372,7 +417,10 @@ describe('one pass over the queue', () => {
 	})
 
 	it('gives back a run that stopped matching between the listing and the claim', async () => {
-		const store = await seeded(['run_a', 'run_b'])
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+		])
 		const onRun = vi.fn()
 
 		// The window a claim cannot close: another drainer answered `run_a`'s
@@ -408,19 +456,21 @@ describe('one pass over the queue', () => {
 			park: ['outstanding'],
 		})
 
-		expect(result.stale).toEqual(['run_a'])
-		expect(result.drained).toEqual(['run_b'])
+		expect(result.stale).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
+		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
 		// The point of the whole re-read: the work does NOT run a second time.
 		expect(onRun).toHaveBeenCalledTimes(1)
-		expect(onRun.mock.calls[0]?.[0]).toMatchObject({ runId: 'run_b' })
+		expect(onRun.mock.calls[0]?.[0]).toMatchObject({
+			runId: 'fe818a89-6a50-4e51-8a91-5f108ad85280',
+		})
 		// And the stale run's lease is handed straight back rather than held
 		// for the full TTL over work nobody is doing.
 		const page = await store.listDurableRuns(listingScope, { claimed: false })
-		expect(page.entries.map((e) => e.runId)).toContain('run_a')
+		expect(page.entries.map((e) => e.runId)).toContain('90a466e2-f869-4a3c-b750-f2156342ff40')
 	})
 
 	it('re-reads nothing when it was given no filter to re-read against', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		const listCheckpoints = vi.fn(store.listCheckpoints.bind(store))
 		const watched = facade(store, { listCheckpoints })
 
@@ -432,7 +482,7 @@ describe('one pass over the queue', () => {
 			onRun: () => {},
 		})
 
-		expect(result.drained).toEqual(['run_a'])
+		expect(result.drained).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		expect(result.stale).toEqual([])
 		// A crash sweep has no predicate a store can re-check, so the extra
 		// read would cost a page per run and answer nothing. Exactly-once for
@@ -442,8 +492,14 @@ describe('one pass over the queue', () => {
 
 	it('passes the park filter through instead of inventing one', async () => {
 		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(scope('run_parked'), checkpoint('run_parked', true))
-		await store.writeCheckpoint(scope('run_crashed'), checkpoint('run_crashed', false))
+		await store.writeCheckpoint(
+			scope('c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf'),
+			checkpoint('c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf', true),
+		)
+		await store.writeCheckpoint(
+			scope('4a16723e-b50c-4522-ab32-14e12cc15a99'),
+			checkpoint('4a16723e-b50c-4522-ab32-14e12cc15a99', false),
+		)
 
 		const inbox = await drainRuns({
 			store,
@@ -453,13 +509,15 @@ describe('one pass over the queue', () => {
 			onRun: () => {},
 			park: ['outstanding'],
 		})
-		expect(inbox.drained).toEqual(['run_parked'])
+		expect(inbox.drained).toEqual(['c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf'])
 
 		// And with no filter, the run that never parked is included — the case
 		// a crash sweep exists for, and the one any default park filter would
 		// have hidden.
 		const sweep = await drainRuns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} })
-		expect([...sweep.drained].sort()).toEqual(['run_crashed', 'run_parked'])
+		expect([...sweep.drained].sort()).toEqual(
+			['4a16723e-b50c-4522-ab32-14e12cc15a99', 'c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf'].sort(),
+		)
 	})
 })
 
@@ -507,7 +565,11 @@ describe('bounds', () => {
 	})
 
 	it('defaults to one run at a time', async () => {
-		const store = await seeded(['run_a', 'run_b', 'run_c'])
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+			'61d260b3-706f-452e-8528-f7fd5f736b18',
+		])
 		let inFlight = 0
 		let peak = 0
 		await drainRuns({
@@ -528,7 +590,11 @@ describe('bounds', () => {
 
 describe('cancellation', () => {
 	it('stops taking new runs once the signal aborts, and says it stopped', async () => {
-		const store = await seeded(['run_a', 'run_b', 'run_c'])
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+			'61d260b3-706f-452e-8528-f7fd5f736b18',
+		])
 		const controller = new AbortController()
 		const seen: string[] = []
 
@@ -554,7 +620,10 @@ describe('cancellation', () => {
 	})
 
 	it('claims nothing at all when the signal is already aborted', async () => {
-		const store = await seeded(['run_a', 'run_b'])
+		const store = await seeded([
+			'90a466e2-f869-4a3c-b750-f2156342ff40',
+			'fe818a89-6a50-4e51-8a91-5f108ad85280',
+		])
 		const onRun = vi.fn()
 		const result = await drainRuns({
 			store,
@@ -572,7 +641,7 @@ describe('cancellation', () => {
 
 describe('what the callback receives', () => {
 	it('hands over an entry that is itself an addressable run scope', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		let received: DurableRunEntry | undefined
 		await drainRuns({
 			store,
@@ -589,13 +658,13 @@ describe('what the callback receives', () => {
 			tenantId: TENANT,
 			projectId: PROJECT,
 			sessionId: SESSION,
-			runId: 'run_a',
+			runId: '90a466e2-f869-4a3c-b750-f2156342ff40',
 		})
 		expect(received?.latestCheckpointId).toBeDefined()
 	})
 
 	it('hands over a fence that the store will accept and a stale one it will not', async () => {
-		const store = await seeded(['run_a'])
+		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		let fence = 0
 		await drainRuns({
 			store,
@@ -605,7 +674,11 @@ describe('what the callback receives', () => {
 			onRun: async (entry, claim) => {
 				fence = claim.fence
 				// The whole reason the claim is handed over: this write is fenced.
-				await store.writeCheckpoint(entry, checkpoint('run_a', false), claim.fence)
+				await store.writeCheckpoint(
+					entry,
+					checkpoint('90a466e2-f869-4a3c-b750-f2156342ff40', false),
+					claim.fence,
+				)
 			},
 		})
 		expect(fence).toBe(1)
@@ -619,10 +692,17 @@ describe('what the callback receives', () => {
 		// surrendered. Asserted at the exact number rather than
 		// `toBeGreaterThan(fence)`, because the loose form passes against a
 		// release that quietly did nothing.
-		const second = await store.claimRun(scope('run_a'), { holder: 'w_two', ttlMs })
+		const second = await store.claimRun(scope('90a466e2-f869-4a3c-b750-f2156342ff40'), {
+			holder: 'w_two',
+			ttlMs,
+		})
 		expect(second?.fence).toBe(3)
 		await expect(
-			store.writeCheckpoint(scope('run_a'), checkpoint('run_a', false), fence),
+			store.writeCheckpoint(
+				scope('90a466e2-f869-4a3c-b750-f2156342ff40'),
+				checkpoint('90a466e2-f869-4a3c-b750-f2156342ff40', false),
+				fence,
+			),
 		).rejects.toThrow(/refusing a write/)
 	})
 })

@@ -23,7 +23,7 @@ const LOG = {
 
 function persistence(runStore?: InMemoryRunStore) {
 	return new RunPersistence({
-		runId: 'run_seam',
+		runId: 'f4706708-3549-4ae3-91ee-0d85d85fcc3a',
 		agentId: 'a',
 		agentName: 'A',
 		runConfig: {},
@@ -31,10 +31,10 @@ function persistence(runStore?: InMemoryRunStore) {
 		// Deliberately a path that does not exist and must never be created.
 		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
-		sessionId: 'ses_seam',
-		topicId: 'top_seam',
-		projectId: 'prj_seam',
-		tenantId: 'tnt_seam',
+		sessionId: '45546fa4-d7b9-4223-b1ba-d95fcb6b7bd4',
+		topicId: '458174d9-b54f-43a9-9ccc-c3d87be14190',
+		projectId: '8e2b818f-eb63-4f6e-a416-18b311dcb61c',
+		tenantId: '36da1973-021d-40d5-9a72-7ba4084729de',
 		...(runStore ? { runStore } : {}),
 	} as any)
 }
@@ -48,8 +48,8 @@ describe('the run store a host injects', () => {
 		// directory under `outputDir`. Nothing should touch that path.
 		await mgr.init()
 
-		expect(store.boundTo).toEqual({ runId: 'run_seam' })
-		expect(store.snapshot().meta?.id).toBe('run_seam')
+		expect(store.boundTo).toEqual({ runId: 'f4706708-3549-4ae3-91ee-0d85d85fcc3a' })
+		expect(store.snapshot().meta?.id).toBe('f4706708-3549-4ae3-91ee-0d85d85fcc3a')
 	})
 
 	it('is the one run events are appended to', async () => {

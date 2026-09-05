@@ -21,7 +21,7 @@ import { ResultAssembler } from '../result.js'
  * widening the event, not retrofitting hundreds of throw sites.
  */
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 
 function makeLogger() {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

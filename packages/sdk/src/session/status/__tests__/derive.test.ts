@@ -5,17 +5,21 @@ import type { Session, SessionStatus } from '../../../types/session/entity.js'
 import type { ProjectId, SessionId, TenantId, TopicId, UserId } from '../../../types/session/ids.js'
 import { deriveStatus } from '../derive.js'
 
-const tenant = 'tnt_a' as TenantId
-const project = 'prj_a' as ProjectId
-const thread = 'top_a' as TopicId
+const tenant = '17697cab-7e61-4b71-be7c-ea8e4c418a35' as TenantId
+const project = '912b9ccc-bd50-44fc-80fd-0229154e8a81' as ProjectId
+const thread = '9e4364d1-9a4e-4cd8-91ac-5d3e18328080' as TopicId
 
 function user(): ActorRef {
-	return { kind: 'user', userId: 'usr_a' as UserId, tenantId: tenant }
+	return {
+		kind: 'user',
+		userId: '9ce05013-3bcc-4835-86b3-15e7b9251801' as UserId,
+		tenantId: tenant,
+	}
 }
 
 function makeSession(status: SessionStatus): Session {
 	return {
-		id: 'ses_a' as SessionId,
+		id: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d' as SessionId,
 		topicId: thread,
 		projectId: project,
 		tenantId: tenant,

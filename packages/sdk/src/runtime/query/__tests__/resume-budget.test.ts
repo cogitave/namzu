@@ -93,7 +93,7 @@ describe('RunPersistence.restoreUsage', () => {
 	it('replaces the counters rather than adding to them', async () => {
 		const { RunPersistence } = await import('../../../manager/run/persistence.js')
 		const mgr = new RunPersistence({
-			runId: 'run_x',
+			runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 			agentId: 'a',
 			agentName: 'A',
 			runConfig: {},

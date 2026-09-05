@@ -73,14 +73,8 @@ export function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEn
  */
 export function projectEmergencyToCheckpoint(dump: EmergencySaveData): IterationCheckpoint {
 	const emergencyId = asEmergencySaveId(dump.id)
-	// The checkpoint is another view of the same snapshot. New dumps retain
-	// their opaque key; legacy dumps keep their historical projection key so
-	// replay attribution written by earlier SDKs still refers to the same ID.
-	const checkpointId = asCheckpointId(
-		emergencyId.startsWith('esave_')
-			? `cp_emergency_${emergencyId.slice('esave_'.length)}`
-			: emergencyId,
-	)
+	// The checkpoint is another view of the same snapshot and retains its key.
+	const checkpointId = asCheckpointId(emergencyId)
 	return {
 		id: checkpointId,
 		runId: dump.runId,

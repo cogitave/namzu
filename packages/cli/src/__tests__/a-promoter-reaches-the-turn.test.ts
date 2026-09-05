@@ -75,7 +75,7 @@ function detectedAnthropic(): DetectedProvider[] {
 
 function candidate(over: Partial<RunMemoryCandidate> = {}): RunMemoryCandidate {
 	return {
-		runId: 'run_cli' as RunMemoryCandidate['runId'],
+		runId: 'a6ef4a3c-dd6b-4115-90d3-9fb61cdb2a81' as RunMemoryCandidate['runId'],
 		task: 'wire the invoice job',
 		decisions: [],
 		discoveries: [],
@@ -105,7 +105,7 @@ async function drive(): Promise<(c: RunMemoryCandidate) => void | Promise<void>>
 
 function toolContext(): ToolContext {
 	return {
-		runId: 'run_cli_memory_search' as RunId,
+		runId: '225ccf73-c558-4774-8681-93fbe9048da9' as RunId,
 		workingDirectory: cwd,
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -161,7 +161,7 @@ describe('the run memory promoter', () => {
 		const poisoned = `${JSON.stringify(
 			[
 				{
-					id: 'mem_poison',
+					id: '35a72e04-ab18-430d-a1ca-72a21f549ed0',
 					title: null,
 					summary: 'valid JSON with an invalid memory shape',
 					tags: [],

@@ -139,10 +139,10 @@ describe('MCP cancellation reaches a real run', () => {
 			agentName: 'MCP Cancellation',
 			messages: [createUserMessage('run the remote tool')],
 			workingDirectory,
-			sessionId: 'ses_mcp_cancel' as SessionId,
-			topicId: 'top_mcp_cancel' as TopicId,
-			projectId: 'prj_mcp_cancel' as ProjectId,
-			tenantId: 'tnt_mcp_cancel' as TenantId,
+			sessionId: 'df46cf41-b819-43b7-9d86-4e868de4b82f' as SessionId,
+			topicId: 'c6481489-3552-4fc0-a315-b66060310e8b' as TopicId,
+			projectId: '4f1fe229-4b6d-42be-a134-5b8b5bd08ece' as ProjectId,
+			tenantId: '36f6601b-0ea0-4f99-992d-ea38ebf1f792' as TenantId,
 			signal: caller.signal,
 		})
 

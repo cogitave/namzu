@@ -128,7 +128,7 @@ function startMtlsOrchestrator(
 						res.setHeader('content-type', 'application/json')
 						res.end(
 							JSON.stringify({
-								sandboxId: 'sbx_cp_mtls',
+								sandboxId: 'd466dd76-3c5d-4cf1-ba8e-793bd2cd2b6a',
 								agent: { kind: 'unix', path: handlePath },
 								rootDir: workDir,
 							}),
@@ -186,7 +186,7 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (control-plane mTLS dial)',
 		})
 
 		const sandbox = await backend.create({ workingDirectory: workDir })
-		expect(sandbox.id).toBe('sbx_cp_mtls')
+		expect(sandbox.id).toBe('d466dd76-3c5d-4cf1-ba8e-793bd2cd2b6a')
 		expect(sandbox.status).toBe('ready')
 
 		// The control-plane POST reached the mTLS orchestrator.

@@ -127,7 +127,7 @@ describe('namzu run exit code reflects whether the run finished', () => {
 			{ kind: 'delta', text: 'useful partial answer' },
 			{
 				kind: 'paused',
-				checkpointId: 'cp_9',
+				checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
 				reason: 'slow down',
 				explanation: {
 					id: 'provider.rate_limit',
@@ -140,7 +140,7 @@ describe('namzu run exit code reflects whether the run finished', () => {
 		expect(code).toBe(75)
 		expect(printed.join('')).toContain('useful partial answer')
 		expect(errors.join('')).toContain('Run paused [provider.rate_limit]')
-		expect(errors.join('')).toContain('Checkpoint preserved: cp_9')
+		expect(errors.join('')).toContain('Checkpoint preserved: 227436b6-3082-4bdc-a441-7e828e479876')
 		expect(errors.join('')).toContain('output above is partial')
 	})
 })

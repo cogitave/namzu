@@ -70,10 +70,10 @@ function baseParams(provider: MockLLMProvider, tools: ToolRegistry, workingDirec
 		agentId: 'agent_fail',
 		agentName: 'Fail Agent',
 		workingDirectory,
-		sessionId: 'ses_fail' as SessionId,
-		topicId: 'top_fail' as TopicId,
-		projectId: 'prj_fail' as ProjectId,
-		tenantId: 'tnt_fail' as TenantId,
+		sessionId: '8454c61f-e508-4890-8aeb-04697ca304c0' as SessionId,
+		topicId: '1c50dba0-29e5-4831-a6cb-40db4762fc08' as TopicId,
+		projectId: '56565325-bc46-4cec-9996-009317a06a3d' as ProjectId,
+		tenantId: '789b0bf1-9d8a-40b0-9476-1699ce591d09' as TenantId,
 		retry: false as const,
 	}
 }

@@ -24,8 +24,8 @@ describe('autoApproveHandler user_question case', () => {
 	it('returns the non-fabricating no-answer sentinel with the questionId echoed', async () => {
 		const decision = await autoApproveHandler({
 			type: 'user_question',
-			runId: 'run_headless_test' as RunId,
-			checkpointId: 'cp_question_toolu_1' as CheckpointId,
+			runId: 'e89e74c8-b1f2-4caf-89eb-847ade430f35' as RunId,
+			checkpointId: 'd2394164-7c98-46c0-b260-fa0c6a8223c3' as CheckpointId,
 			question: {
 				questionId: 'toolu_1',
 				question: 'Pick one?',
@@ -74,7 +74,7 @@ describe('runToolReview answer_question case', () => {
 		const ctx = {
 			tools: { get: () => undefined },
 			checkpointMgr: {
-				create: async () => ({ id: 'cp_review_1' as CheckpointId }),
+				create: async () => ({ id: 'aa423def-1800-461a-a359-c9e2b95056db' as CheckpointId }),
 			},
 			emitEvent: async () => {},
 			drainPending: (): Generator<RunEvent> => [][Symbol.iterator]() as Generator<RunEvent>,
@@ -88,7 +88,7 @@ describe('runToolReview answer_question case', () => {
 				error: () => {},
 			},
 			runMgr: {
-				id: 'run_tool_review_test' as RunId,
+				id: '439d44df-4e3b-4340-99a8-74d18e18f504' as RunId,
 				pushMessage: (message: unknown) => {
 					pushed.push(message)
 				},

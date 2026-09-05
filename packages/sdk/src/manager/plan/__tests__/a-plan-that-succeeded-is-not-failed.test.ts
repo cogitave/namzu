@@ -18,7 +18,7 @@ import { PlanManager } from '../lifecycle.js'
  * answering "failed" settles that by inventing a result.
  */
 
-const RUN = 'run_plan_outcome' as RunId
+const RUN = '41cdc522-e63c-4fdd-8d6f-5bad2dc62763' as RunId
 
 function planWithSteps(count: number): PlanManager {
 	const manager = new PlanManager(RUN)

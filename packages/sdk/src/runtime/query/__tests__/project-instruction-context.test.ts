@@ -42,10 +42,10 @@ async function workingTree(): Promise<string> {
 
 function identity() {
 	return {
-		sessionId: 'ses_project_context' as SessionId,
-		topicId: 'top_project_context' as TopicId,
-		projectId: 'prj_project_context' as ProjectId,
-		tenantId: 'tnt_project_context' as TenantId,
+		sessionId: 'd0e7aab2-13ba-424a-ac82-a1f85b39ff24' as SessionId,
+		topicId: '78de4e8b-5b17-4b6b-b61e-d74e2b56e2cb' as TopicId,
+		projectId: '7643119a-abcd-4b86-bc3f-8f5883b0fb91' as ProjectId,
+		tenantId: '23a070b7-1902-49bd-9d13-5c1594228e1f' as TenantId,
 	}
 }
 

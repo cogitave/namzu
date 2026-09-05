@@ -71,7 +71,7 @@ function build(
 		commands: over.commands ?? new HostCommandRegistry(),
 		presenter: createToolPresenter(new ToolRegistry()),
 		agentInfo: { name: 'namzu', version: '0.0.0-test' },
-		newSessionId: () => 'ses_acp_fixed',
+		newSessionId: () => '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
 	})
 	return { ...wire, server }
 }
@@ -216,7 +216,9 @@ describe('session/new', () => {
 	it('creates one when the capability is declared', async () => {
 		const fixture = build()
 		const reply = await handshake(fixture)
-		expect((reply?.result as { sessionId: string }).sessionId).toBe('ses_acp_fixed')
+		expect((reply?.result as { sessionId: string }).sessionId).toBe(
+			'7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
+		)
 	})
 
 	it('refuses before initialize', async () => {
@@ -281,7 +283,7 @@ describe('session/prompt', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'hi' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'hi' },
 		})
 		await settle()
 
@@ -300,7 +302,7 @@ describe('session/prompt', () => {
 			jsonrpc: '2.0',
 			id: 4,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_never_made', prompt: 'hi' },
+			params: { sessionId: '24042aec-7c4c-4e75-9ea6-4dda71cb28ce', prompt: 'hi' },
 		})
 		await settle()
 
@@ -326,7 +328,7 @@ describe('session/prompt', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'first' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'first' },
 		})
 		await settle()
 		returned.push({ role: 'user', content: 'mutated after publication' })
@@ -334,7 +336,7 @@ describe('session/prompt', () => {
 			jsonrpc: '2.0',
 			id: 4,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'second' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'second' },
 		})
 		await settle()
 
@@ -356,7 +358,7 @@ describe('session/prompt', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'first' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'first' },
 		})
 		await settle()
 
@@ -383,14 +385,14 @@ describe('session/prompt', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'first' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'first' },
 		})
 		await settle()
 		fixture.deliver({
 			jsonrpc: '2.0',
 			id: 4,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'second' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'second' },
 		})
 		await settle()
 
@@ -400,7 +402,7 @@ describe('session/prompt', () => {
 			jsonrpc: '2.0',
 			id: 5,
 			method: 'session/cancel',
-			params: { sessionId: 'ses_acp_fixed' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af' },
 		})
 		await settle()
 		expect(signals[0]?.aborted).toBe(true)
@@ -428,7 +430,7 @@ describe('session/cancel', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'long one' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'long one' },
 		})
 		await settle()
 		expect(seen?.aborted).toBe(false)
@@ -437,7 +439,7 @@ describe('session/cancel', () => {
 			jsonrpc: '2.0',
 			id: 4,
 			method: 'session/cancel',
-			params: { sessionId: 'ses_acp_fixed' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af' },
 		})
 		await settle()
 
@@ -462,7 +464,7 @@ describe('session/cancel', () => {
 				jsonrpc: '2.0',
 				id,
 				method: 'session/prompt',
-				params: { sessionId: 'ses_acp_fixed', prompt: 'x' },
+				params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'x' },
 			})
 
 		prompt(3)
@@ -471,7 +473,7 @@ describe('session/cancel', () => {
 			jsonrpc: '2.0',
 			id: 4,
 			method: 'session/cancel',
-			params: { sessionId: 'ses_acp_fixed' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af' },
 		})
 		await settle()
 		prompt(5)
@@ -497,14 +499,14 @@ describe('session/cancel', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'hold' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'hold' },
 		})
 		await settle()
 		fixture.deliver({
 			jsonrpc: '2.0',
 			id: 4,
 			method: 'session/cancel',
-			params: { sessionId: 'ses_acp_fixed' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af' },
 		})
 		await settle()
 
@@ -576,7 +578,7 @@ describe('this module never compares a tool name', () => {
 			commands: new HostCommandRegistry(),
 			presenter: createToolPresenter(registry),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
-			newSessionId: () => 'ses_acp_fixed',
+			newSessionId: () => '7532c215-cbb2-46ec-9aaf-02bc9c60d6af',
 		})
 		const fixture = { ...wire, server }
 		await handshake(fixture)
@@ -585,7 +587,7 @@ describe('this module never compares a tool name', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'edit it' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'edit it' },
 		})
 		await settle()
 
@@ -641,7 +643,7 @@ describe('stop reasons', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'x' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'x' },
 		})
 		await settle()
 
@@ -719,7 +721,7 @@ describe('a handler that throws something that is not a protocol error', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'x' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'x' },
 		})
 		await settle()
 
@@ -748,7 +750,7 @@ describe('a handler that throws something that is not a protocol error', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'x' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'x' },
 		})
 		await settle()
 
@@ -773,7 +775,7 @@ describe('stop()', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'x' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'x' },
 		})
 		await settle()
 
@@ -813,7 +815,7 @@ describe('stop()', () => {
 			jsonrpc: '2.0',
 			id: 2,
 			method: 'session/load',
-			params: { sessionId: 'ses_late', cwd: process.cwd() },
+			params: { sessionId: 'd360ee57-87f9-46f4-86c4-4fa2893115cc', cwd: process.cwd() },
 		})
 		await settle()
 
@@ -890,7 +892,7 @@ describe('defaults', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_acp_fixed', prompt: 'x' },
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'x' },
 		})
 		await settle()
 
@@ -909,7 +911,7 @@ describe('session/cancel for a session that does not exist', () => {
 			jsonrpc: '2.0',
 			id: 5,
 			method: 'session/cancel',
-			params: { sessionId: 'ses_never_made' },
+			params: { sessionId: '24042aec-7c4c-4e75-9ea6-4dda71cb28ce' },
 		})
 		await settle()
 
@@ -946,7 +948,7 @@ describe('the session-id namespace', () => {
 			jsonrpc: '2.0',
 			id: 2,
 			method: 'session/load',
-			params: { sessionId: 'ses_invalid_history', cwd: process.cwd() },
+			params: { sessionId: '90252eec-95b2-41c1-a7d7-8b02c6ffd139', cwd: process.cwd() },
 		})
 		await settle()
 		expect(wire.sent.find((frame) => frame.id === 2)?.error).toMatchObject({
@@ -959,11 +961,11 @@ describe('the session-id namespace', () => {
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/load',
-			params: { sessionId: 'ses_invalid_history', cwd: process.cwd() },
+			params: { sessionId: '90252eec-95b2-41c1-a7d7-8b02c6ffd139', cwd: process.cwd() },
 		})
 		await settle()
 		expect(wire.sent.find((frame) => frame.id === 3)?.result).toEqual({
-			sessionId: 'ses_invalid_history',
+			sessionId: '90252eec-95b2-41c1-a7d7-8b02c6ffd139',
 		})
 	})
 
@@ -1081,7 +1083,7 @@ describe('the session-id namespace', () => {
 				jsonrpc: '2.0',
 				id,
 				method: 'session/load',
-				params: { sessionId: 'ses_same', cwd: process.cwd() },
+				params: { sessionId: 'a1af9d58-dd30-48f3-8622-af5503176684', cwd: process.cwd() },
 			})
 		}
 		await settle()
@@ -1090,7 +1092,9 @@ describe('the session-id namespace', () => {
 
 		loadRelease.resolve()
 		await settle()
-		expect(wire.sent.find((m) => m.id === 2)?.result).toEqual({ sessionId: 'ses_same' })
+		expect(wire.sent.find((m) => m.id === 2)?.result).toEqual({
+			sessionId: 'a1af9d58-dd30-48f3-8622-af5503176684',
+		})
 	})
 
 	it('releases only its own reservation after a failed load so the id can be retried', async () => {
@@ -1124,13 +1128,15 @@ describe('the session-id namespace', () => {
 				jsonrpc: '2.0',
 				id,
 				method: 'session/load',
-				params: { sessionId: 'ses_retry', cwd: process.cwd() },
+				params: { sessionId: '54968feb-b0db-4ca1-a3c6-7659d5302f75', cwd: process.cwd() },
 			})
 			await settle()
 		}
 
 		expect(wire.sent.find((m) => m.id === 2)?.error?.message).toContain('temporary store failure')
-		expect(wire.sent.find((m) => m.id === 3)?.result).toEqual({ sessionId: 'ses_retry' })
+		expect(wire.sent.find((m) => m.id === 3)?.result).toEqual({
+			sessionId: '54968feb-b0db-4ca1-a3c6-7659d5302f75',
+		})
 		expect(attempts).toBe(2)
 	})
 })

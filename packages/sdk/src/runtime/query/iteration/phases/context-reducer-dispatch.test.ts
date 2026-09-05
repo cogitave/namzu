@@ -53,7 +53,7 @@ function harness(
 		workingStateManager: new WorkingStateManager(config),
 		runConfig: { model: 'mock-model' },
 		runMgr: {
-			id: 'run_dispatch',
+			id: 'ce68b51c-1d26-429e-bf0d-782e55bdfccb',
 			messages,
 			accumulateUsage: vi.fn(),
 			clearLastPromptTokens: vi.fn(),

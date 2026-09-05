@@ -36,14 +36,14 @@ const LOG = {
 	child: vi.fn(() => LOG),
 }
 
-const PARENT = 'run_parent' as RunId
+const PARENT = 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId
 
 const SCOPE: RunStateScope = {
-	tenantId: 'tnt_sub' as TenantId,
-	projectId: 'prj_sub' as ProjectId,
-	sessionId: 'ses_sub' as SessionId,
-	runId: 'run_child' as RunId,
-	topicId: 'top_sub' as TopicId,
+	tenantId: '9d281239-ff89-4ad9-8483-672c036fb2d8' as TenantId,
+	projectId: '20acca90-a3e6-4f9b-a1cd-0f49541e5f13' as ProjectId,
+	sessionId: '358bccfc-ab33-4c8b-b205-a0c8963f066c' as SessionId,
+	runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
+	topicId: 'd53bb72a-3aa5-4c6c-a538-693dba3b26f8' as TopicId,
 	parentRunId: PARENT,
 }
 

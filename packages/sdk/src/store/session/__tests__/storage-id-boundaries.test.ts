@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { unchecked } from '../../../test-support/ids.js'
+import { fixtureUuid, unchecked } from '../../../test-support/ids.js'
 import type { ProjectId, SessionId, SubSessionId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import {
@@ -19,8 +19,8 @@ import {
 } from '../../../utils/id.js'
 import { DiskSessionStore } from '../disk.js'
 
-const TENANT = asTenantId('tnt_storage_ids')
-const TOPIC = asTopicId('top_storage_ids')
+const TENANT = asTenantId('372188c0-476a-4af2-a9ba-c02a491a0d25')
+const TOPIC = asTopicId('c7c29b04-1b32-4dbf-9682-6d1cfe074ba9')
 const roots: string[] = []
 
 afterEach(async () => {
@@ -38,6 +38,7 @@ async function fixture() {
 describe('DiskSessionStore id boundaries', () => {
 	it.each([
 		'ses_',
+		'ses_previously_safe',
 		'ses_/../../../../outside',
 		'ses_\\..\\outside',
 		'ses_a:stream',
@@ -85,7 +86,7 @@ describe('DiskSessionStore id boundaries', () => {
 
 	it('preserves a safe caller-chosen id and its messages across a cold reopen', async () => {
 		const { rootDir, store, project } = await fixture()
-		const id = asSessionId('ses_Selected-A_1')
+		const id = asSessionId('0a0e4339-bdee-431d-ae33-b379bce18a26')
 		const params = {
 			id,
 			projectId: project.id,
@@ -109,25 +110,30 @@ describe('DiskSessionStore id boundaries', () => {
 		await expect(reopened.createSession(params, TENANT)).rejects.toThrow('already exists')
 	})
 
-	it('discovers mixed project/session/sub-session IDs with no warm indexes', async () => {
+	it('discovers caller-assigned project/session/sub-session UUIDs with no warm indexes', async () => {
 		const { rootDir, store, project } = await fixture()
 		const topicId = generateTopicId()
-		const legacyProjectId = asProjectId('prj_Legacy-1')
-		const legacyProjectDir = join(rootDir, 'projects', legacyProjectId)
+		const fixedProjectId = asProjectId('efb7000b-381a-453b-a468-3d87e3e7e68b')
+		const fixedProjectDir = join(rootDir, 'projects', fixedProjectId)
 		const originalProject = JSON.parse(
 			await readFile(join(rootDir, 'projects', project.id, 'project.json'), 'utf8'),
 		)
-		await mkdir(legacyProjectDir)
+		await mkdir(fixedProjectDir)
 		await writeFile(
-			join(legacyProjectDir, 'project.json'),
-			JSON.stringify({ ...originalProject, id: legacyProjectId }),
+			join(fixedProjectDir, 'project.json'),
+			JSON.stringify({ ...originalProject, id: fixedProjectId }),
 		)
 
 		const pairs = []
-		for (const [index, projectId] of [project.id, legacyProjectId].entries()) {
+		for (const [index, projectId] of [project.id, fixedProjectId].entries()) {
 			const parent = await store.createSession({ projectId, topicId, currentActor: null }, TENANT)
 			const child = await store.createSession(
-				{ id: asSessionId(`ses_Legacy-${index}`), projectId, topicId, currentActor: null },
+				{
+					id: asSessionId(fixtureUuid(`ses_Legacy-${index}`)),
+					projectId,
+					topicId,
+					currentActor: null,
+				},
 				TENANT,
 			)
 			const sub = await store.createSubSession(
@@ -135,15 +141,19 @@ describe('DiskSessionStore id boundaries', () => {
 					parentSessionId: parent.id,
 					childSessionId: child.id,
 					kind: 'agent_spawn',
-					spawnedBy: { kind: 'user', userId: asUserId('usr_writer'), tenantId: TENANT },
+					spawnedBy: {
+						kind: 'user',
+						userId: asUserId('52166135-9274-4790-b1f4-f3ad05554c6a'),
+						tenantId: TENANT,
+					},
 				},
 				TENANT,
 			)
 			let subId = sub.id
 			if (index === 1) {
-				const subsDir = join(legacyProjectDir, 'sessions', parent.id, 'subsessions')
+				const subsDir = join(fixedProjectDir, 'sessions', parent.id, 'subsessions')
 				const raw = JSON.parse(await readFile(join(subsDir, sub.id, 'subsession.json'), 'utf8'))
-				subId = asSubSessionId('sub_Legacy-1')
+				subId = asSubSessionId('c9466509-bb93-4d72-9b1a-4e077b2cc927')
 				await rename(join(subsDir, sub.id), join(subsDir, subId))
 				await writeFile(
 					join(subsDir, subId, 'subsession.json'),
@@ -158,7 +168,7 @@ describe('DiskSessionStore id boundaries', () => {
 		// from hiding a broken direct lookup by warming its private ID index.
 		const cold = () => new DiskSessionStore({ rootDir })
 		expect(new Set((await cold().listProjects(TENANT)).map((row) => row.id))).toEqual(
-			new Set([project.id, legacyProjectId]),
+			new Set([project.id, fixedProjectId]),
 		)
 		expect(
 			new Set((await cold().listSessionsByTopic(topicId, TENANT)).map((row) => row.id)),

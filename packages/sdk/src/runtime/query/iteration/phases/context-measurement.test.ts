@@ -27,10 +27,11 @@ import {
 	type Message,
 	createAssistantMessage,
 	createSystemMessage,
+	createToolMessage,
 	createUserMessage,
 } from '../../../../types/message/index.js'
 import type { Logger } from '../../../../utils/logger.js'
-import { runCompactionCheck } from './compaction.js'
+import { measureContext, runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
 
 function makeLogger(): Logger {
@@ -86,7 +87,7 @@ function makeCtx(opts: {
 		log,
 		tools: { toLLMTools: () => opts.tools ?? [] },
 		runMgr: {
-			id: 'run_1' as RunId,
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
 			currentIteration: 3,
 			messages: opts.messages,
 			lastPromptTokens: opts.lastPromptTokens,
@@ -104,6 +105,34 @@ function makeCtx(opts: {
 const bulk = (tokens: number) => 'x'.repeat(tokens * 4)
 
 describe('the tail appended after the measurement', () => {
+	it('adds a bounded visual estimate to the provider watermark instead of base64 text', () => {
+		const measured: Message[] = [createUserMessage('Look at the screen.')]
+		const messages = [
+			...measured,
+			createToolMessage(
+				[{ type: 'image', mediaType: 'image/png', data: 'a'.repeat(400_000) }],
+				'frame',
+			),
+		]
+		const { ctx } = makeCtx({ messages, lastPromptTokens: 12_000, lastPromptMessageCount: 1 })
+		const size = measureContext(ctx)
+		expect(size.source).toBe('provider')
+		expect(size.tokens).toBeGreaterThan(12_000)
+		expect(size.tokens).toBeLessThan(14_000)
+	})
+
+	it('replaces the visual tail allowance with the next measured prompt count', () => {
+		const messages = [
+			createUserMessage('Look at the screen.'),
+			createToolMessage(
+				[{ type: 'image', mediaType: 'image/png', data: 'a'.repeat(400_000) }],
+				'frame',
+			),
+		]
+		const { ctx } = makeCtx({ messages, lastPromptTokens: 12_173, lastPromptMessageCount: 2 })
+		expect(measureContext(ctx)).toEqual({ tokens: 12_173, source: 'provider' })
+	})
+
 	it('counts toward the trigger', async () => {
 		// Measured at 1,200 of a 2,500 window — 48%, comfortably under the
 		// 70% trigger. The turn then appended ~1,000 tokens of tool output,

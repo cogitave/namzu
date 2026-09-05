@@ -108,10 +108,10 @@ function storedDocumentMessage(): Message {
 
 function identity() {
 	return {
-		sessionId: 'ses_attachment_cancel' as SessionId,
-		topicId: 'top_attachment_cancel' as TopicId,
-		projectId: 'prj_attachment_cancel' as ProjectId,
-		tenantId: 'tnt_attachment_cancel' as TenantId,
+		sessionId: '36352807-8b8c-40f9-83dd-ce171423424b' as SessionId,
+		topicId: '958adcdc-028e-43c4-91e4-0bc4983e50de' as TopicId,
+		projectId: '6509f00e-fe45-45e8-9402-a476e6538404' as ProjectId,
+		tenantId: 'e5bed096-6762-42d8-a885-db684a4efc47' as TenantId,
 	}
 }
 
@@ -496,7 +496,7 @@ describe('stored attachment resolution belongs to the run', () => {
 	it('preserves checkpoint history when a queued attachment is cancelled on resume', async () => {
 		const { started } = recordSpanParents()
 		const ids = identity()
-		const runId = 'run_attachment_cancel_resume' as RunId
+		const runId = '263718f0-e331-4ff9-be88-29684aa5f2fd' as RunId
 		const checkpointId = 'ckpt_attachment_cancel_resume' as CheckpointId
 		const scope = { ...ids, runId }
 		const priorUser = createUserMessage('history before the process stopped')
@@ -602,7 +602,7 @@ describe('stored attachment resolution belongs to the run', () => {
 
 	it('does not reread the selected checkpoint after resume cancellation', async () => {
 		const ids = identity()
-		const runId = 'run_attachment_cancel_selected' as RunId
+		const runId = '55814da4-6bf7-4cfd-8d8b-692f88b78ab1' as RunId
 		const checkpointId = 'ckpt_attachment_cancel_selected' as CheckpointId
 		const scope = { ...ids, runId }
 		const prior = createUserMessage('selected checkpoint history')
@@ -750,7 +750,7 @@ describe('stored attachment resolution belongs to the run', () => {
 	it('keeps cancellation authoritative when replay notification throws', async () => {
 		const { ended } = recordSpanParents()
 		const ids = identity()
-		const runId = 'run_attachment_cancel_replay_callback' as RunId
+		const runId = '3172238b-3330-4b21-b3e3-28131f3e533f' as RunId
 		const checkpointId = 'ckpt_attachment_cancel_replay_callback' as CheckpointId
 		const scope = { ...ids, runId }
 		const checkpointStore = new InMemoryCheckpointStore()

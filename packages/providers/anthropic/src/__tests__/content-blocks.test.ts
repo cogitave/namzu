@@ -28,7 +28,10 @@ function bodyCapturer() {
 			create: vi.fn(async (body: Record<string, unknown>) => {
 				seen.body = body
 				return (async function* () {
-					yield { type: 'message_start', message: { id: 'msg_1' } }
+					yield {
+						type: 'message_start',
+						message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+					}
 				})()
 			}),
 		},
@@ -46,7 +49,11 @@ async function toolResultFor(content: unknown): Promise<Record<string, unknown>>
 				role: 'assistant',
 				content: null,
 				toolCalls: [
-					{ id: 'call_1', type: 'function', function: { name: 'screenshot', arguments: '{}' } },
+					{
+						id: 'call_1',
+						type: 'function',
+						function: { name: 'screenshot', arguments: '{}' },
+					},
 				],
 			},
 			{ role: 'tool', toolCallId: 'call_1', content },
@@ -54,7 +61,9 @@ async function toolResultFor(content: unknown): Promise<Record<string, unknown>>
 	} as unknown as ChatCompletionParams)) {
 		// drain
 	}
-	const messages = seen.body?.messages as Array<{ content: Record<string, unknown>[] }>
+	const messages = seen.body?.messages as Array<{
+		content: Record<string, unknown>[]
+	}>
 	const block = messages
 		.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
 		.find((b) => b.type === 'tool_result')
@@ -110,7 +119,12 @@ describe('an image in a tool result is sent as an image', () => {
 describe('what this wire cannot carry degrades to a named placeholder', () => {
 	it('describes a document rather than inventing an image block', async () => {
 		const result = await toolResultFor([
-			{ type: 'document', mediaType: 'application/pdf', data: 'JVBER', name: 'lease.pdf' },
+			{
+				type: 'document',
+				mediaType: 'application/pdf',
+				data: 'JVBER',
+				name: 'lease.pdf',
+			},
 		])
 		const blocks = result.content as Record<string, unknown>[]
 
@@ -123,7 +137,11 @@ describe('what this wire cannot carry degrades to a named placeholder', () => {
 
 	it('says how big it was, so the model knows what it is missing', async () => {
 		const result = await toolResultFor([
-			{ type: 'document', mediaType: 'application/pdf', data: 'A'.repeat(4096) },
+			{
+				type: 'document',
+				mediaType: 'application/pdf',
+				data: 'A'.repeat(4096),
+			},
 		])
 		const blocks = result.content as Record<string, unknown>[]
 
@@ -133,7 +151,9 @@ describe('what this wire cannot carry degrades to a named placeholder', () => {
 
 describe('the plain cases are unchanged', () => {
 	it('sends a string result as a string', async () => {
-		expect(await toolResultFor('just text')).toMatchObject({ content: 'just text' })
+		expect(await toolResultFor('just text')).toMatchObject({
+			content: 'just text',
+		})
 	})
 
 	it('sends text-only blocks as a text block', async () => {

@@ -64,6 +64,20 @@ function capturingSink(): LogRecord[] {
 }
 
 describe('agent.ts:810 — the sub-agent runtime catch', () => {
+	it('passes the operator token budget into the delegation runtime', async () => {
+		const session = await createAgentSession(
+			{ version: 3, providers: [{ id: 'anthropic' }] } as never,
+			[detectedAnthropic] as never,
+			{ cwd: cwd(), limits: { tokenBudget: 1_000 } },
+		)
+		open.push(session)
+
+		expect(createSubagentRuntime).toHaveBeenCalledWith(
+			expect.objectContaining({ tokenBudget: 1_000 }),
+		)
+		expect(session.agentIds.length).toBeGreaterThan(0)
+	})
+
 	it('warns with exception.type/message when the runtime fails to start, and stays non-fatal', async () => {
 		vi.mocked(createSubagentRuntime).mockRejectedValueOnce(new TypeError('subagent runtime boom'))
 

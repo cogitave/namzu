@@ -1,3 +1,4 @@
+import { fixtureUuid } from '../../../test-support/ids.js'
 /**
  * Integration — intervention `prevArtifactRef` DAG primitives wired against
  * a real {@link InMemorySessionStore}-backed {@link InterventionChainLoader}.
@@ -27,7 +28,7 @@ import {
 } from '../../intervention/prev-artifact.js'
 import { DEFAULT_TENANT, agentActor, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'top_test' as TopicId
+const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
 /**
  * Build a live loader pointing at a real InMemorySessionStore. Each node
@@ -82,7 +83,7 @@ async function buildLinearChain(
 					parentSessionId: previous,
 					childSessionId: s.id,
 					kind: 'intervention',
-					spawnedBy: userActor('usr_driver'),
+					spawnedBy: userActor('7fac9a00-b78e-4ad5-8fbb-271319440c9c'),
 				},
 				DEFAULT_TENANT,
 			)
@@ -95,10 +96,10 @@ async function buildLinearChain(
 
 function summaryRefTo(sessionId: SessionId): SessionSummaryDeliverable {
 	return {
-		id: 'del_intgr' as DeliverableId,
+		id: 'fa4b74a2-a2cb-41c1-91cc-612dbc16cf05' as DeliverableId,
 		kind: 'session_summary',
 		sessionId,
-		summaryRef: 'sum_x' as SummaryId,
+		summaryRef: '2409370d-48c4-4e42-82bc-0d843db5bb65' as SummaryId,
 		at: new Date(),
 	}
 }
@@ -109,7 +110,7 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 		const { sessions } = await buildLinearChain(store, 3)
 		const loader = buildLoaderFromStore(store, DEFAULT_TENANT)
 
-		const proposedChild = 'sub_proposed' as SubSessionId
+		const proposedChild = '75a23d54-7d79-4a54-aa56-e0ec3529ef5b' as SubSessionId
 
 		// Depth 1: walk pointed at the last session in the chain has no
 		// prevArtifactRef populated (our test chain is bare), so result is a
@@ -129,39 +130,42 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 		// Use a synthetic chain since the store-backed loader walks ancestry
 		// via session linkage (not through `prevArtifactRef`). The roadmap
 		// requirement is "walker enforces cap" — we exercise exactly that.
+		const chainIds = Array.from({ length: 13 }, (_, n) => fixtureUuid(`ses_${n}`) as SessionId)
 		const syntheticLoader: InterventionChainLoader = {
 			async loadAncestor(sid) {
-				// Produce an infinite chain by always returning a deeper ancestor
-				// keyed off sid suffix.
-				const match = /ses_(\d+)/.exec(sid)
-				if (!match) return null
-				const n = Number(match[1])
+				// The fixture owns the ancestry relation; UUID spelling carries no depth.
+				const n = chainIds.indexOf(sid)
 				if (n <= 0) return null
 				return {
-					subSessionId: `sub_${n}` as SubSessionId,
-					sessionId: `ses_${n - 1}` as SessionId,
-					prevArtifactRef: summaryRefTo(`ses_${n - 1}` as SessionId),
+					subSessionId: fixtureUuid(`sub_${n}`) as SubSessionId,
+					sessionId: fixtureUuid(`ses_${n - 1}`) as SessionId,
+					prevArtifactRef: summaryRefTo(fixtureUuid(`ses_${n - 1}`) as SessionId),
 				}
 			},
 		}
-		const proposed = 'sub_new' as SubSessionId
+		const proposed = '5a01fb9f-6bff-4eba-9084-4c21166b07b4' as SubSessionId
 		// Max 10: start at ses_10 and walk → 10 steps reachable, ses_0 terminates.
 		const okChain = await validatePrevArtifactChain(
 			syntheticLoader,
 			proposed,
-			summaryRefTo('ses_10' as SessionId),
+			summaryRefTo('d9b7ae68-4b2b-4cfc-8137-e92c43c3221f' as SessionId),
 			10,
 		)
-		expect(okChain.length).toBeLessThanOrEqual(10)
+		expect(okChain).toHaveLength(10)
 
 		// Over limit: starting at ses_12 requires 12 steps, over cap 10.
 		await expect(
-			validatePrevArtifactChain(syntheticLoader, proposed, summaryRefTo('ses_12' as SessionId), 10),
+			validatePrevArtifactChain(
+				syntheticLoader,
+				proposed,
+				summaryRefTo('37dc4708-c38b-4414-a422-00c32caa3757' as SessionId),
+				10,
+			),
 		).rejects.toBeInstanceOf(InterventionDepthExceeded)
 	})
 
 	it('rejects self-reference (cycle)', async () => {
-		const proposed = 'sub_self' as SubSessionId
+		const proposed = 'd6d1e2d0-c3df-4f78-8b5b-99cf9bad8a34' as SubSessionId
 		const loader: InterventionChainLoader = {
 			async loadAncestor(sid) {
 				return {
@@ -171,63 +175,78 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 			},
 		}
 		await expect(
-			validatePrevArtifactChain(loader, proposed, summaryRefTo('ses_a' as SessionId), 10),
+			validatePrevArtifactChain(
+				loader,
+				proposed,
+				summaryRefTo('1aa5bf90-15f2-4704-97fc-8df4943e1e3d' as SessionId),
+				10,
+			),
 		).rejects.toBeInstanceOf(ArtifactRefCycleError)
 	})
 
 	it('rejects 2-cycle and 3-cycle', async () => {
-		const proposed = 'sub_p' as SubSessionId
+		const proposed = 'c023cc98-7fd5-4639-975e-c19dd00b00af' as SubSessionId
 		// 2-cycle: A ↔ B
 		const twoCycleLoader: InterventionChainLoader = {
 			async loadAncestor(sid) {
-				if (sid === ('ses_a' as SessionId)) {
+				if (sid === ('1aa5bf90-15f2-4704-97fc-8df4943e1e3d' as SessionId)) {
 					return {
-						subSessionId: 'sub_a' as SubSessionId,
-						sessionId: 'ses_a' as SessionId,
-						prevArtifactRef: summaryRefTo('ses_b' as SessionId),
+						subSessionId: '4b281311-429a-4dd8-bb3e-448836d403b9' as SubSessionId,
+						sessionId: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d' as SessionId,
+						prevArtifactRef: summaryRefTo('e94d8d65-e063-4b5c-9f27-4d464e9d67d4' as SessionId),
 					}
 				}
-				if (sid === ('ses_b' as SessionId)) {
+				if (sid === ('e94d8d65-e063-4b5c-9f27-4d464e9d67d4' as SessionId)) {
 					return {
-						subSessionId: 'sub_a' as SubSessionId, // revisit sub_a closes the cycle
-						sessionId: 'ses_b' as SessionId,
+						subSessionId: '4b281311-429a-4dd8-bb3e-448836d403b9' as SubSessionId, // revisit sub_a closes the cycle
+						sessionId: 'e94d8d65-e063-4b5c-9f27-4d464e9d67d4' as SessionId,
 					}
 				}
 				return null
 			},
 		}
 		await expect(
-			validatePrevArtifactChain(twoCycleLoader, proposed, summaryRefTo('ses_a' as SessionId), 10),
+			validatePrevArtifactChain(
+				twoCycleLoader,
+				proposed,
+				summaryRefTo('1aa5bf90-15f2-4704-97fc-8df4943e1e3d' as SessionId),
+				10,
+			),
 		).rejects.toBeInstanceOf(ArtifactRefCycleError)
 
 		// 3-cycle: A → B → C → A
 		const threeCycleLoader: InterventionChainLoader = {
 			async loadAncestor(sid) {
-				if (sid === ('ses_a' as SessionId)) {
+				if (sid === ('1aa5bf90-15f2-4704-97fc-8df4943e1e3d' as SessionId)) {
 					return {
-						subSessionId: 'sub_a' as SubSessionId,
-						sessionId: 'ses_a' as SessionId,
-						prevArtifactRef: summaryRefTo('ses_b' as SessionId),
+						subSessionId: '4b281311-429a-4dd8-bb3e-448836d403b9' as SubSessionId,
+						sessionId: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d' as SessionId,
+						prevArtifactRef: summaryRefTo('e94d8d65-e063-4b5c-9f27-4d464e9d67d4' as SessionId),
 					}
 				}
-				if (sid === ('ses_b' as SessionId)) {
+				if (sid === ('e94d8d65-e063-4b5c-9f27-4d464e9d67d4' as SessionId)) {
 					return {
-						subSessionId: 'sub_b' as SubSessionId,
-						sessionId: 'ses_b' as SessionId,
-						prevArtifactRef: summaryRefTo('ses_c' as SessionId),
+						subSessionId: '131c33bb-10e4-4e8c-9727-a40790775b68' as SubSessionId,
+						sessionId: 'e94d8d65-e063-4b5c-9f27-4d464e9d67d4' as SessionId,
+						prevArtifactRef: summaryRefTo('fd031048-1d65-449b-b6f2-0a8f2ba6b99f' as SessionId),
 					}
 				}
-				if (sid === ('ses_c' as SessionId)) {
+				if (sid === ('fd031048-1d65-449b-b6f2-0a8f2ba6b99f' as SessionId)) {
 					return {
-						subSessionId: 'sub_a' as SubSessionId, // back to start
-						sessionId: 'ses_c' as SessionId,
+						subSessionId: '4b281311-429a-4dd8-bb3e-448836d403b9' as SubSessionId, // back to start
+						sessionId: 'fd031048-1d65-449b-b6f2-0a8f2ba6b99f' as SessionId,
 					}
 				}
 				return null
 			},
 		}
 		await expect(
-			validatePrevArtifactChain(threeCycleLoader, proposed, summaryRefTo('ses_a' as SessionId), 10),
+			validatePrevArtifactChain(
+				threeCycleLoader,
+				proposed,
+				summaryRefTo('1aa5bf90-15f2-4704-97fc-8df4943e1e3d' as SessionId),
+				10,
+			),
 		).rejects.toBeInstanceOf(ArtifactRefCycleError)
 	})
 
@@ -237,10 +256,10 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 				throw new Error('loader should not be invoked for non-session_summary')
 			},
 		}
-		const proposed = 'sub_p' as SubSessionId
+		const proposed = 'c023cc98-7fd5-4639-975e-c19dd00b00af' as SubSessionId
 
 		const fileRef: DeliverableRef = {
-			id: 'del_f' as DeliverableId,
+			id: '24004bf2-44cf-4e73-9dc3-0451b585e035' as DeliverableId,
 			kind: 'file',
 			path: 'a.txt',
 			contentHash: 'abc',
@@ -249,7 +268,7 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 		expect(await validatePrevArtifactChain(loader, proposed, fileRef, 10)).toEqual([])
 
 		const blobRef: DeliverableRef = {
-			id: 'del_b' as DeliverableId,
+			id: 'ab33b451-0894-4f9f-8457-243e9f6a0299' as DeliverableId,
 			kind: 'artifact_blob',
 			storageRef: 'blob://x',
 		}
@@ -265,15 +284,27 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 			DEFAULT_TENANT,
 		)
 		const sA = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: agentActor('297e7108-719e-42f6-aa3b-f3b42d1ad2c5'),
+			},
 			DEFAULT_TENANT,
 		)
 		const sB = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_b') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: agentActor('965fee81-5ea3-4efb-a75e-ed08ff17a9ec'),
+			},
 			DEFAULT_TENANT,
 		)
 		const sC = await store.createSession(
-			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_c') },
+			{
+				topicId: TEST_THREAD_ID,
+				projectId: project.id,
+				currentActor: agentActor('2c32ff49-1a47-4161-b02d-80b30bd96dca'),
+			},
 			DEFAULT_TENANT,
 		)
 
@@ -282,7 +313,7 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 				parentSessionId: sA.id,
 				childSessionId: sB.id,
 				kind: 'intervention',
-				spawnedBy: userActor('usr_d'),
+				spawnedBy: userActor('e7ada583-d6f8-412e-b5d4-56f38d786b1d'),
 			},
 			DEFAULT_TENANT,
 		)
@@ -299,7 +330,7 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 				parentSessionId: sB.id,
 				childSessionId: sC.id,
 				kind: 'intervention',
-				spawnedBy: userActor('usr_d'),
+				spawnedBy: userActor('e7ada583-d6f8-412e-b5d4-56f38d786b1d'),
 			},
 			DEFAULT_TENANT,
 		)
@@ -314,7 +345,7 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 		const loader = buildLoaderFromStore(store, DEFAULT_TENANT)
 		// Ancestor of sC is sB, whose prev points at sA. Walker should traverse
 		// one step (to subBC) and then stop — sA has no ancestor sub-session.
-		const proposed = 'sub_proposed_c' as SubSessionId
+		const proposed = '962aa395-7c22-4a34-bf16-0ee99095d993' as SubSessionId
 		const chain = await validatePrevArtifactChain(loader, proposed, summaryRefTo(sC.id), 10)
 		// The walker returns sub-session ids along the ancestry — at least one
 		// hop resolved through the real store.

@@ -22,10 +22,9 @@
  * no run, no logger, no provider, so it can be asked without one.
  */
 
-import { CHARS_PER_TOKEN } from '../../constants/limits.js'
-import { toolResultToText } from '../../types/message/content.js'
 import type { AssistantMessage, Message, ToolMessage } from '../../types/message/index.js'
 import { findRetainedIndices } from '../retention.js'
+import { estimateMessageTokens } from '../token-estimate.js'
 import { type Bm25Document, bm25Score, buildIndex, indexDocument } from './bm25.js'
 import { isEmptySignature, minhash, similarity } from './minhash.js'
 import { tokenize } from './tokenize.js'
@@ -63,7 +62,7 @@ export type ProtectedReason = 'system-floor' | 'retain' | 'recent' | 'pair'
 export interface ScoredMessage {
 	readonly index: number
 	readonly role: Message['role']
-	/** Estimated tokens of the message's model-visible text. */
+	/** Estimated tokens of the message, including rich content and tool inputs. */
 	readonly tokens: number
 	readonly recency: number
 	readonly relevance: number
@@ -84,7 +83,11 @@ export interface ScoreOptions {
 
 /** The model-visible text of a message, with an assistant's tool inputs. */
 export function messageText(message: Message): string {
-	if (message.role === 'tool') return toolResultToText((message as ToolMessage).content)
+	if (message.role === 'tool') {
+		return typeof message.content === 'string'
+			? message.content
+			: message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n')
+	}
 	const parts: string[] = []
 	if (typeof message.content === 'string') parts.push(message.content)
 	if (message.role === 'assistant') {
@@ -93,6 +96,15 @@ export function messageText(message: Message): string {
 		}
 	}
 	return parts.join('\n')
+}
+
+function hasRichContent(message: Message): boolean {
+	return (
+		(message.role === 'user' && (message.attachments?.length ?? 0) > 0) ||
+		(message.role === 'tool' &&
+			typeof message.content !== 'string' &&
+			message.content.some((block) => block.type !== 'text'))
+	)
 }
 
 const isAssistantWithCalls = (m: Message): m is AssistantMessage =>
@@ -118,6 +130,7 @@ export function scoreMessages(
 	}
 	const n = messages.length
 	const texts = messages.map(messageText)
+	const richContent = messages.map(hasRichContent)
 	const tokenLists = texts.map(tokenize)
 	const documents: Bm25Document[] = texts.map(indexDocument)
 	const index = buildIndex(documents)
@@ -241,16 +254,19 @@ export function scoreMessages(
 
 		let redundancy = 0
 		const signature = signatures[i] as Uint32Array
-		if (!isEmptySignature(signature)) {
+		// A caption or a repeated call cannot prove that two screenshots or
+		// documents contain the same evidence. The lexical scorer has no
+		// access to their meaning, so it must not call those messages duplicates.
+		if (!richContent[i] && !isEmptySignature(signature)) {
 			for (let j = i + 1; j < n; j += 1) {
-				if ((messages[j] as Message).role !== message.role) continue
+				if (richContent[j] || (messages[j] as Message).role !== message.role) continue
 				const sim = similarity(signature, signatures[j] as Uint32Array)
 				if (sim > redundancy) redundancy = sim
 			}
 		}
 		if (redundancy < config.duplicateThreshold) redundancy = redundancy >= 0.5 ? redundancy : 0
 		else redundancy = 1
-		if (message.role === 'tool') {
+		if (message.role === 'tool' && !richContent[i]) {
 			// The result of a call a later turn repeats exactly: the newer
 			// result is the one that counts.
 			for (let k = i - 1; k >= 0; k -= 1) {
@@ -276,7 +292,7 @@ export function scoreMessages(
 		scored.push({
 			index: i,
 			role: message.role,
-			tokens: Math.ceil((texts[i] as string).length / CHARS_PER_TOKEN),
+			tokens: estimateMessageTokens(message),
 			recency,
 			relevance,
 			utility,

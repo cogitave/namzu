@@ -22,7 +22,7 @@ import { buildCoordinatorTools } from '../index.js'
  * agent was chosen cannot withhold approval from the wrong one.
  */
 
-const RUN = 'run_plan_approval' as RunId
+const RUN = 'e4828d03-c58a-453b-8077-4431380a81e4' as RunId
 
 function unusedGateway(): TaskScheduler {
 	return {

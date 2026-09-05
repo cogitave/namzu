@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { fixtureUuid } from '../../../test-support/ids.js'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { TenantIsolationError } from '../../../session/errors.js'
@@ -29,7 +30,7 @@ import {
 } from '../index.js'
 
 const publicCreateShape = {
-	sessionId: asSessionId('ses_goal_surface'),
+	sessionId: asSessionId('14ed285f-eea0-4b8a-b4a9-fc3fb1a3bdf6'),
 	objective: 'compile-time surface',
 	maxGoalRounds: 1,
 } satisfies CreateSessionGoalParams
@@ -73,7 +74,7 @@ async function memoryFixture(): Promise<Fixture> {
 		goals: new InMemorySessionGoalStore(
 			{ sessions },
 			() => 1_000 + id,
-			() => asGoalId(`goal_memory_${++id}`),
+			() => asGoalId(fixtureUuid(`goal_memory_${++id}`)),
 		),
 	}
 }
@@ -93,7 +94,7 @@ async function diskFixture(): Promise<Fixture & { readonly root: string }> {
 		goals: new DiskSessionGoalStore(
 			{ rootDir: root, sessions },
 			() => 2_000 + id,
-			() => asGoalId(`goal_disk_${++id}`),
+			() => asGoalId(fixtureUuid(`goal_disk_${++id}`)),
 		),
 	}
 }
@@ -323,7 +324,7 @@ describe.each(implementations)('%s session goal store', (_name, fixture) => {
 
 it('migrates a schema-v1 goal to honest zero-admission accounting', async () => {
 	const fixture = await diskFixture()
-	const goalId = asGoalId('goal_legacy_v1')
+	const goalId = asGoalId('2fee235e-1ec8-4f57-9a86-78dbd492278d')
 	const legacyPath = join(fixture.root, 'goals', `${fixture.sessionId}.json`)
 	await mkdir(join(fixture.root, 'goals'), { recursive: true })
 	await writeFile(
@@ -360,7 +361,7 @@ describe('session ownership is checked before goal storage', () => {
 	it('refuses a missing or other-tenant session without publishing a goal record', async () => {
 		const fixture = await diskFixture()
 		const otherTenant = generateTenantId()
-		const missing = asSessionId(`ses_missing_${generateProjectId()}`)
+		const missing = asSessionId(fixtureUuid(`ses_missing_${generateProjectId()}`))
 
 		await expect(
 			fixture.goals.createGoal(

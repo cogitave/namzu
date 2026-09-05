@@ -1,5 +1,6 @@
 import type { Span } from '@opentelemetry/api'
 import { describe, expect, it } from 'vitest'
+import { fixtureUuid } from '../../test-support/ids.js'
 
 import type { Agent } from '../../types/agent/core.js'
 import type { AgentManagerContract } from '../../types/agent/manager.js'
@@ -39,7 +40,7 @@ class RecordingManager implements AgentManagerContract {
 	): Promise<AgentTask> {
 		this.sent.push(options)
 		return {
-			taskId: `task_${this.sent.length}` as TaskId,
+			taskId: fixtureUuid(`task_${this.sent.length}`) as TaskId,
 			agentId: options.agentId,
 			agent: {} as Agent<never, never>,
 			childAbortController: new AbortController(),
@@ -93,19 +94,19 @@ class EventManager extends RecordingManager {
 
 function context(): AgentTaskContext {
 	return {
-		parentRunId: 'run_parent' as RunId,
+		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: 0,
 		budgetTracker: { total: 100_000, remaining: 100_000 },
-		tenantId: 'tnt_k' as TenantId,
-		topicId: 'top_k' as TopicId,
-		sessionId: 'ses_k' as SessionId,
-		projectId: 'prj_k' as ProjectId,
+		tenantId: '26cb9b08-e09d-4d11-ba43-157344a7ddba' as TenantId,
+		topicId: '7f33de5a-7605-4ed7-a5fe-58faba5547e8' as TopicId,
+		sessionId: '428dc9ee-7a75-4951-94e7-95347290e17d' as SessionId,
+		projectId: 'a611e1a0-cc6f-49ff-b588-9b05b2d3449d' as ProjectId,
 		parentActor: {
 			kind: 'agent',
 			agentId: 'supervisor' as AgentId,
-			tenantId: 'tnt_k' as TenantId,
+			tenantId: '26cb9b08-e09d-4d11-ba43-157344a7ddba' as TenantId,
 		},
 	} as AgentTaskContext
 }
@@ -172,10 +173,10 @@ describe('a delegated run is built with the config its caller asked for', () => 
 
 describe('a task-specific event observer', () => {
 	const events = [
-		{ type: 'run_started' as const, runId: 'run_child' as RunId },
+		{ type: 'run_started' as const, runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId },
 		{
 			type: 'iteration_started' as const,
-			runId: 'run_child' as RunId,
+			runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
 			iteration: 1,
 		},
 	]

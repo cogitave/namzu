@@ -31,8 +31,8 @@ import { AgentNotRunningError, createAgentHandle } from '../handle.js'
 
 registerMock()
 
-const TOPIC = 'top_handle' as TopicId
-const TENANT = 'tnt_handle' as TenantId
+const TOPIC = '38923b09-8dc1-4e86-9582-a35c5737de6a' as TopicId
+const TENANT = 'a5b61093-9d75-40c5-93b6-066b204d7411' as TenantId
 
 const dirs: string[] = []
 
@@ -65,9 +65,9 @@ async function runOnce(store: InMemoryTopicStateStore | DiskTopicStateStore) {
 		agentName: 'A',
 		messages: [createUserMessage('go')],
 		workingDirectory,
-		sessionId: 'ses_h' as SessionId,
+		sessionId: 'df192919-b215-4b84-a015-fd6313a9ae1c' as SessionId,
 		topicId: TOPIC,
-		projectId: 'prj_h' as ProjectId,
+		projectId: '0bcefafd-52f5-4025-bc81-e014562adf72' as ProjectId,
 		tenantId: TENANT,
 		topicStateStore: store,
 	})

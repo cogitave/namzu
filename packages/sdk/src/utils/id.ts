@@ -237,59 +237,55 @@ export interface EntityIdByKind {
 
 export type EntityIdKind = keyof EntityIdByKind
 
-/** Compatibility spellings only: new ids do not contain these prefixes. */
-const LEGACY_PREFIXES: Record<EntityIdKind, string> = {
-	run: 'run_',
-	message: 'msg_',
-	session: 'ses_',
-	goal: 'goal_',
-	toolCall: 'call_',
-	activity: 'act_',
-	task: 'task_',
-	plan: 'plan_',
-	knowledgeBase: 'kb_',
-	document: 'doc_',
-	chunk: 'chk_',
-	connector: 'conn_',
-	connectorInstance: 'ci_',
-	tenant: 'tnt_',
-	credential: 'cred_',
-	executionContext: 'ectx_',
-	mcpServer: 'mcp_',
-	mcpClient: 'mcpc_',
-	mcpSession: 'mcps_',
-	environment: 'env_',
-	checkpoint: 'cp_',
-	lock: 'lock_',
-	advisory: 'adv_',
-	advisoryCall: 'advc_',
-	emergencySave: 'esave_',
-	memory: 'mem_',
-	plugin: 'plg_',
-	sandbox: 'sbx_',
-	auditEvent: 'aud_',
-	user: 'usr_',
-	agent: 'agt_',
-	memoryStoreRef: 'mms_',
-	vaultRef: 'vlt_',
-	knowledgeBaseRef: 'kbs_',
-	project: 'prj_',
-	topic: 'top_',
-	subSession: 'sub_',
-	handoff: 'hof_',
-	workspace: 'wsp_',
-	summary: 'sum_',
-	deliverable: 'del_',
-}
+const ENTITY_KINDS = new Set<EntityIdKind>([
+	'run',
+	'message',
+	'session',
+	'goal',
+	'toolCall',
+	'activity',
+	'task',
+	'plan',
+	'knowledgeBase',
+	'document',
+	'chunk',
+	'connector',
+	'connectorInstance',
+	'tenant',
+	'credential',
+	'executionContext',
+	'mcpServer',
+	'mcpClient',
+	'mcpSession',
+	'environment',
+	'checkpoint',
+	'lock',
+	'advisory',
+	'advisoryCall',
+	'emergencySave',
+	'memory',
+	'plugin',
+	'sandbox',
+	'auditEvent',
+	'user',
+	'agent',
+	'memoryStoreRef',
+	'vaultRef',
+	'knowledgeBaseRef',
+	'project',
+	'topic',
+	'subSession',
+	'handoff',
+	'workspace',
+	'summary',
+	'deliverable',
+])
 
-const ID_PATTERNS = new Map(
-	Object.entries(LEGACY_PREFIXES).map(([kind, prefix]) => [kind, entityIdPattern(prefix)]),
-)
+const ID_PATTERN = entityIdPattern()
 
 /**
  * Checks an id without throwing or rewriting it. UUIDs identify opaque
- * entities; the kind comes from the caller's field or collection. A legacy
- * value must carry that kind's exact prefix and a nonempty portable suffix.
+ * entities; the kind comes from the caller's field or collection.
  * This validates spelling, not existence, ownership, or access permission.
  */
 export function isEntityId<K extends EntityIdKind>(
@@ -297,7 +293,7 @@ export function isEntityId<K extends EntityIdKind>(
 	kind: K,
 ): value is EntityIdByKind[K] {
 	if (typeof value !== 'string') return false
-	return ID_PATTERNS.get(kind)?.test(value) ?? false
+	return ENTITY_KINDS.has(kind) && ID_PATTERN.test(value)
 }
 
 function parseId<K extends EntityIdKind>(
@@ -306,9 +302,7 @@ function parseId<K extends EntityIdKind>(
 	typeName: string,
 ): EntityIdByKind[K] {
 	if (!isEntityId(raw, kind)) {
-		throw new Error(
-			`Invalid ${typeName}: expected a UUID or "${LEGACY_PREFIXES[kind]}" followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens, got ${JSON.stringify(raw)}`,
-		)
+		throw new Error(`Invalid ${typeName}: expected a UUID, got ${JSON.stringify(raw)}`)
 	}
 	return raw
 }
@@ -337,15 +331,15 @@ export function parseSandboxId(raw: string): SandboxId {
 // Brands do not validate JSON, JavaScript callers, or type assertions.
 // Storage boundaries must check again before using an id as a path segment.
 
-/** A value that is neither a UUID nor a safe legacy id of the expected kind. */
+/** A value that cannot represent an entity id because it is not a UUID. */
 export class InvalidIdError extends Error {
 	constructor(
 		readonly value: string,
-		/** The compatibility prefix accepted alongside UUIDs. */
-		readonly expectedPrefix: string,
+		/** The typed field or collection that required an identity. */
+		readonly expectedKind: EntityIdKind,
 	) {
 		super(
-			`Not a valid id: ${JSON.stringify(value)} must be a UUID or start with ${JSON.stringify(expectedPrefix)} followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens. Use the matching generate*Id() factory to mint an id.`,
+			`Invalid ${expectedKind} id: ${JSON.stringify(value)} must be a UUID. Prefixed IDs are not supported. Use the matching generate*Id() factory to mint an id.`,
 		)
 		this.name = 'InvalidIdError'
 	}
@@ -355,7 +349,7 @@ type IdParser<T extends string> = (value: string) => T
 
 function makeIdParser<K extends EntityIdKind>(kind: K): IdParser<EntityIdByKind[K]> {
 	return (value) => {
-		if (!isEntityId(value, kind)) throw new InvalidIdError(value, LEGACY_PREFIXES[kind])
+		if (!isEntityId(value, kind)) throw new InvalidIdError(value, kind)
 		return value
 	}
 }

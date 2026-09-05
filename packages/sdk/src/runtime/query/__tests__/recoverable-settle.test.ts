@@ -21,8 +21,8 @@ import { ResultAssembler } from '../result.js'
  * settle and the signal were missing.
  */
 
-const RID = 'run_1' as RunId
-const CP = 'cp_7' as CheckpointId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const CP = '198e213b-0e39-40d2-8484-2d6e8cc9d83f' as CheckpointId
 
 function makeLogger() {
 	const calls: Array<{ level: string; message: string }> = []

@@ -22,10 +22,10 @@ import { a2aMessageToCreateRun, runToA2ATask } from '../task.js'
 
 function wireRun(overrides: Partial<WireRun> = {}): WireRun {
 	return {
-		id: 'run_ctx',
+		id: 'c5404eb4-58ee-4067-9ae2-8916033f1ceb',
 		agent_id: 'worker',
 		status: 'completed',
-		project_id: 'prj_alpha',
+		project_id: 'b27ca023-39ba-4362-b823-1fc8f4460876',
 		created_at: new Date('2026-08-06').toISOString(),
 		...overrides,
 	} as WireRun
@@ -33,16 +33,16 @@ function wireRun(overrides: Partial<WireRun> = {}): WireRun {
 
 describe('a2a contextId is the project, in both directions', () => {
 	it('maps a run onto a task whose context is its project', () => {
-		expect(runToA2ATask(wireRun()).contextId).toBe('prj_alpha')
+		expect(runToA2ATask(wireRun()).contextId).toBe('b27ca023-39ba-4362-b823-1fc8f4460876')
 	})
 
 	it('reads a task context back as the project to run under', () => {
 		const request = a2aMessageToCreateRun('worker', {
-			contextId: 'prj_beta',
+			contextId: 'bd82be67-36f3-49a2-956b-0e1dd68ed6c9',
 			message: { role: 'user', parts: [{ kind: 'text', text: 'go' }] },
 		} as never)
 
-		expect(request.projectId).toBe('prj_beta')
+		expect(request.projectId).toBe('bd82be67-36f3-49a2-956b-0e1dd68ed6c9')
 	})
 
 	it('round-trips, so a peer context names a project namzu can run under', () => {
@@ -56,7 +56,7 @@ describe('a2a contextId is the project, in both directions', () => {
 			message: { role: 'user', parts: [{ kind: 'text', text: 'again' }] },
 		} as never)
 
-		expect(request.projectId).toBe('prj_gamma')
+		expect(request.projectId).toBe('78de783b-4b7a-441f-a4dd-e5265257e5fc')
 	})
 
 	it('leaves the context absent when a run has no project', () => {

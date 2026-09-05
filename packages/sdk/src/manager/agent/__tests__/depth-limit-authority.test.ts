@@ -30,17 +30,17 @@ async function manager(maxDepth: number) {
 
 function contextAtDepth(depth: number): AgentTaskContext {
 	return {
-		parentRunId: 'run_x',
+		parentRunId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 		parentAgentId: 'agent_x',
 		parentAbortController: new AbortController(),
 		depth,
-		tenantId: 'tnt_x',
+		tenantId: '6ab233e0-9e27-4517-8861-61d4b85f396e',
 	} as unknown as AgentTaskContext
 }
 
 function send(m: Awaited<ReturnType<typeof manager>>, depth: number) {
 	return m.sendMessage(
-		{ agentId: 'a', prompt: 'go', tenantId: 'tnt_x' } as never,
+		{ agentId: 'a', prompt: 'go', tenantId: '6ab233e0-9e27-4517-8861-61d4b85f396e' } as never,
 		contextAtDepth(depth),
 	)
 }

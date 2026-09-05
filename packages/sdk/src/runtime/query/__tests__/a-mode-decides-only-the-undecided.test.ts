@@ -30,8 +30,8 @@ const call = (name: string, extra: Partial<ToolCallSummary> = {}): ToolCallSumma
 
 const review = (...toolCalls: ToolCallSummary[]): HITLDecisionRequest => ({
 	type: 'tool_review',
-	runId: 'run_review' as RunId,
-	checkpointId: 'cp_review' as CheckpointId,
+	runId: 'f8223c92-2ebb-4961-8f5c-51dffd77693e' as RunId,
+	checkpointId: '82267e66-99cd-4ee0-8a15-b8108f6fce73' as CheckpointId,
 	toolCalls,
 })
 

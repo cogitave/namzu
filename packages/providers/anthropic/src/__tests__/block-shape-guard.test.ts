@@ -23,7 +23,10 @@ function bodyCapturer() {
 			create: vi.fn(async (body: Record<string, unknown>) => {
 				seen.body = body
 				return (async function* () {
-					yield { type: 'message_start', message: { id: 'msg_1' } }
+					yield {
+						type: 'message_start',
+						message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+					}
 				})()
 			}),
 		},
@@ -43,7 +46,10 @@ async function bodyFor(params: Partial<ChatCompletionParams>): Promise<Record<st
 	return seen.body ?? {}
 }
 
-type WireMessage = { role: string; content: string | Record<string, unknown>[] }
+type WireMessage = {
+	role: string
+	content: string | Record<string, unknown>[]
+}
 
 function messagesOf(body: Record<string, unknown>): WireMessage[] {
 	return (body.messages ?? []) as WireMessage[]
@@ -56,7 +62,11 @@ function allBlocks(body: Record<string, unknown>): Record<string, unknown>[] {
 const TOOLS = [
 	{
 		type: 'function' as const,
-		function: { name: 'read', description: 'read', parameters: { type: 'object' } },
+		function: {
+			name: 'read',
+			description: 'read',
+			parameters: { type: 'object' },
+		},
 	},
 ]
 
@@ -82,7 +92,11 @@ describe('no message goes out with an empty content array', () => {
 					role: 'assistant',
 					content: null,
 					toolCalls: [
-						{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{}' } },
+						{
+							id: 'call_1',
+							type: 'function',
+							function: { name: 'read', arguments: '{}' },
+						},
 					],
 				},
 				{ role: 'tool', toolCallId: 'call_1', content: 'file body' },
@@ -118,8 +132,16 @@ describe('tool results are grouped into one user turn, in order', () => {
 					role: 'assistant',
 					content: null,
 					toolCalls: [
-						{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{}' } },
-						{ id: 'call_2', type: 'function', function: { name: 'read', arguments: '{}' } },
+						{
+							id: 'call_1',
+							type: 'function',
+							function: { name: 'read', arguments: '{}' },
+						},
+						{
+							id: 'call_2',
+							type: 'function',
+							function: { name: 'read', arguments: '{}' },
+						},
 					],
 				},
 				{ role: 'tool', toolCallId: 'call_1', content: 'one' },
@@ -144,7 +166,11 @@ describe('tool results are grouped into one user turn, in order', () => {
 					role: 'assistant',
 					content: null,
 					toolCalls: [
-						{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{}' } },
+						{
+							id: 'call_1',
+							type: 'function',
+							function: { name: 'read', arguments: '{}' },
+						},
 					],
 				},
 				{ role: 'tool', toolCallId: 'call_1', content: 'body' },
@@ -170,7 +196,11 @@ describe('tool results are grouped into one user turn, in order', () => {
 					role: 'assistant',
 					content: null,
 					toolCalls: [
-						{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{}' } },
+						{
+							id: 'call_1',
+							type: 'function',
+							function: { name: 'read', arguments: '{}' },
+						},
 					],
 				},
 				{ role: 'tool', toolCallId: 'call_1', content: 'body' },
@@ -191,7 +221,11 @@ describe('a malformed tool argument does not become a malformed block', () => {
 					role: 'assistant',
 					content: null,
 					toolCalls: [
-						{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{not json' } },
+						{
+							id: 'call_1',
+							type: 'function',
+							function: { name: 'read', arguments: '{not json' },
+						},
 					],
 				},
 			] as unknown as ChatCompletionParams['messages'],
@@ -208,7 +242,11 @@ describe('a malformed tool argument does not become a malformed block', () => {
 					role: 'assistant',
 					content: null,
 					toolCalls: [
-						{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '' } },
+						{
+							id: 'call_1',
+							type: 'function',
+							function: { name: 'read', arguments: '' },
+						},
 					],
 				},
 			] as unknown as ChatCompletionParams['messages'],
@@ -247,7 +285,9 @@ describe('the required fields are always present', () => {
 	})
 
 	it('honours the caller max over the default', async () => {
-		expect(await bodyFor({ maxTokens: 128 })).toMatchObject({ max_tokens: 128 })
+		expect(await bodyFor({ maxTokens: 128 })).toMatchObject({
+			max_tokens: 128,
+		})
 	})
 
 	it('marks the request as streaming', async () => {

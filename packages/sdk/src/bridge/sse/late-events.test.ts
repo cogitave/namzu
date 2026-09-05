@@ -15,7 +15,7 @@ import { mapRunToStreamEvent } from './mapper.js'
  * return type is `Record<string, unknown>`.
  */
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 
 const map = (event: RunEvent) => mapRunToStreamEvent(event, RID)
 

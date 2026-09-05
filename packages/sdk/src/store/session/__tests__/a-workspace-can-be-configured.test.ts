@@ -28,8 +28,8 @@ import { InMemorySessionStore } from '../memory.js'
  * that disagrees with the durable one is worse than having only one.
  */
 
-const TENANT = 'tnt_cfg' as TenantId
-const OTHER = 'tnt_other' as TenantId
+const TENANT = '504054cd-3d9f-4eb3-89a1-fc2dda0032a6' as TenantId
+const OTHER = '03857320-0500-482a-85e0-add350d8ffdd' as TenantId
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -223,6 +223,8 @@ describe.each(IMPLEMENTATIONS)('a workspace carries its own limits (%s)', (_name
 	it('returns null for a project that does not exist', async () => {
 		const store = await build()
 
-		expect(await store.updateProject?.('prj_missing' as never, {}, TENANT)).toBeNull()
+		expect(
+			await store.updateProject?.('98a32d05-54ff-4dcd-b0c2-38b2f2406dd2' as never, {}, TENANT),
+		).toBeNull()
 	})
 })

@@ -45,9 +45,9 @@ import {
 	createConnectorRouterTool,
 } from './adapter.js'
 
-const CID = 'conn_http' as ConnectorId
-const IID1 = 'ci_abc123' as ConnectorInstanceId
-const IID2 = 'ci_def456' as ConnectorInstanceId
+const CID = 'dafa33b2-7035-47d2-986c-8a6d2ef338f3' as ConnectorId
+const IID1 = '5a51586c-ed89-4c09-9032-30b665c2b682' as ConnectorInstanceId
+const IID2 = '33ce386b-bd27-4a0e-93d0-170c0e8ef612' as ConnectorInstanceId
 
 function makeMethod(name: string, description = `${name} description`) {
 	return { name, description, inputSchema: z.object({}) }
@@ -251,7 +251,12 @@ describe('createConnectorRouterTool', () => {
 		const manager = makeManager()
 		const tool = createConnectorRouterTool(manager)
 		const result = await tool.execute(
-			{ connectorId: 'conn_other' as ConnectorId, instanceId: IID1, method: 'request', input: {} },
+			{
+				connectorId: 'c9774468-a5d3-4d05-83c0-363b4e3a671f' as ConnectorId,
+				instanceId: IID1,
+				method: 'request',
+				input: {},
+			},
 			ctx,
 		)
 		expect(result.success).toBe(false)

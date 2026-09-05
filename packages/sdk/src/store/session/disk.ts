@@ -31,7 +31,6 @@ import {
 	TenantIsolationError,
 } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
-import { RetiredIdPrefixError } from '../../types/ids/index.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
@@ -157,8 +156,8 @@ const rootPathBindings = new DiskRevisionRecordStore<RootPathBinding>(
 )
 
 /**
- * v2 → v3 rejected the retired `thd_` topic namespace. Keep that refusal,
- * while accepting current opaque IDs and safe legacy topic IDs unchanged.
+ * Validate topic UUIDs before accepting a stored record. Prefixed IDs are
+ * rejected without rewriting stored references.
  * This migrator runs over every session-store record kind; records without
  * a topicId are intentionally untouched.
  */
@@ -167,7 +166,6 @@ export function migrateSessionStoreTopicIdPrefix(
 ): Record<string, unknown> {
 	const topicId = record.topicId
 	if (typeof topicId === 'string') {
-		if (topicId.startsWith('thd_')) throw new RetiredIdPrefixError(topicId, 'top_')
 		asTopicId(topicId)
 	}
 	return record

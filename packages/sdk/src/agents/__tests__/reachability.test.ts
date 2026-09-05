@@ -68,10 +68,10 @@ async function baseConfig(provider: MockLLMProvider, tools: ToolRegistry) {
 			maxIterations: 4,
 			provider,
 			tools,
-			sessionId: 'ses_r' as SessionId,
-			topicId: 'top_r' as TopicId,
-			projectId: 'prj_r' as ProjectId,
-			tenantId: 'tnt_r' as TenantId,
+			sessionId: '4867992e-5fe0-44ac-8ad3-84768354abe1' as SessionId,
+			topicId: '62a3b800-6711-4be4-9574-b8821f466408' as TopicId,
+			projectId: 'f4feb4a0-1fe7-447e-a5bb-29988d224bb0' as ProjectId,
+			tenantId: '945ca78a-e487-433d-a206-e2b9c64485c9' as TenantId,
 		} satisfies ReactiveAgentConfig,
 	}
 }
@@ -209,7 +209,7 @@ describe('SupervisorAgent forwards the durable layout seam', () => {
 		})
 		const manager = {
 			sendMessage: vi.fn(async () => ({
-				taskId: 'task_none',
+				taskId: 'fedd2ba4-ebfa-42b3-b6af-76f06e73464a',
 				status: 'completed',
 			})),
 			await: vi.fn(async () => undefined),
@@ -228,18 +228,18 @@ describe('SupervisorAgent forwards the durable layout seam', () => {
 			tokenBudget: 100_000,
 			timeoutMs: 10_000,
 			maxIterations: 2,
-			sessionId: 'ses_supervisor_reach' as SessionId,
-			topicId: 'top_supervisor_reach' as TopicId,
-			projectId: 'prj_supervisor_reach' as ProjectId,
-			tenantId: 'tnt_supervisor_reach' as TenantId,
+			sessionId: '4c21c3a0-fd74-4425-8175-3e3e3d436269' as SessionId,
+			topicId: 'c6e9492e-e27d-461e-a820-6b2cf9a7b3ae' as TopicId,
+			projectId: '6bb45fce-1fff-4b69-9226-df7b5778ca2c' as ProjectId,
+			tenantId: 'ed2de0d4-61b2-41f3-87a5-2ec372d324f1' as TenantId,
 			pathBuilder: new DefaultPathBuilder(stateRoot),
 		} as never)
 
 		expect(
 			existsSync(
 				new DefaultPathBuilder(stateRoot).runDir(
-					'prj_supervisor_reach' as ProjectId,
-					'ses_supervisor_reach' as SessionId,
+					'6bb45fce-1fff-4b69-9226-df7b5778ca2c' as ProjectId,
+					'4c21c3a0-fd74-4425-8175-3e3e3d436269' as SessionId,
 					result.runId,
 				),
 			),

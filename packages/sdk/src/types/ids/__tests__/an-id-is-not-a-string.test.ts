@@ -83,21 +83,21 @@ describe('an id is not a string', () => {
 		// id can come into existence, and each satisfies the type with no
 		// assertion at the call site.
 		const minted: RunId = generateRunId()
-		const checked: RunId = asRunId('run_from_a_log_line')
+		const checked: RunId = asRunId('6e86e19a-b453-41c0-8b43-131c6a442e7d')
 		const goal: GoalId = generateGoalId()
-		const checkedGoal: GoalId = asGoalId('goal_from_a_session')
+		const checkedGoal: GoalId = asGoalId('8960161a-9da0-4128-8871-f5042ce1ca9b')
 		const fixture: RunId = fixtureId.run('from_a_test')
-		const sentinel: TenantId = asTenantId('tnt_from_a_config')
+		const sentinel: TenantId = asTenantId('1fe7a516-1f59-4c7b-8767-d4a46eeaac32')
 
 		expect(asRunId(minted)).toBe(minted)
-		expect(checked).toBe('run_from_a_log_line')
+		expect(checked).toBe('6e86e19a-b453-41c0-8b43-131c6a442e7d')
 		expect(asGoalId(goal)).toBe(goal)
-		expect(checkedGoal).toBe('goal_from_a_session')
-		expect(fixture).toBe('run_from_a_test')
-		expect(sentinel).toBe('tnt_from_a_config')
+		expect(checkedGoal).toBe('8960161a-9da0-4128-8871-f5042ce1ca9b')
+		expect(fixture).toBe('60ef03a7-a780-4a96-b458-d3eb542e7f8a')
+		expect(sentinel).toBe('1fe7a516-1f59-4c7b-8767-d4a46eeaac32')
 	})
 
-	it('still checks legacy kind prefixes at runtime, which the brand cannot', () => {
+	it('rejects non-UUID values at runtime, which the brand cannot', () => {
 		// The brand says "this came from a producer"; it says nothing about
 		// WHICH prefix, because a `ses_` string asserted into a RunId carries
 		// the same brand a real one does. The runtime check is the half that

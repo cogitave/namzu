@@ -70,10 +70,10 @@ function baseParams(workingDirectory: string) {
 		agentId: 'agent_correlated',
 		agentName: 'Correlated Agent',
 		workingDirectory,
-		sessionId: 'ses_correlated' as SessionId,
-		topicId: 'top_correlated' as TopicId,
-		projectId: 'prj_correlated' as ProjectId,
-		tenantId: 'tnt_correlated' as TenantId,
+		sessionId: '5b8e8c24-cb10-41a5-8ae5-7e3aaab9dd4b' as SessionId,
+		topicId: 'ca587325-12f2-4907-9f09-69d34e083baa' as TopicId,
+		projectId: '5672b541-0670-44c5-a06d-bceceb884aed' as ProjectId,
+		tenantId: '4f69727d-8832-4d1b-85ec-b928d4d3e576' as TenantId,
 		retry: { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 1 },
 	}
 }

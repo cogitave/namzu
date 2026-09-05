@@ -27,7 +27,7 @@ import type { ToolDefinition, ToolResult } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor, type ToolExecutorConfig } from '../executor.js'
 
-const RUN_ID = 'run_backoff' as RunId
+const RUN_ID = 'd0d972d3-5ea3-4825-a3c7-04d73b15efb3' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

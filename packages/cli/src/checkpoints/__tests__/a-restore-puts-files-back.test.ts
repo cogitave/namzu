@@ -11,7 +11,10 @@ let store: FileCheckpointStore
 
 beforeEach(async () => {
 	cwd = await mkdtemp(join(tmpdir(), 'namzu-ckpt-'))
-	store = new FileCheckpointStore(join(cwd, '.namzu', 'checkpoints', 'ses_test'), cwd)
+	store = new FileCheckpointStore(
+		join(cwd, '.namzu', 'checkpoints', 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede'),
+		cwd,
+	)
 })
 
 afterEach(async () => {
@@ -82,8 +85,12 @@ describe('a restore', () => {
 		await writeFile(a, 'x')
 		store.beginTurn('t')
 		await store.snapshot(a)
-		expect(await exists(join(cwd, '.namzu', 'checkpoints', 'ses_test', '1'))).toBe(true)
+		expect(
+			await exists(join(cwd, '.namzu', 'checkpoints', 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede', '1')),
+		).toBe(true)
 		await store.close()
-		expect(await exists(join(cwd, '.namzu', 'checkpoints', 'ses_test'))).toBe(false)
+		expect(
+			await exists(join(cwd, '.namzu', 'checkpoints', 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede')),
+		).toBe(false)
 	})
 })

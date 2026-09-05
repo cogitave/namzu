@@ -24,7 +24,7 @@ const HOST_ROOT = '/host/elsewhere'
 function fakeSandbox(files: Record<string, string>): Sandbox & { reads: string[] } {
 	const reads: string[] = []
 	return {
-		id: 'sbx_test' as never,
+		id: '51281012-1dd1-444d-98b8-487422669dff' as never,
 		rootDir: SANDBOX_ROOT,
 		reads,
 		exec: vi.fn(),

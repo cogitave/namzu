@@ -19,9 +19,9 @@ import {
 } from '../archive.js'
 import { DiskArchiveBackend } from '../disk-backend.js'
 
-const TEST_THREAD_ID = 'top_test' as TopicId
+const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
-const tenantA = 'tnt_alpha' as TenantId
+const tenantA = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
 
 function stubLogger() {
 	return {
@@ -36,11 +36,11 @@ function stubLogger() {
 }
 
 function userActor(tenantId: TenantId): ActorRef {
-	return { kind: 'user', userId: 'usr_a' as UserId, tenantId }
+	return { kind: 'user', userId: '9ce05013-3bcc-4835-86b3-15e7b9251801' as UserId, tenantId }
 }
 
 function agentActor(tenantId: TenantId): ActorRef {
-	return { kind: 'agent', agentId: 'agt_a' as AgentId, tenantId }
+	return { kind: 'agent', agentId: '297e7108-719e-42f6-aa3b-f3b42d1ad2c5' as AgentId, tenantId }
 }
 
 async function seedIdleSubSession(store: InMemorySessionStore) {
@@ -190,9 +190,12 @@ describe('ArchivalManager', () => {
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: backend,
 		})
-		await expect(manager.archive('sub_missing' as SubSession['id'], tenantA)).rejects.toMatchObject(
-			{ name: 'SubSessionNotArchivableError', details: { reason: 'missing' } },
-		)
+		await expect(
+			manager.archive('6fa857cb-ed72-4a01-a89e-cd6927a91a45' as SubSession['id'], tenantA),
+		).rejects.toMatchObject({
+			name: 'SubSessionNotArchivableError',
+			details: { reason: 'missing' },
+		})
 	})
 
 	it('deny-by-default: backend absent → ArchiveNotConfiguredError', async () => {
@@ -252,7 +255,7 @@ describe('ArchivalManager', () => {
 			kind: 'git-worktree',
 			async create() {
 				return {
-					id: 'wsp_x' as WorkspaceId,
+					id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as WorkspaceId,
 					meta: {
 						backend: 'git-worktree',
 						repoRoot: '/r',
@@ -274,7 +277,7 @@ describe('ArchivalManager', () => {
 		})
 
 		const workspaceRef: WorkspaceRef = {
-			id: 'wsp_y' as WorkspaceId,
+			id: '97b94822-3800-43f4-97b1-da67f6189844' as WorkspaceId,
 			meta: { backend: 'git-worktree', repoRoot: '/r', branch: 'main', worktreePath: '/r/y' },
 			createdAt: new Date(),
 		}

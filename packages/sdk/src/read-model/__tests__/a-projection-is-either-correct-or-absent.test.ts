@@ -30,7 +30,7 @@ import {
  * state that LOOKS complete and describes a log the registry never saw.
  */
 
-const RUN = 'run_rm' as RunId
+const RUN = '65c1072f-6e86-4e25-a53d-a412ecd23952' as RunId
 
 let seq = 0
 const event = (type: string, over: Record<string, unknown> = {}): PersistedRunEvent =>

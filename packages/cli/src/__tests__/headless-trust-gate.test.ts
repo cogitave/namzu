@@ -127,6 +127,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+	vi.unstubAllEnvs()
 	removeTempDir(home)
 	removeTempDir(stranger)
 })
@@ -533,17 +534,21 @@ describe('namzu run-stream in a folder nobody has trusted', () => {
 })
 
 describe('namzu drain crosses the same project trust boundary', () => {
-	function drainArgs(store: string, extra: readonly string[] = []): string[] {
+	function drainArgs(
+		store: string,
+		extra: readonly string[] = [],
+		projectId = 'f2584e6f-9b19-4cd8-a450-454bffef0d5b',
+	): string[] {
 		return [
 			'drain',
 			'--store',
 			store,
 			'--tenant',
-			'tnt_trust',
+			'8bce6ebb-557b-46c5-b492-d73f56d2dac6',
 			'--project',
-			'prj_trust',
+			projectId,
 			'--session',
-			'ses_trust',
+			'e084422e-7ef9-4ff8-a4bf-faf77028e6ad',
 			...extra,
 		]
 	}
@@ -576,6 +581,24 @@ describe('namzu drain crosses the same project trust boundary', () => {
 				plugins: { enabled: true, allowedScopes: ['project'] },
 			}),
 		)
+		const { DiskSessionStore, asTenantId, asSessionId, generateTopicId } = await import(
+			'@namzu/sdk'
+		)
+		const stateRoot = join(home, '.namzu')
+		mkdirSync(stateRoot, { recursive: true })
+		vi.stubEnv('NAMZU_HOME', stateRoot)
+		const state = new DiskSessionStore({ rootDir: stateRoot })
+		const tenantId = asTenantId('8bce6ebb-557b-46c5-b492-d73f56d2dac6')
+		const project = await state.createProject({ tenantId, name: 'Drain fixture' }, tenantId)
+		await state.createSession(
+			{
+				id: asSessionId('e084422e-7ef9-4ff8-a4bf-faf77028e6ad'),
+				projectId: project.id,
+				topicId: generateTopicId(),
+				currentActor: null,
+			},
+			tenantId,
+		)
 		const store = join(stranger, 'runs')
 		mkdirSync(store)
 		const ambient = mkdtempSync(join(tmpdir(), 'namzu-drain-ambient-'))
@@ -584,7 +607,7 @@ describe('namzu drain crosses the same project trust boundary', () => {
 			process.chdir(ambient)
 			const { runCli } = await import('../cli.js')
 			const code = await runCli({
-				argv: ['node', 'namzu', ...drainArgs(store, ['--cwd', stranger, '--trust'])],
+				argv: ['node', 'namzu', ...drainArgs(store, ['--cwd', stranger, '--trust'], project.id)],
 			})
 
 			expect(code).toBe(0)

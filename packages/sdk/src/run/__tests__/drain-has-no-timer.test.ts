@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
+import { fixtureUuid } from '../../test-support/ids.js'
 
 import { InMemoryCheckpointStore } from '../../store/run/checkpoint-memory.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
@@ -25,9 +26,9 @@ import { drainRuns } from '../drain.js'
  * nothing reachable from this module can spawn a process.
  */
 
-const TENANT = 'tnt_notimer' as TenantId
-const PROJECT = 'prj_notimer' as ProjectId
-const SESSION = 'ses_notimer' as SessionId
+const TENANT = '1d173a44-e854-4ea4-84a0-2dbc12bb600b' as TenantId
+const PROJECT = 'bc95b1e3-142f-4045-a846-c067c164684f' as ProjectId
+const SESSION = '732ba7f1-a9eb-447f-913a-dfc2513a10cb' as SessionId
 
 function scope(runId: string): CheckpointRunScope {
 	return { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, runId: runId as RunId }
@@ -35,7 +36,7 @@ function scope(runId: string): CheckpointRunScope {
 
 function checkpoint(runId: string): IterationCheckpoint {
 	return {
-		id: `cp_${runId}` as CheckpointId,
+		id: fixtureUuid(`cp_${runId}`) as CheckpointId,
 		runId: runId as RunId,
 		iteration: 1,
 		messages: [],
@@ -53,7 +54,7 @@ function checkpoint(runId: string): IterationCheckpoint {
 			request: {
 				type: 'tool_review',
 				runId: runId as RunId,
-				checkpointId: `cp_${runId}` as CheckpointId,
+				checkpointId: fixtureUuid(`cp_${runId}`) as CheckpointId,
 				toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
 			},
 			parkedAt: 1_000,
@@ -72,7 +73,11 @@ describe('drainRuns makes one pass and arms nothing', () => {
 
 		try {
 			const store = new InMemoryCheckpointStore()
-			for (const id of ['run_a', 'run_b', 'run_c']) {
+			for (const id of [
+				'90a466e2-f869-4a3c-b750-f2156342ff40',
+				'fe818a89-6a50-4e51-8a91-5f108ad85280',
+				'61d260b3-706f-452e-8528-f7fd5f736b18',
+			]) {
 				await store.writeCheckpoint(scope(id), checkpoint(id))
 			}
 

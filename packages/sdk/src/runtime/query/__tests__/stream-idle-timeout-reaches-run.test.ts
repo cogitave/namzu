@@ -68,10 +68,10 @@ function baseParams(provider: LLMProvider, workingDirectory: string, caller: Abo
 		agentName: 'Idle Bound Agent',
 		messages: [createUserMessage('answer once')],
 		workingDirectory,
-		sessionId: 'ses_idle_bound' as SessionId,
-		topicId: 'top_idle_bound' as TopicId,
-		projectId: 'prj_idle_bound' as ProjectId,
-		tenantId: 'tnt_idle_bound' as TenantId,
+		sessionId: 'e81936c7-c580-419c-93b4-2c91de95f96a' as SessionId,
+		topicId: 'd70afdc7-7cc8-4312-9102-e9a069542242' as TopicId,
+		projectId: '6399b1c6-3ac7-41fb-b90b-a2d84667dee5' as ProjectId,
+		tenantId: 'af09dd33-d795-40c9-9055-5d7d75c4d2e6' as TenantId,
 		signal: caller.signal,
 	}
 }

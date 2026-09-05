@@ -58,11 +58,11 @@ import { pauseId } from '../tool-pause.js'
 registerMock()
 
 const SCOPE: RunStateScope = {
-	tenantId: 'tnt_pause' as TenantId,
-	projectId: 'prj_pause' as ProjectId,
-	sessionId: 'ses_pause' as SessionId,
-	runId: 'run_pause' as RunId,
-	topicId: 'top_pause' as TopicId,
+	tenantId: '8407b5a4-6bb9-4098-a195-f7e8e1abc066' as TenantId,
+	projectId: '9a7750f2-c71b-43de-b4af-37588af238f4' as ProjectId,
+	sessionId: 'fd81d2e1-e142-47b3-b41a-c1a85cdb64f6' as SessionId,
+	runId: 'f577b249-d7f3-4834-9296-5e1a02fb3cd5' as RunId,
+	topicId: 'e67d9ab1-1c89-4257-9048-008e2a228b3d' as TopicId,
 }
 
 const PAUSE = {
@@ -121,14 +121,14 @@ describe('the resume gate, on the id the general seam actually parks under', () 
 
 	const checkpoint = (questionId: string): IterationCheckpoint =>
 		({
-			id: 'cp_1' as CheckpointId,
+			id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 			messages: parkedTurn(),
 			pending: {
 				parkedAt: 0,
 				request: {
 					type: 'user_question',
 					runId: SCOPE.runId,
-					checkpointId: 'cp_1' as CheckpointId,
+					checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 					question: {
 						questionId,
 						question: PAUSE.prompt,

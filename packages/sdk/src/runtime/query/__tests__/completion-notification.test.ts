@@ -63,7 +63,7 @@ class ToolThenAnswerProvider implements LLMProvider {
 
 		if (this.calls === 1) {
 			yield {
-				id: 'msg_1',
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 				delta: {
 					toolCalls: [
 						{
@@ -76,7 +76,7 @@ class ToolThenAnswerProvider implements LLMProvider {
 				},
 			}
 			yield {
-				id: 'msg_1',
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 				delta: {},
 				finishReason: 'tool_calls',
 				usage: ZERO_USAGE,
@@ -84,8 +84,13 @@ class ToolThenAnswerProvider implements LLMProvider {
 			return
 		}
 
-		yield { id: 'msg_2', delta: { content: 'Done.' } }
-		yield { id: 'msg_2', delta: {}, finishReason: 'stop', usage: ZERO_USAGE }
+		yield { id: 'efe8f849-85cf-4b94-8bc7-cad64f257419', delta: { content: 'Done.' } }
+		yield {
+			id: 'efe8f849-85cf-4b94-8bc7-cad64f257419',
+			delta: {},
+			finishReason: 'stop',
+			usage: ZERO_USAGE,
+		}
 	}
 }
 
@@ -100,7 +105,7 @@ class CallsFinisherProvider implements LLMProvider {
 
 		if (this.calls === 1) {
 			yield {
-				id: 'msg_1',
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 				delta: {
 					toolCalls: [
 						{
@@ -113,7 +118,7 @@ class CallsFinisherProvider implements LLMProvider {
 				},
 			}
 			yield {
-				id: 'msg_1',
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 				delta: {},
 				finishReason: 'tool_calls',
 				usage: ZERO_USAGE,
@@ -121,8 +126,13 @@ class CallsFinisherProvider implements LLMProvider {
 			return
 		}
 
-		yield { id: 'msg_2', delta: { content: 'Done.' } }
-		yield { id: 'msg_2', delta: {}, finishReason: 'stop', usage: ZERO_USAGE }
+		yield { id: 'efe8f849-85cf-4b94-8bc7-cad64f257419', delta: { content: 'Done.' } }
+		yield {
+			id: 'efe8f849-85cf-4b94-8bc7-cad64f257419',
+			delta: {},
+			finishReason: 'stop',
+			usage: ZERO_USAGE,
+		}
 	}
 }
 
@@ -184,10 +194,10 @@ async function runWith(inbox: CompletionInbox | undefined): Promise<{
 			maxIterations: 4,
 			maxResponseTokens: 256,
 		},
-		sessionId: 'ses_completion' as SessionId,
-		topicId: 'top_completion' as TopicId,
-		projectId: 'prj_completion' as ProjectId,
-		tenantId: 'tnt_completion' as TenantId,
+		sessionId: '1ed9f9be-fd1c-48e7-8838-25078c3a565c' as SessionId,
+		topicId: 'cb989855-824c-46bc-89c2-abb0167af5e2' as TopicId,
+		projectId: '27eb7b81-e899-4ea0-bb0e-03036b729ead' as ProjectId,
+		tenantId: 'a11660b4-4fce-4579-9606-0794222c11c2' as TenantId,
 	})
 
 	return {
@@ -363,10 +373,10 @@ describe('a run that ends some other way still hands over what finished', () => 
 				maxIterations: 4,
 				maxResponseTokens: 256,
 			},
-			sessionId: 'ses_completion' as SessionId,
-			topicId: 'top_completion' as TopicId,
-			projectId: 'prj_completion' as ProjectId,
-			tenantId: 'tnt_completion' as TenantId,
+			sessionId: '1ed9f9be-fd1c-48e7-8838-25078c3a565c' as SessionId,
+			topicId: 'cb989855-824c-46bc-89c2-abb0167af5e2' as TopicId,
+			projectId: '27eb7b81-e899-4ea0-bb0e-03036b729ead' as ProjectId,
+			tenantId: 'a11660b4-4fce-4579-9606-0794222c11c2' as TenantId,
 		})
 
 		return {
@@ -458,10 +468,10 @@ describe('a run that ends some other way still hands over what finished', () => 
 				maxIterations: 4,
 				maxResponseTokens: 256,
 			},
-			sessionId: 'ses_completion' as SessionId,
-			topicId: 'top_completion' as TopicId,
-			projectId: 'prj_completion' as ProjectId,
-			tenantId: 'tnt_completion' as TenantId,
+			sessionId: '1ed9f9be-fd1c-48e7-8838-25078c3a565c' as SessionId,
+			topicId: 'cb989855-824c-46bc-89c2-abb0167af5e2' as TopicId,
+			projectId: '27eb7b81-e899-4ea0-bb0e-03036b729ead' as ProjectId,
+			tenantId: 'a11660b4-4fce-4579-9606-0794222c11c2' as TenantId,
 		})
 
 		const userText = (run.messages as { role: string; content: unknown }[])
@@ -575,10 +585,10 @@ describe('a run that ends some other way still hands over what finished', () => 
 				maxIterations: 6,
 				maxResponseTokens: 256,
 			},
-			sessionId: 'ses_completion' as SessionId,
-			topicId: 'top_completion' as TopicId,
-			projectId: 'prj_completion' as ProjectId,
-			tenantId: 'tnt_completion' as TenantId,
+			sessionId: '1ed9f9be-fd1c-48e7-8838-25078c3a565c' as SessionId,
+			topicId: 'cb989855-824c-46bc-89c2-abb0167af5e2' as TopicId,
+			projectId: '27eb7b81-e899-4ea0-bb0e-03036b729ead' as ProjectId,
+			tenantId: 'a11660b4-4fce-4579-9606-0794222c11c2' as TenantId,
 		})
 
 		expect(asked, 'the predicate was never asked a second time').toBeGreaterThan(1)
@@ -633,10 +643,10 @@ describe('a run that ends some other way still hands over what finished', () => 
 				maxIterations: 4,
 				maxResponseTokens: 256,
 			},
-			sessionId: 'ses_completion' as SessionId,
-			topicId: 'top_completion' as TopicId,
-			projectId: 'prj_completion' as ProjectId,
-			tenantId: 'tnt_completion' as TenantId,
+			sessionId: '1ed9f9be-fd1c-48e7-8838-25078c3a565c' as SessionId,
+			topicId: 'cb989855-824c-46bc-89c2-abb0167af5e2' as TopicId,
+			projectId: '27eb7b81-e899-4ea0-bb0e-03036b729ead' as ProjectId,
+			tenantId: 'a11660b4-4fce-4579-9606-0794222c11c2' as TenantId,
 		})
 
 		expect(run.abandonedTaskIds, 'the run said nothing about the worker it left running').toEqual([

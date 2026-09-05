@@ -1,3 +1,4 @@
+import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 /**
  * Long finite choices must keep the absolute cursor inside the real viewport.
  *
@@ -46,7 +47,7 @@ const MODELS: ModelListing = {
 }
 
 const RECENT = Array.from({ length: 30 }, (_, index) => ({
-	id: `ses_${index + 1}`,
+	id: fixtureUuid(`ses_${index + 1}`),
 	title: `Conversation ${index + 1}`,
 	updatedAt: new Date(1_700_000_000_000 + index * 1_000).toISOString(),
 	count: 2,
@@ -192,5 +193,5 @@ it('pages through App resume boundaries without selecting an offscreen conversat
 	screen.press('\x1b[6~')
 	screen.press('\r')
 	await waitUntil(screen, () => loadedConversationIds.length === 1)
-	expect(loadedConversationIds).toEqual(['ses_15'])
+	expect(loadedConversationIds).toEqual(['bbf21bec-b94c-46f4-9df0-abf70420d5ec'])
 })

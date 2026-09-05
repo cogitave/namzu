@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { fixtureUuid } from '../../../test-support/ids.js'
 import type { SessionId } from '../../../types/ids/index.js'
 import type { DeliverableId, SubSessionId, SummaryId } from '../../../types/session/ids.js'
 import type {
@@ -16,19 +17,19 @@ import {
 // Helpers -------------------------------------------------------------------
 
 function sessionId(n: number): SessionId {
-	return `ses_${n}` as SessionId
+	return fixtureUuid(`ses_${n}`) as SessionId
 }
 
 function subId(n: number): SubSessionId {
-	return `sub_${n}` as SubSessionId
+	return fixtureUuid(`sub_${n}`) as SubSessionId
 }
 
 function summaryDeliverable(targetSession: SessionId): SessionSummaryDeliverable {
 	return {
-		id: 'del_test' as DeliverableId,
+		id: '0d0a7234-ab1b-4ecb-bfd7-0e0938fbdd51' as DeliverableId,
 		kind: 'session_summary',
 		sessionId: targetSession,
-		summaryRef: 'sum_test' as SummaryId,
+		summaryRef: 'e88bb673-2aec-44cc-8d4e-0abb9cbce3d6' as SummaryId,
 		at: new Date('2026-04-17T00:00:00Z'),
 	}
 }
@@ -196,7 +197,7 @@ describe('validatePrevArtifactChain', () => {
 
 	it('returns an empty chain for a non-session_summary deliverable', async () => {
 		const fileRef: DeliverableRef = {
-			id: 'del_file' as DeliverableId,
+			id: 'c8542847-a103-4906-8a72-3c10a2fe98a9' as DeliverableId,
 			kind: 'file',
 			path: 'a.txt',
 			contentHash: 'abc',

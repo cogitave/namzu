@@ -37,7 +37,10 @@ function namesFor(opts: {
 		allowedAgentIds: opts.agentIds,
 		...(opts.allowDelegation !== undefined ? { allowDelegation: opts.allowDelegation } : {}),
 		...(opts.withHitl
-			? { resumeHandler: (async () => ({ action: 'continue' })) as never, runId: 'run_1' as never }
+			? {
+					resumeHandler: (async () => ({ action: 'continue' })) as never,
+					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+				}
 			: {}),
 	}).map((t) => t.name)
 }

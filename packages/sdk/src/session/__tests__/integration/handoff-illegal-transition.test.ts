@@ -77,7 +77,11 @@ async function seedIdleSession(store: InMemorySessionStore, threadStore: InMemor
 		DEFAULT_TENANT,
 	)
 	const session = await store.createSession(
-		{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+		{
+			topicId: thread.id,
+			projectId: project.id,
+			currentActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+		},
 		DEFAULT_TENANT,
 	)
 	return { project, thread, session }
@@ -95,8 +99,8 @@ function buildAssignment(
 		tenantId: DEFAULT_TENANT,
 		topicId,
 		projectId,
-		sourceActor: userActor('usr_source'),
-		recipientActor: userActor('usr_target'),
+		sourceActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+		recipientActor: userActor('b04c8cdb-0928-468c-866b-a4d90af5b403'),
 		expectedOwnerVersion: 0,
 		createdAt: new Date('2026-04-17'),
 	}

@@ -69,10 +69,10 @@ describe('a run under the salience strategy', () => {
 			agentName: 'A',
 			messages: [createUserMessage('dump everything, then tell me about dump 7')],
 			workingDirectory,
-			sessionId: 'ses_s' as SessionId,
-			topicId: 'top_s' as TopicId,
-			projectId: 'prj_s' as ProjectId,
-			tenantId: 'tnt_s' as TenantId,
+			sessionId: '1e0301cb-9455-48d1-a22a-76f7bcae0981' as SessionId,
+			topicId: 'f85fe271-5d7f-43be-b197-75d2e0b019bb' as TopicId,
+			projectId: '77591058-6566-4123-826e-b2c57da6bb8a' as ProjectId,
+			tenantId: '5ebe0c1e-9c3b-4abc-870d-affb0cea1850' as TenantId,
 			resumeHandler: async () => ({ action: 'continue' }),
 			// Partial on purpose: the kernel applies the schema's defaults, so a
 			// host need not spell out twenty fields to pick a strategy.

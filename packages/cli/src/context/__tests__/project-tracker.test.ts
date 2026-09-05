@@ -30,7 +30,7 @@ function observation(
 	success = true,
 ): ToolResultObservation {
 	return {
-		runId: 'run_project_tracker' as ToolResultObservation['runId'],
+		runId: '734ba918-6df1-446e-81ac-ab3dbf64dca1' as ToolResultObservation['runId'],
 		toolUseId: 'call_project_tracker',
 		toolName,
 		input: { path },

@@ -26,7 +26,7 @@ const embedder: EmbeddingProvider = {
 	id: 'test-embedder',
 }
 
-const tenant = 'tnt_one' as TenantScope['tenantId']
+const tenant = 'be2e1b02-07b4-4701-9729-1a38db543631' as TenantScope['tenantId']
 
 function scope(namespace?: string): TenantScope {
 	return { tenantId: tenant, ...(namespace !== undefined ? { namespace } : {}) }
@@ -35,7 +35,7 @@ function scope(namespace?: string): TenantScope {
 async function seed() {
 	const store = new InMemoryVectorStore()
 	const ingestion = new DefaultIngestionPipeline(store, embedder)
-	const kb = 'kb_one' as never
+	const kb = '3b9495b5-14c6-4503-baed-c9f0e918a9bc' as never
 
 	await ingestion.ingest('alpha partition content', {}, scope('alpha'), kb)
 	await ingestion.ingest('beta partition content', {}, scope('beta'), kb)
@@ -81,7 +81,7 @@ describe('a namespace partitions what a query can see', () => {
 		const found = await retriever.retrieve(
 			{ text: 'partition content' },
 			{
-				tenantId: 'tnt_other' as TenantScope['tenantId'],
+				tenantId: '03857320-0500-482a-85e0-add350d8ffdd' as TenantScope['tenantId'],
 				namespace: 'alpha',
 			},
 			kb,

@@ -76,10 +76,10 @@ async function run(provider: MockLLMProvider, compaction: boolean) {
 		agentName: 'Overflow',
 		messages,
 		workingDirectory,
-		sessionId: 'ses_o' as SessionId,
-		topicId: 'top_o' as TopicId,
-		projectId: 'prj_o' as ProjectId,
-		tenantId: 'tnt_o' as TenantId,
+		sessionId: 'de211f59-a613-4afc-a60b-044224636dc3' as SessionId,
+		topicId: 'deff1264-c6c8-426e-b259-3409cefb8929' as TopicId,
+		projectId: '013d6892-222f-41f6-84ea-144d389a3633' as ProjectId,
+		tenantId: '09baa4c3-d377-42ba-80c6-b90340766578' as TenantId,
 		retry: false,
 		...(compaction
 			? {

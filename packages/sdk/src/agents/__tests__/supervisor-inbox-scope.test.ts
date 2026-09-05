@@ -90,10 +90,10 @@ async function runOnce(
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,
 			maxIterations: 2,
-			sessionId: 'ses_scope',
-			topicId: 'top_scope',
-			projectId: 'prj_scope',
-			tenantId: 'tnt_scope',
+			sessionId: 'd07c3790-ad82-4df9-8f49-bdc18810fde6',
+			topicId: 'e5bb8678-ddaf-4885-a366-6dd1841cfd9e',
+			projectId: '83c21691-c397-4515-89f0-f9d4cc10ef6e',
+			tenantId: '69d45466-c396-4df5-a35b-49f2ff703572',
 		} as never,
 	)
 }

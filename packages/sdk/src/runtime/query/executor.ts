@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
@@ -51,6 +52,7 @@ import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/
 import type { ToolResultObservation } from './project-instructions.js'
 import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+	type ToolOutputBudgetResult,
 	applyToolOutputBudget,
 	describeDroppedContent,
 	measureContentBytes,
@@ -1548,23 +1550,23 @@ export class ToolExecutor {
 		const postOverride = post.override
 		let output =
 			postOverride?.output ?? (result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput)
-		const selectedContent = postOverride?.isError
+		let selectedContent = postOverride?.isError
 			? undefined
 			: (postOverride?.content ?? result.content)
-		const maxToolOutputChars = this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS
-
-		// If the text preview forces rich content out, say so inside the SAME
-		// budget. Appending this after truncation made the diagnostic itself a
-		// cap bypass; selecting a post-hook override after truncation was a
-		// larger bypass that could replace a bounded result with anything.
-		if (
-			maxToolOutputChars > 0 &&
-			output.length > maxToolOutputChars &&
-			selectedContent !== undefined
-		) {
-			const dropped = describeDroppedContent(selectedContent)
-			if (dropped) output = `${output}\n\n${dropped}`
+		if (postOverride && !postOverride.isError && postOverride.content === undefined) {
+			// A text redaction must reach both text channels. Only the image or
+			// document blocks survive implicitly; explicit replacement content
+			// remains the hook's complete model-visible decision.
+			if (typeof selectedContent === 'string') selectedContent = postOverride.output
+			else if (selectedContent) {
+				selectedContent = [
+					{ type: 'text', text: postOverride.output },
+					...selectedContent.filter((block) => block.type !== 'text'),
+				]
+			}
 		}
+		const maxToolOutputChars = this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS
+		const sourceOutput = output
 
 		// Compression is opportunistic and shell-only; the budget is the
 		// hard bound that applies to every final tool result, including a
@@ -1591,6 +1593,10 @@ export class ToolExecutor {
 			})
 		}
 		output = budgeted.output
+		const modelContent =
+			selectedContent === undefined
+				? undefined
+				: this.budgetContent(selectedContent, toolName, toolCall.id, { sourceOutput, budgeted })
 
 		// A failed call, or an override that says the call failed. A `replace`
 		// says the opposite, and reading it as a failure is what made redaction
@@ -1656,11 +1662,6 @@ export class ToolExecutor {
 			result,
 		})
 
-		const resolveContent = (): { content?: ToolResultContent } => {
-			if (budgeted.truncated || selectedContent === undefined) return {}
-			return { content: this.budgetContent(selectedContent, toolName) }
-		}
-
 		return {
 			toolCallId: toolCall.id,
 			toolName,
@@ -1670,13 +1671,12 @@ export class ToolExecutor {
 			//
 			// An ERROR override drops it: the payload is no longer the tool's,
 			// and shipping an image beside a failure message describes something
-			// the model was just told did not happen. A spilled preview drops it
-			// for the same reason.
+			// the model was just told did not happen.
 			//
 			// A REPLACE keeps it, because the common case is redacting text from
 			// a result whose image is unaffected — and a hook that needs it gone
 			// says so with `content`, which wins over both.
-			...resolveContent(),
+			...(modelContent !== undefined ? { content: modelContent } : {}),
 		}
 	}
 
@@ -2536,42 +2536,69 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * Bound the rich channel, or leave it alone when no cap is configured.
-	 *
-	 * Refused whole rather than trimmed: half a base64 payload is not a
-	 * smaller image, it is a corrupt one, and a driver handed it would
-	 * either fail the request or show the model noise. The text half stays
-	 * untouched, so the result still says what happened — and the
-	 * replacement names what was withheld and how big it was, which is what
-	 * lets the agent ask for a smaller region instead of retrying the same
-	 * call.
+	 * The host preview and model text may differ; each gets its own text
+	 * budget. Rich bytes are measured separately and withheld whole when
+	 * over their cap, with a notice inside the model text's same hard bound.
 	 */
 	private budgetContent(
-		content: import('../../types/message/index.js').ToolResultContent,
+		content: ToolResultContent,
 		toolName: string,
-	): import('../../types/message/index.js').ToolResultContent {
+		toolUseId: string,
+		host: { sourceOutput: string; budgeted: ToolOutputBudgetResult },
+	): ToolResultContent {
 		const cap = this.config.maxToolContentBytes ?? 0
-		if (cap <= 0) return content
-
 		const size = measureContentBytes(content)
-		if (size <= cap) return content
-
-		this.log.warn('Tool result content exceeded the rich-content budget', {
-			[NAMZU.RUN_ID]: this.config.runId,
-			[GENAI.TOOL_NAME]: toolName,
-			'namzu.runtime.content_bytes': size,
-			'namzu.runtime.cap': cap,
-		})
-
-		const described = describeDroppedContent(content)
+		const richWithheld = cap > 0 && size > cap
+		const text =
+			typeof content === 'string'
+				? content
+				: content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n')
+		const notice = richWithheld
+			? `[rich content withheld: ${size} base64 chars exceeds this run's ${cap} cap] ${describeDroppedContent(content) ?? ''}`
+			: undefined
+		if (richWithheld) {
+			this.log.warn('Tool result content exceeded the rich-content budget', {
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
+				'namzu.runtime.content_bytes': size,
+				'namzu.runtime.cap': cap,
+			})
+		}
+		const budgeted =
+			text === host.sourceOutput && !notice
+				? host.budgeted
+				: applyToolOutputBudget({
+						toolName,
+						toolUseId,
+						output: text,
+						maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+						...(notice ? { notice } : {}),
+						// A tool may return different host and model text. They must
+						// never compete for the same exclusive spill filename.
+						spillDir: this.config.toolOutputDir
+							? join(this.config.toolOutputDir, 'content')
+							: undefined,
+						onError: (message) =>
+							this.log.warn('Failed to spill oversized model tool content', {
+								[NAMZU.RUN_ID]: this.config.runId,
+								[GENAI.TOOL_NAME]: toolName,
+								'exception.message': message,
+							}),
+					})
+		if (budgeted.truncated && budgeted !== host.budgeted) {
+			this.log.warn('Model tool text exceeded the model-visible budget', {
+				[NAMZU.RUN_ID]: this.config.runId,
+				[GENAI.TOOL_NAME]: toolName,
+				'namzu.runtime.original_length': budgeted.originalLength,
+				'namzu.runtime.spill_path': budgeted.spillPath,
+			})
+		}
+		if (!budgeted.truncated && !richWithheld) return content
+		if (typeof content === 'string') return budgeted.output
 		return [
-			{
-				type: 'text',
-				text: `[rich content withheld: ${size} base64 chars exceeds this run's ${cap} cap${
-					described ? ` — ${described}` : ''
-				}]`,
-			},
-		] as import('../../types/message/index.js').ToolResultContent
+			...(budgeted.output ? [{ type: 'text' as const, text: budgeted.output }] : []),
+			...(richWithheld ? [] : content.filter((block) => block.type !== 'text')),
+		]
 	}
 
 	private maybeCompress(toolName: string, output: string): string {

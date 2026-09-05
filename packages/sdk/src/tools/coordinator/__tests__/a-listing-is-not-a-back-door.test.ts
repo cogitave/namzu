@@ -25,7 +25,7 @@ const AGENTS = ['reviewer', 'researcher']
 
 function makeContext(): ToolContext {
 	return {
-		runId: 'run_scope' as never,
+		runId: 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},

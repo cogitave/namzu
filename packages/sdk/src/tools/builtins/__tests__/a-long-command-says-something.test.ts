@@ -52,7 +52,7 @@ function streamingSandbox(chunks: Array<{ stream: 'stdout' | 'stderr'; data: str
 
 function contextWith(sandbox: Sandbox, report?: ToolContext['report']): ToolContext {
 	return {
-		runId: 'run_1',
+		runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 		workingDirectory: '/workspace',
 		abortSignal: new AbortController().signal,
 		env: {},

@@ -119,10 +119,10 @@ async function run(reported: 'stop' | 'tool_calls') {
 		agentId: 'agent_test',
 		agentName: 'Test Agent',
 		workingDirectory: await mkWorkdir(),
-		sessionId: 'ses_finish' as SessionId,
-		topicId: 'top_finish' as TopicId,
-		projectId: 'prj_finish' as ProjectId,
-		tenantId: 'tnt_finish' as TenantId,
+		sessionId: '6f08e9b2-1df4-4853-820e-e554e5e4426d' as SessionId,
+		topicId: '2757402c-55c1-45a1-a52d-fb47e62b0260' as TopicId,
+		projectId: 'd07527a2-fe96-4210-a70e-1ce94ede1307' as ProjectId,
+		tenantId: '50c9c406-2c41-4010-a245-04d5a263b3d9' as TenantId,
 	})
 
 	return { result, calls }
@@ -194,10 +194,10 @@ describe('a provider that says stop while asking for a tool', () => {
 			agentId: 'agent_test',
 			agentName: 'Test Agent',
 			workingDirectory: await mkWorkdir(),
-			sessionId: 'ses_plain' as SessionId,
-			topicId: 'top_plain' as TopicId,
-			projectId: 'prj_plain' as ProjectId,
-			tenantId: 'tnt_plain' as TenantId,
+			sessionId: '9e3c06c3-4635-4f90-b85d-a7b798a5088f' as SessionId,
+			topicId: '55f0ba4c-b446-48ed-b7e5-cfc412bd9b25' as TopicId,
+			projectId: '734b1691-cf5b-47fe-b45f-c7600c97891a' as ProjectId,
+			tenantId: 'd65925ba-2100-45b0-8139-afb40f1f1fbc' as TenantId,
 		})
 
 		// The ordinary path must not have moved.

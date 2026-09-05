@@ -72,7 +72,7 @@ function providerWithCapturedRequest(): {
 	const create = vi.fn(async (_body: Record<string, unknown>) =>
 		(async function* () {
 			yield {
-				id: 'msg_done',
+				id: 'b0024cc4-f474-4ac4-bb3d-63724fb4768f',
 				choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
 				usage: { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
 			}

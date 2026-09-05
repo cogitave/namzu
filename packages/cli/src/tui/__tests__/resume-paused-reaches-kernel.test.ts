@@ -29,10 +29,14 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 		resumeRun: async (params: Record<string, unknown>) => {
 			resumeCalls.push(params)
 			const listener = params.listener as ((event: RunEvent) => void) | undefined
-			listener?.({ type: 'text_delta', runId: 'run_9', text: 'picked up ' } as unknown as RunEvent)
 			listener?.({
 				type: 'text_delta',
-				runId: 'run_9',
+				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				text: 'picked up ',
+			} as unknown as RunEvent)
+			listener?.({
+				type: 'text_delta',
+				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
 				text: 'where it left off',
 			} as unknown as RunEvent)
 			return resumeOutcome
@@ -93,7 +97,10 @@ describe('resuming this session’s own paused run', () => {
 		const { session, stateRoot, scope } = await openSession()
 		const texts: string[] = []
 		try {
-			for await (const event of session.resumePaused({ runId: 'run_9', checkpointId: 'cp_4' })) {
+			for await (const event of session.resumePaused({
+				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+			})) {
 				if (event.kind === 'delta') texts.push(event.text)
 				if (event.kind === 'error') throw new Error(`unexpected error: ${event.message}`)
 			}
@@ -112,8 +119,8 @@ describe('resuming this session’s own paused run', () => {
 			sessionId: string
 			topicId: string
 		}
-		expect(call.scope).toEqual({ ...scope, runId: 'run_9' })
-		expect(call.checkpointId).toBe('cp_4')
+		expect(call.scope).toEqual({ ...scope, runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8' })
+		expect(call.checkpointId).toBe('f0d1dd26-fd58-4593-b904-7817c789af26')
 		expect(call.tenantId).toBe(scope.tenantId)
 		expect(call.projectId).toBe(scope.projectId)
 		expect(call.sessionId).toBe(scope.sessionId)
@@ -132,7 +139,10 @@ describe('resuming this session’s own paused run', () => {
 		const kinds: string[] = []
 		let message = ''
 		try {
-			for await (const event of session.resumePaused({ runId: 'run_9', checkpointId: 'cp_gone' })) {
+			for await (const event of session.resumePaused({
+				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				checkpointId: '7c81157d-b597-49f9-b951-772a567ecdf2',
+			})) {
 				kinds.push(event.kind)
 				if (event.kind === 'error') message = event.message
 			}
@@ -141,8 +151,8 @@ describe('resuming this session’s own paused run', () => {
 		}
 
 		expect(kinds.at(-1)).toBe('error')
-		expect(message).toContain('cp_gone')
-		expect(message).toContain('run_9')
+		expect(message).toContain('7c81157d-b597-49f9-b951-772a567ecdf2')
+		expect(message).toContain('3b0329bb-f60a-48dc-9552-1b386c52cfe8')
 	})
 
 	it('does not resume past a run parked on a human decision', async () => {
@@ -150,7 +160,10 @@ describe('resuming this session’s own paused run', () => {
 		const { session } = await openSession()
 		let message = ''
 		try {
-			for await (const event of session.resumePaused({ runId: 'run_9', checkpointId: 'cp_4' })) {
+			for await (const event of session.resumePaused({
+				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+			})) {
 				if (event.kind === 'error') message = event.message
 			}
 		} finally {

@@ -7,7 +7,7 @@ import type { ToolContext, ToolRegistryContract } from '../../../types/tool/inde
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
 
-const mockRunId = 'run_test' as RunId
+const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -178,7 +178,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 		const reusedProviderCallId = new ToolExecutor(
 			{
 				tools,
-				runId: 'run_other' as RunId,
+				runId: 'aa8782b2-efc4-4132-a29a-7cc3eb639864' as RunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -191,7 +191,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 		await reusedProviderCallId.executeBatch(twoCallResponse('read', {}, {}, 'wave-a-'))
 
 		expect(new Set(seen.slice(4).map((entry) => entry.batch))).toEqual(
-			new Set([JSON.stringify(['run_other', 'wave-a-1'])]),
+			new Set([JSON.stringify(['aa8782b2-efc4-4132-a29a-7cc3eb639864', 'wave-a-1'])]),
 		)
 		expect(seen[4]?.batch).not.toBe(seen[0]?.batch)
 	})

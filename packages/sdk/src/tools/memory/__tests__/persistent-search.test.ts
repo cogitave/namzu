@@ -33,7 +33,7 @@ afterEach(async () => {
 
 function context(root: string): ToolContext {
 	return {
-		runId: 'run_memory_search' as RunId,
+		runId: '7e69f32b-e28e-4a56-be95-7a6f206bd4b3' as RunId,
 		workingDirectory: root,
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -76,7 +76,7 @@ describe('persistent memory search composition', () => {
 		const list = vi.spyOn(store, 'list').mockRejectedValue(new Error('store is offline'))
 		const index = new InMemoryMemoryIndex()
 		index.set({
-			id: 'mem_independent' as MemoryId,
+			id: 'fc3881e3-52e9-4f25-ae0c-e0cc950de830' as MemoryId,
 			title: 'independent index fact',
 			summary: 'search does not need the unrelated store',
 			tags: [],

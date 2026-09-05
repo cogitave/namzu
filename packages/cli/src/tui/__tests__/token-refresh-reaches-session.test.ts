@@ -1,3 +1,4 @@
+import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 /** OAuth refresh cancellation and serialization at the real AgentSession boundary. */
 
 import { mkdtempSync } from 'node:fs'
@@ -196,10 +197,10 @@ function providerToken(params: Record<string, unknown>): string | undefined {
 
 function durableEntry(suffix: string) {
 	return {
-		runId: `run_refresh_${suffix}`,
-		tenantId: 'tnt_refresh',
-		projectId: 'prj_refresh',
-		sessionId: 'ses_refresh',
+		runId: fixtureUuid(`run_refresh_${suffix}`),
+		tenantId: '40f5a040-2a13-4fb9-b9da-a70febd8aed4',
+		projectId: 'd9f9ea20-e053-4c89-a15a-3bfb04ddcd25',
+		sessionId: 'e163bef4-b8ba-4195-ac1f-96fb05654922',
 	} as never
 }
 

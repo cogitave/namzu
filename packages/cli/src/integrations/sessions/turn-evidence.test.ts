@@ -297,7 +297,7 @@ describe('CLI turn evidence', () => {
 
 		const raw = await readFile(path, 'utf-8')
 		await writeFile(path, `${raw.slice(0, raw.indexOf('\n') + 1)}`, 'utf-8')
-		const runId = asRunId('run_duplicate')
+		const runId = asRunId('2466e159-e00b-4609-8646-6691bf7d78bc')
 		const started = await sessions.turnEvidence?.recordTurnStarted({
 			sessionId,
 			runId,

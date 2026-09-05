@@ -126,7 +126,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as unknown as WorkspaceRef['id'],
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
@@ -150,7 +150,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as unknown as WorkspaceRef['id'],
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
@@ -203,7 +203,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_foreign' as unknown as WorkspaceRef['id'],
+			id: 'a9c7d378-b043-4240-a36a-1762357e341a' as unknown as WorkspaceRef['id'],
 			meta: { backend: 'git-worktree', ...meta },
 			createdAt: new Date(),
 		}
@@ -224,7 +224,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const source: WorkspaceRef = {
-			id: 'wsp_nested' as unknown as WorkspaceRef['id'],
+			id: '031db6eb-609b-42ee-a2e7-813e78659f2a' as unknown as WorkspaceRef['id'],
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
@@ -260,7 +260,7 @@ describe('GitWorktreeDriver', () => {
 				execFile: exec,
 			})
 			const foreign: WorkspaceRef = {
-				id: 'wsp_foreign' as unknown as WorkspaceRef['id'],
+				id: 'a9c7d378-b043-4240-a36a-1762357e341a' as unknown as WorkspaceRef['id'],
 				meta: {
 					backend: 'git-worktree',
 					repoRoot: '/repo',
@@ -294,7 +294,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as unknown as WorkspaceRef['id'],
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
@@ -318,7 +318,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as unknown as WorkspaceRef['id'],
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
@@ -350,7 +350,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as unknown as WorkspaceRef['id'],
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
@@ -382,7 +382,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as unknown as WorkspaceRef['id'],
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
@@ -405,7 +405,7 @@ describe('GitWorktreeDriver', () => {
 			execFile: exec,
 		})
 		const ref: WorkspaceRef = {
-			id: 'wsp_x' as unknown as WorkspaceRef['id'],
+			id: 'a224544c-9817-4e60-a141-1fcf5f8331ef' as unknown as WorkspaceRef['id'],
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/repo',

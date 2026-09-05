@@ -90,8 +90,8 @@ describe('Integration — single-recipient handoff E2E', () => {
 			{ projectId: project.id, title: 'ho' },
 			DEFAULT_TENANT,
 		)
-		const sourceActor = userActor('usr_source')
-		const recipientActor = userActor('usr_target')
+		const sourceActor = userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5')
+		const recipientActor = userActor('b04c8cdb-0928-468c-866b-a4d90af5b403')
 		const session = await store.createSession(
 			{ topicId: thread.id, projectId: project.id, currentActor: sourceActor },
 			DEFAULT_TENANT,
@@ -155,7 +155,11 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const session = await store.createSession(
-			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{
+				topicId: thread.id,
+				projectId: project.id,
+				currentActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+			},
 			DEFAULT_TENANT,
 		)
 
@@ -167,8 +171,8 @@ describe('Integration — single-recipient handoff E2E', () => {
 			tenantId: OTHER_TENANT,
 			topicId: thread.id,
 			projectId: project.id,
-			sourceActor: userActor('usr_source', OTHER_TENANT),
-			recipientActor: userActor('usr_target', OTHER_TENANT),
+			sourceActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5', OTHER_TENANT),
+			recipientActor: userActor('b04c8cdb-0928-468c-866b-a4d90af5b403', OTHER_TENANT),
 			expectedOwnerVersion: 0,
 			createdAt: new Date('2026-04-17'),
 		}
@@ -190,7 +194,11 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{
+				topicId: thread.id,
+				projectId: project.id,
+				currentActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+			},
 			DEFAULT_TENANT,
 		)
 
@@ -202,8 +210,8 @@ describe('Integration — single-recipient handoff E2E', () => {
 			tenantId: DEFAULT_TENANT,
 			topicId: thread.id,
 			projectId: project.id,
-			sourceActor: userActor('usr_source'),
-			recipientActor: userActor('usr_target'),
+			sourceActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+			recipientActor: userActor('b04c8cdb-0928-468c-866b-a4d90af5b403'),
 			expectedOwnerVersion: 0,
 			createdAt: new Date('2026-04-17'),
 		}
@@ -222,7 +230,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 		expect(recipient).not.toBeNull()
 		expect(recipient?.projectId).toBe(project.id)
 		expect(recipient?.tenantId).toBe(DEFAULT_TENANT)
-		expect(recipient?.currentActor).toEqual(userActor('usr_target'))
+		expect(recipient?.currentActor).toEqual(userActor('b04c8cdb-0928-468c-866b-a4d90af5b403'))
 
 		// A sub-session edge links the source to the recipient.
 		const children = await store.getChildren(source.id, DEFAULT_TENANT)
@@ -246,7 +254,11 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{
+				topicId: thread.id,
+				projectId: project.id,
+				currentActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+			},
 			DEFAULT_TENANT,
 		)
 		const { deps } = buildHandoffDeps(store, threadStore)
@@ -258,8 +270,8 @@ describe('Integration — single-recipient handoff E2E', () => {
 			tenantId: DEFAULT_TENANT,
 			topicId: thread.id,
 			projectId: project.id,
-			sourceActor: userActor('usr_source'),
-			recipientActor: userActor('usr_target'),
+			sourceActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+			recipientActor: userActor('b04c8cdb-0928-468c-866b-a4d90af5b403'),
 			expectedOwnerVersion: 0,
 			createdAt: new Date(),
 		}

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { fixtureUuid } from '../../../test-support/ids.js'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
@@ -40,7 +41,7 @@ class ScriptedLongDocumentProvider implements LLMProvider {
 
 		if (!step) {
 			yield {
-				id: 'msg_done',
+				id: 'b0024cc4-f474-4ac4-bb3d-63724fb4768f',
 				delta: { content: 'Long document created and verified.' },
 				finishReason: 'stop',
 				usage: ZERO_USAGE,
@@ -49,7 +50,7 @@ class ScriptedLongDocumentProvider implements LLMProvider {
 		}
 
 		yield {
-			id: `msg_${this.calls}`,
+			id: fixtureUuid(`msg_${this.calls}`),
 			delta: {
 				toolCalls: [
 					{
@@ -62,7 +63,7 @@ class ScriptedLongDocumentProvider implements LLMProvider {
 			},
 		}
 		yield {
-			id: `msg_${this.calls}`,
+			id: fixtureUuid(`msg_${this.calls}`),
 			delta: {
 				toolCalls: [
 					{
@@ -74,7 +75,7 @@ class ScriptedLongDocumentProvider implements LLMProvider {
 			},
 		}
 		yield {
-			id: `msg_${this.calls}`,
+			id: fixtureUuid(`msg_${this.calls}`),
 			delta: {},
 			finishReason: 'tool_calls',
 			usage: ZERO_USAGE,
@@ -157,10 +158,10 @@ describe('query long-document tool flow', () => {
 				agentName: 'Long Document Agent',
 				messages: [createUserMessage('create a long document')],
 				workingDirectory,
-				sessionId: 'ses_long_document_flow' as SessionId,
-				topicId: 'top_long_document_flow' as TopicId,
-				projectId: 'prj_long_document_flow' as ProjectId,
-				tenantId: 'tnt_long_document_flow' as TenantId,
+				sessionId: '14911043-b801-441c-b775-2413d6a23f3f' as SessionId,
+				topicId: '483e9ce3-f075-4ebe-a42a-40a533241c60' as TopicId,
+				projectId: '11016ff2-482f-4031-a639-14cfb62b0f50' as ProjectId,
+				tenantId: '344c259f-e90b-4580-93ce-3e46242ff174' as TenantId,
 			},
 			(event) => {
 				events.push(event)

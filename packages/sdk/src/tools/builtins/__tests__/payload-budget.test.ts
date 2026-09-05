@@ -34,7 +34,7 @@ describe('filesystem tool payload budgeting', () => {
 	it('assembles long documents with bounded write plus edit insert chunks', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-long-doc-'))
 		const ctx: ToolContext = {
-			runId: 'run_test' as ToolContext['runId'],
+			runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as ToolContext['runId'],
 			workingDirectory: dir,
 			abortSignal: new AbortController().signal,
 			env: {},

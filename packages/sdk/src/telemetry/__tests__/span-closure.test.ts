@@ -75,7 +75,7 @@ vi.mock('../runtime-accessors.js', () => ({
 
 function toolContext() {
 	return {
-		runId: 'run_span',
+		runId: '7c6b917d-fc8c-4af1-884b-6522f3ea2346',
 		workingDirectory: '.',
 		abortSignal: new AbortController().signal,
 		env: {},

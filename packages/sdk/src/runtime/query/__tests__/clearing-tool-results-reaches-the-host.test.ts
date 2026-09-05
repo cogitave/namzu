@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { estimateMessagesTokens } from '../../../compaction/token-estimate.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -50,7 +51,7 @@ async function runWith(opts: {
 	readonly resultChars: number
 	readonly filler: number
 	readonly tokenBudget: number
-}): Promise<RunEvent[]> {
+}): Promise<{ events: RunEvent[]; messages: readonly Message[] }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-cleared-'))
 	dirs.push(workingDirectory)
 
@@ -63,7 +64,7 @@ async function runWith(opts: {
 	]
 
 	const seen: RunEvent[] = []
-	await drainQuery(
+	const run = await drainQuery(
 		{
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 			tools: new ToolRegistry(),
@@ -78,10 +79,10 @@ async function runWith(opts: {
 			agentName: 'Cleared',
 			messages,
 			workingDirectory,
-			sessionId: 'ses_c' as SessionId,
-			topicId: 'top_c' as TopicId,
-			projectId: 'prj_c' as ProjectId,
-			tenantId: 'tnt_c' as TenantId,
+			sessionId: 'fd031048-1d65-449b-b6f2-0a8f2ba6b99f' as SessionId,
+			topicId: '7f2cf483-e642-4898-8ac3-316074ab3639' as TopicId,
+			projectId: '8d8cdcf3-4c2c-484c-b208-54dcd1964be4' as ProjectId,
+			tenantId: 'bdb9c2e1-6b7c-4ac5-8cbb-671454d33d89' as TenantId,
 			retry: false,
 			compactionConfig: CompactionConfigSchema.parse({
 				strategy: 'structured',
@@ -102,7 +103,7 @@ async function runWith(opts: {
 			seen.push(event)
 		},
 	)
-	return seen
+	return { events: seen, messages: run.messages }
 }
 
 describe('clearing tool results is on the wire, not only in a log line', () => {
@@ -110,7 +111,11 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 		// Two oversized results and little else, so the clear alone brings the
 		// context back under the trigger. Deleting the `emitEvent` call leaves
 		// the run behaving identically and fails only here.
-		const events = await runWith({ resultChars: 80_000, filler: 2, tokenBudget: 40_000 })
+		const { events, messages } = await runWith({
+			resultChars: 80_000,
+			filler: 2,
+			tokenBudget: 40_000,
+		})
 
 		const cleared = events.filter((e) => e.type === 'compaction_tool_results_cleared')
 
@@ -123,7 +128,14 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 		// not actually remove.
 		expect(event.charsReclaimed).toBeGreaterThan(80_000)
 		expect(event.charsReclaimed).toBeLessThan(160_000)
-		expect(event.reclaimedTokens).toBe(Math.ceil(event.charsReclaimed / 4))
+		// Token savings compare the actual messages before and after, using
+		// the same rounding and modality costs as the live context estimate.
+		const before = [...toolResult('t1', 80_000), ...toolResult('t2', 80_000)]
+		const after = messages.filter((m) => m.role === 'tool')
+		expect(event.reclaimedTokens).toBe(
+			estimateMessagesTokens(before.filter((m) => m.role === 'tool')) -
+				estimateMessagesTokens(after),
+		)
 		expect(event.reliefWasEnough).toBe(true)
 	})
 
@@ -132,7 +144,7 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 		// emit-only-when-relieved implementation. The history takes two edits
 		// in one pass here, and a reader seeing only `compaction_completed`
 		// would attribute the whole loss to summarization.
-		const events = await runWith({ resultChars: 80_000, filler: 140, tokenBudget: 40_000 })
+		const { events } = await runWith({ resultChars: 80_000, filler: 140, tokenBudget: 40_000 })
 
 		const order = events
 			.map((e) => e.type)
@@ -156,7 +168,7 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'compaction_tool_results_cleared',
-				runId: 'run_x',
+				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 				iteration: 1,
 				clearedCount: 1,
 				charsReclaimed: 10,

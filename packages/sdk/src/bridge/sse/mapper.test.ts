@@ -40,7 +40,7 @@ import type { RunEvent } from '../../types/run/events.js'
 
 import { mapRunToStreamEvent, mapSessionToStreamEvent } from './mapper.js'
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 
 describe('mapRunToStreamEvent — mapped variants', () => {
 	it('run_started → run.started', () => {
@@ -185,7 +185,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 			{
 				type: 'plan_ready',
 				runId: RID,
-				planId: 'plan_1' as PlanId,
+				planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId,
 				title: 't',
 				summary: 's',
 				steps: [],
@@ -195,13 +195,24 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 		expect(ready?.wire).toBe('plan.ready')
 
 		expect(
-			mapRunToStreamEvent({ type: 'plan_approved', runId: RID, planId: 'plan_1' as PlanId }, RID)
-				?.wire,
+			mapRunToStreamEvent(
+				{
+					type: 'plan_approved',
+					runId: RID,
+					planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId,
+				},
+				RID,
+			)?.wire,
 		).toBe('plan.approved')
 
 		expect(
 			mapRunToStreamEvent(
-				{ type: 'plan_rejected', runId: RID, planId: 'plan_1' as PlanId, reason: 'nope' },
+				{
+					type: 'plan_rejected',
+					runId: RID,
+					planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId,
+					reason: 'nope',
+				},
 				RID,
 			)?.wire,
 		).toBe('plan.rejected')
@@ -211,7 +222,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 				{
 					type: 'plan_step_updated',
 					runId: RID,
-					planId: 'plan_1' as PlanId,
+					planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId,
 					stepId: 's1',
 					status: 'completed',
 				},
@@ -225,7 +236,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 			{
 				type: 'agent_pending',
 				runId: RID,
-				taskId: 'task_1' as TaskId,
+				taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 				parentAgentId: 'a',
 				childAgentId: 'b',
 				depth: 1,
@@ -233,14 +244,17 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 			RID,
 		)
 		expect(pending?.wire).toBe('agent.pending')
-		expect(pending?.data).toMatchObject({ task_id: 'task_1', depth: 1 })
+		expect(pending?.data).toMatchObject({
+			task_id: '5f5d0823-8327-45fd-a288-bf8fd5f45f91',
+			depth: 1,
+		})
 
 		expect(
 			mapRunToStreamEvent(
 				{
 					type: 'agent_completed',
 					runId: RID,
-					taskId: 'task_1' as TaskId,
+					taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 					result: {
 						runId: RID,
 						status: 'completed',
@@ -269,14 +283,25 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 
 		expect(
 			mapRunToStreamEvent(
-				{ type: 'agent_failed', runId: RID, taskId: 'task_1' as TaskId, error: 'e' },
+				{
+					type: 'agent_failed',
+					runId: RID,
+					taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+					error: 'e',
+				},
 				RID,
 			)?.wire,
 		).toBe('agent.failed')
 
 		expect(
-			mapRunToStreamEvent({ type: 'agent_canceled', runId: RID, taskId: 'task_1' as TaskId }, RID)
-				?.wire,
+			mapRunToStreamEvent(
+				{
+					type: 'agent_canceled',
+					runId: RID,
+					taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+				},
+				RID,
+			)?.wire,
 		).toBe('agent.canceled')
 	})
 
@@ -285,7 +310,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 			{
 				type: 'task_created',
 				runId: RID,
-				taskId: 'task_1' as TaskId,
+				taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 				subject: 's',
 				status: 'pending',
 			},
@@ -297,7 +322,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 			{
 				type: 'task_updated',
 				runId: RID,
-				taskId: 'task_1' as TaskId,
+				taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 				subject: 's',
 				status: 'completed',
 			},
@@ -338,7 +363,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 				{
 					type: 'sandbox_created',
 					runId: RID,
-					sandboxId: 'sbx_1' as SandboxId,
+					sandboxId: 'efcf1d0f-3ba3-4447-bc22-8a955cacbeb9' as SandboxId,
 					environment: 'basic',
 				},
 				RID,
@@ -350,7 +375,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 				{
 					type: 'sandbox_exec',
 					runId: RID,
-					sandboxId: 'sbx_1' as SandboxId,
+					sandboxId: 'efcf1d0f-3ba3-4447-bc22-8a955cacbeb9' as SandboxId,
 					command: 'ls',
 					exitCode: 0,
 					durationMs: 10,
@@ -361,7 +386,11 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 
 		expect(
 			mapRunToStreamEvent(
-				{ type: 'sandbox_destroyed', runId: RID, sandboxId: 'sbx_1' as SandboxId },
+				{
+					type: 'sandbox_destroyed',
+					runId: RID,
+					sandboxId: 'efcf1d0f-3ba3-4447-bc22-8a955cacbeb9' as SandboxId,
+				},
 				RID,
 			)?.wire,
 		).toBe('sandbox.destroyed')
@@ -371,7 +400,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 				{
 					type: 'activity_created',
 					runId: RID,
-					activityId: 'act_1' as ActivityId,
+					activityId: '90132664-4743-4cd5-bf4c-c5ff06465fbc' as ActivityId,
 					activityType: 'tool_call',
 					description: 'd',
 				},
@@ -384,7 +413,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 				{
 					type: 'activity_updated',
 					runId: RID,
-					activityId: 'act_1' as ActivityId,
+					activityId: '90132664-4743-4cd5-bf4c-c5ff06465fbc' as ActivityId,
 					status: 'completed',
 				},
 				RID,
@@ -416,11 +445,14 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 		const event = {
 			type: 'run_started',
 			runId: RID,
-			sourceAgentId: 'sub_agent_1',
-			parentTaskId: 'task_42',
+			sourceAgentId: 'de369c12-a778-45cc-9220-7509d19510ca',
+			parentTaskId: 'dc96f849-400d-466e-96b9-c5b06fa87727',
 		} as unknown as RunEvent
 		const r = mapRunToStreamEvent(event, RID)
-		expect(r?.data).toMatchObject({ source_agent_id: 'sub_agent_1', parent_task_id: 'task_42' })
+		expect(r?.data).toMatchObject({
+			source_agent_id: 'de369c12-a778-45cc-9220-7509d19510ca',
+			parent_task_id: 'dc96f849-400d-466e-96b9-c5b06fa87727',
+		})
 	})
 })
 

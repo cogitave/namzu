@@ -75,6 +75,7 @@ import { contextLogging, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
+import type { AgentEvent } from '../tui/agent.js'
 import { planTurnPublication } from '../tui/conversation-history.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
@@ -113,7 +114,7 @@ export const runStreamCommand: CommandDef = {
 		'event. Built for a host UI that renders progress rather than waiting',
 		'for a final string.',
 		'',
-		'Takes the same options as `namzu run`, including --permission-mode and',
+		'Takes the same options as `namzu run`, including --effort, --permission-mode and',
 		'the [permissions] table from the config file.',
 		'',
 		'History is bound with --session <id>. --continue and --resume are `run`',
@@ -403,15 +404,18 @@ export const runStreamCommand: CommandDef = {
 
 		let assistantText = ''
 		let conversationMessages: readonly Message[] | undefined
+		let terminalEvent: Extract<AgentEvent, { kind: 'done' }> | undefined
 		try {
 			for await (const event of session.send(messages, {
 				...(extraSystem ? { extraSystem } : {}),
+				...(flags.effort !== null ? { effort: flags.effort } : {}),
 				onConversationMessages: (settled) => {
 					conversationMessages = settled
 				},
 			})) {
 				if (event.kind === 'delta') assistantText += event.text
-				write(event)
+				if (event.kind === 'done') terminalEvent = event
+				else write(event)
 			}
 		} catch (err) {
 			await session.close()
@@ -465,7 +469,7 @@ export const runStreamCommand: CommandDef = {
 			}
 		}
 
-		write({ kind: 'done' })
+		write(terminalEvent ?? { kind: 'done' })
 		return 0
 	},
 }

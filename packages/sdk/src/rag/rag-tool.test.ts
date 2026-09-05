@@ -27,8 +27,8 @@ import type { ToolContext } from '../types/tool/index.js'
 import { createRAGTool } from './rag-tool.js'
 
 const TENANT = 't_1' as TenantId
-const KB_A = 'kb_a' as KnowledgeBaseId
-const KB_B = 'kb_b' as KnowledgeBaseId
+const KB_A = '6c27aa61-3fda-4381-b9d4-57ef8d6c2251' as KnowledgeBaseId
+const KB_B = '123cac1f-1f31-444e-85d2-8e82a38acdd8' as KnowledgeBaseId
 
 function makeKB(retrievalResult: RetrievalResult): KnowledgeBase {
 	const kb = {
@@ -150,7 +150,7 @@ describe('createRAGTool', () => {
 		expect((result.data as { durationMs?: number })?.durationMs).toBe(42)
 	})
 
-	it('top_k override: input > config.topK > 5 default', async () => {
+	it('7f33de5a-7605-4ed7-a5fe-58faba5547e8 override: input > config.topK > 5 default', async () => {
 		const kb = makeKB({
 			chunks: [searchResult('x')],
 			query: 'hi',

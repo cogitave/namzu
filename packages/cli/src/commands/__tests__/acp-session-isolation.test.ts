@@ -13,6 +13,7 @@ import {
 	createAssistantMessage,
 	createToolPresenter,
 } from '@namzu/sdk'
+import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -85,8 +86,8 @@ function context(config: CommandContext['config'] = {}): CommandContext {
 function event(text: string): RunEvent {
 	return {
 		type: 'text_delta',
-		runId: asRunId(`run_acp_${text}`),
-		messageId: asMessageId(`msg_acp_${text}`),
+		runId: asRunId(fixtureUuid(`run_acp_${text}`)),
+		messageId: asMessageId(fixtureUuid(`msg_acp_${text}`)),
 		iteration: 0,
 		text,
 	} as RunEvent

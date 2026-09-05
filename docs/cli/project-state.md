@@ -18,10 +18,9 @@ not require a new Project when both directories belong to the same checkout.
 
 The CLI canonicalizes the working directory, resolving symlinks, then:
 
-1. Reuses an existing central binding for that exact directory under the
-   installation's tenant. This preserves histories created by earlier versions.
-2. Otherwise reuses or creates the binding for the nearest directory containing
-   `.git`. A `.git` file is also a boundary, so Git worktrees remain separate.
+1. Finds the nearest directory containing `.git`. A `.git` file is also a
+   boundary, so Git worktrees remain separate.
+2. Reuses or creates the root-path binding for that checkout and installation tenant.
 3. Outside a repository, binds the working directory itself.
 
 Opening a new checkout from its root or `packages/cli` now selects the same
@@ -52,23 +51,17 @@ The installation identity and Topic are initialized once. Concurrent first
 launches publish one complete file and all use the winner. Existing malformed
 files cause an error; startup does not replace them with a new identity.
 
-New IDs are opaque UUIDs. Existing safe prefixed IDs remain valid without
-renaming their records. Callers use the SDK's constructors; tenant and Project
+Entity IDs are opaque UUIDs. Prefixed IDs are rejected at admission. Callers use the SDK's constructors; tenant and Project
 membership are checked separately by the stores. The root-path binding selects
 the Project, independently of its ID's spelling.
 
-## Existing state
+## State boundaries
 
-Previously every exact working directory received its own central Project.
-Those bindings keep their IDs, Topics and conversations. New subdirectories
-without a binding share the checkout-root Project. Existing projects are not
-automatically merged, and existing records are not renamed.
-
-The current CLI reads central state under the installation tenant. A historical
-global `cli.json` or project-local runtime store is not an active selector.
-In particular, a legacy Project without `rootPath` cannot safely be assigned
-to the current checkout from that pointer alone. `namzu state` inventories
-legacy files but does not import or repair them.
+A historical binding for an exact subdirectory cannot override the checkout
+root. Root and subdirectory launches select one Project and Topic. Old records
+are left on disk; they are not merged, imported or renamed. A global `cli.json`
+or project-local runtime store is not a Project selector. `namzu state`
+inventories historical files without treating them as active authority.
 
 Curated memory follows the checkout root for new files, with existing
 directory-local memory taking precedence. See [Memory](memory.md).
@@ -100,3 +93,7 @@ without creating durable Project records.
 
 Task storage is also bound to the actual run. Calls that omit an explicit run
 filter use the current run instead of a shared placeholder directory.
+
+A durable `drain` resolves its Topic from the persisted Session and verifies
+the supplied Project and tenant before creating a provider session. A fabricated
+Topic or checkpoint-only scope without its Session record is refused.

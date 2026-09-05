@@ -18,13 +18,17 @@ import { InMemorySessionStore } from '../memory.js'
  * against the value at the instant of the write.
  */
 
-const TENANT = 'tnt_cas' as TenantId
+const TENANT = '5cfa107f-0cd3-4cfc-9eea-21f746f519ea' as TenantId
 
 async function seed(): Promise<{ store: InMemorySessionStore; session: Session }> {
 	const store = new InMemorySessionStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'cas' }, TENANT)
 	const session = await store.createSession(
-		{ topicId: 'top_cas' as never, projectId: project.id, currentActor: null },
+		{
+			topicId: 'e3e1440e-fbcf-4685-9044-8b03e0f7c2bb' as never,
+			projectId: project.id,
+			currentActor: null,
+		},
 		TENANT,
 	)
 	return { store, session }

@@ -39,7 +39,7 @@ async function workdir(): Promise<string> {
 
 const ctx = (workingDirectory: string): ToolContext =>
 	({
-		runId: 'run_e',
+		runId: '5c7199f4-0953-4c53-9580-a77224d2fe7a',
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},

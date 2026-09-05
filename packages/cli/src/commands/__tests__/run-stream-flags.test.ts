@@ -24,6 +24,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 // Stubbed so a turn can be driven to completion without a credential, and so
 // the directory the SESSION is created in is observable. What the session then
 // does with that directory is asserted in `src/tui/__tests__/`.
+const effortValues: Array<string | undefined> = []
 const sessionOptions: Array<
 	{ cwd?: string; rules?: unknown[]; permissionMode?: string } | undefined
 > = []
@@ -55,7 +56,10 @@ vi.mock('../../tui/agent.js', () => ({
 			return fakeAgentSession({
 				providerSummary: 'stub',
 				modelSummary: 'stub',
-				send: async function* () {},
+				send: async function* (_messages, opts) {
+					effortValues.push(opts?.effort)
+					yield { kind: 'done', stopReason: 'end_turn' }
+				},
 			})
 		},
 	),
@@ -88,6 +92,7 @@ function capture(): { lines: string[]; restore: () => void } {
 beforeEach(() => {
 	vi.mocked(openSessions).mockClear()
 	sessionOptions.length = 0
+	effortValues.length = 0
 })
 
 afterEach(() => {
@@ -103,6 +108,13 @@ async function run(rawArgs: string[]): Promise<string[]> {
 	}
 	return lines
 }
+
+describe('streaming reasoning effort', () => {
+	it('forwards an explicit low level to the session', async () => {
+		await run(['--effort=low', 'hello'])
+		expect(effortValues).toEqual(['low'])
+	})
+})
 
 describe('run-stream does not turn options into prompt text', () => {
 	it('consumes --cwd instead of speaking it to the model', async () => {

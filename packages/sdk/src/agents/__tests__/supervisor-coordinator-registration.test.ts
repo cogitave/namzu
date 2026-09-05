@@ -29,7 +29,10 @@ const HOST_TOOL_DESCRIPTION = 'a tool this host registered deliberately'
 
 function stubManager() {
 	return {
-		sendMessage: vi.fn(async () => ({ taskId: 'task_1', status: 'completed' })),
+		sendMessage: vi.fn(async () => ({
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91',
+			status: 'completed',
+		})),
 		await: vi.fn(async () => undefined),
 		cancel: vi.fn(),
 		dispose: vi.fn(),
@@ -94,10 +97,10 @@ async function runWith(options: {
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,
 			maxIterations: 2,
-			sessionId: 'ses_sup',
-			topicId: 'top_sup',
-			projectId: 'prj_sup',
-			tenantId: 'tnt_sup',
+			sessionId: '8b71f555-ab2b-4a78-be42-3109378b5888',
+			topicId: '18fd1af5-acfa-402d-b733-693691c1820e',
+			projectId: 'f00d2464-af09-4609-99e5-79def1ea043d',
+			tenantId: '17621f97-7a3a-4a70-b704-29f1441d224b',
 			...(options.resumeHandler ? { resumeHandler: options.resumeHandler } : {}),
 			...(options.depth !== undefined ? { depth: options.depth } : {}),
 		} as never,

@@ -47,7 +47,7 @@ async function workdir(): Promise<string> {
 
 function sandbox(): Sandbox {
 	return {
-		id: 'sbx_test' as SandboxId,
+		id: '51281012-1dd1-444d-98b8-487422669dff' as SandboxId,
 		status: 'ready',
 		rootDir: '/workspace',
 		environment: 'basic',
@@ -84,10 +84,10 @@ function params(input: {
 		agentName: 'Sandbox jobs',
 		messages: [createUserMessage('run it')],
 		workingDirectory: input.cwd,
-		sessionId: 'ses_sandbox_jobs' as SessionId,
-		topicId: 'top_sandbox_jobs' as TopicId,
-		projectId: 'prj_sandbox_jobs' as ProjectId,
-		tenantId: 'tnt_sandbox_jobs' as TenantId,
+		sessionId: 'd197741b-86af-4154-8d13-3cc7c9067200' as SessionId,
+		topicId: 'c2a1f76c-e2c9-406f-99fd-f7d471c7d71a' as TopicId,
+		projectId: '8ab67399-c3e7-409b-ad7b-a2bf0bcf7774' as ProjectId,
+		tenantId: '488262fe-6f12-4a4e-b30e-3712a9c5aa7a' as TenantId,
 		sandboxProvider: {
 			id: 'sandbox-test',
 			name: 'Sandbox test',
@@ -101,7 +101,7 @@ function params(input: {
 describe('a sandbox and a host background registry are not one capability', () => {
 	it('starts and stops a background job through the sandbox instead of spawning on the host', async () => {
 		const cwd = await workdir()
-		const owner = 'ses_sandbox_jobs'
+		const owner = 'd197741b-86af-4154-8d13-3cc7c9067200'
 		const command = 'printf sandbox-output'
 		const jobs = new BackgroundJobRegistry()
 		const child = new ChildProcess()

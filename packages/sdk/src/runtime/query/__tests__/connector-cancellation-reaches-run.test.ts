@@ -104,10 +104,10 @@ describe('connector cancellation reaches a real run', () => {
 			agentName: 'Connector Cancellation',
 			messages: [createUserMessage('send the webhook')],
 			workingDirectory,
-			sessionId: 'ses_connector_cancel' as SessionId,
-			topicId: 'top_connector_cancel' as TopicId,
-			projectId: 'prj_connector_cancel' as ProjectId,
-			tenantId: 'tnt_connector_cancel' as TenantId,
+			sessionId: 'd12a7262-af26-4871-9c51-1fd033663ba2' as SessionId,
+			topicId: '963e4b25-c632-4098-aba2-548ec359a90a' as TopicId,
+			projectId: '680cd06b-4778-4a82-92ac-cd13a16af928' as ProjectId,
+			tenantId: 'a1908e36-24a6-453d-80d8-f7e3686d456e' as TenantId,
 			signal: caller.signal,
 		})
 

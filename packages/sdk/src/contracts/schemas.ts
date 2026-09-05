@@ -2,14 +2,10 @@ import { z } from 'zod'
 
 import { entityIdPattern } from '../utils/id-format.js'
 
-/** Shared with constructors and stores: opaque UUIDs or safe legacy ids. */
-export const ProjectIdSchema = z
-	.string()
-	.regex(entityIdPattern('prj_'), 'Invalid project ID format')
-export const RunIdSchema = z.string().regex(entityIdPattern('run_'), 'Invalid run ID format')
-export const MessageIdSchema = z
-	.string()
-	.regex(entityIdPattern('msg_'), 'Invalid message ID format')
+/** Shared with constructors and stores: opaque UUIDs. */
+export const ProjectIdSchema = z.string().regex(entityIdPattern(), 'Invalid project ID format')
+export const RunIdSchema = z.string().regex(entityIdPattern(), 'Invalid run ID format')
+export const MessageIdSchema = z.string().regex(entityIdPattern(), 'Invalid message ID format')
 
 export const RunConfigSchema = z
 	.object({

@@ -11,10 +11,10 @@ import {
 } from '../../../utils/id.js'
 import { DefaultPathBuilder } from '../path-builder.js'
 
-const projectId = 'prj_abc' as ProjectId
-const sessionId = 'ses_xyz' as SessionId
-const subSessionId = 'sub_qqq' as SubSessionId
-const runId = 'run_rrr' as RunId
+const projectId = '9f6c23c5-cd00-407a-819b-cfb06d4f9071' as ProjectId
+const sessionId = '1927fccc-df29-46b4-a1c9-6366075a3bbc' as SessionId
+const subSessionId = '5da75299-8755-452c-b4ae-6a38f4d721d0' as SubSessionId
+const runId = 'fb9b0d37-48be-423e-be29-35bfd2ba94bd' as RunId
 
 describe('DefaultPathBuilder', () => {
 	it('rootDir returns the injected root verbatim', () => {
@@ -70,18 +70,19 @@ describe('DefaultPathBuilder', () => {
 		)
 	})
 
-	it.each(['../outside', 'ses_/../../outside', 'ses_a\\outside', 'ses_a:stream', 'run_wrongKind'])(
-		'refuses an unsafe or wrong-kind session ID %s before constructing a path',
-		(raw) => {
-			const pb = new DefaultPathBuilder('/tmp/ns')
-			expect(() => pb.sessionDir(projectId, raw as SessionId)).toThrow(InvalidIdError)
-			expect(() => pb.projectDir(raw as ProjectId)).toThrow(InvalidIdError)
-			expect(() => pb.subSessionDir(projectId, sessionId, raw as SubSessionId)).toThrow(
-				InvalidIdError,
-			)
-			if (raw !== 'run_wrongKind') {
-				expect(() => pb.runDir(projectId, sessionId, raw as RunId)).toThrow(InvalidIdError)
-			}
-		},
-	)
+	it.each([
+		'../outside',
+		'ses_/../../outside',
+		'1aa5bf90-15f2-4704-97fc-8df4943e1e3d\\outside',
+		'1aa5bf90-15f2-4704-97fc-8df4943e1e3d:stream',
+		'run_unsupported_identifier',
+	])('refuses an unsafe or prefixed entity ID %s before constructing a path', (raw) => {
+		const pb = new DefaultPathBuilder('/tmp/ns')
+		expect(() => pb.sessionDir(projectId, raw as SessionId)).toThrow(InvalidIdError)
+		expect(() => pb.projectDir(raw as ProjectId)).toThrow(InvalidIdError)
+		expect(() => pb.subSessionDir(projectId, sessionId, raw as SubSessionId)).toThrow(
+			InvalidIdError,
+		)
+		expect(() => pb.runDir(projectId, sessionId, raw as RunId)).toThrow(InvalidIdError)
+	})
 })

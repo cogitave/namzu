@@ -33,7 +33,7 @@ function makeManager(): AgentManager {
 		sessionStore: store,
 		summaryMaterializer: new SessionSummaryMaterializer({
 			store,
-			generateSummaryId: () => 'sum_dispose' as SummaryId,
+			generateSummaryId: () => 'c297e7c8-1bab-4efa-b226-75827eca1577' as SummaryId,
 		}),
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
@@ -67,8 +67,16 @@ describe('disposing the manager stops the work it was holding', () => {
 		const manager = makeManager()
 		// Two parents: the shape the old code could not see, because it
 		// looked for one specific parent and invented the value it looked for.
-		const a = addLiveTask(manager, 'task_a', 'run_1')
-		const b = addLiveTask(manager, 'task_b', 'run_2')
+		const a = addLiveTask(
+			manager,
+			'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		)
+		const b = addLiveTask(
+			manager,
+			'5863b7eb-6c0d-40c1-9b33-408da6461561',
+			'd7cb4b25-c8f3-41d8-90c5-75f49360c7dc',
+		)
 
 		manager.dispose()
 
@@ -78,7 +86,11 @@ describe('disposing the manager stops the work it was holding', () => {
 
 	it('empties its maps afterwards', () => {
 		const manager = makeManager()
-		addLiveTask(manager, 'task_a', 'run_1')
+		addLiveTask(
+			manager,
+			'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		)
 
 		manager.dispose()
 
@@ -87,7 +99,11 @@ describe('disposing the manager stops the work it was holding', () => {
 
 	it('is safe to call twice', () => {
 		const manager = makeManager()
-		addLiveTask(manager, 'task_a', 'run_1')
+		addLiveTask(
+			manager,
+			'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		)
 
 		manager.dispose()
 		expect(() => manager.dispose()).not.toThrow()
@@ -103,9 +119,13 @@ describe('disposing the manager stops the work it was holding', () => {
 		// `AbstractAgent.cancel`, because this call site IS a parent
 		// abandoning its children while that one's caller could be anyone.
 		const manager = makeManager()
-		const child = addLiveTask(manager, 'task_a', 'run_1')
+		const child = addLiveTask(
+			manager,
+			'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		)
 
-		manager.cancelAll('run_1' as RunId)
+		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId)
 
 		expect(child.signal.aborted).toBe(true)
 		expect(cancelCauseOf(child.signal.reason)).toBe('parent')
@@ -113,19 +133,31 @@ describe('disposing the manager stops the work it was holding', () => {
 
 	it('carries a named cause through instead of overriding it with the default', () => {
 		const manager = makeManager()
-		const child = addLiveTask(manager, 'task_a', 'run_1')
+		const child = addLiveTask(
+			manager,
+			'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		)
 
-		manager.cancelAll('run_1' as RunId, 'budget')
+		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId, 'budget')
 
 		expect(cancelCauseOf(child.signal.reason)).toBe('budget')
 	})
 
 	it('leaves cancelAll scoped to one parent, which is its whole job', () => {
 		const manager = makeManager()
-		const mine = addLiveTask(manager, 'task_a', 'run_1')
-		const theirs = addLiveTask(manager, 'task_b', 'run_2')
+		const mine = addLiveTask(
+			manager,
+			'db5cf4d3-8120-40b4-8680-e8a81ebbc973',
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		)
+		const theirs = addLiveTask(
+			manager,
+			'5863b7eb-6c0d-40c1-9b33-408da6461561',
+			'd7cb4b25-c8f3-41d8-90c5-75f49360c7dc',
+		)
 
-		manager.cancelAll('run_1' as RunId)
+		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId)
 
 		expect(mine.signal.aborted).toBe(true)
 		expect(theirs.signal.aborted).toBe(false)

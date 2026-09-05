@@ -68,7 +68,9 @@ class FanOutManager implements AgentManagerContract {
 
 	async sendMessage(options: SendMessageOptions): Promise<AgentTask> {
 		const failing = options.agentId === FAILING
-		const taskId = (failing ? 'task_doomed' : 'task_patient') as TaskId
+		const taskId = (
+			failing ? 'c3c3ff02-15ca-49b2-80d3-fa40220324fb' : 'ae0f97e4-1fc0-429d-aa3c-31e6383f2ed4'
+		) as TaskId
 		const task = {
 			taskId,
 			agentId: options.agentId,
@@ -82,7 +84,13 @@ class FanOutManager implements AgentManagerContract {
 			pendingMessages: [],
 			createdAt: 1,
 			...(failing
-				? { result: { runId: 'run_child' as RunId, status: 'failed', result: 'it broke' } }
+				? {
+						result: {
+							runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
+							status: 'failed',
+							result: 'it broke',
+						},
+					}
 				: {}),
 		} as AgentTask
 
@@ -99,7 +107,7 @@ class FanOutManager implements AgentManagerContract {
 	}
 
 	async waitForCompletion(taskId: TaskId): Promise<void> {
-		if (taskId === ('task_patient' as TaskId)) await this.slowSettled
+		if (taskId === ('ae0f97e4-1fc0-429d-aa3c-31e6383f2ed4' as TaskId)) await this.slowSettled
 		// The doomed child fails only once its sibling is actually in flight —
 		// see `bothLaunched`. Registration happens inside `createTask` right
 		// after `sendMessage` returns, so waiting a further microtask turn is
@@ -182,10 +190,10 @@ async function fanOut(policy?: SiblingFailurePolicy): Promise<FanOutManager> {
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,
 			maxIterations: 3,
-			sessionId: 'ses_policy',
-			topicId: 'top_policy',
-			projectId: 'prj_policy',
-			tenantId: 'tnt_policy',
+			sessionId: 'c9f62215-4bcb-4422-bf4b-0641739f0eed',
+			topicId: 'e98cb45c-0a26-41d5-a1e0-7682e6004ca9',
+			projectId: '65447df7-304f-4d22-be65-21a94b7ea116',
+			tenantId: 'd35d280f-53b3-49be-beb7-2b33ad45366b',
 			...(policy ? { siblingFailurePolicy: policy } : {}),
 		} as never,
 	)
@@ -197,6 +205,6 @@ describe('a supervisor can say what a failed child means for its siblings', () =
 	it('reaches the gateway, so cancel-siblings actually stops the rest', async () => {
 		const manager = await fanOut('cancel-siblings')
 
-		expect(manager.cancelled).toContain('task_patient' as TaskId)
+		expect(manager.cancelled).toContain('ae0f97e4-1fc0-429d-aa3c-31e6383f2ed4' as TaskId)
 	}, 60_000)
 })

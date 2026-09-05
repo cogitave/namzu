@@ -30,10 +30,12 @@ afterEach(async () => {
 	temporaryDirectories.length = 0
 })
 
-function snapshot(format: 'uuid' | 'legacy'): { project: Project; topic: Topic } {
-	const tenantId = format === 'uuid' ? generateTenantId() : asTenantId('tnt_hydration')
+function snapshot(format: 'uuid' | 'fixed UUID'): { project: Project; topic: Topic } {
+	const tenantId =
+		format === 'uuid' ? generateTenantId() : asTenantId('6b71073c-b806-49b2-8bcb-4e6242a12a16')
 	const project: Project = {
-		id: format === 'uuid' ? generateProjectId() : asProjectId('prj_hydration'),
+		id:
+			format === 'uuid' ? generateProjectId() : asProjectId('61a938d8-e034-4c9c-a674-41ef456a3ca0'),
 		tenantId,
 		name: 'Existing project',
 		config: { maxDelegationDepth: 7, maxDelegationWidth: 12, maxInterventionDepth: 3 },
@@ -43,7 +45,7 @@ function snapshot(format: 'uuid' | 'legacy'): { project: Project; topic: Topic }
 		updatedAt: new Date('2026-01-01T00:00:00Z'),
 	}
 	const topic: Topic = {
-		id: format === 'uuid' ? generateTopicId() : asTopicId('top_hydration'),
+		id: format === 'uuid' ? generateTopicId() : asTopicId('b0d77e9c-5e9e-48c5-9456-bf0581aabe1d'),
 		projectId: project.id,
 		tenantId,
 		title: 'Existing topic',
@@ -56,7 +58,7 @@ function snapshot(format: 'uuid' | 'legacy'): { project: Project; topic: Topic }
 }
 
 describe('hydration attaches isolated work to established project and topic identities', () => {
-	it.each(['uuid', 'legacy'] as const)(
+	it.each(['uuid', 'fixed UUID'] as const)(
 		'preserves %s identity, configuration, chronology, and parent ownership',
 		async (format) => {
 			const { project, topic } = snapshot(format)
@@ -132,7 +134,7 @@ describe('hydration attaches isolated work to established project and topic iden
 	})
 
 	it('rejects duplicate identities and malformed snapshot IDs before accepting a store', () => {
-		const { project, topic } = snapshot('legacy')
+		const { project, topic } = snapshot('fixed UUID')
 		expect(() => new InMemorySessionStore([project, project])).toThrow(/Duplicate project/)
 		expect(() => new InMemoryTopicStore([topic, topic])).toThrow(/Duplicate topic/)
 		expect(

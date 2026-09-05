@@ -24,8 +24,8 @@ import { ObjectiveNotProgressingError, driveObjective } from '../objective.js'
  * the bound.
  */
 
-const TOPIC = 'top_drive' as TopicId
-const TENANT = 'tnt_drive' as TenantId
+const TOPIC = '24274a89-686a-4d7a-9540-6c7cc93568b6' as TopicId
+const TENANT = 'a972c445-8d46-4040-ae36-1560ad8892fa' as TenantId
 
 const keepGoing: ObjectiveRoundVerdict = {}
 

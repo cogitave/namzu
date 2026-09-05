@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Ids
-description: Opaque UUID identifiers, nominal types, compatible legacy records, and storage validation.
+description: Opaque UUID identifiers, nominal types, strict UUID admission and storage validation.
 resource: packages/sdk/src/utils/id.ts
 tags: [sdk, ids, storage]
 status: stable
@@ -19,7 +19,8 @@ system. The serialized UUID does not encode its entity type.
 
 - Mint with the factory for the entity, such as `generateRunId()`.
 - Check an external string with `asRunId(value)` or the matching constructor.
-  Invalid values throw `InvalidIdError`.
+  Invalid values throw `InvalidIdError`; its `expectedKind` field identifies
+  the rejected entity kind. The old `expectedPrefix` field is removed.
 - Check an unknown value without throwing with `isEntityId(value, 'run')`.
   The second argument selects the expected entity kind.
 - Deprecated `parse*Id` functions perform the same validation and throw a
@@ -30,16 +31,12 @@ import { generateRunId, asRunId, isEntityId } from '@namzu/sdk'
 
 const runId = generateRunId()
 const restored = asRunId(runId)
-const legacy = asRunId('run_existing-A_1')
 const valid = isEntityId(restored, 'run')
 ```
 
 Constructors accept canonical hyphenated UUIDs with an RFC variant and version
-1–8, preserving their case. They also accept the matching established prefix
-followed by a nonempty `[A-Za-z0-9_-]+` suffix. For example,
-`run_existing-A_1` remains valid as a Run ID, while `ses_existing` does not.
-Empty suffixes, separators, whitespace, periods, colons and Unicode suffixes
-are rejected. Constructors never trim, lowercase or rewrite identifiers.
+1–8, preserving their case. Prefixed strings, arbitrary names, path segments
+and malformed UUIDs are rejected. Constructors never trim or rewrite keys.
 
 `ProjectIdSchema`, `RunIdSchema` and `MessageIdSchema` use the same spelling
 rules as their constructors. They remain Zod string schemas and expose their
@@ -50,29 +47,21 @@ permission. Stores must verify the containing record and tenant, and validate
 path components before using them. Validating an ID is separate from defending
 against filesystem symlinks.
 
-## Existing records
+## Admission and upgrade
 
-Existing safe prefixed IDs remain unchanged. New and old IDs can coexist in
-one project hierarchy, including child runs, checkpoints, tasks and memory.
-Directory discovery accepts both formats. No startup rename or rewrite is
-performed, so references keep their original keys.
+Only UUID entity IDs are admitted. This applies to constructors, schemas,
+directory discovery and persisted record boundaries. Prefixes such as `prj_`,
+`ses_`, `run_`, `cp_` and `thd_` have no compatibility path. Invalid records are
+refused; initialization does not overwrite them or invent a replacement owner.
+Run-state schema versions have their own field migrations, independently of ID
+admission, and must still contain UUID entity IDs.
 
-The retired, ambiguous `thd_` container format remains unsupported. Records
-written with it need an older migration-capable Namzu release before this
-version can read them. Run-state schema versions still have their own explicit
-field migrations; changing a schema field does not justify guessing an ID's
-meaning.
-
-Older constructors accepted arbitrary suffixes after a prefix. Data containing
-unsafe custom IDs needs to be exported with the previous SDK and remapped
-along with every referring record before upgrading. Do not sanitize IDs
-independently: different values can collapse to the same key.
-
-This factory-default change is a major release. Callers that parse prefixes,
-validate only prefixed strings, or depend on template-literal ID types must
-switch to constructors, nominal entity types and explicit schema fields before
-accepting new records. Do not downgrade a store containing UUID records to a
-reader that recognizes only prefixes.
+This is a major release. Hosts must generate UUIDs or supply valid UUID values
+for custom entity IDs. Prefix inspection and template-literal ID types must be
+replaced with nominal types and explicit entity fields. Existing prefixed state
+is not read, renamed or migrated by this release. Start with a fresh dedicated
+application home if retaining old state is unnecessary; changing `NAMZU_HOME`
+does not delete the previous home.
 
 ## Correlation and projections
 
@@ -83,8 +72,7 @@ checkpoint IDs identify checkpoints. Match an answer using `questionId`.
 Project-owned names such as agent registry keys, transport correlation IDs and
 archive backend references are separate contracts; kernel entity factories do
 not rename them. An emergency snapshot projected as a checkpoint retains a
-deterministic ID: existing `esave_` snapshots keep their legacy checkpoint
-mapping, while a UUID snapshot uses that same UUID as its checkpoint key.
+deterministic ID: the UUID snapshot uses that same UUID as its checkpoint key.
 
 ## Reusing an existing identity
 

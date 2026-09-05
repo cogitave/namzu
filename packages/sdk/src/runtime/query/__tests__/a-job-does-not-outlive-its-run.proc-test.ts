@@ -91,10 +91,10 @@ async function runStartingAJob(
 		agentName: 'A',
 		messages: [createUserMessage('start the watcher')],
 		workingDirectory,
-		sessionId: 'ses_jobs' as SessionId,
-		topicId: 'top_jobs' as TopicId,
-		projectId: 'prj_jobs' as ProjectId,
-		tenantId: 'tnt_jobs' as TenantId,
+		sessionId: '960a38d0-d687-4691-a464-7b739b855e08' as SessionId,
+		topicId: '5bc39263-cfc3-4f23-b2c3-991504ae60f9' as TopicId,
+		projectId: 'c67da573-45b8-4f3b-98cb-9da2102d95e6' as ProjectId,
+		tenantId: 'f9061ed6-62eb-4fd1-8fbe-d85ce872f7b7' as TenantId,
 		backgroundJobs,
 	}).catch((error: unknown) => ({ error }) as { error: unknown })
 }
@@ -168,10 +168,10 @@ describe('a run takes its background jobs with it', () => {
 			agentName: 'A',
 			messages: [createUserMessage('start the watcher')],
 			workingDirectory,
-			sessionId: 'ses_jobs_fail' as SessionId,
-			topicId: 'top_jobs' as TopicId,
-			projectId: 'prj_jobs' as ProjectId,
-			tenantId: 'tnt_jobs' as TenantId,
+			sessionId: '0f2d036c-edfa-4a23-9111-051056672f51' as SessionId,
+			topicId: '5bc39263-cfc3-4f23-b2c3-991504ae60f9' as TopicId,
+			projectId: 'c67da573-45b8-4f3b-98cb-9da2102d95e6' as ProjectId,
+			tenantId: 'f9061ed6-62eb-4fd1-8fbe-d85ce872f7b7' as TenantId,
 			backgroundJobs: registry,
 		}).catch((error: unknown) => ({ error }) as { error: unknown })
 
@@ -192,7 +192,7 @@ describe('a run takes its background jobs with it', () => {
 		// several runs must not have one of them tear down another's work.
 		const registry = new BackgroundJobRegistry()
 		const theirs = registry.start({
-			owner: 'run_elsewhere',
+			owner: '1f0f0cbd-0a52-4776-a0d4-b75ef4064816',
 			command: 'sleep 30',
 			workingDirectory: tmpdir(),
 		})

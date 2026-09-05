@@ -115,10 +115,10 @@ function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory
 		agentId: 'agent_test',
 		agentName: 'Test Agent',
 		workingDirectory,
-		sessionId: 'ses_capability' as SessionId,
-		topicId: 'top_capability' as TopicId,
-		projectId: 'prj_capability' as ProjectId,
-		tenantId: 'tnt_capability' as TenantId,
+		sessionId: '3eeb9858-dfdd-433c-a1d4-2fda6fefc88f' as SessionId,
+		topicId: 'bfb2b236-dc04-4a80-8659-1f05680ffc80' as TopicId,
+		projectId: 'b62400fc-5a6c-479d-b80c-b6233db0e5f4' as ProjectId,
+		tenantId: 'd3668063-bbf8-4b25-8df1-8cc213ed2fe2' as TenantId,
 	}
 }
 

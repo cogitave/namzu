@@ -174,8 +174,8 @@ describe('scoping', () => {
 	it('two scopes do not see each other', () => {
 		const shared = new InMemoryConfigOverrideStore()
 		const root = new ConfigRegistry({ store: shared })
-		const runA = root.scope('run_a')
-		const runB = root.scope('run_b')
+		const runA = root.scope('90a466e2-f869-4a3c-b750-f2156342ff40')
+		const runB = root.scope('fe818a89-6a50-4e51-8a91-5f108ad85280')
 
 		const a = runA.register('mcp.files', Schema)
 		const b = runB.register('mcp.files', Schema)
@@ -194,19 +194,24 @@ describe('scoping', () => {
 		// actually leaks: B above was already resolved when A wrote, so it
 		// would have kept its own value either way. A run that starts later is
 		// the one that would silently inherit somebody else's tuning.
-		const runC = root.scope('run_c')
+		const runC = root.scope('61d260b3-706f-452e-8528-f7fd5f736b18')
 		expect(runC.register('mcp.files', Schema).get().attempts).toBe(3)
 	})
 
 	it("a scope's own override still survives its own restart", () => {
 		const shared = new InMemoryConfigOverrideStore()
-		new ConfigRegistry({ store: shared }).scope('run_a').register('x', Schema).update({
-			attempts: 30,
-		})
+		new ConfigRegistry({ store: shared })
+			.scope('90a466e2-f869-4a3c-b750-f2156342ff40')
+			.register('x', Schema)
+			.update({
+				attempts: 30,
+			})
 
 		// Scoped, not discarded: the store is shared on purpose so an
 		// operator's override is not lost when the run that carried it ends.
-		const again = new ConfigRegistry({ store: shared }).scope('run_a').register('x', Schema)
+		const again = new ConfigRegistry({ store: shared })
+			.scope('90a466e2-f869-4a3c-b750-f2156342ff40')
+			.register('x', Schema)
 		expect(again.get().attempts).toBe(30)
 	})
 })

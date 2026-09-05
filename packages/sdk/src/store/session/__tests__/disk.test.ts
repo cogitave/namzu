@@ -10,15 +10,15 @@ import { createSystemMessage, createUserMessage } from '../../../types/message/i
 import type { ActorRef } from '../../../types/session/actor.js'
 import { DiskSessionStore } from '../disk.js'
 
-const tenantA = 'tnt_alpha' as TenantId
-const tenantB = 'tnt_beta' as TenantId
+const tenantA = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+const tenantB = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
 
 function userActor(tenantId: TenantId): ActorRef {
-	return { kind: 'user', userId: 'usr_a' as UserId, tenantId }
+	return { kind: 'user', userId: '9ce05013-3bcc-4835-86b3-15e7b9251801' as UserId, tenantId }
 }
 
 function agentActor(tenantId: TenantId): ActorRef {
-	return { kind: 'agent', agentId: 'agt_a' as AgentId, tenantId }
+	return { kind: 'agent', agentId: '297e7108-719e-42f6-aa3b-f3b42d1ad2c5' as AgentId, tenantId }
 }
 
 async function seed(store: DiskSessionStore, tenantId: TenantId) {
@@ -209,7 +209,9 @@ describe('DiskSessionStore', () => {
 
 	it('missing session returns null rather than throwing', async () => {
 		const fresh = new DiskSessionStore({ rootDir })
-		expect(await fresh.getSession('ses_missing' as SessionId, tenantA)).toBeNull()
+		expect(
+			await fresh.getSession('1ef9ce34-f888-4928-9659-b4f6388670a9' as SessionId, tenantA),
+		).toBeNull()
 	})
 
 	// Summary (§4.7 / §8.1) ---------------------------------------------------
@@ -219,7 +221,7 @@ describe('DiskSessionStore', () => {
 		await store.updateSession({ ...session, status: 'active' }, tenantA)
 
 		const summary: SessionSummaryRef & { materializedBy: 'kernel' } = {
-			id: 'sum_disk1' as SummaryId,
+			id: '26a3133e-950c-4a2f-9086-fbd85902b688' as SummaryId,
 			sessionRef: session.id,
 			tenantId: tenantA,
 			outcome: { status: 'succeeded' },
@@ -240,7 +242,7 @@ describe('DiskSessionStore', () => {
 			'summary.json',
 		)
 		const rawSummary = JSON.parse(await readFile(summaryJson, 'utf-8'))
-		expect(rawSummary.id).toBe('sum_disk1')
+		expect(rawSummary.id).toBe('26a3133e-950c-4a2f-9086-fbd85902b688')
 		expect(rawSummary.materializedBy).toBe('kernel')
 
 		const reloadedSession = await store.getSession(session.id, tenantA)
@@ -252,7 +254,7 @@ describe('DiskSessionStore', () => {
 		await store.updateSession({ ...session, status: 'active' }, tenantA)
 
 		const summary: SessionSummaryRef & { materializedBy: 'kernel' } = {
-			id: 'sum_disk2' as SummaryId,
+			id: '5dfc751d-cc62-4d57-823e-8827b9c22b4a' as SummaryId,
 			sessionRef: session.id,
 			tenantId: tenantA,
 			outcome: { status: 'succeeded' },
@@ -278,7 +280,7 @@ describe('DiskSessionStore', () => {
 	it('recordSummary rejects a different summary for an already-summarized session', async () => {
 		const { session } = await seed(store, tenantA)
 		const first: SessionSummaryRef & { materializedBy: 'kernel' } = {
-			id: 'sum_disk3a' as SummaryId,
+			id: '40334928-5b2e-4a29-9b24-0e92d4933f83' as SummaryId,
 			sessionRef: session.id,
 			tenantId: tenantA,
 			outcome: { status: 'succeeded' },
@@ -290,7 +292,7 @@ describe('DiskSessionStore', () => {
 		}
 		await store.recordSummary(first, tenantA)
 
-		const second = { ...first, id: 'sum_disk3b' as SummaryId }
+		const second = { ...first, id: 'bdeee884-6740-41fa-9886-6ac144cf0832' as SummaryId }
 		await expect(store.recordSummary(second, tenantA)).rejects.toMatchObject({
 			name: 'SessionAlreadySummarizedError',
 		})
@@ -314,7 +316,7 @@ describe('DiskSessionStore', () => {
 
 	it('deleteSession tolerates missing session directory (idempotent)', async () => {
 		await expect(
-			store.deleteSession('ses_nonexistent' as SessionId, tenantA),
+			store.deleteSession('376fd9f0-c2ab-4f84-b29d-ad786c7a68e6' as SessionId, tenantA),
 		).resolves.toBeUndefined()
 	})
 
@@ -367,7 +369,7 @@ describe('DiskSessionStore', () => {
 	it('getSummary rejects cross-tenant reads', async () => {
 		const { session } = await seed(store, tenantA)
 		const summary: SessionSummaryRef & { materializedBy: 'kernel' } = {
-			id: 'sum_disk4' as SummaryId,
+			id: '13809ef7-50d8-4405-a630-5e231f8c661a' as SummaryId,
 			sessionRef: session.id,
 			tenantId: tenantA,
 			outcome: { status: 'succeeded' },
@@ -383,8 +385,8 @@ describe('DiskSessionStore', () => {
 	})
 
 	describe('listSessionsByTopic(topicId, tenantId)', () => {
-		const topicX = 'top_x' as TopicId
-		const topicY = 'top_y' as TopicId
+		const topicX = '5c8a352b-b97a-4b96-a7bd-e1425205de59' as TopicId
+		const topicY = '100121a3-969c-4f1a-a87b-812ee86b9d44' as TopicId
 
 		it('returns [] when the projects root is empty', async () => {
 			// Fresh temp root — no projects directory yet.
@@ -437,4 +439,4 @@ import type { SessionId } from '../../../types/ids/index.js'
 import type { SummaryId, TopicId } from '../../../types/session/ids.js'
 import type { SessionSummaryRef } from '../../../types/summary/ref.js'
 
-const TEST_TOPIC_ID = 'top_test' as TopicId
+const TEST_TOPIC_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId

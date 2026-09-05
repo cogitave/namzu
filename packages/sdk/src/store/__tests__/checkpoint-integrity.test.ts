@@ -23,7 +23,7 @@ import { RunDiskStore } from '../run/disk.js'
  * trusted.
  */
 
-const RUN_ID = 'run_cp' as RunId
+const RUN_ID = '9794ade6-adf0-45b7-b1bd-49035546349a' as RunId
 
 let baseDir: string
 let store: RunDiskStore
@@ -71,32 +71,34 @@ function checkpoint(id: string, iteration: number): IterationCheckpoint {
 
 describe('a damaged checkpoint', () => {
 	it('is refused rather than skipped when listing', async () => {
-		await store.writeCheckpoint(checkpoint('cp_1', 1))
-		writeFileSync(join(cpDir, 'cp_2.json'), '{ not json', 'utf-8')
+		await store.writeCheckpoint(checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
+		writeFileSync(join(cpDir, '7802b395-981e-430a-86c7-058cb79dbaf9.json'), '{ not json', 'utf-8')
 
 		await expect(store.listCheckpoints()).rejects.toThrow()
 	})
 
 	it('does not quietly shorten the list', async () => {
-		await store.writeCheckpoint(checkpoint('cp_1', 1))
-		await store.writeCheckpoint(checkpoint('cp_2', 2))
+		await store.writeCheckpoint(checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
+		await store.writeCheckpoint(checkpoint('7802b395-981e-430a-86c7-058cb79dbaf9', 2))
 		expect(await store.listCheckpoints()).toHaveLength(2)
 
-		writeFileSync(join(cpDir, 'cp_2.json'), 'truncated', 'utf-8')
+		writeFileSync(join(cpDir, '7802b395-981e-430a-86c7-058cb79dbaf9.json'), 'truncated', 'utf-8')
 		// Returning one here is the failure: the caller cannot tell it from
 		// a run that only ever had one checkpoint.
 		await expect(store.listCheckpoints()).rejects.toThrow()
 	})
 
 	it('is refused on the by-id path too', async () => {
-		writeFileSync(join(cpDir, 'cp_9.json'), '{ not json', 'utf-8')
-		await expect(store.readCheckpoint('cp_9' as CheckpointId)).rejects.toThrow()
+		writeFileSync(join(cpDir, '227436b6-3082-4bdc-a441-7e828e479876.json'), '{ not json', 'utf-8')
+		await expect(
+			store.readCheckpoint('227436b6-3082-4bdc-a441-7e828e479876' as CheckpointId),
+		).rejects.toThrow()
 	})
 })
 
 describe('a file that parses but is not a checkpoint', () => {
 	it('is refused rather than resumed from', async () => {
-		writeFileSync(join(cpDir, 'cp_empty.json'), '{}', 'utf-8')
+		writeFileSync(join(cpDir, '2942b253-735c-47b6-bfa3-f2523b50d448.json'), '{}', 'utf-8')
 		// This used to pass both read paths — a cast is not a check — and
 		// fail much later at the point of use, where the message names a
 		// missing property rather than a damaged file.
@@ -104,19 +106,26 @@ describe('a file that parses but is not a checkpoint', () => {
 	})
 
 	it('names the file and what a resume needs', async () => {
-		writeFileSync(join(cpDir, 'cp_partial.json'), JSON.stringify({ id: 'x' }), 'utf-8')
-		await expect(store.readCheckpoint('cp_partial' as CheckpointId)).rejects.toThrow(
-			/cp_partial\.json/,
+		writeFileSync(
+			join(cpDir, '0be0746a-101e-4b14-a0a3-2d791d55f394.json'),
+			JSON.stringify({ id: 'x' }),
+			'utf-8',
 		)
+		await expect(
+			store.readCheckpoint('0be0746a-101e-4b14-a0a3-2d791d55f394' as CheckpointId),
+		).rejects.toThrow('0be0746a-101e-4b14-a0a3-2d791d55f394.json')
 	})
 })
 
 describe('the ordinary paths', () => {
 	it('still lists what is there, oldest first', async () => {
-		await store.writeCheckpoint(checkpoint('cp_2', 2))
-		await store.writeCheckpoint(checkpoint('cp_1', 1))
+		await store.writeCheckpoint(checkpoint('7802b395-981e-430a-86c7-058cb79dbaf9', 2))
+		await store.writeCheckpoint(checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
 
-		expect((await store.listCheckpoints()).map((c) => c.id)).toEqual(['cp_1', 'cp_2'])
+		expect((await store.listCheckpoints()).map((c) => c.id)).toEqual([
+			'62d8ff8a-122d-4369-8274-e1f1dc479c1c',
+			'7802b395-981e-430a-86c7-058cb79dbaf9',
+		])
 	})
 
 	it('returns an empty list when there are no checkpoints at all', async () => {
@@ -125,11 +134,13 @@ describe('the ordinary paths', () => {
 	})
 
 	it('returns null for a checkpoint that was never written', async () => {
-		expect(await store.readCheckpoint('cp_missing' as CheckpointId)).toBeNull()
+		expect(
+			await store.readCheckpoint('e8e27c68-a53c-4003-9fbe-3349649af71a' as CheckpointId),
+		).toBeNull()
 	})
 
 	it('ignores files that are not checkpoints', async () => {
-		await store.writeCheckpoint(checkpoint('cp_1', 1))
+		await store.writeCheckpoint(checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
 		writeFileSync(join(cpDir, 'notes.txt'), 'scratch', 'utf-8')
 		expect(await store.listCheckpoints()).toHaveLength(1)
 	})

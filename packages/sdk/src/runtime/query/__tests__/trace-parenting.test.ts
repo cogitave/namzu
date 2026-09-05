@@ -87,10 +87,10 @@ async function runOnce(parentSpan?: Span) {
 		agentName: 'Traced',
 		messages: [createUserMessage('go')],
 		workingDirectory,
-		sessionId: 'ses_t' as SessionId,
-		topicId: 'top_t' as TopicId,
-		projectId: 'prj_t' as ProjectId,
-		tenantId: 'tnt_t' as TenantId,
+		sessionId: '6124baf7-07f6-4cf6-93c0-b9d238e322bb' as SessionId,
+		topicId: 'c0e05744-2c2e-498d-a947-77633d012e7c' as TopicId,
+		projectId: 'ca339f52-3636-4e0a-81ca-4e86e8d8b8b2' as ProjectId,
+		tenantId: '2e7341cb-d8d3-424e-bf70-53ceffaf2557' as TenantId,
 		...(parentSpan ? { parentSpan } : {}),
 	})
 

@@ -46,9 +46,9 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: vi.fn(async () => ({
 		root: '/state',
 		backend: 'central',
-		topicId: 'top_stateless',
-		projectId: 'prj_stateless',
-		tenantId: 'tnt_stateless',
+		topicId: 'f29dac4e-8d04-41db-9b29-5ac5e34b28e3',
+		projectId: '18afaab4-f803-4cfe-87ad-ea9f1b7edbbf',
+		tenantId: '3daaeb04-b9ef-46a0-888d-ba45672be60c',
 	})),
 	resolveConversation: vi.fn(),
 	loadConversation: vi.fn(),
@@ -155,9 +155,9 @@ describe('run-stream stateless history admission', () => {
 		expect((constructed[0] as unknown[])[2]).toMatchObject({
 			stateRoot: '/state',
 			scope: {
-				topicId: 'top_stateless',
-				projectId: 'prj_stateless',
-				tenantId: 'tnt_stateless',
+				topicId: 'f29dac4e-8d04-41db-9b29-5ac5e34b28e3',
+				projectId: '18afaab4-f803-4cfe-87ad-ea9f1b7edbbf',
+				tenantId: '3daaeb04-b9ef-46a0-888d-ba45672be60c',
 			},
 		})
 		expect(sent).toHaveLength(1)

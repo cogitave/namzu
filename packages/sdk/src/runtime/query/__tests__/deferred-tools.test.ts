@@ -67,10 +67,10 @@ describe('query deferred tool discovery', () => {
 			agentName: 'Test Agent',
 			messages: [createUserMessage('what tools can you use?')],
 			workingDirectory,
-			sessionId: 'ses_deferred_tools' as SessionId,
-			topicId: 'top_deferred_tools' as TopicId,
-			projectId: 'prj_deferred_tools' as ProjectId,
-			tenantId: 'tnt_deferred_tools' as TenantId,
+			sessionId: '5df50119-0604-4efb-9ce9-ec54a635b257' as SessionId,
+			topicId: '2d636b87-b749-4b32-9f0b-5cc6dec1cd13' as TopicId,
+			projectId: 'f8135875-706b-426d-8012-26fccc63ec88' as ProjectId,
+			tenantId: '89016fd9-b650-4aea-9ce4-a7c85ccb789d' as TenantId,
 		})
 
 		expect(run.status).toBe('completed')
@@ -119,10 +119,10 @@ describe('query deferred tool discovery', () => {
 			agentName: 'Test Agent',
 			messages: [createUserMessage('generate D-01')],
 			workingDirectory,
-			sessionId: 'ses_deferred_allowed_tools' as SessionId,
-			topicId: 'top_deferred_allowed_tools' as TopicId,
-			projectId: 'prj_deferred_allowed_tools' as ProjectId,
-			tenantId: 'tnt_deferred_allowed_tools' as TenantId,
+			sessionId: '71a8c074-a07e-43f4-9419-dbc08308ed4c' as SessionId,
+			topicId: 'c8643bd3-566a-4be9-adda-35b70a7eb33f' as TopicId,
+			projectId: '8870b8ec-4121-46ec-96b1-ae159780fa26' as ProjectId,
+			tenantId: 'd4401c55-891e-46c1-935d-9c47708a5ffe' as TenantId,
 		})
 
 		expect(run.status).toBe('completed')
@@ -153,7 +153,7 @@ describe('query deferred tool discovery', () => {
 		const result = await SearchToolsTool.execute(
 			{ query: 'dangerous' },
 			{
-				runId: 'run_deferred_allowed_tools' as RunId,
+				runId: '3be09a61-8dda-40c4-b92e-7557b0abd9ad' as RunId,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -190,7 +190,7 @@ describe('query deferred tool discovery', () => {
 		const result = await SearchToolsTool.execute(
 			{ query: 'invoice' },
 			{
-				runId: 'run_deferred_top_k' as RunId,
+				runId: '38f6525d-0bbb-45cb-9f48-710f6a4a3898' as RunId,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},

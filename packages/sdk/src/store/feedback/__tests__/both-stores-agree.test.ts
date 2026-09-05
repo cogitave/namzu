@@ -18,11 +18,11 @@ import { InMemoryMessageFeedbackStore } from '../memory.js'
  * only arrangement where a property proven for one is proven for both.
  */
 
-const RUN = 'run_feedback_a' as RunId
-const OTHER_RUN = 'run_feedback_b' as RunId
-const KNOWN = 'msg_known' as MessageId
-const OTHER_KNOWN = 'msg_other' as MessageId
-const UNKNOWN = 'msg_never_emitted' as MessageId
+const RUN = 'f9abe873-4a55-4c2a-887b-8f5d4b0d7521' as RunId
+const OTHER_RUN = '3e6e241d-274e-4704-ac23-a75b2a8316d9' as RunId
+const KNOWN = 'ded9f694-9455-4eab-b278-0964a9360c87' as MessageId
+const OTHER_KNOWN = '7e9df8cc-a9b1-453c-b3d6-f7bba439d57c' as MessageId
+const UNKNOWN = '992a95ec-bc31-4162-bc12-f96fce830cd6' as MessageId
 
 const dirs: string[] = []
 

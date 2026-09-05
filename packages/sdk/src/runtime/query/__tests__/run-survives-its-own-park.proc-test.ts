@@ -47,6 +47,7 @@ afterEach(() => {
  * which is where the process used to die.
  */
 const SCRIPT = `
+import { randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 const sdk = await import(pathToFileURL(process.argv[2]).href)
 const { ToolRegistry, drainQuery, defineTool } = sdk
@@ -92,7 +93,7 @@ drainQuery({
   messages: [{ role: 'user', content: 'go', timestamp: Date.now() }],
   workingDirectory: process.argv[4],
   runConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 4, maxResponseTokens: 128 },
-  sessionId: 'ses_x', topicId: 'top_x', projectId: 'prj_x', tenantId: 'tnt_x',
+  sessionId: randomUUID(), topicId: randomUUID(), projectId: randomUUID(), tenantId: randomUUID(),
 }, (e) => { last = e.type }).then(
   (run) => console.log('RESULT ' + JSON.stringify({ status: run.status, stop: run.stopReason, last })),
   (err) => console.log('THREW ' + (err?.message ?? err)),

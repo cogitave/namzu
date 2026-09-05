@@ -18,7 +18,7 @@ import { runInputGuardrails, runOutputGuardrails } from '../guardrails.js'
  * that moment.
  */
 
-const RUN_ID = 'run_guard' as RunId
+const RUN_ID = '6b594743-d743-4af4-9d00-75b4829048db' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

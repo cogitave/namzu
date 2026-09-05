@@ -55,7 +55,7 @@ afterEach(() => {
 
 function toolContext(workingDirectory: string): ToolContext {
 	return {
-		runId: 'run_test' as RunId,
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},

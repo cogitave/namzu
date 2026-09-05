@@ -12,7 +12,7 @@ const existing: readonly Message[] = [
 	{ role: 'assistant', content: 'I will remember it.', timestamp: 2 },
 ]
 const sent: Message[][] = []
-const startConversation = vi.hoisted(() => vi.fn(async () => 'ses_fresh'))
+const startConversation = vi.hoisted(() => vi.fn(async () => '0ac90d46-4041-4402-8bc7-89c9a8c75f73'))
 const loadResumableConversation = vi.hoisted(() => vi.fn())
 const probeAgentSessionCall = vi.hoisted(() => vi.fn())
 const createAgentSessionCall = vi.hoisted(() => vi.fn())
@@ -30,8 +30,8 @@ vi.mock('../../user-commands/store.js', () => ({
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({
 		tenantId: 'tenant',
-		projectId: 'prj_test',
-		topicId: 'top_test',
+		projectId: '08c9b09c-4412-478c-878b-dc94927c760f',
+		topicId: '4bd72c65-bcc9-475c-8d7c-27d622df04e8',
 		turnEvidence: {
 			recordTurnStarted: async (input: unknown) => ({
 				...(input as object),
@@ -135,7 +135,7 @@ describe('the shell resume handoff inside App', () => {
 				ctx={{
 					cwd: '/workspace',
 					version: '0.0.0-test',
-					initialConversationId: 'ses_existing',
+					initialConversationId: 'b74ac146-4b6d-45b8-b04b-e019792facf9',
 				}}
 			/>,
 			{ cols: 100, rows: 24 },
@@ -146,7 +146,7 @@ describe('the shell resume handoff inside App', () => {
 				() => screen.scrollback().some((line) => line.includes('Connected to provider')),
 				'App never became ready',
 			)
-			expect(loadResumableConversation).toHaveBeenCalledWith(expect.anything(), 'ses_existing')
+			expect(loadResumableConversation).toHaveBeenCalledWith(expect.anything(), 'b74ac146-4b6d-45b8-b04b-e019792facf9')
 			expect(startConversation).not.toHaveBeenCalled()
 			expect(screen.scrollback().join('\n')).toContain('remember the blue door')
 
@@ -180,7 +180,7 @@ describe('the shell resume handoff inside App', () => {
 				ctx={{
 					cwd: '/workspace',
 					version: '0.0.0-test',
-					initialConversationId: 'ses_existing',
+					initialConversationId: 'b74ac146-4b6d-45b8-b04b-e019792facf9',
 				}}
 			/>,
 			{ cols: 100, rows: 24 },
@@ -211,7 +211,7 @@ describe('the shell resume handoff inside App', () => {
 				ctx={{
 					cwd: '/workspace',
 					version: '0.0.0-test',
-					initialConversationId: 'ses_missing',
+					initialConversationId: '1ef9ce34-f888-4928-9659-b4f6388670a9',
 				}}
 			/>,
 			{ cols: 100, rows: 24 },
@@ -219,7 +219,7 @@ describe('the shell resume handoff inside App', () => {
 		try {
 			await waitUntil(
 				screen,
-				() => screen.scrollback().some((line) => line.includes('Could not resume ses_missing')),
+				() => screen.scrollback().some((line) => line.includes('Could not resume 1ef9ce34-f888-4928-9659-b4f6388670a9')),
 				'exact resume refusal never reached the terminal',
 			)
 			expect(startConversation).not.toHaveBeenCalled()

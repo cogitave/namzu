@@ -58,17 +58,17 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 				try {
 					yield {
 						type: 'text_delta',
-						runId: 'run_owned',
+						runId: '87f8e385-8e27-4622-ba76-750282582c15',
 						iteration: 1,
-						messageId: 'msg_owned',
+						messageId: 'ceb65f4b-38dd-4540-8fca-ce160e9dbd38',
 						text: 'started',
 					} as never
 				} finally {
 					operations.order.push('query-cleanup-start')
 					yield {
 						type: 'sandbox_destroyed',
-						runId: 'run_owned',
-						sandboxId: 'sbx_owned',
+						runId: '87f8e385-8e27-4622-ba76-750282582c15',
+						sandboxId: '6f53f078-01e4-456a-af15-c94ae082667a',
 					} as never
 					operations.order.push('query-cleanup-finished')
 					operations.order.push('send-settled')
@@ -267,10 +267,10 @@ describe('AgentSession close owns its live work', () => {
 		const resumeOutcome = session
 			.resumeDurable({
 				entry: {
-					runId: 'run_owned',
-					sessionId: 'ses_owned',
-					projectId: 'prj_owned',
-					tenantId: 'tnt_owned',
+					runId: '87f8e385-8e27-4622-ba76-750282582c15',
+					sessionId: 'e987235a-edbf-4a98-bff1-f27a58cd7862',
+					projectId: '242a64d9-0216-4eb0-8d5d-cb832ccd4c21',
+					tenantId: 'a88f05eb-ba3a-4fef-9942-801a712acff6',
 				} as never,
 				checkpointStore: {} as never,
 				signal: resumeCaller.signal,
@@ -337,7 +337,7 @@ describe('AgentSession close owns its live work', () => {
 							executeHooks(event: string, context: unknown): Promise<readonly unknown[]>
 					  }
 					| undefined
-			)?.executeHooks('pre_llm_call', { runId: 'run_after_close' }),
+			)?.executeHooks('pre_llm_call', { runId: 'c3b59814-a47c-41d7-b2bc-eacd7363d69f' }),
 		).resolves.toEqual([])
 
 		const callsAfterClose = operations.calls.length

@@ -7,7 +7,7 @@ const flush = vi.hoisted(() => vi.fn())
 const waitUntilExit = vi.hoisted(() => vi.fn(async () => {}))
 const render = vi.hoisted(() =>
 	vi.fn((element: { props: { onExitSummary?: (value: unknown) => void } }) => {
-		element.props.onExitSummary?.({ conversationId: 'ses_clean' })
+		element.props.onExitSummary?.({ conversationId: '6c43cf3e-5512-4678-9b77-179a4d4daed6' })
 		return { waitUntilExit }
 	}),
 )
@@ -47,7 +47,7 @@ describe('launchTui clean settlement', () => {
 			}),
 		)
 		expect(write).toHaveBeenLastCalledWith(
-			'To resume this conversation, run: namzu resume ses_clean\n',
+			'To resume this conversation, run: namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
 		)
 	})
 })

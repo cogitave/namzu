@@ -18,7 +18,7 @@ import { ToolExecutor } from '../executor.js'
  * arrived — the mapper tests passed because they set the fields by hand.
  */
 
-const RUN_ID = 'run_wire' as RunId
+const RUN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -120,17 +120,15 @@ describe('rich tool content reaches the message', () => {
 		expect(batch.messages[0]?.content).toBe('plain text')
 	})
 
-	it('drops rich content when the output was spilled — the preview is not the payload', async () => {
+	it('preserves independent model content when the host output needs a preview', async () => {
 		const exec = executorReturning(
 			{ success: true, output: 'x'.repeat(5_000), content: [{ type: 'text', text: 'x' }] },
 			200,
 		)
 		const batch = await exec.executeBatch(response('read'))
 
-		// The model must see the budgeted preview, not a block array that
-		// still carries the full payload.
-		expect(typeof batch.messages[0]?.content).toBe('string')
-		expect(String(batch.messages[0]?.content)).toContain('characters omitted')
-		expect(String(batch.messages[0]?.content).length).toBeLessThanOrEqual(200)
+		expect(batch.messages[0]?.content).toEqual([{ type: 'text', text: 'x' }])
+		expect(batch.results[0]?.output).toContain('omitted')
+		expect(batch.results[0]?.output.length).toBeLessThanOrEqual(200)
 	})
 })

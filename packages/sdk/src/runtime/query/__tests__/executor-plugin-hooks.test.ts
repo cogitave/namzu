@@ -12,7 +12,7 @@ import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
 
-const mockRunId = 'run_test' as RunId
+const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
 
 function makeLogger(): Logger {
 	const stub = {

@@ -30,7 +30,7 @@ import type { Logger } from '../utils/logger.js'
  * turn, is the conversation still something a provider would accept?
  */
 
-const RUN_ID = 'run_conformance' as RunId
+const RUN_ID = '2d22dc61-d2a5-483c-a73d-a70e2a57e414' as RunId
 
 /** The CLI's gate, verbatim in shape: read-only allowed, dangerous denied. */
 const CLI_GATE: AuthorizationGateConfig = {
@@ -146,7 +146,7 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		log,
 		emitEvent: async () => {},
 		drainPending: function* (): Generator<RunEvent> {},
-		checkpointMgr: { create: async () => ({ id: 'cp_1' }) },
+		checkpointMgr: { create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) },
 		planManager: { active: undefined },
 		// The CLI's permission prompt resolves to exactly this.
 		resumeHandler: async () => opts.decision,

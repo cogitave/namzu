@@ -48,7 +48,7 @@ function mockSseResponse(frames: string[], status = 200): Response {
 
 function mockAnthropicDoneSse(): Response {
 	return mockSseResponse([
-		'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_done","usage":{"input_tokens":1,"output_tokens":0}}}',
+		'event: message_start\ndata: {"type":"message_start","message":{"id":"b0024cc4-f474-4ac4-bb3d-63724fb4768f","usage":{"input_tokens":1,"output_tokens":0}}}',
 		'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":1,"output_tokens":0}}',
 		'event: message_stop\ndata: {"type":"message_stop"}',
 	])
@@ -56,7 +56,7 @@ function mockAnthropicDoneSse(): Response {
 
 function mockOpenAiDoneSse(): Response {
 	return mockSseResponse([
-		'data: {"id":"msg_done","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":0,"total_tokens":1}}',
+		'data: {"id":"b0024cc4-f474-4ac4-bb3d-63724fb4768f","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":0,"total_tokens":1}}',
 		'data: [DONE]',
 	])
 }
@@ -189,7 +189,7 @@ describe('@namzu/http — request construction', () => {
 	it.skip('anthropic dialect: POSTs /messages with x-api-key + anthropic-version + max_tokens', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(
 			mockJsonResponse({
-				id: 'msg_1',
+				id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 				type: 'message',
 				role: 'assistant',
 				model: 'claude-sonnet-4',
@@ -548,7 +548,7 @@ describe('@namzu/http — response parsing', () => {
 			'fetch',
 			vi.fn().mockResolvedValue(
 				mockJsonResponse({
-					id: 'msg_1',
+					id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 					type: 'message',
 					role: 'assistant',
 					model: 'claude-sonnet-4',
@@ -598,7 +598,7 @@ describe('@namzu/http — response parsing', () => {
 			'fetch',
 			vi.fn().mockResolvedValue(
 				mockJsonResponse({
-					id: 'msg_2',
+					id: 'efe8f849-85cf-4b94-8bc7-cad64f257419',
 					type: 'message',
 					model: 'claude-sonnet-4',
 					content: [{ type: 'text', text: 'truncated...' }],
@@ -667,7 +667,7 @@ describe('@namzu/http — DialectMismatchError', () => {
 			'fetch',
 			vi.fn().mockResolvedValue(
 				mockJsonResponse({
-					id: 'msg_1',
+					id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 					type: 'message',
 					model: 'claude',
 					content: [{ type: 'text', text: 'hi' }],
@@ -770,7 +770,7 @@ describe('@namzu/http — streaming', () => {
 				.fn()
 				.mockResolvedValue(
 					mockSseResponse([
-						'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":3,"output_tokens":0}}}',
+						'event: message_start\ndata: {"type":"message_start","message":{"id":"116b88f1-7300-4be5-a05d-f2a87105f095","usage":{"input_tokens":3,"output_tokens":0}}}',
 						'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
 						'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}',
 						'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"lo"}}',

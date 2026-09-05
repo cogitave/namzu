@@ -41,7 +41,7 @@ function workspace() {
 
 const ctx = (root: string): ToolContext =>
 	({
-		runId: 'run_test' as ToolContext['runId'],
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as ToolContext['runId'],
 		workingDirectory: root,
 		abortSignal: new AbortController().signal,
 		env: {},

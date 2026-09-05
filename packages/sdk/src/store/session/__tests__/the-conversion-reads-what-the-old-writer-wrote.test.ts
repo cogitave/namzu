@@ -24,7 +24,7 @@ import { DiskSessionStore, migrateSessionStoreMessageRecordKind } from '../disk.
  * partially and written back with the difference gone.
  */
 
-const TENANT = 'tnt_conv' as TenantId
+const TENANT = 'c2d8161e-a1a1-48b1-91ff-fbfeacea601a' as TenantId
 
 const dirs: string[] = []
 
@@ -65,15 +65,15 @@ function projectRecord(id: string, name: string, createdAt: number) {
 describe('the converted store reads what the old writer wrote', () => {
 	it('marks only old message-log lines as ordinary appends', () => {
 		const old = {
-			id: 'msg_old',
-			sessionId: 'ses_old',
+			id: '7b3cb5b5-d321-480e-9d9a-6cb586ab04bd',
+			sessionId: '16209b19-849b-4d93-a8f9-eca83fa41092',
 			tenantId: TENANT,
 			message: { role: 'user', content: 'hello' },
 			at: '2026-08-18T00:00:00.000Z',
 		}
 		expect(migrateSessionStoreMessageRecordKind(old)).toEqual({ ...old, recordKind: 'message' })
 
-		const project = projectRecord('prj_a', 'A', 1)
+		const project = projectRecord('912b9ccc-bd50-44fc-80fd-0229154e8a81', 'A', 1)
 		expect(migrateSessionStoreMessageRecordKind(project)).toBe(project)
 	})
 
@@ -82,10 +82,16 @@ describe('the converted store reads what the old writer wrote', () => {
 		// that had come to depend on the newline would fail here and only
 		// here — every round-trip through the new code would pass.
 		const root = await fixtureRoot()
-		await oldWrite(join(root, 'projects', 'prj_a', 'project.json'), projectRecord('prj_a', 'A', 1))
+		await oldWrite(
+			join(root, 'projects', '912b9ccc-bd50-44fc-80fd-0229154e8a81', 'project.json'),
+			projectRecord('912b9ccc-bd50-44fc-80fd-0229154e8a81', 'A', 1),
+		)
 
 		const store = new DiskSessionStore({ rootDir: root })
-		const project = await store.getProject('prj_a' as ProjectId, TENANT)
+		const project = await store.getProject(
+			'912b9ccc-bd50-44fc-80fd-0229154e8a81' as ProjectId,
+			TENANT,
+		)
 
 		expect(project?.name).toBe('A')
 	})
@@ -100,9 +106,9 @@ describe('the converted store reads what the old writer wrote', () => {
 		// Written out of order on purpose so the sort has something to do.
 		const root = await fixtureRoot()
 		for (const [id, name, t] of [
-			['prj_c', 'C', 3],
-			['prj_a', 'A', 1],
-			['prj_b', 'B', 2],
+			['8d8cdcf3-4c2c-484c-b208-54dcd1964be4', 'C', 3],
+			['912b9ccc-bd50-44fc-80fd-0229154e8a81', 'A', 1],
+			['ed1cd416-04e4-4aad-ba05-2d5cf148ea1e', 'B', 2],
 		] as const) {
 			await oldWrite(join(root, 'projects', id, 'project.json'), projectRecord(id, name, t))
 		}
@@ -110,7 +116,11 @@ describe('the converted store reads what the old writer wrote', () => {
 		const store = new DiskSessionStore({ rootDir: root })
 		const listed = await store.listProjects(TENANT)
 
-		expect(listed.map((p) => p.id)).toEqual(['prj_a', 'prj_b', 'prj_c'])
+		expect(listed.map((p) => p.id)).toEqual([
+			'912b9ccc-bd50-44fc-80fd-0229154e8a81',
+			'ed1cd416-04e4-4aad-ba05-2d5cf148ea1e',
+			'8d8cdcf3-4c2c-484c-b208-54dcd1964be4',
+		])
 	})
 
 	it('treats an absent tree as empty rather than an error', async () => {
@@ -120,7 +130,9 @@ describe('the converted store reads what the old writer wrote', () => {
 		const store = new DiskSessionStore({ rootDir: await fixtureRoot() })
 
 		await expect(store.listProjects(TENANT)).resolves.toEqual([])
-		await expect(store.getProject('prj_missing' as ProjectId, TENANT)).resolves.toBeNull()
+		await expect(
+			store.getProject('98a32d05-54ff-4dcd-b0c2-38b2f2406dd2' as ProjectId, TENANT),
+		).resolves.toBeNull()
 	})
 
 	it('still refuses a record from a newer build', async () => {
@@ -131,15 +143,15 @@ describe('the converted store reads what the old writer wrote', () => {
 		// conversion, and nothing about a read signature says it does.
 		const root = await fixtureRoot()
 		await oldWrite(
-			join(root, 'projects', 'prj_future', 'project.json'),
-			projectRecord('prj_future', 'F', 1),
+			join(root, 'projects', 'd1adef02-abdf-485b-ab02-d697cb988554', 'project.json'),
+			projectRecord('d1adef02-abdf-485b-ab02-d697cb988554', 'F', 1),
 			999,
 		)
 
 		const store = new DiskSessionStore({ rootDir: root })
 
-		await expect(store.getProject('prj_future' as ProjectId, TENANT)).rejects.toThrow(
-			/schema|version/i,
-		)
+		await expect(
+			store.getProject('d1adef02-abdf-485b-ab02-d697cb988554' as ProjectId, TENANT),
+		).rejects.toThrow(/schema|version/i)
 	})
 })

@@ -12,8 +12,8 @@ import { messageToA2A } from './message.js'
  * check them against, only the shapes it happens to receive.
  */
 
-const RID = 'run_1' as RunId
-const ctx = { taskId: 'task_1', contextId: 'ctx_1' } as never
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const ctx = { taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91', contextId: 'ctx_1' } as never
 
 const map = (event: RunEvent) => mapRunToA2AEvent(event, ctx)
 

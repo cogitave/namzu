@@ -100,10 +100,10 @@ async function run(opts: {
 			agentName: 'A',
 			messages: [createUserMessage('go')],
 			workingDirectory,
-			sessionId: 'ses_e' as SessionId,
-			topicId: 'top_e' as TopicId,
-			projectId: 'prj_e' as ProjectId,
-			tenantId: 'tnt_e' as TenantId,
+			sessionId: '48fa0ba7-347b-4eeb-8013-25fe2df84d71' as SessionId,
+			topicId: 'e0b6dcab-70b7-48e9-9676-55a5d3f33aa3' as TopicId,
+			projectId: '930eeb02-065c-436f-945f-d3603a642b79' as ProjectId,
+			tenantId: 'e16d7f36-5234-4a6a-b880-7e2972f9a59b' as TenantId,
 			...(opts.prepareStep ? { prepareStep: opts.prepareStep } : {}),
 		},
 		(event: RunEvent) => {
@@ -179,7 +179,7 @@ describe('what the model was asked, recorded when it changed', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'request_envelope',
-				runId: 'run_x',
+				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 				iteration: 1,
 				model: 'm',
 				systemPrompt: '',

@@ -600,7 +600,7 @@ async function* delayedAnthropicStream(delayMs: number) {
 	yield {
 		type: 'message_start',
 		message: {
-			id: 'msg_test',
+			id: '3166c5b6-7190-4537-b9c1-bda7b12b4241',
 			usage: { input_tokens: 1, output_tokens: 0 },
 		},
 	}

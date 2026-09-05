@@ -1,3 +1,4 @@
+import { fixtureUuid } from '../../../test-support/ids.js'
 /**
  * A worktree provisioned for a delegated child outlived the child that used it.
  *
@@ -50,7 +51,7 @@ import type {
 } from '../../workspace/driver.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 
-const tenant = 'tnt_alpha' as TenantId
+const tenant = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
 
 const capabilities: AgentCapabilities = {
 	supportsTools: false,
@@ -76,7 +77,7 @@ function buildAgent(
 			capabilities,
 		},
 		run: async (_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> => ({
-			runId: 'run_child' as RunId,
+			runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
 			status: outcome,
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -114,7 +115,7 @@ class RecordingWorkspaceDriver implements WorkspaceBackendDriver {
 
 	async create(params: CreateWorkspaceParams): Promise<WorkspaceRef> {
 		const ref: WorkspaceRef = {
-			id: `wsp_test_${++this.counter}` as WorkspaceId,
+			id: fixtureUuid(`wsp_test_${++this.counter}`) as WorkspaceId,
 			meta: {
 				backend: 'git-worktree',
 				repoRoot: '/tmp/repo',
@@ -158,7 +159,11 @@ async function harness(
 		tenant,
 	)
 
-	const userActor: ActorRef = { kind: 'user', userId: 'usr_root' as UserId, tenantId: tenant }
+	const userActor: ActorRef = {
+		kind: 'user',
+		userId: 'e04738b9-b828-4251-9b35-bc3bc8a2adf8' as UserId,
+		tenantId: tenant,
+	}
 
 	const parentSession = await store.createSession(
 		{ topicId: thread.id, projectId: project.id, currentActor: userActor },
@@ -169,7 +174,7 @@ async function harness(
 	let summaryCounter = 0
 	const materializer = new SessionSummaryMaterializer({
 		store,
-		generateSummaryId: () => `sum_test_${++summaryCounter}` as SummaryId,
+		generateSummaryId: () => fixtureUuid(`sum_test_${++summaryCounter}`) as SummaryId,
 	})
 
 	const registry = new AgentRegistry()
@@ -188,7 +193,7 @@ async function harness(
 	})
 
 	const taskContext: AgentTaskContext = {
-		parentRunId: 'run_parent' as RunId,
+		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: 0,

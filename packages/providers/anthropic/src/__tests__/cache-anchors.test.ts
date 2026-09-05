@@ -29,7 +29,10 @@ function bodyCapturer(): {
 			create: vi.fn(async (body: Record<string, unknown>) => {
 				seen.body = body
 				return (async function* () {
-					yield { type: 'message_start', message: { id: 'msg_1' } }
+					yield {
+						type: 'message_start',
+						message: { id: '116b88f1-7300-4be5-a05d-f2a87105f095' },
+					}
 				})()
 			}),
 		},
@@ -64,8 +67,16 @@ function messageBlocks(body: Record<string, unknown>): Block[] {
 }
 
 const TAGGED_SYSTEM = [
-	{ role: 'system' as const, content: 'static rules', cacheHint: 'cache' as const },
-	{ role: 'system' as const, content: 'run-specific context', cacheHint: 'ephemeral' as const },
+	{
+		role: 'system' as const,
+		content: 'static rules',
+		cacheHint: 'cache' as const,
+	},
+	{
+		role: 'system' as const,
+		content: 'run-specific context',
+		cacheHint: 'ephemeral' as const,
+	},
 	{ role: 'user' as const, content: 'go' },
 ]
 
@@ -203,7 +214,7 @@ describe('cache usage is read back off the wire', () => {
 						yield {
 							type: 'message_start',
 							message: {
-								id: 'msg_1',
+								id: '116b88f1-7300-4be5-a05d-f2a87105f095',
 								usage: {
 									input_tokens: 10,
 									output_tokens: 2,
@@ -242,7 +253,10 @@ describe('cache usage is read back off the wire', () => {
 					(async function* () {
 						yield {
 							type: 'message_start',
-							message: { id: 'm', usage: { input_tokens: 5, output_tokens: 1 } },
+							message: {
+								id: 'm',
+								usage: { input_tokens: 5, output_tokens: 1 },
+							},
 						}
 					})(),
 				),
@@ -257,6 +271,9 @@ describe('cache usage is read back off the wire', () => {
 			chunks.push(chunk)
 		}
 
-		expect(chunks[0]?.usage).toMatchObject({ cachedTokens: 0, cacheWriteTokens: 0 })
+		expect(chunks[0]?.usage).toMatchObject({
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		})
 	})
 })

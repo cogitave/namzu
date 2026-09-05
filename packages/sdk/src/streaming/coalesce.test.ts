@@ -23,9 +23,9 @@ import type { RunEvent } from '../types/run/events.js'
 
 import { coalesce } from './coalesce.js'
 
-const RID = 'run_1' as RunId
-const MID = 'msg_1' as MessageId
-const MID2 = 'msg_2' as MessageId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const MID = '116b88f1-7300-4be5-a05d-f2a87105f095' as MessageId
+const MID2 = 'efe8f849-85cf-4b94-8bc7-cad64f257419' as MessageId
 const TUID: ToolUseId = 'toolu_a'
 const TUID2: ToolUseId = 'toolu_b'
 

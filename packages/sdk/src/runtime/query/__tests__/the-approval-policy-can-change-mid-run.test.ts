@@ -18,7 +18,7 @@ import { AUTO_APPROVE_POLICY_NAME, createRunApprovalPolicy } from '../approval-p
  * the state this event exists to prevent.
  */
 
-const RUN = 'run_policy' as RunId
+const RUN = '961b5a8f-6c8e-4ac6-a1a6-6110b14cfd70' as RunId
 
 const policy = (name: string): ApprovalPolicy => ({
 	name,

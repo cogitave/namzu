@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -76,7 +77,14 @@ function boundedPreview(
 		'',
 	].join('\n')
 	const compactMiddle = '\n[... omitted ...]\n'
-	const middle = detailedMiddle.length < maxChars ? detailedMiddle : compactMiddle
+	const spillLine = recovery.split('\n').find((line) => line.startsWith(SPILL_MARKER))
+	const compactRecovery = spillLine ? `${compactMiddle}${spillLine}\n` : compactMiddle
+	const middle =
+		detailedMiddle.length < maxChars
+			? detailedMiddle
+			: compactRecovery.length < maxChars
+				? compactRecovery
+				: compactMiddle
 
 	// A host may deliberately set a tiny positive cap. At that point no
 	// truthful recovery sentence fits; the hard bound still wins.
@@ -123,7 +131,7 @@ export function describeDroppedContent(
 	if (counts.size === 0) return undefined
 
 	const parts = [...counts].map(([kind, n]) => (n === 1 ? `1 ${kind}` : `${n} ${kind} blocks`))
-	return `[${parts.join(', ')} omitted: this result was truncated, and the preview above no longer describes them.]`
+	return `[${parts.join(', ')} omitted from this model request.]`
 }
 
 /**
@@ -137,8 +145,7 @@ export function measureContentBytes(content: readonly unknown[] | unknown): numb
 	if (!Array.isArray(content)) return 0
 	let total = 0
 	for (const block of content as readonly Record<string, unknown>[]) {
-		if (typeof block?.data === 'string') total += block.data.length
-		else if (typeof block?.text === 'string') total += block.text.length
+		if (block?.type !== 'text' && typeof block?.data === 'string') total += block.data.length
 	}
 	return total
 }
@@ -148,6 +155,8 @@ export interface ApplyToolOutputBudgetOptions {
 	readonly toolUseId: string
 	readonly output: string
 	readonly maxChars: number
+	/** An omission notice that shares the text budget, never extends it. */
+	readonly notice?: string
 	/**
 	 * Directory to spill overflow into. When absent the output is
 	 * middle-elided instead — degraded, but never unbounded.
@@ -173,9 +182,20 @@ export interface ApplyToolOutputBudgetOptions {
 export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolOutputBudgetResult {
 	const { output, maxChars } = opts
 	const originalLength = output.length
+	const limit = Number.isFinite(maxChars) && maxChars > 0 ? Math.floor(maxChars) : undefined
+	const notice = opts.notice
+		? limit === undefined
+			? opts.notice
+			: safeHead(opts.notice, limit)
+		: ''
+	const textBudget =
+		limit === undefined
+			? undefined
+			: Math.max(0, limit - notice.length - (notice && output ? 2 : 0))
+	const withNotice = (text: string) => [text, notice].filter(Boolean).join('\n\n')
 
-	if (!Number.isFinite(maxChars) || maxChars <= 0 || originalLength <= maxChars) {
-		return { output, originalLength, truncated: false }
+	if (textBudget === undefined || originalLength <= textBudget) {
+		return { output: withNotice(output), originalLength, truncated: false }
 	}
 
 	const spillPath = opts.spillDir
@@ -187,10 +207,10 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 				`${SPILL_MARKER} ${spillPath}`,
 				'Read a specific window with `read` (offset/limit) or search it with `grep`. Do NOT read it whole — that is what exceeded the budget.',
 			].join('\n')
-		: 'The full output was not retained. Re-run with a narrower query, a line range, or a filter.'
+		: 'The full output was not retained. Use a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.'
 
 	return {
-		output: boundedPreview(output, maxChars, opts.toolName, recovery),
+		output: withNotice(boundedPreview(output, textBudget, opts.toolName, recovery)),
 		originalLength,
 		truncated: true,
 		...(spillPath ? { spillPath } : {}),
@@ -214,8 +234,11 @@ function spill(
 		// which is the host's decision to make and not this function's to
 		// override.
 		mkdirSync(dir, { recursive: true, mode: 0o700 })
-		// The tool_use id is already unique per call and safe as a filename.
-		const path = join(dir, `${toolUseId}.txt`)
+		// Provider correlation IDs are opaque strings, not filesystem names.
+		// A digest preserves deterministic lookup without interpreting slashes,
+		// traversal segments or platform-specific path syntax from the provider.
+		const name = createHash('sha256').update(toolUseId).digest('hex')
+		const path = join(dir, `${name}.txt`)
 		// `wx`, not the default `w`. `w` creates-or-truncates and FOLLOWS a
 		// symlink, at a path anything that can write to this directory could
 		// predict and pre-plant — so the kernel would overwrite the symlink's

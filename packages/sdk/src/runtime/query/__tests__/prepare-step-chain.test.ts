@@ -46,10 +46,10 @@ async function run(prepareStep: PrepareStepChain) {
 		agentName: 'Chained',
 		messages: [createUserMessage('do the work')],
 		workingDirectory,
-		sessionId: 'ses_c' as SessionId,
-		topicId: 'top_c' as TopicId,
-		projectId: 'prj_c' as ProjectId,
-		tenantId: 'tnt_c' as TenantId,
+		sessionId: 'fd031048-1d65-449b-b6f2-0a8f2ba6b99f' as SessionId,
+		topicId: '7f2cf483-e642-4898-8ac3-316074ab3639' as TopicId,
+		projectId: '8d8cdcf3-4c2c-484c-b208-54dcd1964be4' as ProjectId,
+		tenantId: 'bdb9c2e1-6b7c-4ac5-8cbb-671454d33d89' as TenantId,
 		prepareStep,
 	})
 

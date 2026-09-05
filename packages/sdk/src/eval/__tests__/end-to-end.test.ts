@@ -27,7 +27,7 @@ import type { EvalCase } from '../types.js'
  * loop cannot be driven at all).
  */
 
-const RUN_ID = 'run_eval' as RunId
+const RUN_ID = '19214193-f128-49d9-8644-0970a4ebb8eb' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -121,7 +121,7 @@ async function driveAgent(turns: unknown[]): Promise<Run> {
 		log,
 		emitEvent: async () => {},
 		drainPending: function* (): Generator<RunEvent> {},
-		checkpointMgr: { create: async () => ({ id: 'cp_1' }) },
+		checkpointMgr: { create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) },
 		planManager: { active: undefined },
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		stopWhen: hasToolCall('finish'),

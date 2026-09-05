@@ -52,7 +52,7 @@ vi.mock('../../integrations/updates.js', () => ({
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
-	startConversation: async () => 'ses_rename',
+	startConversation: async () => '91d5cf2f-12e5-4cee-a622-e9d3cc9b17f0',
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	replaceConversation: async () => {},
@@ -65,7 +65,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	},
 	listRecent: async () => [
 		{
-			id: 'ses_previous',
+			id: '294e464a-4578-4ad2-b3f3-f531d33f88bb',
 			title: titleState.current ?? 'Opening prompt',
 			updatedAt: new Date().toISOString(),
 			count: 2,

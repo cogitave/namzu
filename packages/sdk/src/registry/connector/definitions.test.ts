@@ -35,17 +35,22 @@ function makeDef(
 describe('ConnectorRegistry', () => {
 	it('keys by top-level id', () => {
 		const r = new ConnectorRegistry()
-		r.register(makeDef('conn_a', 'http'))
-		expect(r.get('conn_a')).toBeDefined()
+		r.register(makeDef('0d14a2c3-cb4d-45f4-8784-65e346e4fa86', 'http'))
+		expect(r.get('0d14a2c3-cb4d-45f4-8784-65e346e4fa86')).toBeDefined()
 	})
 
 	it('listByType filters by connectionType', () => {
 		const r = new ConnectorRegistry()
-		r.register(makeDef('conn_a', 'http'))
-		r.register(makeDef('conn_b', 'webhook'))
-		r.register(makeDef('conn_c', 'http'))
-		expect(r.listByType('http').map((d) => d.id)).toEqual(['conn_a', 'conn_c'])
-		expect(r.listByType('webhook').map((d) => d.id)).toEqual(['conn_b'])
+		r.register(makeDef('0d14a2c3-cb4d-45f4-8784-65e346e4fa86', 'http'))
+		r.register(makeDef('4f7cc074-39e0-4c26-b816-7c828a841542', 'webhook'))
+		r.register(makeDef('1a14cb04-4e56-4ca0-8037-58872737029b', 'http'))
+		expect(r.listByType('http').map((d) => d.id)).toEqual([
+			'0d14a2c3-cb4d-45f4-8784-65e346e4fa86',
+			'1a14cb04-4e56-4ca0-8037-58872737029b',
+		])
+		expect(r.listByType('webhook').map((d) => d.id)).toEqual([
+			'4f7cc074-39e0-4c26-b816-7c828a841542',
+		])
 		expect(r.listByType('custom')).toEqual([])
 	})
 })

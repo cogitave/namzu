@@ -34,7 +34,7 @@ function context(reducer: IterationContext['contextReducer']): {
 	const messages: Message[] = Array.from({ length: 12 }, (_, i) => user(`m${i} ${'x'.repeat(400)}`))
 
 	const ctx = {
-		runMgr: { id: 'run_dec', messages, currentIteration: 3 },
+		runMgr: { id: 'b55333a6-c5c4-4dc3-b002-b2cfad381d41', messages, currentIteration: 3 },
 		runConfig: { model: 'mock-model' },
 		compactionConfig: {
 			strategy: 'custom',

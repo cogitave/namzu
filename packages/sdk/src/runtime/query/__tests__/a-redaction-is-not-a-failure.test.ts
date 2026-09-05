@@ -73,14 +73,14 @@ async function runWith(
 	const executor = new ToolExecutor(
 		{
 			tools,
-			runId: 'run_redact' as never,
+			runId: '99ae284f-e48a-46c5-a4ce-5297f12cd9cc' as never,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 			pluginManager: managerReturning('post_tool_use', hookResults),
 		},
-		new ActivityStore('run_redact' as never, {
+		new ActivityStore('99ae284f-e48a-46c5-a4ce-5297f12cd9cc' as never, {
 			enabled: true,
 			trackToolCalls: true,
 			trackLlmTurns: true,
@@ -142,6 +142,20 @@ describe('a post-tool hook that replaces the output', () => {
 		)
 
 		expect(outcome.content).toBeDefined()
+	})
+
+	it('redacts original model text as well as host output while keeping images', async () => {
+		const image = { type: 'image', data: 'AAAA', mediaType: 'image/png' }
+		const outcome = await runWith(
+			toolsThatReturn({
+				success: true,
+				output: SECRET,
+				content: [{ type: 'text', text: SECRET }, image],
+			}),
+			[{ action: 'replace', output: REDACTED }],
+		)
+		expect(JSON.stringify(outcome.content)).not.toContain(SECRET)
+		expect(outcome.content).toEqual([{ type: 'text', text: REDACTED }, image])
 	})
 
 	it('drops content when the hook replaces it explicitly', async () => {

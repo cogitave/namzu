@@ -56,7 +56,7 @@ describe('RAG embedding cancellation reaches a real run', () => {
 		)
 		vi.stubGlobal('fetch', fetchMock)
 
-		const tenantId = 'tnt_rag_cancel' as TenantId
+		const tenantId = '25b8b9ff-9b55-4221-8742-7fc46e672100' as TenantId
 		const knowledgeBase = new DefaultKnowledgeBase(
 			{ name: 'run knowledge', tenantId },
 			new InMemoryVectorStore(),
@@ -102,9 +102,9 @@ describe('RAG embedding cancellation reaches a real run', () => {
 			agentName: 'RAG Cancellation',
 			messages: [createUserMessage('search the knowledge base')],
 			workingDirectory,
-			sessionId: 'ses_rag_cancel' as SessionId,
-			topicId: 'top_rag_cancel' as TopicId,
-			projectId: 'prj_rag_cancel' as ProjectId,
+			sessionId: '44699500-da60-4bc6-a9cd-349c96be1d3f' as SessionId,
+			topicId: 'c7251a4a-bb56-4857-9665-0fe41d3320aa' as TopicId,
+			projectId: '9661cdc6-0a18-4351-9ef6-b5582a3ca9be' as ProjectId,
 			tenantId,
 			signal: caller.signal,
 		})

@@ -69,10 +69,10 @@ async function run(tool: ToolDefinition, observe?: (event: RunEvent) => void | P
 			agentName: 'Progress',
 			messages: [createUserMessage('build it')],
 			workingDirectory,
-			sessionId: 'ses_p' as SessionId,
-			topicId: 'top_p' as TopicId,
-			projectId: 'prj_p' as ProjectId,
-			tenantId: 'tnt_p' as TenantId,
+			sessionId: '4d32012f-9275-4cfe-aba3-6c55342da0a7' as SessionId,
+			topicId: 'ea19096b-e2b2-4911-9a59-969005a76e8f' as TopicId,
+			projectId: '0006f657-8f03-4d79-80ad-417dc503ed59' as ProjectId,
+			tenantId: '56c9d35c-1e5e-4c5b-b04b-6ff1134d4d38' as TenantId,
 		},
 		async (e) => {
 			events.push(e)
@@ -121,7 +121,7 @@ describe('a long-running tool can say how far along it is', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'tool_progress',
-				runId: 'run_x' as never,
+				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
 				toolUseId: 'call_x' as never,
 				toolName: 'build',
 				message: 'x',
@@ -217,7 +217,7 @@ describe('a long-running tool can say how far along it is', () => {
 			observeProgress = resolve
 		})
 		const observed: string[] = []
-		const runId = 'run_progress_order' as RunId
+		const runId = '86614d1a-725e-4184-a360-f91aa452060c' as RunId
 		const tools = new ToolRegistry()
 		tools.register(
 			reportingTool((ctx) => {

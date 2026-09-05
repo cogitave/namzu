@@ -25,6 +25,7 @@ afterEach(() => {
 })
 
 const SCRIPT = `
+import { randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 const sdk = await import(pathToFileURL(process.argv[2]).href)
 const ZERO = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 }
@@ -38,7 +39,7 @@ const provider = {
   },
 }
 const sandbox = {
-  id: 'sbx_process', status: 'ready', rootDir: '/workspace', environment: 'basic',
+  id: randomUUID(), status: 'ready', rootDir: '/workspace', environment: 'basic',
   async exec() { return { stdout: '', stderr: '', exitCode: 0, durationMs: 0, timedOut: false } },
   async writeFile() {}, async readFile() { return Buffer.alloc(0) }, async listFiles() { return [] },
   async destroy() { return await new Promise(() => {}) },
@@ -54,7 +55,7 @@ sdk.drainQuery({
   messages: [{ role: 'user', content: 'go', timestamp: Date.now() }],
   workingDirectory: process.argv[3],
   runConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 2 },
-  sessionId: 'ses_x', topicId: 'top_x', projectId: 'prj_x', tenantId: 'tnt_x',
+  sessionId: randomUUID(), topicId: randomUUID(), projectId: randomUUID(), tenantId: randomUUID(),
 }, (event) => { last = event.type }).then(
   (run) => console.log('RESULT ' + JSON.stringify({ status: run.status, result: run.result, last })),
   (error) => console.log('THREW ' + (error?.message ?? error)),

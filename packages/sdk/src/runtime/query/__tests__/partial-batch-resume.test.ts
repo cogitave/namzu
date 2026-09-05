@@ -43,7 +43,10 @@ const call = (id: string, name: string) => ({
 })
 
 function checkpointWith(messages: Message[]): IterationCheckpoint {
-	return { id: 'cp_1' as CheckpointId, messages } as IterationCheckpoint
+	return {
+		id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
+		messages,
+	} as IterationCheckpoint
 }
 
 const parkedBatch = (): Message[] => [
@@ -61,7 +64,7 @@ describe('reading completed calls back out of the transcript', () => {
 	beforeEach(async () => {
 		dir = await mkdtemp(join(tmpdir(), 'namzu-resume-'))
 		store = new RunDiskStore({ baseDir: dir })
-		await store.initRun('run_1')
+		await store.initRun('37ddff8e-e13f-4e57-937f-d048fa323f5e')
 	})
 
 	afterEach(async () => {
@@ -70,7 +73,7 @@ describe('reading completed calls back out of the transcript', () => {
 
 	const append = async (lines: unknown[]) => {
 		await writeFile(
-			join(dir, 'run_1', 'transcript.jsonl'),
+			join(dir, '37ddff8e-e13f-4e57-937f-d048fa323f5e', 'transcript.jsonl'),
 			`${lines.map((l) => JSON.stringify(l)).join('\n')}\n`,
 			'utf-8',
 		)
@@ -119,7 +122,7 @@ describe('reading completed calls back out of the transcript', () => {
 		// This is the ordinary shape of a file that was being appended to
 		// when the process died — which is the exact case being recovered.
 		await writeFile(
-			join(dir, 'run_1', 'transcript.jsonl'),
+			join(dir, '37ddff8e-e13f-4e57-937f-d048fa323f5e', 'transcript.jsonl'),
 			`${JSON.stringify({ type: 'tool_completed', toolUseId: 't1', toolName: 'a', result: 'r', isError: false })}\n{"type":"tool_com`,
 			'utf-8',
 		)
@@ -207,13 +210,13 @@ describe('executing a batch that carries recovered results', () => {
 		const executor = new ToolExecutor(
 			{
 				tools,
-				runId: 'run_1' as RunId,
+				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
 				workingDirectory: tmpdir(),
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore('run_1' as RunId, {
+			new ActivityStore('37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId, {
 				enabled: false,
 				trackToolCalls: false,
 				trackLlmTurns: false,

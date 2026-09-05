@@ -33,7 +33,7 @@ import { RUN_EVENT_SCHEMA_VERSION } from '../../types/run/schema-version.js'
  * change a review of the fixtures instead.
  */
 
-export const FIXTURE_RUN_ID = 'run_wire' as RunId
+export const FIXTURE_RUN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as RunId
 /** Fixed, so a snapshot is a record of shape and not of the clock. */
 const AT = new Date(0)
 /** Zeroed, for the same reason the date is fixed: a shape, not a reading. */
@@ -52,8 +52,8 @@ const COST = {
 	unpricedTokens: 0,
 }
 const LINEAGE = {
-	parentSessionId: 'ses_wire' as SessionId,
-	rootSessionId: 'ses_wire' as SessionId,
+	parentSessionId: '6236066f-d999-44cd-a338-a744d20baf0b' as SessionId,
+	rootSessionId: '6236066f-d999-44cd-a338-a744d20baf0b' as SessionId,
 	depth: 1,
 }
 
@@ -122,7 +122,7 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	memory_consolidated: () => ({
 		type: 'memory_consolidated',
 		runId: FIXTURE_RUN_ID,
-		memoryId: 'mem_fixture',
+		memoryId: 'aaca7ad3-d28c-4d6b-b455-53b07ebfb807',
 		title: 'Learned: a fixture',
 		decisions: 1,
 		discoveries: 0,
@@ -190,14 +190,14 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	user_question_asked: () => ({
 		type: 'user_question_asked',
 		runId: FIXTURE_RUN_ID,
-		checkpointId: 'cp_wire' as CheckpointId,
+		checkpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
 		questionId: 'x',
 		question: 'x',
 	}),
 	user_question_answered: () => ({
 		type: 'user_question_answered',
 		runId: FIXTURE_RUN_ID,
-		checkpointId: 'cp_wire' as CheckpointId,
+		checkpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
 		answered: true,
 	}),
 	tool_review_requested: () => ({
@@ -214,19 +214,19 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	checkpoint_created: () => ({
 		type: 'checkpoint_created',
 		runId: FIXTURE_RUN_ID,
-		checkpointId: 'cp_wire' as CheckpointId,
+		checkpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
 		iteration: 1,
 	}),
 	run_paused: () => ({
 		type: 'run_paused',
 		runId: FIXTURE_RUN_ID,
-		checkpointId: 'cp_wire' as CheckpointId,
+		checkpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
 		reason: 'x',
 	}),
 	run_resuming: () => ({
 		type: 'run_resuming',
 		runId: FIXTURE_RUN_ID,
-		fromCheckpointId: 'cp_wire' as CheckpointId,
+		fromCheckpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
 	}),
 	guardrail_triggered: () => ({
 		type: 'guardrail_triggered',
@@ -267,14 +267,14 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	activity_created: () => ({
 		type: 'activity_created',
 		runId: FIXTURE_RUN_ID,
-		activityId: 'act_wire' as ActivityId,
+		activityId: 'ca1aedb3-1a59-4e4a-80c1-596a9bc9609e' as ActivityId,
 		activityType: 'tool_call',
 		description: 'x',
 	}),
 	activity_updated: () => ({
 		type: 'activity_updated',
 		runId: FIXTURE_RUN_ID,
-		activityId: 'act_wire' as ActivityId,
+		activityId: 'ca1aedb3-1a59-4e4a-80c1-596a9bc9609e' as ActivityId,
 		status: 'running',
 	}),
 	plan_ready: () => ({
@@ -349,26 +349,26 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	plugin_hook_executing: () => ({
 		type: 'plugin_hook_executing',
 		runId: FIXTURE_RUN_ID,
-		pluginId: 'plg_wire' as PluginId,
+		pluginId: '2b413dac-730d-4158-b1fd-3623065bfd85' as PluginId,
 		hookEvent: 'run_start',
 	}),
 	plugin_hook_completed: () => ({
 		type: 'plugin_hook_completed',
 		runId: FIXTURE_RUN_ID,
-		pluginId: 'plg_wire' as PluginId,
+		pluginId: '2b413dac-730d-4158-b1fd-3623065bfd85' as PluginId,
 		hookEvent: 'run_start',
 		result: { action: 'continue' },
 	}),
 	sandbox_created: () => ({
 		type: 'sandbox_created',
 		runId: FIXTURE_RUN_ID,
-		sandboxId: 'sbx_wire' as SandboxId,
+		sandboxId: '4c9dcaf9-303f-448b-87fc-55db01d0d284' as SandboxId,
 		environment: 'x',
 	}),
 	sandbox_exec: () => ({
 		type: 'sandbox_exec',
 		runId: FIXTURE_RUN_ID,
-		sandboxId: 'sbx_wire' as SandboxId,
+		sandboxId: '4c9dcaf9-303f-448b-87fc-55db01d0d284' as SandboxId,
 		command: 'x',
 		exitCode: 1,
 		durationMs: 1,
@@ -376,19 +376,19 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	sandbox_destroyed: () => ({
 		type: 'sandbox_destroyed',
 		runId: FIXTURE_RUN_ID,
-		sandboxId: 'sbx_wire' as SandboxId,
+		sandboxId: '4c9dcaf9-303f-448b-87fc-55db01d0d284' as SandboxId,
 	}),
 	message_started: () => ({
 		type: 'message_started',
 		runId: FIXTURE_RUN_ID,
 		iteration: 1,
-		messageId: 'msg_wire' as MessageId,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
 	}),
 	reasoning_started: () => ({
 		type: 'reasoning_started',
 		runId: FIXTURE_RUN_ID,
 		iteration: 1,
-		messageId: 'msg_wire' as MessageId,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
 		blockIndex: 1,
 		reasoningType: 'thinking',
 	}),
@@ -396,7 +396,7 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		type: 'reasoning_delta',
 		runId: FIXTURE_RUN_ID,
 		iteration: 1,
-		messageId: 'msg_wire' as MessageId,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
 		blockIndex: 1,
 		text: 'x',
 	}),
@@ -404,7 +404,7 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		type: 'reasoning_completed',
 		runId: FIXTURE_RUN_ID,
 		iteration: 1,
-		messageId: 'msg_wire' as MessageId,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
 		blockIndex: 1,
 		signed: true,
 	}),
@@ -412,21 +412,21 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		type: 'text_delta',
 		runId: FIXTURE_RUN_ID,
 		iteration: 1,
-		messageId: 'msg_wire' as MessageId,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
 		text: 'x',
 	}),
 	message_completed: () => ({
 		type: 'message_completed',
 		runId: FIXTURE_RUN_ID,
 		iteration: 1,
-		messageId: 'msg_wire' as MessageId,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
 		stopReason: 'end_turn',
 	}),
 	tool_input_started: () => ({
 		type: 'tool_input_started',
 		runId: FIXTURE_RUN_ID,
 		iteration: 1,
-		messageId: 'msg_wire' as MessageId,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
 		toolUseId: 'tu_wire' as ToolUseId,
 		toolName: 'x',
 	}),
@@ -448,9 +448,13 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	subsession_spawned: () => ({
 		type: 'subsession_spawned',
 		runId: FIXTURE_RUN_ID,
-		subSessionId: 'sub_wire' as SubSessionId,
-		parentSessionId: 'ses_wire' as SessionId,
-		spawnedBy: { kind: 'agent', agentId: 'agt_wire' as AgentId, tenantId: 'tnt_wire' as TenantId },
+		subSessionId: 'fb4a9e32-99e6-4139-98ac-b4de03504eda' as SubSessionId,
+		parentSessionId: '6236066f-d999-44cd-a338-a744d20baf0b' as SessionId,
+		spawnedBy: {
+			kind: 'agent',
+			agentId: '17e40896-6845-45bc-82e4-584ca3823ff6' as AgentId,
+			tenantId: '59238230-027a-4fd4-a378-9b85e37b3ec0' as TenantId,
+		},
 		lineage: LINEAGE,
 		schemaVersion: RUN_EVENT_SCHEMA_VERSION,
 		at: AT,
@@ -458,9 +462,9 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	subsession_messaged: () => ({
 		type: 'subsession_messaged',
 		runId: FIXTURE_RUN_ID,
-		subSessionId: 'sub_wire' as SubSessionId,
-		parentSessionId: 'ses_wire' as SessionId,
-		messageId: 'msg_wire' as MessageId,
+		subSessionId: 'fb4a9e32-99e6-4139-98ac-b4de03504eda' as SubSessionId,
+		parentSessionId: '6236066f-d999-44cd-a338-a744d20baf0b' as SessionId,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
 		lineage: LINEAGE,
 		schemaVersion: RUN_EVENT_SCHEMA_VERSION,
 		at: AT,
@@ -468,8 +472,8 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	subsession_idled: () => ({
 		type: 'subsession_idled',
 		runId: FIXTURE_RUN_ID,
-		subSessionId: 'sub_wire' as SubSessionId,
-		parentSessionId: 'ses_wire' as SessionId,
+		subSessionId: 'fb4a9e32-99e6-4139-98ac-b4de03504eda' as SubSessionId,
+		parentSessionId: '6236066f-d999-44cd-a338-a744d20baf0b' as SessionId,
 		lineage: LINEAGE,
 		schemaVersion: RUN_EVENT_SCHEMA_VERSION,
 		at: AT,

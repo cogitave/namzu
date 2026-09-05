@@ -57,10 +57,10 @@ function baseParams(
 		agentId: 'agent_step',
 		agentName: 'Step Agent',
 		workingDirectory,
-		sessionId: 'ses_step' as SessionId,
-		topicId: 'top_step' as TopicId,
-		projectId: 'prj_step' as ProjectId,
-		tenantId: 'tnt_step' as TenantId,
+		sessionId: 'c0cddb02-93ce-4282-8af9-5b3cc21f4603' as SessionId,
+		topicId: '3d80f81b-0c30-493d-bb0d-47b36e9988a3' as TopicId,
+		projectId: '3446873d-0c81-4fa1-b72e-fce9fc437efb' as ProjectId,
+		tenantId: 'eef41aeb-4c52-4a0e-b164-e17eb375ce15' as TenantId,
 		retry: false as const,
 	}
 }

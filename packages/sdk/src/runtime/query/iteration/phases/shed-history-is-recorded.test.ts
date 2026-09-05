@@ -60,7 +60,7 @@ function harness(over: { compaction?: Partial<CompactionConfig>; reducer?: Conte
 		runConfig: { model: 'mock-model' },
 		...(over.reducer ? { contextReducer: over.reducer } : {}),
 		runMgr: {
-			id: 'run_shed',
+			id: 'e2fba0bc-4e38-409f-bbcb-d6d4a86a79c7',
 			currentIteration: 3,
 			messages,
 			accumulateUsage: vi.fn(),
@@ -175,7 +175,7 @@ describe('a compaction records what it removes', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'compaction_shed',
-				runId: 'run_x',
+				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 				iteration: 1,
 				messages: [],
 				reason: 'threshold',

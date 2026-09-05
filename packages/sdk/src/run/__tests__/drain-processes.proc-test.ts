@@ -1,3 +1,4 @@
+import { fixtureUuid } from '../../test-support/ids.js'
 /**
  * `drainRuns` across REAL processes.
  *
@@ -44,9 +45,9 @@ const here = dirname(fileURLToPath(import.meta.url))
 const dist = join(here, '..', '..', '..', 'dist')
 const worker = join(here, 'drain-worker.mjs')
 
-const TENANT = 'tnt_drain' as TenantId
-const PROJECT = 'prj_drain' as ProjectId
-const SESSION = 'ses_drain' as SessionId
+const TENANT = '988097f6-b538-4e9a-a5ec-d6bf9864204a' as TenantId
+const PROJECT = 'baa3f1b2-7a3d-4291-ba2e-694e4b02352b' as ProjectId
+const SESSION = '5b2340e7-1a7e-45e3-97bd-c297d5334dd9' as SessionId
 
 interface WorkerLine {
 	readonly holder: string
@@ -89,7 +90,7 @@ let seq = 0
 /** The shape the checkpoint manager writes; the disk store refuses less. */
 function parkedCheckpoint(runId: string): IterationCheckpoint {
 	seq += 1
-	const id = `cp_seed_${seq}` as CheckpointId
+	const id = fixtureUuid(`cp_seed_${seq}`) as CheckpointId
 	const request: HITLDecisionRequest = {
 		type: 'tool_review',
 		runId: runId as RunId,
@@ -119,19 +120,9 @@ async function seed(runIds: readonly string[]): Promise<void> {
 	for (const runId of runIds) await store.writeCheckpoint(scope(runId), parkedCheckpoint(runId))
 }
 
-/**
- * `cp_<kind>_<holder>_<fence>` — the marker a worker leaves on a run.
- *
- * Parsed with an anchored pattern rather than `split('_')[3]`, which is what
- * the first draft did: holders here are `w_dead` and `w_live`, so the index
- * landed on `live` and `Number(…)` produced `NaN` — and `expect(NaN).
- * toBeGreaterThan(1)` fails loudly only because it was the assertion under
- * test. A looser matcher would have read green on an unparsed field.
- */
-const MARKER = /^cp_(done|started)_(.+)_(\d+)$/
-
+/** Worker attribution is checkpoint content; opaque UUIDs carry no metadata. */
 interface Marker {
-	readonly kind: 'done' | 'started'
+	readonly kind: 'done' | 'started' | 'probe'
 	readonly holder: string
 	readonly fence: number
 	readonly id: string
@@ -140,18 +131,26 @@ interface Marker {
 /** Every worker marker a run accumulated, oldest first. */
 async function workMarkers(runId: string): Promise<Marker[]> {
 	const cps = await store.listCheckpoints(scope(runId))
-	return cps.flatMap((c) => {
-		const m = MARKER.exec(String(c.id))
-		return m
-			? [
-					{
-						kind: m[1] as 'done' | 'started',
-						holder: m[2] as string,
-						fence: Number(m[3]),
-						id: String(c.id),
-					},
-				]
-			: []
+	return cps.flatMap((checkpoint) => {
+		const content = checkpoint.messages[0]?.content
+		if (typeof content !== 'string') return []
+		const payload = JSON.parse(content) as Record<string, unknown>
+		if (payload.marker !== 'drain-worker') return []
+		if (
+			!['done', 'started', 'probe'].includes(String(payload.kind)) ||
+			typeof payload.holder !== 'string' ||
+			typeof payload.fence !== 'number'
+		) {
+			throw new Error('Malformed drain worker attribution')
+		}
+		return [
+			{
+				kind: payload.kind as Marker['kind'],
+				holder: payload.holder,
+				fence: payload.fence,
+				id: checkpoint.id,
+			},
+		]
 	})
 }
 
@@ -169,7 +168,11 @@ afterEach(async () => {
 
 describe('two drainer processes over one queue', () => {
 	it('resumes each parked run exactly once, under the fence of whoever took it', async () => {
-		const runIds = ['run_p0', 'run_p1', 'run_p2']
+		const runIds = [
+			'21b789f6-c9ad-4124-874f-ace526b2e255',
+			'1dbd96f1-e343-40ee-8b9d-09a6214cb681',
+			'94c6cae2-64b5-4d0e-b391-47616bf19c72',
+		]
 		await seed(runIds)
 
 		// A barrier past node's startup so the two actually contend. Startup
@@ -189,7 +192,7 @@ describe('two drainer processes over one queue', () => {
 		// the queue, so the drainer that listed second claimed a run the first
 		// had already finished. The claim cannot close that window — only
 		// re-reading the park under the claim can, which is what `stale` is.
-		expect([...drained].sort()).toEqual(runIds)
+		expect([...drained].sort()).toEqual([...runIds].sort())
 		expect(lines.flatMap((l) => l.failed)).toEqual([])
 		expect(lines.flatMap((l) => l.unreleased)).toEqual([])
 		// Every row one drainer saw and the other had already done is accounted
@@ -204,7 +207,7 @@ describe('two drainer processes over one queue', () => {
 			const markers = await workMarkers(runId)
 			expect(markers).toHaveLength(1)
 			const [marker] = markers as [Marker]
-			// The holder in the id is the process that reported draining it.
+			// The recorded holder is the process that reported draining it.
 			//
 			// Note what this does NOT show: that the marker was written WITH
 			// the fence. A fenced write and an unfenced one are identical in
@@ -223,12 +226,16 @@ describe('two drainer processes over one queue', () => {
 		expect(probes).toHaveLength(runIds.length)
 		expect(probes.every((p) => p.fencedOut)).toBe(true)
 		for (const runId of runIds) {
-			expect((await workMarkers(runId)).some((m) => m.id.startsWith('cp_probe_'))).toBe(false)
+			expect((await workMarkers(runId)).some((m) => m.kind === 'probe')).toBe(false)
 		}
 	}, 60_000)
 
 	it('does not re-do a run the other drainer already finished', async () => {
-		const runIds = ['run_s0', 'run_s1', 'run_s2']
+		const runIds = [
+			'e100bfb0-a7a3-4eb5-8256-bc19f9385b2c',
+			'ef67c389-8c27-417a-a85c-560d12359072',
+			'172cfb16-557f-4f00-9264-fb7b4461971e',
+		]
 		await seed(runIds)
 
 		// STAGGERED, not simultaneous, and that is the whole test. The
@@ -240,7 +247,7 @@ describe('two drainer processes over one queue', () => {
 		// it. Running them in sequence makes that order certain instead of
 		// leaving it to how fast the disk was that day.
 		const first = await drainer('w_first')
-		expect([...first.drained].sort()).toEqual(runIds)
+		expect([...first.drained].sort()).toEqual([...runIds].sort())
 
 		const second = await drainer('w_second')
 
@@ -258,7 +265,7 @@ describe('two drainer processes over one queue', () => {
 
 describe('a drainer that dies holding a lease', () => {
 	it('hands the run to the next drainer once the lease lapses, and fences the corpse out', async () => {
-		const runId = 'run_dead'
+		const runId = 'a04fd86f-4609-4e16-9062-98eb70b3136e'
 		await seed([runId])
 
 		// Short enough that the test does not sit out a real lease, long enough
@@ -296,7 +303,9 @@ describe('a drainer that dies holding a lease', () => {
 		expect(held.holding).toBe(runId)
 		// The run is now held by a process that no longer exists. Nothing
 		// notifies the store; only the expiry makes it recoverable.
-		expect((await workMarkers(runId)).map((m) => m.id)).toEqual([`cp_started_w_dead_${held.fence}`])
+		expect(await workMarkers(runId)).toMatchObject([
+			{ kind: 'started', holder: 'w_dead', fence: held.fence },
+		])
 
 		await new Promise((r) => setTimeout(r, TTL_MS + 300))
 
@@ -332,7 +341,7 @@ describe('a drainer that dies holding a lease', () => {
 		await expect(
 			store.writeCheckpoint(
 				scope(runId),
-				{ ...parkedCheckpoint(runId), id: 'cp_late_w_dead' as CheckpointId },
+				{ ...parkedCheckpoint(runId), id: fixtureUuid('cp_late_w_dead') as CheckpointId },
 				held.fence,
 			),
 		).rejects.toThrow(/refusing a write/)

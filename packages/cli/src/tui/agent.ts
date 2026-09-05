@@ -1796,6 +1796,7 @@ export async function createAgentSession(
 		const sub = await createSubagentRuntime({
 			cwd,
 			model,
+			tokenBudget: options.limits?.tokenBudget,
 			definitions: discovered.definitions,
 			pathBuilder: new SubagentPathBuilder(projectStateRoot, scope.projectId),
 			resolveParent: async (runId) => {

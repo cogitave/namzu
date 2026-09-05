@@ -93,10 +93,10 @@ describe('guarded web fetch cancellation reaches a real run', () => {
 			agentName: 'Web Fetch Cancellation',
 			messages: [createUserMessage('fetch the page')],
 			workingDirectory,
-			sessionId: 'ses_web_fetch_cancel' as SessionId,
-			topicId: 'top_web_fetch_cancel' as TopicId,
-			projectId: 'prj_web_fetch_cancel' as ProjectId,
-			tenantId: 'tnt_web_fetch_cancel' as TenantId,
+			sessionId: '17c7cb86-9007-454a-90c9-3ffc57eac97a' as SessionId,
+			topicId: '468480fa-5c9d-4ef6-8002-e6522c4ee075' as TopicId,
+			projectId: 'e93f4631-5098-48af-b01f-0ccae848e0e3' as ProjectId,
+			tenantId: 'd797253a-6c9a-4712-886e-74ab03319b65' as TenantId,
 			signal: caller.signal,
 		})
 

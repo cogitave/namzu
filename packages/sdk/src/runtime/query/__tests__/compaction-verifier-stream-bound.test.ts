@@ -77,10 +77,10 @@ function params(
 		agentName: 'Compaction Bound Agent',
 		messages: longHistory(),
 		workingDirectory,
-		sessionId: 'ses_compaction_bound' as SessionId,
-		topicId: 'top_compaction_bound' as TopicId,
-		projectId: 'prj_compaction_bound' as ProjectId,
-		tenantId: 'tnt_compaction_bound' as TenantId,
+		sessionId: 'e11ccf25-1d45-4492-903f-8511dc9f59c0' as SessionId,
+		topicId: 'f3b7274f-e890-42c1-a7ff-0c4b09b8ae27' as TopicId,
+		projectId: 'e93bad77-74d0-4691-92e4-c7f82a00d27f' as ProjectId,
+		tenantId: '909c89d7-688b-438e-aa95-4d5b01948549' as TenantId,
 		signal: caller.signal,
 	}
 }

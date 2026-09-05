@@ -93,7 +93,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 		)
 		const sourceActor: ActorRef = {
 			kind: 'user',
-			userId: 'usr_source' as UserId,
+			userId: 'd3f2812d-a10b-4122-b1d1-375dc2c31fb5' as UserId,
 			tenantId: DEFAULT_TENANT,
 		}
 		const session = await store.createSession(
@@ -147,7 +147,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			topicId: topic.id,
 			projectId: project.id,
 			sourceActor,
-			recipientActor: userActor('usr_target'),
+			recipientActor: userActor('b04c8cdb-0928-468c-866b-a4d90af5b403'),
 			expectedOwnerVersion: 0,
 			createdAt: new Date('2026-04-19'),
 		}
@@ -178,7 +178,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			{
 				topicId: topic.id,
 				projectId: project.id,
-				currentActor: userActor('usr_source'),
+				currentActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
 			},
 			DEFAULT_TENANT,
 		)
@@ -223,21 +223,22 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			topicManager,
 		}
 
-		const assignments: HandoffAssignment[] = [userActor('usr_b'), userActor('usr_c')].map(
-			(recipientActor) => ({
-				id: generateHandoffId(),
-				mode: 'broadcast' as const,
-				sourceSessionId: source.id,
-				tenantId: DEFAULT_TENANT,
-				topicId: topic.id,
-				projectId: project.id,
-				sourceActor: userActor('usr_source'),
-				recipientActor,
-				expectedOwnerVersion: 0,
-				broadcastId: 'bc_archive',
-				createdAt: new Date('2026-04-19'),
-			}),
-		)
+		const assignments: HandoffAssignment[] = [
+			userActor('9087e28b-e385-43ab-908e-140e46fb01a9'),
+			userActor('7aea217f-b4e1-4f30-854f-6bbcce0af439'),
+		].map((recipientActor) => ({
+			id: generateHandoffId(),
+			mode: 'broadcast' as const,
+			sourceSessionId: source.id,
+			tenantId: DEFAULT_TENANT,
+			topicId: topic.id,
+			projectId: project.id,
+			sourceActor: userActor('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+			recipientActor,
+			expectedOwnerVersion: 0,
+			broadcastId: 'bc_archive',
+			createdAt: new Date('2026-04-19'),
+		}))
 
 		await expect(executeBroadcastHandoff(deps, assignments, DEFAULT_TENANT)).rejects.toBeInstanceOf(
 			TopicArchivedError,
@@ -291,7 +292,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 					parentActor: childActor,
 				},
 				{
-					parentRunId: 'run_post_archive' as RunId,
+					parentRunId: 'ee48db20-02e3-4052-81db-22d9cf93ed4f' as RunId,
 					parentAgentId: 'supervisor',
 					parentAbortController: new AbortController(),
 					depth: 0,

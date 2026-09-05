@@ -118,7 +118,7 @@ describe('compaction publication is one coherent transition', () => {
 			workingStateManager: new WorkingStateManager(config),
 			runConfig: { model: 'mock-model' },
 			runMgr: {
-				id: 'run_atomic_compaction' as RunId,
+				id: '961ed68c-2538-4057-8a47-188c2eb11a2c' as RunId,
 				currentIteration: 2,
 				messages,
 				tokenUsage: usage,
@@ -188,7 +188,7 @@ describe('compaction publication is one coherent transition', () => {
 			workingStateManager: new WorkingStateManager(config),
 			runConfig: { model: 'mock-model' },
 			runMgr: {
-				id: 'run_clear_measurement' as RunId,
+				id: 'a6ee8bee-addb-43c3-bbb6-e6cc685ff7ef' as RunId,
 				currentIteration: 1,
 				messages,
 				tokenUsage: { ...EMPTY_TOKEN_USAGE },

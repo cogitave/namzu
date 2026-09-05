@@ -403,7 +403,11 @@ describe('the prompt cache notices when the contributors change', () => {
 		...(contributions ? { contributions } : {}),
 	})
 
-	const cache = () => new PromptCache({ projectId: 'prj_c' as ProjectId, agentId: 'agent-1' })
+	const cache = () =>
+		new PromptCache({
+			projectId: '8d8cdcf3-4c2c-484c-b208-54dcd1964be4' as ProjectId,
+			agentId: 'agent-1',
+		})
 
 	it('rebuilds when a contribution is added', () => {
 		// The cache would otherwise serve a prompt assembled before the

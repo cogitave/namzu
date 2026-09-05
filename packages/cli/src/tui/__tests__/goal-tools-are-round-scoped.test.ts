@@ -95,13 +95,13 @@ it('withholds goal tools from a human turn and exposes them only to an admitted 
 	try {
 		const events: unknown[] = []
 		for await (const _event of session.send([createUserMessage('ordinary human turn')], {
-			runId: 'run_goal_human' as never,
+			runId: '0f10e738-0fd4-4df5-a61c-af79cd75f8f6' as never,
 		})) {
 			events.push(_event)
 		}
 		const authority = await goals.admitRound(durableSession.id, tenantId, created)
 		for await (const _event of session.send([createUserMessage('automatic goal turn')], {
-			runId: 'run_goal_admitted' as never,
+			runId: '1a7b0544-7f44-488d-95a2-2c1ed8f184f4' as never,
 			goalRound: authority,
 		})) {
 			events.push(_event)

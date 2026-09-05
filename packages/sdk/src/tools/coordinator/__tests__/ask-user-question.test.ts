@@ -11,7 +11,7 @@ import type { RunId } from '../../../types/ids/index.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
 
-const RUN_ID = 'run_ask_user_question_test' as RunId
+const RUN_ID = '4db4b128-e808-43d9-ac50-b6e79a72c452' as RunId
 const TOOL_USE_ID = 'toolu_question_1'
 
 const NO_ANSWER_SENTINEL =

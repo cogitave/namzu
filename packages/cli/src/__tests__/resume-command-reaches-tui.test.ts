@@ -27,13 +27,13 @@ describe('namzu resume <conversation-id>', () => {
 		})
 
 		await expect(
-			runCli({ argv: ['node', 'namzu', 'resume', 'ses_copy_paste_target'] }),
+			runCli({ argv: ['node', 'namzu', 'resume', '4aba553c-4222-48f2-8047-62a22f1f21d7'] }),
 		).resolves.toBe(0)
 
 		expect(launchTui).toHaveBeenCalledOnce()
 		expect(launchTui).toHaveBeenCalledWith(
 			expect.objectContaining({
-				initialConversationId: 'ses_copy_paste_target',
+				initialConversationId: '4aba553c-4222-48f2-8047-62a22f1f21d7',
 			}),
 		)
 	})

@@ -19,7 +19,7 @@ import { ToolExecutor, type ToolExecutorConfig } from '../executor.js'
  * also had to decide on its own that retrying was worth it.
  */
 
-const RUN_ID = 'run_repair' as RunId
+const RUN_ID = '62bc1c2f-2254-48d5-b3df-572ccb1102e0' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

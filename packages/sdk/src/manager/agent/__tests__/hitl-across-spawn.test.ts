@@ -33,9 +33,13 @@ import { AgentManager } from '../lifecycle.js'
  * `write` at the top level and never see the same `write` one hop down.
  */
 
-const tenant = 'tnt_hitl' as TenantId
+const tenant = '6d808793-aaa9-4414-954d-f0c5c78d362a' as TenantId
 const actor = (tenantId: TenantId): ActorRef =>
-	({ kind: 'user', userId: 'usr_root', tenantId }) as unknown as ActorRef
+	({
+		kind: 'user',
+		userId: 'e04738b9-b828-4251-9b35-bc3bc8a2adf8',
+		tenantId,
+	}) as unknown as ActorRef
 
 /** Records the config the child was actually handed. */
 function recordingAgent(seen: BaseAgentConfig[]): Agent<BaseAgentConfig, BaseAgentResult> {
@@ -57,7 +61,7 @@ function recordingAgent(seen: BaseAgentConfig[]): Agent<BaseAgentConfig, BaseAge
 		async run(_input: unknown, config: BaseAgentConfig) {
 			seen.push(config)
 			return {
-				runId: 'run_child' as never,
+				runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as never,
 				status: 'completed',
 				usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
 				cost: { totalCost: 0 },
@@ -124,7 +128,7 @@ async function harness() {
 		sessionStore: store,
 		summaryMaterializer: new SessionSummaryMaterializer({
 			store,
-			generateSummaryId: () => 'sum_1' as never,
+			generateSummaryId: () => '080195b7-1708-4088-9b42-42554fa5db12' as never,
 		}),
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
@@ -133,7 +137,7 @@ async function harness() {
 
 	const context = (over: Partial<AgentTaskContext> = {}): AgentTaskContext =>
 		({
-			parentRunId: 'run_parent',
+			parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c',
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
@@ -255,11 +259,11 @@ describe('a child built by a configBuilder inherits it too', () => {
 			agentId: 'built-worker',
 			// These are configuration hints, not authority. A child cannot turn
 			// itself back into the root or attach to an unrelated parent run.
-			configOverrides: { depth: 0, parentRunId: 'run_forged' as never },
+			configOverrides: { depth: 0, parentRunId: 'cdde1da5-4639-4efc-803c-cfa923f6a714' as never },
 		})
 
 		expect(h.seen[0]?.depth).toBe(1)
-		expect(h.seen[0]?.parentRunId).toBe('run_parent')
+		expect(h.seen[0]?.parentRunId).toBe('c0250b29-330b-445f-b11d-2926ffd9059c')
 	})
 
 	it('is left without one when the parent has none', async () => {

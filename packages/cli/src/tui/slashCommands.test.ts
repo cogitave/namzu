@@ -820,9 +820,9 @@ describe('/feedback', () => {
 		)
 
 	it('opens a finite chooser on the exact latest message when no rating is typed', () => {
-		expect(run([], 'msg_42')).toEqual({
+		expect(run([], '35a4fa8b-a85f-420b-9dc7-b1f7a6f905c8')).toEqual({
 			kind: 'feedback-picker',
-			messageId: 'msg_42',
+			messageId: '35a4fa8b-a85f-420b-9dc7-b1f7a6f905c8',
 		})
 	})
 
@@ -830,18 +830,18 @@ describe('/feedback', () => {
 		// The id comes from the command, not from App re-deriving it later.
 		// Re-deriving would open a window where the answer moved between the
 		// check and the write — a rating landing on the wrong message.
-		expect(run(['good'], 'msg_42')).toEqual({
+		expect(run(['good'], '35a4fa8b-a85f-420b-9dc7-b1f7a6f905c8')).toEqual({
 			kind: 'feedback',
 			rating: 'good',
-			messageId: 'msg_42',
+			messageId: '35a4fa8b-a85f-420b-9dc7-b1f7a6f905c8',
 		})
 	})
 
 	it('carries a note when one is given', () => {
-		expect(run(['bad', 'wrong', 'file'], 'msg_42')).toEqual({
+		expect(run(['bad', 'wrong', 'file'], '35a4fa8b-a85f-420b-9dc7-b1f7a6f905c8')).toEqual({
 			kind: 'feedback',
 			rating: 'bad',
-			messageId: 'msg_42',
+			messageId: '35a4fa8b-a85f-420b-9dc7-b1f7a6f905c8',
 			note: 'wrong file',
 		})
 	})
@@ -864,7 +864,7 @@ describe('/feedback', () => {
 	})
 
 	it('refuses a rating that is not one of the two', () => {
-		const result = run(['meh'], 'msg_42')
+		const result = run(['meh'], '35a4fa8b-a85f-420b-9dc7-b1f7a6f905c8')
 
 		expect(result?.kind).toBe('message')
 		expect((result as { content: string }).content).toMatch(/good\|bad/)

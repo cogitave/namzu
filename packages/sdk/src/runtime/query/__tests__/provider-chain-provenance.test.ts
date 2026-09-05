@@ -102,10 +102,10 @@ function baseParams(
 		agentId: 'agent_test',
 		agentName: 'Test Agent',
 		workingDirectory,
-		sessionId: 'ses_prov' as SessionId,
-		topicId: 'top_prov' as TopicId,
-		projectId: 'prj_prov' as ProjectId,
-		tenantId: 'tnt_prov' as TenantId,
+		sessionId: '18fe0b4d-cd86-423d-9b00-e709b6efa589' as SessionId,
+		topicId: 'dbd57d77-2561-4479-ba2d-a40dcabba50a' as TopicId,
+		projectId: '6acb743e-51a9-4fb3-832d-98677433e5e7' as ProjectId,
+		tenantId: 'c5878328-de67-437d-a680-3a114e3ba9d5' as TenantId,
 		// Every failure below is on a code the retry decorator declines, so this
 		// only guards against an accidental retryable status parking the suite.
 		retry: false as const,
@@ -211,7 +211,7 @@ describe('the run record names the member that served', () => {
 		})
 	})
 
-	it('keeps the fallback route on the separate forced-final response and its cost', async () => {
+	it('keeps the fallback route on the warning-triggered final response and its cost', async () => {
 		const finalReplayState = { kind: 'fixture-final-state', version: 1, signature: 'final' }
 		const routes: ChatCompletionParams['providerRoute'][] = []
 		let call = 0
@@ -261,7 +261,12 @@ describe('the run record names the member that served', () => {
 					id: 'final-turn',
 					delta: {},
 					finishReason: 'stop',
-					usage,
+					usage: {
+						...usage,
+						promptTokens: 100_000,
+						completionTokens: 100_000,
+						totalTokens: 200_000,
+					},
 					replayState: finalReplayState,
 				}
 			},
@@ -274,7 +279,7 @@ describe('the run record names the member that served', () => {
 			runConfig: {
 				...base.runConfig,
 				model: 'claude-opus-5',
-				tokenBudget: 1,
+				tokenBudget: 2_200_000,
 			},
 			fallbackProviders: [{ provider: fallback, model: 'claude-haiku-4-5' }],
 			messages: [createUserMessage('hello')],
@@ -284,8 +289,8 @@ describe('the run record names the member that served', () => {
 			{ providerId: 'anthropic', model: 'claude-haiku-4-5', chainIndex: 1 },
 			{ providerId: 'anthropic', model: 'claude-haiku-4-5', chainIndex: 1 },
 		])
-		expect(run.stopReason).toBe('token_budget')
-		expect(run.costInfo.totalCost).toBeCloseTo(12, 6)
+		expect(run.stopReason).toBe('end_turn')
+		expect(run.costInfo.totalCost).toBeCloseTo(6.6, 6)
 		expect(run.messages.at(-1)).toMatchObject({
 			role: 'assistant',
 			content: 'final answer',

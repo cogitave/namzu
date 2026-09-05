@@ -19,13 +19,13 @@ function ctxWith(opts: {
 	return {
 		abortController: opts.controller,
 		resumeHandler: opts.resumeHandler,
-		runMgr: { id: 'run_abort_test' as RunId },
+		runMgr: { id: 'b076643e-3ff2-4dc9-a900-cd70719be051' as RunId },
 	} as unknown as IterationContext
 }
 
 const REVIEW_REQUEST = {
 	type: 'tool_review' as const,
-	runId: 'run_abort_test' as RunId,
+	runId: 'b076643e-3ff2-4dc9-a900-cd70719be051' as RunId,
 	checkpointId: fixtureId.checkpoint('1'),
 	toolCalls: [],
 }

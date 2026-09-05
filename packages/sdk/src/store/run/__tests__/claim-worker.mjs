@@ -17,17 +17,17 @@
  * near-certain one, and the assertion is over the whole batch: every run
  * claimed by exactly one worker.
  *
- * Usage: node claim-worker.mjs <distDir> <baseDir> <prefix> <count> <holder> <ttlMs> <barrierEpochMs>
+ * Usage: node claim-worker.mjs <distDir> <baseDir> <runIdsJson> <holder> <ttlMs> <barrierEpochMs>
  */
 
-const [, , dist, baseDir, prefix, count, holder, ttlMs, barrierMs] = process.argv
+const [, , dist, baseDir, runIdsJson, holder, ttlMs, barrierMs] = process.argv
 
 const { DiskCheckpointStore } = await import(
 	new URL('store/run/checkpoint-disk.js', `file://${dist.replace(/\\/g, '/')}/`).href
 )
 
 const store = new DiskCheckpointStore({ baseDir })
-const runIds = Array.from({ length: Number(count) }, (_, i) => `${prefix}${i}`)
+const runIds = JSON.parse(runIdsJson)
 
 // A barrier, so the workers contend rather than run in sequence. Node startup
 // varies by tens of milliseconds, which is easily enough for one worker to
@@ -40,7 +40,7 @@ if (wait > 0) await new Promise((r) => setTimeout(r, wait))
 const won = []
 for (const runId of runIds) {
 	const claim = await store.claimRun(
-		{ tenantId: 'tnt_race', projectId: 'prj_race', sessionId: 'ses_race', runId },
+		{ tenantId: '7e897020-80c2-48fd-8b5e-52c02b3009be', projectId: '2a9e19a3-6232-4c55-a3e8-c8d40ad77eff', sessionId: 'd0e4600f-f5bc-42ab-82b4-f4e3a76d151d', runId },
 		{ holder, ttlMs: Number(ttlMs) },
 	)
 	if (claim) won.push({ runId, fence: claim.fence })

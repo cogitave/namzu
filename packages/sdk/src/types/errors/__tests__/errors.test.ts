@@ -62,13 +62,13 @@ describe('toPlatformError', () => {
 	it('carries a NamzuError through unchanged', () => {
 		const err = new NamzuError({
 			code: 'not_found',
-			message: 'Checkpoint not found: cp_1',
-			details: { checkpointId: 'cp_1' },
+			message: 'Checkpoint not found: 62d8ff8a-122d-4369-8274-e1f1dc479c1c',
+			details: { checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' },
 		})
 		expect(toPlatformError(err)).toEqual({
 			code: 'not_found',
-			message: 'Checkpoint not found: cp_1',
-			details: { checkpointId: 'cp_1' },
+			message: 'Checkpoint not found: 62d8ff8a-122d-4369-8274-e1f1dc479c1c',
+			details: { checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' },
 			retryable: false,
 		})
 	})

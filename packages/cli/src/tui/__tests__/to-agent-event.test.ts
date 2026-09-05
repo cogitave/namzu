@@ -19,7 +19,7 @@ const presenter = createToolPresenter(new ToolRegistry())
  * never arrive.
  */
 
-const runId = 'run_test' as RunId
+const runId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
 
 describe('toAgentEvent carries the stop reason across', () => {
 	it.each(['tools', 'vision', 'documents'] as const)(
@@ -179,7 +179,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 				{
 					type: 'run_paused',
 					runId,
-					checkpointId: 'cp_7' as never,
+					checkpointId: '198e213b-0e39-40d2-8484-2d6e8cc9d83f' as never,
 					reason: 'slow down',
 					failure,
 					explanation,
@@ -189,7 +189,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 		).toEqual({
 			kind: 'paused',
 			runId: String(runId),
-			checkpointId: 'cp_7',
+			checkpointId: '198e213b-0e39-40d2-8484-2d6e8cc9d83f',
 			reason: 'slow down',
 			failure,
 			explanation,
@@ -218,7 +218,7 @@ describe('compaction is reported, not silent', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'compaction_completed',
-				runId: 'run_1',
+				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 				iteration: 3,
 				messagesBefore: 42,
 				messagesAfter: 9,
@@ -247,7 +247,7 @@ describe('compaction is reported, not silent', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'compaction_completed',
-				runId: 'run_1',
+				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 				iteration: 3,
 				messagesBefore: 10,
 				messagesAfter: 4,
@@ -272,7 +272,7 @@ describe('the three decline causes get three sentences', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'compaction_failed',
-				runId: 'run_1',
+				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 				iteration: 2,
 				cause,
 				messages: 31,

@@ -1,3 +1,4 @@
+import { fixtureUuid } from '../../../test-support/ids.js'
 /**
  * Integration — SessionSummaryMaterializer + SessionStore atomic transition,
  * plus the crash-recovery path.
@@ -23,7 +24,7 @@ import { SessionAlreadySummarizedError } from '../../summary/errors.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import { DEFAULT_TENANT, agentActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'top_test' as TopicId
+const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
 async function seedActive(store: InMemorySessionStore) {
 	const project = await store.createProject(
@@ -31,7 +32,11 @@ async function seedActive(store: InMemorySessionStore) {
 		DEFAULT_TENANT,
 	)
 	const session = await store.createSession(
-		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_worker') },
+		{
+			topicId: TEST_THREAD_ID,
+			projectId: project.id,
+			currentActor: agentActor('b8f09df7-1720-46cf-9a2e-d63542de60d2'),
+		},
 		DEFAULT_TENANT,
 	)
 	await store.updateSession({ ...session, status: 'active' }, DEFAULT_TENANT)
@@ -40,7 +45,7 @@ async function seedActive(store: InMemorySessionStore) {
 
 function makeGen(): () => SummaryId {
 	let n = 0
-	return () => `sum_materialize_${++n}` as SummaryId
+	return () => fixtureUuid(`sum_materialize_${++n}`) as SummaryId
 }
 
 describe('Integration — summary materialization E2E', () => {
@@ -203,7 +208,7 @@ describe('Integration — summary materialization E2E', () => {
 		await expect(
 			store.recordSummary(
 				{
-					id: 'sum_fake' as SummaryId,
+					id: 'a4cb0cf5-b993-46e5-96c0-9025f227458c' as SummaryId,
 					sessionRef: session.id,
 					tenantId: DEFAULT_TENANT,
 					outcome: { status: 'succeeded' },
@@ -227,7 +232,7 @@ describe('Integration — summary materialization E2E', () => {
 
 		await expect(
 			materializer.materialize({
-				sessionId: 'ses_never' as SessionId,
+				sessionId: fixtureUuid('missing-session') as SessionId,
 				tenantId: DEFAULT_TENANT,
 				finalOutcome: { status: 'succeeded' },
 				agentSummary: '',

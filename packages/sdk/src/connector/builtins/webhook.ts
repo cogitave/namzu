@@ -56,8 +56,8 @@ const WebhookSendInputSchema = z.object({
 	url: z.string().url().optional(),
 })
 
-/** Checked once at module load — see `HttpConnector`'s own constant. */
-const WEBHOOK_CONNECTOR_ID = asConnectorId('conn_webhook')
+/** Stable UUID for this built-in definition, checked once at module load. */
+const WEBHOOK_CONNECTOR_ID = asConnectorId('5d1e831d-d079-47c8-bdb6-ddf4489bb000')
 
 export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
 	readonly id = WEBHOOK_CONNECTOR_ID

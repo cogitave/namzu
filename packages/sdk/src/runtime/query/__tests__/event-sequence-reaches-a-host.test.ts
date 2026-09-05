@@ -57,10 +57,10 @@ function persistence(runStore: InMemoryRunStore, runId: string): RunPersistence 
 		// Nothing may be written: the injected store is not a filesystem.
 		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
-		sessionId: 'ses_seq',
-		topicId: 'top_seq',
-		projectId: 'prj_seq',
-		tenantId: 'tnt_seq',
+		sessionId: '1b9fa4ed-2300-43ac-9ee1-c641c9ae66d1',
+		topicId: '07c17470-7e89-4c5e-9680-2d10d92ac22a',
+		projectId: '4dfa889d-312b-4570-a8e3-e1ccd3f2274b',
+		tenantId: '2c8e25c0-8fc7-4427-8e9e-f338d6e51c02',
 		runStore,
 		// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
 	} as any)
@@ -98,10 +98,10 @@ async function params(runStore: InMemoryRunStore): Promise<QueryParams> {
 		agentId: 'agent_seq',
 		agentName: 'Sequence Agent',
 		workingDirectory: await workdir(),
-		sessionId: 'ses_seq',
-		topicId: 'top_seq',
-		projectId: 'prj_seq',
-		tenantId: 'tnt_seq',
+		sessionId: '1b9fa4ed-2300-43ac-9ee1-c641c9ae66d1',
+		topicId: '07c17470-7e89-4c5e-9680-2d10d92ac22a',
+		projectId: '4dfa889d-312b-4570-a8e3-e1ccd3f2274b',
+		tenantId: '2c8e25c0-8fc7-4427-8e9e-f338d6e51c02',
 		runStore,
 		resumeHandler: async () => ({ action: 'continue' as const }),
 	} as unknown as QueryParams
@@ -184,8 +184,8 @@ describe('a host watching a run gets a cursor with it', () => {
 describe('the number is a claim that the event is recoverable', () => {
 	it('withholds it when the durable write fails, and still delivers the event', async () => {
 		const store = new InMemoryRunStore()
-		await store.initRun('run_fail')
-		const mgr = persistence(store, 'run_fail')
+		await store.initRun('e08c38cc-7a59-40b2-8032-31b2b4e3c261')
+		const mgr = persistence(store, 'e08c38cc-7a59-40b2-8032-31b2b4e3c261')
 		await mgr.init()
 		const emitter = new EventTranslator(mgr)
 
@@ -194,7 +194,11 @@ describe('the number is a claim that the event is recoverable', () => {
 			emitter.emitEvent({ type: 'run_started', runId: fixtureId.run('fail') } as RunEvent),
 		).rejects.toThrow('disk full')
 		// The next event must take the number the failed one did NOT consume.
-		await emitter.emitEvent({ type: 'iteration_started', runId: 'run_fail', iteration: 1 } as never)
+		await emitter.emitEvent({
+			type: 'iteration_started',
+			runId: 'e08c38cc-7a59-40b2-8032-31b2b4e3c261',
+			iteration: 1,
+		} as never)
 
 		const drained = [...emitter.drainPending()]
 
@@ -212,8 +216,8 @@ describe('the number is a claim that the event is recoverable', () => {
 describe('emits that overlap still get distinct numbers', () => {
 	it('gives twenty concurrent emits twenty consecutive numbers', async () => {
 		const store = new InMemoryRunStore()
-		await store.initRun('run_race')
-		const mgr = persistence(store, 'run_race')
+		await store.initRun('849aee55-b85a-4d73-ba09-ab034da1a47b')
+		const mgr = persistence(store, '849aee55-b85a-4d73-ba09-ab034da1a47b')
 		await mgr.init()
 		const emitter = new EventTranslator(mgr)
 
@@ -226,7 +230,11 @@ describe('emits that overlap still get distinct numbers', () => {
 			.mockImplementation(async () => new Promise<void>((r) => setTimeout(r, 1)))
 		await Promise.all(
 			Array.from({ length: 20 }, (_, i) =>
-				emitter.emitEvent({ type: 'iteration_started', runId: 'run_race', iteration: i } as never),
+				emitter.emitEvent({
+					type: 'iteration_started',
+					runId: '849aee55-b85a-4d73-ba09-ab034da1a47b',
+					iteration: i,
+				} as never),
 			),
 		)
 		slow.mockRestore()
@@ -241,8 +249,12 @@ describe('emits that overlap still get distinct numbers', () => {
 describe('the sequence survives the process that was writing it', () => {
 	it('continues the log rather than starting a second sequence inside it', async () => {
 		const store = new InMemoryRunStore()
-		await store.initRun('run_restart')
-		await store.appendEvent({ type: 'run_started', runId: 'run_restart', seq: 1 } as never)
+		await store.initRun('8b0b7ac8-7f23-4ebf-9222-52fce838aa3e')
+		await store.appendEvent({
+			type: 'run_started',
+			runId: '8b0b7ac8-7f23-4ebf-9222-52fce838aa3e',
+			seq: 1,
+		} as never)
 		await store.appendEvent({
 			type: 'iteration_started',
 			runId: fixtureId.run('restart'),
@@ -252,7 +264,7 @@ describe('the sequence survives the process that was writing it', () => {
 
 		// A different `RunPersistence` over the same store is what a second
 		// process is: the object graph is new, the log is not.
-		const mgr = persistence(store, 'run_restart')
+		const mgr = persistence(store, '8b0b7ac8-7f23-4ebf-9222-52fce838aa3e')
 		await mgr.init()
 
 		// Without the seed this is 1, and the log then holds two events numbered

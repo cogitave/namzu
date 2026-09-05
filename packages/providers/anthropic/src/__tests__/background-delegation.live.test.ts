@@ -159,10 +159,10 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 				maxIterations: 6,
 				maxResponseTokens: 1_024,
 			},
-			sessionId: asSessionId('ses_live_delegation'),
-			topicId: asTopicId('top_live_delegation'),
-			projectId: asProjectId('prj_live_delegation'),
-			tenantId: asTenantId('tnt_live_delegation'),
+			sessionId: asSessionId('249a8c8f-118e-4b4a-b826-56f6eeb3caf1'),
+			topicId: asTopicId('7fdef45c-7617-498f-83d8-a1eeeeb5fcd4'),
+			projectId: asProjectId('836b2cbf-735e-4692-aaba-b01caa172abd'),
+			tenantId: asTenantId('45d227cd-22df-4444-b508-e6d0ce49f31a'),
 		})
 
 		const transcript = run.messages
@@ -226,10 +226,10 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 				maxIterations: 6,
 				maxResponseTokens: 1_024,
 			},
-			sessionId: asSessionId('ses_live_delegation'),
-			topicId: asTopicId('top_live_delegation'),
-			projectId: asProjectId('prj_live_delegation'),
-			tenantId: asTenantId('tnt_live_delegation'),
+			sessionId: asSessionId('249a8c8f-118e-4b4a-b826-56f6eeb3caf1'),
+			topicId: asTopicId('7fdef45c-7617-498f-83d8-a1eeeeb5fcd4'),
+			projectId: asProjectId('836b2cbf-735e-4692-aaba-b01caa172abd'),
+			tenantId: asTenantId('45d227cd-22df-4444-b508-e6d0ce49f31a'),
 		})
 
 		expect(run.result ?? '').toContain(SECRET)

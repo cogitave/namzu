@@ -20,7 +20,7 @@ import { EditTool } from '../edit.js'
 
 function context(workingDirectory: string): ToolContext {
 	return {
-		runId: 'run_batch' as ToolContext['runId'],
+		runId: 'd71ecfcb-287a-445a-a34e-48026d38d820' as ToolContext['runId'],
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},

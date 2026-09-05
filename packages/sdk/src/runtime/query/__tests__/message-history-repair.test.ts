@@ -45,10 +45,10 @@ async function params(provider: MockLLMProvider) {
 		agentId: 'agent_history_repair',
 		agentName: 'History Repair',
 		workingDirectory: await workdir(),
-		sessionId: 'ses_history_repair' as SessionId,
-		topicId: 'top_history_repair' as TopicId,
-		projectId: 'prj_history_repair' as ProjectId,
-		tenantId: 'tnt_history_repair' as TenantId,
+		sessionId: 'abac7d8f-7e55-4201-8b18-baff17145d24' as SessionId,
+		topicId: 'b9052c8c-214e-4c34-b33b-e6cd6791bfcf' as TopicId,
+		projectId: '5b5213d2-b72d-47f6-8687-15bac559e294' as ProjectId,
+		tenantId: 'b33456ec-0436-48c9-8a27-c73a739efd8b' as TenantId,
 	}
 }
 

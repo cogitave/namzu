@@ -7,8 +7,8 @@ import type { CredentialId, TenantId } from '../types/ids/index.js'
 import { InMemoryCredentialVault } from './InMemoryCredentialVault.js'
 import { wrapVaultWithProbes } from './instrumentation.js'
 
-const tenant = 'tnt_acme' as TenantId
-const connector = 'conn_x' as never
+const tenant = '078cb473-016b-4133-bd1a-05ea1312dd39' as TenantId
+const connector = 'af841f01-728f-4a61-99ef-7ebc1b62d61b' as never
 
 describe('wrapVaultWithProbes', () => {
 	it('emits vault_lookup with found:true when retrieve hits', async () => {
@@ -45,7 +45,7 @@ describe('wrapVaultWithProbes', () => {
 			probes: reg,
 			vaultId: 'in-memory',
 		})
-		const missing = 'cred_missing' as CredentialId
+		const missing = '1ad9e97e-29fb-48bd-86e4-fd61f0314b0d' as CredentialId
 		const result = await wrapped.retrieve(missing)
 
 		expect(result).toBeUndefined()
@@ -59,7 +59,7 @@ describe('wrapVaultWithProbes', () => {
 		const reg = createProbeRegistry()
 		const seen: AgentBusEvent[] = []
 		reg.onAny((event) => seen.push(event as AgentBusEvent))
-		const otherTenant = 'tnt_other' as TenantId
+		const otherTenant = '03857320-0500-482a-85e0-add350d8ffdd' as TenantId
 		const inner = new InMemoryCredentialVault()
 		const ref = await inner.store(tenant, connector, 'k', { type: 'bearer' })
 		const wrapped = wrapVaultWithProbes(inner, {

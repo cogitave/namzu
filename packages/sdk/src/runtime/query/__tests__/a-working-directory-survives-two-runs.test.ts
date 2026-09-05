@@ -52,10 +52,10 @@ async function run(
 		agentName: 'Workspace agent',
 		messages: [createUserMessage('work in the project')],
 		workingDirectory,
-		sessionId: 'ses_workspace' as SessionId,
-		topicId: 'top_workspace' as TopicId,
-		projectId: 'prj_workspace' as ProjectId,
-		tenantId: 'tnt_workspace' as TenantId,
+		sessionId: 'b584cdbd-c610-4c8b-b87b-cac8b0253390' as SessionId,
+		topicId: '7bfd7dd2-988b-465c-b97b-6d79697d010a' as TopicId,
+		projectId: 'ed118573-ccfd-4410-97e3-8bf846727147' as ProjectId,
+		tenantId: '84b4c481-bb44-4ad7-858b-aa7cd52cb3b5' as TenantId,
 	})
 }
 

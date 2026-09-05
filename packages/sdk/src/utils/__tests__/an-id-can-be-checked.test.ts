@@ -76,29 +76,16 @@ const legacyPrefixes: Record<string, string> = {
 }
 
 describe('an id can be checked at runtime', () => {
-	it('refuses a value carrying the wrong prefix, naming both', () => {
-		// Both halves of the message matter: the caller needs the value they
-		// passed AND the prefix that was wanted, or they are left guessing
-		// which of the two dozen id types they got wrong.
-		expect(() => ids.asRunId('ses_abc')).toThrow(InvalidIdError)
-		expect(() => ids.asRunId('ses_abc')).toThrow(/ses_abc/)
-		expect(() => ids.asRunId('ses_abc')).toThrow(/run_/)
+	it('rejects a prefixed id and identifies the required entity field', () => {
+		expect(() => ids.asRunId('run_previous')).toThrow(InvalidIdError)
+		expect(() => ids.asRunId('run_previous')).toThrow(/run_previous/)
+		expect(() => ids.asRunId('run_previous')).toThrow(/Invalid run id/)
+		expect(() => ids.asRunId('run_previous')).toThrow(/must be a UUID/)
 	})
 
-	it('returns the value unchanged, rather than normalising it', () => {
-		// The first version of this asserted `toBe` on a lowercase id and
-		// called it "a check, not a copy". That cannot fail: JS strings are
-		// primitives, so every string-returning implementation compares equal
-		// by value and `toBe` never sees a copy — `a-check-that-cannot-fail`,
-		// written by hand.
-		//
-		// What CAN fail is normalisation. A constructor that trimmed or
-		// lower-cased on the way through would hand back an id that is not
-		// the one the caller has stored elsewhere, and every lookup keyed on
-		// the original would miss. Mixed case and surrounding-looking
-		// characters are what make that visible.
-		expect(ids.asRunId('run_AbC')).toBe('run_AbC')
-		expect(ids.asRunId('run_a-b_c')).toBe('run_a-b_c')
+	it('returns a checked UUID unchanged without normalizing its case', () => {
+		const value = '550E8400-E29B-41D4-A716-446655440000'
+		expect(ids.asRunId(value)).toBe(value)
 	})
 
 	it('accepts every id its own factory mints', () => {
@@ -113,20 +100,6 @@ describe('an id can be checked at runtime', () => {
 			)
 			expect(parse(minted), name).toBe(minted)
 		}
-	})
-
-	it('does not let a longer prefix satisfy a shorter one', () => {
-		// `mcpc_`, `advc_` and `kbs_` all start with another id's letters, and
-		// only the trailing underscore separates them. A prefix table written
-		// without it would have `asMCPServerId` quietly accepting a client id.
-		expect(() => ids.asMCPServerId('mcpc_abc')).toThrow(InvalidIdError)
-		expect(() => ids.asAdvisoryId('advc_abc')).toThrow(InvalidIdError)
-		expect(() => ids.asKnowledgeBaseId('kbs_abc')).toThrow(InvalidIdError)
-
-		// And each accepts its own.
-		expect(() => ids.asMCPClientId('mcpc_abc')).not.toThrow()
-		expect(() => ids.asAdvisoryCallId('advc_abc')).not.toThrow()
-		expect(() => ids.asKnowledgeBaseRef('kbs_abc')).not.toThrow()
 	})
 
 	it('refuses the empty string and an arbitrary string', () => {
@@ -159,7 +132,7 @@ describe('an id can be checked at runtime', () => {
 		for (const { parse, prefix } of parsers) {
 			const uuid = ids.generateRunId()
 			expect(parse(uuid)).toBe(uuid)
-			expect(parse(`${prefix}Custom-A_1`)).toBe(`${prefix}Custom-A_1`)
+			expect(() => parse(`${prefix}Custom-A_1`)).toThrow(Error)
 			expect(() => parse(prefix)).toThrow(Error)
 			expect(() => parse(`${prefix}../../outside`)).toThrow(Error)
 		}
@@ -167,11 +140,11 @@ describe('an id can be checked at runtime', () => {
 })
 
 describe('opaque ids retain identity across typed boundaries', () => {
-	it('preserves every supported legacy kind and refuses other legacy kinds', () => {
+	it('refuses prefixed IDs for every entity kind', () => {
 		for (const [name, prefix] of Object.entries(legacyPrefixes)) {
 			const parse = (ids as unknown as Record<string, (value: string) => string>)[name]
 			if (parse === undefined) throw new Error(`Missing checked constructor: ${name}`)
-			expect(parse(`${prefix}Selected-A_1`), name).toBe(`${prefix}Selected-A_1`)
+			expect(() => parse(`${prefix}Selected-A_1`), name).toThrow(InvalidIdError)
 			const other = prefix === 'run_' ? 'ses_Other' : 'run_Other'
 			expect(() => parse(other), name).toThrow(InvalidIdError)
 			expect(() => parse('thd_old'), name).toThrow(InvalidIdError)
@@ -207,6 +180,7 @@ describe('opaque ids retain identity across typed boundaries', () => {
 		'run_../outside',
 		'thd_old',
 		'ses_different-kind',
+		'run_valid_before_this_release',
 	])('a nonthrowing predicate rejects invalid or mismatched input %j', (value) => {
 		expect(ids.isEntityId(value, 'run')).toBe(false)
 	})

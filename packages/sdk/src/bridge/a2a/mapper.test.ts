@@ -34,7 +34,7 @@ import type { RunEvent } from '../../types/run/events.js'
 
 import { mapRunToA2AEvent, mapSessionToA2AEvent } from './mapper.js'
 
-const RID = 'run_1' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
 
 function isStatusEvent(
 	e: ReturnType<typeof mapRunToA2AEvent>,
@@ -186,7 +186,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 		const event: RunEvent = {
 			type: 'plan_ready',
 			runId: RID,
-			planId: 'plan_1' as PlanId,
+			planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId,
 			title: 'Migrate tables',
 			summary: 'Three steps',
 			steps: [
@@ -209,7 +209,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 			if (dataPart && dataPart.kind === 'data') {
 				expect(dataPart.mimeType).toBe('application/x-namzu-plan')
 				expect(dataPart.data).toMatchObject({
-					planId: 'plan_1',
+					planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a',
 					title: 'Migrate tables',
 					summary: 'Three steps',
 				})
@@ -301,12 +301,12 @@ describe('mapRunToA2AEvent — explicit null set', () => {
 				unpricedTokens: 0,
 			},
 		},
-		{ type: 'plan_approved', runId: RID, planId: 'plan_1' as PlanId },
-		{ type: 'plan_rejected', runId: RID, planId: 'plan_1' as PlanId },
+		{ type: 'plan_approved', runId: RID, planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId },
+		{ type: 'plan_rejected', runId: RID, planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId },
 		{
 			type: 'agent_pending',
 			runId: RID,
-			taskId: 'task_1' as TaskId,
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 			parentAgentId: 'a',
 			childAgentId: 'b',
 			depth: 1,
@@ -314,7 +314,7 @@ describe('mapRunToA2AEvent — explicit null set', () => {
 		{
 			type: 'agent_completed',
 			runId: RID,
-			taskId: 'task_1' as TaskId,
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 			result: {
 				runId: RID,
 				status: 'completed',
@@ -337,8 +337,17 @@ describe('mapRunToA2AEvent — explicit null set', () => {
 				},
 			},
 		},
-		{ type: 'agent_failed', runId: RID, taskId: 'task_1' as TaskId, error: 'e' },
-		{ type: 'agent_canceled', runId: RID, taskId: 'task_1' as TaskId },
+		{
+			type: 'agent_failed',
+			runId: RID,
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+			error: 'e',
+		},
+		{
+			type: 'agent_canceled',
+			runId: RID,
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+		},
 	]
 
 	it.each(nullEvents.map((e) => [e.type, e] as const))(

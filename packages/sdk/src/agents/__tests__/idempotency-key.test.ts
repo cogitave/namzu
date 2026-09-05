@@ -77,9 +77,9 @@ const config = (provider: unknown, idempotencyKey?: string): ReactiveAgentConfig
 		model: 'm',
 		tokenBudget: 1_000,
 		timeoutMs: 10_000,
-		sessionId: 'ses_1',
+		sessionId: '46bf2fa8-7b48-40ea-bd28-fa94f4fa05e6',
 		topicId: 'thr_1',
-		projectId: 'prj_1',
+		projectId: 'a0dab60c-1b56-4235-8c96-81fb213b4fbf',
 		tenantId: 'ten_1',
 		...(idempotencyKey ? { idempotencyKey } : {}),
 	}) as unknown as ReactiveAgentConfig

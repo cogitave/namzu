@@ -146,7 +146,7 @@ function makeCtx(options: MockCtxOptions = {}): {
 			toLLMTools: vi.fn(() => []),
 		},
 		runMgr: {
-			id: 'run_1' as RunId,
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
 			messages: [],
 			// An advisory call is a billed model call on the run's budget;
 			// the phase now reports it so the guard can see it.

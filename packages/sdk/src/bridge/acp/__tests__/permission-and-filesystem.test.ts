@@ -127,7 +127,7 @@ describe('a tool batch that needs a human', () => {
 			commands: new HostCommandRegistry(),
 			presenter: createToolPresenter(new ToolRegistry()),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
-			newSessionId: () => 'ses_one',
+			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
 		const sessionId = await open(wire, server)
 
@@ -197,7 +197,7 @@ describe('a tool batch that needs a human', () => {
 			commands: new HostCommandRegistry(),
 			presenter: createToolPresenter(new ToolRegistry()),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
-			newSessionId: () => 'ses_one',
+			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
 		const sessionId = await open(wire, server)
 		wire.deliver({
@@ -342,7 +342,7 @@ describe('approve all', () => {
 			commands: new HostCommandRegistry(),
 			presenter: createToolPresenter(new ToolRegistry()),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
-			newSessionId: () => 'ses_cancelled_permission',
+			newSessionId: () => '3ed2a628-64c0-448f-a1b5-abb705215b7a',
 		})
 		const sessionId = await open(wire, server)
 		wire.deliver({
@@ -505,7 +505,7 @@ describe('a client that errors on a request', () => {
 			commands: new HostCommandRegistry(),
 			presenter: createToolPresenter(new ToolRegistry()),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
-			newSessionId: () => 'ses_one',
+			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
 		const sessionId = await open(wire, server)
 
@@ -556,28 +556,30 @@ describe('session/load', () => {
 			jsonrpc: '2.0',
 			id: 2,
 			method: 'session/load',
-			params: { sessionId: 'ses_from_yesterday' },
+			params: { sessionId: 'a8d417f9-4655-4c4f-b40d-ec40261e5496' },
 		})
 		await settle()
 
 		// The same id: a client that asked to resume `ses_x` and got `ses_y`
 		// back has to rewrite everything it had keyed by the old one.
 		expect(wire.sent.find((m) => m.id === 2)?.result).toEqual({
-			sessionId: 'ses_from_yesterday',
+			sessionId: 'a8d417f9-4655-4c4f-b40d-ec40261e5496',
 		})
 
 		wire.deliver({
 			jsonrpc: '2.0',
 			id: 3,
 			method: 'session/prompt',
-			params: { sessionId: 'ses_from_yesterday', prompt: 'and then?' },
+			params: { sessionId: 'a8d417f9-4655-4c4f-b40d-ec40261e5496', prompt: 'and then?' },
 		})
 		await settle()
 
 		// Returning an empty history would make a resumed session a fresh one
 		// wearing the old id — the model would answer with no idea what was
 		// already said.
-		expect(handed).toEqual([{ role: 'user', content: 'earlier in ses_from_yesterday' }])
+		expect(handed).toEqual([
+			{ role: 'user', content: 'earlier in a8d417f9-4655-4c4f-b40d-ec40261e5496' },
+		])
 	})
 
 	it('refuses when the agent has no session store rather than resuming nothing', async () => {
@@ -592,7 +594,12 @@ describe('session/load', () => {
 		await server.start()
 		wire.deliver({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: CAPS } })
 		await settle()
-		wire.deliver({ jsonrpc: '2.0', id: 2, method: 'session/load', params: { sessionId: 'ses_x' } })
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 2,
+			method: 'session/load',
+			params: { sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5' },
+		})
 		await settle()
 
 		// An empty history is indistinguishable from a session that really had
@@ -612,7 +619,12 @@ describe('session/load', () => {
 		await server.start()
 		wire.deliver({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: [] } })
 		await settle()
-		wire.deliver({ jsonrpc: '2.0', id: 2, method: 'session/load', params: { sessionId: 'ses_x' } })
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 2,
+			method: 'session/load',
+			params: { sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5' },
+		})
 		await settle()
 
 		// Resuming is a way to get a session, so it carries the same condition
@@ -641,7 +653,7 @@ describe('the client answering after the connection closed', () => {
 			commands: new HostCommandRegistry(),
 			presenter: createToolPresenter(new ToolRegistry()),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
-			newSessionId: () => 'ses_one',
+			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
 		const sessionId = await open(wire, server)
 		wire.deliver({
@@ -677,7 +689,7 @@ describe('the outcomes the wire can carry', () => {
 			commands: new HostCommandRegistry(),
 			presenter: createToolPresenter(new ToolRegistry()),
 			agentInfo: { name: 'namzu', version: '0.0.0-test' },
-			newSessionId: () => 'ses_one',
+			newSessionId: () => '8940a870-873a-4868-ac8a-17f6cbfe540e',
 		})
 		const sessionId = await open(wire, server)
 		wire.deliver({

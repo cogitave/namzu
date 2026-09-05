@@ -178,7 +178,9 @@ describe('whether there is anything to offer', () => {
 	it('is nothing at all without an extractor', () => {
 		// Inventing an empty candidate would ask a host to store a record of
 		// nothing.
-		expect(memoryCandidateFor('run_1' as never, undefined)).toBeUndefined()
+		expect(
+			memoryCandidateFor('37ddff8e-e13f-4e57-937f-d048fa323f5e' as never, undefined),
+		).toBeUndefined()
 	})
 
 	it('projects the state rather than handing it over', () => {
@@ -192,7 +194,9 @@ describe('whether there is anything to offer', () => {
 			files: new Map([['src/a.ts', {}]]),
 			evicted: { decisions: 2 },
 		}
-		const candidate = memoryCandidateFor('run_1' as never, { getState: () => state })
+		const candidate = memoryCandidateFor('37ddff8e-e13f-4e57-937f-d048fa323f5e' as never, {
+			getState: () => state,
+		})
 
 		expect(candidate?.files).toEqual(['src/a.ts'])
 		expect(candidate?.userRequirements).toEqual(['never bill twice'])

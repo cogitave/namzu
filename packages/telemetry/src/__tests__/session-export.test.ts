@@ -27,8 +27,8 @@ import {
 // Through the checked constructors: the id types are nominal, and a
 // fixture that asserted its way past that would be testing a value the
 // kernel cannot produce.
-const RID = asRunId('run_export')
-const MID = asMessageId('msg_1')
+const RID = asRunId('401e07b3-5cc0-40f9-bc0e-a47192b85311')
+const MID = asMessageId('116b88f1-7300-4be5-a05d-f2a87105f095')
 
 function textDelta(text: string): RunEvent {
 	return { type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text }

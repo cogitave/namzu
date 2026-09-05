@@ -70,7 +70,7 @@ describe('bash refuses to background when the host offers nowhere to put it', ()
 
 		const result = await BashTool.execute(
 			{ command: 'sleep 5', timeout: 1000, run_in_background: true },
-			contextFor(undefined, 'run_x', cwd),
+			contextFor(undefined, 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3', cwd),
 		)
 
 		expect(result.success).toBe(false)
@@ -83,7 +83,7 @@ describe('bash refuses to background when the host offers nowhere to put it', ()
 
 		const result = await BashTool.execute(
 			{ command: 'echo hello', timeout: 5000 },
-			contextFor(undefined, 'run_x', cwd),
+			contextFor(undefined, 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3', cwd),
 		)
 
 		expect(result.success).toBe(true)
@@ -95,7 +95,7 @@ describe('bash and job are one capability', () => {
 	it('hands back an id the job tool can read', async () => {
 		const registry = new BackgroundJobRegistry()
 		const cwd = await workdir()
-		const context = contextFor(registry, 'run_a', cwd)
+		const context = contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd)
 
 		const started = await BashTool.execute(
 			{ command: 'echo working; sleep 0.3; echo done', timeout: 1000, run_in_background: true },
@@ -115,7 +115,7 @@ describe('bash and job are one capability', () => {
 	it('reads only what is new when handed back its own next_offset', async () => {
 		const registry = new BackgroundJobRegistry()
 		const cwd = await workdir()
-		const context = contextFor(registry, 'run_a', cwd)
+		const context = contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd)
 		const started = await BashTool.execute(
 			{ command: 'echo first; sleep 0.3; echo second', timeout: 1000, run_in_background: true },
 			context,
@@ -140,7 +140,7 @@ describe('bash and job are one capability', () => {
 	it('lists the jobs of this run and stops one on request', async () => {
 		const registry = new BackgroundJobRegistry()
 		const cwd = await workdir()
-		const context = contextFor(registry, 'run_a', cwd)
+		const context = contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd)
 		const started = await BashTool.execute(
 			{ command: 'sleep 30', timeout: 1000, run_in_background: true },
 			context,
@@ -159,7 +159,7 @@ describe('bash and job are one capability', () => {
 		// the model unable to tell a truncated tail from a truncated build.
 		const registry = new BackgroundJobRegistry({ maxOutputBytesPerJob: 200 })
 		const cwd = await workdir()
-		const context = contextFor(registry, 'run_a', cwd)
+		const context = contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd)
 		const started = await BashTool.execute(
 			{
 				command: 'for i in $(seq 1 400); do echo "line $i"; done',
@@ -181,7 +181,7 @@ describe('bash and job are one capability', () => {
 	it('refuses read and kill without an id, and names the way out', async () => {
 		const registry = new BackgroundJobRegistry()
 		const cwd = await workdir()
-		const context = contextFor(registry, 'run_a', cwd)
+		const context = contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd)
 
 		const result = await JobTool.execute({ action: 'read' }, context)
 
@@ -196,8 +196,8 @@ describe('one run cannot reach the job of another run', () => {
 		// for the same reason: refusing would confirm the job is there.
 		const registry = new BackgroundJobRegistry()
 		const cwd = await workdir()
-		const mine = contextFor(registry, 'run_a', cwd)
-		const theirs = contextFor(registry, 'run_b', cwd)
+		const mine = contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd)
+		const theirs = contextFor(registry, 'fe818a89-6a50-4e51-8a91-5f108ad85280', cwd)
 
 		const started = await BashTool.execute(
 			{ command: 'sleep 30', timeout: 1000, run_in_background: true },
@@ -213,7 +213,7 @@ describe('one run cannot reach the job of another run', () => {
 		expect(killed.success).toBe(false)
 		// And it is still running: the refusal was not a partial success.
 		expect(registry.get(jobId).status).toBe('running')
-		await registry.killOwner('run_a')
+		await registry.killOwner('90a466e2-f869-4a3c-b750-f2156342ff40')
 	})
 
 	it('lists nothing for a run that started nothing', async () => {
@@ -221,13 +221,16 @@ describe('one run cannot reach the job of another run', () => {
 		const cwd = await workdir()
 		await BashTool.execute(
 			{ command: 'sleep 30', timeout: 1000, run_in_background: true },
-			contextFor(registry, 'run_a', cwd),
+			contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd),
 		)
 
-		const listed = await JobTool.execute({ action: 'list' }, contextFor(registry, 'run_b', cwd))
+		const listed = await JobTool.execute(
+			{ action: 'list' },
+			contextFor(registry, 'fe818a89-6a50-4e51-8a91-5f108ad85280', cwd),
+		)
 
 		expect(listed.output).toBe('No background jobs.')
-		await registry.killOwner('run_a')
+		await registry.killOwner('90a466e2-f869-4a3c-b750-f2156342ff40')
 	})
 })
 
@@ -235,7 +238,7 @@ describe('the per-owner cap reaches the model as a refusal it can act on', () =>
 	it('names the limit rather than failing generically', async () => {
 		const registry = new BackgroundJobRegistry({ maxJobsPerOwner: 1 })
 		const cwd = await workdir()
-		const context = contextFor(registry, 'run_a', cwd)
+		const context = contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd)
 		await BashTool.execute({ command: 'sleep 30', timeout: 1000, run_in_background: true }, context)
 
 		const second = await BashTool.execute(
@@ -245,6 +248,6 @@ describe('the per-owner cap reaches the model as a refusal it can act on', () =>
 
 		expect(second.success).toBe(false)
 		expect(second.error).toMatch(/kill one before starting another/)
-		await registry.killOwner('run_a')
+		await registry.killOwner('90a466e2-f869-4a3c-b750-f2156342ff40')
 	})
 })

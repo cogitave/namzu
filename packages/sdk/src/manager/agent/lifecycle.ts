@@ -196,7 +196,7 @@ export class AgentManager {
 		const sharedAgent = definitionForSpawn.typedAgent
 		const agent = definitionForSpawn.createAgent?.() ?? sharedAgent.forRun?.() ?? sharedAgent
 
-		const childAbortController = createChildAbortController(context.parentAbortController)
+		context.parentAbortController.signal.throwIfAborted()
 
 		// The allocation is computed INSIDE the spawn lock, not here. Reading
 		// the parent's remaining budget at this point and debiting it after
@@ -221,263 +221,344 @@ export class AgentManager {
 		// The allocation now travels with it, because the read and the debit
 		// have to be on the same side of every await to mean anything.
 		const { spawnRecord, allocatedTokens } = await this.provisionSpawn(options, context)
+		let childAbortController: AbortController | undefined
+		let agentTask: AgentTask | undefined
+		try {
+			childAbortController = createChildAbortController(context.parentAbortController)
 
-		const taskId = generateTaskId()
+			const taskId = generateTaskId()
 
-		const childParentActor: ActorRef = {
-			kind: 'agent',
-			agentId: context.parentAgentId,
-			tenantId: context.tenantId,
-			parentActor: context.parentActor,
-		}
+			const childParentActor: ActorRef = {
+				kind: 'agent',
+				agentId: context.parentAgentId,
+				tenantId: context.tenantId,
+				parentActor: context.parentActor,
+			}
 
-		// The union of every deny along the chain, plus this spawn's own.
-		//
-		// Without it, NZ-GATE-09's scope stopped at one level: a child denied
-		// `bash` could spawn a grandchild naming no scope, and the grandchild
-		// got bash back. A restriction that a descendant can shed by
-		// delegating is not a restriction.
-		//
-		// No containment CHECK here, deliberately. The obvious shape is to
-		// confirm with `isDescendantOfActor` that the child really sits under
-		// the actor whose scope is being inherited — but `childParentActor`
-		// is built two statements up FROM `context.parentActor`, so the
-		// answer is yes by construction and the branch could never be taken.
-		// A check that cannot fail reads as a safeguard and is not one. The
-		// predicate is exported for the callers that do face an actor they
-		// did not construct: an audit walking a subtree, a host asking
-		// whether one run's actor is contained by another's.
-		//
-		// Union, not replace, and not "innermost wins": a descendant may
-		// narrow further and may never widen.
-		const inheritedDenies = context.toolDenies ?? []
-		const ownDenies = options.toolScope?.deny ?? []
-		const resolvedDenies = [...new Set([...inheritedDenies, ...ownDenies])]
+			// The union of every deny along the chain, plus this spawn's own.
+			//
+			// Without it, NZ-GATE-09's scope stopped at one level: a child denied
+			// `bash` could spawn a grandchild naming no scope, and the grandchild
+			// got bash back. A restriction that a descendant can shed by
+			// delegating is not a restriction.
+			//
+			// No containment CHECK here, deliberately. The obvious shape is to
+			// confirm with `isDescendantOfActor` that the child really sits under
+			// the actor whose scope is being inherited — but `childParentActor`
+			// is built two statements up FROM `context.parentActor`, so the
+			// answer is yes by construction and the branch could never be taken.
+			// A check that cannot fail reads as a safeguard and is not one. The
+			// predicate is exported for the callers that do face an actor they
+			// did not construct: an audit walking a subtree, a host asking
+			// whether one run's actor is contained by another's.
+			//
+			// Union, not replace, and not "innermost wins": a descendant may
+			// narrow further and may never widen.
+			const inheritedDenies = context.toolDenies ?? []
+			const ownDenies = options.toolScope?.deny ?? []
+			const resolvedDenies = [...new Set([...inheritedDenies, ...ownDenies])]
 
-		const childContext: AgentTaskContext = {
-			parentRunId: context.parentRunId,
-			parentAgentId: context.parentAgentId,
-			parentAbortController: context.parentAbortController,
-			depth: context.depth + 1,
-			budgetTracker: context.budgetTracker,
-			factoryOptions: context.factoryOptions,
-			tenantId: context.tenantId,
-			topicId: context.topicId,
-			sessionId: spawnRecord.childSessionId,
-			projectId: context.projectId,
-			parentActor: childParentActor,
-			...(resolvedDenies.length > 0 ? { toolDenies: resolvedDenies } : {}),
-		}
-
-		const agentTask: AgentTask = {
-			taskId,
-			agentId: options.agentId,
-			agent,
-			childAbortController,
-			context: childContext,
-			state: 'pending',
-			budgetReservation: allocatedTokens,
-			pendingMessages: [],
-			createdAt: Date.now(),
-			runEventListener: listener,
-		}
-
-		this.instances.set(taskId, agentTask)
-		if (resolvedDenies.length > 0) spawnRecord.resolvedToolDenies = resolvedDenies
-		this.spawnRecords.set(taskId, spawnRecord)
-		this.emit({
-			type: 'pending',
-			taskId,
-			agentId: options.agentId,
-			parentAgentId: context.parentAgentId,
-			depth: context.depth,
-		})
-
-		if (listener) {
-			listener({
-				type: 'agent_pending',
-				runId: context.parentRunId,
-				taskId,
+			const childContext: AgentTaskContext = {
+				parentRunId: context.parentRunId,
 				parentAgentId: context.parentAgentId,
-				childAgentId: options.agentId,
+				parentAbortController: context.parentAbortController,
+				depth: context.depth + 1,
+				budgetTracker: context.budgetTracker,
+				factoryOptions: context.factoryOptions,
+				tenantId: context.tenantId,
+				topicId: context.topicId,
+				sessionId: spawnRecord.childSessionId,
+				projectId: context.projectId,
+				parentActor: childParentActor,
+				...(resolvedDenies.length > 0 ? { toolDenies: resolvedDenies } : {}),
+			}
+
+			agentTask = {
+				taskId,
+				agentId: options.agentId,
+				agent,
+				childAbortController,
+				context: childContext,
+				state: 'pending',
+				budgetReservation: allocatedTokens,
+				pendingMessages: [],
+				createdAt: Date.now(),
+				runEventListener: listener,
+			}
+
+			childAbortController.signal.throwIfAborted()
+			this.instances.set(taskId, agentTask)
+			if (resolvedDenies.length > 0) spawnRecord.resolvedToolDenies = resolvedDenies
+			this.spawnRecords.set(taskId, spawnRecord)
+			this.emit({
+				type: 'pending',
+				taskId,
+				agentId: options.agentId,
+				parentAgentId: context.parentAgentId,
 				depth: context.depth,
 			})
 
-			const lineage: Lineage = {
-				parentSessionId: spawnRecord.parentSessionId,
-				rootSessionId: spawnRecord.rootSessionId,
-				depth: spawnRecord.childDepth,
-			}
-			listener({
-				type: 'subsession_spawned',
-				runId: context.parentRunId,
-				subSessionId: spawnRecord.subSessionId,
-				parentSessionId: spawnRecord.parentSessionId,
-				spawnedBy: context.parentActor,
-				lineage,
-				schemaVersion: RUN_EVENT_SCHEMA_VERSION,
-				at: new Date(),
-			})
-		}
-		this.log.info('Agent task pending', {
-			'namzu.agent.task_id': taskId,
-			'namzu.agent.definition_id': options.agentId,
-			'namzu.agent.depth': context.depth,
-		})
+			if (listener) {
+				await listener({
+					type: 'agent_pending',
+					runId: context.parentRunId,
+					taskId,
+					parentAgentId: context.parentAgentId,
+					childAgentId: options.agentId,
+					depth: context.depth,
+				})
 
-		const definition = this.registry.getOrThrow(options.agentId)
-		let childConfig: BaseAgentConfig
-		if (definition.configBuilder) {
-			// Call the configBuilder regardless of whether factoryOptions were
-			// supplied. BYO-provider flows (ambient cloud credentials, a custom registry)
-			// commonly omit factoryOptions because the provider resolves its own
-			// credentials; the builder still needs to run to wire provider+tools.
-			// Defaults: empty factoryOptions when omitted; configOverrides win.
-			childConfig = await definition.configBuilder({
-				...(context.factoryOptions ?? {}),
-				tokenBudget: allocatedTokens,
-				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
-				parentRunId: context.parentRunId as string | undefined,
-				depth: context.depth + 1,
-				...options.configOverrides,
+				const lineage: Lineage = {
+					parentSessionId: spawnRecord.parentSessionId,
+					rootSessionId: spawnRecord.rootSessionId,
+					depth: spawnRecord.childDepth,
+				}
+				await listener({
+					type: 'subsession_spawned',
+					runId: context.parentRunId,
+					subSessionId: spawnRecord.subSessionId,
+					parentSessionId: spawnRecord.parentSessionId,
+					spawnedBy: context.parentActor,
+					lineage,
+					schemaVersion: RUN_EVENT_SCHEMA_VERSION,
+					at: new Date(),
+				})
+			}
+			this.log.info('Agent task pending', {
+				'namzu.agent.task_id': taskId,
+				'namzu.agent.definition_id': options.agentId,
+				'namzu.agent.depth': context.depth,
 			})
 
-			if (!childConfig.contextLevel && definition.contextLevel) {
-				childConfig.contextLevel = definition.contextLevel
+			const definition = this.registry.getOrThrow(options.agentId)
+			let childConfig: BaseAgentConfig
+			if (definition.configBuilder) {
+				// Call the configBuilder regardless of whether factoryOptions were
+				// supplied. BYO-provider flows (ambient cloud credentials, a custom registry)
+				// commonly omit factoryOptions because the provider resolves its own
+				// credentials; the builder still needs to run to wire provider+tools.
+				// Defaults: empty factoryOptions when omitted; configOverrides win.
+				childConfig = {
+					...(await definition.configBuilder({
+						...(context.factoryOptions ?? {}),
+						tokenBudget: allocatedTokens,
+						timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
+						parentRunId: context.parentRunId as string | undefined,
+						depth: context.depth + 1,
+						...options.configOverrides,
+					})),
+				}
+
+				if (!childConfig.contextLevel && definition.contextLevel) {
+					childConfig.contextLevel = definition.contextLevel
+				}
+
+				// Propagate session-hierarchy scoping onto the child config. The
+				// configBuilder may not have been updated to emit these yet; we
+				// stamp them here so query() sees them regardless.
+				childConfig.sessionId = spawnRecord?.childSessionId ?? context.sessionId
+				childConfig.topicId = context.topicId
+				childConfig.projectId = context.projectId
+				childConfig.tenantId = context.tenantId
+				// Stamp the trace parent the same way, rather than trusting every
+				// configBuilder to forward an option it may not know about.
+				if (options.configOverrides?.parentSpan) {
+					childConfig.parentSpan = options.configOverrides.parentSpan
+				}
+				// Stamped for the same reason as the trace parent above: a
+				// `configBuilder` is written by whoever registered the agent and
+				// cannot be trusted to forward something it was never told about.
+				// An explicit override still wins, so a host can hand one child a
+				// different channel — or none.
+				//
+				// Without this every delegated child fell through to
+				// `autoApproveHandler`, so a host's "ask before acting" gate
+				// covered the top-level run and nothing it delegated.
+				const inheritedHandler = options.configOverrides?.resumeHandler ?? context.resumeHandler
+				if (inheritedHandler) childConfig.resumeHandler = inheritedHandler
+
+				// And the environment, for the third time and the same reason.
+				//
+				// The bare-config branch below has always carried `env`; this one
+				// never did, so a delegate registered WITH a `configBuilder` — the
+				// normal way, and what every host in this repo does — silently ran
+				// with none of the environment its parent had been given. The
+				// builder is written by whoever registered the agent and cannot be
+				// expected to forward a field it was never told about, which is
+				// exactly why `parentSpan` and `resumeHandler` are stamped here too.
+				//
+				// Merged per key rather than replaced. `configOverrides` is a
+				// `Partial`, so assigning the whole map would drop every key the
+				// builder set and the caller did not restate — the override wins per
+				// key, the same direction it already wins for `model` and `effort`.
+				const inheritedEnv = mergeEnv(childConfig.env, options.configOverrides?.env)
+				if (inheritedEnv) childConfig.env = inheritedEnv
+				// A builder may ignore a newly-added factory option. The requested root
+				// policy is an execution boundary, so stamp an explicit child override
+				// after the builder rather than silently falling back to ephemeral.
+				if (options.configOverrides?.sandbox) {
+					childConfig.sandbox = options.configOverrides.sandbox
+				}
+			} else {
+				this.log.warn('No configBuilder, using bare config', {
+					[GENAI.AGENT_ID]: options.agentId,
+				})
+				childConfig = {
+					model: options.configOverrides?.model ?? 'default',
+					tokenBudget: allocatedTokens,
+					timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
+					streamIdleTimeoutMs: options.configOverrides?.streamIdleTimeoutMs,
+					maxRequestRichContentBytes: options.configOverrides?.maxRequestRichContentBytes,
+					attachmentResolveTimeoutMs: options.configOverrides?.attachmentResolveTimeoutMs,
+					temperature: options.configOverrides?.temperature,
+					parentSpan: options.configOverrides?.parentSpan,
+					maxIterations: options.configOverrides?.maxIterations,
+					maxResponseTokens: options.configOverrides?.maxResponseTokens,
+					// A delegate spawned without a configBuilder lands here, and this
+					// list is the only thing it inherits. Omitting these meant a child
+					// silently ran at the default depth and effort its parent had
+					// deliberately moved off.
+					thinking: options.configOverrides?.thinking,
+					effort: options.configOverrides?.effort,
+					env: options.configOverrides?.env,
+					sandbox: options.configOverrides?.sandbox,
+					sessionId: spawnRecord.childSessionId,
+					topicId: context.topicId,
+					projectId: context.projectId,
+					tenantId: context.tenantId,
+					parentRunId: context.parentRunId,
+					depth: context.depth + 1,
+					resumeHandler: options.configOverrides?.resumeHandler ?? context.resumeHandler,
+				}
 			}
 
-			// Propagate session-hierarchy scoping onto the child config. The
-			// configBuilder may not have been updated to emit these yet; we
-			// stamp them here so query() sees them regardless.
-			childConfig.sessionId = spawnRecord?.childSessionId ?? context.sessionId
-			childConfig.topicId = context.topicId
-			childConfig.projectId = context.projectId
-			childConfig.tenantId = context.tenantId
-			// Stamp the trace parent the same way, rather than trusting every
-			// configBuilder to forward an option it may not know about.
-			if (options.configOverrides?.parentSpan) {
-				childConfig.parentSpan = options.configOverrides.parentSpan
+			// Lineage is assigned by the spawning manager, not proposed by the
+			// child definition. A fixed configBuilder can ignore its inputs and
+			// configOverrides is caller-authored; neither may turn a child back
+			// into depth zero or attach it to a different parent run.
+			childConfig.parentRunId = context.parentRunId
+			childConfig.depth = context.depth + 1
+			// The reservation is the execution ceiling, regardless of a builder's
+			// defaults or configOverrides. Zero means unlimited to query(), so it
+			// must inherit the finite allocation rather than erase that ceiling.
+			if (!Number.isFinite(childConfig.tokenBudget) || childConfig.tokenBudget < 0) {
+				throw new NamzuError({
+					code: 'invalid_config',
+					message: `Invalid child token budget for "${options.agentId}": ${childConfig.tokenBudget}`,
+				})
 			}
-			// Stamped for the same reason as the trace parent above: a
-			// `configBuilder` is written by whoever registered the agent and
-			// cannot be trusted to forward something it was never told about.
-			// An explicit override still wins, so a host can hand one child a
-			// different channel — or none.
-			//
-			// Without this every delegated child fell through to
-			// `autoApproveHandler`, so a host's "ask before acting" gate
-			// covered the top-level run and nothing it delegated.
-			const inheritedHandler = options.configOverrides?.resumeHandler ?? context.resumeHandler
-			if (inheritedHandler) childConfig.resumeHandler = inheritedHandler
+			childConfig.tokenBudget =
+				childConfig.tokenBudget === 0
+					? allocatedTokens
+					: Math.min(childConfig.tokenBudget, allocatedTokens)
 
-			// And the environment, for the third time and the same reason.
+			// Stamped AFTER the builder, for the fourth time and the same reason:
+			// a `configBuilder` is written by whoever registered the agent and
+			// cannot forward a field it was never told about. A scope applied
+			// before it would be silently discarded by every builder that returns
+			// a fixed config — which is most of them.
 			//
-			// The bare-config branch below has always carried `env`; this one
-			// never did, so a delegate registered WITH a `configBuilder` — the
-			// normal way, and what every host in this repo does — silently ran
-			// with none of the environment its parent had been given. The
-			// builder is written by whoever registered the agent and cannot be
-			// expected to forward a field it was never told about, which is
-			// exactly why `parentSpan` and `resumeHandler` are stamped here too.
+			// OUTSIDE the branch, unlike the four stamps above, and that is the
+			// point. Written inside the `configBuilder` arm it read correctly and
+			// left the bare-config arm below ignoring `toolScope` entirely — a
+			// caller that asked for a narrower child got a wider one, silently,
+			// and in the only direction that matters. Every other field here is
+			// an inheritance, where missing it costs the child something; this
+			// one is a restriction, where missing it costs the CALLER something.
 			//
-			// Merged per key rather than replaced. `configOverrides` is a
-			// `Partial`, so assigning the whole map would drop every key the
-			// builder set and the caller did not restate — the override wins per
-			// key, the same direction it already wins for `model` and `effort`.
-			const inheritedEnv = mergeEnv(childConfig.env, options.configOverrides?.env)
-			if (inheritedEnv) childConfig.env = inheritedEnv
-			// A builder may ignore a newly-added factory option. The requested root
-			// policy is an execution boundary, so stamp an explicit child override
-			// after the builder rather than silently falling back to ephemeral.
-			if (options.configOverrides?.sandbox) {
-				childConfig.sandbox = options.configOverrides.sandbox
+			// Narrowing only: the deny list is SUBTRACTED from whatever the child
+			// would otherwise have. `allowedTools` absent means "every registered
+			// tool", so a deny with no existing allow-list has to be resolved
+			// against the registry at the run rather than here — which `query()`
+			// does, and which is why this appends to `deniedTools` rather than
+			// synthesising an allow-list.
+			if (resolvedDenies.length > 0) {
+				childConfig.deniedTools = [
+					...new Set([...(childConfig.deniedTools ?? []), ...resolvedDenies]),
+				]
 			}
-		} else {
-			this.log.warn('No configBuilder, using bare config', {
-				[GENAI.AGENT_ID]: options.agentId,
+			if (options.personaOverride) childConfig.persona = options.personaOverride
+
+			// Outside the branch, like the scope above it and for the same reason:
+			// a `configBuilder` cannot forward a field it was never told about.
+			//
+			// Bound to the taskId rather than to the task object, so a drain after
+			// the task is gone throws where the caller is instead of returning an
+			// empty array from a closure over a corpse.
+			//
+			// This is the delivery point `pendingMessages` never had.
+			// `continueTask` and `queueMessage` pushed onto it and nothing in the
+			// kernel drained it — the manager interface's own docblock said "the
+			// runtime does not deliver it", and `continue_task` was unmounted from
+			// the coordinator tools because of that.
+			childConfig.inboundMessages = () => this.drainMessages(taskId)
+			childAbortController.signal.throwIfAborted()
+
+			this.runChild(agentTask, options, childConfig, listener).catch((err) => {
+				this.markFailed(taskId, toErrorMessage(err))
 			})
-			childConfig = {
-				model: options.configOverrides?.model ?? 'default',
-				tokenBudget: allocatedTokens,
-				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
-				streamIdleTimeoutMs: options.configOverrides?.streamIdleTimeoutMs,
-				maxRequestRichContentBytes: options.configOverrides?.maxRequestRichContentBytes,
-				attachmentResolveTimeoutMs: options.configOverrides?.attachmentResolveTimeoutMs,
-				temperature: options.configOverrides?.temperature,
-				parentSpan: options.configOverrides?.parentSpan,
-				maxIterations: options.configOverrides?.maxIterations,
-				maxResponseTokens: options.configOverrides?.maxResponseTokens,
-				// A delegate spawned without a configBuilder lands here, and this
-				// list is the only thing it inherits. Omitting these meant a child
-				// silently ran at the default depth and effort its parent had
-				// deliberately moved off.
-				thinking: options.configOverrides?.thinking,
-				effort: options.configOverrides?.effort,
-				env: options.configOverrides?.env,
-				sandbox: options.configOverrides?.sandbox,
-				sessionId: spawnRecord.childSessionId,
-				topicId: context.topicId,
-				projectId: context.projectId,
-				tenantId: context.tenantId,
-				parentRunId: context.parentRunId,
-				depth: context.depth + 1,
-				resumeHandler: options.configOverrides?.resumeHandler ?? context.resumeHandler,
+
+			return agentTask
+		} catch (err) {
+			// No child invocation has been admitted: all reserved tokens and all
+			// provisioned resources are still ours to return. A builder/listener
+			// failure must not strand a pending task the caller never received.
+			if (agentTask) {
+				await this.rollbackUnstartedSpawn(agentTask, spawnRecord, err)
+			} else {
+				childAbortController?.abort()
+				context.budgetTracker.remaining += allocatedTokens
+				await this.rollbackSpawnResources(spawnRecord)
+			}
+			throw err
+		}
+	}
+
+	private async rollbackUnstartedSpawn(
+		agentTask: AgentTask,
+		spawnRecord: ChildSpawnRecord,
+		reason: unknown,
+	): Promise<void> {
+		agentTask.childAbortController.abort()
+		this.releaseBudget(agentTask, 0)
+		if (!isTerminalAgentTaskState(agentTask.state)) {
+			agentTask.state = 'failed'
+			const error = toErrorMessage(reason)
+			this.emit({ type: 'failed', taskId: agentTask.taskId, error })
+			try {
+				await agentTask.runEventListener?.({
+					type: 'agent_failed',
+					runId: agentTask.context.parentRunId,
+					taskId: agentTask.taskId,
+					error,
+				})
+			} catch (err) {
+				this.log.warn('Unstarted child failure notification failed', {
+					'namzu.task.id': agentTask.taskId,
+					'exception.message': toErrorMessage(err),
+				})
 			}
 		}
+		this.clearEvictionTimer(agentTask.taskId)
+		this.instances.delete(agentTask.taskId)
+		this.spawnRecords.delete(agentTask.taskId)
+		this.resolveCompletionCallbacks(agentTask.taskId)
+		await this.rollbackSpawnResources(spawnRecord)
+	}
 
-		// Lineage is assigned by the spawning manager, not proposed by the
-		// child definition. A fixed configBuilder can ignore its inputs and
-		// configOverrides is caller-authored; neither may turn a child back
-		// into depth zero or attach it to a different parent run.
-		childConfig.parentRunId = context.parentRunId
-		childConfig.depth = context.depth + 1
-
-		// Stamped AFTER the builder, for the fourth time and the same reason:
-		// a `configBuilder` is written by whoever registered the agent and
-		// cannot forward a field it was never told about. A scope applied
-		// before it would be silently discarded by every builder that returns
-		// a fixed config — which is most of them.
-		//
-		// OUTSIDE the branch, unlike the four stamps above, and that is the
-		// point. Written inside the `configBuilder` arm it read correctly and
-		// left the bare-config arm below ignoring `toolScope` entirely — a
-		// caller that asked for a narrower child got a wider one, silently,
-		// and in the only direction that matters. Every other field here is
-		// an inheritance, where missing it costs the child something; this
-		// one is a restriction, where missing it costs the CALLER something.
-		//
-		// Narrowing only: the deny list is SUBTRACTED from whatever the child
-		// would otherwise have. `allowedTools` absent means "every registered
-		// tool", so a deny with no existing allow-list has to be resolved
-		// against the registry at the run rather than here — which `query()`
-		// does, and which is why this appends to `deniedTools` rather than
-		// synthesising an allow-list.
-		if (resolvedDenies.length > 0) {
-			childConfig.deniedTools = [
-				...new Set([...(childConfig.deniedTools ?? []), ...resolvedDenies]),
-			]
+	private async rollbackSpawnResources(spawnRecord: ChildSpawnRecord): Promise<void> {
+		await this.disposeChildWorkspace(spawnRecord)
+		try {
+			// The edge must be removed before its child: stores reject deletion
+			// of a session that still has a subsession reference.
+			await this.deps.sessionStore.deleteSubSession(spawnRecord.subSessionId, spawnRecord.tenantId)
+			await this.deps.sessionStore.deleteSession(spawnRecord.childSessionId, spawnRecord.tenantId)
+		} catch (err) {
+			this.log.warn('Unstarted child rollback failed', {
+				'namzu.sub_session.id': spawnRecord.subSessionId,
+				'exception.message': toErrorMessage(err),
+			})
 		}
-		if (options.personaOverride) childConfig.persona = options.personaOverride
-
-		// Outside the branch, like the scope above it and for the same reason:
-		// a `configBuilder` cannot forward a field it was never told about.
-		//
-		// Bound to the taskId rather than to the task object, so a drain after
-		// the task is gone throws where the caller is instead of returning an
-		// empty array from a closure over a corpse.
-		//
-		// This is the delivery point `pendingMessages` never had.
-		// `continueTask` and `queueMessage` pushed onto it and nothing in the
-		// kernel drained it — the manager interface's own docblock said "the
-		// runtime does not deliver it", and `continue_task` was unmounted from
-		// the coordinator tools because of that.
-		childConfig.inboundMessages = () => this.drainMessages(taskId)
-
-		this.runChild(agentTask, options, childConfig, listener).catch((err) => {
-			this.markFailed(taskId, toErrorMessage(err))
-		})
-
-		return agentTask
 	}
 
 	cancel(taskId: TaskId, cause?: CancelCause): void {
@@ -669,16 +750,16 @@ export class AgentManager {
 		// && total >= tokenBudget`), and `maxAllocation` floors to 0 as soon as
 		// the parent's remaining drops below `1 / maxBudgetFraction`. So the
 		// most depleted parent in the tree was the one that spawned an
-		// unlimited child. Refuse instead: a caller that wants an uncapped
-		// child can say so explicitly with its own `budgetAllocation`.
+		// unlimited child. Refuse instead: a delegated child must have a
+		// finite reservation before it can start.
 		//
 		// Refusing before any provisioning work also preserves the property the
 		// debit's placement was chosen for: a spawn this call rejects makes no
 		// state change at all, and burns no allocation.
-		if (allocatedTokens <= 0) {
+		if (!Number.isFinite(allocatedTokens) || allocatedTokens <= 0) {
 			throw new NamzuError({
 				code: 'invalid_config',
-				message: `Cannot spawn "${options.agentId}": the parent has ${context.budgetTracker.remaining} tokens remaining, which allocates 0 to the child — and a token budget of 0 means UNLIMITED downstream.`,
+				message: `Cannot spawn "${options.agentId}": the parent has ${context.budgetTracker.remaining} tokens remaining, which allocates ${allocatedTokens} to the child — a child allocation must be finite and positive; a token budget of 0 means UNLIMITED downstream.`,
 				details: {
 					agentId: options.agentId,
 					parentRemaining: context.budgetTracker.remaining,
@@ -831,6 +912,12 @@ export class AgentManager {
 				await store.updateSubSession(subSession, context.tenantId)
 			}
 		} catch (err) {
+			if (workspaceRef && subSession) {
+				await this.disposeChildWorkspace({
+					workspaceRef,
+					subSessionId: subSession.id,
+				})
+			}
 			// Compensating rollback order is mandated by the store's
 			// deny-by-default cascade policy (Convention #5): `deleteSession`
 			// throws when any subsession still references it, so the subsession
@@ -1149,7 +1236,9 @@ export class AgentManager {
 	 * The failure is logged instead, because a worktree that could not be
 	 * removed is an operator's problem and silence is how it stays one.
 	 */
-	private async disposeChildWorkspace(spawnRecord: ChildSpawnRecord): Promise<void> {
+	private async disposeChildWorkspace(
+		spawnRecord: Pick<ChildSpawnRecord, 'workspaceRef' | 'subSessionId'>,
+	): Promise<void> {
 		if (!spawnRecord.workspaceRef) return
 		const backend = spawnRecord.workspaceRef.meta.backend
 		if (!this.deps.workspaceRegistry.has(backend)) return

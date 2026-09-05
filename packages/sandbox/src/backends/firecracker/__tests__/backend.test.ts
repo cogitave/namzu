@@ -111,7 +111,7 @@ function stubOrchestrator(
 		if (method === 'POST' && url.endsWith('/sandboxes')) {
 			return new Response(
 				JSON.stringify({
-					sandboxId: 'sbx_fc_test',
+					sandboxId: '37ec9f88-ccad-4fb9-a32f-5923076d1201',
 					agent: handle,
 					rootDir: workDir,
 				}),
@@ -148,7 +148,7 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		})
 
 		// Handle shape.
-		expect(sandbox.id).toBe('sbx_fc_test')
+		expect(sandbox.id).toBe('37ec9f88-ccad-4fb9-a32f-5923076d1201')
 		expect(sandbox.rootDir).toBe(workDir)
 		expect(sandbox.environment).toBe('linux-namespace')
 		expect(sandbox.status).toBe('ready')
@@ -385,7 +385,7 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 			if (method === 'POST' && url.endsWith('/sandboxes')) {
 				return new Response(
 					JSON.stringify({
-						sandboxId: 'sbx_fc_held_delete',
+						sandboxId: 'e58e6e5b-6a66-4e09-87bc-16d8f1d8b933',
 						agent: { kind: 'unix', path: sockPath },
 						rootDir: workDir,
 					}),

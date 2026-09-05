@@ -102,7 +102,7 @@ const askInput = {
 
 function toolContext(): ToolContext {
 	return {
-		runId: asRunId('run_ask'),
+		runId: asRunId('6d7d3240-86b4-4140-9955-c21a15f3d5ae'),
 		toolUseId: 'toolu_ask_1',
 		abortSignal: new AbortController().signal,
 	} as unknown as ToolContext

@@ -4,8 +4,8 @@ import { formatTuiExitSummary } from './exit-summary.js'
 
 describe('the shell handoff after the TUI exits', () => {
 	it('prints a copy-pasteable shell command for the durable conversation', () => {
-		expect(formatTuiExitSummary({ conversationId: 'ses_123' })).toBe(
-			'To resume this conversation, run: namzu resume ses_123\n',
+		expect(formatTuiExitSummary({ conversationId: '5be5e0e7-6c3c-4013-971a-f75c0d2d2538' })).toBe(
+			'To resume this conversation, run: namzu resume 5be5e0e7-6c3c-4013-971a-f75c0d2d2538\n',
 		)
 	})
 

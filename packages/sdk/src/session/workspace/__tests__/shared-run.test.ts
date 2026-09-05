@@ -2,6 +2,7 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { fixtureUuid } from '../../../test-support/ids.js'
 import { SharedRunWorkspace } from '../shared-run.js'
 
 describe('SharedRunWorkspace', () => {
@@ -54,11 +55,13 @@ describe('SharedRunWorkspace', () => {
 		})
 		const agentPath = await workspace.registerAgentWork({
 			agentId: 'solution-architecture',
-			taskId: 'task_123',
+			taskId: '3a6e289d-17b9-4b36-80ab-4f7b1a2f7348',
 		})
 
 		expect(briefPath).toBe('/mnt/user-data/outputs/_work/00_supervisor_brief.md')
-		expect(agentPath).toBe('/mnt/user-data/outputs/_work/agents/solution-architecture/task_123')
+		expect(agentPath).toBe(
+			'/mnt/user-data/outputs/_work/agents/solution-architecture/3a6e289d-17b9-4b36-80ab-4f7b1a2f7348',
+		)
 		const inventory = await readFile(join(hostRoot, 'sources', 'inventory.md'), 'utf8')
 		expect(inventory).toContain('SBD.docx')
 		expect(inventory).toContain('/mnt/user-data/uploads/file_abc/SBD.docx')
@@ -79,7 +82,7 @@ describe('SharedRunWorkspace', () => {
 			Array.from({ length: 9 }, (_, index) =>
 				workspace.registerAgentWork({
 					agentId: `agent-${index + 1}`,
-					taskId: `task_${index + 1}`,
+					taskId: fixtureUuid(`task_${index + 1}`),
 					status: 'running',
 				}),
 			),
@@ -109,16 +112,16 @@ describe('SharedRunWorkspace', () => {
 
 		const briefPath = await workspace.writeAgentBrief({
 			agentId: 'solution-architecture',
-			taskId: 'task_abc',
+			taskId: '2bc3df3a-e352-4cc1-829e-663890bdb3fd',
 			briefText: '# Worker Brief\n\n## Assignment\n\nDraft the solution architecture section.',
 		})
 		expect(briefPath).toBe(
-			'/mnt/user-data/outputs/_work/agents/solution-architecture/task_abc/00_brief.md',
+			'/mnt/user-data/outputs/_work/agents/solution-architecture/2bc3df3a-e352-4cc1-829e-663890bdb3fd/00_brief.md',
 		)
 
 		const appended = await workspace.appendAgentBrief({
 			agentId: 'solution-architecture',
-			taskId: 'task_abc',
+			taskId: '2bc3df3a-e352-4cc1-829e-663890bdb3fd',
 			sectionText:
 				'## Follow-up 2026-05-10T18:00:00.000Z\n\n### Follow-up message\n\nAdd a risks subsection.',
 		})
@@ -128,7 +131,7 @@ describe('SharedRunWorkspace', () => {
 			hostRoot,
 			'agents',
 			'solution-architecture',
-			'task_abc',
+			'2bc3df3a-e352-4cc1-829e-663890bdb3fd',
 			'00_brief.md',
 		)
 		const content = await readFile(hostBriefPath, 'utf8')

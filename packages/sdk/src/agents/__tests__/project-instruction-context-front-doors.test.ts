@@ -21,10 +21,10 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
 import { runAgent } from '../runAgent.js'
 
 const scope = {
-	sessionId: 'ses_project_front' as SessionId,
-	topicId: 'top_project_front' as TopicId,
-	projectId: 'prj_project_front' as ProjectId,
-	tenantId: 'tnt_project_front' as TenantId,
+	sessionId: '64708c47-5fff-48b7-a5ae-81945aee329a' as SessionId,
+	topicId: 'c5f2facf-ebec-49cc-a8b9-17953bee92b4' as TopicId,
+	projectId: '14abccc6-8dcb-4197-85a2-b11256fe8f55' as ProjectId,
+	tenantId: '7733e2a7-8eca-495d-8d8d-f6ea67d3b524' as TenantId,
 }
 
 function controller(): ProjectInstructionContext {

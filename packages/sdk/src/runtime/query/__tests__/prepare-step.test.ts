@@ -73,10 +73,10 @@ async function run(opts: {
 		agentName: 'Phased',
 		messages: [createUserMessage('do the work')],
 		workingDirectory,
-		sessionId: 'ses_p' as SessionId,
-		topicId: 'top_p' as TopicId,
-		projectId: 'prj_p' as ProjectId,
-		tenantId: 'tnt_p' as TenantId,
+		sessionId: '4d32012f-9275-4cfe-aba3-6c55342da0a7' as SessionId,
+		topicId: 'ea19096b-e2b2-4911-9a59-969005a76e8f' as TopicId,
+		projectId: '0006f657-8f03-4d79-80ad-417dc503ed59' as ProjectId,
+		tenantId: '56c9d35c-1e5e-4c5b-b04b-6ff1134d4d38' as TenantId,
 		...(opts.prepareStep ? { prepareStep: opts.prepareStep } : {}),
 	})
 

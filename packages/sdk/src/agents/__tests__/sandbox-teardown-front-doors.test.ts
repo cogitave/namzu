@@ -24,10 +24,10 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
 import { runAgent } from '../runAgent.js'
 
 const scope = {
-	sessionId: 'ses_sandbox_teardown_front' as SessionId,
-	topicId: 'top_sandbox_teardown_front' as TopicId,
-	projectId: 'prj_sandbox_teardown_front' as ProjectId,
-	tenantId: 'tnt_sandbox_teardown_front' as TenantId,
+	sessionId: '9389a5b2-ee1c-4e11-a24c-c4c32099f4ad' as SessionId,
+	topicId: '09323d4f-faba-4d36-8c8d-3ef317809de4' as TopicId,
+	projectId: 'b7c4bfb2-a5ee-4470-9ece-135cf2459607' as ProjectId,
+	tenantId: 'b9eed77c-22ab-42e6-96bb-a20d140e164b' as TenantId,
 }
 
 const dirs: string[] = []
@@ -45,7 +45,7 @@ async function directory(): Promise<string> {
 
 function heldSandboxProvider(observe: (signal: AbortSignal) => void): SandboxProvider {
 	const sandbox: Sandbox = {
-		id: 'sbx_front_door' as SandboxId,
+		id: '28ff9e99-3996-43e4-80a0-22e9354d1568' as SandboxId,
 		status: 'ready',
 		rootDir: '/workspace',
 		environment: 'basic',
@@ -88,7 +88,7 @@ function recordingWorkspaceProvider(): {
 			create: async (config = {}) => {
 				seen.push(config)
 				return {
-					id: 'sbx_workspace_front' as SandboxId,
+					id: '46653c29-18e7-439b-99ae-01e2e16f9658' as SandboxId,
 					status: 'ready',
 					rootDir: config.workingDirectory ?? '/ephemeral',
 					environment: 'basic',

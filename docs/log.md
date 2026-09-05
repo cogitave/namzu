@@ -1,6 +1,10 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Update**: [Ids](/sdk/ids.md) and [Project and session state](/cli/project-state.md) — UUID-only entity admission, one checkout-root binding without legacy directory overrides, and durable drain Topic resolution from its Session.
+* **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — one multimodal token estimate across context decisions, conservative rich-content scoring and safe result recovery; replaces the obsolete implementation plan.
+* **Update**: [Run limits](/cli/run-limits.md) — explicit headless reasoning effort, hard stops without post-budget model calls, and one terminal streaming event after persistence.
+* **Creation**: [Harness invariants](/sdk/harness-invariants.md) — child budget reservation and startup rollback, independent output budgets, artifact paths, and bounded live small-model observations.
 * **Update**: [Ids](/sdk/ids.md) — kernel factories mint UUIDs; constructors and storage accept safe legacy IDs unchanged, and in-memory stores can hydrate existing Project and Topic snapshots.
 * **Update**: [Project and session state](/cli/project-state.md) — delegated work retains the actual parent scope, child artifacts stay under the real Project, and tasks use the invoking run's default scope.
 * **Update**: [Background jobs in the CLI](/cli/background-jobs.md) — corrected the index's obsolete claim that sandboxed sessions have no background jobs; regression coverage now checks both CLI exposure and sandbox-owned execution.

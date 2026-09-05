@@ -15,6 +15,7 @@ import {
 	drainQuery,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 
 import { OpenRouterProvider } from '../client.js'
 
@@ -98,10 +99,10 @@ describe('context-window cancellation reaches the query transport', () => {
 				agentName: 'OpenRouter Preflight Agent',
 				messages: [createUserMessage('must not reach the model')],
 				workingDirectory,
-				sessionId: 'ses_openrouter_preflight' as SessionId,
-				topicId: 'top_openrouter_preflight' as TopicId,
-				projectId: 'prj_openrouter_preflight' as ProjectId,
-				tenantId: 'tnt_openrouter_preflight' as TenantId,
+				sessionId: '68f552e8-9c70-4000-b4e2-4cd546851858' as SessionId,
+				topicId: '4e28537c-b75e-4c89-9f07-8f1ae4c19b03' as TopicId,
+				projectId: '655f15df-d669-4d61-b540-8fcf6f317e6f' as ProjectId,
+				tenantId: '5415f8f1-153f-459b-bc55-cd8927c14b22' as TenantId,
 				signal: caller.signal,
 				retry: false,
 			},
@@ -132,7 +133,10 @@ describe('context-window cancellation reaches the query transport', () => {
 				},
 				{ timeout: 500, interval: 10 },
 			)
-			await vi.waitFor(() => expect(outcome).toBeDefined(), { timeout: 1_000, interval: 10 })
+			await vi.waitFor(() => expect(outcome).toBeDefined(), {
+				timeout: 1_000,
+				interval: 10,
+			})
 		} catch (err) {
 			waitFailure = err
 		} finally {
@@ -155,7 +159,10 @@ describe('context-window cancellation reaches the query transport', () => {
 	})
 
 	it('does not let one cancelled query own a concurrent query metadata request', async () => {
-		const requests: Array<{ signal: AbortSignal | undefined; release: Deferred<Response> }> = []
+		const requests: Array<{
+			signal: AbortSignal | undefined
+			release: Deferred<Response>
+		}> = []
 		vi.stubGlobal(
 			'fetch',
 			vi.fn((_input: string | URL | Request, init?: RequestInit) => {
@@ -215,10 +222,10 @@ describe('context-window cancellation reaches the query transport', () => {
 					agentName: `OpenRouter ${suffix.toUpperCase()}`,
 					messages: [createUserMessage(`query ${suffix}`)],
 					workingDirectory,
-					sessionId: `ses_openrouter_${suffix}` as SessionId,
-					topicId: `top_openrouter_${suffix}` as TopicId,
-					projectId: 'prj_openrouter_shared' as ProjectId,
-					tenantId: 'tnt_openrouter_shared' as TenantId,
+					sessionId: fixtureUuid(`ses_openrouter_${suffix}`) as SessionId,
+					topicId: fixtureUuid(`top_openrouter_${suffix}`) as TopicId,
+					projectId: '91ec879c-c498-43e2-add0-a4a9cea1f488' as ProjectId,
+					tenantId: 'ee6ffe96-00db-4735-8530-2670cbe9b282' as TenantId,
 					signal: caller.signal,
 					retry: false,
 				},
@@ -232,12 +239,18 @@ describe('context-window cancellation reaches the query transport', () => {
 		const callerA = new AbortController()
 		const callerB = new AbortController()
 		const a = start('a', callerA)
-		await vi.waitFor(() => expect(requests).toHaveLength(1), { timeout: 500, interval: 10 })
+		await vi.waitFor(() => expect(requests).toHaveLength(1), {
+			timeout: 500,
+			interval: 10,
+		})
 		const b = start('b', callerB)
 
 		let admissionFailure: unknown
 		try {
-			await vi.waitFor(() => expect(requests).toHaveLength(2), { timeout: 500, interval: 10 })
+			await vi.waitFor(() => expect(requests).toHaveLength(2), {
+				timeout: 500,
+				interval: 10,
+			})
 		} catch (err) {
 			admissionFailure = err
 		}

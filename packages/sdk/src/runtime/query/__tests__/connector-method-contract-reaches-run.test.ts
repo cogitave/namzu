@@ -23,7 +23,7 @@ import type { TopicId } from '../../../types/session/ids.js'
 import { asConnectorId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
-const CONNECTOR_ID = asConnectorId('conn_query_contract')
+const CONNECTOR_ID = asConnectorId('52a813b5-d714-4036-ab68-06b1aa138678')
 
 class QueryContractConnector extends BaseConnector<Record<string, never>> {
 	readonly id = CONNECTOR_ID
@@ -258,10 +258,10 @@ describe('connector method contracts reach a real query', () => {
 			agentName: 'Connector Contract',
 			messages: [createUserMessage('use the connector')],
 			workingDirectory,
-			sessionId: 'ses_connector_contract' as SessionId,
-			topicId: 'top_connector_contract' as TopicId,
-			projectId: 'prj_connector_contract' as ProjectId,
-			tenantId: 'tnt_connector_contract' as TenantId,
+			sessionId: '1cdd9382-de7a-4b7b-bf84-389ab90f5398' as SessionId,
+			topicId: 'e0e0567d-3f7e-441d-a68d-69a3f5e2cf3e' as TopicId,
+			projectId: '9a87c127-3dd2-485b-b6fc-d137c1ecdf72' as ProjectId,
+			tenantId: '538c0027-7f8d-41a9-b245-08fd0a195192' as TenantId,
 		})
 	}
 })

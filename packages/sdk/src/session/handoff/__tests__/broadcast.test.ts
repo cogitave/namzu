@@ -24,7 +24,7 @@ import type {
 } from '../events.js'
 import { HandoffVersionConflict } from '../version.js'
 
-const tenant = 'tnt_alpha' as TenantId
+const tenant = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
 
 function stubLogger() {
 	return {
@@ -107,7 +107,11 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryTopicS
 		tenant,
 	)
 	const session = await store.createSession(
-		{ topicId: thread.id, projectId: project.id, currentActor: user('usr_source') },
+		{
+			topicId: thread.id,
+			projectId: project.id,
+			currentActor: user('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+		},
 		tenant,
 	)
 	return { project, thread, session }
@@ -128,7 +132,7 @@ function buildAssignments(
 		tenantId: tenant,
 		topicId,
 		projectId,
-		sourceActor: user('usr_source'),
+		sourceActor: user('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
 		recipientActor,
 		expectedOwnerVersion,
 		broadcastId,
@@ -150,9 +154,9 @@ describe('executeBroadcastHandoff', () => {
 		const { deps, events } = buildDeps(store, threadStore)
 
 		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
-			user('usr_bob'),
-			user('usr_carol'),
-			user('usr_dan'),
+			user('55aa9288-b543-4c92-97ba-60f538447b15'),
+			user('f8ebabd8-3ba0-4010-8cba-2b78b1af0722'),
+			user('cc083db7-4264-4219-9530-5a63dc58c3b9'),
 		])
 
 		const outcomes = await executeBroadcastHandoff(deps, assignments, tenant)
@@ -186,9 +190,9 @@ describe('executeBroadcastHandoff', () => {
 		const { deps, events } = buildDeps(store, threadStore, exec)
 
 		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
-			user('usr_b'),
-			user('usr_c'),
-			user('usr_d'),
+			user('9087e28b-e385-43ab-908e-140e46fb01a9'),
+			user('7aea217f-b4e1-4f30-854f-6bbcce0af439'),
+			user('e7ada583-d6f8-412e-b5d4-56f38d786b1d'),
 		])
 
 		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow(
@@ -233,8 +237,8 @@ describe('executeBroadcastHandoff', () => {
 		const { deps } = buildDeps(store, threadStore, exec)
 
 		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
-			user('usr_b'),
-			user('usr_c'),
+			user('9087e28b-e385-43ab-908e-140e46fb01a9'),
+			user('7aea217f-b4e1-4f30-854f-6bbcce0af439'),
 		])
 
 		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow()
@@ -291,8 +295,8 @@ describe('executeBroadcastHandoff', () => {
 		const { deps, events } = buildDeps(store, threadStore, exec)
 
 		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
-			user('usr_b'),
-			user('usr_c'),
+			user('9087e28b-e385-43ab-908e-140e46fb01a9'),
+			user('7aea217f-b4e1-4f30-854f-6bbcce0af439'),
 		])
 
 		// Outer failure is the PRIMARY one — the secondary dispose failure is
@@ -314,11 +318,11 @@ describe('executeBroadcastHandoff', () => {
 		const { project, thread, session } = await seedIdle(store, threadStore)
 		const { deps, events } = buildDeps(store, threadStore)
 
-		const bob = user('usr_bob')
+		const bob = user('55aa9288-b543-4c92-97ba-60f538447b15')
 		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
 			bob,
 			bob,
-			user('usr_dan'),
+			user('cc083db7-4264-4219-9530-5a63dc58c3b9'),
 		])
 
 		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow(
@@ -359,7 +363,7 @@ describe('executeBroadcastHandoff', () => {
 			project.id,
 			thread.id,
 			0,
-			[user('usr_b'), user('usr_c')],
+			[user('9087e28b-e385-43ab-908e-140e46fb01a9'), user('7aea217f-b4e1-4f30-854f-6bbcce0af439')],
 			'bc_1',
 		)
 		await executeBroadcastHandoff(deps, firstAssignments, tenant)
@@ -378,7 +382,7 @@ describe('executeBroadcastHandoff', () => {
 			project.id,
 			thread.id,
 			0, // stale — actual is 1
-			[user('usr_d'), user('usr_e')],
+			[user('e7ada583-d6f8-412e-b5d4-56f38d786b1d'), user('9308a084-d683-4bfc-922b-ca99d8830a6b')],
 			'bc_2',
 		)
 		await expect(executeBroadcastHandoff(deps, second, tenant)).rejects.toBeInstanceOf(
@@ -396,7 +400,9 @@ describe('executeBroadcastHandoff', () => {
 	it('single-row broadcast → rejected (caller must use executeSingleHandoff)', async () => {
 		const { project, thread, session } = await seedIdle(store, threadStore)
 		const { deps } = buildDeps(store, threadStore)
-		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [user('usr_b')])
+		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
+			user('9087e28b-e385-43ab-908e-140e46fb01a9'),
+		])
 
 		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow(
 			/single-recipient handoffs must use executeSingleHandoff/,

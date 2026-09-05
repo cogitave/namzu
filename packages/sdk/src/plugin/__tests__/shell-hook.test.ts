@@ -21,7 +21,7 @@ import {
 } from '../shell-hook.js'
 
 const CWD = process.cwd()
-const base = { cwd: CWD, runId: 'run_hooks' } as const
+const base = { cwd: CWD, runId: 'f9ad17f0-01b6-4905-810a-3ef3324a614d' } as const
 
 describe('shellHookMatches', () => {
 	it('matches everything when there is no matcher, and nothing named when there is no tool', () => {
@@ -59,7 +59,7 @@ describe('runShellHook', () => {
 		const json = JSON.parse(outcome.stdout.slice(0, outcome.stdout.indexOf(' env=')))
 		expect(json).toMatchObject({
 			event: 'pre_tool_use',
-			run_id: 'run_hooks',
+			run_id: 'f9ad17f0-01b6-4905-810a-3ef3324a614d',
 			tool_name: 'edit',
 			tool_input: { path: 'src/a.ts', old_string: 'x' },
 		})
@@ -95,7 +95,7 @@ describe('shellHookVerdict', () => {
 		const startedAt = Date.now()
 		const outcome = await runShellHook(
 			{ command: 'sleep 5 & wait', timeoutMs: 150 },
-			{ event: 'run_start', cwd: process.cwd(), runId: 'run_test' },
+			{ event: 'run_start', cwd: process.cwd(), runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' },
 		)
 		expect(outcome.timedOut).toBe(true)
 		expect(Date.now() - startedAt).toBeLessThan(3000)
@@ -171,7 +171,7 @@ describe('attachShellHooks', () => {
 		if (!pre) throw new Error('no pre hook')
 		const context = (toolName: string): PluginHookContext =>
 			({
-				runId: asRunId('run_attach'),
+				runId: asRunId('23ebee71-76bb-4e8e-b30f-e5183b1eba11'),
 				pluginId: SHELL_HOOKS_PLUGIN_ID,
 				event: 'pre_tool_use',
 				toolName,

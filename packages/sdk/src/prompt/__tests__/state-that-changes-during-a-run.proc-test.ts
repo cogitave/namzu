@@ -70,10 +70,10 @@ async function runWith(contributions: PromptContributionRegistry, turns: number)
 		agentName: 'A',
 		messages: [createUserMessage('go')],
 		workingDirectory,
-		sessionId: 'ses_turn' as SessionId,
-		topicId: 'top_turn' as TopicId,
-		projectId: 'prj_turn' as ProjectId,
-		tenantId: 'tnt_turn' as TenantId,
+		sessionId: '40aecd25-130e-415f-9533-0a479e6788e4' as SessionId,
+		topicId: '49dcb65b-4abe-408e-8755-162b5a3e2c15' as TopicId,
+		projectId: 'b259879f-8ef6-4f13-a227-a0569e2d801e' as ProjectId,
+		tenantId: '43fa1e6b-d43d-43b4-853a-b0218268f7e3' as TenantId,
 		promptContributions: contributions,
 	})
 

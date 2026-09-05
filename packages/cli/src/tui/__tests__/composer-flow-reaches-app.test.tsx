@@ -73,7 +73,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 			recordTurnSettled: async (input: unknown) => input,
 		},
 	}),
-	startConversation: async () => 'ses_live',
+	startConversation: async () => 'd5700245-2b3e-4529-b3fb-bf747e847ca0',
 	requireWritableConversation: async () => {},
 	appendMessages: async () => {},
 	replaceConversation: async (_sessions: unknown, _id: string, messages: readonly Message[]) => {

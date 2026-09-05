@@ -16,7 +16,7 @@ import { streamProviderTurn } from '../iteration/stream-turn.js'
  * stall with zero events while the model was demonstrably working.
  */
 
-const RUN_ID = 'run_reasoning' as RunId
+const RUN_ID = '99b1ceae-1a8b-4b07-b56e-327eae34f058' as RunId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -167,7 +167,7 @@ describe('reasoning blocks survive the stream', () => {
 				type: 'reasoning_delta',
 				runId: RUN_ID,
 				iteration: 1,
-				messageId: 'msg_x',
+				messageId: '1424e839-3768-4813-8d3d-e5190867e5d3',
 				blockIndex: 0,
 				text: 'x',
 			} as unknown as RunEvent),
@@ -178,7 +178,7 @@ describe('reasoning blocks survive the stream', () => {
 				type: 'reasoning_completed',
 				runId: RUN_ID,
 				iteration: 1,
-				messageId: 'msg_x',
+				messageId: '1424e839-3768-4813-8d3d-e5190867e5d3',
 				blockIndex: 0,
 				signed: true,
 			} as unknown as RunEvent),

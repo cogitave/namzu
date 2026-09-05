@@ -90,14 +90,14 @@ describe('hooks from the config', () => {
 		if (!manager) throw new Error('the session ran with no plugin manager, so no hook could run')
 
 		const blocked = await manager.executeHooks('pre_tool_use', {
-			runId: 'run_x' as never,
+			runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
 			toolName: 'bash',
 			toolInput: { command: 'rm -rf /' },
 		})
 		expect(blocked).toEqual([{ action: 'skip', reason: 'no shell for you' }])
 
 		const other = await manager.executeHooks('pre_tool_use', {
-			runId: 'run_x' as never,
+			runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
 			toolName: 'read',
 			toolInput: { path: 'a' },
 		})

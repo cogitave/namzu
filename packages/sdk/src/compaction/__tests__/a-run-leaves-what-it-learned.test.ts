@@ -10,7 +10,7 @@ import { WorkingStateManager } from '../manager.js'
  */
 
 describe('consolidationEntry', () => {
-	const meta = { runId: 'run_1', at: 1_700_000_000_000 }
+	const meta = { runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e', at: 1_700_000_000_000 }
 
 	it('is null for a run that learned nothing', () => {
 		const manager = new WorkingStateManager(CompactionConfigSchema.parse({}))
@@ -32,14 +32,19 @@ describe('consolidationEntry', () => {
 		expect(entry).not.toBeNull()
 		if (!entry) return
 		expect(entry.title).toBe('Learned: Fix the slug bug')
-		expect(entry.summary).toBe('1 decision, 1 discovery, 1 failure from run run_1.')
-		expect(entry.tags).toEqual([CONSOLIDATION_TAG, 'run:run_1'])
+		expect(entry.summary).toBe(
+			'1 decision, 1 discovery, 1 failure from run 37ddff8e-e13f-4e57-937f-d048fa323f5e.',
+		)
+		expect(entry.tags).toEqual([CONSOLIDATION_TAG, 'run:37ddff8e-e13f-4e57-937f-d048fa323f5e'])
 		expect(entry.content).toContain('## Decisions\n\n- normalise with NFKD')
 		expect(entry.content).toContain('## Discoveries\n\n- node --test refuses')
 		expect(entry.content).toContain('## Failures and what was done about them')
 		expect(entry.content).toContain('- `src/slug.mjs`')
 		expect(entry.content).not.toContain('README.md')
 		expect(entry.content).not.toContain('keep the CLI flags')
-		expect(entry.metadata).toMatchObject({ runId: 'run_1', kind: 'consolidation' })
+		expect(entry.metadata).toMatchObject({
+			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+			kind: 'consolidation',
+		})
 	})
 })

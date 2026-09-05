@@ -34,9 +34,9 @@ import {
 } from './agent.js'
 import { MAX_PERMISSION_REVIEW_BYTES } from './permission-review.js'
 
-const runId = 'run_x' as RunId
-const sessionId = 'ses_x' as SessionId
-const projectId = 'prj_x' as ProjectId
+const runId = 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as RunId
+const sessionId = '02b19846-c793-4e21-9c6e-21962a7d2de5' as SessionId
+const projectId = '3f488113-b658-4c23-833c-69d1e9072a19' as ProjectId
 const toolUseId = 'toolu_x' as ToolUseId
 
 // Minimal envelope fields the RunEvent union carries beyond the discriminant.
@@ -64,7 +64,7 @@ describe('toAgentEvent', () => {
 		const ev = {
 			type: 'text_delta',
 			iteration: 0,
-			messageId: 'msg_1',
+			messageId: '116b88f1-7300-4be5-a05d-f2a87105f095',
 			text: 'hello',
 			...env,
 		} as unknown as RunEvent
@@ -74,7 +74,7 @@ describe('toAgentEvent', () => {
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'delta',
 			text: 'hello',
-			messageId: 'msg_1',
+			messageId: '116b88f1-7300-4be5-a05d-f2a87105f095',
 			runId,
 		})
 	})
@@ -294,7 +294,7 @@ describe('toAgentEvent', () => {
 	})
 })
 
-const checkpointId = 'cp_x' as CheckpointId
+const checkpointId = 'f496fad2-a721-4bb9-9a40-b959b0f3ecf8' as CheckpointId
 const tc = (over: Partial<ToolCallSummary>): ToolCallSummary => ({
 	id: 'call_1',
 	name: 'read',
@@ -449,7 +449,7 @@ describe('makeResumeHandler', () => {
 				type: 'plan_approval',
 				runId,
 				checkpointId,
-				plan: { planId: asPlanId('plan_x'), title: 't', steps: [] },
+				plan: { planId: asPlanId('0a90fff7-6b8a-4f97-861f-6337fc9a252c'), title: 't', steps: [] },
 			} as HITLDecisionRequest),
 		).toEqual({ action: 'approve_plan' })
 		expect(
@@ -637,7 +637,12 @@ describe('isPromptExempt and the network', () => {
 })
 
 describe('toAgentEvent and reasoning', () => {
-	const base = { runId: 'run_r', iteration: 1, messageId: 'msg_r', blockIndex: 0 }
+	const base = {
+		runId: 'b69a1e4f-bc7c-4031-9fd8-93be940b8ff6',
+		iteration: 1,
+		messageId: '43030ace-a181-44a2-a1fc-e555d6e73027',
+		blockIndex: 0,
+	}
 	it('maps a reasoning delta to a live-region event and the block end to done', () => {
 		expect(
 			toAgentEvent(

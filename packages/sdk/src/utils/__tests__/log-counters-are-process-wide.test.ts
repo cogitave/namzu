@@ -96,7 +96,7 @@ describe('the log counters describe the process, not one expression', () => {
 
 		const root = hostLogger()
 		root.info('parent')
-		root.child({ 'namzu.run.id': 'run_1' }).info('child')
+		root.child({ 'namzu.run.id': '37ddff8e-e13f-4e57-937f-d048fa323f5e' }).info('child')
 
 		expect(getLogCounters()?.dropped).toBe(2)
 	})

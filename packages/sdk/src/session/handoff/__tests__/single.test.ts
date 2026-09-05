@@ -25,8 +25,8 @@ import type {
 import { type RunStatusResolver, type SingleHandoffDeps, executeSingleHandoff } from '../single.js'
 import { HandoffLockRejected, HandoffVersionConflict } from '../version.js'
 
-const tenant = 'tnt_alpha' as TenantId
-const otherTenant = 'tnt_beta' as TenantId
+const tenant = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+const otherTenant = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
 
 function stubLogger() {
 	return {
@@ -44,12 +44,16 @@ function okExec(stdout = '', stderr = ''): ExecFileResult {
 	return { stdout, stderr }
 }
 
-function user(kind = 'usr_a'): ActorRef {
+function user(kind = '9ce05013-3bcc-4835-86b3-15e7b9251801'): ActorRef {
 	return { kind: 'user', userId: kind as UserId, tenantId: tenant }
 }
 
 function agent(): ActorRef {
-	return { kind: 'agent', agentId: 'agt_a' as AgentId, tenantId: tenant }
+	return {
+		kind: 'agent',
+		agentId: '297e7108-719e-42f6-aa3b-f3b42d1ad2c5' as AgentId,
+		tenantId: tenant,
+	}
 }
 
 interface MockedHandoffEventSink extends HandoffEventSink {
@@ -115,7 +119,11 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryTopicS
 		tenant,
 	)
 	const session = await store.createSession(
-		{ topicId: thread.id, projectId: project.id, currentActor: user('usr_source') },
+		{
+			topicId: thread.id,
+			projectId: project.id,
+			currentActor: user('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+		},
 		tenant,
 	)
 	return { project, thread, session }
@@ -126,7 +134,7 @@ function buildAssignment(
 	projectId: Awaited<ReturnType<InMemorySessionStore['createProject']>>['id'],
 	topicId: Awaited<ReturnType<InMemoryTopicStore['createTopic']>>['id'],
 	expectedOwnerVersion: number,
-	recipient: ActorRef = user('usr_target'),
+	recipient: ActorRef = user('b04c8cdb-0928-468c-866b-a4d90af5b403'),
 ): HandoffAssignment {
 	return {
 		id: generateHandoffId(),
@@ -135,7 +143,7 @@ function buildAssignment(
 		tenantId: tenant,
 		topicId,
 		projectId,
-		sourceActor: user('usr_source'),
+		sourceActor: user('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
 		recipientActor: recipient,
 		expectedOwnerVersion,
 		createdAt: new Date('2026-02-01'),
@@ -257,7 +265,11 @@ describe('executeSingleHandoff', () => {
 		// store hardcodes defaults {4,8,10}. Build a depth-4 chain then attempt
 		// handoff on depth-4 node (ancestry length 5 > 4).
 		const root = await store.createSession(
-			{ topicId: thread.id, projectId: project.id, currentActor: user('usr_source') },
+			{
+				topicId: thread.id,
+				projectId: project.id,
+				currentActor: user('d3f2812d-a10b-4122-b1d1-375dc2c31fb5'),
+			},
 			tenant,
 		)
 		let parent = root.id

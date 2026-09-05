@@ -182,10 +182,10 @@ describe('the hold a run pays is the one its own budget allows', () => {
 				maxIterations: 2,
 				maxResponseTokens: 256,
 			},
-			sessionId: 'ses_grace' as SessionId,
-			topicId: 'top_grace' as TopicId,
-			projectId: 'prj_grace' as ProjectId,
-			tenantId: 'tnt_grace' as TenantId,
+			sessionId: '5d4a8bb3-5abf-4ed0-be3f-909f95cc9452' as SessionId,
+			topicId: '9680248e-73d2-40e9-acbb-641a751d487f' as TopicId,
+			projectId: 'dc5d83a6-ce05-400e-86c2-5f6ec72f4aed' as ProjectId,
+			tenantId: '06b0201e-9a10-4290-b17d-15d44f9c9db8' as TenantId,
 		} as never)
 		return Date.now() - startedAt
 	}
@@ -251,10 +251,10 @@ describe('the hold a run pays is the one its own budget allows', () => {
 				maxIterations: 3,
 				maxResponseTokens: 256,
 			},
-			sessionId: 'ses_grace' as SessionId,
-			topicId: 'top_grace' as TopicId,
-			projectId: 'prj_grace' as ProjectId,
-			tenantId: 'tnt_grace' as TenantId,
+			sessionId: '5d4a8bb3-5abf-4ed0-be3f-909f95cc9452' as SessionId,
+			topicId: '9680248e-73d2-40e9-acbb-641a751d487f' as TopicId,
+			projectId: 'dc5d83a6-ce05-400e-86c2-5f6ec72f4aed' as ProjectId,
+			tenantId: '06b0201e-9a10-4290-b17d-15d44f9c9db8' as TenantId,
 		} as never)
 
 		const userText = (run.messages as { role: string; content: unknown }[])

@@ -190,8 +190,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 				} else if (script.outcome === 'paused') {
 					yield {
 						kind: 'paused',
-						runId: 'run_rate_7',
-						checkpointId: 'cp_rate_7',
+						runId: 'dc7938d2-47e4-4af8-8f98-db8f2043f6a9',
+						checkpointId: '7f6bf1c5-d9f6-4443-be52-d4c01f4f405b',
 						reason: 'request rejected after retries',
 						failure: {
 							code: 'provider_error',
@@ -263,9 +263,9 @@ async function frameShows(
 	text: string,
 	timeoutMs = 3_000,
 ): Promise<void> {
-	const expected = text.replace(/\s+/g, ' ')
+	const expected = text.replace(/\s+/g, '')
 	await waitUntil(
-		() => harness.frames.join('\n').replace(/\s+/g, ' ').includes(expected),
+		() => harness.frames.join('\n').replace(/\s+/g, '').includes(expected),
 		timeoutMs,
 	)
 }
@@ -395,7 +395,7 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await frameShows(harness, 'Run paused [provider.rate_limit]: The provider is rate limiting this run.')
 	await frameShows(harness, 'Provider retry delay: at least 3 seconds from this failure.')
 	await frameShows(harness, 'Next: Wait for the quota window to reset before continuing.')
-	await frameShows(harness, 'Checkpoint preserved: cp_rate_7')
+	await frameShows(harness, 'Checkpoint preserved: 7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')
 	await frameShows(harness, 'held after a resumable run paused')
 	await tick(100)
 

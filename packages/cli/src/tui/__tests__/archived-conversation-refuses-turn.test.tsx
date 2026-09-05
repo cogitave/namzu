@@ -19,7 +19,7 @@ vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, tru
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
-	startConversation: async () => 'ses_closed',
+	startConversation: async () => '4c06bfd5-dcde-40ee-ace4-2aa98801e50e',
 	requireWritableConversation: async () => {
 		observed.admissions += 1
 		throw new Error('Project prj_closed is archived; start conversation turn rejected')

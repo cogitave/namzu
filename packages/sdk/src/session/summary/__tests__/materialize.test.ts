@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { TenantIsolationError } from '../../../session/errors.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { fixtureUuid } from '../../../test-support/ids.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { SummaryId, TopicId } from '../../../types/session/ids.js'
@@ -9,22 +10,22 @@ import { AGENT_SUMMARY_MAX_CHARS } from '../../../types/summary/ref.js'
 import { AgentSummaryTooLongError, SessionAlreadySummarizedError } from '../errors.js'
 import { SessionSummaryMaterializer } from '../materialize.js'
 
-const TEST_THREAD_ID = 'top_test' as TopicId
+const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
-const tenantA = 'tnt_alpha' as TenantId
-const tenantB = 'tnt_beta' as TenantId
+const tenantA = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+const tenantB = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
 
 function userActor(tenantId: TenantId): ActorRef {
-	return { kind: 'user', userId: 'usr_a' as UserId, tenantId }
+	return { kind: 'user', userId: '9ce05013-3bcc-4835-86b3-15e7b9251801' as UserId, tenantId }
 }
 
 function agentActor(tenantId: TenantId): ActorRef {
-	return { kind: 'agent', agentId: 'agt_a' as AgentId, tenantId }
+	return { kind: 'agent', agentId: '297e7108-719e-42f6-aa3b-f3b42d1ad2c5' as AgentId, tenantId }
 }
 
 function makeSummaryIdGenerator(): () => SummaryId {
 	let n = 0
-	return (): SummaryId => `sum_test_${++n}` as SummaryId
+	return (): SummaryId => fixtureUuid(`sum_test_${++n}`) as SummaryId
 }
 
 async function seedActiveSession(store: InMemorySessionStore, tenantId: TenantId) {
@@ -62,7 +63,7 @@ describe('SessionSummaryMaterializer.materialize', () => {
 			keyDecisions: [],
 		})
 
-		expect(summary.id).toBe('sum_test_1')
+		expect(summary.id).toBe('54a56ad7-462a-4f3f-b039-4f0f89a21fb0')
 		expect(summary.sessionRef).toBe(session.id)
 		expect(summary.materializedBy).toBe('kernel')
 
@@ -140,14 +141,14 @@ describe('SessionSummaryMaterializer.materialize', () => {
 
 		const deliverables: DeliverableRef[] = [
 			{
-				id: 'del_a' as DeliverableRef['id'],
+				id: '3aa98b45-606d-4b8f-bf78-db81dfedd8a4' as DeliverableRef['id'],
 				kind: 'file',
 				path: 'src/foo.ts',
 				contentHash: 'abc123',
 				sizeBytes: 42,
 			},
 			{
-				id: 'del_b' as DeliverableRef['id'],
+				id: 'ab33b451-0894-4f9f-8457-243e9f6a0299' as DeliverableRef['id'],
 				kind: 'artifact_blob',
 				storageRef: 'blob://x',
 				mediaType: 'application/json',
@@ -207,7 +208,7 @@ describe('SessionSummaryMaterializer.materialize', () => {
 			keyDecisions: [],
 		})
 
-		expect(summary.id).toBe('sum_test_1')
+		expect(summary.id).toBe('54a56ad7-462a-4f3f-b039-4f0f89a21fb0')
 	})
 
 	it('always sets materializedBy to "kernel"', async () => {
@@ -328,7 +329,7 @@ describe('SessionSummaryMaterializer missing session', () => {
 
 		await expect(
 			materializer.materialize({
-				sessionId: 'ses_missing' as SessionId,
+				sessionId: '1ef9ce34-f888-4928-9659-b4f6388670a9' as SessionId,
 				tenantId: tenantA,
 				finalOutcome: { status: 'succeeded' },
 				agentSummary: '',

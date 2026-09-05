@@ -14,7 +14,7 @@ import { PluginLifecycleManager } from '../lifecycle.js'
  * guard.
  */
 
-const RUN_ID = 'run_x' as RunId
+const RUN_ID = 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as RunId
 
 function makeLogger(): never {
 	const logger = {

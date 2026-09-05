@@ -94,7 +94,7 @@ const poisons: ReadonlyArray<readonly [string, Poison]> = [
 	[
 		'a mismatched content ID',
 		async (path) => {
-			const bytes = `${JSON.stringify({ id: 'mem_other', content: 'wrong owner', format: 'text' })}\n`
+			const bytes = `${JSON.stringify({ id: '1a0b0062-a268-4fc2-adef-0305801cca01', content: 'wrong owner', format: 'text' })}\n`
 			await writeFile(path, bytes)
 			return bytes
 		},
@@ -159,6 +159,8 @@ describe('DiskMemoryStore content integrity', () => {
 		await mkdir(join(root, 'memory'), { recursive: true })
 		const store = new DiskMemoryStore({ baseDir: root })
 
-		await expect(store.get('mem_unknown' as MemoryId)).resolves.toBeUndefined()
+		await expect(
+			store.get('65a74161-5c3a-4168-8604-cd752deb9327' as MemoryId),
+		).resolves.toBeUndefined()
 	})
 })

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
-import { RetiredIdPrefixError } from '../../../types/ids/index.js'
+import { InvalidIdError } from '../../../utils/id.js'
 
 import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import type {
@@ -26,7 +26,7 @@ import { type RunStateScope, loadRunState } from '../run-state.js'
  * a run at all — the container that held the promise had to stay alive.
  */
 
-const RUN_ID = 'run_durable' as RunId
+const RUN_ID = '54bf5651-0b7b-443e-a3c6-05170fe66108' as RunId
 let baseDir: string
 let store: DiskCheckpointStore
 let scope: RunStateScope
@@ -35,10 +35,10 @@ beforeEach(async () => {
 	baseDir = await mkdtemp(join(tmpdir(), 'namzu-durable-'))
 	store = new DiskCheckpointStore({ baseDir })
 	scope = {
-		tenantId: 'tnt_d' as TenantId,
-		projectId: 'prj_d' as ProjectId,
-		sessionId: 'ses_d' as SessionId,
-		topicId: 'top_d' as TopicId,
+		tenantId: '56b14123-e653-4cef-ac96-21f2d79d9bbd' as TenantId,
+		projectId: '38018058-7f48-4a66-8cac-67bc513451f4' as ProjectId,
+		sessionId: '3bd5ef45-8a0c-4fe7-8b55-f4453d7d8e43' as SessionId,
+		topicId: '78bd1b88-07a8-43ba-b3c1-cc02468a3781' as TopicId,
 		runId: RUN_ID,
 	}
 })
@@ -76,32 +76,37 @@ const reviewRequest = (checkpointId: string): HITLDecisionRequest => ({
 describe('recording a park', () => {
 	it('makes the outstanding decision readable from the store alone', async () => {
 		const mgr = new CheckpointManager(store, scope as CheckpointRunScope)
-		const cp = checkpoint('cp_1', 1)
+		const cp = checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1)
 		await store.writeCheckpoint(scope, cp)
 
 		expect(await findPendingCheckpoint(store, scope)).toBeNull()
 
-		await mgr.park(cp, reviewRequest('cp_1'))
+		await mgr.park(cp, reviewRequest('62d8ff8a-122d-4369-8274-e1f1dc479c1c'))
 
 		// A DIFFERENT reader — a fresh store over the same directory, i.e.
 		// what a second process has.
 		const fresh = new DiskCheckpointStore({ baseDir })
 		const found = await findPendingCheckpoint(fresh, scope)
-		expect(found?.id).toBe('cp_1')
+		expect(found?.id).toBe('62d8ff8a-122d-4369-8274-e1f1dc479c1c')
 		expect(found?.pending?.request.type).toBe('tool_review')
 		expect(found?.pending?.parkedAt).toBeGreaterThan(0)
 	})
 
 	it('stops being outstanding once answered, and keeps the answer as evidence', async () => {
 		const mgr = new CheckpointManager(store, scope as CheckpointRunScope)
-		const cp = checkpoint('cp_1', 1)
+		const cp = checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1)
 		await store.writeCheckpoint(scope, cp)
-		await mgr.park(cp, reviewRequest('cp_1'))
+		await mgr.park(cp, reviewRequest('62d8ff8a-122d-4369-8274-e1f1dc479c1c'))
 
-		await mgr.unpark('cp_1' as CheckpointId, { action: 'approve_tools' })
+		await mgr.unpark('62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId, {
+			action: 'approve_tools',
+		})
 
 		expect(await findPendingCheckpoint(store, scope)).toBeNull()
-		const stored = await store.readCheckpoint(scope, 'cp_1' as CheckpointId)
+		const stored = await store.readCheckpoint(
+			scope,
+			'62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
+		)
 		// Not erased — a gate that cannot say what was approved is not an
 		// audit trail.
 		expect(stored?.pending?.decision).toEqual({ action: 'approve_tools' })
@@ -111,31 +116,49 @@ describe('recording a park', () => {
 	it('returns the newest outstanding park when several checkpoints exist', async () => {
 		const mgr = new CheckpointManager(store, scope as CheckpointRunScope)
 		for (const [id, n] of [
-			['cp_1', 1],
-			['cp_2', 2],
-			['cp_3', 3],
+			['62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1],
+			['7802b395-981e-430a-86c7-058cb79dbaf9', 2],
+			['c534c8ba-5d65-413c-8d53-0fcbbf1aa392', 3],
 		] as const) {
 			await store.writeCheckpoint(scope, checkpoint(id, n))
 		}
-		await mgr.park(checkpoint('cp_1', 1), reviewRequest('cp_1'))
-		await mgr.unpark('cp_1' as CheckpointId, { action: 'approve_tools' })
-		await mgr.park(checkpoint('cp_3', 3), reviewRequest('cp_3'))
+		await mgr.park(
+			checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1),
+			reviewRequest('62d8ff8a-122d-4369-8274-e1f1dc479c1c'),
+		)
+		await mgr.unpark('62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId, {
+			action: 'approve_tools',
+		})
+		await mgr.park(
+			checkpoint('c534c8ba-5d65-413c-8d53-0fcbbf1aa392', 3),
+			reviewRequest('c534c8ba-5d65-413c-8d53-0fcbbf1aa392'),
+		)
 
-		expect((await findPendingCheckpoint(store, scope))?.id).toBe('cp_3')
+		expect((await findPendingCheckpoint(store, scope))?.id).toBe(
+			'c534c8ba-5d65-413c-8d53-0fcbbf1aa392',
+		)
 	})
 
 	it('unparking something that was never parked is a no-op, not a crash', async () => {
 		const mgr = new CheckpointManager(store, scope as CheckpointRunScope)
-		await store.writeCheckpoint(scope, checkpoint('cp_1', 1))
-		expect(await mgr.unpark('cp_1' as CheckpointId, { action: 'approve_tools' })).toBeNull()
-		expect(await mgr.unpark('cp_gone' as CheckpointId, { action: 'approve_tools' })).toBeNull()
+		await store.writeCheckpoint(scope, checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
+		expect(
+			await mgr.unpark('62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId, {
+				action: 'approve_tools',
+			}),
+		).toBeNull()
+		expect(
+			await mgr.unpark('7c81157d-b597-49f9-b951-772a567ecdf2' as CheckpointId, {
+				action: 'approve_tools',
+			}),
+		).toBeNull()
 	})
 })
 
 describe('loadRunState', () => {
 	it('rebuilds a snapshot with no live run object', async () => {
-		await store.writeCheckpoint(scope, checkpoint('cp_1', 1))
-		await store.writeCheckpoint(scope, checkpoint('cp_2', 2))
+		await store.writeCheckpoint(scope, checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
+		await store.writeCheckpoint(scope, checkpoint('7802b395-981e-430a-86c7-058cb79dbaf9', 2))
 
 		const state = await loadRunState(store, scope)
 
@@ -145,19 +168,22 @@ describe('loadRunState', () => {
 		// Budgets are properties of the RUN, not of the process hosting it.
 		expect(state?.elapsedMs).toBe(2_000)
 		expect(state?.tokenUsage.totalTokens).toBe(22)
-		expect(state?.checkpointId).toBe('cp_2')
+		expect(state?.checkpointId).toBe('7802b395-981e-430a-86c7-058cb79dbaf9')
 	})
 
 	it('prefers the outstanding park over the newest checkpoint', async () => {
 		// "What is this run waiting on" is the question a resuming process
 		// is actually asking.
 		const mgr = new CheckpointManager(store, scope as CheckpointRunScope)
-		await store.writeCheckpoint(scope, checkpoint('cp_1', 1))
-		await store.writeCheckpoint(scope, checkpoint('cp_2', 2))
-		await mgr.park(checkpoint('cp_1', 1), reviewRequest('cp_1'))
+		await store.writeCheckpoint(scope, checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
+		await store.writeCheckpoint(scope, checkpoint('7802b395-981e-430a-86c7-058cb79dbaf9', 2))
+		await mgr.park(
+			checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1),
+			reviewRequest('62d8ff8a-122d-4369-8274-e1f1dc479c1c'),
+		)
 
 		const state = await loadRunState(store, scope)
-		expect(state?.checkpointId).toBe('cp_1')
+		expect(state?.checkpointId).toBe('62d8ff8a-122d-4369-8274-e1f1dc479c1c')
 		expect(state?.pending?.request.type).toBe('tool_review')
 	})
 
@@ -168,7 +194,7 @@ describe('loadRunState', () => {
 	})
 
 	it('survives a JSON round trip', async () => {
-		await store.writeCheckpoint(scope, checkpoint('cp_1', 1))
+		await store.writeCheckpoint(scope, checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
 		const state = await loadRunState(store, scope)
 		const revived = parseRunState(JSON.stringify(state))
 		expect(revived).toEqual(state)
@@ -185,7 +211,9 @@ describe('parseRunState', () => {
 	})
 
 	it('refuses a snapshot with no version at all', () => {
-		expect(() => parseRunState('{"runId":"run_x"}')).toThrow(RunStateVersionError)
+		expect(() => parseRunState('{"runId":"f4e0af37-43f7-48fd-82b0-f1b1c68881d3"}')).toThrow(
+			RunStateVersionError,
+		)
 		expect(() => parseRunState('null')).toThrow(RunStateVersionError)
 	})
 
@@ -198,15 +226,31 @@ describe('parseRunState', () => {
 		const legacy = {
 			version: 1,
 			runId: RUN_ID,
-			sessionId: 'ses_d',
-			threadId: 'top_d',
-			projectId: 'prj_d',
-			tenantId: 'tnt_d',
+			sessionId: '3bd5ef45-8a0c-4fe7-8b55-f4453d7d8e43',
+			threadId: '78bd1b88-07a8-43ba-b3c1-cc02468a3781',
+			projectId: '38018058-7f48-4a66-8cac-67bc513451f4',
+			tenantId: '56b14123-e653-4cef-ac96-21f2d79d9bbd',
 		}
 		const revived = parseRunState(JSON.stringify(legacy))
 		expect(revived.version).toBe(RUN_STATE_VERSION)
-		expect((revived as unknown as { topicId?: unknown }).topicId).toBe('top_d')
+		expect((revived as unknown as { topicId?: unknown }).topicId).toBe(
+			'78bd1b88-07a8-43ba-b3c1-cc02468a3781',
+		)
 		expect((revived as unknown as { threadId?: unknown }).threadId).toBeUndefined()
+	})
+
+	it.each([
+		['runId', 'run_old'],
+		['parentRunId', 'run_parent'],
+		['sessionId', 'ses_old'],
+		['projectId', 'prj_old'],
+		['tenantId', 'tnt_old'],
+		['topicId', 'top_old'],
+		['checkpointId', 'cp_old'],
+	])('refuses a prefixed %s without rewriting its recorded value', (field, value) => {
+		const raw = { version: RUN_STATE_VERSION, [field]: value }
+		expect(() => parseRunState(raw)).toThrow(InvalidIdError)
+		expect(raw[field]).toBe(value)
 	})
 
 	it('refuses a snapshot whose topic id carries the retired thd_ prefix, rather than rewriting it', () => {
@@ -214,11 +258,11 @@ describe('parseRunState', () => {
 		// deciding what a record means on the writer's behalf; it refuses and
 		// names the way out instead.
 		const v1 = { version: 1, runId: RUN_ID, threadId: 'thd_d' }
-		expect(() => parseRunState(JSON.stringify(v1))).toThrow(RetiredIdPrefixError)
+		expect(() => parseRunState(JSON.stringify(v1))).toThrow(InvalidIdError)
 		const v2 = { version: 2, runId: RUN_ID, topicId: 'thd_d' }
-		expect(() => parseRunState(JSON.stringify(v2))).toThrow(RetiredIdPrefixError)
+		expect(() => parseRunState(JSON.stringify(v2))).toThrow(InvalidIdError)
 		const current = { version: RUN_STATE_VERSION, runId: RUN_ID, topicId: 'thd_d' }
-		expect(() => parseRunState(JSON.stringify(current))).toThrow(RetiredIdPrefixError)
+		expect(() => parseRunState(JSON.stringify(current))).toThrow(InvalidIdError)
 	})
 
 	it('coerces a version-1 snapshot with no threadId without stamping a stray topicId', () => {
@@ -237,7 +281,7 @@ describe('parseRunState', () => {
 		expect('topicId' in revived).toBe(false)
 	})
 
-	it.each(['top_already', '5985bc78-64b1-438b-972f-96d5dc0c5af0'])(
+	it.each(['030c4c5d-1987-40b7-b197-bb1860fab281', '5985bc78-64b1-438b-972f-96d5dc0c5af0'])(
 		'preserves topic ID %s through current and legacy snapshot reads',
 		(topicId) => {
 			const current = {

@@ -55,7 +55,7 @@ function named(tools: readonly ToolDefinition[], name: string): ToolDefinition {
 describe('session goal tools', () => {
 	it('publish the fixed capability names and read only through exact run authority', async () => {
 		const { store, authority } = await fixture()
-		const admittedRun = asRunId('run_goal_admitted')
+		const admittedRun = asRunId('1a7b0544-7f44-488d-95a2-2c1ed8f184f4')
 		const tools = buildSessionGoalTools(store, (runId) =>
 			runId === admittedRun ? authority : undefined,
 		)
@@ -67,14 +67,17 @@ describe('session goal tools', () => {
 			data: { objective: 'finish the verified work', roundsAdmitted: 1 },
 		})
 
-		const refused = await named(tools, 'get_goal').execute({}, context(asRunId('run_human_turn')))
+		const refused = await named(tools, 'get_goal').execute(
+			{},
+			context(asRunId('7e5f1e51-1520-4a24-98e1-798e053348c0')),
+		)
 		expect(refused).toMatchObject({ success: false, output: '' })
 		expect(refused.error).toContain('no admitted goal-round authority')
 	})
 
 	it('lets the admitted run complete only its exact current goal revision', async () => {
 		const { store, authority } = await fixture()
-		const runId = asRunId('run_goal_complete')
+		const runId = asRunId('788ec053-0e67-46f4-9b78-913bf2fda00c')
 		const update = named(
 			buildSessionGoalTools(store, () => authority),
 			'update_goal',
@@ -98,7 +101,7 @@ describe('session goal tools', () => {
 		)
 		const result = await update.execute(
 			{ status: 'blocked', reasonCode: 'same-condition', reason: 'The same check failed.' },
-			context(asRunId('run_goal_too_early')),
+			context(asRunId('6e12a707-4334-4017-bf16-14ed9097ce63')),
 		)
 
 		expect(result.success).toBe(false)
@@ -120,7 +123,7 @@ describe('session goal tools', () => {
 
 		const result = await update.execute(
 			{ status: 'blocked', reasonCode: 'same-condition', reason: 'The same check failed.' },
-			context(asRunId('run_goal_third')),
+			context(asRunId('085e1cd4-b66d-4d9e-8bdb-fdf6bab261d2')),
 		)
 		expect(result).toMatchObject({
 			success: true,

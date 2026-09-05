@@ -41,7 +41,7 @@ const fakeSpan = { __brand: 'span' } as unknown as NonNullable<ToolContext['pare
 
 function toolContext(parentSpan?: ToolContext['parentSpan']): ToolContext {
 	return {
-		runId: 'run_test',
+		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2',
 		abortSignal: new AbortController().signal,
 		...(parentSpan ? { parentSpan } : {}),
 	} as unknown as ToolContext
@@ -80,7 +80,10 @@ async function buildAgentTool(
 		result: { status: 'completed', result: 'done' },
 	} as never)
 
-	const parent = await subagentParentFixture('/tmp', asRunId('run_test'))
+	const parent = await subagentParentFixture(
+		'/tmp',
+		asRunId('4adf3fdd-2823-4640-be0a-5d21fe28b6d2'),
+	)
 	const runtime = await createSubagentRuntime({
 		resolveParent: parent.resolveParent,
 		cwd: '/tmp',
@@ -118,7 +121,7 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 			await agentTool.execute(parsed, toolContext())
 
 			expect(activity.getSnapshot()[0]).toMatchObject({
-				workflowId: 'run_test',
+				workflowId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2',
 				workflow: 'Basicbox research',
 				phase: 'Research',
 				phaseOrder: 1,
@@ -327,7 +330,8 @@ describe('a sub-agent shares the parent run review channel', () => {
 	it('passes only the handler belonging to the run that invoked Agent', async () => {
 		const handler = vi.fn() as ResumeHandler
 		const { agentTool, created } = await buildAgentTool({
-			resolveResumeHandler: (runId) => (String(runId) === 'run_test' ? handler : undefined),
+			resolveResumeHandler: (runId) =>
+				String(runId) === '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' ? handler : undefined,
 		})
 
 		await agentTool.execute({ description: 'audit', prompt: 'do a thing' }, toolContext())
@@ -350,8 +354,8 @@ describe('a sub-agent shares the parent run review channel', () => {
 		await expect(
 			handler?.({
 				type: 'tool_review',
-				runId: asRunId('run_child'),
-				checkpointId: 'chk_child' as never,
+				runId: asRunId('4721e070-5ba2-425a-bf5a-8cc927907e9a'),
+				checkpointId: '8b8ce2e3-d58a-45cf-aec9-53e78d2d212f' as never,
 				toolCalls: [],
 			}),
 		).resolves.toEqual(

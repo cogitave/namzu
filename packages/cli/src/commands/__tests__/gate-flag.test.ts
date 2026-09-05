@@ -118,7 +118,7 @@ describe('the gate reaches the run', () => {
 	it('is handed to the session by `run-stream` too', async () => {
 		const options = await sessionOptionsFor(runStreamCommand, [
 			'--session',
-			'ses_gate',
+			'40e7c721-43ca-4da8-a737-2e03c9347063',
 			'--gate',
 			'pnpm test',
 			'--gate-retries',

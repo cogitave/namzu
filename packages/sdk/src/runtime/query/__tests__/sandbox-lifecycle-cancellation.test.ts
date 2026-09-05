@@ -42,7 +42,7 @@ function deferred<T>(): {
 
 function boundary(destroy: (options?: SandboxDestroyOptions) => Promise<void>): Sandbox {
 	return {
-		id: 'sbx_lifecycle' as SandboxId,
+		id: '3fbee056-35a0-44a6-8faf-ef1adfb2161a' as SandboxId,
 		status: 'ready',
 		rootDir: '/workspace',
 		environment: 'basic',
@@ -87,10 +87,10 @@ async function params(input: {
 		agentName: 'Sandbox lifecycle',
 		messages: [createUserMessage('go')],
 		workingDirectory,
-		sessionId: 'ses_sandbox_lifecycle' as SessionId,
-		topicId: 'top_sandbox_lifecycle' as TopicId,
-		projectId: 'prj_sandbox_lifecycle' as ProjectId,
-		tenantId: 'tnt_sandbox_lifecycle' as TenantId,
+		sessionId: '82374a6e-20d2-4f11-b06f-5792141c0497' as SessionId,
+		topicId: 'a789bffc-abbd-4e79-b3ec-6011b08067bc' as TopicId,
+		projectId: '1556cc8f-9c7e-4d40-9705-22471d1d7237' as ProjectId,
+		tenantId: 'b857f97a-dde7-4ddb-a571-e13f3a2c45a3' as TenantId,
 	}
 }
 

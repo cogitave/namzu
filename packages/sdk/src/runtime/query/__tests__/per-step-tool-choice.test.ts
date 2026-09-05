@@ -63,10 +63,10 @@ async function baseParams(provider: MockLLMProvider, tools: ToolRegistry) {
 		agentId: 'agent_tc',
 		agentName: 'Tool Choice Agent',
 		workingDirectory: await mkWorkdir(),
-		sessionId: 'ses_tc' as SessionId,
-		topicId: 'top_tc' as TopicId,
-		projectId: 'prj_tc' as ProjectId,
-		tenantId: 'tnt_tc' as TenantId,
+		sessionId: 'd94e5f40-5557-4759-8d09-9be378798204' as SessionId,
+		topicId: 'fbf3f27e-0f92-44eb-b923-22b41a1675e1' as TopicId,
+		projectId: 'd89c57c3-daaf-417e-9374-a35c9c58c430' as ProjectId,
+		tenantId: 'e05c6f07-df73-4784-a299-9377c74774fd' as TenantId,
 		messages: [createUserMessage('go')],
 	}
 }

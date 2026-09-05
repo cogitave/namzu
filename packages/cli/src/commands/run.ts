@@ -114,6 +114,7 @@ export const runCommand: CommandDef = {
 		'  --gate-retries <n>    Fix attempts a failing gate allows (default 3)',
 		'  --max-iterations <n>  Model calls this run may make (default 50)',
 		'  --token-budget <n>    Tokens this run may spend in total (default 1000000)',
+		'  --effort <level>      Explicit reasoning effort (supported levels depend on the model)',
 		'  --wait-for-provider <d>  Wait out provider pauses (a rate limit, an outage)',
 		'                        for up to this long in total — 90s, 30m, 2h — resuming',
 		'                        from the checkpoint each time (default: none; exit 75)',
@@ -444,7 +445,12 @@ export const runCommand: CommandDef = {
 		await consume(
 			session.send(
 				[...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }],
-				extraSystem ? { extraSystem } : undefined,
+				extraSystem || flags.effort !== null
+					? {
+							...(extraSystem ? { extraSystem } : {}),
+							...(flags.effort !== null ? { effort: flags.effort } : {}),
+						}
+					: undefined,
 			),
 		)
 

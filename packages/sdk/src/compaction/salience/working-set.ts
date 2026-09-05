@@ -2,11 +2,11 @@
  * The working set: which messages stay whole for the next call.
  *
  * Given every message's salience, choose the cheapest actions that bring
- * the estimated context under a target, lowest salience per token first:
+ * the estimated context under a target, lowest salience first, then the
+ * larger result among equally salient candidates:
  *
- *   clear   empty a tool result's body to the same placeholder the stale
- *           pass uses, so a result the model turns out to need is one
- *           call away rather than lost;
+ *   clear   replace a tool result with the same excerpt the stale pass
+ *           uses, retaining a saved-artifact pointer when one exists;
  *   stub    cut an assistant narration to its first sentence — the
  *           decision survives, the paragraph around it does not.
  *
@@ -21,6 +21,7 @@
 
 import { CHARS_PER_TOKEN } from '../../constants/limits.js'
 import type { AssistantMessage, Message, ToolMessage } from '../../types/message/index.js'
+import { estimateMessageTokens } from '../token-estimate.js'
 import { clearToolResult, isClearedToolResult } from '../tool-result-editing.js'
 import type { ScoredMessage } from './score.js'
 
@@ -136,10 +137,10 @@ export function planWorkingSet(
 	const next = [...messages]
 	const actions: WorkingSetAction[] = []
 	let charsReclaimed = 0
+	let reclaimedTokens = 0
 	let clearedCount = 0
 	let stubbedCount = 0
-	const excess = () =>
-		options.estimatedTokens - Math.ceil(charsReclaimed / CHARS_PER_TOKEN) - options.targetTokens
+	const excess = () => options.estimatedTokens - reclaimedTokens - options.targetTokens
 	for (const candidate of candidates) {
 		if (excess() <= 0) break
 		// The floor guards what the goal names or a later turn used, not
@@ -150,9 +151,11 @@ export function planWorkingSet(
 		if (candidate.kind === 'clear') {
 			const tool = m as ToolMessage
 			const cleared = clearToolResult(tool, toolNameByCallId.get(tool.toolCallId) ?? 'unknown')
-			if (cleared.charsReclaimed <= 0) continue
+			const tokenSaving = estimateMessageTokens(tool) - estimateMessageTokens(cleared.message)
+			if (tokenSaving <= 0) continue
 			next[candidate.index] = cleared.message
 			charsReclaimed += cleared.charsReclaimed
+			reclaimedTokens += tokenSaving
 			clearedCount += 1
 			actions.push({
 				kind: 'clear',
@@ -164,8 +167,10 @@ export function planWorkingSet(
 			const stub = `${firstSentence(text)} ${STUB_MARK}; ${(text.length - firstSentence(text).length).toLocaleString('en-US')} characters of narration)`
 			const reclaimed = text.length - stub.length
 			if (reclaimed <= 0) continue
-			next[candidate.index] = { ...(m as AssistantMessage), content: stub }
+			const stubbed = { ...(m as AssistantMessage), content: stub }
+			next[candidate.index] = stubbed
 			charsReclaimed += reclaimed
+			reclaimedTokens += estimateMessageTokens(m) - estimateMessageTokens(stubbed)
 			stubbedCount += 1
 			actions.push({ kind: 'stub', index: candidate.index, charsReclaimed: reclaimed })
 		}
@@ -176,7 +181,7 @@ export function planWorkingSet(
 		clearedCount,
 		stubbedCount,
 		charsReclaimed,
-		reclaimedTokens: Math.ceil(charsReclaimed / CHARS_PER_TOKEN),
+		reclaimedTokens,
 		reachedTarget: excess() <= 0,
 	}
 }

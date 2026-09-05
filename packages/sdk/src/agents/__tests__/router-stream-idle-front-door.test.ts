@@ -90,7 +90,7 @@ function recordingDelegate() {
 			calls += 1
 			receivedConfig = config
 			return {
-				runId: 'run_fallback_worker' as RunId,
+				runId: '778feb11-9cb6-4200-9178-eb7f6f94f975' as RunId,
 				status: 'completed',
 				stopReason: 'end_turn',
 				usage: { ...EMPTY_TOKEN_USAGE },
@@ -139,7 +139,7 @@ function routerConfig(
 				description: 'fallback route',
 			},
 		],
-		invocationState: { tenantId: 'tnt_router_idle' as TenantId },
+		invocationState: { tenantId: 'c004aafd-bb23-4ddf-b517-9dd435403415' as TenantId },
 	}
 }
 

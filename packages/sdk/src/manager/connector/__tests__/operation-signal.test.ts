@@ -17,7 +17,7 @@ import { ConnectorManager } from '../lifecycle.js'
 import { TenantConnectorManager } from '../tenant.js'
 
 class HeldConnector extends BaseConnector<Record<string, never>> {
-	readonly id = asConnectorId('conn_held_operation')
+	readonly id = asConnectorId('c70da423-5b7c-4353-8361-ed5f66117843')
 	readonly name = 'Held connector'
 	readonly description = 'test connector'
 	readonly connectionType: ConnectionType = 'custom'
@@ -208,7 +208,7 @@ describe('ConnectorManager operation authority', () => {
 			registry,
 			defaultRateLimit: { maxRequests: 1, windowMs: 60_000 },
 		})
-		const tenantId = 'tnt_connector_authority' as TenantId
+		const tenantId = '01b97715-6856-4123-8c37-438cd509d33a' as TenantId
 		manager.registerTenant({ id: tenantId, name: 'Connector authority' })
 		const instance = await manager.createInstance(
 			tenantId,
@@ -248,7 +248,7 @@ describe('ConnectorManager operation authority', () => {
 		registry.register(tenantConnector.toDefinition())
 
 		const tenantManager = new TenantConnectorManager({ registry })
-		const tenantId = 'tnt_connector_health' as TenantId
+		const tenantId = '7f883ab7-3436-4ed7-81c9-be03a6cfbb34' as TenantId
 		tenantManager.registerTenant({ id: tenantId, name: 'Health tenant' })
 		const tenantInstance = await tenantManager.createInstance(
 			tenantId,
@@ -267,7 +267,7 @@ describe('ConnectorManager operation authority', () => {
 		const environmentConnector = new HeldConnector()
 		const scopedRegistry = new ScopedConnectorRegistry()
 		scopedRegistry.set({
-			scope: { scope: 'environment', scopeId: 'env_connector_health' },
+			scope: { scope: 'environment', scopeId: '78559896-6e9c-4bf8-89dc-7e6f2d9546ad' },
 			connectorId: environmentConnector.id,
 			options: {},
 		})
@@ -275,7 +275,7 @@ describe('ConnectorManager operation authority', () => {
 			connectorRegistry: registry,
 			scopedRegistry,
 		})
-		const environmentId = 'env_connector_health' as EnvironmentId
+		const environmentId = '78559896-6e9c-4bf8-89dc-7e6f2d9546ad' as EnvironmentId
 		environmentManager.registerEnvironment({
 			environment: { id: environmentId, name: 'Health environment', tier: 'testing' },
 			scopeChain: { environment: environmentId },

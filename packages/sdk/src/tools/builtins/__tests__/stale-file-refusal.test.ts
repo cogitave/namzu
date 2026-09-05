@@ -39,7 +39,7 @@ function contextWith(
 	sandbox?: Sandbox,
 ): ToolContext {
 	return {
-		runId: 'run_stale' as ToolContext['runId'],
+		runId: '9bf74d42-964f-4a93-aabb-d20245d81daf' as ToolContext['runId'],
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -59,7 +59,7 @@ function sandboxOver(initial: string): {
 	let writeCount = 0
 	return {
 		sandbox: {
-			id: 'sbx_stale' as Sandbox['id'],
+			id: '9f3d9eeb-1d1c-488a-a77e-ea013dcc609e' as Sandbox['id'],
 			status: 'ready',
 			rootDir: '/sandbox',
 			environment: 'basic',

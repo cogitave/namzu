@@ -28,7 +28,7 @@ import { InMemoryTaskStore } from '../memory.js'
  * disagreement is invisible until a host swaps stores in production.
  */
 
-const RUN = 'run_edge' as RunId
+const RUN = '8240c48a-1635-4cd9-80cd-a75964d63808' as RunId
 
 const dirs: string[] = []
 afterEach(async () => {

@@ -39,7 +39,7 @@ function store(fail = false): MemoryStore & { created: CreateMemoryParams[] } {
 			created.push(params)
 			return {
 				entry: {
-					id: 'mem_1' as never,
+					id: '22132404-d6ef-407b-9604-29c0ba7289c5' as never,
 					title: params.title,
 					summary: params.summary,
 					tags: params.tags ?? [],
@@ -96,10 +96,10 @@ async function run(consolidateInto: MemoryStore) {
 		agentName: 'A',
 		messages: [createUserMessage('deploy the service')],
 		workingDirectory,
-		sessionId: 'ses_c' as SessionId,
-		topicId: 'top_c' as TopicId,
-		projectId: 'prj_c' as ProjectId,
-		tenantId: 'tnt_c' as TenantId,
+		sessionId: 'fd031048-1d65-449b-b6f2-0a8f2ba6b99f' as SessionId,
+		topicId: '7f2cf483-e642-4898-8ac3-316074ab3639' as TopicId,
+		projectId: '8d8cdcf3-4c2c-484c-b208-54dcd1964be4' as ProjectId,
+		tenantId: 'bdb9c2e1-6b7c-4ac5-8cbb-671454d33d89' as TenantId,
 		resumeHandler: async () => ({ action: 'continue' }),
 		compactionConfig: { strategy: 'salience' } as never,
 		consolidateInto,
@@ -119,7 +119,10 @@ describe('a run writes down what it learned', () => {
 		expect(entry.content).toContain('deploy: ')
 		expect(entry.content).toContain('deploy key was rejected')
 		const consolidated = events.find((e) => e.type === 'memory_consolidated')
-		expect(consolidated).toMatchObject({ memoryId: 'mem_1', failures: 1 })
+		expect(consolidated).toMatchObject({
+			memoryId: '22132404-d6ef-407b-9604-29c0ba7289c5',
+			failures: 1,
+		})
 		const order = events.map((e) => e.type)
 		expect(order.indexOf('memory_consolidated')).toBeLessThan(order.indexOf('run_completed'))
 	})

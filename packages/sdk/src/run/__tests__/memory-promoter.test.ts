@@ -17,7 +17,7 @@ import { RUN_MEMORY_TAG, createMemoryPromoter } from '../memory-promoter.js'
 
 function candidate(over: Partial<RunMemoryCandidate> = {}): RunMemoryCandidate {
 	return {
-		runId: 'run_abc' as RunId,
+		runId: 'e88daa46-7351-4bf1-ba52-19112767bf4a' as RunId,
 		task: 'ship the invoice job',
 		decisions: [],
 		discoveries: [],
@@ -71,7 +71,7 @@ describe('a run that learned something', () => {
 		const body = await store.get(entry?.id as never)
 		// Without it, a surprising memory cannot be checked against what
 		// actually happened.
-		expect(body?.metadata).toMatchObject({ runId: 'run_abc' })
+		expect(body?.metadata).toMatchObject({ runId: 'e88daa46-7351-4bf1-ba52-19112767bf4a' })
 	})
 
 	it('says it is reading a truncated account when entries were evicted', async () => {

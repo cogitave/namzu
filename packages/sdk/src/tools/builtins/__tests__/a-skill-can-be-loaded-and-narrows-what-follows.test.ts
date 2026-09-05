@@ -53,7 +53,7 @@ function contextFor(
 	overrides: Partial<ToolContext> = {},
 ): ToolContext {
 	return {
-		runId: 'run_skill' as RunId,
+		runId: '651d7ad7-a79e-4783-85bb-5bcd9da09f20' as RunId,
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},

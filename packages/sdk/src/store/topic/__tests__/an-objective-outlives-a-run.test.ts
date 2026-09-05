@@ -31,9 +31,9 @@ import {
  * suggestion.
  */
 
-const TOPIC = 'top_obj' as TopicId
-const TENANT = 'tnt_obj' as TenantId
-const OTHER = 'tnt_other' as TenantId
+const TOPIC = 'c03617e6-f6c8-44d8-bc22-e8e0e396383f' as TopicId
+const TENANT = '291ec603-d218-4ed2-a974-9ea9087a5e7f' as TenantId
+const OTHER = '03857320-0500-482a-85e0-add350d8ffdd' as TenantId
 
 const dirs: string[] = []
 

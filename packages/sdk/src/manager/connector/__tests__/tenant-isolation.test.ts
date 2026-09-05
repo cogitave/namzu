@@ -13,7 +13,7 @@ import type { LogContext, Logger } from '../../../utils/logger.js'
 import { TenantConnectorManager } from '../tenant.js'
 
 class TestConnector extends BaseConnector<Record<string, never>> {
-	readonly id = 'conn_test' as ConnectorId
+	readonly id = '062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId
 	readonly name = 'Test'
 	readonly description = 'Test connector'
 	readonly connectionType: ConnectionType = 'custom'
@@ -59,7 +59,7 @@ describe('TenantConnectorManager — per-tenant log correlation', () => {
 		const { logger, records } = capturingLogger()
 		const registry = new ConnectorRegistry()
 		registry.register({
-			id: 'conn_test' as ConnectorId,
+			id: '062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId,
 			name: 'Test',
 			description: 'Test connector',
 			connectionType: 'custom',
@@ -73,12 +73,12 @@ describe('TenantConnectorManager — per-tenant log correlation', () => {
 
 		await manager.createInstance(
 			't_a' as TenantId,
-			{ connectorId: 'conn_test' as ConnectorId, name: 'a' },
+			{ connectorId: '062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId, name: 'a' },
 			new TestConnector(),
 		)
 		await manager.createInstance(
 			't_b' as TenantId,
-			{ connectorId: 'conn_test' as ConnectorId, name: 'b' },
+			{ connectorId: '062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId, name: 'b' },
 			new TestConnector(),
 		)
 

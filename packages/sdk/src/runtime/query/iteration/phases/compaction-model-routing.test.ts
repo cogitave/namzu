@@ -46,7 +46,7 @@ function harness(taskRouter?: TaskRouterConfig): {
 		runConfig: { model: 'primary-model' },
 		...(taskRouter ? { taskRouter } : {}),
 		runMgr: {
-			id: 'run_routing',
+			id: '0b69064f-36a8-4ec0-87c8-5ec601789313',
 			messages,
 			accumulateUsage: vi.fn(),
 			clearLastPromptTokens: vi.fn(),

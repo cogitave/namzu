@@ -7,7 +7,7 @@ import { SessionSummaryMaterializer } from '../../../session/summary/materialize
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
-import { fixtureId } from '../../../test-support/ids.js'
+import { fixtureId, fixtureUuid } from '../../../test-support/ids.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
@@ -37,7 +37,7 @@ import { AgentManager } from '../lifecycle.js'
  * branches it builds a config on.
  */
 
-const TENANT = 'tnt_scope' as TenantId
+const TENANT = '69d45466-c396-4df5-a35b-49f2ff703572' as TenantId
 
 const PERSONA = (role: string): AgentPersona =>
 	({ identity: { role, name: role } }) as unknown as AgentPersona
@@ -152,12 +152,12 @@ async function spawn(opts: {
 		capacity: new DefaultCapacityValidator(store),
 		summaryMaterializer: new SessionSummaryMaterializer({
 			store,
-			generateSummaryId: () => `sum_${++n}` as SummaryId,
+			generateSummaryId: () => fixtureUuid(`sum_${++n}`) as SummaryId,
 		}),
 	})
 
 	const context: AgentTaskContext = {
-		parentRunId: 'run_parent' as never,
+		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,

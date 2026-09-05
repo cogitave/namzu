@@ -33,7 +33,7 @@ import type { ConnectorId } from '../types/ids/index.js'
 import { BaseConnector } from './BaseConnector.js'
 
 class TestConnector extends BaseConnector<{ base: string }> {
-	readonly id = 'conn_test' as ConnectorId
+	readonly id = '062be914-4a03-4813-a448-c837eb2d0ad2' as ConnectorId
 	readonly name = 'Test'
 	readonly description = 'Test connector'
 	readonly connectionType: ConnectionType = 'custom'
@@ -79,7 +79,7 @@ describe('BaseConnector', () => {
 	it('toDefinition projects abstract readonly fields', () => {
 		const c = new TestConnector()
 		const def = c.toDefinition()
-		expect(def.id).toBe('conn_test')
+		expect(def.id).toBe('062be914-4a03-4813-a448-c837eb2d0ad2')
 		expect(def.name).toBe('Test')
 		expect(def.description).toBe('Test connector')
 		expect(def.connectionType).toBe('custom')

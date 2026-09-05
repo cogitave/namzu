@@ -1,7 +1,9 @@
+import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import { SPILL_MARKER } from '../runtime/query/tool-output-budget.js'
 import { toolResultToText } from '../types/message/content.js'
 import type { Message, ToolMessage, ToolResultBlock } from '../types/message/index.js'
 import { findRetainedIndices } from './retention.js'
+import { estimateMessageTokens } from './token-estimate.js'
 
 /**
  * Clear stale tool OUTPUT in place, without touching the conversation's
@@ -91,7 +93,9 @@ function clearedPlaceholder(
 			'Read a window of it with `read` (offset/limit) or search it with `grep`.',
 		)
 	} else {
-		parts.push('Call the tool again if you still need the rest.')
+		parts.push(
+			'Full result unavailable here. Recover from a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.',
+		)
 	}
 
 	if (text.length > KEEP_HEAD_CHARS + KEEP_TAIL_CHARS) {
@@ -116,7 +120,7 @@ function clearedPlaceholder(
 export interface ToolResultEditOutcome {
 	readonly messages: Message[]
 	readonly clearedCount: number
-	/** Characters removed from the model-visible history. */
+	/** Payload characters removed, including encoded data; not a token estimate. */
 	readonly charsReclaimed: number
 }
 
@@ -196,39 +200,24 @@ export function clearStaleToolResults(
 		if (preserve.has(toolName)) return msg
 
 		const size = measureContent(tool.content)
-		if (size < minChars) return msg
+		if (estimateMessageTokens(tool) * CHARS_PER_TOKEN < minChars) return msg
 
+		const content = clearedPlaceholder(tool.content, toolName, size)
+		if (estimateMessageTokens({ ...tool, content }) >= estimateMessageTokens(tool)) return msg
 		clearedCount++
-		charsReclaimed += size - 0
+		charsReclaimed += size - content.length
 		return {
 			...tool,
-			content: clearedPlaceholder(tool.content, toolName, size),
+			content,
 		} satisfies ToolMessage
 	})
 
-	// Subtract what the placeholders themselves cost, so the number a
-	// caller uses to decide "was that enough?" is the real saving and not
-	// an overstatement.
-	if (clearedCount > 0) {
-		let placeholderChars = 0
-		for (const msg of edited) {
-			if (msg.role === 'tool' && isClearedToolResult(msg.content)) {
-				placeholderChars += measureContent(msg.content)
-			}
-		}
-		charsReclaimed = Math.max(0, charsReclaimed - placeholderChars)
-	}
-
-	return { messages: edited, clearedCount, charsReclaimed }
+	return { messages: edited, clearedCount, charsReclaimed: Math.max(0, charsReclaimed) }
 }
 
 /**
- * Size of a tool result as the model sees it.
- *
- * An image block is measured by its base64 payload, which is the whole
- * point: a screenshot is the single largest thing a tool result can carry,
- * and it is exactly the kind of output an agent reads once and never
- * needs again.
+ * Payload character count for storage telemetry. Encoded image length is
+ * independent of visual token cost; context decisions use the shared estimate.
  */
 function measureContent(content: ToolMessage['content']): number {
 	if (typeof content === 'string') return content.length
@@ -236,7 +225,7 @@ function measureContent(content: ToolMessage['content']): number {
 	let total = 0
 	for (const block of content as readonly ToolResultBlock[]) {
 		if (block.type === 'text') total += block.text.length
-		else if (block.type === 'image') total += block.data.length
+		else if (block.type === 'image' || block.type === 'document') total += block.data.length
 	}
 	return total
 }

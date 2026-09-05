@@ -74,10 +74,10 @@ function baseParams(opts: {
 		agentId: 'agent_seam',
 		agentName: 'Seam',
 		workingDirectory: opts.dir,
-		sessionId: 'ses_seam' as SessionId,
-		topicId: 'top_seam' as TopicId,
-		projectId: 'prj_seam' as ProjectId,
-		tenantId: 'tnt_seam' as TenantId,
+		sessionId: '45546fa4-d7b9-4223-b1ba-d95fcb6b7bd4' as SessionId,
+		topicId: '458174d9-b54f-43a9-9ccc-c3d87be14190' as TopicId,
+		projectId: '8e2b818f-eb63-4f6e-a416-18b311dcb61c' as ProjectId,
+		tenantId: '36da1973-021d-40d5-9a72-7ba4084729de' as TenantId,
 	}
 }
 
@@ -191,10 +191,10 @@ describe('a cross-process resume clears the park it acted on', () => {
 		tools.register(countingTool('delete_row', calls))
 		const store = new DiskCheckpointStore({ baseDir: join(dir, 'runs') })
 		const scope = {
-			tenantId: 'tnt_seam' as TenantId,
-			projectId: 'prj_seam' as ProjectId,
-			sessionId: 'ses_seam' as SessionId,
-			runId: 'run_seam' as RunId,
+			tenantId: '36da1973-021d-40d5-9a72-7ba4084729de' as TenantId,
+			projectId: '8e2b818f-eb63-4f6e-a416-18b311dcb61c' as ProjectId,
+			sessionId: '45546fa4-d7b9-4223-b1ba-d95fcb6b7bd4' as SessionId,
+			runId: 'f4706708-3549-4ae3-91ee-0d85d85fcc3a' as RunId,
 		}
 
 		const pauseOnReview: ResumeHandler = (request) =>

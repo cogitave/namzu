@@ -44,8 +44,8 @@ describe('a record names the module it came from', () => {
 		const { logger, records } = capturing()
 		const tracker = new EditOwnershipTracker(logger, () => {})
 
-		tracker.claim('/tmp/a.ts', 'run_one' as RunId)
-		tracker.claim('/tmp/a.ts', 'run_two' as RunId)
+		tracker.claim('/tmp/a.ts', 'c6ef7827-d63a-47fb-91d6-157229a8906e' as RunId)
+		tracker.claim('/tmp/a.ts', '299cae19-4431-4007-8356-a447a844d719' as RunId)
 
 		expect(records.length).toBeGreaterThan(0)
 		expect(records[0]?.scope.name).toBe('bus/ownership')
@@ -59,7 +59,10 @@ describe('a record names the module it came from', () => {
 		const { logger, records } = capturing()
 		const reporter = createRunReporter(logger)
 
-		reporter.listener({ type: 'run_started', runId: 'run_x' as RunId })
+		reporter.listener({
+			type: 'run_started',
+			runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as RunId,
+		})
 
 		expect(records[0]?.scope.name).toBe('run/reporter')
 		expect('component' in (records[0]?.attributes ?? {})).toBe(false)

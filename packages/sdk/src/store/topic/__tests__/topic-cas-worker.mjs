@@ -2,15 +2,18 @@
  * Real-process contender for the topic CAS observers.
  *
  * Usage:
- * node topic-cas-worker.mjs <distDir> <rootDir> <kind> <prefix> <count> <worker> <barrierMs>
+ * node topic-cas-worker.mjs <distDir> <rootDir> <kind> <scopeJson> <worker> <barrierMs>
  */
 
-const [, , dist, rootDir, kind, prefix, countRaw, worker, barrierRaw] = process.argv
-const count = Number(countRaw)
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const [, , dist, rootDir, kind, scopeJson, worker, barrierRaw] = process.argv
+const { tenantId, ids } = JSON.parse(scopeJson)
 const barrier = Number(barrierRaw)
 
-const stateModule = new URL('store/topic/state.js', `file://${dist.replace(/\\/g, '/')}/`).href
-const objectiveModule = new URL('store/topic/objective.js', `file://${dist.replace(/\\/g, '/')}/`).href
+const stateModule = pathToFileURL(join(dist, 'store/topic/state.js')).href
+const objectiveModule = pathToFileURL(join(dist, 'store/topic/objective.js')).href
 
 const wait = barrier - Date.now()
 if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
@@ -22,10 +25,9 @@ if (kind === 'state') {
 	const { DiskTopicStateStore } = await import(stateModule)
 	const store = new DiskTopicStateStore({ rootDir })
 	const mode = worker === 'w0' ? 'plan' : 'auto'
-	for (let i = 0; i < count; i++) {
-		const topicId = `${prefix}${i}`
+	for (const topicId of ids) {
 		try {
-			await store.setPermissionMode(topicId, 'tnt_proc', mode, { revision: 0 })
+			await store.setPermissionMode(topicId, tenantId, mode, { revision: 0 })
 			won.push({ id: topicId, mode, worker })
 		} catch (error) {
 			if (error?.name !== 'StaleTopicStateError') {
@@ -36,10 +38,9 @@ if (kind === 'state') {
 } else if (kind === 'objective') {
 	const { DiskTopicObjectiveStore } = await import(objectiveModule)
 	const store = new DiskTopicObjectiveStore({ rootDir })
-	for (let i = 0; i < count; i++) {
-		const id = `${prefix}${i}`
+	for (const id of ids) {
 		try {
-			await store.beginRound(id, 'tnt_proc', { revision: 1 })
+			await store.beginRound(id, tenantId, { revision: 1 })
 			won.push({ id, worker })
 		} catch (error) {
 			if (error?.name !== 'StaleObjectiveError') {

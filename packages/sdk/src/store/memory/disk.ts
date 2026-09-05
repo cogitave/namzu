@@ -82,7 +82,7 @@ function assertStorageMemoryId(
 	refuse: (reason: string) => never,
 ): asserts value is MemoryId {
 	if (!isEntityId(value, 'memory')) {
-		refuse('id must be an opaque UUID or a safe legacy memory ID')
+		refuse('id must be a UUID; prefixed memory IDs are not supported')
 	}
 }
 

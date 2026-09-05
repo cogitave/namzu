@@ -25,10 +25,10 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
 import { runAgent } from '../runAgent.js'
 
 const scope = {
-	sessionId: 'ses_attachment_front' as SessionId,
-	topicId: 'top_attachment_front' as TopicId,
-	projectId: 'prj_attachment_front' as ProjectId,
-	tenantId: 'tnt_attachment_front' as TenantId,
+	sessionId: '7b3767e5-2d4e-4424-ae36-1d0f4aede15f' as SessionId,
+	topicId: '4e33445a-82f6-415b-9fed-b78c80efd7b2' as TopicId,
+	projectId: 'cc2a8547-55cb-4293-9c99-7da74811611b' as ProjectId,
+	tenantId: '6c5ed8d8-2a47-4146-82b8-72dfac1a70f5' as TenantId,
 }
 
 function prompt(): Message {

@@ -80,10 +80,10 @@ async function run(turns: readonly MockTurn[], outcomes: readonly boolean[]) {
 		agentName: 'A',
 		messages: [createUserMessage('go')],
 		workingDirectory,
-		sessionId: 'ses_f' as SessionId,
-		topicId: 'top_f' as TopicId,
-		projectId: 'prj_f' as ProjectId,
-		tenantId: 'tnt_f' as TenantId,
+		sessionId: '345e84b8-3178-4cf4-9506-0bf9ce15b9bc' as SessionId,
+		topicId: '11ec9550-2592-4bc3-9c7e-476605b16475' as TopicId,
+		projectId: '0d076e45-2653-421c-8d2e-a65a5774e84d' as ProjectId,
+		tenantId: 'dab321f6-0999-4bc5-8b5c-8fe545b43505' as TenantId,
 	})
 	return { messages: result.messages, executions }
 }

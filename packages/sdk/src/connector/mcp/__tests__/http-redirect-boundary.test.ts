@@ -241,7 +241,7 @@ function respondJson(response: ServerResponse, message: MCPJsonRpcMessage): void
 
 function toolContext(): ToolContext {
 	return {
-		runId: 'run_mcp_redirect' as RunId,
+		runId: 'bdebd4d8-3fad-4206-8f5d-0237078629a3' as RunId,
 		workingDirectory: '/',
 		abortSignal: new AbortController().signal,
 		env: {},

@@ -15,11 +15,14 @@ describe('AuditEvent — cost is non-optional', () => {
 		// @ts-expect-error — AuditEvent.cost is non-optional; omitting it must
 		// not compile.
 		const incomplete: AuditEvent = {
-			id: 'aud_test' as AuditEvent['id'],
-			runId: 'run_test' as AuditEvent['runId'],
+			id: '138741ac-dcaa-4068-9b8c-fb5b5c1786e5' as AuditEvent['id'],
+			runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as AuditEvent['runId'],
 			seq: 1,
 			timestamp: 0,
-			who: { agentId: 'agent_test', tenantId: 'tnt_test' as AuditEvent['who']['tenantId'] },
+			who: {
+				agentId: 'agent_test',
+				tenantId: 'a8e039fb-e8d3-4206-9ed8-4cb17d5d8222' as AuditEvent['who']['tenantId'],
+			},
 			what: { action: 'tool_call' },
 			outcome: 'refused',
 		}
@@ -29,11 +32,14 @@ describe('AuditEvent — cost is non-optional', () => {
 
 	it('compiles with every required field present, including `cost`', () => {
 		const complete: AuditEvent = {
-			id: 'aud_test' as AuditEvent['id'],
-			runId: 'run_test' as AuditEvent['runId'],
+			id: '138741ac-dcaa-4068-9b8c-fb5b5c1786e5' as AuditEvent['id'],
+			runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as AuditEvent['runId'],
 			seq: 1,
 			timestamp: 0,
-			who: { agentId: 'agent_test', tenantId: 'tnt_test' as AuditEvent['who']['tenantId'] },
+			who: {
+				agentId: 'agent_test',
+				tenantId: 'a8e039fb-e8d3-4206-9ed8-4cb17d5d8222' as AuditEvent['who']['tenantId'],
+			},
 			what: { action: 'tool_call', tool: 'bash' },
 			outcome: 'refused',
 			cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },

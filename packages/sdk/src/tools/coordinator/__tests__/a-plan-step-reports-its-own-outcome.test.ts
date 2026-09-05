@@ -21,7 +21,7 @@ import { buildCoordinatorTools } from '../index.js'
  * however well it went.
  */
 
-const RUN = 'run_step_binding' as RunId
+const RUN = '74bb77c4-03c5-4671-ad46-313baf1b7f67' as RunId
 
 function gatewayReturning(outcome: 'ok' | 'failed'): TaskScheduler {
 	const handle = (taskId: TaskId): TaskHandle => ({

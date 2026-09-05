@@ -28,10 +28,10 @@ const ZERO_COST = {
 }
 
 const SCOPE: CheckpointRunScope = {
-	tenantId: 'tnt_cp_store' as TenantId,
-	projectId: 'prj_cp_store' as ProjectId,
-	sessionId: 'ses_cp_store' as SessionId,
-	runId: 'run_cp_store' as RunId,
+	tenantId: 'abe9b1f4-58f3-4617-9092-e3c3eddf7fa8' as TenantId,
+	projectId: '6b5fe163-dd2f-47ac-a34b-7f4c61e3d111' as ProjectId,
+	sessionId: '63a68db5-e762-413a-aebc-6edc4b1d61f2' as SessionId,
+	runId: '828316da-a45c-4d83-98f7-7b6a534df23b' as RunId,
 }
 
 /**
@@ -135,9 +135,9 @@ describe('CheckpointManager against an injected CheckpointStore', () => {
 
 	it('restore throws a descriptive error for a missing checkpoint', async () => {
 		const mgr = new CheckpointManager(new InMemoryCheckpointStore(), SCOPE)
-		await expect(mgr.restore('cp_missing' as CheckpointId)).rejects.toThrow(
-			'Checkpoint not found: cp_missing',
-		)
+		await expect(
+			mgr.restore('e8e27c68-a53c-4003-9fbe-3349649af71a' as CheckpointId),
+		).rejects.toThrow('Checkpoint not found: e8e27c68-a53c-4003-9fbe-3349649af71a')
 	})
 })
 
@@ -268,10 +268,10 @@ describe('query() with an injected checkpointStore', () => {
 			agentName: 'Test Agent',
 			messages: [createUserMessage('use the echo tool')],
 			workingDirectory,
-			sessionId: 'ses_cp_inject' as SessionId,
-			topicId: 'top_cp_inject' as TopicId,
-			projectId: 'prj_cp_inject' as ProjectId,
-			tenantId: 'tnt_cp_inject' as TenantId,
+			sessionId: 'e30ed68d-7637-45a7-80ee-90a3ec4cb97d' as SessionId,
+			topicId: '76a408c2-931a-47a2-b87a-f842af1fe66b' as TopicId,
+			projectId: 'b2e4b0a3-6a77-4b00-82d6-9125bf4abc4e' as ProjectId,
+			tenantId: 'b5da353d-5241-402d-8de9-48f203031c19' as TenantId,
 		})
 
 		expect(run.status).toBe('completed')
@@ -279,9 +279,9 @@ describe('query() with an injected checkpointStore', () => {
 		// landed in the injected store — not on disk.
 		expect(store.rows.size).toBeGreaterThan(0)
 		const scope = store.seenScopes[0]
-		expect(scope?.tenantId).toBe('tnt_cp_inject')
-		expect(scope?.projectId).toBe('prj_cp_inject')
-		expect(scope?.sessionId).toBe('ses_cp_inject')
+		expect(scope?.tenantId).toBe('b5da353d-5241-402d-8de9-48f203031c19')
+		expect(scope?.projectId).toBe('b2e4b0a3-6a77-4b00-82d6-9125bf4abc4e')
+		expect(scope?.sessionId).toBe('e30ed68d-7637-45a7-80ee-90a3ec4cb97d')
 		expect(scope?.runId).toBe(run.id)
 	})
 })

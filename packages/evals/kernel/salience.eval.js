@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 /**
  * What the salience strategy must keep, and what it must not cost.
  *
@@ -17,23 +20,26 @@ import {
 	customScorer,
 	drainQuery,
 	evalRunFromRun,
+	generateProjectId,
+	generateSessionId,
+	generateTenantId,
+	generateTopicId,
 	runExperiment,
-} from '@namzu/sdk'
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { z } from 'zod'
+} from "@namzu/sdk";
+import { z } from "zod";
 
-const NEEDLE = 'acc_4213'
-const BULK = 'filler text that the model has already read and moved past '.repeat(70)
+const NEEDLE = "acc_4213";
+const BULK =
+	"filler text that the model has already read and moved past ".repeat(70);
 
 function registry() {
-	const tools = new ToolRegistry()
+	const tools = new ToolRegistry();
 	tools.register({
-		name: 'dump',
-		description: 'Return a large block of text; the first carries the account id.',
+		name: "dump",
+		description:
+			"Return a large block of text; the first carries the account id.",
 		inputSchema: z.object({ which: z.number() }),
-		category: 'custom',
+		category: "custom",
 		permissions: [],
 		readOnly: true,
 		destructive: false,
@@ -48,19 +54,25 @@ function registry() {
 					? `billing config\n${BULK}\nthe account id is ${NEEDLE}, never bill another.\n${BULK}`
 					: `dump ${which}\n${BULK}`,
 		}),
-	})
-	return tools
+	});
+	return tools;
 }
 
-const dump = (i) => ({ toolCalls: [{ id: `d${i}`, name: 'dump', rawArguments: JSON.stringify({ which: i }) }] })
+const dump = (i) => ({
+	toolCalls: [
+		{ id: `d${i}`, name: "dump", rawArguments: JSON.stringify({ which: i }) },
+	],
+});
 
 function turns() {
-	const script = [dump(0)]
-	for (let i = 1; i < 8; i += 1) script.push(dump(i))
+	const script = [dump(0)];
+	for (let i = 1; i < 8; i += 1) script.push(dump(i));
 	// The citation: a later turn names the id, which is what marks the first
 	// dump as used. Then the answer.
-	script.push({ text: `I will bill ${NEEDLE} as the config says.` }, dump(8), { text: `done for ${NEEDLE}` })
-	return script
+	script.push({ text: `I will bill ${NEEDLE} as the config says.` }, dump(8), {
+		text: `done for ${NEEDLE}`,
+	});
+	return script;
 }
 
 async function runCase(input) {
@@ -68,20 +80,26 @@ async function runCase(input) {
 		provider: new MockLLMProvider({ turns: turns() }),
 		tools: registry(),
 		runConfig: {
-			model: 'mock-model',
+			model: "mock-model",
 			timeoutMs: 30_000,
 			tokenBudget: 1_000_000,
 			maxIterations: 14,
 			maxResponseTokens: 256,
 		},
-		agentId: 'agent_sal',
-		agentName: 'Salience Agent',
-		workingDirectory: await mkdtemp(join(tmpdir(), 'namzu-eval-sal-')),
-		sessionId: 'ses_sal',
-		threadId: 'thd_sal',
-		projectId: 'prj_sal',
-		tenantId: 'tnt_sal',
-		messages: [{ role: 'user', content: `read the billing config and bill the right account`, timestamp: 1 }],
+		agentId: "agent_sal",
+		agentName: "Salience Agent",
+		workingDirectory: await mkdtemp(join(tmpdir(), "namzu-eval-sal-")),
+		sessionId: generateSessionId(),
+		topicId: generateTopicId(),
+		projectId: generateProjectId(),
+		tenantId: generateTenantId(),
+		messages: [
+			{
+				role: "user",
+				content: "read the billing config and bill the right account",
+				timestamp: 1,
+			},
+		],
 		resumeHandler: autoApproveHandler,
 		compactionConfig: {
 			strategy: input.strategy,
@@ -89,14 +107,20 @@ async function runCase(input) {
 			keepRecentMessages: 2,
 			llmVerification: false,
 		},
-	})
-	const finalMessages = run.messages ?? []
-	return Object.assign(evalRunFromRun(run), { finalMessages, contextChars: contextChars(finalMessages) })
+	});
+	const finalMessages = run.messages ?? [];
+	return Object.assign(evalRunFromRun(run), {
+		finalMessages,
+		contextChars: contextChars(finalMessages),
+	});
 }
 
 /** The final history's size, the quantity the next call would have paid for. */
 function contextChars(messages) {
-	return messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0)
+	return messages.reduce(
+		(n, m) => n + (typeof m.content === "string" ? m.content.length : 0),
+		0,
+	);
 }
 
 /**
@@ -106,69 +130,99 @@ function contextChars(messages) {
  * for stating the baseline it exists to beat.
  */
 async function withBaseline(input) {
-	const salience = await runCase(input)
-	const structured = await runCase({ strategy: 'structured' })
+	const salience = await runCase(input);
+	const structured = await runCase({ strategy: "structured" });
 	return Object.assign(salience, {
 		baseline: {
 			contextChars: structured.contextChars,
 			needleSurvived: (structured.finalMessages ?? []).some(
-				(m) => m.role === 'tool' && typeof m.content === 'string' && m.content.includes(`account id is ${NEEDLE}`),
+				(m) =>
+					m.role === "tool" &&
+					typeof m.content === "string" &&
+					m.content.includes(`account id is ${NEEDLE}`),
 			),
 		},
-	})
+	});
 }
 
-const settled = customScorer('settled', (run) =>
-	run.error ? { score: 0, reason: `run threw: ${run.error}` } : { score: 1, reason: `settled as ${run.stopReason ?? 'unknown'}` },
-)
+const settled = customScorer("settled", (run) =>
+	run.error
+		? { score: 0, reason: `run threw: ${run.error}` }
+		: { score: 1, reason: `settled as ${run.stopReason ?? "unknown"}` },
+);
 
-const noOrphanedResults = customScorer('no-orphaned-tool-results', (run) => {
-	const callIds = new Set()
-	for (const m of run.finalMessages ?? []) for (const tc of m.toolCalls ?? []) callIds.add(tc.id)
-	const orphans = (run.finalMessages ?? []).filter((m) => m.role === 'tool' && !callIds.has(m.toolCallId))
+const noOrphanedResults = customScorer("no-orphaned-tool-results", (run) => {
+	const callIds = new Set();
+	for (const m of run.finalMessages ?? [])
+		for (const tc of m.toolCalls ?? []) callIds.add(tc.id);
+	const orphans = (run.finalMessages ?? []).filter(
+		(m) => m.role === "tool" && !callIds.has(m.toolCallId),
+	);
 	return orphans.length === 0
-		? { score: 1, reason: 'every tool result still has its call' }
-		: { score: 0, reason: `orphaned tool results: ${orphans.map((m) => m.toolCallId).join(', ')}` }
-})
+		? { score: 1, reason: "every tool result still has its call" }
+		: {
+				score: 0,
+				reason: `orphaned tool results: ${orphans.map((m) => m.toolCallId).join(", ")}`,
+			};
+});
 
 /** The fact a later turn cited is still readable verbatim at the end. */
-const needleSurvives = customScorer('cited-fact-survives', (run) => {
+const needleSurvives = customScorer("cited-fact-survives", (run) => {
 	const verbatim = (run.finalMessages ?? []).some(
-		(m) => m.role === 'tool' && typeof m.content === 'string' && m.content.includes(`account id is ${NEEDLE}`),
-	)
+		(m) =>
+			m.role === "tool" &&
+			typeof m.content === "string" &&
+			m.content.includes(`account id is ${NEEDLE}`),
+	);
 	return verbatim
-		? { score: 1, reason: 'the cited tool result kept its body' }
-		: { score: 0, reason: 'the cited tool result was cleared or summarised away' }
-})
+		? { score: 1, reason: "the cited tool result kept its body" }
+		: {
+				score: 0,
+				reason: "the cited tool result was cleared or summarised away",
+			};
+});
 
 /** The final history within the window it was held to. */
-const heldWithinWindow = customScorer('held-within-window', (run) => {
-	const tokens = Math.ceil(run.contextChars / 4)
+const heldWithinWindow = customScorer("held-within-window", (run) => {
+	const tokens = Math.ceil(run.contextChars / 4);
 	return {
 		score: tokens <= 8_000 * 0.7 ? 1 : 0,
-		reason: `final history ~${tokens.toLocaleString('en-US')} tokens against an 8,000 window`,
+		reason: `final history ~${tokens.toLocaleString("en-US")} tokens against an 8,000 window`,
 		details: { contextChars: run.contextChars },
-	}
-})
+	};
+});
 
 /** Keeps what structured lost, without a larger final history. */
-const betterThanStructured = customScorer('keeps-more-for-no-more', (run) => {
-	const baseline = run.baseline?.contextChars ?? Number.POSITIVE_INFINITY
-	const structuredKept = run.baseline?.needleSurvived ?? true
+const betterThanStructured = customScorer("keeps-more-for-no-more", (run) => {
+	const baseline = run.baseline?.contextChars ?? Number.POSITIVE_INFINITY;
+	const structuredKept = run.baseline?.needleSurvived ?? true;
 	return {
 		score: run.contextChars <= baseline * 1.1 && !structuredKept ? 1 : 0,
-		reason: `final history ${run.contextChars.toLocaleString('en-US')} chars against ${baseline.toLocaleString('en-US')} structured; structured ${structuredKept ? 'kept' : 'lost'} the cited fact`,
-		details: { salienceChars: run.contextChars, structuredChars: baseline, structuredKeptNeedle: structuredKept },
-	}
-})
+		reason: `final history ${run.contextChars.toLocaleString("en-US")} chars against ${baseline.toLocaleString("en-US")} structured; structured ${structuredKept ? "kept" : "lost"} the cited fact`,
+		details: {
+			salienceChars: run.contextChars,
+			structuredChars: baseline,
+			structuredKeptNeedle: structuredKept,
+		},
+	};
+});
 
 export default async function salience() {
 	return runExperiment({
-		name: 'kernel/salience',
-		scorers: [settled, noOrphanedResults, needleSurvives, heldWithinWindow, betterThanStructured],
+		name: "kernel/salience",
+		scorers: [
+			settled,
+			noOrphanedResults,
+			needleSurvives,
+			heldWithinWindow,
+			betterThanStructured,
+		],
 		run: (input) => withBaseline(input),
 		cases: [
-			{ name: 'salience keeps the cited fact and holds the window', input: { strategy: 'salience' } },
+			{
+				name: "salience keeps the cited fact and holds the window",
+				input: { strategy: "salience" },
+			},
 		],
-	})
+	});
 }
