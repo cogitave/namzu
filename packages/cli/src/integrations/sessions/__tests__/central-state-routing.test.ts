@@ -1,11 +1,21 @@
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DiskSessionStore, createUserMessage } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
-import { findMappedConversation, openSessions, resolveConversation } from '../store.js'
+import { loadIdentity } from '../../state/identity.js'
+import { inspectNamzuState } from '../../state/report.js'
+import {
+	appendMessages,
+	findMappedConversation,
+	loadConversation,
+	openSessions,
+	resolveConversation,
+	startConversation,
+} from '../store.js'
 
 const dirs: string[] = []
 
@@ -41,6 +51,80 @@ describe('central CLI state routing', () => {
 
 		expect(first.projectId).not.toBe(second.projectId)
 		expect(first.projectStateRoot).not.toBe(second.projectStateRoot)
+	})
+
+	it('shares one checkout Project, topic and conversation from a package or symlink', async () => {
+		const root = await temp('namzu-checkout-')
+		const stateRoot = await temp('namzu-checkout-home-')
+		const nested = join(root, 'packages', 'cli')
+		mkdirSync(join(root, '.git'))
+		mkdirSync(nested, { recursive: true })
+		const alias = join(await temp('namzu-checkout-alias-'), 'package')
+		symlinkSync(nested, alias, process.platform === 'win32' ? 'junction' : 'dir')
+
+		const fromPackage = await openSessions(nested, { stateRoot })
+		const conversation = await startConversation(fromPackage)
+		const message = createUserMessage('Keep this checkout history together')
+		await appendMessages(fromPackage, conversation, [message])
+		const fromRoot = await openSessions(root, { stateRoot })
+		const fromAlias = await openSessions(alias, { stateRoot })
+
+		expect(fromRoot.projectId).toBe(fromPackage.projectId)
+		expect(fromAlias.projectId).toBe(fromPackage.projectId)
+		expect(fromRoot.topicId).toBe(fromPackage.topicId)
+		expect(await loadConversation(fromRoot, conversation)).toEqual([message])
+		expect(await fromRoot.store.getProject(fromRoot.projectId, fromRoot.tenantId)).toMatchObject({
+			rootPath: root,
+			name: root.split(/[\\/]/).at(-1),
+		})
+		const report = await inspectNamzuState({ cwd: nested, env: { NAMZU_HOME: stateRoot } })
+		expect(report.projectBinding).toMatchObject({ status: 'bound', projectId: fromRoot.projectId })
+		expect(existsSync(join(nested, '.namzu'))).toBe(false)
+	})
+
+	it('preserves a previous exact-directory binding when the checkout also has history', async () => {
+		const root = await temp('namzu-existing-checkout-')
+		const stateRoot = await temp('namzu-existing-home-')
+		const nested = join(root, 'packages', 'cli')
+		mkdirSync(join(root, '.git'))
+		mkdirSync(nested, { recursive: true })
+		const tenantId = loadIdentity(stateRoot).tenantId
+		const oldProject = await new DiskSessionStore({ rootDir: stateRoot }).createProject(
+			{ tenantId, name: 'old package binding', rootPath: nested },
+			tenantId,
+		)
+		const original = await openSessions(nested, { stateRoot })
+		const id = await startConversation(original)
+		const message = createUserMessage('Existing package conversation')
+		await appendMessages(original, id, [message])
+		const fromRoot = await openSessions(root, { stateRoot })
+		const reopened = await openSessions(nested, { stateRoot })
+
+		expect(reopened.projectId).toBe(oldProject.id)
+		expect(reopened.projectId).not.toBe(fromRoot.projectId)
+		expect(reopened.topicId).toBe(original.topicId)
+		expect(await loadConversation(reopened, id)).toEqual([message])
+		const report = await inspectNamzuState({ cwd: nested, env: { NAMZU_HOME: stateRoot } })
+		expect(report.projectBinding).toMatchObject({ status: 'bound', projectId: oldProject.id })
+	})
+
+	it('keeps nested repositories and worktrees in separate Projects', async () => {
+		const root = await temp('namzu-checkout-boundaries-')
+		const stateRoot = await temp('namzu-boundaries-home-')
+		mkdirSync(join(root, '.git'))
+		const parent = await openSessions(root, { stateRoot })
+		for (const kind of ['repository', 'worktree']) {
+			const child = join(root, kind)
+			const nested = join(child, 'src')
+			mkdirSync(nested, { recursive: true })
+			if (kind === 'repository') mkdirSync(join(child, '.git'))
+			else writeFileSync(join(child, '.git'), 'gitdir: ../.git/worktrees/child\n')
+			const sessions = await openSessions(nested, { stateRoot })
+			expect(sessions.projectId).not.toBe(parent.projectId)
+			expect(await sessions.store.getProject(sessions.projectId, sessions.tenantId)).toMatchObject({
+				rootPath: child,
+			})
+		}
 	})
 
 	it('refuses a corrupt desktop map without replacing it or minting an orphan conversation', async () => {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -84,6 +84,32 @@ describe('appendMemory', () => {
 })
 
 describe('project memory', () => {
+	it('shares checkout memory across packages without creating package-local state', () => {
+		const root = join(home, 'checkout')
+		const nested = join(root, 'packages', 'cli')
+		mkdirSync(join(root, '.git'), { recursive: true })
+		mkdirSync(nested, { recursive: true })
+		const path = appendMemory('one checkout memory', { scope: 'project', cwd: nested, home })
+		expect(path).toBe(join(root, '.namzu', 'MEMORY.md'))
+		expect(readMemory(home, nested).project).toBe('- one checkout memory')
+		expect(readMemory(home, root).project).toBe('- one checkout memory')
+		expect(existsSync(join(nested, '.namzu'))).toBe(false)
+	})
+
+	it.each(['- existing package fact\n', ''])('preserves an existing package memory: %j', (text) => {
+		const root = join(home, 'checkout')
+		const nested = join(root, 'packages', 'cli')
+		mkdirSync(join(root, '.git'), { recursive: true })
+		mkdirSync(join(nested, '.namzu'), { recursive: true })
+		writeFileSync(join(nested, '.namzu', 'MEMORY.md'), text)
+		appendMemory('root fact', { scope: 'project', cwd: root, home })
+		expect(readMemory(home, nested).project).toBe(text.trim() || null)
+		expect(appendMemory('package fact', { scope: 'project', cwd: nested, home })).toBe(
+			join(nested, '.namzu', 'MEMORY.md'),
+		)
+		expect(readMemory(home, root).project).toBe('- root fact')
+	})
+
 	it('lives in the working directory, is the default target of a note, and is injected as its own section', () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-project-'))
 		try {

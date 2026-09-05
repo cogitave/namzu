@@ -245,7 +245,7 @@ describe('coordinator ask_user_question request synthesis', () => {
 			throw new Error('expected a user_question request')
 		}
 		expect(request.runId).toBe(RUN_ID)
-		expect(request.checkpointId).toBe(`cp_question_${TOOL_USE_ID}`)
+		expect(request.checkpointId).toMatch(/^cp_[a-z0-9]+$/u)
 		expect(request.question.questionId).toBe(TOOL_USE_ID)
 		expect(request.question.question).toBe('Who is the audience?')
 		// zod defaults applied by the schema parse, exactly like the registry
@@ -260,6 +260,26 @@ describe('coordinator ask_user_question request synthesis', () => {
 			{ id: 'opt_2', label: 'Engineering team' },
 			{ id: 'opt_3', label: 'Customer' },
 		])
+	})
+
+	it('preserves an arbitrary provider correlation id while minting a safe fallback checkpoint', async () => {
+		const toolUseId = 'provider:call/9.ü'
+		const { requests, result } = await executeAsk({
+			decision: {
+				action: 'answer_question',
+				questionId: toolUseId,
+				selectedOptionIds: ['opt_1'],
+			},
+			context: { ...testToolContext(), toolUseId },
+		})
+
+		expect(result).toMatchObject({ success: true, data: { answered: true } })
+		expect(requests).toHaveLength(1)
+		expect(requests[0]?.checkpointId).toMatch(/^cp_[a-z0-9]+$/u)
+		expect(requests[0]).toMatchObject({
+			type: 'user_question',
+			question: { questionId: toolUseId },
+		})
 	})
 
 	it('threads header / multiSelect / allowFreeText through verbatim', async () => {

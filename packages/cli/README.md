@@ -80,13 +80,17 @@ unknown package-manager layouts instead of guessing at another binary on
 `PATH`; update those with the package manager that installed them.
 
 Generated CLI state now lives below the application home: `~/.namzu` by
-default, or the existing real directory named by `NAMZU_HOME`. The canonical
-working directory is bound to one Project there, so every Bash, Write and Edit
-in a session sees the same caller-owned workspace while transcripts, runs,
-memory and tasks survive process and sandbox-handle teardown. A project-local
-`.namzu` is reserved for authored `commands`, `plugins` and `skills`. A valid
-older project-local runtime remains authoritative; corrupt or split local and
-central histories refuse instead of opening an apparently empty conversation.
+default, or the existing real directory named by `NAMZU_HOME`. New directories
+inside the same checkout share one Project, keyed by its canonical root; a
+standalone directory is its own project. Worktrees and nested repositories
+remain separate. Existing central bindings for individual subdirectories keep
+their own histories. Bash, Write and Edit still use the selected working
+directory while transcripts, runs, memory and tasks live centrally. A local
+`.namzu` holds authored `commands`, `plugins`, `skills` and `MEMORY.md`.
+Older project-local runtime and global `cli.json` pointers are inventory data;
+the CLI does not automatically adopt or migrate them. See
+[Project and session state](../../docs/cli/project-state.md) for identity and
+compatibility details.
 
 `namzu state` inventories the current workspace's legacy `.namzu` tree and the
 resolved application-home tree without loading either config cascade or

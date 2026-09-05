@@ -54,6 +54,9 @@ import type {
 	SessionSummaryRef,
 } from '../../types/summary/ref.js'
 import {
+	asProjectId,
+	asSessionId,
+	asSubSessionId,
 	generateMessageId,
 	generateProjectId,
 	generateSessionId,
@@ -588,16 +591,17 @@ export class DiskSessionStore implements SessionStore {
 	// Session CRUD ------------------------------------------------------------
 
 	async createSession(params: CreateSessionParams, tenantId: TenantId): Promise<Session> {
+		const id = params.id === undefined ? generateSessionId() : asSessionId(params.id)
 		const project = await this.getProject(params.projectId, tenantId)
 		if (!project) {
 			throw new Error(`Project ${params.projectId} not found`)
 		}
 		const now = new Date()
-		if (params.id !== undefined && (await this.getSession(params.id, tenantId))) {
+		if (params.id !== undefined && (await this.getSession(id, tenantId))) {
 			throw new Error(`Session ${params.id} already exists`)
 		}
 		const session: Session = {
-			id: params.id ?? generateSessionId(),
+			id,
 			topicId: params.topicId,
 			projectId: params.projectId,
 			tenantId,
@@ -1097,6 +1101,7 @@ export class DiskSessionStore implements SessionStore {
 	}
 
 	private projectDir(projectId: ProjectId): string {
+		asProjectId(projectId)
 		const cached = this.projectIndex.get(projectId)
 		if (cached) return cached.path
 		const path = join(this.rootDir, 'projects', projectId)
@@ -1105,6 +1110,7 @@ export class DiskSessionStore implements SessionStore {
 	}
 
 	private async locateSession(sessionId: SessionId): Promise<SessionIndexEntry | null> {
+		asSessionId(sessionId)
 		const cached = this.sessionIndex.get(sessionId)
 		if (cached) return cached
 
@@ -1139,6 +1145,7 @@ export class DiskSessionStore implements SessionStore {
 		projectId: ProjectId
 		path: string
 	} | null> {
+		asSubSessionId(subSessionId)
 		const cached = this.subSessionIndex.get(subSessionId)
 		if (cached) return cached
 

@@ -1,6 +1,6 @@
 /**
- * Branded IDs are not filesystem authority. `asMemoryId` intentionally checks
- * only the type prefix, while this store turns the value into a filename.
+ * Branded IDs are not filesystem authority. Assertions and persisted records
+ * can bypass `asMemoryId`, so this store validates before resolving a filename.
  */
 
 import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises'

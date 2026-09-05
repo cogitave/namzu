@@ -4,9 +4,11 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { asMessageId, asRunId } from '../../../utils/id.js'
+import { unchecked } from '../../../test-support/ids.js'
+import type { MessageId, RunId } from '../../../types/ids/index.js'
+import { InvalidIdError, asMessageId, asRunId } from '../../../utils/id.js'
 import { DiskRecordStore } from '../../kv/record-store.js'
-import { legacyRevisionFileSegment, revisionFileSegment } from '../../kv/revision-record-store.js'
+import { revisionFileSegment } from '../../kv/revision-record-store.js'
 import { DiskMessageFeedbackStore } from '../disk.js'
 import type { MessageFeedback } from '../types.js'
 
@@ -92,14 +94,15 @@ describe('feedback revision commits', () => {
 		})
 	})
 
-	it('reads the previous lossy filename for a non-canonical message id without rewriting it', async () => {
-		const legacyMessage = asMessageId('msg_feedback.legacy ü')
+	it('refuses an unsafe legacy message id without rewriting its existing feedback', async () => {
+		const legacyMessage = unchecked<MessageId>('msg_feedback.legacy ü')
 		const { feedbackDir, store } = await fixture([legacyMessage])
 		const runDir = join(feedbackDir, RUN)
 		const oldName = `${legacyMessage.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`
 		const oldPath = join(runDir, oldName)
 		await mkdir(runDir, { recursive: true })
-		await writeFile(oldPath, JSON.stringify(legacyRecord({ messageId: legacyMessage })), 'utf8')
+		const original = JSON.stringify(legacyRecord({ messageId: legacyMessage }))
+		await writeFile(oldPath, original, 'utf8')
 
 		await expect(
 			store.putMessageFeedback({
@@ -108,15 +111,12 @@ describe('feedback revision commits', () => {
 				rating: 'bad',
 				expectedVersion: 1,
 			}),
-		).resolves.toMatchObject({ ownerVersion: 2, messageId: legacyMessage })
-		expect(JSON.parse(await readFile(oldPath, 'utf8'))).toMatchObject({ ownerVersion: 1 })
-		await expect(store.listMessageFeedback({ runId: RUN })).resolves.toEqual([
-			expect.objectContaining({
-				messageId: legacyMessage,
-				ownerVersion: 2,
-				rating: 'bad',
-			}),
-		])
+		).rejects.toBeInstanceOf(InvalidIdError)
+		await expect(store.listMessageFeedback({ runId: RUN })).rejects.toBeInstanceOf(InvalidIdError)
+		expect(await readFile(oldPath, 'utf8')).toBe(original)
+		await expect(access(join(runDir, '.revisions'))).rejects.toMatchObject({
+			code: 'ENOENT',
+		})
 	})
 
 	it('lists a committed first rating even when its projection publication fails', async () => {
@@ -232,29 +232,30 @@ describe('feedback revision commits', () => {
 		)
 	})
 
-	it('does not publish colliding legacy filenames for distinct message ids', async () => {
+	it('rejects message ids that would collide under legacy filename replacement', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-message-collision-'))
 		roots.push(root)
 		const feedbackDir = join(root, 'feedback')
-		const first = asMessageId('msg_collision/a')
-		const second = asMessageId('msg_collision?a')
-		const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir }, async () => true)
+		const first = unchecked<MessageId>('msg_collision/a')
+		const second = unchecked<MessageId>('msg_collision?a')
+		const exists = vi.fn(async () => true)
+		const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir }, exists)
 
 		for (const messageId of [first, second]) {
-			await store.putMessageFeedback({
-				runId: RUN,
-				messageId,
-				rating: 'good',
-				expectedVersion: 0,
-			})
+			await expect(
+				store.putMessageFeedback({
+					runId: RUN,
+					messageId,
+					rating: 'good',
+					expectedVersion: 0,
+				}),
+			).rejects.toBeInstanceOf(InvalidIdError)
 		}
 
-		await expect(access(join(feedbackDir, RUN, 'msg_collision_a.json'))).rejects.toMatchObject({
+		expect(exists).not.toHaveBeenCalled()
+		await expect(access(feedbackDir)).rejects.toMatchObject({
 			code: 'ENOENT',
 		})
-		expect((await store.listMessageFeedback({ runId: RUN })).map((item) => item.messageId)).toEqual(
-			[first, second].sort((a, b) => a.localeCompare(b)),
-		)
 	})
 
 	it('validates and confines run ids before an accepting callback or filesystem write', async () => {
@@ -264,7 +265,7 @@ describe('feedback revision commits', () => {
 		const exists = vi.fn(async () => true)
 		const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir }, exists, () => 1)
 		const missingPrefix = '../../outside' as typeof RUN
-		const traversal = asRunId('run_x/../../outside')
+		const traversal = unchecked<RunId>('run_x/../../outside')
 		const escapedTarget = join(feedbackDir, traversal)
 
 		await expect(
@@ -274,7 +275,7 @@ describe('feedback revision commits', () => {
 				rating: 'good',
 				expectedVersion: 0,
 			}),
-		).rejects.toThrow(/does not start with "run_"/)
+		).rejects.toBeInstanceOf(InvalidIdError)
 		expect(exists).not.toHaveBeenCalled()
 
 		await expect(
@@ -284,13 +285,12 @@ describe('feedback revision commits', () => {
 				rating: 'good',
 				expectedVersion: 0,
 			}),
-		).resolves.toMatchObject({ runId: traversal })
+		).rejects.toBeInstanceOf(InvalidIdError)
+		expect(exists).not.toHaveBeenCalled()
 		await expect(access(escapedTarget)).rejects.toMatchObject({
 			code: 'ENOENT',
 		})
-		await expect(
-			access(join(feedbackDir, legacyRevisionFileSegment(traversal))),
-		).resolves.toBeUndefined()
+		await expect(access(feedbackDir)).rejects.toMatchObject({ code: 'ENOENT' })
 	})
 
 	it('does not use a traversal-shaped run id to select another transcript', async () => {
@@ -298,7 +298,7 @@ describe('feedback revision commits', () => {
 		roots.push(root)
 		const runsDir = join(root, 'runs')
 		const feedbackDir = join(root, 'feedback')
-		const traversal = asRunId('run_x/../../outside')
+		const traversal = unchecked<RunId>('run_x/../../outside')
 		const escapedRunDir = join(runsDir, traversal)
 		await mkdir(escapedRunDir, { recursive: true })
 		await writeFile(
@@ -319,7 +319,9 @@ describe('feedback revision commits', () => {
 				rating: 'good',
 				expectedVersion: 0,
 			}),
-		).rejects.toThrow(/No message/)
-		await expect(store.listMessageFeedback({ runId: traversal })).resolves.toEqual([])
+		).rejects.toBeInstanceOf(InvalidIdError)
+		await expect(store.listMessageFeedback({ runId: traversal })).rejects.toBeInstanceOf(
+			InvalidIdError,
+		)
 	})
 })

@@ -3,18 +3,8 @@ import { describe, expect, it } from 'vitest'
 import * as ids from '../id.js'
 import { InvalidIdError } from '../id.js'
 
-/**
- * There was no runtime prefix check anywhere in this tree.
- *
- * The ~700 `as RunId` casts in it assert without verifying, so a `ses_`
- * value cast to `RunId` reaches a store key unremarked and the first sign of
- * it is a lookup that finds nothing. The types cannot catch this either:
- * every id is a bare template-literal type, so `'run_made-up'` is assignable
- * to `RunId` with no cast at all.
- *
- * These constructors are the check. What they are NOT is a guarantee — a
- * caller has to call one, and nothing forces that yet.
- */
+// A nominal brand cannot inspect strings read from JSON or prevent a type
+// assertion. Constructors validate those values; stores must call them too.
 
 /** Every `generate*Id` factory paired with the parser that must accept it. */
 function pairs(): { name: string; generate: () => string; parse: (v: string) => string }[] {
@@ -91,12 +81,29 @@ describe('an id can be checked at runtime', () => {
 		expect(() => ids.asRunId('abc')).toThrow(InvalidIdError)
 	})
 
-	it('accepts the bare prefix with nothing after it', () => {
-		// `run_` alone matches the TYPE — `` `run_${string}` `` admits the
-		// empty suffix — so refusing it here would make the constructor
-		// stricter than the type it returns, and a caller could hold a value
-		// the compiler accepts and the parser does not. Said out loud because
-		// it looks like a missing check rather than a deliberate one.
-		expect(() => ids.asRunId('run_')).not.toThrow()
+	it.each(['', '../outside', 'a/b', 'a\\b', 'a.b', 'a:stream', 'a b', 'a\n', 'a\0b', 'ü'])(
+		'refuses the empty or unsafe suffix %j for every generated id type',
+		(suffix) => {
+			for (const { generate, parse } of pairs()) {
+				const minted = generate()
+				const prefix = minted.slice(0, minted.indexOf('_') + 1)
+				expect(() => parse(`${prefix}${suffix}`)).toThrow(InvalidIdError)
+			}
+		},
+	)
+
+	it('applies the same shape rules to deprecated parsers', () => {
+		const parsers = [
+			{ parse: ids.parseRunId, prefix: 'run_' },
+			{ parse: ids.parseProjectId, prefix: 'prj_' },
+			{ parse: ids.parseConnectorInstanceId, prefix: 'ci_' },
+			{ parse: ids.parsePluginId, prefix: 'plg_' },
+			{ parse: ids.parseSandboxId, prefix: 'sbx_' },
+		]
+		for (const { parse, prefix } of parsers) {
+			expect(parse(`${prefix}Custom-A_1`)).toBe(`${prefix}Custom-A_1`)
+			expect(() => parse(prefix)).toThrow(Error)
+			expect(() => parse(`${prefix}../../outside`)).toThrow(Error)
+		}
 	})
 })

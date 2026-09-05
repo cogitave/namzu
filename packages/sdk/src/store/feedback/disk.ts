@@ -58,9 +58,8 @@ export interface DiskMessageFeedbackStoreConfig {
 
 /** Filesystem-safe file name for one rated message. */
 function fileName(messageId: MessageId): string {
-	// Message ids are `msg_` + an alphabet with no separators, so this is a
-	// pass-through today. Written as a function anyway: the day an id gains
-	// a `/` is the day this silently starts writing outside its directory.
+	// Retain the historical projection spelling. Callers validate the id
+	// first, so suffixes this replacement once flattened are now rejected.
 	return `${messageId.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`
 }
 
@@ -119,9 +118,8 @@ export class DiskMessageFeedbackStore implements MessageFeedbackStore {
 		return {
 			legacyPath: join(this.runDir(runId), legacyName),
 			revisionsDir: join(this.revisionsDir(runId), revisionFileSegment(checkedMessageId)),
-			// The previous filename replacement is lossy for punctuation and
-			// separators. Read such a legacy path forward if it exists, but never
-			// publish a new projection that could overwrite another message's file.
+			// Preserve the projection guard from the previous layout. Checked ids
+			// now retain their spelling; unsafe custom suffixes are rejected above.
 			publishLegacyProjection: legacyName === `${checkedMessageId}.json`,
 		}
 	}

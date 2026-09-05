@@ -15,7 +15,7 @@ import type { PendingAnswers, QuestionParkRecorder } from '../../runtime/query/q
 import type { ResumeHandler, UserQuestionOption } from '../../types/hitl/index.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import { asCheckpointId } from '../../utils/id.js'
+import { generateCheckpointId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
 
 /** Internal identity shared by the builder and the agent authority boundary. */
@@ -205,7 +205,9 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 				(await parkHandler({
 					type: 'user_question',
 					runId: config.runId ?? context.runId,
-					checkpointId: parkedAt ?? asCheckpointId(`cp_question_${toolUseId}`),
+					// Provider correlation ids remain verbatim in questionData;
+					// an unpersisted park gets its own safe checkpoint identifier.
+					checkpointId: parkedAt ?? generateCheckpointId(),
 					question: questionData,
 				}))
 

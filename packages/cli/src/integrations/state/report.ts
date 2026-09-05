@@ -6,6 +6,7 @@ import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 import { DiskSessionStore } from '@namzu/sdk'
 
 import { readIdentity } from './identity.js'
+import { findCliProject } from './project.js'
 
 const MAX_METADATA_BYTES = 4 * 1024 * 1024
 const MAX_ORIGIN_BYTES = 64 * 1024
@@ -301,7 +302,7 @@ function combineProjectBindings(
 	if (central.status === 'bound') {
 		return {
 			status: 'split',
-			detail: `Project-local state at ${localRoot} and central state at ${centralRoot} both claim this workspace. Namzu refuses to choose between them.`,
+			detail: `Project-local state at ${localRoot} and central state at ${centralRoot} both claim this workspace. The CLI uses central state; this inventory does not merge or migrate the local history.`,
 		}
 	}
 	return local
@@ -320,20 +321,21 @@ async function inspectCentralProjectBinding(
 				detail: 'No identity has been minted in this application home, so no Project can be bound.',
 			}
 		}
-		const project = await new DiskSessionStore({ rootDir: centralRoot }).findProjectByRootPath(
+		const project = await findCliProject(
+			new DiskSessionStore({ rootDir: centralRoot }),
 			canonicalCwd,
 			identity.tenantId,
 		)
 		if (!project) {
 			return {
 				status: 'uninitialized',
-				detail: 'No central Project is bound to this working directory.',
+				detail: 'No central Project is bound to this working directory or its checkout root.',
 			}
 		}
 		return {
 			status: 'bound',
 			projectId: project.id,
-			detail: `Central Project ${project.id} is bound to this working directory.`,
+			detail: `Central Project ${project.id} is bound to ${project.rootPath}.`,
 		}
 	} catch (error) {
 		return {

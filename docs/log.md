@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-09-06
+* **Creation**: [Project and session state](/cli/project-state.md) — new subdirectories share the checkout-root Project, existing directory bindings remain reachable, and identity and Topic initialization publish one winner across concurrent launches.
+* **Update**: [Memory](/cli/memory.md) — new project notes use the checkout-root file; existing directory-local memory keeps precedence.
+* **Update**: [Ids](/sdk/ids.md) — checked IDs require a nonempty portable suffix and session storage validates path components before using them.
+
 ## 2026-09-05
 * **Update**: [Run limits](/cli/run-limits.md) — `--wait-for-provider <duration>` and `limits.waitForProviderMs`: a headless run waits out provider pauses and resumes from its checkpoint in the same process.
 * **Creation**: [Tool servers](/cli/mcp-servers.md) — the `mcpServers` config key documented; `connectTimeoutMs` gives one server a longer connect deadline than the 10s default.

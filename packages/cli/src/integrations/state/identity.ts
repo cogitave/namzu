@@ -9,10 +9,12 @@
  * A minted id costs one file and answers the question honestly.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { type TenantId, asTenantId, generateTenantId } from '@namzu/sdk'
+
+import { publishPrivateJsonIfAbsent } from './immutable-json.js'
 
 export interface Identity {
 	readonly tenantId: TenantId
@@ -30,12 +32,13 @@ export function readIdentity(home: string): Identity | null {
 			tenantId?: unknown
 			createdAt?: unknown
 		}
-		if (typeof raw.tenantId === 'string') {
+		if (raw && !Array.isArray(raw) && typeof raw.tenantId === 'string') {
 			return {
 				tenantId: asTenantId(raw.tenantId),
 				createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
 			}
 		}
+		throw new Error('expected an object containing a tenantId string')
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
 			throw new Error(
@@ -52,7 +55,9 @@ export function loadIdentity(home: string): Identity {
 	if (existing) return existing
 	const path = join(home, FILE)
 	const identity: Identity = { tenantId: generateTenantId(), createdAt: new Date().toISOString() }
-	mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-	writeFileSync(path, `${JSON.stringify(identity, null, 2)}\n`, { mode: 0o600 })
-	return identity
+	publishPrivateJsonIfAbsent(path, identity)
+	const published = readIdentity(home)
+	if (!published)
+		throw new Error(`${path} disappeared while initializing the installation identity`)
+	return published
 }

@@ -222,13 +222,24 @@ export function generateDeliverableId(): DeliverableId {
 	return generateId('del_')
 }
 
+/** Preserve safe custom suffixes while keeping every checked id one filename segment. */
+function hasValidIdShape(value: string, prefix: string): boolean {
+	return (
+		value.startsWith(prefix) &&
+		value.length > prefix.length &&
+		!/[^A-Za-z0-9_-]/u.test(value.slice(prefix.length))
+	)
+}
+
 function parseId<T extends `${P}${string}`, P extends string = string>(
 	raw: string,
 	prefix: P,
 	typeName: string,
 ): T {
-	if (!raw.startsWith(prefix)) {
-		throw new Error(`Invalid ${typeName}: expected "${prefix}" prefix, got "${raw}"`)
+	if (!hasValidIdShape(raw, prefix)) {
+		throw new Error(
+			`Invalid ${typeName}: expected "${prefix}" followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens, got ${JSON.stringify(raw)}`,
+		)
 	}
 	return unsafeId<T>(raw)
 }
@@ -256,37 +267,26 @@ export function parseSandboxId(raw: string): SandboxId {
 
 // ─── validating constructors ─────────────────────────────────────────────
 //
-// There is no runtime prefix check anywhere in this tree. The 700-odd
-// `as RunId` casts in it assert without verifying, so a `ses_` value cast to
-// `RunId` reaches a store key unremarked and the first sign of it is a
-// lookup that finds nothing.
-//
-// These are the check. One per id type rather than a single generic
-// `asId(prefix, value)`, and the repetition is the point: a generic loses
-// the return type, so the call site stops type-checking and the whole
-// exercise buys nothing. The implementations are one function.
+// Brands cannot validate values received from JavaScript, JSON or a type
+// assertion. Each constructor checks both the type prefix and its suffix;
+// stores that turn ids into paths must also validate at their boundary.
 
-/** A string that does not carry the prefix the id type requires. */
+/** A string with the wrong type prefix or an empty or unsafe suffix. */
 export class InvalidIdError extends Error {
 	constructor(
 		readonly value: string,
 		readonly expectedPrefix: string,
 	) {
 		super(
-			`Not a valid id: ${JSON.stringify(value)} does not start with ${JSON.stringify(expectedPrefix)}. Ids are minted by the matching generate*Id() factory; a literal from a log or a URL has to be checked before it is used as one.`,
+			`Not a valid id: ${JSON.stringify(value)} must start with ${JSON.stringify(expectedPrefix)} followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens. Use the matching generate*Id() factory to mint an id.`,
 		)
 		this.name = 'InvalidIdError'
 	}
 }
 
 /**
- * Builds one prefix check.
- *
- * Throws rather than returning `undefined`, per `refuse-do-not-degrade`: a
- * caller holding a malformed id has no correct fallback available, and the
- * value is on its way to becoming a store key. Returning the input
- * unchanged on the happy path is also load-bearing — a constructor that
- * allocated a copy would silently break `===` on ids used as map keys.
+ * Checks the prefix and a nonempty portable suffix without normalizing the
+ * value. Lowercasing or trimming an established id would change its identity.
  *
  * The trailing underscore in every prefix is what makes them unambiguous:
  * `mcpc_x` does not start with `mcp_`, and `advc_x` does not start with
@@ -311,7 +311,7 @@ function makeIdParser<T extends `${P}${string}`, P extends string = string>(
 	prefix: P,
 ): IdParser<T> {
 	return (value: string): T => {
-		if (!value.startsWith(prefix)) throw new InvalidIdError(value, prefix)
+		if (!hasValidIdShape(value, prefix)) throw new InvalidIdError(value, prefix)
 		return unsafeId<T>(value)
 	}
 }

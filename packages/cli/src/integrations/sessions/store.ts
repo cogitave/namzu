@@ -1,14 +1,14 @@
 /**
  * Conversation persistence for the TUI, built on the SDK's session
- * hierarchy (`DiskSessionStore`) — no parallel store. Each canonical cwd is
- * one Project (an immutable root binding keeps its id stable across launches),
+ * hierarchy (`DiskSessionStore`). Each checkout is one Project (an immutable
+ * root binding keeps its id stable across launches),
  * every conversation is a Session under a fixed CLI Topic, and the
  * conversation's messages are appended to the Session as turns complete.
  *
  * This is what powers `/resume`: list recent sessions, load a chosen
  * session's messages, and keep chatting in it. New workspaces bind their
- * canonical working directory to one Project below the application home;
- * existing project-local stores remain readable through the legacy route.
+ * canonical checkout root to one Project below the application home.
+ * Existing central bindings for individual working directories keep their history.
  */
 
 import { randomBytes } from 'node:crypto'
@@ -24,7 +24,7 @@ import {
 	writeFileSync,
 } from 'node:fs'
 import { realpath } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
 	DefaultPathBuilder,
@@ -46,16 +46,15 @@ import {
 import { restrictToOwner } from '../providers/credential-store.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { loadIdentity } from '../state/identity.js'
+import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
+import { cliProjectRoot, findCliProject } from '../state/project.js'
 import {
 	type ConversationLineageTurn,
 	type ConversationOrigin,
 	type ConversationTurnReference,
 	DiskConversationEvidence,
 } from './turn-evidence.js'
-
-// `UNKNOWN_TENANT_ID` is already a `TenantId`; the assertion this replaced
-// re-stated a type the constant carries.
 
 export interface CliSessions {
 	readonly store: DiskSessionStore
@@ -68,9 +67,8 @@ export interface CliSessions {
 	readonly root: string
 	/** Generated state owned by this Project inside {@link root}. */
 	readonly projectStateRoot: string
-	/** CLI-only sidecars for this Project. Legacy stores use their old root. */
+	/** CLI-only sidecars for this Project. */
 	readonly controlRoot: string
-	/** Which durable backend was selected by the state-routing decision. */
 	/**
 	 * CLI-only turn/run correlation. Optional for embedded test doubles and
 	 * pre-feature hosts; {@link openSessions} always supplies it.
@@ -96,9 +94,8 @@ export interface RecentConversation {
 }
 
 /**
- * Open (or initialize) the cwd's CLI project. Returns the handle used by
- * the other helpers. Throws only on unexpected store errors; callers treat
- * failures as "persistence unavailable" and run without it.
+ * Open (or initialize) the working directory's CLI project. Returns the handle
+ * used by the other helpers. Invalid identity or binding metadata refuses.
  */
 export interface OpenSessionsOptions {
 	/** Exact central hierarchy root; test/embedding seam. */
@@ -109,11 +106,9 @@ export interface OpenSessionsOptions {
 }
 
 /**
- * Select one durable backend for the canonical working directory.
- *
- * A valid legacy store remains authoritative until a separately leased data
- * migration exists. A split or corrupt estate refuses; it never turns missing
- * metadata into an apparently empty new history.
+ * Select the existing central Project for this directory, or share the nearest
+ * checkout's Project. A checkout is bounded by a `.git` file or directory, so
+ * worktrees and nested repositories keep distinct state. Tool cwd is unchanged.
  */
 export async function openSessions(
 	cwd: string,
@@ -127,21 +122,21 @@ export async function openSessions(
 				...(options.env !== undefined ? { env: options.env } : {}),
 			}),
 	)
-	// Who this installation is, minted once; and where this workspace's
-	// state lives, one Project per working directory under that tenant.
+	// The installation owns the tenant; the canonical checkout owns the Project.
 	const tenantId = loadIdentity(root).tenantId
 	ensurePrivateStateDirectory(root, 'projects')
 	ensurePrivateStateDirectory(root, 'goals')
 	const store = new DiskSessionStore({ rootDir: root })
-	let project = await store.findProjectByRootPath(workingDirectory, tenantId)
+	let project = await findCliProject(store, workingDirectory, tenantId)
 	if (!project) {
+		const projectRoot = cliProjectRoot(workingDirectory)
 		try {
 			project = await store.createProject(
-				{ tenantId, name: 'namzu CLI', rootPath: workingDirectory },
+				{ tenantId, name: basename(projectRoot) || projectRoot, rootPath: projectRoot },
 				tenantId,
 			)
 		} catch (error) {
-			project = await store.findProjectByRootPath(workingDirectory, tenantId)
+			project = await findCliProject(store, workingDirectory, tenantId)
 			if (!project) throw error
 		}
 	}
@@ -169,15 +164,25 @@ export async function openSessions(
  */
 function topicIdFor(controlRoot: string): TopicId {
 	const path = join(controlRoot, 'topic.json')
+	const existing = readTopicId(path)
+	if (existing) return existing
+	publishPrivateJsonIfAbsent(path, { topicId: generateTopicId() })
+	const published = readTopicId(path)
+	if (!published) throw new Error(`${path} disappeared while initializing the project topic`)
+	return published
+}
+
+function readTopicId(path: string): TopicId | null {
 	try {
 		const raw = JSON.parse(readFileSync(path, 'utf8')) as { topicId?: unknown }
-		if (typeof raw.topicId === 'string') return asTopicId(raw.topicId)
+		if (raw && !Array.isArray(raw) && typeof raw.topicId === 'string') return asTopicId(raw.topicId)
+		throw new Error('expected an object containing a topicId string')
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+		throw new Error(
+			`${path} is not a readable topic file: ${error instanceof Error ? error.message : String(error)}. Fix or remove it; a new one is minted when it is absent.`,
+		)
 	}
-	const topicId = generateTopicId()
-	writeFileSync(path, `${JSON.stringify({ topicId }, null, 2)}\n`, { mode: 0o600 })
-	return topicId
 }
 
 // Maps an embedder's own session key (e.g. a desktop host's uuid) to a
@@ -340,12 +345,9 @@ async function resolveExistingConversation(
  * workspace status — the SDK's own note says a direct store caller bypasses
  * the invariant, and this was such a caller.
  *
- * It is not ceremony, and the difference is `openSessions` above: the project
- * id is read back out of `.namzu/cli.json` and a new project is created only
- * when the pointer is missing or stale. So on every run after the first, this
- * attaches a session to a project it did NOT just create — one an owner may
- * since have closed. A freshly created project is always open, which is why
- * the first run could never have shown this.
+ * `openSessions` reuses the central root-path binding across launches. Its
+ * Project may have been closed since it was created, so session creation
+ * checks that Project's current status again.
  */
 export async function startConversation(s: CliSessions, id?: SessionId): Promise<SessionId> {
 	const created = await createConversation(s, id)

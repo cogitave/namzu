@@ -24,6 +24,8 @@ Three files, two scopes. Each is markdown the operator may edit by hand.
 
 `#note` in the composer and `/memory <text>` append to the **project** file: a note typed while working in a repository is almost always about that repository. `/memory --user <text>` appends to the user file. `/memory` alone shows what the next turn will be given.
 
+For new files, `<project>` is the nearest checkout root (a `.git` directory or worktree `.git` file), or the working directory when outside a repository. Launching from `packages/cli` therefore reads and writes the checkout's memory. An existing `.namzu/MEMORY.md` in the working directory takes precedence, including an empty file, so old directory-specific notes remain accessible. Create that file explicitly to keep directory-specific memory. This changes the default destination for a new note from a repository subdirectory; it does not move existing files.
+
 Every turn's system prompt carries all three, each capped at 8,000 characters: the head is kept and a line says how much the file holds beyond it. The fix for a capped section is to curate the file, which is what a curated memory is for.
 
 ## The kernel's store: searched, not injected

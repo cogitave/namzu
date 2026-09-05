@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { HITLResumeDecision } from '../../../types/hitl/index.js'
+import type { HITLDecisionRequest, HITLResumeDecision } from '../../../types/hitl/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import type { ToolPauseOutcome } from '../../../types/tool/index.js'
 import {
@@ -69,6 +69,31 @@ describe('a pause raised from inside a tool', () => {
 		// environment" and then "are you sure" — keying on the id alone would
 		// deliver the first answer to the second question.
 		expect(pauseId('call_1', 'target_environment')).not.toBe(pauseId('call_1', 'confirm'))
+	})
+
+	it('keeps arbitrary provider ids and pause names out of fallback checkpoint ids', async () => {
+		const toolUseId = 'provider:call/9.ü'
+		const name = 'confirm production: eu/west'
+		const requests: HITLDecisionRequest[] = []
+		const pause = createToolPause({
+			runId: 'run_1' as never,
+			toolUseId,
+			parkHandler: async (park) => {
+				requests.push(park)
+				return ANSWER(`${toolUseId}:${name}`, 'staging')
+			},
+		})
+
+		expect(await pause({ ...request, name })).toEqual({
+			status: 'answered',
+			selectedOptionIds: ['staging'],
+		})
+		expect(requests).toHaveLength(1)
+		expect(requests[0]?.checkpointId).toMatch(/^cp_[a-z0-9]+$/u)
+		expect(requests[0]).toMatchObject({
+			type: 'user_question',
+			question: { questionId: `${toolUseId}:${name}` },
+		})
 	})
 
 	it('refuses an answer addressed to a different pause', async () => {

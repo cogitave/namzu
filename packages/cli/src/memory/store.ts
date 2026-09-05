@@ -19,10 +19,11 @@
  * which holds what the agent chose to keep and is searched, not injected.
  */
 
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 
 import { namzuHomePath } from '../integrations/state/home.js'
+import { cliProjectRoot } from '../integrations/state/project.js'
 
 const DIR_MODE = 0o700
 const FILE_MODE = 0o600
@@ -44,9 +45,23 @@ export function memoryFilePath(home?: string): string {
 	return join(memoryDir(home), 'MEMORY.md')
 }
 
-/** The project's memory file, inside its authored `.namzu` directory. */
+/** Share checkout memory unless this directory already owns a memory file. */
 export function projectMemoryFilePath(cwd: string): string {
-	return join(cwd, '.namzu', 'MEMORY.md')
+	let directory = resolve(cwd)
+	try {
+		directory = realpathSync(directory)
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+	}
+	const local = join(directory, '.namzu', 'MEMORY.md')
+	try {
+		// An empty file or symlink is still an intentional directory-local file.
+		lstatSync(local)
+		return local
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+	}
+	return join(cliProjectRoot(directory), '.namzu', 'MEMORY.md')
 }
 
 export interface MemoryContent {
