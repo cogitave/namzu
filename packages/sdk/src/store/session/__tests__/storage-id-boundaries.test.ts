@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -7,7 +7,16 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { unchecked } from '../../../test-support/ids.js'
 import type { ProjectId, SessionId, SubSessionId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import { InvalidIdError, asSessionId, asTenantId, asTopicId } from '../../../utils/id.js'
+import {
+	InvalidIdError,
+	asProjectId,
+	asSessionId,
+	asSubSessionId,
+	asTenantId,
+	asTopicId,
+	asUserId,
+	generateTopicId,
+} from '../../../utils/id.js'
 import { DiskSessionStore } from '../disk.js'
 
 const TENANT = asTenantId('tnt_storage_ids')
@@ -98,5 +107,80 @@ describe('DiskSessionStore id boundaries', () => {
 			'keep this conversation',
 		])
 		await expect(reopened.createSession(params, TENANT)).rejects.toThrow('already exists')
+	})
+
+	it('discovers mixed project/session/sub-session IDs with no warm indexes', async () => {
+		const { rootDir, store, project } = await fixture()
+		const topicId = generateTopicId()
+		const legacyProjectId = asProjectId('prj_Legacy-1')
+		const legacyProjectDir = join(rootDir, 'projects', legacyProjectId)
+		const originalProject = JSON.parse(
+			await readFile(join(rootDir, 'projects', project.id, 'project.json'), 'utf8'),
+		)
+		await mkdir(legacyProjectDir)
+		await writeFile(
+			join(legacyProjectDir, 'project.json'),
+			JSON.stringify({ ...originalProject, id: legacyProjectId }),
+		)
+
+		const pairs = []
+		for (const [index, projectId] of [project.id, legacyProjectId].entries()) {
+			const parent = await store.createSession({ projectId, topicId, currentActor: null }, TENANT)
+			const child = await store.createSession(
+				{ id: asSessionId(`ses_Legacy-${index}`), projectId, topicId, currentActor: null },
+				TENANT,
+			)
+			const sub = await store.createSubSession(
+				{
+					parentSessionId: parent.id,
+					childSessionId: child.id,
+					kind: 'agent_spawn',
+					spawnedBy: { kind: 'user', userId: asUserId('usr_writer'), tenantId: TENANT },
+				},
+				TENANT,
+			)
+			let subId = sub.id
+			if (index === 1) {
+				const subsDir = join(legacyProjectDir, 'sessions', parent.id, 'subsessions')
+				const raw = JSON.parse(await readFile(join(subsDir, sub.id, 'subsession.json'), 'utf8'))
+				subId = asSubSessionId('sub_Legacy-1')
+				await rename(join(subsDir, sub.id), join(subsDir, subId))
+				await writeFile(
+					join(subsDir, subId, 'subsession.json'),
+					JSON.stringify({ ...raw, id: subId }),
+				)
+			}
+			await store.appendMessage(parent.id, createUserMessage(`history ${index}`), TENANT)
+			pairs.push({ parent, child, subId, projectId })
+		}
+
+		// A separate reader for every operation prevents a successful listing
+		// from hiding a broken direct lookup by warming its private ID index.
+		const cold = () => new DiskSessionStore({ rootDir })
+		expect(new Set((await cold().listProjects(TENANT)).map((row) => row.id))).toEqual(
+			new Set([project.id, legacyProjectId]),
+		)
+		expect(
+			new Set((await cold().listSessionsByTopic(topicId, TENANT)).map((row) => row.id)),
+		).toEqual(new Set(pairs.flatMap(({ parent, child }) => [parent.id, child.id])))
+		for (const [index, { parent, child, subId, projectId }] of pairs.entries()) {
+			expect(await cold().getSession(parent.id, TENANT)).toMatchObject({ id: parent.id, projectId })
+			expect(await cold().getSession(child.id, TENANT)).toMatchObject({ id: child.id, projectId })
+			expect(await cold().getSubSession(subId, TENANT)).toMatchObject({ id: subId })
+			expect(
+				new Set((await cold().listSessionsByProject(projectId, TENANT)).map((row) => row.id)),
+			).toEqual(new Set([parent.id, child.id]))
+			expect(
+				(await cold().loadMessages(parent.id, TENANT)).map((message) => message.content),
+			).toEqual([`history ${index}`])
+			expect((await cold().getChildren(parent.id, TENANT)).map((row) => row.id)).toEqual([subId])
+			expect(await cold().getAncestry(child.id, TENANT)).toEqual([parent.id, child.id])
+			await expect(cold().deleteSession(parent.id, TENANT)).rejects.toThrow('attached sub-sessions')
+			await expect(cold().deleteSession(child.id, TENANT)).rejects.toThrow('attached sub-sessions')
+			await cold().deleteSubSession(subId, TENANT)
+			await cold().deleteSession(child.id, TENANT)
+			await cold().deleteSession(parent.id, TENANT)
+			expect(await cold().listSessionsByProject(projectId, TENANT)).toEqual([])
+		}
 	})
 })

@@ -22,6 +22,7 @@ import {
 	type AuthorizationGateConfig,
 	type BaseAgentConfig,
 	type BaseAgentResult,
+	type CancelCause,
 	type Agent as CoreAgent,
 	type CreateTaskOptions,
 	DefaultCapacityValidator,
@@ -33,29 +34,33 @@ import {
 	type LLMProvider,
 	LocalTaskScheduler,
 	type PathBuilder,
+	type Project,
 	type ProjectInstructionContext,
 	ReactiveAgent,
 	type ReactiveAgentConfig,
 	type ResumeHandler,
 	RunCancelled,
 	type RunEvent,
+	type RunId,
 	type SandboxProvider,
+	type SessionId,
 	SessionSummaryMaterializer,
 	type TaskHandle,
+	type TaskId,
 	type TaskScheduler,
 	type ToolContext,
 	type ToolDefinition,
 	type ToolRegistryContract,
+	type Topic,
+	TopicArchivedError,
 	TopicManager,
 	WorkspaceBackendRegistry,
-	asRunId,
-	asSummaryId,
-	asTenantId,
-	asUserId,
 	defineTool,
 	filterReadOnlyTools,
 	filterToolsNamed,
+	generateSummaryId,
 	mcpJsonSchemaToZod,
+	requireOpenProject,
 } from '@namzu/sdk'
 
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
@@ -109,7 +114,15 @@ const SUBAGENT_PROMPT = [
 	NAMZU_WORKING_DOCTRINE,
 ].join('\n')
 
+export interface SubagentParent {
+	readonly project: Project
+	readonly topic: Topic
+	readonly sessionId: SessionId
+}
+
 export interface SubagentRuntimeOptions {
+	/** Resolve the actual invoking run; reject calls whose parent no longer exists. */
+	readonly resolveParent: (runId: RunId) => Promise<SubagentParent>
 	readonly cwd: string
 	readonly model: string
 	/** Durable layout for child runs; omitted preserves the SDK default. */
@@ -153,13 +166,56 @@ export interface SubagentRuntimeOptions {
 }
 
 export interface SubagentRuntime {
-	readonly gateway: TaskScheduler
+	/** One immutable scheduler context per actual parent run. */
+	gatewayForRun(runId: RunId): Promise<TaskScheduler>
+	/** Release a settled parent's bookkeeping and cancel children it still owns. */
+	releaseRun(runId: RunId): Promise<void>
 	readonly agentTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
 	/** Stop every child still owned by this parent session. Idempotent. */
 	close(): Promise<void>
+}
+
+/** Recheck the invoking run before admitting work through a retained gateway. */
+class ParentTaskScheduler extends LocalTaskScheduler {
+	constructor(
+		manager: AgentManager,
+		context: AgentTaskContext,
+		onEvent: ((event: RunEvent) => void) | undefined,
+		private readonly validateParent: () => Promise<void>,
+	) {
+		super(manager, context, onEvent)
+	}
+
+	override async createTask(options: CreateTaskOptions): Promise<TaskHandle> {
+		await this.validateParent()
+		return super.createTask(options)
+	}
+
+	private owns(taskId: TaskId): boolean {
+		return super.listTasks().some((task) => task.taskId === taskId)
+	}
+
+	override getTask(taskId: TaskId): TaskHandle | undefined {
+		return this.owns(taskId) ? super.getTask(taskId) : undefined
+	}
+
+	override cancelTask(taskId: TaskId, cause?: CancelCause): void {
+		if (this.owns(taskId)) super.cancelTask(taskId, cause)
+	}
+
+	override async waitForTask(taskId: TaskId): Promise<TaskHandle> {
+		if (!this.owns(taskId)) throw new Error(`Task ${taskId} does not belong to this parent run`)
+		return super.waitForTask(taskId)
+	}
+
+	override async continueTask(taskId: TaskId, message: string): Promise<void> {
+		if (!this.owns(taskId)) throw new Error(`Task ${taskId} does not belong to this parent run`)
+		await this.validateParent()
+		await super.continueTask(taskId, message)
+	}
 }
 
 /** A delegated run may never inherit the SDK's headless auto-approval fallback. */
@@ -175,45 +231,6 @@ const refuseUnownedChildReview: ResumeHandler = async () => ({
 export async function createSubagentRuntime(
 	opts: SubagentRuntimeOptions,
 ): Promise<SubagentRuntime> {
-	const tenantId = asTenantId('tnt_namzu-cli')
-	const store = new InMemorySessionStore()
-	const topicStore = new InMemoryTopicStore()
-
-	const userActor: ActorRef = {
-		kind: 'user',
-		userId: asUserId('usr_namzu'),
-		tenantId,
-	}
-	const project = await store.createProject({ tenantId, name: 'namzu-cli' }, tenantId)
-	const thread = await topicStore.createTopic(
-		{ projectId: project.id, title: 'namzu-cli' },
-		tenantId,
-	)
-	// No workspace gate here, and that is a finding rather than an omission.
-	//
-	// A direct `createSession` bypasses `requireOpenProject`, which is why the
-	// CLI's persistent conversation store now calls it explicitly. This site is
-	// the other shape: the store is a fresh `InMemorySessionStore` built four
-	// lines up, the project was created two lines up, and neither outlives this
-	// runtime — so the id can never be one an owner has closed. A gate on a path
-	// that always creates its own project checks a condition that cannot be
-	// false, and a check that cannot fail teaches the next reader nothing except
-	// that gates here are decoration.
-	//
-	// The trigger to add one is the day this store is replaced by a persistent
-	// one, or the project id starts arriving from a caller.
-	const parentSession = await store.createSession(
-		{ topicId: thread.id, projectId: project.id, currentActor: userActor },
-		tenantId,
-	)
-	await store.updateSession({ ...parentSession, status: 'active' }, tenantId)
-
-	let summaryCounter = 0
-	const materializer = new SessionSummaryMaterializer({
-		store,
-		generateSummaryId: () => asSummaryId(`sum_namzu_${++summaryCounter}`),
-	})
-
 	const registry = new AgentRegistry()
 	registry.register(
 		buildDefinition(
@@ -252,33 +269,191 @@ export async function createSubagentRuntime(
 		.map((definition) => `"${definition.name}" — ${definition.description}`)
 		.join('; ')
 
-	const topicManager = new TopicManager({ topicStore, sessionStore: store })
-	const manager = new AgentManager(
-		registry,
-		{ childTimeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS },
-		{
-			sessionStore: store,
-			summaryMaterializer: materializer,
-			workspaceRegistry: new WorkspaceBackendRegistry(),
-			capacity: new DefaultCapacityValidator(store),
-			topicManager,
-		},
-	)
+	interface ParentRuntime {
+		readonly gateway: TaskScheduler
+		close(): void
+	}
+	interface SessionRuntime {
+		readonly manager: AgentManager
+		readonly store: InMemorySessionStore
+		readonly topicId: Topic['id']
+		projectUpdatedAt: number
+	}
+	interface SharedSession {
+		readonly ready: Promise<SessionRuntime>
+		owners: number
+	}
+	const parents = new Map<RunId, Promise<ParentRuntime>>()
+	const sessions = new Map<string, SharedSession>()
+	let closed = false
+	const sessionKey = ({ project, sessionId }: SubagentParent): string =>
+		JSON.stringify([project.tenantId, project.id, sessionId])
 
-	const taskContext: AgentTaskContext = {
-		parentRunId: asRunId('run_namzu-cli'),
-		parentAgentId: 'namzu',
-		parentAbortController: new AbortController(),
-		depth: 0,
-		budgetTracker: { total: 1_000_000, remaining: 1_000_000 },
-		tenantId,
-		topicId: thread.id,
-		sessionId: parentSession.id,
-		projectId: project.id,
-		parentActor: userActor,
+	const resolveParent = async (runId: RunId): Promise<SubagentParent> => {
+		const parent = structuredClone(await opts.resolveParent(runId))
+		const { project, topic } = parent
+		if (topic.projectId !== project.id || topic.tenantId !== project.tenantId) {
+			throw new Error('Delegation parent topic does not belong to its project and tenant')
+		}
+		await requireOpenProject(
+			{ getProject: async () => project },
+			project.id,
+			project.tenantId,
+			'spawn',
+		)
+		if (topic.status === 'archived')
+			throw new TopicArchivedError({ topicId: topic.id, op: 'spawn' })
+		return parent
 	}
 
-	const gateway = new LocalTaskScheduler(manager, taskContext, opts.onEvent)
+	const createSessionRuntime = async (parent: SubagentParent): Promise<SessionRuntime> => {
+		const { project, topic, sessionId } = parent
+		const tenantId = project.tenantId
+		const store = new InMemorySessionStore([project])
+		const topicStore = new InMemoryTopicStore([topic])
+		const parentActor: ActorRef = { kind: 'agent', agentId: 'namzu', tenantId }
+		const session = await store.createSession(
+			{ id: sessionId, topicId: topic.id, projectId: project.id, currentActor: parentActor },
+			tenantId,
+		)
+		await store.updateSession({ ...session, status: 'active' }, tenantId)
+		const manager = new AgentManager(
+			registry,
+			{ childTimeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS },
+			{
+				sessionStore: store,
+				summaryMaterializer: new SessionSummaryMaterializer({ store, generateSummaryId }),
+				workspaceRegistry: new WorkspaceBackendRegistry(),
+				capacity: new DefaultCapacityValidator(store),
+				topicManager: new TopicManager({ topicStore, sessionStore: store }),
+			},
+		)
+		return { manager, store, topicId: topic.id, projectUpdatedAt: project.updatedAt.getTime() }
+	}
+
+	const refreshLimits = async (shared: SessionRuntime, parent: SubagentParent): Promise<void> => {
+		if (shared.topicId !== parent.topic.id)
+			throw new Error('Delegation parent changed its topic while runs are active')
+		// A slow metadata read must not overwrite a newer project snapshot.
+		const updatedAt = parent.project.updatedAt.getTime()
+		if (updatedAt < shared.projectUpdatedAt) return
+		shared.projectUpdatedAt = updatedAt
+		await shared.store.updateProject(
+			parent.project.id,
+			parent.project.config,
+			parent.project.tenantId,
+		)
+	}
+
+	const acquireSession = async (parent: SubagentParent) => {
+		const key = sessionKey(parent)
+		let entry = sessions.get(key)
+		if (!entry) {
+			entry = { ready: createSessionRuntime(parent), owners: 0 }
+			sessions.set(key, entry)
+		}
+		entry.owners++
+		const ownedEntry = entry
+		let released = false
+		const release = (): void => {
+			if (released) return
+			released = true
+			ownedEntry.owners--
+			if (ownedEntry.owners !== 0) return
+			if (sessions.get(key) === ownedEntry) sessions.delete(key)
+			void ownedEntry.ready.then(
+				(shared) => shared.manager.dispose(),
+				() => undefined,
+			)
+		}
+		try {
+			const shared = await entry.ready
+			await refreshLimits(shared, parent)
+			return { shared, release }
+		} catch (error) {
+			release()
+			throw error
+		}
+	}
+
+	const gatewayForRun = async (runId: RunId): Promise<TaskScheduler> => {
+		if (closed) throw new Error('Sub-agent runtime is closed')
+		let pending = parents.get(runId)
+		if (!pending) {
+			pending = (async (): Promise<ParentRuntime> => {
+				const parent = await resolveParent(runId)
+				const lease = await acquireSession(parent)
+				const { manager } = lease.shared
+				const parentAbortController = new AbortController()
+				let released = false
+				const assertOwned = (): void => {
+					if (
+						closed ||
+						released ||
+						parentAbortController.signal.aborted ||
+						parents.get(runId) !== pending
+					) {
+						throw new Error(`Parent run ${runId} was released`)
+					}
+				}
+				const taskContext: AgentTaskContext = {
+					parentRunId: runId,
+					parentAgentId: 'namzu',
+					parentAbortController,
+					depth: 0,
+					budgetTracker: { total: 1_000_000, remaining: 1_000_000 },
+					tenantId: parent.project.tenantId,
+					topicId: parent.topic.id,
+					sessionId: parent.sessionId,
+					projectId: parent.project.id,
+					parentActor: { kind: 'agent', agentId: 'namzu', tenantId: parent.project.tenantId },
+				}
+				const runtime: ParentRuntime = {
+					gateway: new ParentTaskScheduler(manager, taskContext, opts.onEvent, async () => {
+						assertOwned()
+						const current = await resolveParent(runId)
+						assertOwned()
+						if (sessionKey(current) !== sessionKey(parent))
+							throw new Error('Delegation run changed its parent scope')
+						await refreshLimits(lease.shared, current)
+						assertOwned()
+					}),
+					close() {
+						if (released) return
+						released = true
+						parentAbortController.abort(new RunCancelled('parent'))
+						manager.cancelAll(runId, 'parent')
+						lease.release()
+					},
+				}
+				if (closed) {
+					runtime.close()
+					throw new Error('Sub-agent runtime is closed')
+				}
+				return runtime
+			})()
+			parents.set(runId, pending)
+		}
+		try {
+			const runtime = await pending
+			if (closed || parents.get(runId) !== pending)
+				throw new Error(`Parent run ${runId} was released`)
+			return runtime.gateway
+		} catch (error) {
+			if (parents.get(runId) === pending) parents.delete(runId)
+			throw error
+		}
+	}
+	const releaseRun = async (runId: RunId): Promise<void> => {
+		const pending = parents.get(runId)
+		if (!pending) return
+		parents.delete(runId)
+		await pending.then(
+			(runtime) => runtime.close(),
+			() => undefined,
+		)
+	}
+
 	const activity = new SubagentActivityMonitor()
 
 	// Dynamic `Agent` tool: the model passes an optional `role` (the persona /
@@ -416,7 +591,7 @@ export async function createSubagentRuntime(
 			}
 			try {
 				const completed = await runBlockingAgentTask({
-					gateway,
+					gateway: await gatewayForRun(context.runId),
 					signal: context.abortSignal,
 					create: {
 						agentId,
@@ -468,21 +643,14 @@ export async function createSubagentRuntime(
 	let closePromise: Promise<void> | undefined
 	const close = (): Promise<void> => {
 		if (closePromise) return closePromise
-		closePromise = Promise.resolve().then(() => {
-			// This controller is the parent of every child the manager creates.
-			// Abort it before disposing bookkeeping so a live child keeps the
-			// structured reason even if its blocking tool wait already detached.
-			if (!taskContext.parentAbortController.signal.aborted) {
-				taskContext.parentAbortController.abort(new RunCancelled('parent'))
-			}
-			manager.dispose()
-			activity.close()
-		})
+		closed = true
+		closePromise = Promise.all([...parents.keys()].map(releaseRun)).then(() => activity.close())
 		return closePromise
 	}
 
 	return {
-		gateway,
+		gatewayForRun,
+		releaseRun,
 		agentTool,
 		allowedAgentIds: agentTypeIds,
 		activity,

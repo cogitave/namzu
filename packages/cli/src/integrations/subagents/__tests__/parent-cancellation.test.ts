@@ -5,13 +5,9 @@ import {
 	type ChatCompletionParams,
 	type LLMProvider,
 	MockLLMProvider,
-	type ProjectId,
 	RunCancelled,
-	type SessionId,
 	type StreamChunk,
-	type TenantId,
 	ToolRegistry,
-	type TopicId,
 	cancelCauseOf,
 	createUserMessage,
 	drainQuery,
@@ -20,6 +16,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
 
 interface Deferred<T> {
@@ -95,7 +92,9 @@ describe('a CLI blocking delegation ends with its parent', () => {
 					})()
 				},
 			}
+			const parent = await subagentParentFixture(workingDirectory)
 			const runtime = await createSubagentRuntime({
+				resolveParent: parent.resolveParent,
 				cwd: workingDirectory,
 				model: 'mock-model',
 				buildProvider: () => childProvider,
@@ -116,6 +115,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 					return tools
 				},
 			})
+			const gateway = await runtime.gatewayForRun(parent.scope.runId)
 			const parentTools = new ToolRegistry()
 			parentTools.register(runtime.agentTool)
 			const parentProvider = new MockLLMProvider({
@@ -153,10 +153,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 				agentName: 'namzu',
 				messages: [createUserMessage('delegate this')],
 				workingDirectory,
-				sessionId: 'ses_child_cancel' as SessionId,
-				topicId: 'top_child_cancel' as TopicId,
-				projectId: 'prj_child_cancel' as ProjectId,
-				tenantId: 'tnt_child_cancel' as TenantId,
+				...parent.scope,
 				signal: caller.signal,
 			})
 
@@ -182,7 +179,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 			if (authority === 'caller-late') {
 				expect(childCalls).toBe(0)
 				releaseCreation.resolve(undefined)
-				await waitFor(() => runtime.gateway.listTasks().some((task) => task.state === 'canceled'))
+				await waitFor(() => gateway.listTasks().some((task) => task.state === 'canceled'))
 				expect(childCalls).toBe(0)
 			} else {
 				expect(childSignal?.aborted).toBe(true)

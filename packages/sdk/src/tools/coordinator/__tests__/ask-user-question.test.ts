@@ -245,7 +245,9 @@ describe('coordinator ask_user_question request synthesis', () => {
 			throw new Error('expected a user_question request')
 		}
 		expect(request.runId).toBe(RUN_ID)
-		expect(request.checkpointId).toMatch(/^cp_[a-z0-9]+$/u)
+		expect(request.checkpointId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
 		expect(request.question.questionId).toBe(TOOL_USE_ID)
 		expect(request.question.question).toBe('Who is the audience?')
 		// zod defaults applied by the schema parse, exactly like the registry
@@ -275,7 +277,9 @@ describe('coordinator ask_user_question request synthesis', () => {
 
 		expect(result).toMatchObject({ success: true, data: { answered: true } })
 		expect(requests).toHaveLength(1)
-		expect(requests[0]?.checkpointId).toMatch(/^cp_[a-z0-9]+$/u)
+		expect(requests[0]?.checkpointId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
 		expect(requests[0]).toMatchObject({
 			type: 'user_question',
 			question: { questionId: toolUseId },

@@ -4,6 +4,7 @@ import type { EmergencySaveId, RunId, SessionId, TenantId } from '../../../types
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../../types/run/emergency.js'
 import type { ProjectId } from '../../../types/session/ids.js'
+import { generateEmergencySaveId } from '../../../utils/id.js'
 import { CheckpointManager, projectEmergencyToCheckpoint } from '../checkpoint.js'
 
 const TEST_SCOPE: CheckpointRunScope = {
@@ -163,6 +164,14 @@ describe('projectEmergencyToCheckpoint', () => {
 
 		expect(cp1.id).toBe('cp_emergency_xyz123')
 		expect(cp1.id).toBe(cp2.id)
+	})
+
+	it('preserves the opaque key when the same emergency dump is projected again', () => {
+		const dump = makeEmergencyDump({ id: generateEmergencySaveId() })
+		const first = projectEmergencyToCheckpoint(dump)
+		const reopened = projectEmergencyToCheckpoint(JSON.parse(JSON.stringify(dump)))
+		expect(first.id).toBe(dump.id)
+		expect(reopened.id).toBe(first.id)
 	})
 
 	it('clamps guardState.elapsedMs to 0 when savedAt precedes startedAt', () => {

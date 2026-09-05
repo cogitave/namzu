@@ -5,6 +5,7 @@ import type { Delegate, DelegateResult } from '../../types/agent/delegate.js'
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
 import { type CancelCause, cancelCauseOf } from '../../types/run/cancel-cause.js'
+import { isEntityId } from '../../utils/id.js'
 import {
 	DelegateCapabilityError,
 	DelegateCapabilityMismatchError,
@@ -87,6 +88,26 @@ describe('a foreign delegate answers through the scheduler the tools already spe
 		const settled = await scheduler.waitForTask(handle.taskId)
 
 		expect(settled.result?.result).toBe('the answer')
+	})
+
+	it('retains one opaque dispatch ID across completion, polling and repeated waits', async () => {
+		const scheduler = new DelegatingTaskScheduler({
+			delegates: [delegate('remote', { status: 'completed', output: 'the answer' })],
+		})
+		const completed: TaskHandle[] = []
+		scheduler.onTaskCompleted((handle) => completed.push(handle))
+		const first = await scheduler.createTask(request('remote'))
+		const second = await scheduler.createTask(request('remote'))
+		const firstResult = await scheduler.waitForTask(first.taskId)
+		const secondResult = await scheduler.waitForTask(second.taskId)
+		const runId = firstResult.result?.runId
+		expect(isEntityId(runId, 'run')).toBe(true)
+		expect(runId).not.toContain('_')
+		expect(runId).not.toBe(first.taskId)
+		expect(secondResult.result?.runId).not.toBe(runId)
+		expect(scheduler.getTask(first.taskId)?.result?.runId).toBe(runId)
+		expect((await scheduler.waitForTask(first.taskId)).result?.runId).toBe(runId)
+		expect(completed.find((handle) => handle.taskId === first.taskId)?.result?.runId).toBe(runId)
 	})
 
 	it('reads as succeeded to the predicate the tools use', async () => {

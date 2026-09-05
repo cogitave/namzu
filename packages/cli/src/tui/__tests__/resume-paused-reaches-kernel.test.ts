@@ -13,11 +13,11 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RunEvent } from '@namzu/sdk'
-import { asProjectId, asSessionId, asTenantId, asTopicId } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
+import { openSessions, startConversation } from '../../integrations/sessions/store.js'
 
 const resumeCalls: Record<string, unknown>[] = []
 let resumeOutcome: unknown = { resumed: true, run: {}, state: {} }
@@ -61,13 +61,6 @@ const detected = [
 	} as unknown as DetectedProvider,
 ]
 
-const scope = {
-	sessionId: asSessionId('ses_resume-paused-test'),
-	topicId: asTopicId('top_resume-paused-test'),
-	projectId: asProjectId('prj_resume-paused-test'),
-	tenantId: asTenantId('tnt_resume-paused-test'),
-}
-
 const roots: string[] = []
 
 afterEach(() => {
@@ -80,16 +73,24 @@ async function openSession() {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-resume-paused-cwd-'))
 	const stateRoot = mkdtempSync(join(tmpdir(), 'namzu-resume-paused-state-'))
 	roots.push(cwd, stateRoot)
+	const conversations = await openSessions(cwd, { stateRoot })
+	const scope = {
+		sessionId: await startConversation(conversations),
+		topicId: conversations.topicId,
+		projectId: conversations.projectId,
+		tenantId: conversations.tenantId,
+	}
 	const { createAgentSession } = await import('../agent.js')
 	return {
 		session: await createAgentSession(preferences, detected, { cwd, stateRoot, scope }),
+		scope,
 		stateRoot,
 	}
 }
 
 describe('resuming this session’s own paused run', () => {
 	it('addresses the run under the session’s ids, at the checkpoint named, in the turn’s store', async () => {
-		const { session, stateRoot } = await openSession()
+		const { session, stateRoot, scope } = await openSession()
 		const texts: string[] = []
 		try {
 			for await (const event of session.resumePaused({ runId: 'run_9', checkpointId: 'cp_4' })) {

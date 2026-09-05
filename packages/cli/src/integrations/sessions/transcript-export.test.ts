@@ -53,9 +53,11 @@ function recordedEvent(
 async function bindTurn(
 	sessions: CliSessions,
 	sessionId: SessionId,
-	options: { readonly settle?: boolean } = { settle: true },
+	options: { readonly settle?: boolean; readonly runId?: RunId } = {
+		settle: true,
+	},
 ) {
-	const runId = generateRunId()
+	const runId = options.runId ?? generateRunId()
 	const user = createUserMessage('expanded contract body', [
 		{ data: 'SECRET-IMAGE-BYTES', mediaType: 'image/png' },
 		{
@@ -289,29 +291,32 @@ describe('verified conversation Markdown', () => {
 		expect(projected.markdown.match(/^## User$/gm)).toHaveLength(1)
 	})
 
-	it('projects raw assistant Markdown and tool input/result after the screen could be cleared', async () => {
-		const root = await cwd()
-		const sessions = await openSessions(root)
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId)
-		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
+	it.each([generateRunId(), asRunId('run_Legacy-1')])(
+		'exports verified Markdown for run %s',
+		async (runId) => {
+			const root = await cwd()
+			const sessions = await openSessions(root)
+			const sessionId = await startConversation(sessions)
+			const turn = await bindTurn(sessions, sessionId, { runId })
+			await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
 
-		const projected = await conversationMarkdown(sessions, sessionId)
+			const projected = await conversationMarkdown(sessions, sessionId)
 
-		expect(projected.turns).toBe(1)
-		expect(projected.markdown).toContain('inspect @contract.pdf')
-		expect(projected.markdown).toContain('I will **check**.')
-		expect(projected.markdown).toContain('`read_file`')
-		expect(projected.markdown).toContain('{"path":"contract.md"}')
-		expect(projected.markdown).toContain('contract body')
-		expect(projected.markdown).not.toContain('SECRET-IMAGE-BYTES')
-		expect(projected.markdown).not.toContain('SECRET-PDF-BYTES')
-		expect(projected.markdown).toContain('binary data omitted')
-		expect(projected.markdown).toContain('Tool history repaired (fresh-history)')
-		expect(projected.markdown).toContain('3 interrupted call(s) closed with unknown outcome')
-		expect(projected.markdown).toContain('Provider-rejected image delivery repaired')
-		expect(projected.markdown).toContain('2 occurrence(s) retained in history')
-	})
+			expect(projected.turns).toBe(1)
+			expect(projected.markdown).toContain('inspect @contract.pdf')
+			expect(projected.markdown).toContain('I will **check**.')
+			expect(projected.markdown).toContain('`read_file`')
+			expect(projected.markdown).toContain('{"path":"contract.md"}')
+			expect(projected.markdown).toContain('contract body')
+			expect(projected.markdown).not.toContain('SECRET-IMAGE-BYTES')
+			expect(projected.markdown).not.toContain('SECRET-PDF-BYTES')
+			expect(projected.markdown).toContain('binary data omitted')
+			expect(projected.markdown).toContain('Tool history repaired (fresh-history)')
+			expect(projected.markdown).toContain('3 interrupted call(s) closed with unknown outcome')
+			expect(projected.markdown).toContain('Provider-rejected image delivery repaired')
+			expect(projected.markdown).toContain('2 occurrence(s) retained in history')
+		},
+	)
 
 	it('does not let a run belonging to a sibling session block this conversation', async () => {
 		const sessions = await openSessions(await cwd())
@@ -331,24 +336,51 @@ describe('verified conversation Markdown', () => {
 		await expect(conversationMarkdown(sessions, sessionId)).resolves.toMatchObject({ turns: 1 })
 	})
 
-	it('refuses an unbound run inside the same session', async () => {
+	it('exports the parent transcript alongside emergency snapshots and nested child runs', async () => {
 		const sessions = await openSessions(await cwd())
 		const sessionId = await startConversation(sessions)
 		const turn = await bindTurn(sessions, sessionId)
-		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
-		await mkdir(
-			new DefaultPathBuilder(sessions.root).runDir(
-				sessions.projectId,
-				sessionId,
-				asRunId('run_unbound'),
-			),
-			{ recursive: true },
-		)
+		const runDir = await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
+		const emergencyDir = join(runDir, '..', 'emergency')
+		await mkdir(emergencyDir)
+		await writeFile(join(emergencyDir, `${turn.runId}.json`), JSON.stringify({ runId: turn.runId }))
+		await mkdir(join(runDir, 'children', generateRunId()), { recursive: true })
 
-		await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
-			reason: 'unbound-run',
-		})
+		await expect(conversationMarkdown(sessions, sessionId)).resolves.toMatchObject({ turns: 1 })
 	})
+
+	it.each(['run_', 'ses_wrong-kind', 'not-a-run'])(
+		'refuses an invalid run directory: %s',
+		async (name) => {
+			const sessions = await openSessions(await cwd())
+			const sessionId = await startConversation(sessions)
+			const turn = await bindTurn(sessions, sessionId)
+			const runDir = await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
+			await mkdir(join(runDir, '..', name))
+
+			await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
+				reason: 'run-record-corrupt',
+			})
+		},
+	)
+
+	it.each([generateRunId(), asRunId('run_unbound')])(
+		'refuses an unbound run inside the same session: %s',
+		async (unboundId) => {
+			const sessions = await openSessions(await cwd())
+			const sessionId = await startConversation(sessions)
+			const turn = await bindTurn(sessions, sessionId)
+			await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
+			await mkdir(
+				new DefaultPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, unboundId),
+				{ recursive: true },
+			)
+
+			await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
+				reason: 'unbound-run',
+			})
+		},
+	)
 
 	it('refuses a crash-point log with a start but no terminal event', async () => {
 		const sessions = await openSessions(await cwd())

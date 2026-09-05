@@ -20,7 +20,7 @@ import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { CheckpointListEntry } from '../../types/run/replay.js'
 import { ZERO_COST } from '../../utils/cost.js'
 import { buildToolResultHashes } from '../../utils/hash.js'
-import { asCheckpointId, generateCheckpointId } from '../../utils/id.js'
+import { asCheckpointId, asEmergencySaveId, generateCheckpointId } from '../../utils/id.js'
 
 /**
  * Projection from a full checkpoint payload to the public listing entry.
@@ -72,9 +72,17 @@ export function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEn
  * See ses_005-deterministic-replay design §2 + §5.2.
  */
 export function projectEmergencyToCheckpoint(dump: EmergencySaveData): IterationCheckpoint {
-	const emergencySuffix = dump.id.replace(/^esave_/, '')
+	const emergencyId = asEmergencySaveId(dump.id)
+	// The checkpoint is another view of the same snapshot. New dumps retain
+	// their opaque key; legacy dumps keep their historical projection key so
+	// replay attribution written by earlier SDKs still refers to the same ID.
+	const checkpointId = asCheckpointId(
+		emergencyId.startsWith('esave_')
+			? `cp_emergency_${emergencyId.slice('esave_'.length)}`
+			: emergencyId,
+	)
 	return {
-		id: asCheckpointId(`cp_emergency_${emergencySuffix}`),
+		id: checkpointId,
 		runId: dump.runId,
 		// The dump records the run's start, so this projection carries the
 		// same stamp an ordinary checkpoint of that run would — a run whose

@@ -22,14 +22,18 @@ describe('Integration — hierarchy lifecycle', () => {
 		const tenant = DEFAULT_TENANT
 
 		const project = await store.createProject({ tenantId: tenant, name: 'p1' }, tenant)
-		expect(project.id.startsWith('prj_')).toBe(true)
+		expect(project.id).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
 		expect(project.tenantId.startsWith('tnt_')).toBe(true)
 
 		const session = await store.createSession(
 			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
 			tenant,
 		)
-		expect(session.id.startsWith('ses_')).toBe(true)
+		expect(session.id).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
 		expect(session.projectId).toBe(project.id)
 		expect(session.tenantId).toBe(tenant)
 		expect(session.status).toBe('idle')
@@ -49,7 +53,9 @@ describe('Integration — hierarchy lifecycle', () => {
 			},
 			tenant,
 		)
-		expect(subSession.id.startsWith('sub_')).toBe(true)
+		expect(subSession.id).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
 		expect(subSession.parentSessionId).toBe(session.id)
 		expect(subSession.childSessionId).toBe(childSession.id)
 		expect(subSession.kind).toBe('agent_spawn')

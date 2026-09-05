@@ -2,6 +2,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ProjectId, RunId, SessionId } from '../../../types/ids/index.js'
 import type { SubSessionId } from '../../../types/session/ids.js'
+import {
+	InvalidIdError,
+	generateProjectId,
+	generateRunId,
+	generateSessionId,
+	generateSubSessionId,
+} from '../../../utils/id.js'
 import { DefaultPathBuilder } from '../path-builder.js'
 
 const projectId = 'prj_abc' as ProjectId
@@ -48,4 +55,33 @@ describe('DefaultPathBuilder', () => {
 		expect(b.rootDir()).toBe('/tmp/b')
 		expect(a.projectDir(projectId)).not.toBe(b.projectDir(projectId))
 	})
+
+	it('preserves opaque IDs verbatim in each typed directory', () => {
+		const pb = new DefaultPathBuilder('/tmp/ns')
+		const project = generateProjectId()
+		const session = generateSessionId()
+		const sub = generateSubSessionId()
+		const run = generateRunId()
+		expect(pb.runDir(project, session, run)).toBe(
+			join('/tmp/ns', 'projects', project, 'sessions', session, 'runs', run),
+		)
+		expect(pb.subSessionDir(project, session, sub)).toBe(
+			join('/tmp/ns', 'projects', project, 'sessions', session, 'subsessions', sub),
+		)
+	})
+
+	it.each(['../outside', 'ses_/../../outside', 'ses_a\\outside', 'ses_a:stream', 'run_wrongKind'])(
+		'refuses an unsafe or wrong-kind session ID %s before constructing a path',
+		(raw) => {
+			const pb = new DefaultPathBuilder('/tmp/ns')
+			expect(() => pb.sessionDir(projectId, raw as SessionId)).toThrow(InvalidIdError)
+			expect(() => pb.projectDir(raw as ProjectId)).toThrow(InvalidIdError)
+			expect(() => pb.subSessionDir(projectId, sessionId, raw as SubSessionId)).toThrow(
+				InvalidIdError,
+			)
+			if (raw !== 'run_wrongKind') {
+				expect(() => pb.runDir(projectId, sessionId, raw as RunId)).toThrow(InvalidIdError)
+			}
+		},
+	)
 })

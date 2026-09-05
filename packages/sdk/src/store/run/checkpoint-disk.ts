@@ -16,6 +16,7 @@ import type {
 } from '../../types/run/checkpoint-store.js'
 import type { RunStoreConfig } from '../../types/run/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
+import { asRunId, isEntityId } from '../../utils/id.js'
 import { acquireClaim, currentFence, readClaim, releaseClaim } from './claim-disk.js'
 import { RunDiskStore, readCheckpointsIn } from './disk.js'
 import {
@@ -56,14 +57,14 @@ export interface DiskCheckpointStoreAttribution {
  * participate in directory resolution — `tenantId`/`projectId`/`sessionId`
  * exist for backends that key by attribution instead of path.
  *
- * One `RunDiskStore` is bound (and its run directory created) per distinct
- * `runId`, then cached, so repeated checkpoint operations against the same
- * run don't re-run `initRun`.
+ * One `RunDiskStore` is bound per resolved run directory, then cached, so
+ * repeated checkpoint operations against the same run don't re-run `initRun`.
+ * Parent attribution remains part of the address even when a cache is warm.
  */
 export class DiskCheckpointStore implements CheckpointStore {
 	private readonly config: RunStoreConfig
 	private readonly attribution?: DiskCheckpointStoreAttribution
-	private readonly bound = new Map<RunId, Promise<RunDiskStore>>()
+	private readonly bound = new Map<string, Promise<RunDiskStore>>()
 
 	/**
 	 * @param config the run-store config; `baseDir` is one session's `runs/`
@@ -79,17 +80,18 @@ export class DiskCheckpointStore implements CheckpointStore {
 	}
 
 	private bind(scope: CheckpointRunScope): Promise<RunDiskStore> {
-		const cached = this.bound.get(scope.runId)
+		const path = this.runDir(scope)
+		const cached = this.bound.get(path)
 		if (cached) return cached
 		const promise = (async () => {
 			const store = new RunDiskStore(this.config)
 			await store.initRun(scope.runId, scope.parentRunId)
 			return store
 		})()
-		this.bound.set(scope.runId, promise)
+		this.bound.set(path, promise)
 		// A failed bind must not poison the cache — the next call retries.
 		promise.catch(() => {
-			this.bound.delete(scope.runId)
+			this.bound.delete(path)
 		})
 		return promise
 	}
@@ -130,6 +132,8 @@ export class DiskCheckpointStore implements CheckpointStore {
 	 * the two stay together if the layout ever moves.
 	 */
 	private runDir(scope: CheckpointRunScope): string {
+		asRunId(scope.runId)
+		if (scope.parentRunId !== undefined) asRunId(scope.parentRunId)
 		return scope.parentRunId
 			? join(this.config.baseDir, scope.parentRunId, 'children', scope.runId)
 			: join(this.config.baseDir, scope.runId)
@@ -247,27 +251,10 @@ export class DiskCheckpointStore implements CheckpointStore {
 	private async readRunDirs(dir: string): Promise<RunId[]> {
 		try {
 			const found = await readdir(dir, { withFileTypes: true })
-			// Filtered by prefix, not just by "is a directory", so the declared
-			// `RunId[]` is true of what comes back. An editor's scratch folder or
-			// a `tmp-` left by a crashed write is not a run, and the assertion
-			// below is what let it be returned as one.
-			//
-			// **Unobservable through `listDurableRuns` today, and kept
-			// deliberately.** Measured, not assumed: removing this filter, and
-			// separately weakening it to `startsWith('r')`, leaves every test in
-			// this package green. `toDurableRunEntry` returns undefined for a
-			// directory with no checkpoints in it, so a junk name is already
-			// dropped one layer down — the filter saves the `readdir` and the
-			// parse, not a wrong answer. It is here because `readRunDirs` is a
-			// private helper with two callers and a declared element type, and
-			// the next caller inherits the type rather than the accident that
-			// currently covers for it.
-			//
-			// Filtered rather than refused, whatever the reach: a scan that
-			// threw on one piece of junk could not list the runs that are fine,
-			// during exactly the incident this listing exists for.
+			// The directory supplies the entity kind. Admit current and legacy
+			// run IDs; ignore scratch entries without hiding durable UUID runs.
 			return found
-				.filter((e) => e.isDirectory() && e.name.startsWith('run_'))
+				.filter((e) => e.isDirectory() && isEntityId(e.name, 'run'))
 				.map((e) => e.name as RunId)
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []

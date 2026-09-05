@@ -15,6 +15,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
 
 /**
@@ -65,7 +66,9 @@ describe('a delegated write uses the parent run authority', () => {
 			const review = vi.fn<ResumeHandler>(async (request) =>
 				request.type === 'tool_review' ? decision : { action: 'continue' },
 			)
+			const parent = await subagentParentFixture(cwd, asRunId('run_parent_review'))
 			const runtime = await createSubagentRuntime({
+				resolveParent: parent.resolveParent,
 				cwd,
 				model: 'mock-model',
 				buildProvider: () =>
@@ -120,7 +123,9 @@ describe('a delegated write uses the parent run authority', () => {
 	it('refuses a reviewed write when the parent review channel is missing', async () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-child-unowned-review-'))
 		workdirs.push(cwd)
+		const parent = await subagentParentFixture(cwd, asRunId('run_parent_review'))
 		const runtime = await createSubagentRuntime({
+			resolveParent: parent.resolveParent,
 			cwd,
 			model: 'mock-model',
 			buildProvider: () =>

@@ -1,57 +1,14 @@
-/**
- * Nominal-brand machinery for the id types — declared here, not yet applied.
- *
- * Today every id in `./index.ts` is a bare template-literal type, and
- * TypeScript's assignability rule for those means
- * `const x: RunId = 'run_totally-made-up'` compiles with no cast and no
- * factory call. The result is indistinguishable at the type level from an id
- * `generateRunId()` actually minted, so the compiler cannot tell a real id
- * from a plausible-looking string.
- *
- * Applying this brand is a separate change, on purpose: flipping the
- * declarations turns every existing bare literal into an error at once, and
- * that is a `major` with a migration in front of it. This file ships the
- * machinery and the runtime constructors that use it so the two can land
- * independently — the constructors are useful on their own, since there is
- * no runtime prefix validation in the tree at all today.
- *
- * **The prefix stays in the type, and that is the one place this diverges
- * from a plain `Branded<B>`.** A brand alone would render as `RunId` in
- * hovers and errors and tell a reader nothing about the shape. Keeping
- * `` `${Prefix}_${string}` `` in the intersection means an editor hover still
- * shows `run_${string}`, which is most of what makes these ids readable in
- * a log line.
- */
-
+/** Nominal identity is independent of the identifier's serialized spelling. */
 declare const ID_BRAND: unique symbol
 
-/**
- * An id with both its wire shape and a nominal tag.
- *
- * `B` is a string tag rather than the type's own name by convention — two
- * ids with the same prefix but different meanings must not be mutually
- * assignable, and only the tag can separate them.
- */
-export type Id<Prefix extends string, B extends string> = `${Prefix}_${string}` & {
+/** An opaque string whose tag prevents mixing different entity types. */
+export type Id<B extends string> = string & {
 	readonly [ID_BRAND]: B
 }
 
 /**
- * The one way to produce a branded id without a runtime check.
- *
- * A brand cannot be constructed by writing it — `{ [ID_BRAND]: 'RunId' }` is
- * not something a caller can type, since the symbol is not exported. So
- * every id has to come from somewhere, and there are exactly three places:
- * `generate*Id()` mints one, `as*Id()` checks a string into one, and this.
- *
- * Named `unsafeId` rather than `toId` because the name is the warning, and
- * kept HERE rather than in `utils/id.ts` because this file has no imports —
- * `types/ids/index.ts` needs it for `UNKNOWN_TENANT_ID` and cannot import
- * from `utils/id.ts` without closing a cycle.
- *
- * Not exported from the package barrel. A consumer that needs an id from a
- * string wants the checked constructor; one that wants to skip the check is
- * asking for the thing the brand exists to prevent.
+ * Internal escape hatch for factories and checked constructors. Not exported
+ * from the package barrel; consumers validate external strings with `as*Id`.
  */
 export function unsafeId<T extends string>(value: string): T {
 	return value as unknown as T

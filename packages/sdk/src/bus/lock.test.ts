@@ -2,7 +2,7 @@
  * Current-code invariants asserted (2026-04-21, ses_006 Phase 1):
  *
  *   - `acquire(path, owner)` returns immediately when the file is
- *     unlocked; creates a lock with `lockId = lock_<uuid>`,
+ *     unlocked; creates a lock with an opaque UUID as `lockId`,
  *     `expiresAt = now + lockTimeoutMs`, emits `lock_acquired`.
  *   - `acquire` on a file already held by the SAME owner is idempotent
  *     — returns `{acquired: true, lock}` (the existing lock) and emits
@@ -90,7 +90,9 @@ describe('FileLockManager', () => {
 			if (result.acquired) {
 				expect(result.lock.owner).toBe(runId(1))
 				expect(result.lock.filePath).toBe('/tmp/a.txt')
-				expect(result.lock.lockId).toMatch(/^lock_[0-9a-f-]+$/)
+				expect(result.lock.lockId).toMatch(
+					/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+				)
 				expect(result.lock.acquiredAt).toBeGreaterThanOrEqual(before)
 				expect(result.lock.expiresAt).toBeGreaterThan(result.lock.acquiredAt)
 			}

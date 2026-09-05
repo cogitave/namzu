@@ -42,16 +42,7 @@ export class FileLockManager {
 	}
 
 	private generateLockId(): LockId {
-		// Through `asLockId` rather than returning the template directly: the
-		// return TYPE alone accepts any `lock_`-shaped string today, and will
-		// stop accepting one the moment the id types go nominal (NZ-SURF-11).
-		//
-		// The UUID stays, and `utils/id.ts` deliberately does not gain a
-		// `generateLockId`. Every generator there mints 12 base-36 characters;
-		// moving this one would change the shape of a value `FileLockManager`
-		// writes to disk, which is a behaviour change wearing a refactor's
-		// clothes. What this task is about is the constructor, not the entropy.
-		return asLockId(`lock_${randomUUID()}`)
+		return asLockId(randomUUID())
 	}
 
 	private getAgentLockSet(owner: RunId): Set<string> {

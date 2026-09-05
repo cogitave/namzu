@@ -60,7 +60,7 @@ describe('DefaultKnowledgeBase', () => {
 			makeVectorStore(),
 			makeEmbedder(),
 		)
-		expect(kb.id).toMatch(/^kb_/)
+		expect(kb.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
 	})
 
 	it('ingest delegates to the ingestion pipeline and carries metadata through', async () => {
@@ -71,7 +71,9 @@ describe('DefaultKnowledgeBase', () => {
 			makeEmbedder(),
 		)
 		const result = await kb.ingest('hello world', { source: 'readme' })
-		expect(result.documentId).toMatch(/^doc_/)
+		expect(result.documentId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
 		expect(vs.upsert).toHaveBeenCalled()
 		const chunks = vi.mocked(vs.upsert).mock.calls[0]?.[0] ?? []
 		expect(chunks[0]?.knowledgeBaseId).toBe('kb_fixed')

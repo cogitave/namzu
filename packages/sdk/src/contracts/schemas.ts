@@ -1,9 +1,15 @@
 import { z } from 'zod'
 
-/** The shape of an id this kernel mints: one prefix, then the suffix `generateId` produces. */
-export const ProjectIdSchema = z.string().regex(/^prj_[a-z0-9]+$/, 'Invalid project ID format')
-export const RunIdSchema = z.string().regex(/^run_[a-z0-9]+$/, 'Invalid run ID format')
-export const MessageIdSchema = z.string().regex(/^msg_[a-z0-9]+$/, 'Invalid message ID format')
+import { entityIdPattern } from '../utils/id-format.js'
+
+/** Shared with constructors and stores: opaque UUIDs or safe legacy ids. */
+export const ProjectIdSchema = z
+	.string()
+	.regex(entityIdPattern('prj_'), 'Invalid project ID format')
+export const RunIdSchema = z.string().regex(entityIdPattern('run_'), 'Invalid run ID format')
+export const MessageIdSchema = z
+	.string()
+	.regex(entityIdPattern('msg_'), 'Invalid message ID format')
 
 export const RunConfigSchema = z
 	.object({

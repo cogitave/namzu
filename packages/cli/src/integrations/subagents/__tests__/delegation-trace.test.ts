@@ -10,11 +10,14 @@ import {
 	type ReactiveAgentConfig,
 	type ResumeHandler,
 	type SandboxProvider,
+	type TaskHandle,
 	type ToolContext,
 	asRunId,
 	createProjectInstructionMessage,
+	generateTaskId,
 } from '@namzu/sdk'
 
+import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../policy.js'
 import { GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
 
@@ -54,6 +57,7 @@ async function buildAgentTool(
 	} = {},
 ) {
 	const created: Record<string, unknown>[] = []
+	const launched: TaskHandle[] = []
 	const registered: AgentDefinition[] = []
 
 	vi.spyOn(AgentRegistry.prototype, 'register').mockImplementation((def) => {
@@ -61,14 +65,24 @@ async function buildAgentTool(
 	})
 	vi.spyOn(LocalTaskScheduler.prototype, 'createTask').mockImplementation(async (options) => {
 		created.push(options as unknown as Record<string, unknown>)
-		return { taskId: 'tsk_1' } as never
+		const handle: TaskHandle = {
+			taskId: generateTaskId(),
+			agentId: options.agentId,
+			state: 'running',
+			createdAt: Date.now(),
+		}
+		launched.push(handle)
+		return handle
 	})
+	vi.spyOn(LocalTaskScheduler.prototype, 'listTasks').mockImplementation(() => launched)
 	vi.spyOn(LocalTaskScheduler.prototype, 'waitForTask').mockResolvedValue({
 		state: 'completed',
 		result: { status: 'completed', result: 'done' },
 	} as never)
 
+	const parent = await subagentParentFixture('/tmp', asRunId('run_test'))
 	const runtime = await createSubagentRuntime({
+		resolveParent: parent.resolveParent,
 		cwd: '/tmp',
 		model: 'test-model',
 		buildProvider: () => ({}) as LLMProvider,
@@ -81,7 +95,7 @@ async function buildAgentTool(
 		activity: runtime.activity,
 		close: runtime.close,
 		created,
-		gateway: runtime.gateway,
+		gateway: await runtime.gatewayForRun(parent.scope.runId),
 		registered,
 	}
 }

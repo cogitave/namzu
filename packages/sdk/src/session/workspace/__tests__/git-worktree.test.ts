@@ -43,7 +43,7 @@ describe('GitWorktreeDriver', () => {
 		})
 		const ref = await driver.create({ label: 'foo', baseRef: 'main' })
 
-		expect(ref.id.startsWith('wsp_')).toBe(true)
+		expect(ref.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
 		expect(ref.meta.backend).toBe('git-worktree')
 		expect(ref.meta.branch).toBe('namzu/foo')
 		expect(calls).toHaveLength(1)

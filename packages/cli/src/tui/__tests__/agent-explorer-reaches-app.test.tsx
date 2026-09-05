@@ -10,14 +10,10 @@ import {
 	LocalTaskScheduler,
 	type Message,
 	MockLLMProvider,
-	type ProjectId,
 	type RunEvent,
-	type SessionId,
 	type TaskHandle,
-	type TenantId,
 	type ToolContext,
 	ToolRegistry,
-	type TopicId,
 	createToolPresenter,
 	query,
 } from '@namzu/sdk'
@@ -27,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
+import { subagentParentFixture } from '../../integrations/subagents/__fixtures__/parent.js'
 import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
 import {
 	AgentCockpit,
@@ -347,24 +344,30 @@ describe('Ctrl+T', () => {
 
 	it('renders the real Agent runtime lifecycle for four concurrent children', async () => {
 		const created: CreateTaskOptions[] = []
+		const handles: TaskHandle[] = []
 		const completions = new Map<string, (handle: TaskHandle) => void>()
 		vi.spyOn(LocalTaskScheduler.prototype, 'createTask').mockImplementation(async (options) => {
 			const taskId = `task-${created.length}`
 			created.push(options)
-			return {
+			const handle = {
 				taskId,
 				agentId: options.agentId,
 				state: 'running',
 				createdAt: Date.now(),
 			} as unknown as TaskHandle
+			handles.push(handle)
+			return handle
 		})
+		vi.spyOn(LocalTaskScheduler.prototype, 'listTasks').mockImplementation(() => handles)
 		vi.spyOn(LocalTaskScheduler.prototype, 'waitForTask').mockImplementation(
 			(taskId) =>
 				new Promise<TaskHandle>((resolve) => {
 					completions.set(String(taskId), resolve)
 				}),
 		)
+		const parent = await subagentParentFixture('/tmp')
 		const runtime = await createSubagentRuntime({
+			resolveParent: parent.resolveParent,
 			cwd: '/tmp',
 			model: 'test-model',
 			buildProvider: () => ({}) as LLMProvider,
@@ -386,7 +389,7 @@ describe('Ctrl+T', () => {
 						prompt: `Inspect area ${index + 1}`,
 					},
 					{
-						runId: 'run-parent',
+						runId: parent.scope.runId,
 						workingDirectory: '/tmp',
 						abortSignal: new AbortController().signal,
 						env: {},
@@ -481,7 +484,9 @@ describe('Ctrl+T', () => {
 		const allowChildrenToComplete = new Promise<void>((resolve) => {
 			releaseChildren = resolve
 		})
+		const parentFixture = await subagentParentFixture(work)
 		const runtime = await createSubagentRuntime({
+			resolveParent: parentFixture.resolveParent,
 			cwd: work,
 			model: 'mock-model',
 			buildProvider: () => {
@@ -545,10 +550,7 @@ describe('Ctrl+T', () => {
 					workingDirectory: work,
 					messages: [...messages],
 					resumeHandler: async () => ({ action: 'approve_tools' }),
-					sessionId: 'ses_live_agents' as SessionId,
-					topicId: 'top_live_agents' as TopicId,
-					projectId: 'prj_live_agents' as ProjectId,
-					tenantId: 'ten_live_agents' as TenantId,
+					...parentFixture.scope,
 					runStore: new InMemoryRunStore(),
 					checkpointStore: new InMemoryCheckpointStore(),
 				})

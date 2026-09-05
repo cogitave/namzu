@@ -418,3 +418,6 @@ export type {
 	TerminalSession,
 	TerminalSize,
 } from './sandbox/terminal.js'
+
+// Existing Topic snapshots can initialize an in-memory delegation store.
+export type { Topic, TopicStatus } from './types/topic/entity.js'

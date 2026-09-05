@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { isEntityId } from '@namzu/sdk'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -17,7 +18,7 @@ describe('the installation identity', () => {
 	it('is minted once and read back the same afterwards', () => {
 		home = mkdtempSync(join(tmpdir(), 'namzu-identity-'))
 		const first = loadIdentity(home)
-		expect(first.tenantId.startsWith('tnt_')).toBe(true)
+		expect(isEntityId(first.tenantId, 'tenant')).toBe(true)
 		expect(loadIdentity(home).tenantId).toBe(first.tenantId)
 		expect(JSON.parse(readFileSync(join(home, 'identity.json'), 'utf8')).tenantId).toBe(
 			first.tenantId,

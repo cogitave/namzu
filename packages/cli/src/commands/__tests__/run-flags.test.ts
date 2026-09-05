@@ -12,6 +12,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough, Readable } from 'node:stream'
+import { isEntityId } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
@@ -148,12 +149,10 @@ describe('namzu run reads its options instead of reciting them', () => {
 			expect(code).toBe(0)
 			expect(seen.cwd).toBe(elsewhere)
 			expect(seen.stateRoot).toBe(process.env.NAMZU_HOME)
-			expect(seen.scope).toMatchObject({
-				topicId: expect.stringMatching(/^top_/),
-				projectId: expect.stringMatching(/^prj_/),
-				tenantId: expect.stringMatching(/^tnt_/),
-				sessionId: expect.stringMatching(/^ses_/),
-			})
+			expect(isEntityId(seen.scope?.topicId, 'topic')).toBe(true)
+			expect(isEntityId(seen.scope?.projectId, 'project')).toBe(true)
+			expect(isEntityId(seen.scope?.tenantId, 'tenant')).toBe(true)
+			expect(isEntityId(seen.scope?.sessionId, 'session')).toBe(true)
 			// The whole point: the flag was previously the first two words the
 			// model was asked to act on.
 			expect(seen.prompt).toBe('fix the test')

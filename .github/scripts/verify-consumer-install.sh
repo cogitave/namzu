@@ -361,7 +361,10 @@ npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$LIVE_TARBAL
 
 cat > assert-live-runtime.mjs <<'EOF'
 import { LiveAgent, LiveSession, NamzuModel } from '@namzu/live'
-import { InMemoryRunStore, MockLLMProvider, ToolRegistry } from '@namzu/sdk'
+import {
+  InMemoryRunStore, MockLLMProvider, ToolRegistry,
+  generateProjectId, generateSessionId, generateTenantId, generateTopicId,
+} from '@namzu/sdk'
 
 const expectedText = 'PACKED_LIVE_BRIDGE_OK'
 const instructions = 'PACKED_LIVE_INSTRUCTIONS'
@@ -379,7 +382,7 @@ await session.start(
       createQueryParams: () => ({
         agentId: 'agent_packed_live',
         agentName: 'Packed live agent',
-        projectId: 'project_packed_live',
+        projectId: generateProjectId(),
         provider,
         resumeHandler: async () => ({ action: 'continue' }),
         runConfig: {
@@ -390,10 +393,10 @@ await session.start(
           tokenBudget: 100_000,
         },
         runStore,
-        sessionId: 'session_packed_live',
-        tenantId: 'tenant_packed_live',
+        sessionId: generateSessionId(),
+        tenantId: generateTenantId(),
         tools: new ToolRegistry(),
-        topicId: 'topic_packed_live',
+        topicId: generateTopicId(),
         workingDirectory: process.cwd(),
       }),
     }),

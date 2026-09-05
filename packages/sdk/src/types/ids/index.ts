@@ -1,25 +1,21 @@
 import type { Id } from './brand.js'
 
 /**
- * Every id here is NOMINAL as of NZ-SURF-11: `Id<Prefix, Tag>` intersects the
- * wire shape with a unique-symbol brand, so `const a: RunId = 'run_x'` no
- * longer compiles and neither does handing a `SessionId` where a `RunId` was
- * asked for. Ids are minted by `generate*Id()` or checked by `as*Id()` in
- * `utils/id.ts`; fixtures use `test-support/ids.ts`.
+ * Entity ids are opaque branded strings. Factories mint UUIDs; checked
+ * constructors also preserve safe ids written with earlier type prefixes.
+ * A RunId cannot be assigned to a SessionId even though their wire shapes
+ * are identical. Persisted records and typed fields establish the kind,
+ * not the spelling of the id.
  *
- * **What this does NOT stop, measured rather than assumed:** a type
- * ASSERTION. `'run_x' as RunId` and `someString as RunId` both still compile,
- * because TypeScript's assertion rule only asks that the two types be
- * comparable and a string is comparable to a branded string. The brand makes
- * a rule against `as <IdType>` enforceable — it does not replace one. See
- * `__tests__/an-id-is-not-a-string.test.ts`, which pins both halves.
+ * Brands do not validate a type assertion. Use the checked constructors
+ * for values received from JSON, flags, URLs, or other untyped boundaries.
  */
-export type RunId = Id<'run', 'RunId'>
-export type MessageId = Id<'msg', 'MessageId'>
-export type SessionId = Id<'ses', 'SessionId'>
+export type RunId = Id<'RunId'>
+export type MessageId = Id<'MessageId'>
+export type SessionId = Id<'SessionId'>
 /** Identifies one durable completion goal across its revisions. */
-export type GoalId = Id<'goal', 'GoalId'>
-export type ToolCallId = Id<'call', 'ToolCallId'>
+export type GoalId = Id<'GoalId'>
+export type ToolCallId = Id<'ToolCallId'>
 /**
  * Provider-issued tool-use identifier surfaced on the streaming event bus.
  * Providers emit different prefixes (`toolu_*`, `call_*`,
@@ -30,38 +26,38 @@ export type ToolCallId = Id<'call', 'ToolCallId'>
  * persisted assistant messages and replay records.
  */
 export type ToolUseId = string
-export type ActivityId = Id<'act', 'ActivityId'>
-export type TaskId = Id<'task', 'TaskId'>
-export type PlanId = Id<'plan', 'PlanId'>
-export type KnowledgeBaseId = Id<'kb', 'KnowledgeBaseId'>
-export type DocumentId = Id<'doc', 'DocumentId'>
-export type ChunkId = Id<'chk', 'ChunkId'>
-export type ConnectorId = Id<'conn', 'ConnectorId'>
-export type ConnectorInstanceId = Id<'ci', 'ConnectorInstanceId'>
-export type TenantId = Id<'tnt', 'TenantId'>
-export type CredentialId = Id<'cred', 'CredentialId'>
-export type ExecutionContextId = Id<'ectx', 'ExecutionContextId'>
-export type MCPServerId = Id<'mcp', 'MCPServerId'>
-export type MCPClientId = Id<'mcpc', 'MCPClientId'>
-export type MCPSessionId = Id<'mcps', 'MCPSessionId'>
-export type EnvironmentId = Id<'env', 'EnvironmentId'>
-export type CheckpointId = Id<'cp', 'CheckpointId'>
-export type LockId = Id<'lock', 'LockId'>
-export type AdvisoryId = Id<'adv', 'AdvisoryId'>
-export type AdvisoryCallId = Id<'advc', 'AdvisoryCallId'>
-export type EmergencySaveId = Id<'esave', 'EmergencySaveId'>
-export type MemoryId = Id<'mem', 'MemoryId'>
-export type PluginId = Id<'plg', 'PluginId'>
-export type SandboxId = Id<'sbx', 'SandboxId'>
+export type ActivityId = Id<'ActivityId'>
+export type TaskId = Id<'TaskId'>
+export type PlanId = Id<'PlanId'>
+export type KnowledgeBaseId = Id<'KnowledgeBaseId'>
+export type DocumentId = Id<'DocumentId'>
+export type ChunkId = Id<'ChunkId'>
+export type ConnectorId = Id<'ConnectorId'>
+export type ConnectorInstanceId = Id<'ConnectorInstanceId'>
+export type TenantId = Id<'TenantId'>
+export type CredentialId = Id<'CredentialId'>
+export type ExecutionContextId = Id<'ExecutionContextId'>
+export type MCPServerId = Id<'MCPServerId'>
+export type MCPClientId = Id<'MCPClientId'>
+export type MCPSessionId = Id<'MCPSessionId'>
+export type EnvironmentId = Id<'EnvironmentId'>
+export type CheckpointId = Id<'CheckpointId'>
+export type LockId = Id<'LockId'>
+export type AdvisoryId = Id<'AdvisoryId'>
+export type AdvisoryCallId = Id<'AdvisoryCallId'>
+export type EmergencySaveId = Id<'EmergencySaveId'>
+export type MemoryId = Id<'MemoryId'>
+export type PluginId = Id<'PluginId'>
+export type SandboxId = Id<'SandboxId'>
 /** LOG-14: the audit trail's own record id — distinct from `RunEvent.seq`. */
-export type AuditEventId = Id<'aud', 'AuditEventId'>
+export type AuditEventId = Id<'AuditEventId'>
 
 // Actor identifiers (Session Hierarchy §4.3).
 //
 // This block used to say "branded so actor refs cannot be constructed from
 // bare strings" while the compiler enforced nothing. NZ-SURF-11 made that
 // true for `UserId`: `const a: UserId = 'usr_made-up'` is now an error.
-export type UserId = Id<'usr', 'UserId'>
+export type UserId = Id<'UserId'>
 
 /**
  * @deprecated An agent is identified by its REGISTRY KEY, and this type
@@ -77,57 +73,35 @@ export type UserId = Id<'usr', 'UserId'>
  *
  * Kept for one release rather than deleted, per the deprecate-before-remove
  * rule: a consumer that annotated its own variable `AgentId` still compiles
- * and gets a warning. `asAgentId` is deprecated for the same reason and
- * would throw on every value the kernel actually produces.
+ * and gets a warning. `asAgentId` is deprecated for the same reason: registry
+ * keys have no entity-id spelling contract.
  */
-export type AgentId = Id<'agt', 'AgentId'>
+export type AgentId = Id<'AgentId'>
 
 // Shared-store placeholder refs (Session Hierarchy §4.2 / §3.2). Full shapes
 // land in later phases; kept here as opaque branded IDs so ProjectConfig can
 // reference them today.
-export type MemoryStoreRef = Id<'mms', 'MemoryStoreRef'>
-export type VaultRef = Id<'vlt', 'VaultRef'>
-export type KnowledgeBaseRef = Id<'kbs', 'KnowledgeBaseRef'>
+export type MemoryStoreRef = Id<'MemoryStoreRef'>
+export type VaultRef = Id<'VaultRef'>
+export type KnowledgeBaseRef = Id<'KnowledgeBaseRef'>
 
-// Session hierarchy IDs. Convention #2 branded IDs; prefixes mandated by the
-// five-layer hierarchy (Project → Thread → Session → SubSession → Run). The
-// `types/session/ids.ts` barrel re-exports these for co-location ergonomics.
-export type ProjectId = Id<'prj', 'ProjectId'>
+// Session hierarchy identities; types/session/ids.ts re-exports these.
+export type ProjectId = Id<'ProjectId'>
 /**
- * NZ-TOPIC-04: narrowed from the NZ-TOPIC-01 alias `type TopicId = ThreadId`
- * (both `thd_${string}`) to its own prefix. `thd_` from here on means only
- * the pre-0.2.0 top-level container (`session/migration/id-prefix.ts`,
- * `session/migration/filesystem.ts`) -- a meaning `ThreadId` never carried;
- * it was purely the deprecated name for THIS type. Deleted rather than
- * repurposed to mean the legacy container instead: a name whose meaning
- * silently changes under unmigrated callers is worse than a name that is
- * gone (Convention #0, no silent long-lived compat).
+ * A topic is distinct from its project. Legacy `top_` values remain valid;
+ * the ambiguous pre-0.2 `thd_` container prefix remains retired.
  */
-export type TopicId = Id<'top', 'TopicId'>
-export type SubSessionId = Id<'sub', 'SubSessionId'>
-export type HandoffId = Id<'hof', 'HandoffId'>
-export type WorkspaceId = Id<'wsp', 'WorkspaceId'>
-export type SummaryId = Id<'sum', 'SummaryId'>
-export type DeliverableId = Id<'del', 'DeliverableId'>
+export type TopicId = Id<'TopicId'>
+export type SubSessionId = Id<'SubSessionId'>
+export type HandoffId = Id<'HandoffId'>
+export type WorkspaceId = Id<'WorkspaceId'>
+export type SummaryId = Id<'SummaryId'>
+export type DeliverableId = Id<'DeliverableId'>
 
 /**
- * Sentinel {@link TenantId} for legacy pre-0.2.0 runs rehomed by the
- * boot-time filesystem migration. Consumers with strict tenant enforcement
- * should either tag these records on first access or reject them until a
- * real tenant is assigned — the kernel surfaces the sentinel but does not
- * prescribe policy (Convention #17).
- */
-// `unsafeId`, not `asTenantId`: `utils/id.ts` imports this file, so reaching
-// for its constructor here would close a cycle. The prefix is pinned by
-// `__tests__/an-id-is-not-a-string.test.ts` instead.
-
-/**
- * A persisted id that carries a prefix this kernel no longer accepts.
- *
- * Every id type has exactly one prefix, and a reader that meets another
- * refuses rather than rewrites: the record's meaning is not the reader's
- * to guess, and a silent rewrite is how the `thd_` era's ambiguity lasted
- * three versions. The message names the file's owner's way out.
+ * A persisted record carries a retired or mismatched legacy prefix. Readers
+ * must not guess its kind or silently rewrite references. UUIDs are accepted
+ * independently of these legacy prefixes by the checked constructors.
  */
 export class RetiredIdPrefixError extends Error {
 	constructor(

@@ -21,6 +21,7 @@ import {
 	createToolPresenter,
 } from '@namzu/sdk'
 
+import { subagentParentFixture } from '../../integrations/subagents/__fixtures__/parent.js'
 import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
 import { toAgentEvent } from '../agent.js'
 
@@ -101,7 +102,9 @@ describe('a sub-agent resolves its provider independently', () => {
 		// assertion on `provider.id` would pass, because the wrapper reports the
 		// head's id on purpose.
 		const own = { id: 'anthropic', name: 'own' } as unknown as LLMProvider
+		const parent = await subagentParentFixture('/tmp')
 		await createSubagentRuntime({
+			resolveParent: parent.resolveParent,
 			cwd: '/tmp',
 			model: 'test-model',
 			buildProvider: () => own,

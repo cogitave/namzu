@@ -61,12 +61,11 @@ import type { AuthorizationGateConfig } from '../../types/authorization/index.js
 import { NamzuError } from '../../types/errors/index.js'
 import type { InputGuardrailSpec, OutputGuardrailSpec } from '../../types/guardrail/index.js'
 import {
-	type CheckpointId,
 	type HITLResumeDecision,
 	type ResumeHandler,
 	autoApproveHandler,
 } from '../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
+import type { CheckpointId, PlanId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { MemoryStore } from '../../types/memory/index.js'
 import {
@@ -107,7 +106,7 @@ import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
-import { generateRunId } from '../../utils/id.js'
+import { generateCheckpointId, generateRunId } from '../../utils/id.js'
 import { errorAttributes } from '../../utils/log/exception.js'
 import type { Logger } from '../../utils/logger.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
@@ -1316,13 +1315,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		emit: (event) => eventTranslator.emitEvent(event),
 	})
 
+	const planApprovalIds = new Map<PlanId, CheckpointId>()
 	ctx.planManager.setApprovalHandler(async (request) => {
+		let checkpointId = planApprovalIds.get(request.planId)
+		if (!checkpointId) {
+			checkpointId = generateCheckpointId()
+			planApprovalIds.set(request.planId, checkpointId)
+		}
 		// `.current.handler`, never a captured `params.resumeHandler`. That
 		// capture is what made changing the policy mean ending the run.
 		const decision = await approvalPolicy.current.handler({
 			type: 'plan_approval',
 			runId: ctx.runId,
-			checkpointId: `cp_plan_${request.planId}` as import('../../types/ids/index.js').CheckpointId,
+			checkpointId,
 			plan: {
 				planId: request.planId,
 				title: request.title,

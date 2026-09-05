@@ -9,6 +9,10 @@ import {
 	MockLLMProvider,
 	type StreamChunk,
 	ToolRegistry,
+	generateProjectId,
+	generateSessionId,
+	generateTenantId,
+	generateTopicId,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -30,10 +34,10 @@ async function makeConfig(
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-live-'))
 	tempDirs.push(workingDirectory)
 	const store = new InMemoryRunStore()
-	const config = {
+	const config: NamzuQueryConfig = {
 		agentId: 'agent_live',
 		agentName: 'Live agent',
-		projectId: 'project_live',
+		projectId: generateProjectId(),
 		provider,
 		resumeHandler: async () => ({ action: 'continue' as const }),
 		runConfig: {
@@ -44,13 +48,13 @@ async function makeConfig(
 			tokenBudget: 100_000,
 		},
 		runStore: store,
-		sessionId: 'session_live',
-		tenantId: 'tenant_live',
+		sessionId: generateSessionId(),
+		tenantId: generateTenantId(),
 		tools: new ToolRegistry(),
-		topicId: 'topic_live',
+		topicId: generateTopicId(),
 		workingDirectory,
 		...overrides,
-	} as unknown as NamzuQueryConfig
+	}
 	return { config, store }
 }
 

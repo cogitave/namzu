@@ -62,7 +62,7 @@ optional capabilities that `namzu doctor` probes for.
 
 ```bash
 namzu                       # interactive session in the current directory
-namzu resume ses_...        # reopen the exact interactive conversation printed on exit
+namzu resume <session-id>        # reopen the exact interactive conversation printed on exit
 namzu doctor                # what this host can actually do, and what is missing
 namzu state                 # read-only inventory of local and user runtime state
 namzu upgrade --check       # check npm without changing the installation

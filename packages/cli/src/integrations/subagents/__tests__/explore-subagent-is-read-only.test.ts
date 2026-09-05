@@ -18,6 +18,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { EXPLORE_SUBAGENT, GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
 
 afterEach(() => {
@@ -42,7 +43,9 @@ async function runtimeWithBuiltins() {
 	) {
 		for (const d of Array.isArray(def) ? def : [def]) registered.push(d)
 	})
+	const parent = await subagentParentFixture(process.cwd())
 	const runtime = await createSubagentRuntime({
+		resolveParent: parent.resolveParent,
 		cwd: process.cwd(),
 		model: 'test-model',
 		// The config builder constructs a provider alongside the roster; a mock

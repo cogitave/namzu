@@ -24,6 +24,7 @@
 import { join } from 'node:path'
 import type { ProjectId, RunId, SessionId } from '../../types/ids/index.js'
 import type { SubSessionId } from '../../types/session/ids.js'
+import { asProjectId, asRunId, asSessionId, asSubSessionId } from '../../utils/id.js'
 
 /**
  * Canonical filesystem layout contract. All paths returned are absolute
@@ -54,18 +55,18 @@ export class DefaultPathBuilder implements PathBuilder {
 	}
 
 	projectDir(projectId: ProjectId): string {
-		return join(this.root, 'projects', projectId)
+		return join(this.root, 'projects', asProjectId(projectId))
 	}
 
 	sessionDir(projectId: ProjectId, sessionId: SessionId): string {
-		return join(this.projectDir(projectId), 'sessions', sessionId)
+		return join(this.projectDir(projectId), 'sessions', asSessionId(sessionId))
 	}
 
 	subSessionDir(projectId: ProjectId, sessionId: SessionId, subSessionId: SubSessionId): string {
-		return join(this.sessionDir(projectId, sessionId), 'subsessions', subSessionId)
+		return join(this.sessionDir(projectId, sessionId), 'subsessions', asSubSessionId(subSessionId))
 	}
 
 	runDir(projectId: ProjectId, sessionId: SessionId, runId: RunId): string {
-		return join(this.sessionDir(projectId, sessionId), 'runs', runId)
+		return join(this.sessionDir(projectId, sessionId), 'runs', asRunId(runId))
 	}
 }

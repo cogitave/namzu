@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DiskSessionStore, createUserMessage } from '@namzu/sdk'
+import { DiskSessionStore, asSessionId, createUserMessage } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -12,6 +12,7 @@ import {
 	appendMessages,
 	findMappedConversation,
 	loadConversation,
+	loadResumableConversation,
 	openSessions,
 	resolveConversation,
 	startConversation,
@@ -127,19 +128,49 @@ describe('central CLI state routing', () => {
 		}
 	})
 
-	it('refuses a corrupt desktop map without replacing it or minting an orphan conversation', async () => {
+	it.each([
+		'{broken',
+		JSON.stringify({ window: 'run_wrong_kind' }),
+		JSON.stringify({ window: 'ses_../escape' }),
+		JSON.stringify({ window: 'ses_' }),
+		JSON.stringify({ window: '8b48f83e-8461-48b2-a0f5-95f4cb' }),
+	])('refuses a corrupt desktop map without minting an orphan: %s', async (contents) => {
 		const sessions = await openSessions(await temp('namzu-desktop-corrupt-workspace-'), {
 			stateRoot: await temp('namzu-desktop-corrupt-home-'),
 		})
-		writeFileSync(join(sessions.controlRoot, 'desktop-sessions.json'), '{broken')
+		const mapPath = join(sessions.controlRoot, 'desktop-sessions.json')
+		writeFileSync(mapPath, contents)
 		const before = await sessions.store.listSessionsByTopic(sessions.topicId, sessions.tenantId)
 
 		await expect(resolveConversation(sessions, 'window-a')).rejects.toThrow(
-			/refusing to replace an existing desktop-session map/i,
+			/refusing to replace.*map/i,
 		)
 
 		const after = await sessions.store.listSessionsByTopic(sessions.topicId, sessions.tenantId)
 		expect(after).toHaveLength(before.length)
+		expect(readFileSync(mapPath, 'utf8')).toBe(contents)
+	})
+
+	it('reopens desktop mappings and resumes transcripts for generated and legacy session ids', async () => {
+		const workspace = await temp('namzu-desktop-mixed-workspace-')
+		const stateRoot = await temp('namzu-desktop-mixed-home-')
+		const sessions = await openSessions(workspace, { stateRoot })
+		const generated = await startConversation(sessions)
+		const legacy = await startConversation(sessions, asSessionId('ses_Legacy-1'))
+		const message = createUserMessage('Keep the exact conversation binding')
+		for (const id of [generated, legacy]) await appendMessages(sessions, id, [message])
+		const mappings = { generated, legacy }
+		writeFileSync(join(sessions.controlRoot, 'desktop-sessions.json'), JSON.stringify(mappings))
+
+		const reopened = await openSessions(workspace, { stateRoot })
+		for (const [key, id] of Object.entries(mappings)) {
+			expect(await findMappedConversation(reopened, key)).toBe(id)
+			expect(await resolveConversation(reopened, key)).toBe(id)
+			expect(await loadResumableConversation(reopened, id)).toEqual([message])
+		}
+		expect(
+			await reopened.store.listSessionsByTopic(reopened.topicId, reopened.tenantId),
+		).toHaveLength(2)
 	})
 
 	it('keeps every desktop binding when independent callers publish concurrently', async () => {

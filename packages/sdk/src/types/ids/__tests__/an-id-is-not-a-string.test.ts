@@ -9,6 +9,7 @@ import {
 	asTenantId,
 	generateGoalId,
 	generateRunId,
+	isEntityId,
 } from '../../../utils/id.js'
 import type { GoalId, RunId, SessionId, TenantId } from '../index.js'
 
@@ -19,7 +20,7 @@ import type { GoalId, RunId, SessionId, TenantId } from '../index.js'
  * NEGATIVE typecheck: it asserts that the line under it does not compile, and
  * TypeScript reports `@ts-expect-error` itself as an error when the expected
  * error is absent. So deleting the brand from `../index.ts` — or widening one
- * id back to a bare template literal — turns every one of these into a build
+ * id back to a bare string — turns every one of these into a build
  * failure in `pnpm typecheck`, which is the CI step this has to be caught by.
  * A test that only ran at runtime could not see any of it: the whole property
  * is erased before a single line executes.
@@ -53,6 +54,23 @@ describe('an id is not a string', () => {
 		expect(wrong).toBe(run)
 	})
 
+	it('does not encode a wire prefix into the nominal type', () => {
+		const run = generateRunId()
+		// @ts-expect-error callers cannot derive a serialized prefix from an opaque id
+		const prefixed: `run_${string}` = run
+		expect(prefixed).toBe(run)
+	})
+
+	it('narrows an untyped boundary using the caller-supplied entity kind', () => {
+		const value: unknown = generateRunId()
+		if (!isEntityId(value, 'run')) throw new Error('Expected the minted run id to validate')
+		const run: RunId = value
+		// @ts-expect-error a run check cannot establish a session identity
+		const session: SessionId = value
+		expect(run).toBe(value)
+		expect(session).toBe(value)
+	})
+
 	it('refuses a plain string in an id position', () => {
 		const raw: string = 'run_from_a_url'
 		// @ts-expect-error a string that happens to look right is still a string
@@ -71,15 +89,15 @@ describe('an id is not a string', () => {
 		const fixture: RunId = fixtureId.run('from_a_test')
 		const sentinel: TenantId = asTenantId('tnt_from_a_config')
 
-		expect(minted.startsWith('run_')).toBe(true)
+		expect(asRunId(minted)).toBe(minted)
 		expect(checked).toBe('run_from_a_log_line')
-		expect(goal.startsWith('goal_')).toBe(true)
+		expect(asGoalId(goal)).toBe(goal)
 		expect(checkedGoal).toBe('goal_from_a_session')
 		expect(fixture).toBe('run_from_a_test')
 		expect(sentinel).toBe('tnt_from_a_config')
 	})
 
-	it('still checks the prefix at runtime, which the brand cannot', () => {
+	it('still checks legacy kind prefixes at runtime, which the brand cannot', () => {
 		// The brand says "this came from a producer"; it says nothing about
 		// WHICH prefix, because a `ses_` string asserted into a RunId carries
 		// the same brand a real one does. The runtime check is the half that

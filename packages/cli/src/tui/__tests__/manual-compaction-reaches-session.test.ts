@@ -20,7 +20,8 @@ import { createAgentSession } from '../agent.js'
 
 vi.mock('../../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async () => ({
-		gateway: {} as unknown,
+		gatewayForRun: async () => ({}) as never,
+		releaseRun: async () => {},
 		agentTool: {
 			name: 'Agent',
 			description: 'stub',

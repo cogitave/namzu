@@ -16,18 +16,11 @@ import { join, parse } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
-import {
-	BackgroundJobRegistry,
-	type ToolRegistry,
-	asProjectId,
-	asSessionId,
-	asTenantId,
-	asTopicId,
-	getBuiltinTools,
-} from '@namzu/sdk'
+import { BackgroundJobRegistry, type ToolRegistry, getBuiltinTools } from '@namzu/sdk'
 import type { RunId, ToolContext } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
+import { openSessions, startConversation } from '../../integrations/sessions/store.js'
 
 // Only `query` is replaced; everything else the module under test imports —
 // the tool registry, the disk stores, the provider registry the vendor package
@@ -112,12 +105,13 @@ describe('createAgentSession runs where it is told to', () => {
 		]
 	}
 
-	function scope() {
+	async function scope(cwd = workDir) {
+		const sessions = await openSessions(cwd, { stateRoot })
 		return {
-			sessionId: asSessionId('ses_working-directory-test'),
-			topicId: asTopicId('top_working-directory-test'),
-			projectId: asProjectId('prj_working-directory-test'),
-			tenantId: asTenantId('tnt_working-directory-test'),
+			sessionId: await startConversation(sessions),
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
 		}
 	}
 
@@ -125,12 +119,13 @@ describe('createAgentSession runs where it is told to', () => {
 		'protects central generated state without creating a local runtime tree',
 		async () => {
 			const { createAgentSession } = await import('../agent.js')
+			const parentScope = await scope()
 			const session = await createAgentSession(prefs, detectedAnthropic(), {
 				cwd: workDir,
 				stateRoot,
-				scope: scope(),
+				scope: parentScope,
 			})
-			const projectRoot = join(stateRoot, 'projects', 'prj_working-directory-test')
+			const projectRoot = join(stateRoot, 'projects', parentScope.projectId)
 
 			expect(session.hasProvider).toBe(true)
 			expect(lstatSync(join(stateRoot, 'projects')).mode & 0o777).toBe(0o700)
@@ -146,10 +141,11 @@ describe('createAgentSession runs where it is told to', () => {
 		'hands background jobs and the default sandbox to the same run',
 		async () => {
 			const { createAgentSession } = await import('../agent.js')
+			const parentScope = await scope()
 			const session = await createAgentSession(prefs, detectedAnthropic(), {
 				cwd: workDir,
 				stateRoot,
-				scope: scope(),
+				scope: parentScope,
 			})
 
 			try {
@@ -168,7 +164,7 @@ describe('createAgentSession runs where it is told to', () => {
 				expect(queryCalls[0]).toMatchObject({
 					workingDirectory: workDir,
 					backgroundJobs: expect.any(BackgroundJobRegistry),
-					backgroundJobOwner: scope().sessionId,
+					backgroundJobOwner: parentScope.sessionId,
 					sandboxProvider: expect.objectContaining({ create: expect.any(Function) }),
 					runConfig: { sandbox: { workspace: 'working-directory' } },
 				})
@@ -192,7 +188,7 @@ describe('createAgentSession runs where it is told to', () => {
 		const session = await createAgentSession(prefs, detectedAnthropic(), {
 			cwd: workDir,
 			stateRoot,
-			scope: scope(),
+			scope: await scope(),
 			sandbox: { enabled: false },
 		})
 
@@ -217,6 +213,7 @@ describe('createAgentSession runs where it is told to', () => {
 		const session = await createAgentSession(prefs, detectedAnthropic(), {
 			cwd: workDir,
 			stateRoot,
+			scope: await scope(),
 		})
 		expect(session.hasProvider).toBe(true)
 
@@ -256,7 +253,10 @@ describe('createAgentSession runs where it is told to', () => {
 
 	it('falls back to the process directory when no cwd is supplied', async () => {
 		const { createAgentSession } = await import('../agent.js')
-		const session = await createAgentSession(prefs, detectedAnthropic(), { stateRoot })
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			stateRoot,
+			scope: await scope(process.cwd()),
+		})
 
 		for await (const _ of session.send([{ role: 'user', content: 'hello', timestamp: 0 }])) {
 			// drained

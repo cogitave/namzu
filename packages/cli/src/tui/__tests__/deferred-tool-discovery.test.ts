@@ -47,7 +47,8 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async (opts: { buildTools: () => ToolRegistryContract }) => {
 		capturedBuildTools = opts.buildTools
 		return {
-			gateway: {} as unknown,
+			gatewayForRun: async () => ({}) as never,
+			releaseRun: async () => {},
 			agentTool: {
 				name: 'Agent',
 				description: 'stub',

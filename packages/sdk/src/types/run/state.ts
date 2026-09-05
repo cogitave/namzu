@@ -1,3 +1,4 @@
+import { asTopicId } from '../../utils/id.js'
 import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PendingDecision } from '../hitl/index.js'
 import { RetiredIdPrefixError } from '../ids/index.js'
@@ -29,7 +30,7 @@ export interface RunState {
 	 * Schema version. A v1 snapshot (the pre-NZ-TOPIC-03 shape — `threadId`
 	 * instead of `topicId`) and a v2 snapshot (the shape between NZ-TOPIC-03
 	 * and NZ-TOPIC-04 — `topicId` already the field name, but its value can
-	 * still carry the pre-narrowing `thd_` prefix) are both coerced forward
+	 * carry a safe legacy topic ID) are both coerced forward
 	 * by {@link parseRunState}; any other unrecognized version is refused
 	 * with a clear failure rather than a partial restore, because silently
 	 * dropping fields this build does not know about is the outcome worth
@@ -105,11 +106,12 @@ const RUN_STATE_LEGACY_VERSION = 1
  */
 const RUN_STATE_PRE_PREFIX_VERSION = 2
 
-/** A record's `topicId` must carry the one prefix a topic id has; a retired one is refused. */
-function requireTopicIdPrefix(record: Record<string, unknown>): Record<string, unknown> {
+/** Accept current and legacy topic IDs without renaming persisted keys. */
+function requireTopicId(record: Record<string, unknown>): Record<string, unknown> {
 	const topicId = record.topicId
-	if (typeof topicId === 'string' && !topicId.startsWith('top_')) {
-		throw new RetiredIdPrefixError(topicId, 'top_')
+	if (typeof topicId === 'string') {
+		if (topicId.startsWith('thd_')) throw new RetiredIdPrefixError(topicId, 'top_')
+		asTopicId(topicId)
 	}
 	return record
 }
@@ -128,9 +130,9 @@ function requireTopicIdPrefix(record: Record<string, unknown>): Record<string, u
  * on-disk session record, because a host that parks a run across either
  * release boundary would otherwise have every in-flight snapshot refused
  * on the way back in. `threadId` is renamed only when present (v1), and
- * a `thd_`-prefixed `topicId` is rewritten only when present (v1 and v2),
- * so a snapshot a host wrote with the field already absent, or already
- * `top_`-prefixed, does not gain a stamped or double-rewritten value.
+ * topic IDs are validated without changing their value. Retired `thd_`
+ * values are refused; current opaque IDs and safe legacy `top_` values
+ * are preserved. An absent topic field is not added.
  * Nothing here re-persists the coerced snapshot — a host that calls
  * `parseRunState` and then serializes the result back out upgrades the
  * record on THAT write, same as `store/schema.ts`'s "migrate on read,
@@ -156,14 +158,14 @@ export function parseRunState(json: string | unknown): RunState {
 			...(threadId !== undefined ? { topicId: threadId } : {}),
 		}
 		return {
-			...requireTopicIdPrefix(withTopicId),
+			...requireTopicId(withTopicId),
 			version: RUN_STATE_VERSION,
 		} as RunState
 	}
 
 	if (version === RUN_STATE_PRE_PREFIX_VERSION) {
 		return {
-			...requireTopicIdPrefix(record),
+			...requireTopicId(record),
 			version: RUN_STATE_VERSION,
 		} as RunState
 	}
@@ -171,5 +173,5 @@ export function parseRunState(json: string | unknown): RunState {
 	if (version !== RUN_STATE_VERSION) {
 		throw new RunStateVersionError(version, RUN_STATE_VERSION)
 	}
-	return raw as RunState
+	return requireTopicId(record) as unknown as RunState
 }

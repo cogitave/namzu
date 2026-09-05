@@ -19,7 +19,7 @@ import type { TenantId } from '../../types/ids/index.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { Topic } from '../../types/topic/entity.js'
 import type { CreateTopicParams, TopicStore } from '../../types/topic/store.js'
-import { generateTopicId } from '../../utils/id.js'
+import { asProjectId, asTenantId, asTopicId, generateTopicId } from '../../utils/id.js'
 
 interface TopicRecord {
 	tenantId: TenantId
@@ -28,6 +28,18 @@ interface TopicRecord {
 
 export class InMemoryTopicStore implements TopicStore {
 	private readonly topics = new Map<TopicId, TopicRecord>()
+
+	/** Hydrate existing Topic snapshots without creating new topic identities. */
+	constructor(topics: readonly Topic[] = []) {
+		for (const input of topics) {
+			const topic = structuredClone(input)
+			asTopicId(topic.id)
+			asProjectId(topic.projectId)
+			asTenantId(topic.tenantId)
+			if (this.topics.has(topic.id)) throw new Error(`Duplicate topic ${topic.id}`)
+			this.topics.set(topic.id, { tenantId: topic.tenantId, topic })
+		}
+	}
 
 	async createTopic(params: CreateTopicParams, tenantId: TenantId): Promise<Topic> {
 		const now = new Date()

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { MemoryId } from '../../../types/ids/index.js'
+import { asMemoryId } from '../../../utils/id.js'
 import { DiskMemoryStore } from '../disk.js'
 
 const roots: string[] = []
@@ -66,6 +67,43 @@ async function fixture(): Promise<{
 }
 
 describe('DiskMemoryStore storage-key containment', () => {
+	it('retains legacy memory alongside new opaque IDs after a cold reopen', async () => {
+		const baseDir = await mkdtemp(join(tmpdir(), 'namzu-memory-mixed-'))
+		roots.push(baseDir)
+		const memoryDir = join(baseDir, 'memory')
+		const contentDir = join(memoryDir, 'content')
+		const legacyId = asMemoryId('mem_Legacy-1')
+		const legacy = {
+			id: legacyId,
+			title: 'legacy',
+			summary: 'keep history',
+			tags: [],
+			status: 'active',
+			createdAt: 1,
+			updatedAt: 1,
+		}
+		await mkdir(contentDir, { recursive: true })
+		await writeFile(join(memoryDir, 'index.json'), JSON.stringify([legacy]))
+		const legacyBytes = JSON.stringify({ id: legacyId, content: 'legacy content', format: 'text' })
+		await writeFile(join(contentDir, `${legacyId}.json`), legacyBytes)
+
+		const reader = new DiskMemoryStore({ baseDir })
+		expect((await reader.list()).entries.map((row) => row.id)).toEqual([legacyId])
+		const { entry } = await new DiskMemoryStore({ baseDir }).create({
+			title: 'current',
+			summary: 'new opaque ID',
+			content: 'current content',
+		})
+		for (const store of [reader, new DiskMemoryStore({ baseDir })]) {
+			expect(new Set((await store.list()).entries.map((row) => row.id))).toEqual(
+				new Set([legacyId, entry.id]),
+			)
+			expect(await store.get(legacyId)).toMatchObject({ content: 'legacy content' })
+			expect(await store.get(entry.id)).toMatchObject({ content: 'current content' })
+		}
+		expect(await readFile(join(contentDir, `${legacyId}.json`), 'utf8')).toBe(legacyBytes)
+	})
+
 	it.each([
 		['read', (store: DiskMemoryStore) => store.get(escapedId)],
 		[

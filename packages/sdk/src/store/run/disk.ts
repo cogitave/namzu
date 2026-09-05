@@ -16,6 +16,7 @@ import type {
 	RunStore,
 } from '../../types/run/store.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
+import { asCheckpointId, asRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
@@ -58,6 +59,8 @@ export class RunDiskStore implements RunStore {
 	}
 
 	async initRun(runId: string, parentRunId?: string): Promise<string> {
+		asRunId(runId)
+		if (parentRunId !== undefined) asRunId(parentRunId)
 		if (parentRunId) {
 			this.runDir = join(this.baseDir, parentRunId, 'children', runId)
 		} else {
@@ -237,6 +240,7 @@ export class RunDiskStore implements RunStore {
 	}
 
 	async writeCheckpoint(checkpoint: IterationCheckpoint): Promise<void> {
+		asCheckpointId(checkpoint.id)
 		const dir = this.requireInit()
 		const cpDir = join(dir, 'checkpoints')
 		await mkdir(cpDir, { recursive: true })
@@ -251,6 +255,7 @@ export class RunDiskStore implements RunStore {
 	}
 
 	async readCheckpoint(checkpointId: CheckpointId): Promise<IterationCheckpoint | null> {
+		asCheckpointId(checkpointId)
 		const dir = this.requireInit()
 		try {
 			const content = await readFile(join(dir, 'checkpoints', `${checkpointId}.json`), 'utf-8')
@@ -266,6 +271,7 @@ export class RunDiskStore implements RunStore {
 	}
 
 	async deleteCheckpoint(checkpointId: CheckpointId): Promise<void> {
+		asCheckpointId(checkpointId)
 		const dir = this.requireInit()
 		try {
 			await unlink(join(dir, 'checkpoints', `${checkpointId}.json`))

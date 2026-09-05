@@ -1,47 +1,110 @@
 ---
 type: Reference
 title: Ids
-description: Kernel id prefixes, checked constructors, portable suffixes, and storage validation.
+description: Opaque UUID identifiers, nominal types, compatible legacy records, and storage validation.
 resource: packages/sdk/src/utils/id.ts
 tags: [sdk, ids, storage]
 status: stable
-generated: { by: human:bahadirarda, at: 2026-09-04T00:00:00Z }
 ---
 
 # Ids
 
-Every id the kernel mints is a prefix, an underscore and a random suffix over `[0-9a-z]`: `run_…`, `ses_…`, `prj_…`, `top_…`, `tnt_…`, and the rest listed in `types/ids`. The prefix is part of the type: `RunId` is a branded `` `run_${string}` ``, so a session id does not compile where a run id is expected, and `generateRunId()` cannot mint anything but a `run_` value.
+Kernel factories such as `generateProjectId()`, `generateSessionId()` and
+`generateRunId()` mint UUID v4 strings. Entity type is carried by a nominal
+TypeScript brand and by the record's schema and location. A Session ID cannot
+be passed where a Run ID is required without explicitly bypassing the type
+system. The serialized UUID does not encode its entity type.
 
-Checked constructors also accept established custom suffixes containing ASCII letters, digits, underscores and hyphens (`[A-Za-z0-9_-]+`). The suffix must be nonempty. `run_Selected-A_1` is accepted unchanged; `run_`, `run_../outside`, whitespace, periods, colons and Unicode suffixes are rejected. Constructors never trim, lowercase or rewrite ids.
+## Minting and checking
 
-## Three ways to hold one
+- Mint with the factory for the entity, such as `generateRunId()`.
+- Check an external string with `asRunId(value)` or the matching constructor.
+  Invalid values throw `InvalidIdError`.
+- Check an unknown value without throwing with `isEntityId(value, 'run')`.
+  The second argument selects the expected entity kind.
+- Deprecated `parse*Id` functions perform the same validation and throw a
+  plain `Error`. Use the `as*Id` constructor in new code.
 
-- **Mint** with the factory for the type: `generateRunId()`, `generateSessionId()`, and so on. This is the only way a new id comes into being.
-- **Check** a string from outside — a log line, a URL, a file — with the constructor for the type: `asRunId(value)` returns the same string typed, or throws `InvalidIdError` naming the expected prefix and suffix rules. The older `parse*Id` functions apply the same validation with a plain `Error` and are deprecated; they leave in the next major.
-- **Fixtures** in tests use `test-support/ids` so a test's ids are readable and still typed.
+```ts
+import { generateRunId, asRunId, isEntityId } from '@namzu/sdk'
 
-A cast (`value as RunId`) asserts without checking and is the one thing this design exists to make unnecessary.
+const runId = generateRunId()
+const restored = asRunId(runId)
+const legacy = asRunId('run_existing-A_1')
+const valid = isEntityId(restored, 'run')
+```
 
-Storage boundaries must validate ids again because a JavaScript caller, a type assertion or a persisted record can bypass the constructor. `DiskSessionStore` validates project, session and sub-session lookup ids and a caller-chosen session id before using them. A portable id segment does not establish tenant ownership or protect against filesystem symlinks; those are separate storage concerns.
+Constructors accept canonical hyphenated UUIDs with an RFC variant and version
+1–8, preserving their case. They also accept the matching established prefix
+followed by a nonempty `[A-Za-z0-9_-]+` suffix. For example,
+`run_existing-A_1` remains valid as a Run ID, while `ses_existing` does not.
+Empty suffixes, separators, whitespace, periods, colons and Unicode suffixes
+are rejected. Constructors never trim, lowercase or rewrite identifiers.
 
-The exported `ProjectIdSchema`, `RunIdSchema` and `MessageIdSchema` describe factory-style lowercase alphanumeric suffixes. They remain narrower than the checked constructors, which preserve safe custom ids used by existing callers.
+`ProjectIdSchema`, `RunIdSchema` and `MessageIdSchema` use the same spelling
+rules as their constructors. They remain Zod string schemas and expose their
+validation patterns when converted to JSON Schema.
 
-Provider-issued tool-use ids are correlation strings and retain their original spelling. User-question and tool-pause requests carry those strings in `questionId`; their checkpoint ids come from the durable recorder or, when no checkpoint was recorded, a separate `generateCheckpointId()` call. A host should match an answer to `questionId`, without deriving it from the checkpoint id.
+A UUID by itself does not establish entity kind, existence, ownership or
+permission. Stores must verify the containing record and tenant, and validate
+path components before using them. Validating an ID is separate from defending
+against filesystem symlinks.
 
-## Upgrading custom ids
+## Existing records
 
-Earlier constructors checked only the prefix and accepted empty or arbitrary suffixes. Those values now fail validation, including old message-feedback records with punctuation, whitespace or Unicode ids. Existing files are left unchanged. Export affected records with the previous SDK before upgrading and remap their ids together with every referring record, or retain the previous SDK for that data. Ids produced by the factories and safe custom ids need no migration.
+Existing safe prefixed IDs remain unchanged. New and old IDs can coexist in
+one project hierarchy, including child runs, checkpoints, tasks and memory.
+Directory discovery accepts both formats. No startup rename or rewrite is
+performed, so references keep their original keys.
 
-## One prefix, no rewriting
+The retired, ambiguous `thd_` container format remains unsupported. Records
+written with it need an older migration-capable Namzu release before this
+version can read them. Run-state schema versions still have their own explicit
+field migrations; changing a schema field does not justify guessing an ID's
+meaning.
 
-A persisted record's id has exactly one valid prefix, and a reader that meets another refuses with `RetiredIdPrefixError` rather than rewriting it. The kernel used to accept the pre-0.2 `thd_` container prefix on read, coerce it to `top_` or `prj_`, re-lay the filesystem at boot and record a migration marker; that machinery is gone. Records written by namzu before 0.2 are not read by this version: open them with a 0.x namzu that migrates them, or start fresh.
+Older constructors accepted arbitrary suffixes after a prefix. Data containing
+unsafe custom IDs needs to be exported with the previous SDK and remapped
+along with every referring record before upgrading. Do not sanitize IDs
+independently: different values can collapse to the same key.
 
-Schema versions are a different matter and stay: a `version: 1` run state or an unstamped session record is still read and its field names brought forward. What is no longer done is guessing what a value meant.
+This factory-default change is a major release. Callers that parse prefixes,
+validate only prefixed strings, or depend on template-literal ID types must
+switch to constructors, nominal entity types and explicit schema fields before
+accepting new records. Do not downgrade a store containing UUID records to a
+reader that recognizes only prefixes.
 
-## A session id chosen ahead
+## Correlation and projections
 
-A host may pass `id` in `CreateSessionParams` so a conversation is created under an id the host already showed, logged or handed to a hook. The store refuses an id it already holds. The interactive CLI does this: the conversation's id is chosen when the session opens and the record is written under it at first durable use, so nothing that saw the id earlier is later wrong.
+Provider-issued tool-use IDs retain their original spelling. User-question
+and tool-pause requests carry those strings in `questionId`; separately minted
+checkpoint IDs identify checkpoints. Match an answer using `questionId`.
 
-## Tenant
+Project-owned names such as agent registry keys, transport correlation IDs and
+archive backend references are separate contracts; kernel entity factories do
+not rename them. An emergency snapshot projected as a checkpoint retains a
+deterministic ID: existing `esave_` snapshots keep their legacy checkpoint
+mapping, while a UUID snapshot uses that same UUID as its checkpoint key.
 
-The kernel files every project under a tenant and never invents one. The CLI mints one per installation (`~/.namzu/identity.json`) and a topic per project; the placeholder `UNKNOWN_TENANT_ID` that stood in for both is gone.
+## Reusing an existing identity
+
+`CreateSessionParams.id` lets a host choose a Session ID before persisting the
+conversation. The store refuses an ID it already holds. The CLI uses this so
+hooks, logs and the first stored message all refer to the same conversation.
+
+`new InMemorySessionStore(projects)` accepts an optional array of existing
+`Project` snapshots. `new InMemoryTopicStore(topics)` similarly accepts `Topic`
+snapshots. Both clone their inputs, validate IDs and reject duplicate IDs.
+Project roots are canonicalized and remain unique within a tenant. Status,
+limits, timestamps and ownership versions are preserved; hydration creates no
+replacement IDs. Topic and TopicStatus are exported types.
+
+These constructors populate in-memory views; they do not copy durable
+conversations or grant permission to reopen an archived project. Hosts remain
+responsible for loading authoritative metadata and enforcing its lifecycle.
+
+## Installation identity
+
+The CLI mints one tenant per installation in `~/.namzu/identity.json` and one
+CLI Topic per Project. Opening a conversation or spawning a child does not
+mint another Project. See [Project and session state](../cli/project-state.md).

@@ -14,6 +14,7 @@ import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import { isEntityId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -213,6 +214,51 @@ describe('the swap reaches the places that actually ask a human', () => {
 })
 
 describe('the swap reaches PLAN approval too, which is the other place a human is asked', () => {
+	it('correlates repeated plan review through one opaque approval ID', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-plan-identity-'))
+		dirs.push(workingDirectory)
+		let plans: PlanManager | undefined
+		const seen: Array<{ checkpointId: string; planId: string | undefined }> = []
+		await drainQuery({
+			provider: new MockLLMProvider({ turns: [{ text: 'done' }] as never }),
+			tools: new ToolRegistry(),
+			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
+			agentId: 'a',
+			agentName: 'A',
+			messages: [createUserMessage('go')],
+			workingDirectory,
+			sessionId: 'ses_plan_ids' as SessionId,
+			topicId: 'top_plan_ids' as TopicId,
+			projectId: 'prj_plan_ids' as ProjectId,
+			tenantId: 'tnt_plan_ids' as TenantId,
+			resumeHandler: async (request) => {
+				if (request.type === 'plan_approval') {
+					seen.push({ checkpointId: request.checkpointId, planId: request.plan?.planId })
+				}
+				return { action: 'approve_plan' }
+			},
+			onContextCreated: ({ planManager }) => {
+				plans = planManager
+			},
+		})
+		if (!plans) throw new Error('plan manager was not created')
+		plans.startGenerating('first plan')
+		plans.addStep({ id: 'step_1', description: 'the work', dependsOn: [], order: 1 })
+		plans.markReady()
+		await plans.requestApproval()
+		await plans.requestApproval()
+		plans.startGenerating('another plan')
+		plans.addStep({ id: 'step_1', description: 'different work', dependsOn: [], order: 1 })
+		plans.markReady()
+		await plans.requestApproval()
+		expect(seen).toHaveLength(3)
+		expect(seen[0]).toEqual(seen[1])
+		expect(isEntityId(seen[0]?.checkpointId, 'checkpoint')).toBe(true)
+		expect(seen[0]?.checkpointId).not.toContain('_')
+		expect(seen[0]?.checkpointId).not.toBe(seen[0]?.planId)
+		expect(seen[2]?.checkpointId).not.toBe(seen[0]?.checkpointId)
+	})
+
 	it('a plan raised after the swap is answered by the new handler', async () => {
 		// The second of the two call sites, and the one a mutation survived on
 		// after the executor was covered. They are wired independently, so

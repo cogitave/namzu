@@ -11,7 +11,7 @@ import type {
 	TaskStore,
 	UpdateTaskParams,
 } from '../../types/task/index.js'
-import { generateTaskId } from '../../utils/id.js'
+import { asRunId, asTaskId, asTenantId, generateTaskId, isEntityId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
@@ -82,12 +82,13 @@ export class DiskTaskStore implements TaskStore {
 
 	constructor(config: DiskTaskStoreConfig) {
 		this.baseDir = config.baseDir
-		this.defaultRunId = config.defaultRunId
-		this.tenantId = config.tenantId
+		this.defaultRunId = asRunId(config.defaultRunId)
+		this.tenantId = config.tenantId === undefined ? undefined : asTenantId(config.tenantId)
 		this.log = resolveLogger(config.logger).child({ [SCOPE_ATTRIBUTE]: 'store/task/disk' })
 	}
 
 	private taskDir(runId: RunId): string {
+		asRunId(runId)
 		if (this.tenantId) {
 			return join(this.baseDir, 'tenants', this.tenantId, 'tasks', runId)
 		}
@@ -95,6 +96,7 @@ export class DiskTaskStore implements TaskStore {
 	}
 
 	private taskPath(runId: RunId, taskId: TaskId): string {
+		asTaskId(taskId)
 		return join(this.taskDir(runId), `${taskId}.json`)
 	}
 
@@ -498,12 +500,9 @@ export class DiskTaskStore implements TaskStore {
 			: join(this.baseDir, 'tasks')
 		try {
 			const entries = await readdir(root, { withFileTypes: true })
-			// Prefix-filtered for the reason `DiskCheckpointStore.readRunDirs`
-			// gives, including the honest half: a directory that is not a run must
-			// not be enumerated as one, this is not observable downstream today,
-			// and it is the declared return type that makes it worth keeping.
+			// The tasks directory identifies runs; either ID encoding is valid.
 			return entries
-				.filter((e) => e.isDirectory() && e.name.startsWith('run_'))
+				.filter((e) => e.isDirectory() && isEntityId(e.name, 'run'))
 				.map((e) => e.name as RunId)
 		} catch (err) {
 			const code = (err as NodeJS.ErrnoException).code

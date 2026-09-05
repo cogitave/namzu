@@ -9,7 +9,7 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 		name: 'read_memory',
 		description: 'Read the full content of a specific memory by its ID.',
 		inputSchema: z.object({
-			id: z.string().describe('Memory ID (mem_xxx format)'),
+			id: z.string().describe('Opaque memory ID returned by a memory search or save'),
 		}),
 		category: 'analysis',
 		permissions: [],
@@ -17,9 +17,7 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ id }) {
-			// Checked, not cast. `id` is model-authored and becomes a store key
-			// on the next line; nothing downstream re-examines it, so this is
-			// the only place a `ses_`-shaped value can be stopped.
+			// Validate model-authored input before using it as a store key.
 			const memoryId = asMemoryId(id)
 			const content = await store.get(memoryId)
 

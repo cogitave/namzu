@@ -339,8 +339,8 @@ an opt-in emergency save writes the run out before the process leaves.
 → `runtime/query/resume-run.ts`, `runtime/query/checkpoint.ts`, `manager/run/emergency.ts`
 
 **Delegation that cannot quietly corrupt itself.**
-Work is a five-layer hierarchy — project, thread, session, sub-session, run —
-and each layer's id is its own type carrying its own prefix, so handing a
+Work is a five-layer hierarchy — project, topic, session, sub-session, run —
+and each layer's opaque UUID has its own nominal type, so handing a
 session id to something expecting a run id does not compile. Depth and width
 caps are checked *before* any write, and the width check plus the write that
 invalidates it are held in one critical section keyed on the parent: without

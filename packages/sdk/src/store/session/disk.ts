@@ -57,10 +57,12 @@ import {
 	asProjectId,
 	asSessionId,
 	asSubSessionId,
+	asTopicId,
 	generateMessageId,
 	generateProjectId,
 	generateSessionId,
 	generateSubSessionId,
+	isEntityId,
 } from '../../utils/id.js'
 import { DiskRecordStore } from '../kv/record-store.js'
 import {
@@ -155,26 +157,18 @@ const rootPathBindings = new DiskRevisionRecordStore<RootPathBinding>(
 )
 
 /**
- * v2 → v3: NZ-TOPIC-04 narrows the Topic id prefix from `thd_` to `top_`.
- * The FIELD is already `topicId` (the v1→v2 step above handled that); this
- * step rewrites only the VALUE, and only when it still carries the old
- * prefix — a record already at v3, or one that just arrived here via the
- * v1→v2 step in the same `migrate()` call, has `topicId` starting `top_`
- * (or `thd_`, freshly renamed from `threadId` — this step runs on it next
- * in the same pass) either way, and the check below is what makes running
- * it on an already-correct value a same-object no-op rather than a
- * needless copy. Same one-function-runs-over-every-kind shape as its
- * v1→v2 sibling: only `PersistedSession.topicId` is ever `thd_`-prefixed,
- * so every other kind this schema stamps (project.json, subsession.json,
- * summary.json, each messages.jsonl line) has no `topicId` key and comes
- * back untouched.
+ * v2 → v3 rejected the retired `thd_` topic namespace. Keep that refusal,
+ * while accepting current opaque IDs and safe legacy topic IDs unchanged.
+ * This migrator runs over every session-store record kind; records without
+ * a topicId are intentionally untouched.
  */
 export function migrateSessionStoreTopicIdPrefix(
 	record: Record<string, unknown>,
 ): Record<string, unknown> {
 	const topicId = record.topicId
-	if (typeof topicId === 'string' && !topicId.startsWith('top_')) {
-		throw new RetiredIdPrefixError(topicId, 'top_')
+	if (typeof topicId === 'string') {
+		if (topicId.startsWith('thd_')) throw new RetiredIdPrefixError(topicId, 'top_')
+		asTopicId(topicId)
 	}
 	return record
 }
@@ -573,6 +567,7 @@ export class DiskSessionStore implements SessionStore {
 
 		const found: Project[] = []
 		for (const entry of entries) {
+			if (!isEntityId(entry, 'project')) continue
 			const raw = await records.read<PersistedProject>(join(projectsRoot, entry, 'project.json'))
 			if (!raw) continue
 			// Another tenant's project is absent, not an error — a listing is a
@@ -657,11 +652,11 @@ export class DiskSessionStore implements SessionStore {
 
 		const results: Session[] = []
 		for (const rawProject of projectDirs) {
-			if (!rawProject.startsWith('prj_')) continue
+			if (!isEntityId(rawProject, 'project')) continue
 			const sessionsRoot = join(projectsDir, rawProject, 'sessions')
 			const sessionDirs = await records.scanNames(sessionsRoot, '')
 			for (const rawSessionId of sessionDirs) {
-				if (!rawSessionId.startsWith('ses_')) continue
+				if (!isEntityId(rawSessionId, 'session')) continue
 				const path = join(sessionsRoot, rawSessionId)
 				const raw = await records.read<PersistedSession>(join(path, 'session.json'))
 				if (!raw) continue
@@ -692,7 +687,7 @@ export class DiskSessionStore implements SessionStore {
 
 		const results: Session[] = []
 		for (const rawSessionId of sessionDirs) {
-			if (!rawSessionId.startsWith('ses_')) continue
+			if (!isEntityId(rawSessionId, 'session')) continue
 			const path = join(sessionsRoot, rawSessionId)
 			const raw = await records.read<PersistedSession>(join(path, 'session.json'))
 			if (!raw) continue
@@ -757,7 +752,7 @@ export class DiskSessionStore implements SessionStore {
 		// match the in-memory semantics.
 		const subsDir = join(located.path, 'subsessions')
 		const subEntries = await records.scanNames(subsDir, '')
-		if (subEntries.some((e) => e.startsWith('sub_'))) {
+		if (subEntries.some((entry) => isEntityId(entry, 'subSession'))) {
 			throw new Error(
 				`Session ${sessionId} has attached sub-sessions; delete them before deleting the session`,
 			)
@@ -771,15 +766,15 @@ export class DiskSessionStore implements SessionStore {
 		const projectsDir = join(this.rootDir, 'projects')
 		const projectDirs = await records.scanNames(projectsDir, '')
 		for (const rawProject of projectDirs) {
-			if (!rawProject.startsWith('prj_')) continue
+			if (!isEntityId(rawProject, 'project')) continue
 			const sessionsRoot = join(projectsDir, rawProject, 'sessions')
 			const siblingSessions = await records.scanNames(sessionsRoot, '')
 			for (const rawSib of siblingSessions) {
-				if (!rawSib.startsWith('ses_')) continue
+				if (!isEntityId(rawSib, 'session')) continue
 				const sibSubsDir = join(sessionsRoot, rawSib, 'subsessions')
 				const sibSubs = await records.scanNames(sibSubsDir, '')
 				for (const rawSub of sibSubs) {
-					if (!rawSub.startsWith('sub_')) continue
+					if (!isEntityId(rawSub, 'subSession')) continue
 					const subRaw = await records.read<PersistedSubSession>(
 						join(sibSubsDir, rawSub, 'subsession.json'),
 					)
@@ -1119,12 +1114,12 @@ export class DiskSessionStore implements SessionStore {
 		// same `return null` the old catch took directly.
 		const projectDirs = await records.scanNames(projectsDir, '')
 		for (const rawId of projectDirs) {
-			if (!rawId.startsWith('prj_')) continue
+			if (!isEntityId(rawId, 'project')) continue
 			const projectId = rawId as ProjectId
 			const sessionsRoot = join(projectsDir, projectId, 'sessions')
 			const sessionDirs = await records.scanNames(sessionsRoot, '')
 			for (const rawSessionId of sessionDirs) {
-				if (!rawSessionId.startsWith('ses_')) continue
+				if (!isEntityId(rawSessionId, 'session')) continue
 				if (rawSessionId === sessionId) {
 					const entry: SessionIndexEntry = {
 						sessionId,
@@ -1154,12 +1149,12 @@ export class DiskSessionStore implements SessionStore {
 		// same `return null` the old catch took directly.
 		const projectDirs = await records.scanNames(projectsDir, '')
 		for (const rawProject of projectDirs) {
-			if (!rawProject.startsWith('prj_')) continue
+			if (!isEntityId(rawProject, 'project')) continue
 			const projectId = rawProject as ProjectId
 			const sessionsRoot = join(projectsDir, projectId, 'sessions')
 			const sessionDirs = await records.scanNames(sessionsRoot, '')
 			for (const rawSession of sessionDirs) {
-				if (!rawSession.startsWith('ses_')) continue
+				if (!isEntityId(rawSession, 'session')) continue
 				const sessionId = rawSession as SessionId
 				const subsDir = join(sessionsRoot, sessionId, 'subsessions')
 				const subDirs = await records.scanNames(subsDir, '')
@@ -1190,14 +1185,15 @@ export class DiskSessionStore implements SessionStore {
 		const projectDirs = await records.scanNames(projectsDir, '')
 
 		for (const rawProject of projectDirs) {
-			if (!rawProject.startsWith('prj_')) continue
+			if (!isEntityId(rawProject, 'project')) continue
 			const sessionsRoot = join(projectsDir, rawProject, 'sessions')
 			const sessionDirs = await records.scanNames(sessionsRoot, '')
 			for (const rawSession of sessionDirs) {
-				if (!rawSession.startsWith('ses_')) continue
+				if (!isEntityId(rawSession, 'session')) continue
 				const subsRoot = join(sessionsRoot, rawSession, 'subsessions')
 				const subDirs = await records.scanNames(subsRoot, '')
 				for (const rawSub of subDirs) {
+					if (!isEntityId(rawSub, 'subSession')) continue
 					const raw = await records.read<PersistedSubSession>(
 						join(subsRoot, rawSub, 'subsession.json'),
 					)

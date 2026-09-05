@@ -306,12 +306,15 @@ describe('topicId prefix check (v2→v3)', () => {
 		expect(migrateSessionStoreTopicIdPrefix(projectLine)).toBe(projectLine)
 	})
 
-	it('migrateSessionStoreTopicIdPrefix leaves an already top_-prefixed topicId untouched (same reference, no double-rewrite)', () => {
-		const record = { id: 'ses_x', topicId: 'top_already', tenantId: TENANT }
-		// Reference equality, not just value equality: proves the no-op branch
-		// returns the SAME object rather than a fresh shallow copy.
-		expect(migrateSessionStoreTopicIdPrefix(record)).toBe(record)
-	})
+	it.each(['top_already', '5985bc78-64b1-438b-972f-96d5dc0c5af0'])(
+		'migrateSessionStoreTopicIdPrefix preserves the recognized topic ID %s',
+		(topicId) => {
+			const record = { id: 'ses_x', topicId, tenantId: TENANT }
+			// Reference equality, not just value equality: proves the no-op branch
+			// returns the SAME object rather than a fresh shallow copy.
+			expect(migrateSessionStoreTopicIdPrefix(record)).toBe(record)
+		},
+	)
 
 	it('migrateSessionStoreTopicIdPrefix refuses a thd_-prefixed topicId instead of rewriting it', () => {
 		const record = { id: 'ses_x', topicId: 'thd_rewrite', tenantId: TENANT, extra: 'kept' }

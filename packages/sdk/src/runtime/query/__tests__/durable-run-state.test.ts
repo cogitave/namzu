@@ -217,6 +217,8 @@ describe('parseRunState', () => {
 		expect(() => parseRunState(JSON.stringify(v1))).toThrow(RetiredIdPrefixError)
 		const v2 = { version: 2, runId: RUN_ID, topicId: 'thd_d' }
 		expect(() => parseRunState(JSON.stringify(v2))).toThrow(RetiredIdPrefixError)
+		const current = { version: RUN_STATE_VERSION, runId: RUN_ID, topicId: 'thd_d' }
+		expect(() => parseRunState(JSON.stringify(current))).toThrow(RetiredIdPrefixError)
 	})
 
 	it('coerces a version-1 snapshot with no threadId without stamping a stray topicId', () => {
@@ -235,13 +237,18 @@ describe('parseRunState', () => {
 		expect('topicId' in revived).toBe(false)
 	})
 
-	it('a current-version (v3) snapshot with an already top_-prefixed topicId passes through unchanged', () => {
-		const current = {
-			version: RUN_STATE_VERSION,
-			runId: RUN_ID,
-			topicId: 'top_already',
-		}
-		const revived = parseRunState(JSON.stringify(current))
-		expect(revived).toEqual(current)
-	})
+	it.each(['top_already', '5985bc78-64b1-438b-972f-96d5dc0c5af0'])(
+		'preserves topic ID %s through current and legacy snapshot reads',
+		(topicId) => {
+			const current = {
+				version: RUN_STATE_VERSION,
+				runId: RUN_ID,
+				topicId,
+			}
+			const revived = parseRunState(JSON.stringify(current))
+			expect(revived).toEqual(current)
+			expect(parseRunState({ ...current, version: 2 })).toEqual(current)
+			expect(parseRunState({ version: 1, runId: RUN_ID, threadId: topicId })).toEqual(current)
+		},
+	)
 })

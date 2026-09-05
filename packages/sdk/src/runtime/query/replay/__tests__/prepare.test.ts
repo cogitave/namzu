@@ -158,9 +158,12 @@ describe('prepareReplayState', () => {
 		expect(prepared.attribution.mutations).toEqual(mutations)
 	})
 
-	it("resolves 'emergency' via the emergency dump and projects it to a checkpoint", async () => {
+	it.each([
+		['esave_xyz', 'cp_emergency_xyz'],
+		['5985bc78-64b1-438b-972f-96d5dc0c5af0', '5985bc78-64b1-438b-972f-96d5dc0c5af0'],
+	])('resolves emergency dump %s with stable projection %s', async (emergencyId, checkpointId) => {
 		const dump: EmergencySaveData = {
-			id: 'esave_xyz' as EmergencySaveId,
+			id: emergencyId as EmergencySaveId,
 			runId: RUN_ID,
 			messages: [{ role: 'user', content: 'before crash' }],
 			tokenUsage: {
@@ -184,10 +187,10 @@ describe('prepareReplayState', () => {
 			emergencyDir,
 		})
 
-		expect(prepared.sourceCheckpoint.id).toBe('cp_emergency_xyz')
+		expect(prepared.sourceCheckpoint.id).toBe(checkpointId)
 		expect(prepared.sourceCheckpoint.iteration).toBe(9)
 		expect(prepared.messages).toEqual(dump.messages)
-		expect(prepared.attribution.fromCheckpointId).toBe('cp_emergency_xyz')
+		expect(prepared.attribution.fromCheckpointId).toBe(checkpointId)
 	})
 
 	it("throws when 'emergency' is requested without emergencyDir", async () => {

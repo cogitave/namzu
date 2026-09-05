@@ -49,10 +49,9 @@ import type {
 	SandboxExecOptions,
 	SandboxExecResult,
 	SandboxFileEntry,
-	SandboxId,
 	SandboxStatus,
 } from '@namzu/sdk'
-import { asSandboxId } from '@namzu/sdk'
+import { generateSandboxId } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
 import { HttpWorkerClient } from '../http-worker-client.js'
@@ -287,14 +286,6 @@ function detectEnvironment(): SandboxEnvironment {
 	// the consumer's code paths expect for a Linux namespace-isolated
 	// worker.
 	return 'linux-namespace'
-}
-
-let _sandboxIdCounter = 0
-function generateSandboxId(): SandboxId {
-	const ts = Date.now().toString(36)
-	const rand = Math.random().toString(36).slice(2, 8)
-	_sandboxIdCounter += 1
-	return asSandboxId(`sbx_${ts}_${rand}_${_sandboxIdCounter}`)
 }
 
 async function armCall<T>(

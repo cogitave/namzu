@@ -8,6 +8,8 @@
  * (Convention #5 deny-by-default, session-hierarchy.md §12.2).
  */
 
+import { realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
 	ProjectRootPathTakenError,
 	StaleProjectError,
@@ -32,6 +34,8 @@ import type {
 import type { SubSession } from '../../types/session/sub-session.js'
 import type { SessionSummaryRef } from '../../types/summary/ref.js'
 import {
+	asProjectId,
+	asTenantId,
 	generateMessageId,
 	generateProjectId,
 	generateSessionId,
@@ -79,6 +83,36 @@ export class InMemorySessionStore implements SessionStore {
 	private readonly subSessions = new Map<SubSessionId, SubSessionRecord>()
 	private readonly messages = new Map<SessionId, SessionMessage[]>()
 	private readonly summaries = new Map<SessionId, SummaryRecord>()
+
+	/** Hydrate existing Project snapshots without minting replacement identities. */
+	constructor(projects: readonly Project[] = []) {
+		const roots = new Map<string, ProjectId>()
+		for (const input of projects) {
+			const project = structuredClone(input)
+			asProjectId(project.id)
+			asTenantId(project.tenantId)
+			if (this.projects.has(project.id)) throw new Error(`Duplicate project ${project.id}`)
+			if (project.rootPath !== undefined) {
+				let rootPath: string
+				try {
+					rootPath = realpathSync(project.rootPath)
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+					rootPath = resolve(project.rootPath)
+				}
+				const key = `${project.tenantId}\0${rootPath}`
+				const existingProjectId = roots.get(key)
+				if (existingProjectId) throw new ProjectRootPathTakenError({ rootPath, existingProjectId })
+				roots.set(key, project.id)
+				this.projects.set(project.id, {
+					tenantId: project.tenantId,
+					project: { ...project, rootPath },
+				})
+			} else {
+				this.projects.set(project.id, { tenantId: project.tenantId, project })
+			}
+		}
+	}
 
 	// Project CRUD ------------------------------------------------------------
 

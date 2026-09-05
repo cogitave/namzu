@@ -41,6 +41,7 @@ import {
 	asSessionId,
 	asTopicId,
 	generateTopicId,
+	isEntityId,
 	requireOpenProject,
 } from '@namzu/sdk'
 import { restrictToOwner } from '../providers/credential-store.js'
@@ -211,14 +212,11 @@ function readDesktopMap(root: string): Record<string, string> {
 	}
 	const map: Record<string, string> = {}
 	for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-		if (typeof value !== 'string' || !value.startsWith('ses_')) {
+		if (!isEntityId(value, 'session')) {
 			throw new Error(
 				`Cannot read ${path}; desktop session ${JSON.stringify(key)} does not name a Session id. Refusing to replace the existing map.`,
 			)
 		}
-		// Validate the full branded-id grammar instead of accepting only a
-		// prefix that happens to look right.
-		asSessionId(value)
 		map[key] = value
 	}
 	return map
@@ -326,10 +324,9 @@ async function resolveExistingConversation(
 	map: Readonly<Record<string, string>>,
 ): Promise<SessionId | null> {
 	const existing = map[key]
-	// Same treatment as the project pointer above: a mapped id that is not an
-	// id is indistinguishable from one whose session was wiped. The read-only
-	// caller reports no binding; the writable caller may then mint a fresh one.
-	if (existing?.startsWith('ses_')) {
+	// readDesktopMap has validated the binding. A missing session may be
+	// recreated, but malformed identity metadata must never mint a replacement.
+	if (existing !== undefined) {
 		const mapped = asSessionId(existing)
 		const session = await s.store.getSession(mapped, s.tenantId)
 		if (session?.projectId === s.projectId) return mapped

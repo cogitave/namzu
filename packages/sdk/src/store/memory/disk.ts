@@ -10,7 +10,7 @@ import type {
 	MemorySearchResult,
 	MemoryStore,
 } from '../../types/memory/index.js'
-import { asMemoryId, generateMemoryId } from '../../utils/id.js'
+import { generateMemoryId, isEntityId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
@@ -26,8 +26,6 @@ import { InMemoryMemoryIndex } from './index.js'
  * the shape changes.
  */
 const SCHEMA = defineSchema({ kind: 'memory-store', current: 1, migrations: {} })
-
-const SAFE_STORAGE_ID = /^mem_[A-Za-z0-9_-]+$/
 
 interface StorageLocation {
 	readonly indexPath: string
@@ -83,14 +81,8 @@ function assertStorageMemoryId(
 	value: unknown,
 	refuse: (reason: string) => never,
 ): asserts value is MemoryId {
-	if (typeof value !== 'string') refuse('id must be a memory ID string')
-	try {
-		asMemoryId(value)
-	} catch {
-		refuse('id must use the recognized mem_ prefix')
-	}
-	if (!SAFE_STORAGE_ID.test(value)) {
-		refuse('id must be one cross-platform safe filename segment')
+	if (!isEntityId(value, 'memory')) {
+		refuse('id must be an opaque UUID or a safe legacy memory ID')
 	}
 }
 

@@ -79,7 +79,6 @@ import {
 	type ToolReviewRequest,
 	type TopicId,
 	WebFetchTool,
-	asRunId,
 	batchNeedsReview,
 	buildAskUserQuestionTool,
 	buildMemoryTools,
@@ -171,6 +170,7 @@ import {
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
+import { SubagentPathBuilder, resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
@@ -1775,7 +1775,7 @@ export async function createAgentSession(
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
-	let subagentGateway: TaskScheduler | undefined
+	const delegationScopes = new Map<RunId, RunScope>()
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
@@ -1797,7 +1797,12 @@ export async function createAgentSession(
 			cwd,
 			model,
 			definitions: discovered.definitions,
-			pathBuilder: new DefaultPathBuilder(join(projectStateRoot, 'subagents')),
+			pathBuilder: new SubagentPathBuilder(projectStateRoot, scope.projectId),
+			resolveParent: async (runId) => {
+				const parent = delegationScopes.get(runId)
+				if (!parent) throw new Error(`Run ${runId} no longer owns delegation authority`)
+				return resolveSubagentParent(parent, cwd, options.stateRoot ? hierarchyRoot : undefined)
+			},
 			sandboxWorkspace,
 			resolveResumeHandler: (runId) => delegatedResumeHandlers.get(runId),
 			...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
@@ -1849,7 +1854,6 @@ export async function createAgentSession(
 		})
 		subagentRuntime = sub
 		registry.register([sub.agentTool])
-		subagentGateway = sub.gateway
 		allowedAgentIds = sub.allowedAgentIds
 	} catch (err) {
 		await subagentRuntime?.close().catch((closeError: unknown) => {
@@ -1872,7 +1876,7 @@ export async function createAgentSession(
 	// gateway the tool builder requires; a session without one has no
 	// question tool either, and says nothing — it also has no `Agent`.
 	let currentOnQuestion: QuestionFn | undefined
-	if (options.askUser && subagentGateway) {
+	if (options.askUser && subagentRuntime) {
 		const parkQuestion: ResumeHandler = async (request) => {
 			if (request.type !== 'user_question') return { action: 'continue' }
 			const ask = currentOnQuestion
@@ -1914,11 +1918,12 @@ export async function createAgentSession(
 	// captured on this line. The count at connect time is unchanged; what
 	// changes is that asking again later gets a later answer.
 	ensurePrivateStateDirectory(projectStateRoot, 'tenants')
-	const taskStore: TaskStore = new DiskTaskStore({
-		baseDir: projectStateRoot,
-		defaultRunId: asRunId('run_namzu-cli'),
-		tenantId: scope.tenantId,
-	})
+	const taskStoreForRun = (runId: RunId, tenantId: TenantId): TaskStore =>
+		new DiskTaskStore({
+			baseDir: projectStateRoot,
+			defaultRunId: runId,
+			tenantId,
+		})
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
@@ -2088,6 +2093,7 @@ export async function createAgentSession(
 				throw new Error(`Run ${entry.runId} already owns a delegated review channel.`)
 			}
 			delegatedResumeHandlers.set(entry.runId, resumeHandler)
+			delegationScopes.set(entry.runId, { ...entry, topicId: scope.topicId })
 			try {
 				return await resumeRun({
 					provider,
@@ -2096,7 +2102,7 @@ export async function createAgentSession(
 					pluginManager: pluginRuntime?.manager,
 					skillRegistry: pluginRuntime?.skills,
 					skills: pluginSkills,
-					taskStore,
+					taskStore: taskStoreForRun(entry.runId, entry.tenantId),
 					// The same availability the original run registered under.
 					// A resumed run re-registers the task tools; leaving them at
 					// the kernel's `deferred` default would hand the model a plan
@@ -2106,7 +2112,9 @@ export async function createAgentSession(
 						task_update: 'active',
 						task_list: 'active',
 					},
-					...(subagentGateway ? { taskGateway: subagentGateway } : {}),
+					...(subagentRuntime
+						? { taskGateway: await subagentRuntime.gatewayForRun(entry.runId) }
+						: {}),
 					authorizationGate: gateFor(options.rules),
 					compactionConfig: compactionConfigFor(options.compaction),
 					projectInstructionContext: projectInstructions.createRunContext(),
@@ -2163,6 +2171,8 @@ export async function createAgentSession(
 			} finally {
 				if (delegatedResumeHandlers.get(entry.runId) === resumeHandler) {
 					delegatedResumeHandlers.delete(entry.runId)
+					delegationScopes.delete(entry.runId)
+					await subagentRuntime?.releaseRun(entry.runId)
 				}
 			}
 		})
@@ -2329,6 +2339,8 @@ export async function createAgentSession(
 						throw new Error(`Run ${runId} already owns a delegated review channel.`)
 					}
 					delegatedResumeHandlers.set(runId, resumeHandler)
+					const turnScope = { ...scope }
+					delegationScopes.set(runId, turnScope)
 					try {
 						// Renew a lapsed OAuth token before the turn runs (no-op for valid
 						// tokens and non-subscription credentials).
@@ -2442,7 +2454,7 @@ export async function createAgentSession(
 								pluginManager: pluginRuntime?.manager,
 								skillRegistry: pluginRuntime?.skills,
 								skills: pluginSkills,
-								scope,
+								scope: turnScope,
 								pathBuilder,
 								workingDirectory: cwd,
 								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
@@ -2452,13 +2464,13 @@ export async function createAgentSession(
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
 								promoteMemory,
-								taskStore,
+								taskStore: taskStoreForRun(runId, turnScope.tenantId),
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createRunContext(),
 								opts: turnOpts,
 								resumeHandler,
-								taskGateway: subagentGateway,
+								taskGateway: await subagentRuntime?.gatewayForRun(runId),
 								promptContributions,
 								...(webCapability ? { web: webCapability } : {}),
 								// Active, not deferred: the doctrine tells the model to open a
@@ -2489,6 +2501,8 @@ export async function createAgentSession(
 					} finally {
 						if (delegatedResumeHandlers.get(runId) === resumeHandler) {
 							delegatedResumeHandlers.delete(runId)
+							delegationScopes.delete(runId)
+							await subagentRuntime?.releaseRun(runId)
 						}
 					}
 				})(),

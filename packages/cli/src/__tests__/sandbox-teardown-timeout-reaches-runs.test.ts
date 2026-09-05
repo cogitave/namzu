@@ -39,7 +39,8 @@ vi.mock('../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async (options: Record<string, unknown>) => {
 		subagentOptions.push(options)
 		return {
-			gateway: {} as never,
+			gatewayForRun: async () => ({}) as never,
+			releaseRun: async () => {},
 			agentTool: {
 				name: 'Agent',
 				description: 'stub',
@@ -96,7 +97,12 @@ it('passes sandbox.teardownTimeoutMs to live and resumed kernel runs', async () 
 		// drain
 	}
 	await session.resumeDurable({
-		entry: { tenantId: 't', projectId: 'p', sessionId: 's' } as never,
+		entry: {
+			runId: queryCalls[0]?.runId,
+			tenantId: queryCalls[0]?.tenantId,
+			projectId: queryCalls[0]?.projectId,
+			sessionId: queryCalls[0]?.sessionId,
+		} as never,
 		checkpointStore: {} as never,
 	})
 

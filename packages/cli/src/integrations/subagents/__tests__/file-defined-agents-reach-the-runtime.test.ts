@@ -16,6 +16,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { subagentParentFixture } from '../__fixtures__/parent.js'
 import type { AgentFileDefinition } from '../definitions.js'
 import { EXPLORE_SUBAGENT, GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
 
@@ -52,7 +53,9 @@ async function runtimeWith(definitions: readonly AgentFileDefinition[]) {
 	) {
 		for (const d of Array.isArray(def) ? def : [def]) registered.push(d)
 	})
+	const parent = await subagentParentFixture(process.cwd())
 	const runtime = await createSubagentRuntime({
+		resolveParent: parent.resolveParent,
 		cwd: process.cwd(),
 		model: 'session-model',
 		buildProvider: () => new MockLLMProvider({ turns: [] }),

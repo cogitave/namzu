@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
 	chmodSync,
 	mkdirSync,
@@ -64,95 +65,117 @@ afterEach(() => {
 })
 
 describe('read-only state inventory', () => {
-	it('reports canonical records, child runs, recovery files and only structurally isolated origin shells', async () => {
-		const cwd = temporary('project')
-		const home = temporary('home')
-		const state = join(cwd, '.namzu')
-		const projectId = 'prj_project'
-		mkdirSync(join(state, 'projects', projectId), { recursive: true })
-		chmodSync(join(state, 'projects'), 0o755)
-		json(join(state, 'cli.json'), { projectId })
-		json(join(state, 'projects', projectId, 'project.json'), {
-			id: projectId,
-			rootPath: cwd,
-		})
-		writeFileSync(join(cwd, 'namzu.config.json'), '{}\n')
+	it.each(['legacy', 'uuid', 'mixed'])(
+		'reports canonical records, child runs and recovery files with %s ids',
+		async (format) => {
+			const cwd = temporary('project')
+			const home = temporary('home')
+			const state = join(cwd, '.namzu')
+			const id = (legacy: string): string =>
+				format === 'uuid' || (format === 'mixed' && legacy.startsWith('run_'))
+					? randomUUID()
+					: legacy
+			const projectId = id('prj_project')
+			const candidateId = id('ses_candidate')
+			const nonemptyId = id('ses_nonempty')
+			const sourceId = id('ses_source')
+			const forkId = id('ses_fork')
+			const parentRunId = id('run_parent')
+			const childRunId = id('run_child')
+			const parentCheckpointId = id('cp_parent')
+			const childCheckpointId = id('cp_large')
+			mkdirSync(join(state, 'projects', projectId), { recursive: true })
+			chmodSync(join(state, 'projects'), 0o755)
+			json(join(state, 'cli.json'), { projectId })
+			json(join(state, 'projects', projectId, 'project.json'), {
+				id: projectId,
+				rootPath: cwd,
+			})
+			writeFileSync(join(cwd, 'namzu.config.json'), '{}\n')
 
-		session(state, projectId, 'ses_candidate')
-		const nonempty = session(state, projectId, 'ses_nonempty')
-		writeFileSync(join(nonempty, 'messages.jsonl'), '{"message":true}\n')
-		session(state, projectId, 'ses_source')
-		session(state, projectId, 'ses_fork', {
-			kind: 'fork',
-			sourceSessionId: 'ses_source',
-			copiedMessages: 0,
-			turns: [],
-		})
+			session(state, projectId, candidateId)
+			const nonempty = session(state, projectId, nonemptyId)
+			writeFileSync(join(nonempty, 'messages.jsonl'), '{"message":true}\n')
+			session(state, projectId, sourceId)
+			session(state, projectId, forkId, {
+				kind: 'fork',
+				sourceSessionId: sourceId,
+				copiedMessages: 0,
+				turns: [],
+			})
 
-		const topRun = join(nonempty, 'runs', 'run_parent')
-		const childRun = join(topRun, 'children', 'run_child')
-		json(join(topRun, 'run.json'), { id: 'run_parent' })
-		json(join(childRun, 'run.json'), { id: 'run_child' })
-		json(join(topRun, 'checkpoints', 'cp_parent.json'), { id: 'cp_parent' })
-		const largeCheckpoint = join(childRun, 'checkpoints', 'cp_large.json')
-		mkdirSync(join(largeCheckpoint, '..'), { recursive: true })
-		writeFileSync(largeCheckpoint, '')
-		truncateSync(largeCheckpoint, 8 * 1024 * 1024)
-		json(join(nonempty, 'runs', 'emergency', 'run_parent.json'), {
-			id: 'esave_one',
-		})
+			const topRun = join(nonempty, 'runs', parentRunId)
+			const childRun = join(topRun, 'children', childRunId)
+			json(join(topRun, 'run.json'), { id: parentRunId })
+			json(join(childRun, 'run.json'), { id: childRunId })
+			json(join(topRun, 'checkpoints', `${parentCheckpointId}.json`), {
+				id: parentCheckpointId,
+			})
+			const largeCheckpoint = join(childRun, 'checkpoints', `${childCheckpointId}.json`)
+			mkdirSync(join(largeCheckpoint, '..'), { recursive: true })
+			writeFileSync(largeCheckpoint, '')
+			truncateSync(largeCheckpoint, 8 * 1024 * 1024)
+			json(join(nonempty, 'runs', 'emergency', `${parentRunId}.json`), {
+				id: 'esave_one',
+			})
 
-		const attachments = join(home, '.namzu', 'attachments', 'aa')
-		mkdirSync(attachments, { recursive: true })
-		writeFileSync(join(attachments, 'pair.bin'), 'bytes')
-		writeFileSync(join(attachments, 'pair.type'), 'image/png')
-		writeFileSync(join(attachments, 'data-only.bin'), 'bytes')
-		writeFileSync(join(attachments, 'type-only.type'), 'image/png')
+			const attachments = join(home, '.namzu', 'attachments', 'aa')
+			mkdirSync(attachments, { recursive: true })
+			writeFileSync(join(attachments, 'pair.bin'), 'bytes')
+			writeFileSync(join(attachments, 'pair.type'), 'image/png')
+			writeFileSync(join(attachments, 'data-only.bin'), 'bytes')
+			writeFileSync(join(attachments, 'type-only.type'), 'image/png')
 
-		const report = await inspectNamzuState({
-			cwd,
-			home,
-			platform: 'linux',
-			uid: process.getuid?.(),
-		})
-		const project = report.roots.find((root) => root.roles.includes('project'))
-		const user = report.roots.find((root) => root.roles.includes('user'))
+			const report = await inspectNamzuState({
+				cwd,
+				home,
+				platform: 'linux',
+				uid: process.getuid?.(),
+			})
+			const project = report.roots.find((root) => root.roles.includes('project'))
+			const user = report.roots.find((root) => root.roles.includes('user'))
 
-		expect(report.complete).toBe(true)
-		expect(report.physicalTotals.roots).toBe(2)
-		expect(report.projectBinding).toMatchObject({ status: 'bound', projectId })
-		expect(report.projectConfig).toMatchObject({ status: 'present' })
-		expect(project?.inventory.sessions).toMatchObject({
-			files: 4,
-			directories: 4,
-			invalidOrMissingRecords: 0,
-		})
-		expect(project?.inventory.runs).toMatchObject({
-			files: 2,
-			directories: 2,
-			invalidOrMissingRecords: 0,
-		})
-		expect(project?.inventory.checkpointFiles).toEqual({
-			files: 2,
-			logicalBytes: expect.any(Number),
-		})
-		expect(project?.inventory.checkpointFiles.logicalBytes).toBeGreaterThanOrEqual(8 * 1024 * 1024)
-		expect(project?.inventory.emergencyDumpFiles.files).toBe(1)
-		expect(project?.inventory.originOnlySessionCandidates).toMatchObject({
-			files: 1,
-			complete: true,
-		})
-		expect(project?.inventory.originOnlySessionCandidates.logicalBytes).toBeGreaterThan(0)
-		expect(project?.privacy).toContainEqual(
-			expect.objectContaining({ path: 'projects', status: 'insecure' }),
-		)
-		expect(user?.inventory.attachments).toMatchObject({
-			files: 4,
-			pairs: 1,
-			orphanedDataFiles: 1,
-			orphanedTypeFiles: 1,
-		})
-	})
+			expect(report.complete).toBe(true)
+			expect(report.physicalTotals.roots).toBe(2)
+			expect(report.projectBinding).toMatchObject({
+				status: 'bound',
+				projectId,
+			})
+			expect(report.projectConfig).toMatchObject({ status: 'present' })
+			expect(project?.inventory.sessions).toMatchObject({
+				files: 4,
+				directories: 4,
+				invalidOrMissingRecords: 0,
+			})
+			expect(project?.inventory.runs).toMatchObject({
+				files: 2,
+				directories: 2,
+				invalidOrMissingRecords: 0,
+			})
+			expect(project?.inventory.checkpointFiles).toEqual({
+				files: 2,
+				logicalBytes: expect.any(Number),
+			})
+			expect(project?.inventory.checkpointFiles.logicalBytes).toBeGreaterThanOrEqual(
+				8 * 1024 * 1024,
+			)
+			expect(project?.inventory.emergencyDumpFiles.files).toBe(1)
+			expect(project?.inventory.originOnlySessionCandidates).toMatchObject({
+				files: 1,
+				complete: true,
+			})
+			expect(project?.inventory.originOnlySessionCandidates.logicalBytes).toBeGreaterThan(0)
+			expect(project?.privacy).toContainEqual(
+				expect.objectContaining({ path: 'projects', status: 'insecure' }),
+			)
+			expect(user?.inventory.attachments).toMatchObject({
+				files: 4,
+				pairs: 1,
+				orphanedDataFiles: 1,
+				orphanedTypeFiles: 1,
+			})
+		},
+	)
 
 	it('deduplicates project and user roles when cwd is home', async () => {
 		const root = temporary('overlap')

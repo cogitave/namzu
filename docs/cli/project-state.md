@@ -52,10 +52,10 @@ The installation identity and Topic are initialized once. Concurrent first
 launches publish one complete file and all use the winner. Existing malformed
 files cause an error; startup does not replace them with a new identity.
 
-ID prefixes remain part of the SDK's persisted format. Callers should use the
-SDK's constructors and treat each ID as an opaque key. A prefix is neither a
-project-root detector nor proof of ownership; tenant and Project membership
-are checked by the stores.
+New IDs are opaque UUIDs. Existing safe prefixed IDs remain valid without
+renaming their records. Callers use the SDK's constructors; tenant and Project
+membership are checked separately by the stores. The root-path binding selects
+the Project, independently of its ID's spelling.
 
 ## Existing state
 
@@ -72,3 +72,31 @@ legacy files but does not import or repair them.
 
 Curated memory follows the checkout root for new files, with existing
 directory-local memory taking precedence. See [Memory](memory.md).
+
+## Delegated work
+
+A delegated run belongs to the invoking run's actual tenant, Project, Topic
+and parent Session. Each parent run gets its own scheduler context, so parallel
+runs and a conversation change cannot overwrite one another's lineage. The
+scheduler uses the real parent run ID for events and stored child-run metadata.
+Concurrent parent runs in the same Session share the manager that enforces
+delegation width. A run can only inspect or control tasks it owns.
+Settling or closing a parent releases its scheduler and cancels children it
+still owns.
+
+Child run artifacts live under
+`projects/<projectId>/subagents/sessions/<childSessionId>/runs/<parentRunId>/children/<childRunId>`.
+There is no second `projects/<newProjectId>` layer inside `subagents`. Child
+Session and Topic bookkeeping is an in-memory view of the actual parent
+identity, rather than another resumable CLI conversation. Existing child
+artifacts are left in place; this change does not migrate or resume historical
+subagent trees.
+
+Central Project metadata must exist before delegation, and archived Projects
+or parent Sessions refuse new delegation. A first conversation may not yet
+have a Session record; it uses the Session ID already chosen by the caller.
+Embedded sessions without an application state root use their supplied scope
+without creating durable Project records.
+
+Task storage is also bound to the actual run. Calls that omit an explicit run
+filter use the current run instead of a shared placeholder directory.

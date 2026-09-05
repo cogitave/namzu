@@ -3,9 +3,9 @@ import type { Delegate, DelegateRequest, DelegateResult } from '../types/agent/d
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { AgentTaskState } from '../types/agent/task.js'
 import type { RunExecutionStatus } from '../types/common/index.js'
-import type { TaskId } from '../types/ids/index.js'
+import type { RunId, TaskId } from '../types/ids/index.js'
 import { type CancelCause, RunCancelled } from '../types/run/cancel-cause.js'
-import { asRunId, generateTaskId } from '../utils/id.js'
+import { generateRunId, generateTaskId } from '../utils/id.js'
 
 /**
  * Presents a set of foreign delegates as a `TaskScheduler`.
@@ -113,6 +113,7 @@ const OUTCOME: Record<
 
 interface Entry {
 	handle: TaskHandle
+	runId: RunId
 	delegate: Delegate
 	controller: AbortController
 	settled: Promise<void>
@@ -163,6 +164,7 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 		}
 
 		const entry: Entry = {
+			runId: generateRunId(),
 			handle: {
 				taskId,
 				agentId: options.agentId,
@@ -188,25 +190,24 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 					error: err instanceof Error ? err.message : String(err),
 				}
 			}
-			entry.handle = this.settle(entry.handle, result)
+			entry.handle = this.settle(entry.handle, entry.runId, result)
 			for (const listener of this.listeners) listener(entry.handle)
 		})()
 
 		return entry.handle
 	}
 
-	private settle(handle: TaskHandle, result: DelegateResult): TaskHandle {
+	private settle(handle: TaskHandle, runId: RunId, result: DelegateResult): TaskHandle {
 		const outcome = OUTCOME[result.status]
 		return {
 			...handle,
 			state: outcome.state,
 			completedAt: Date.now(),
 			result: {
-				// A synthetic run record. The id names the task rather than
-				// borrowing a run id that does not exist: a foreign delegate has
-				// no run in this kernel, and minting a plausible-looking `run_`
-				// would put an id in the transcript that nothing can resolve.
-				runId: asRunId(`run_delegate_${handle.taskId}`),
+				// Identity of this dispatch, allocated once with its task. The
+				// scheduler owns the correlation; the ID's spelling carries none.
+				// A foreign dispatch does not imply a local resumable checkpoint.
+				runId,
 				status: outcome.status,
 				// Zero, and honestly so: this kernel did not spend these tokens
 				// and has no way to learn what the delegate spent. `ZERO_COST`

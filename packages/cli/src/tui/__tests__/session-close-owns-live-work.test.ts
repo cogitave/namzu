@@ -109,7 +109,8 @@ vi.mock('../../integrations/mcp/servers.js', async (importOriginal) => {
 
 vi.mock('../../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async () => ({
-		gateway: {} as unknown,
+		gatewayForRun: async () => ({}) as never,
+		releaseRun: async () => {},
 		agentTool: {
 			name: operations.subagentToolName,
 			description: 'stub',

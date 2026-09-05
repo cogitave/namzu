@@ -13,6 +13,7 @@ import {
 	type PersistedRunEvent,
 	type SessionId,
 	type ToolMessage,
+	isEntityId,
 	readRunEventsIn,
 	readRunMessagesIn,
 } from '@namzu/sdk'
@@ -613,7 +614,10 @@ async function listRunIds(root: string): Promise<string[]> {
 	const ids: string[] = []
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue
-		if (!/^run_[a-z0-9]+$/.test(entry.name)) {
+		// The SDK writes emergency snapshots beside run directories. They are
+		// recovery data, not an additional run needing a CLI turn binding.
+		if (entry.name === 'emergency') continue
+		if (!isEntityId(entry.name, 'run')) {
 			throw unavailable(
 				'run-record-corrupt',
 				`session run directory has an invalid name: ${entry.name}`,

@@ -19,6 +19,7 @@ import type {
 	CheckpointStore,
 	DurableRunEntry,
 } from '../../../types/run/checkpoint-store.js'
+import { generateCheckpointId, generateRunId } from '../../../utils/id.js'
 import { DiskCheckpointStore } from '../checkpoint-disk.js'
 import { InMemoryCheckpointStore } from '../checkpoint-memory.js'
 import { listDurableRuns } from '../listing.js'
@@ -633,6 +634,43 @@ describe('the disk store', () => {
 		])
 	})
 
+	it('lists and resumes opaque and legacy runs from a fresh store at every depth', async () => {
+		const current = generateRunId()
+		const legacy = 'run_Legacy-1' as RunId
+		const grandchild = generateRunId()
+		const scopes = [
+			scope(current),
+			scope(legacy, { parentRunId: current }),
+			scope(grandchild, { parentRunId: legacy }),
+		]
+		const checkpoints = scopes.map((binding, index) => ({
+			...checkpoint(binding.runId, index + 1, outstanding(binding.runId)),
+			id: index === 1 ? ('cp_Legacy-1' as CheckpointId) : generateCheckpointId(),
+		}))
+		for (const [index, binding] of scopes.entries()) {
+			const cp = checkpoints[index]
+			if (!cp) throw new Error('missing fixture')
+			await store.writeCheckpoint(binding, cp)
+		}
+
+		const cold = () =>
+			new DiskCheckpointStore({ baseDir: dir }, { tenantId: T1, projectId: P1, sessionId: S1 })
+		const page = await cold().listDurableRuns(ALL, { now: NOW })
+		expect(new Set(page.entries.map((row) => [row.runId, row.parentRunId]))).toEqual(
+			new Set([
+				[current, undefined],
+				[legacy, current],
+				[grandchild, legacy],
+			]),
+		)
+		for (const entry of page.entries) {
+			const cp = checkpoints.find((candidate) => candidate.runId === entry.runId)
+			if (!cp) throw new Error('missing fixture')
+			expect(await cold().readCheckpoint(entry, cp.id)).toMatchObject(cp)
+			expect((await findPendingCheckpoint(cold(), entry, { now: NOW }))?.id).toBe(cp.id)
+		}
+	})
+
 	it('does not report the empty shell directory a nested run leaves behind', async () => {
 		await store.writeCheckpoint(
 			scope('run_b', { parentRunId: 'run_a' as RunId }),
@@ -644,6 +682,17 @@ describe('the disk store', () => {
 		// something a sweeper could resume.
 		const page = await listDurableRuns(store, ALL, { now: NOW })
 		expect(page.entries.map((e) => e.runId)).toEqual(['run_b'])
+	})
+
+	it('does not let a warmed root-run binding answer a child-run scope', async () => {
+		const runId = generateRunId()
+		const root = scope(runId)
+		const child = scope(runId, { parentRunId: generateRunId() })
+		const cp = { ...checkpoint(runId, 1), id: generateCheckpointId() }
+		await store.writeCheckpoint(root, cp)
+		expect(await store.readCheckpoint(root, cp.id)).toMatchObject(cp)
+		expect(await store.readCheckpoint(child, cp.id)).toBeNull()
+		expect(await store.listCheckpoints(child)).toEqual([])
 	})
 
 	it('does not create a directory for a run it merely looked at', async () => {

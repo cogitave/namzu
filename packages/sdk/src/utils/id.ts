@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { unsafeId } from '../types/ids/brand.js'
 import type {
 	ActivityId,
@@ -43,330 +43,372 @@ import type {
 	VaultRef,
 	WorkspaceId,
 } from '../types/ids/index.js'
+import { entityIdPattern } from './id-format.js'
 
-const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
-const ALPHABET_LEN = ALPHABET.length
-const MAX_UNIFORM_BYTE = Math.floor(256 / ALPHABET_LEN) * ALPHABET_LEN
-
-/**
- * Mints an id, with the PREFIX checked against the id's own type.
- *
- * The two type parameters are what keeps that check alive now the ids are
- * nominal (NZ-SURF-11). `T` is inferred from the caller's declared return
- * type, `P` from the literal prefix, and the constraint `T extends
- * `${P}${string}`` is what makes `generateRunId` unable to return
- * `generateId('ses_')`: a branded `RunId` is assignable to `` `run_${string}` ``
- * but not to `` `ses_${string}` ``, so the wrong prefix fails to compile.
- *
- * Without the constraint the brand would have COST a check — `unsafeId<T>`
- * accepts any string, so `T` alone would let every generator mint any
- * prefix. That is the docker `sandbox_`/`sbx_` defect, one layer up, which
- * is why this is written the awkward way rather than the short way.
- */
-function generateId<T extends `${P}${string}`, P extends string = string>(
-	prefix: P,
-	length = 12,
-): T {
-	let suffix = ''
-	let remaining = length
-	while (remaining > 0) {
-		const bytes = randomBytes(remaining + 8)
-		for (const byte of bytes) {
-			if (remaining <= 0) break
-			if (byte < MAX_UNIFORM_BYTE) {
-				suffix += ALPHABET[byte % ALPHABET_LEN]
-				remaining--
-			}
-		}
-	}
-	return unsafeId<T>(`${prefix}${suffix}`)
+/** Factories supply the nominal type; the wire identity carries no kind. */
+function generateId<T extends string>(): T {
+	return unsafeId<T>(randomUUID())
 }
 
 export function generateProjectId(): ProjectId {
-	return generateId('prj_')
+	return generateId()
 }
 
 export function generateTopicId(): TopicId {
-	return generateId('top_')
+	return generateId()
 }
 
 export function generateRunId(): RunId {
-	return generateId('run_')
+	return generateId()
 }
 
 export function generateMessageId(): MessageId {
-	return generateId('msg_')
+	return generateId()
 }
 
 export function generateSessionId(): SessionId {
-	return generateId('ses_')
+	return generateId()
 }
 
 export function generateGoalId(): GoalId {
-	return generateId('goal_')
+	return generateId()
 }
 
 export function generateToolCallId(): ToolCallId {
-	return generateId('call_', 8)
+	return generateId()
 }
 
 export function generateActivityId(): ActivityId {
-	return generateId('act_')
+	return generateId()
 }
 
 export function generateTaskId(): TaskId {
-	return generateId('task_')
+	return generateId()
 }
 
 export function generatePlanId(): PlanId {
-	return generateId('plan_')
+	return generateId()
 }
 
 export function generateKnowledgeBaseId(): KnowledgeBaseId {
-	return generateId('kb_')
+	return generateId()
 }
 
 export function generateDocumentId(): DocumentId {
-	return generateId('doc_')
+	return generateId()
 }
 
 export function generateChunkId(): ChunkId {
-	return generateId('chk_')
+	return generateId()
 }
 
 export function generateConnectorId(): ConnectorId {
-	return generateId('conn_')
+	return generateId()
 }
 
 export function generateConnectorInstanceId(): ConnectorInstanceId {
-	return generateId('ci_')
+	return generateId()
 }
 
 export function generateTenantId(): TenantId {
-	return generateId('tnt_')
+	return generateId()
 }
 
 export function generateCredentialId(): CredentialId {
-	return generateId('cred_')
+	return generateId()
 }
 
 export function generateExecutionContextId(): ExecutionContextId {
-	return generateId('ectx_')
+	return generateId()
 }
 
 export function generateMCPServerId(): MCPServerId {
-	return generateId('mcp_')
+	return generateId()
 }
 
 export function generateMCPClientId(): MCPClientId {
-	return generateId('mcpc_')
+	return generateId()
 }
 
 export function generateMCPSessionId(): MCPSessionId {
-	return generateId('mcps_')
+	return generateId()
 }
 
 export function generateEnvironmentId(): EnvironmentId {
-	return generateId('env_')
+	return generateId()
 }
 
 export function generateCheckpointId(): CheckpointId {
-	return generateId('cp_')
+	return generateId()
 }
 
 export function generateAdvisoryId(): AdvisoryId {
-	return generateId('adv_')
+	return generateId()
 }
 
 export function generateAdvisoryCallId(): AdvisoryCallId {
-	return generateId('advc_')
+	return generateId()
 }
 
 export function generateAuditEventId(): AuditEventId {
-	return generateId('aud_')
+	return generateId()
 }
 
 export function generateEmergencySaveId(): EmergencySaveId {
-	return generateId('esave_')
+	return generateId()
 }
 
 export function generateMemoryId(): MemoryId {
-	return generateId('mem_')
+	return generateId()
 }
 
 export function generatePluginId(): PluginId {
-	return generateId('plg_')
+	return generateId()
 }
 
 export function generateSandboxId(): SandboxId {
-	return generateId('sbx_')
+	return generateId()
 }
 
 export function generateWorkspaceId(): WorkspaceId {
-	return generateId('wsp_')
+	return generateId()
 }
 
 export function generateSubSessionId(): SubSessionId {
-	return generateId('sub_')
+	return generateId()
 }
 
 export function generateSummaryId(): SummaryId {
-	return generateId('sum_')
+	return generateId()
 }
 
 export function generateHandoffId(): HandoffId {
-	return generateId('hof_')
+	return generateId()
 }
 
 export function generateDeliverableId(): DeliverableId {
-	return generateId('del_')
+	return generateId()
 }
 
-/** Preserve safe custom suffixes while keeping every checked id one filename segment. */
-function hasValidIdShape(value: string, prefix: string): boolean {
-	return (
-		value.startsWith(prefix) &&
-		value.length > prefix.length &&
-		!/[^A-Za-z0-9_-]/u.test(value.slice(prefix.length))
-	)
+/** Entity kinds are supplied by a typed field or storage collection. */
+export interface EntityIdByKind {
+	run: RunId
+	message: MessageId
+	session: SessionId
+	goal: GoalId
+	toolCall: ToolCallId
+	activity: ActivityId
+	task: TaskId
+	plan: PlanId
+	knowledgeBase: KnowledgeBaseId
+	document: DocumentId
+	chunk: ChunkId
+	connector: ConnectorId
+	connectorInstance: ConnectorInstanceId
+	tenant: TenantId
+	credential: CredentialId
+	executionContext: ExecutionContextId
+	mcpServer: MCPServerId
+	mcpClient: MCPClientId
+	mcpSession: MCPSessionId
+	environment: EnvironmentId
+	checkpoint: CheckpointId
+	lock: LockId
+	advisory: AdvisoryId
+	advisoryCall: AdvisoryCallId
+	emergencySave: EmergencySaveId
+	memory: MemoryId
+	plugin: PluginId
+	sandbox: SandboxId
+	auditEvent: AuditEventId
+	user: UserId
+	agent: AgentId
+	memoryStoreRef: MemoryStoreRef
+	vaultRef: VaultRef
+	knowledgeBaseRef: KnowledgeBaseRef
+	project: ProjectId
+	topic: TopicId
+	subSession: SubSessionId
+	handoff: HandoffId
+	workspace: WorkspaceId
+	summary: SummaryId
+	deliverable: DeliverableId
 }
 
-function parseId<T extends `${P}${string}`, P extends string = string>(
+export type EntityIdKind = keyof EntityIdByKind
+
+/** Compatibility spellings only: new ids do not contain these prefixes. */
+const LEGACY_PREFIXES: Record<EntityIdKind, string> = {
+	run: 'run_',
+	message: 'msg_',
+	session: 'ses_',
+	goal: 'goal_',
+	toolCall: 'call_',
+	activity: 'act_',
+	task: 'task_',
+	plan: 'plan_',
+	knowledgeBase: 'kb_',
+	document: 'doc_',
+	chunk: 'chk_',
+	connector: 'conn_',
+	connectorInstance: 'ci_',
+	tenant: 'tnt_',
+	credential: 'cred_',
+	executionContext: 'ectx_',
+	mcpServer: 'mcp_',
+	mcpClient: 'mcpc_',
+	mcpSession: 'mcps_',
+	environment: 'env_',
+	checkpoint: 'cp_',
+	lock: 'lock_',
+	advisory: 'adv_',
+	advisoryCall: 'advc_',
+	emergencySave: 'esave_',
+	memory: 'mem_',
+	plugin: 'plg_',
+	sandbox: 'sbx_',
+	auditEvent: 'aud_',
+	user: 'usr_',
+	agent: 'agt_',
+	memoryStoreRef: 'mms_',
+	vaultRef: 'vlt_',
+	knowledgeBaseRef: 'kbs_',
+	project: 'prj_',
+	topic: 'top_',
+	subSession: 'sub_',
+	handoff: 'hof_',
+	workspace: 'wsp_',
+	summary: 'sum_',
+	deliverable: 'del_',
+}
+
+const ID_PATTERNS = new Map(
+	Object.entries(LEGACY_PREFIXES).map(([kind, prefix]) => [kind, entityIdPattern(prefix)]),
+)
+
+/**
+ * Checks an id without throwing or rewriting it. UUIDs identify opaque
+ * entities; the kind comes from the caller's field or collection. A legacy
+ * value must carry that kind's exact prefix and a nonempty portable suffix.
+ * This validates spelling, not existence, ownership, or access permission.
+ */
+export function isEntityId<K extends EntityIdKind>(
+	value: unknown,
+	kind: K,
+): value is EntityIdByKind[K] {
+	if (typeof value !== 'string') return false
+	return ID_PATTERNS.get(kind)?.test(value) ?? false
+}
+
+function parseId<K extends EntityIdKind>(
 	raw: string,
-	prefix: P,
+	kind: K,
 	typeName: string,
-): T {
-	if (!hasValidIdShape(raw, prefix)) {
+): EntityIdByKind[K] {
+	if (!isEntityId(raw, kind)) {
 		throw new Error(
-			`Invalid ${typeName}: expected "${prefix}" followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens, got ${JSON.stringify(raw)}`,
+			`Invalid ${typeName}: expected a UUID or "${LEGACY_PREFIXES[kind]}" followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens, got ${JSON.stringify(raw)}`,
 		)
 	}
-	return unsafeId<T>(raw)
+	return raw
 }
 
 /** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseProjectId(raw: string): ProjectId {
-	return parseId(raw, 'prj_', 'ProjectId')
+	return parseId(raw, 'project', 'ProjectId')
 }
 /** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseRunId(raw: string): RunId {
-	return parseId(raw, 'run_', 'RunId')
+	return parseId(raw, 'run', 'RunId')
 }
 /** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseConnectorInstanceId(raw: string): ConnectorInstanceId {
-	return parseId(raw, 'ci_', 'ConnectorInstanceId')
+	return parseId(raw, 'connectorInstance', 'ConnectorInstanceId')
 }
 /** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parsePluginId(raw: string): PluginId {
-	return parseId(raw, 'plg_', 'PluginId')
+	return parseId(raw, 'plugin', 'PluginId')
 }
 /** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseSandboxId(raw: string): SandboxId {
-	return parseId(raw, 'sbx_', 'SandboxId')
+	return parseId(raw, 'sandbox', 'SandboxId')
 }
 
-// ─── validating constructors ─────────────────────────────────────────────
-//
-// Brands cannot validate values received from JavaScript, JSON or a type
-// assertion. Each constructor checks both the type prefix and its suffix;
-// stores that turn ids into paths must also validate at their boundary.
+// Brands do not validate JSON, JavaScript callers, or type assertions.
+// Storage boundaries must check again before using an id as a path segment.
 
-/** A string with the wrong type prefix or an empty or unsafe suffix. */
+/** A value that is neither a UUID nor a safe legacy id of the expected kind. */
 export class InvalidIdError extends Error {
 	constructor(
 		readonly value: string,
+		/** The compatibility prefix accepted alongside UUIDs. */
 		readonly expectedPrefix: string,
 	) {
 		super(
-			`Not a valid id: ${JSON.stringify(value)} must start with ${JSON.stringify(expectedPrefix)} followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens. Use the matching generate*Id() factory to mint an id.`,
+			`Not a valid id: ${JSON.stringify(value)} must be a UUID or start with ${JSON.stringify(expectedPrefix)} followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens. Use the matching generate*Id() factory to mint an id.`,
 		)
 		this.name = 'InvalidIdError'
 	}
 }
 
-/**
- * Checks the prefix and a nonempty portable suffix without normalizing the
- * value. Lowercasing or trimming an established id would change its identity.
- *
- * The trailing underscore in every prefix is what makes them unambiguous:
- * `mcpc_x` does not start with `mcp_`, and `advc_x` does not start with
- * `adv_`, so no id type can swallow another's values.
- */
-/**
- * What a checked constructor is, named so the id type can be supplied by
- * ANNOTATION rather than as a type argument.
- *
- * That distinction is load-bearing and was got wrong once. `makeIdParser<
- * RunId>('ses_')` compiles: supplying one of two type parameters explicitly
- * makes the other fall back to its DEFAULT rather than be inferred, so `P`
- * became `string`, the constraint read `RunId extends string`, and the
- * prefix check evaporated. Caught by mutating `asRunId`'s prefix and finding
- * the build still green — a check that cannot fail. With the type on the
- * const instead, `T` comes from the contextual type and `P` is inferred from
- * the argument, so the same mutation is a compile error.
- */
 type IdParser<T extends string> = (value: string) => T
 
-function makeIdParser<T extends `${P}${string}`, P extends string = string>(
-	prefix: P,
-): IdParser<T> {
-	return (value: string): T => {
-		if (!hasValidIdShape(value, prefix)) throw new InvalidIdError(value, prefix)
-		return unsafeId<T>(value)
+function makeIdParser<K extends EntityIdKind>(kind: K): IdParser<EntityIdByKind[K]> {
+	return (value) => {
+		if (!isEntityId(value, kind)) throw new InvalidIdError(value, LEGACY_PREFIXES[kind])
+		return value
 	}
 }
 
-export const asRunId: IdParser<RunId> = makeIdParser('run_')
-export const asMessageId: IdParser<MessageId> = makeIdParser('msg_')
-export const asSessionId: IdParser<SessionId> = makeIdParser('ses_')
-export const asGoalId: IdParser<GoalId> = makeIdParser('goal_')
-export const asToolCallId: IdParser<ToolCallId> = makeIdParser('call_')
-export const asActivityId: IdParser<ActivityId> = makeIdParser('act_')
-export const asTaskId: IdParser<TaskId> = makeIdParser('task_')
-export const asPlanId: IdParser<PlanId> = makeIdParser('plan_')
-export const asKnowledgeBaseId: IdParser<KnowledgeBaseId> = makeIdParser('kb_')
-export const asDocumentId: IdParser<DocumentId> = makeIdParser('doc_')
-export const asChunkId: IdParser<ChunkId> = makeIdParser('chk_')
-export const asConnectorId: IdParser<ConnectorId> = makeIdParser('conn_')
-export const asConnectorInstanceId: IdParser<ConnectorInstanceId> = makeIdParser('ci_')
-export const asTenantId: IdParser<TenantId> = makeIdParser('tnt_')
-export const asCredentialId: IdParser<CredentialId> = makeIdParser('cred_')
-export const asExecutionContextId: IdParser<ExecutionContextId> = makeIdParser('ectx_')
-export const asMCPServerId: IdParser<MCPServerId> = makeIdParser('mcp_')
-export const asMCPClientId: IdParser<MCPClientId> = makeIdParser('mcpc_')
-export const asMCPSessionId: IdParser<MCPSessionId> = makeIdParser('mcps_')
-export const asEnvironmentId: IdParser<EnvironmentId> = makeIdParser('env_')
-export const asCheckpointId: IdParser<CheckpointId> = makeIdParser('cp_')
-export const asLockId: IdParser<LockId> = makeIdParser('lock_')
-export const asAdvisoryId: IdParser<AdvisoryId> = makeIdParser('adv_')
-export const asAdvisoryCallId: IdParser<AdvisoryCallId> = makeIdParser('advc_')
-export const asEmergencySaveId: IdParser<EmergencySaveId> = makeIdParser('esave_')
-export const asMemoryId: IdParser<MemoryId> = makeIdParser('mem_')
-export const asPluginId: IdParser<PluginId> = makeIdParser('plg_')
-export const asSandboxId: IdParser<SandboxId> = makeIdParser('sbx_')
-export const asAuditEventId: IdParser<AuditEventId> = makeIdParser('aud_')
-export const asUserId: IdParser<UserId> = makeIdParser('usr_')
+export const asRunId: IdParser<RunId> = makeIdParser('run')
+export const asMessageId: IdParser<MessageId> = makeIdParser('message')
+export const asSessionId: IdParser<SessionId> = makeIdParser('session')
+export const asGoalId: IdParser<GoalId> = makeIdParser('goal')
+export const asToolCallId: IdParser<ToolCallId> = makeIdParser('toolCall')
+export const asActivityId: IdParser<ActivityId> = makeIdParser('activity')
+export const asTaskId: IdParser<TaskId> = makeIdParser('task')
+export const asPlanId: IdParser<PlanId> = makeIdParser('plan')
+export const asKnowledgeBaseId: IdParser<KnowledgeBaseId> = makeIdParser('knowledgeBase')
+export const asDocumentId: IdParser<DocumentId> = makeIdParser('document')
+export const asChunkId: IdParser<ChunkId> = makeIdParser('chunk')
+export const asConnectorId: IdParser<ConnectorId> = makeIdParser('connector')
+export const asConnectorInstanceId: IdParser<ConnectorInstanceId> =
+	makeIdParser('connectorInstance')
+export const asTenantId: IdParser<TenantId> = makeIdParser('tenant')
+export const asCredentialId: IdParser<CredentialId> = makeIdParser('credential')
+export const asExecutionContextId: IdParser<ExecutionContextId> = makeIdParser('executionContext')
+export const asMCPServerId: IdParser<MCPServerId> = makeIdParser('mcpServer')
+export const asMCPClientId: IdParser<MCPClientId> = makeIdParser('mcpClient')
+export const asMCPSessionId: IdParser<MCPSessionId> = makeIdParser('mcpSession')
+export const asEnvironmentId: IdParser<EnvironmentId> = makeIdParser('environment')
+export const asCheckpointId: IdParser<CheckpointId> = makeIdParser('checkpoint')
+export const asLockId: IdParser<LockId> = makeIdParser('lock')
+export const asAdvisoryId: IdParser<AdvisoryId> = makeIdParser('advisory')
+export const asAdvisoryCallId: IdParser<AdvisoryCallId> = makeIdParser('advisoryCall')
+export const asEmergencySaveId: IdParser<EmergencySaveId> = makeIdParser('emergencySave')
+export const asMemoryId: IdParser<MemoryId> = makeIdParser('memory')
+export const asPluginId: IdParser<PluginId> = makeIdParser('plugin')
+export const asSandboxId: IdParser<SandboxId> = makeIdParser('sandbox')
+export const asAuditEventId: IdParser<AuditEventId> = makeIdParser('auditEvent')
+export const asUserId: IdParser<UserId> = makeIdParser('user')
 /**
- * @deprecated Nothing in this kernel mints an `agt_` id, so this constructor
- * throws on every agent identifier the kernel actually produces — an agent is
- * named by its registry key. See {@link AgentId}. Removal is a later major.
+ * @deprecated Agents are named by their registry keys, which have no entity-id
+ * spelling contract. Use the registry key as a string. See {@link AgentId}.
+ * Removal is a later major.
  */
-export const asAgentId: IdParser<AgentId> = makeIdParser('agt_')
-export const asMemoryStoreRef: IdParser<MemoryStoreRef> = makeIdParser('mms_')
-export const asVaultRef: IdParser<VaultRef> = makeIdParser('vlt_')
-export const asKnowledgeBaseRef: IdParser<KnowledgeBaseRef> = makeIdParser('kbs_')
-export const asProjectId: IdParser<ProjectId> = makeIdParser('prj_')
-export const asTopicId: IdParser<TopicId> = makeIdParser('top_')
-export const asSubSessionId: IdParser<SubSessionId> = makeIdParser('sub_')
-export const asHandoffId: IdParser<HandoffId> = makeIdParser('hof_')
-export const asWorkspaceId: IdParser<WorkspaceId> = makeIdParser('wsp_')
-export const asSummaryId: IdParser<SummaryId> = makeIdParser('sum_')
-export const asDeliverableId: IdParser<DeliverableId> = makeIdParser('del_')
+export const asAgentId: IdParser<AgentId> = makeIdParser('agent')
+export const asMemoryStoreRef: IdParser<MemoryStoreRef> = makeIdParser('memoryStoreRef')
+export const asVaultRef: IdParser<VaultRef> = makeIdParser('vaultRef')
+export const asKnowledgeBaseRef: IdParser<KnowledgeBaseRef> = makeIdParser('knowledgeBaseRef')
+export const asProjectId: IdParser<ProjectId> = makeIdParser('project')
+export const asTopicId: IdParser<TopicId> = makeIdParser('topic')
+export const asSubSessionId: IdParser<SubSessionId> = makeIdParser('subSession')
+export const asHandoffId: IdParser<HandoffId> = makeIdParser('handoff')
+export const asWorkspaceId: IdParser<WorkspaceId> = makeIdParser('workspace')
+export const asSummaryId: IdParser<SummaryId> = makeIdParser('summary')
+export const asDeliverableId: IdParser<DeliverableId> = makeIdParser('deliverable')
 
-// No `asThreadId`, deliberately. `ThreadId` is an alias of `TopicId` from
-// the Topic rename, so `asTopicId` already accepts every value one can hold
-// — and a parser shipped `@deprecated` on the day it is written is a name
-// that exists only to be removed. `declared-but-undriven`.
+// No asThreadId: the ambiguous thd_ container prefix remains retired.
 
 // `ToolUseId` is a bare `string` — it comes from a provider, which chooses
 // its own shape, so there is no prefix to check and a constructor here would

@@ -303,6 +303,7 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 	it('retires after an admitted data stream is lost and cancellation cannot be confirmed', async () => {
 		let executeCalls = 0
 		let cancelCalls = 0
+		const cancellationReplyErrors: NodeJS.ErrnoException[] = []
 		server = await startAgentServer((socket) => {
 			const reader = new __framing.FrameReader()
 			socket.on('data', (chunk: Buffer) => {
@@ -333,6 +334,10 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 				}
 				if (request.op === 'cancel-execution') {
 					cancelCalls += 1
+					// The last attempt can exhaust its deadline while this fake
+					// guest is replying. Own that socket's expected broken-pipe
+					// error and assert it after every connection has closed.
+					socket.on('error', (error: NodeJS.ErrnoException) => cancellationReplyErrors.push(error))
 					socket.end(
 						__framing.frame(JSON.stringify({ ok: false, error: 'cancellation_unconfirmed' })),
 					)
@@ -360,6 +365,15 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
 		expect(sandbox.status).toBe('destroyed')
 		await expect(sandbox.exec('/bin/true')).rejects.toThrow(/no new guest operation/)
+		await new Promise<void>((resolve, reject) => {
+			server?.close((error) => (error ? reject(error) : resolve()))
+		})
+		server = undefined
+		expect(
+			cancellationReplyErrors.filter(
+				(error) => error.code !== 'EPIPE' || error.syscall !== 'write',
+			),
+		).toEqual([])
 	}, 12_000)
 
 	it('does not let a held failure DELETE keep create pending forever', async () => {

@@ -3,7 +3,7 @@ import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 
-import { DiskSessionStore } from '@namzu/sdk'
+import { DiskSessionStore, isEntityId } from '@namzu/sdk'
 
 import { readIdentity } from './identity.js'
 import { findCliProject } from './project.js'
@@ -697,29 +697,49 @@ async function inventoryOf(collection: RootCollection, sink: IssueSink): Promise
 }
 
 function isCanonicalSessionDir(path: string): boolean {
-	return /^projects\/prj_[^/]+\/sessions\/ses_[^/]+$/u.test(path)
+	const parts = path.split('/')
+	return (
+		parts.length === 4 &&
+		parts[0] === 'projects' &&
+		isEntityId(parts[1], 'project') &&
+		parts[2] === 'sessions' &&
+		isEntityId(parts[3], 'session')
+	)
 }
 
 function isCanonicalRunDir(path: string): boolean {
+	const parts = path.split('/')
 	return (
-		/^projects\/prj_[^/]+\/sessions\/ses_[^/]+\/runs\/run_[^/]+$/u.test(path) ||
-		/^projects\/prj_[^/]+\/sessions\/ses_[^/]+\/runs\/run_[^/]+\/children\/run_[^/]+$/u.test(path)
+		(parts.length === 6 ||
+			(parts.length === 8 && parts[6] === 'children' && isEntityId(parts[7], 'run'))) &&
+		isCanonicalSessionDir(parts.slice(0, 4).join('/')) &&
+		parts[4] === 'runs' &&
+		isEntityId(parts[5], 'run')
 	)
 }
 
 function isCanonicalCheckpointFile(path: string): boolean {
+	const parts = path.split('/')
+	const file = parts.at(-1)
 	return (
-		/^projects\/prj_[^/]+\/sessions\/ses_[^/]+\/runs\/run_[^/]+\/checkpoints\/cp_[^/]+\.json$/u.test(
-			path,
-		) ||
-		/^projects\/prj_[^/]+\/sessions\/ses_[^/]+\/runs\/run_[^/]+\/children\/run_[^/]+\/checkpoints\/cp_[^/]+\.json$/u.test(
-			path,
-		)
+		file?.endsWith('.json') === true &&
+		isEntityId(file.slice(0, -5), 'checkpoint') &&
+		parts.at(-2) === 'checkpoints' &&
+		isCanonicalRunDir(parts.slice(0, -2).join('/'))
 	)
 }
 
 function isCanonicalEmergencyFile(path: string): boolean {
-	return /^projects\/prj_[^/]+\/sessions\/ses_[^/]+\/runs\/emergency\/run_[^/]+\.json$/u.test(path)
+	const parts = path.split('/')
+	const file = parts[6]
+	return (
+		parts.length === 7 &&
+		isCanonicalSessionDir(parts.slice(0, 4).join('/')) &&
+		parts[4] === 'runs' &&
+		parts[5] === 'emergency' &&
+		file?.endsWith('.json') === true &&
+		isEntityId(file.slice(0, -5), 'run')
+	)
 }
 
 async function originOnlyCandidates(
@@ -944,7 +964,7 @@ async function inspectProjectBinding(
 		}
 	}
 	const projectId = parsed.projectId
-	if (typeof projectId !== 'string' || !/^prj_[A-Za-z0-9_-]+$/u.test(projectId)) {
+	if (!isEntityId(projectId, 'project')) {
 		return {
 			status: 'invalid-pointer',
 			detail: 'cli.json has no valid projectId.',

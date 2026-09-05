@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Update**: [Ids](/sdk/ids.md) — kernel factories mint UUIDs; constructors and storage accept safe legacy IDs unchanged, and in-memory stores can hydrate existing Project and Topic snapshots.
+* **Update**: [Project and session state](/cli/project-state.md) — delegated work retains the actual parent scope, child artifacts stay under the real Project, and tasks use the invoking run's default scope.
 * **Update**: [Background jobs in the CLI](/cli/background-jobs.md) — corrected the index's obsolete claim that sandboxed sessions have no background jobs; regression coverage now checks both CLI exposure and sandbox-owned execution.
 * **Creation**: [Project and session state](/cli/project-state.md) — new subdirectories share the checkout-root Project, existing directory bindings remain reachable, and identity and Topic initialization publish one winner across concurrent launches.
 * **Update**: [Memory](/cli/memory.md) — new project notes use the checkout-root file; existing directory-local memory keeps precedence.

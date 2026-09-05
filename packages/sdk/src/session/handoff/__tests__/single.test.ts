@@ -159,8 +159,12 @@ describe('executeSingleHandoff', () => {
 		const outcome = await executeSingleHandoff(deps, assignment, tenant)
 
 		expect(outcome.assignmentId).toBe(assignment.id)
-		expect(outcome.workspaceId.startsWith('wsp_')).toBe(true)
-		expect(outcome.newSessionId.startsWith('ses_')).toBe(true)
+		expect(outcome.workspaceId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
+		expect(outcome.newSessionId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
 		expect(outcome.committedOwnerVersion).toBe(1)
 
 		const reloaded = await store.getSession(session.id, tenant)

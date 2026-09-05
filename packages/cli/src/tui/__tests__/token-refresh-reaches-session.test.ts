@@ -197,7 +197,7 @@ function providerToken(params: Record<string, unknown>): string | undefined {
 function durableEntry(suffix: string) {
 	return {
 		runId: `run_refresh_${suffix}`,
-		tenantId: 'ten_refresh',
+		tenantId: 'tnt_refresh',
 		projectId: 'prj_refresh',
 		sessionId: 'ses_refresh',
 	} as never

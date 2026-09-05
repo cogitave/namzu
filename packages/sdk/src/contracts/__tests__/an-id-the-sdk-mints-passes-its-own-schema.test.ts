@@ -1,52 +1,97 @@
 import { describe, expect, it } from 'vitest'
+import { zodToJsonSchema } from 'zod-to-json-schema'
 
-import { generateProjectId } from '../../utils/id.js'
-import { ProjectIdSchema } from '../schemas.js'
+import {
+	asMessageId,
+	asProjectId,
+	asRunId,
+	generateMessageId,
+	generateProjectId,
+	generateRunId,
+} from '../../utils/id.js'
+import { MessageIdSchema, ProjectIdSchema, RunIdSchema } from '../schemas.js'
 
-/**
- * The schema the SDK exports for project ids must accept exactly what the SDK
- * mints, and nothing that could double as a path.
- */
+const contracts = [
+	{
+		name: 'project',
+		schema: ProjectIdSchema,
+		generate: generateProjectId,
+		parse: asProjectId,
+		prefix: 'prj_',
+	},
+	{
+		name: 'run',
+		schema: RunIdSchema,
+		generate: generateRunId,
+		parse: asRunId,
+		prefix: 'run_',
+	},
+	{
+		name: 'message',
+		schema: MessageIdSchema,
+		generate: generateMessageId,
+		parse: asMessageId,
+		prefix: 'msg_',
+	},
+]
 
-describe('every project id the SDK mints passes the schema the SDK exports', () => {
-	it('accepts what the id generator produces', () => {
-		// 200 draws, because the generator is random over [0-9a-z] and one
-		// sample proves nothing about the alphabet it can reach.
-		for (let i = 0; i < 200; i++) {
-			const id = generateProjectId()
-			const parsed = ProjectIdSchema.safeParse(id)
-			expect({ id, ok: parsed.success }).toEqual({ id, ok: true })
-		}
-	})
+describe('id schemas use the same spelling contract as constructors', () => {
+	it.each(contracts)(
+		'$name retains its spelling constraints in JSON Schema',
+		({ schema, generate, prefix }) => {
+			const json = zodToJsonSchema(schema)
+			if (!('pattern' in json) || typeof json.pattern !== 'string') {
+				throw new Error('The id schema must export its spelling pattern')
+			}
+			const pattern = new RegExp(json.pattern)
+			const id = generate()
+			expect(pattern.test(id)).toBe(true)
+			expect(pattern.test(`${prefix}Selected-A_1`)).toBe(true)
+			expect(pattern.test(`${id}\n`)).toBe(false)
+			expect(pattern.test(`${prefix}../outside`)).toBe(false)
+			// Existing callers can keep composing the exported ZodString schema.
+			expect(schema.min(1).parse(id)).toBe(id)
+		},
+	)
 
-	it('still refuses what no minter produces, because the id is also a directory name', () => {
-		// Widening to accept the legacy form must not widen to accept a path.
-		// Everything here would be joined onto the store root if it got through.
-		const refused = [
-			'prj_../../etc',
-			'prj_..',
-			'prj_a/b',
-			'prj_a\\b',
-			'prj_',
-			'prj_legacy_',
-			// The 0.2 migration's synthesised form. Retired with the migration: one prefix, one shape.
-			'prj_legacy_abc',
-			'prj_ABC',
-			'prj_a-b',
-			'prj_a b',
-			'proj_abc',
-			'thd_abc',
-			// NZ-TOPIC-04: the live Topic layer's own prefix must be exactly as
-			// unwelcome here as the legacy container's — this schema names
-			// Project ids, not Topic ids, and the two must never be mistaken
-			// for one another at the validation boundary.
-			'top_abc',
-			'',
-		]
+	it.each(contracts)(
+		'$name accepts minted and established safe ids unchanged',
+		({ schema, generate, parse, prefix }) => {
+			const accepted = [
+				...Array.from({ length: 20 }, () => generate()),
+				`${prefix}selected`,
+				`${prefix}Selected-A_1`,
+				'550E8400-E29B-41D4-A716-446655440000',
+			]
+			for (const id of accepted) {
+				expect(schema.parse(id)).toBe(id)
+				expect(parse(id)).toBe(id)
+			}
+		},
+	)
 
-		for (const candidate of refused) {
-			const parsed = ProjectIdSchema.safeParse(candidate)
-			expect({ candidate, ok: parsed.success }).toEqual({ candidate, ok: false })
-		}
-	})
+	it.each(contracts)(
+		'$name refuses invalid segments and mismatched legacy kinds',
+		({ schema, parse, prefix }) => {
+			const refused = [
+				`${prefix}../../etc`,
+				`${prefix}..`,
+				`${prefix}a/b`,
+				`${prefix}a\\b`,
+				prefix,
+				`${prefix}a b`,
+				`${prefix}a\n`,
+				`${prefix}a\0b`,
+				'550e8400-e29b-41d4-a716-446655440000\n',
+				'proj_abc',
+				'thd_abc',
+				'top_abc',
+				'',
+			]
+			for (const id of refused) {
+				expect(schema.safeParse(id).success, id).toBe(false)
+				expect(() => parse(id), id).toThrow()
+			}
+		},
+	)
 })
