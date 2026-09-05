@@ -49,6 +49,13 @@ export default defineConfig({
 				// the floor is measured against the 17 lines that actually
 				// decide something.
 				'src/pricing/catalogue.generated.ts',
+				// Not source, and the reason it is named: with `all: true` the v8
+				// provider globs the whole package root before it transforms
+				// anything, and a runtime state tree left here by an old,
+				// un-isolated test run (51,444 project directories on one
+				// machine) held that glob for forty minutes with every test
+				// already reported. Excluding it prunes the walk.
+				'.namzu/**',
 			],
 			all: true,
 			clean: true,
