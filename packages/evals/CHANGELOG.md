@@ -1,5 +1,11 @@
 # @namzu/evals
 
+## 0.3.2
+
+### Patch Changes
+
+- 1f339cf: Use SDK-generated UUIDs and the current `topicId` field in the shipped kernel eval suites so they run against the SDK's UUID-only identity contract. Eval cases and scoring behavior are unchanged.
+
 ## 0.3.1
 
 ### Patch Changes
