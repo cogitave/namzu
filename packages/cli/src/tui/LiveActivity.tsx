@@ -5,8 +5,8 @@
  * active turn. These rows stay tiny to keep per-frame cost bounded.
  */
 
-import { Box, Text } from 'ink'
-import { useEffect, useRef, useState } from 'react'
+import { Box, Text, useAnimation } from 'ink'
+import { useRef } from 'react'
 
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -57,7 +57,7 @@ export function LiveActivity({
 	const startedAtRef = useRef<number | null>(null)
 	if (active && startedAtRef.current === null) startedAtRef.current = Date.now()
 	if (!active) startedAtRef.current = null
-	const tick = useTick(active && animate, 120)
+	const { frame: tick } = useAnimation({ isActive: active && animate, interval: 120 })
 	if (!active) return null
 	const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length] ?? '⠋'
 	const now = Date.now()
@@ -154,17 +154,6 @@ export function LiveActivity({
 			) : null}
 		</Box>
 	)
-}
-
-/** Re-render `interval` ms while `active`; returns an incrementing counter. */
-function useTick(active: boolean, interval: number): number {
-	const [n, setN] = useState<number>(0)
-	useEffect(() => {
-		if (!active) return
-		const id = setInterval(() => setN((v) => v + 1), interval)
-		return () => clearInterval(id)
-	}, [active, interval])
-	return n
 }
 
 /** `420ms` → `0.4s`, `3210ms` → `3.2s`, `12000ms` → `12s`, `83000ms` → `1m23s`. */

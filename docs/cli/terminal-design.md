@@ -28,15 +28,23 @@ retain explicit labels. Raw output remains the original source projection.
 A square message frame marks the writing area. Green corners and the `MESSAGE`
 label identify the active input; its long edges stay quiet. The two frame rows
 take the place of vertical padding, so the frame adds no height to the previous
-input layout. Opening a permission prompt or text/command picker hides the
+input layout. While a turn is working, a short green light travels clockwise
+around the border and fades behind its leading edge. The message text and
+label stay steady. The light follows the actual frame dimensions, including
+multiline drafts and terminal resizing, without adding rows or moving input.
+Opening a permission prompt or text/command picker hides the
 frame while keeping the composer mounted, so its draft and attachments survive
-the transition.
+the transition. The light stops while input belongs to another surface and
+when the turn ends. It is disabled for non-interactive output, screen readers,
+`NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb`.
 Existing submit, queue, steering and history keys keep their behavior.
 
-The Working indicator owns the conversation's activity animation. Reply marks
-and tool rows remain steady. Elapsed time, bounded progress text and task status
-carry information without competing animations. Agent panels use the same quiet
-rules and highlight the current selection with the accent color.
+The Working indicator and the border light share the renderer's animation
+scheduler. Border ticks update only the decorative overlay, leaving the input
+and transcript components alone. Reply marks and tool rows remain steady.
+Elapsed time, bounded progress text and task status carry the details. Agent
+panels use the same quiet rules and highlight the current selection with the
+accent color.
 
 When the full previews would crowd the input area, activity shows the current
 tool and total tool count; the plan shows the current step and completion

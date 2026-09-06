@@ -6261,6 +6261,7 @@ export function App({
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
 						<ComposerFrame
+							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
 							focus={
 								phase === 'ready' &&
 								state !== 'awaiting-permission' &&
