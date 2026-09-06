@@ -30,6 +30,7 @@ import {
 	type Preferences,
 } from '../../integrations/providers/index.js'
 import * as memoryStore from '../../memory/store.js'
+import * as userCommandStore from '../../user-commands/store.js'
 
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiExitSummary } from '../exit-summary.js'
@@ -163,7 +164,8 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	listRecent: async () => [],
 	loadConversation: async () => [],
 }))
-vi.mock('../../user-commands/store.js', () => ({
+vi.mock('../../user-commands/store.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../user-commands/store.js')>()),
 	discoverUserCommands: () => [],
 }))
 
@@ -605,6 +607,71 @@ describe('publishing a picker selection', () => {
 		await submit(harness, 'use the selected settings')
 		await vi.waitFor(() => expect(efforts).toEqual(['low', 'low', 'low']))
 		expect(modes).toEqual(['accept-edits', 'plan', 'strict'])
+	})
+
+	it.each([
+		{ name: 'permissions', usage: '/permissions' },
+		{ name: 'memory', usage: '/memory' },
+		{ name: 'team-release', usage: '/team-release [arguments]' },
+		{ name: 'team-check', usage: '/team-check' },
+	])('shows /help $name without executing the command', async ({ name, usage }) => {
+		const customCommands: userCommandStore.UserCommand[] = [
+			{
+				name: 'team-release',
+				description: 'Prepare a release for the team',
+				template: 'Prepare release $ARGUMENTS',
+				path: '/w/.namzu/commands/team-release.md',
+				source: 'project',
+			},
+			{
+				name: 'team-check',
+				description: 'Check the project conventions',
+				template: 'Check the project conventions',
+				path: '/w/.namzu/commands/team-check.md',
+				source: 'project',
+			},
+		]
+		vi.spyOn(userCommandStore, 'discoverUserCommands').mockReturnValue(customCommands)
+		const expand = vi.spyOn(userCommandStore, 'expandCommand')
+		const remember = vi.spyOn(memoryStore, 'appendMemory').mockReturnValue('/w/.namzu/MEMORY.md')
+		const read = vi.spyOn(memoryStore, 'readMemory').mockReturnValue({
+			user: null,
+			memory: null,
+			project: 'Saved project guidance',
+		})
+		const resetApprovals = vi.fn()
+		const send = vi.fn(sessionFixture().send)
+		createSession = async () => ({
+			...sessionFixture(),
+			approvalLatched: () => true,
+			resetApprovalLatch: resetApprovals,
+			send,
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, `/help ${name}`)
+		await frameShows(harness.lastFrame, 'Usage:')
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).toMatch(new RegExp(`· /${name}\\b`))
+		expect(frame).toContain(usage)
+		expect(frame).toContain('Type a message')
+		expect(frame).not.toContain('Choose a command')
+		expect(frame).not.toContain('Search:')
+		const custom = customCommands.find((command) => command.name === name)
+		if (custom) {
+			expect(frame).toContain(custom.description)
+			expect(frame).toContain(custom.path)
+			if (!custom.template.includes('$ARGUMENTS')) expect(frame).not.toContain('[arguments]')
+		}
+		expect(resetApprovals).not.toHaveBeenCalled()
+		expect(remember).not.toHaveBeenCalled()
+		expect(read).not.toHaveBeenCalled()
+		expect(expand).not.toHaveBeenCalled()
+		expect(writePrefs).not.toHaveBeenCalled()
+		expect(send).not.toHaveBeenCalled()
 	})
 
 	it('shows saved memory to the operator without prompt instructions or inspection writes', async () => {

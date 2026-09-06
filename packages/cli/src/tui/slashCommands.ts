@@ -44,7 +44,7 @@ import {
 	permissionModeLabel,
 } from '../permissions/mode.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
-import { type UserCommand, expandCommand } from '../user-commands/store.js'
+import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
 
 /** One row in the interactive `/help` command palette. */
@@ -366,6 +366,11 @@ export interface SlashContext {
 export interface SlashCommand {
 	readonly name: string
 	readonly description: string
+	/** Read-only usage, kept beside the action rather than inferred by executing it. */
+	readonly help?: {
+		readonly usage: readonly string[]
+		readonly details?: readonly string[]
+	}
 	/** Compatibility-only commands remain executable but stay out of discovery UI. */
 	readonly discoverable?: false
 	/** A live precondition shared by discovery and execution. */
@@ -484,6 +489,11 @@ export function mergeHostCommands(
 			(descriptor): SlashCommand => ({
 				name: descriptor.name,
 				description: descriptor.description,
+				help: {
+					// An arbitrary JSON Schema does not declare positional CLI syntax.
+					usage: [`/${descriptor.name}${descriptor.args ? ' [arguments]' : ''}`],
+					...(descriptor.hint ? { details: [descriptor.hint] } : {}),
+				},
 				action: (_ctx, args) => ({
 					kind: 'host-command',
 					name: descriptor.name,
@@ -559,6 +569,63 @@ export function parseSlash(line: string): ParsedSlash | null {
 	return { name, args }
 }
 
+/** Help reads metadata only: even a mutating or unavailable command is safe to inspect. */
+function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
+	const name = args[0]?.replace(/^\//, '')
+	if (args.length !== 1 || !name) {
+		return {
+			kind: 'message',
+			role: 'system',
+			content: 'Usage: /help [command]. For example: /help permissions.',
+		}
+	}
+	const command = (ctx.builtins ?? CLI_LOCAL_COMMANDS).find((entry) => entry.name === name)
+	if (command) {
+		const reason = command.unavailable?.(ctx)
+		return {
+			kind: 'message',
+			role: 'system',
+			content: [
+				`/${command.name}`,
+				command.description,
+				'',
+				'Usage:',
+				...(command.help?.usage ?? [`/${command.name}`]).map((usage) => `  ${usage}`),
+				...(command.help?.details?.length ? ['', ...command.help.details] : []),
+				...(reason ? ['', `Unavailable: ${reason}`] : []),
+			].join('\n'),
+		}
+	}
+	const user = ctx.userCommands.find((entry) => entry.name === name)
+	if (user) {
+		const acceptsArguments = user.template.includes(ARGUMENTS_TOKEN)
+		return {
+			kind: 'message',
+			role: 'system',
+			content: [
+				`/${user.name}`,
+				user.description,
+				'',
+				...(user.problem
+					? []
+					: [
+							'Usage:',
+							`  /${user.name}${acceptsArguments ? ' [arguments]' : ''}`,
+							'',
+							'Running this command sends its saved prompt to the model.',
+						]),
+				`${user.source === 'project' ? 'Project command' : 'User command (all projects)'}: ${user.path}`,
+				...(user.problem ? [`Unavailable: ${user.problem}`] : []),
+			].join('\n'),
+		}
+	}
+	return {
+		kind: 'message',
+		role: 'system',
+		content: `Unknown command: /${name}. Use /help to browse available commands.`,
+	}
+}
+
 /**
  * The commands that are genuinely this host's.
  *
@@ -576,6 +643,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'agents',
 		description: 'Inspect delegated agents; /agents available lists configured agents.',
+		help: { usage: ['/agents [running|available]'] },
 		action: (_ctx, args) =>
 			args.length === 0 || (args.length === 1 && args[0] === 'running')
 				? { kind: 'agent-cockpit' }
@@ -586,6 +654,19 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'goal',
 		description: 'Manage this conversation’s goal and automatic continuation.',
+		help: {
+			usage: [
+				'/goal',
+				'/goal status',
+				'/goal set [objective]',
+				'/goal edit [objective]',
+				'/goal pause|resume|clear',
+			],
+			details: [
+				'Set and edit open an editor when no objective is supplied. Direct /goal <objective> also creates a goal.',
+				'Creating or resuming a goal enables automatic work. Pausing or clearing stops future automatic turns.',
+			],
+		},
 		action: (_ctx, args) => {
 			if (args.length === 0) return { kind: 'goal-picker' }
 			if (args.length === 1 && args[0] === 'status') {
@@ -599,8 +680,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'help',
-		description: 'Choose and run an available slash command.',
-		action: (ctx) => {
+		description: 'Browse commands, or show usage with /help <command>.',
+		help: {
+			usage: ['/help', '/help <command>'],
+			details: [
+				'Without a name, opens the command menu. With a name, shows help without running the command.',
+			],
+		},
+		action: (ctx, args) => {
+			if (args.length > 0) return commandHelp(ctx, args)
 			// Reads what this session OFFERS, not a module constant. A command the
 			// kernel registered and `/help` did not list is a command nobody
 			// discovers. Refused command files remain rows with their reason; App
@@ -626,6 +714,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'feedback',
+		help: { usage: ['/feedback', '/feedback good|bad [note]'] },
 		unavailable: (ctx) =>
 			ctx.lastAssistantMessageId()
 				? undefined
@@ -690,6 +779,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'rename',
+		help: { usage: ['/rename [name]', '/rename clear'] },
 		description:
 			'Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name.',
 		action: renameConversationAction,
@@ -701,6 +791,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'add-dir',
+		help: {
+			usage: ['/add-dir [path]'],
+			details: ['Without a path, lists added directories. Paths may contain spaces.'],
+		},
 		description:
 			'Let the file tools reach another directory this session: /add-dir <path>. Alone, list them.',
 		action: (ctx, args) => {
@@ -721,6 +815,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'restore',
+		help: {
+			usage: ['/restore [turn]'],
+			details: ['Run /restore to list checkpoints before choosing a turn to restore.'],
+		},
 		description:
 			'Put files back to before a turn: /restore lists the checkpoints, /restore N restores.',
 		action: (_ctx, args) => {
@@ -739,6 +837,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'memory',
+		help: {
+			usage: ['/memory [show|list]', '/memory add <text>', '/memory --user add <text>'],
+			details: [
+				'Show and list read saved memory. Add saves a project note; --user saves a note for all projects.',
+				'Direct /memory <text> also saves a note. To save a reserved word as a note, use /memory add show.',
+			],
+		},
 		description:
 			'Show curated memory, or save a fact with /memory add <text>. Use /memory --user add <text> for every project.',
 		action: (_ctx, args) => {
@@ -766,6 +871,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skills',
+		help: { usage: ['/skills', '/skills list', '/skills <name>'] },
 		description: 'Choose an available skill; use /skills list for the full roster.',
 		action: (_ctx, args) => {
 			const choice = args.join(' ').trim()
@@ -782,11 +888,23 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'model',
 		description: 'Choose a model for the current provider, or change providers.',
+		help: {
+			usage: ['/model'],
+			details: [
+				'Press p in the model picker to change providers. Normal selections are saved for future launches; temporary credentials keep the selection in this session.',
+			],
+		},
 		action: () => ({ kind: 'repick' }),
 	},
 	{
 		name: 'login',
 		description: 'Sign in with a Claude or Codex subscription.',
+		help: {
+			usage: ['/login', '/login <callback-address-or-code>'],
+			details: [
+				'Start sign-in with /login, then paste the callback address or code when requested.',
+			],
+		},
 		action: (_ctx, args) =>
 			isCompletionArgument(args)
 				? { kind: 'login', pasted: args.join(' ').trim() }
@@ -794,6 +912,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'logout',
+		help: { usage: ['/logout [claude|codex|all]'] },
 		description: 'Remove a Namzu-owned subscription credential: /logout [claude|codex|all].',
 		action: (_ctx, args) => {
 			const target = args.join(' ').trim().toLowerCase()
@@ -812,6 +931,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'cost',
+		help: { usage: ['/cost [details]'] },
 		description: 'Show usage and cost for the current or latest run.',
 		action: (ctx, args) =>
 			reportCommand('cost', args, (details) => renderCost(ctx.usage, ctx.compaction, details)),
@@ -827,6 +947,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'release-notes',
+		help: { usage: ['/release-notes [version]'] },
 		description: 'Show what changed in the version that is running: /release-notes [version].',
 		action: (_ctx, args) => ({
 			kind: 'message',
@@ -845,6 +966,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'context',
+		help: { usage: ['/context [details]'] },
 		description: 'Show context usage and automatic cleanup.',
 		action: (ctx, args) =>
 			reportCommand('context', args, (details) =>
@@ -853,6 +975,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'review',
+		help: {
+			usage: ['/review [instructions]'],
+			details: [
+				'Without instructions, opens the review target menu. Starting a review uses the selected model.',
+			],
+		},
 		description: 'Choose a review target, or provide custom instructions: /review [instructions].',
 		action: (_ctx, args) => {
 			const instructions = args.join(' ').trim()
@@ -861,6 +989,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'mcp',
+		help: { usage: ['/mcp [tools|details]'] },
 		description: 'Show connected tool servers and connection problems.',
 		action: (ctx, args) =>
 			reportCommand('mcp', args, (details) => renderMcp(ctx.mcp(), details), 'tools'),
@@ -873,6 +1002,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'compact',
 		description: 'Summarise the older half of this conversation to free up context.',
+		help: {
+			usage: ['/compact'],
+			details: ['Compaction uses a model call to summarise older context.'],
+		},
 		action: () => ({ kind: 'compact' }),
 	},
 	{
@@ -882,6 +1015,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'raw',
+		help: { usage: ['/raw [on|off]'] },
 		description: 'Toggle copy-friendly plain transcript rendering: /raw [on|off].',
 		action: (_ctx, args) => {
 			const choice = args.join(' ').trim().toLowerCase()
@@ -897,6 +1031,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'export',
+		help: {
+			usage: ['/export [path]'],
+			details: [
+				'Without a path, choose the clipboard or a Markdown file. Existing files are not overwritten. Paths may contain spaces.',
+			],
+		},
 		description: 'Export this verified conversation to the clipboard or a Markdown file.',
 		action: (_ctx, args) => {
 			const path = args.join(' ').trim()
@@ -905,6 +1045,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'status',
+		help: { usage: ['/status [details|config|tools]'] },
 		description: 'Show the model, permissions, workspace and latest cost.',
 		action: (ctx, args) => {
 			const which = args.join(' ').trim().toLowerCase()
@@ -939,6 +1080,16 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'permissions',
 		description: 'Choose which actions need your approval.',
+		help: {
+			usage: ['/permissions', '/permissions details', '/permissions <mode>'],
+			details: [
+				'Choose a preset in the menu, or use a typed mode:',
+				...(['prompt', 'accept-edits', 'plan', 'auto', 'strict'] as const).map(
+					(mode) => `  ${mode}: ${permissionModeLabel(mode)}`,
+				),
+				'Changes apply to this session. Explicit deny rules and sandbox restrictions still apply.',
+			],
+		},
 		action: (ctx, args) => {
 			if (args.length === 0) return { kind: 'permission-mode-picker' }
 			const mode = args.length === 1 ? args[0]?.toLowerCase() : undefined
@@ -960,6 +1111,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'effort',
+		help: {
+			usage: ['/effort [level|default]'],
+			details: [
+				'Run /effort to see the levels supported by the selected model and usable fallbacks. Changes affect future main-query turns in this session.',
+			],
+		},
 		description: 'Choose reasoning effort for future turns: /effort [level|default].',
 		action: (ctx, args) => {
 			if (args.length === 0) {
@@ -1009,6 +1166,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'init',
 		description: 'Write an AGENTS.md describing this project to future agents.',
+		help: {
+			usage: ['/init'],
+			details: [
+				'Asks the selected model to read the project and write instructions. Existing instructions are read before changes are proposed.',
+			],
+		},
 		action: (ctx) => {
 			if (!ctx.providerSummary) {
 				return {
@@ -1534,10 +1697,11 @@ export function runSlash(
 	// why the file never ran.
 	const cmd = builtins.find((c) => c.name === parsed.name)
 	if (cmd) {
-		const reason = cmd.unavailable?.(ctx)
+		const commandContext = { ...ctx, builtins }
+		const reason = cmd.unavailable?.(commandContext)
 		return reason
 			? { kind: 'message', role: 'system', content: reason }
-			: cmd.action(ctx, parsed.args)
+			: cmd.action(commandContext, parsed.args)
 	}
 
 	const user = ctx.userCommands.find((c) => c.name === parsed.name)

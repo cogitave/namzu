@@ -184,6 +184,7 @@ validated.
 | Permissions | The first menu offers Ask before changes, Auto-approve edits and Plan (read-only). More options holds Auto-approve tools, Preapproved tools only and View rules. Menus and settings show effective approval state, including an earlier all-tools approval. Selecting a preset resets that approval. The prompt explicitly labels its all-tools/session scope; typed modes and `/permissions details` remain available. |
 | Tasks | `/tasks` reads the actual store supplied to the current/latest run, including resumed runs. Starting another run or switching conversations clears the selected readout. Empty, not-yet-available and unsupported lists are distinct; stored tasks are not deleted. |
 | Discovery | Composer completion, `/help` and dispatch use the same merged command catalogue. Shared availability metadata can explain an unavailable action, and execution rechecks it. |
+| Command help | Bare `/help` retains the command picker. `/help <command>` reads usage, description and availability without invoking the target; user-command help also identifies the full source path, scope and any refusal problem. |
 | Reports | `/status`, `/cost` and `/context` show summaries with explicit `details` variants. `/mcp tools` expands the server summary. Spend is rendered from monetary data; own-run cost, delegated tokens, estimated context and unknown prices remain distinct. |
 | Settings | `/settings` shows effective values for Model, Reasoning effort and Permissions, and opens their controls. Configuration opens a separate values-free source report. |
 | Memory | Bare `/memory` and standalone `show`/`list` inspect curated memory without writing. `add <text>` explicitly saves a note; empty `add` displays usage. Ordinary free-text notes remain supported. |
@@ -213,10 +214,6 @@ These are interaction comparisons. For example, Namzu's Auto-approve tools
 does not change sandbox access or add another product's automatic review.
 
 ## Remaining limits
-
-* `/help <command>` still opens the command picker rather than command-specific
-  usage. The main catalogue is shared, but per-command usage is not yet a
-  separate read-only help view.
 
 * Running agents and configured agents remain separate views. The available
   roster is still a list of configured identifiers; it is not a combined,

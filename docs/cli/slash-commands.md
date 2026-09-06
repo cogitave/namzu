@@ -18,7 +18,7 @@ explain why they cannot run and are checked again when selected.
 
 | Command | What it does |
 | --- | --- |
-| `/help` | Search commands and choose an action, including command files. |
+| `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/settings` | View the current model, reasoning effort and permission mode; open their controls or configuration-source details. |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
@@ -52,6 +52,24 @@ explain why they cannot run and are checked again when selected.
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
 | `/tasks` | Read tasks from this conversation’s current or latest run. Starting another run or changing conversations clears the previous selection. |
 | `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. |
+
+## Command-specific help
+
+Bare `/help` opens the searchable command picker. `/help permissions` and
+`/help /permissions` instead show that command's usage, description and any
+reason it is currently unavailable. Reading help does not invoke the target
+command. Names match exactly and are case-sensitive, as they are during
+execution. An unknown name or multiple target words produces guidance rather
+than opening or running another command.
+
+CLI command usage is declared alongside its action. Kernel commands retain
+their descriptor's hint and show `[arguments]` when the descriptor provides an
+argument schema; help does not invent positional arguments or flags from that
+schema.
+
+For a user command file, help shows its full source path and scope, plus any
+problem that prevents execution. Its usage includes `[arguments]` only when
+the template contains `$ARGUMENTS`. Help does not expand or execute the template.
 
 ## Settings and model changes
 

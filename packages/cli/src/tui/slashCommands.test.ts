@@ -1,8 +1,9 @@
 import type { CostInfo } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
 	CLI_LOCAL_COMMANDS,
+	type SlashCommand,
 	type SlashContext,
 	initPrompt,
 	kernelCommandDescriptors,
@@ -84,6 +85,187 @@ const ctxWithTools: SlashContext = context({
 	availableTools: () => ['Bash', 'Read', 'Edit'],
 	providerSummary: 'anthropic-personal (anthropic)',
 	modelSummary: 'claude-opus-4-7',
+})
+
+describe('command-specific help', () => {
+	function helpText(line: string, helpContext = ctx, commands = CLI_LOCAL_COMMANDS): string {
+		const result = runSlash(line, helpContext, commands)
+		expect(result?.kind).toBe('message')
+		if (result?.kind !== 'message') throw new Error('Expected read-only help')
+		expect(result.role).toBe('system')
+		return result.content
+	}
+
+	it('uses the dispatch catalogue without invoking even a hidden or unavailable target', () => {
+		const action = vi.fn(() => {
+			throw new Error('Help must never run the target')
+		})
+		const unavailable = vi.fn(() => 'Connect a workspace first.')
+		const custom: SlashCommand = {
+			name: 'custom',
+			description: 'An embedded command.',
+			discoverable: false,
+			help: { usage: ['/custom <path>'], details: ['A path may contain spaces.'] },
+			unavailable,
+			action,
+		}
+		const commands = [...CLI_LOCAL_COMMANDS, custom]
+		const output = helpText('/help custom', context({ builtins: CLI_LOCAL_COMMANDS }), commands)
+		expect(output).toContain('An embedded command.')
+		expect(output).toContain('  /custom <path>')
+		expect(output).toContain('A path may contain spaces.')
+		expect(output).toContain('Unavailable: Connect a workspace first.')
+		expect(unavailable).toHaveBeenCalledTimes(1)
+		expect(action).not.toHaveBeenCalled()
+	})
+
+	it('accepts an optional slash and documents a target before its preconditions are met', () => {
+		expect(helpText('/help /permissions')).toBe(helpText('/help permissions'))
+		const feedback = helpText('/help feedback')
+		expect(feedback).toContain('/feedback good|bad [note]')
+		expect(feedback).toContain('Unavailable: Nothing to rate yet.')
+	})
+
+	it('uses the same catalogue for help, execution and availability checks', () => {
+		const unavailable = vi.fn((current: SlashContext) =>
+			current.builtins?.some((command) => command.name === 'custom')
+				? undefined
+				: 'Missing from catalogue.',
+		)
+		const action = vi.fn(() => ({ kind: 'none' as const }))
+		const commands = [
+			...CLI_LOCAL_COMMANDS,
+			{ name: 'custom', description: 'Custom command.', unavailable, action },
+		]
+		const stale = context({ builtins: CLI_LOCAL_COMMANDS })
+		expect(helpText('/help custom', stale, commands)).not.toContain('Unavailable:')
+		expect(runSlash('/custom', stale, commands)).toEqual({ kind: 'none' })
+		for (const [current] of unavailable.mock.calls) expect(current.builtins).toBe(commands)
+		expect(action).toHaveBeenCalledWith(expect.objectContaining({ builtins: commands }), [])
+	})
+
+	it('does not execute any target while inspecting the complete local catalogue', () => {
+		const action = vi.fn(() => {
+			throw new Error('Command executed from help')
+		})
+		const commands = CLI_LOCAL_COMMANDS.map((command) =>
+			command.name === 'help' ? command : { ...command, action },
+		)
+		for (const command of commands) {
+			const output = helpText(`/help ${command.name}`, ctx, commands)
+			expect(output).toContain(command.description)
+			expect(output).toContain(`Usage:\n  /${command.name}`)
+		}
+		expect(action).not.toHaveBeenCalled()
+	})
+
+	it('does not invent positional syntax or flags from kernel prose and JSON schemas', () => {
+		const commands = mergeHostCommands([
+			{
+				name: 'tasks',
+				description: 'Inspect tracked work.',
+				hint: 'id, status and owner for each task',
+			},
+			{
+				name: 'upload',
+				description: 'Send chosen files.',
+				hint: 'Choose files to send.',
+				args: { type: 'object', properties: { files: { type: 'array' } } },
+			},
+		])
+		const tasks = helpText('/help tasks', ctx, commands)
+		expect(tasks).toContain('Usage:\n  /tasks\n\nid, status and owner for each task')
+		const upload = helpText('/help upload', ctx, commands)
+		expect(upload).toContain('Usage:\n  /upload [arguments]\n\nChoose files to send.')
+		expect(upload).not.toContain('--files')
+		expect(upload).not.toContain('properties')
+	})
+
+	it('keeps builtin precedence over a reserved user command with the same name', () => {
+		const output = helpText(
+			'/help permissions',
+			context({
+				userCommands: [
+					{
+						name: 'permissions',
+						description: 'Must not override builtin help.',
+						template: 'SECRET TEMPLATE',
+						path: '/project/.namzu/commands/permissions.md',
+						source: 'project',
+						problem: 'Reserved command name.',
+					},
+				],
+			}),
+		)
+		expect(output).toContain('Choose which actions need your approval.')
+		expect(output).not.toContain('Must not override')
+		expect(output).not.toContain('SECRET TEMPLATE')
+	})
+
+	it.each([
+		{
+			source: 'project' as const,
+			template: 'PRIVATE $ARGUMENTS',
+			usage: '/check [arguments]',
+			label: 'Project command',
+		},
+		{
+			source: 'user' as const,
+			template: 'PRIVATE',
+			usage: '/check',
+			label: 'User command (all projects)',
+		},
+	])(
+		'shows $source command scope and source without revealing its template',
+		({ source, template, usage, label }) => {
+			const output = helpText(
+				'/help check',
+				context({
+					userCommands: [
+						{
+							name: 'check',
+							description: 'Check the work.',
+							template,
+							source,
+							path: '/absolute/path with spaces/check.md',
+						},
+					],
+				}),
+			)
+			expect(output).toContain(`Usage:\n  ${usage}\n`)
+			expect(output).toContain(`${label}: /absolute/path with spaces/check.md`)
+			expect(output).toContain('sends its saved prompt to the model')
+			expect(output).not.toContain('PRIVATE')
+		},
+	)
+
+	it('shows a refused custom file and its problem without claiming it is runnable', () => {
+		const output = helpText(
+			'/help broken',
+			context({
+				userCommands: [
+					{
+						name: 'broken',
+						description: 'Could not be read.',
+						template: '',
+						source: 'project',
+						path: '/project/.namzu/commands/broken.md',
+						problem: 'Invalid frontmatter.',
+					},
+				],
+			}),
+		)
+		expect(output).toContain('/project/.namzu/commands/broken.md')
+		expect(output).toContain('Unavailable: Invalid frontmatter.')
+		expect(output).not.toContain('Usage:')
+	})
+
+	it('keeps exact name matching and returns guidance for unknown or extra input', () => {
+		expect(helpText('/help PERMISSIONS')).toContain('Unknown command: /PERMISSIONS.')
+		expect(helpText('/help absent')).toContain('Use /help to browse available commands.')
+		expect(helpText('/help permissions auto')).toContain('Usage: /help [command]')
+		expect(helpText('/help /')).toContain('Usage: /help [command]')
+	})
 })
 
 describe('matchSlashCommands', () => {
