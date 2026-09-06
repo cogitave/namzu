@@ -3,6 +3,8 @@
 ## 2026-09-07
 * **Update**: [Ids](/sdk/ids.md) — `query` and `drainQuery` reject missing session, topic, project or tenant identity before provider calls, run events or persistence, including untyped JavaScript callers.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — verification retains rich-result text, tool-call chronology and attachment descriptors within one character budget, without copying encoded attachments or provider-private reasoning.
+* **Update**: [Harness invariants](/sdk/harness-invariants.md) — full delegated results remain readable from their parent ledger after manager eviction, with foreign-parent and closed-runtime access refused.
+* **Update**: [Terminal design](/cli/terminal-design.md) — long conversation names and goals use a cursor-following single-line editor, preserving the complete value through narrow terminals and resizing.
 * **Creation**: [Run the kernel](/sdk/quick-start.md) — runnable offline SDK examples, explicit history and identity ownership, and agent-kernel positioning across the repository entry points.
 
 ## 2026-09-06

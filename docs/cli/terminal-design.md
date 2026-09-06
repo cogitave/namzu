@@ -84,6 +84,11 @@ Enter applies an available selection; non-searchable menus keep their numeric
 shortcuts. Esc returns to the parent or cancels, including the earlier-prompt
 picker. The footer describes the keys used by the active surface.
 
+Text editors for conversation names and goals keep a single visible input row.
+Long values scroll with the cursor, including after terminal resizing, so the
+editor title and save/cancel keys remain visible. Omission marks affect only the
+display; editing and saving preserve the complete value and Unicode characters.
+
 Permission choices use plain labels: Ask before changes, Auto-approve edits and
 Plan (read-only). More options holds automatic tool approval, preapproved-only
 execution and the rule report. Both levels identify the effective current

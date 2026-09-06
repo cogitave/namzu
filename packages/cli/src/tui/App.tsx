@@ -6518,6 +6518,7 @@ export function App({
 						) : null}
 						{textPrompt ? (
 							<TextPrompt
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								key={textPrompt.token}
 								title={textPrompt.title}
 								placeholder={textPrompt.placeholder}

@@ -214,7 +214,9 @@ class ParentTaskScheduler extends LocalTaskScheduler {
 	}
 
 	override getTask(taskId: TaskId): TaskHandle | undefined {
-		return this.owns(taskId) ? super.getTask(taskId) : undefined
+		// The parent ledger retains terminal results after the manager evicts
+		// its live record. Lookup and waiting must read the same owned history.
+		return super.listTasks().find((task) => task.taskId === taskId)
 	}
 
 	override cancelTask(taskId: TaskId, cause?: CancelCause): void {
@@ -222,7 +224,9 @@ class ParentTaskScheduler extends LocalTaskScheduler {
 	}
 
 	override async waitForTask(taskId: TaskId): Promise<TaskHandle> {
-		if (!this.owns(taskId)) throw new Error(`Task ${taskId} does not belong to this parent run`)
+		const task = this.getTask(taskId)
+		if (!task) throw new Error(`Task ${taskId} does not belong to this parent run`)
+		if (isTerminalAgentTaskState(task.state)) return task
 		return super.waitForTask(taskId)
 	}
 

@@ -8,10 +8,14 @@
  * cancel.
  */
 
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useCallback, useRef, useState } from 'react'
 
-import { terminalDisplayText } from './terminal-display.js'
+import {
+	choiceDisplayText,
+	choiceDisplayWidth,
+	truncateChoiceText,
+} from './terminal-choice-text.js'
 import { theme } from './theme.js'
 
 export interface TextPromptProps {
@@ -21,6 +25,8 @@ export interface TextPromptProps {
 	readonly emptyNotice?: string
 	/** Stay mounted while a higher-priority permission prompt owns the screen. */
 	readonly hidden?: boolean
+	/** Width available after the parent's padding. */
+	readonly columns?: number
 	readonly onSubmit: (value: string) => void
 	readonly onCancel: () => void
 }
@@ -61,15 +67,67 @@ function previousWordBoundary(source: string, cursor: number): number {
 	return start
 }
 
+/** A viewport around the cursor; source text and its grapheme boundaries stay intact. */
+function visibleInput(source: string, cursor: number, columns: number) {
+	const segments = [...graphemeSegmenter.segment(source)].map(({ segment, index }) => ({
+		index,
+		text: choiceDisplayText(segment),
+		width: choiceDisplayWidth(segment),
+	}))
+	segments.push({ index: source.length, text: ' ', width: 1 })
+	const current = Math.max(
+		0,
+		segments.findIndex(({ index }) => index >= cursor),
+	)
+	const under = segments[current]!
+	if (columns < under.width + 2) {
+		return { before: '', under: truncateChoiceText(under.text, columns), after: '' }
+	}
+	let start = 0
+	let end = segments.length
+	if (segments.reduce((sum, segment) => sum + segment.width, 0) > columns) {
+		// Leave room for both omission markers; share the remaining cells around
+		// the cursor, then use spare room on either side at the start or end.
+		const available = columns - 2
+		let used = under.width
+		start = current
+		end = current + 1
+		while (start > 0 && used + segments[start - 1]!.width <= Math.floor(available / 2)) {
+			used += segments[--start]!.width
+		}
+		while (end < segments.length && used + segments[end]!.width <= available) {
+			used += segments[end++]!.width
+		}
+		while (start > 0 && used + segments[start - 1]!.width <= available) {
+			used += segments[--start]!.width
+		}
+	}
+	return {
+		before: `${start > 0 ? '…' : ''}${segments
+			.slice(start, current)
+			.map(({ text }) => text)
+			.join('')}`,
+		under: under.text,
+		after: `${segments
+			.slice(current + 1, end)
+			.map(({ text }) => text)
+			.join('')}${end < segments.length ? '…' : ''}`,
+	}
+}
+
 export function TextPrompt({
 	title,
 	placeholder,
 	initialValue = '',
 	emptyNotice = 'A value is required. Press Esc to cancel.',
 	hidden = false,
+	columns,
 	onSubmit,
 	onCancel,
 }: TextPromptProps) {
+	const terminal = useWindowSize()
+	const contentWidth = Math.max(1, (columns ?? terminal.columns ?? 80) - 4)
+	const inputWidth = Math.max(1, contentWidth - 2)
 	const [value, setValueState] = useState(initialValue)
 	const valueRef = useRef(initialValue)
 	const [cursor, setCursorState] = useState(initialValue.length)
@@ -160,38 +218,44 @@ export function TextPrompt({
 	// higher-priority permission request briefly takes over the screen.
 	if (hidden) return null
 
-	const next = nextBoundary(value, cursor)
-	const before = terminalDisplayText(value.slice(0, cursor))
-	const underCursor = terminalDisplayText(value.slice(cursor, next)) || ' '
-	const after = terminalDisplayText(value.slice(next))
+	const visible = visibleInput(value, cursor, inputWidth)
 
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Text color={theme.accent.user} bold>
-				{terminalDisplayText(title)}
+				{truncateChoiceText(title, contentWidth)}
 			</Text>
 			<Box paddingTop={1}>
-				<Text color={theme.accent.user}>› </Text>
+				<Box width={2} flexShrink={0}>
+					<Text color={theme.accent.user}>› </Text>
+				</Box>
 				{value.length === 0 ? (
-					<>
+					<Text>
 						<Text inverse> </Text>
-						<Text color={theme.text.muted}>{terminalDisplayText(placeholder)}</Text>
-					</>
+						<Text color={theme.text.muted}>{truncateChoiceText(placeholder, inputWidth - 1)}</Text>
+					</Text>
 				) : (
-					<>
-						<Text>{before}</Text>
-						<Text inverse>{underCursor}</Text>
-						<Text>{after}</Text>
-					</>
+					<Text>
+						{visible.before}
+						<Text inverse>{visible.under}</Text>
+						{visible.after}
+					</Text>
 				)}
 			</Box>
 			{notice ? (
 				<Box paddingTop={1}>
-					<Text color={theme.status.warn}>{notice}</Text>
+					<Text color={theme.status.warn}>{truncateChoiceText(notice, contentWidth)}</Text>
 				</Box>
 			) : null}
 			<Box paddingTop={1}>
-				<Text color={theme.text.muted}>enter save · esc cancel · Ctrl+W delete word</Text>
+				<Text color={theme.text.muted}>
+					{truncateChoiceText(
+						contentWidth >= 43
+							? 'enter save · esc cancel · Ctrl+W delete word'
+							: 'enter save · esc cancel',
+						contentWidth,
+					)}
+				</Text>
 			</Box>
 		</Box>
 	)

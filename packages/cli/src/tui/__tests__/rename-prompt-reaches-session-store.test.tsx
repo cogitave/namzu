@@ -187,6 +187,43 @@ it('prefills, edits, persists, and exposes the conversation name to /resume', as
 	expect(output).toContain('"Current project roadmap"')
 })
 
+it('keeps a long name and its cursor reachable in a narrow editor without shortening the saved value', async () => {
+	const original = `HEAD_MARKER ${'界e\u0301👩‍💻 '.repeat(48)} TAIL_MARKER`
+	titleState.current = original
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 14 })
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	screen.press('/rename')
+	await screen.waitForRender()
+	screen.press('\r')
+	await screen.waitForRender()
+	let frame = screen.viewport().join('\n')
+	expect(frame).toContain('Rename conversation')
+	expect(frame).toContain('TAIL_MARKER')
+	expect(frame).toContain('…')
+	expect(frame).toContain('esc cancel')
+	expect(frame).not.toContain('MESSAGE')
+
+	screen.press('\x01')
+	await screen.waitForRender()
+	expect(screen.viewport().join('\n')).toContain('HEAD_MARKER')
+	await screen.resize(80, 14)
+	expect(screen.viewport().join('\n')).toContain('HEAD_MARKER')
+	screen.press('Edited ')
+	screen.press('\x05')
+	screen.press('!')
+	await screen.waitForRender()
+	await screen.resize(40, 14)
+	frame = screen.viewport().join('\n')
+	expect(frame).toContain('TAIL_MARKER!')
+	expect(frame).toContain('Rename conversation')
+	expect(frame).toContain('esc cancel')
+	screen.press('\r')
+	await waitUntil(screen, () => titleState.writes.length === 1)
+	expect(titleState.writes).toEqual([`Edited ${original}!`])
+	expect(turnState.calls).toBe(0)
+})
+
 it('cancels without mutating the durable name', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, {
 		cols: 100,

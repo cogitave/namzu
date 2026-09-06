@@ -93,7 +93,6 @@ const { App } = await import('../App.js')
 const { openSessions } = await import('../../integrations/sessions/store.js')
 const mounted: Array<{ unmount: () => Promise<void>; screen: Screen }> = []
 const roots: string[] = []
-const tick = (ms = 25) => new Promise((resolve) => setTimeout(resolve, ms))
 
 afterEach(async () => {
 	vi.restoreAllMocks()
@@ -238,11 +237,13 @@ it('returns to help when an asynchronous goal menu is cancelled and ignores its 
 	await submit(harness, '/help')
 	const entered = deferred()
 	const release = deferred()
-	vi.spyOn(DiskSessionGoalStore.prototype, 'getGoal').mockImplementationOnce(async () => {
-		entered.resolve()
-		await release.promise
-		return null
-	})
+	const read = vi
+		.spyOn(DiskSessionGoalStore.prototype, 'getGoal')
+		.mockImplementationOnce(async () => {
+			entered.resolve()
+			await release.promise
+			return null
+		})
 	await submit(harness, '/goal')
 	await entered.promise
 	await until(
@@ -250,11 +251,16 @@ it('returns to help when an asynchronous goal menu is cancelled and ignores its 
 		'goal loading menu never appeared',
 	)
 	harness.stdin.write('\x1B')
-	await tick(50)
+	await until(
+		() =>
+			harness.lastFrame().includes('/settings') && !harness.lastFrame().includes('Loading goal'),
+		'Escape did not return from the loading goal menu to help',
+	)
 	expect(harness.lastFrame()).not.toContain('Loading goal')
 	expect(harness.lastFrame()).toContain('/settings')
 	release.resolve()
-	await tick(75)
+	await read.mock.results[0]?.value
+	await harness.screen.waitForRender()
 	expect(harness.lastFrame()).not.toContain('No goal set for this conversation.')
 	expect(harness.lastFrame()).toContain('/settings')
 	expect(sends).toBe(0)
@@ -276,7 +282,11 @@ it('shows effective settings without sending a turn or changing them on cancel',
 	expect(harness.lastFrame()).toContain('Ask before changes')
 	expect(sends).toBe(0)
 	harness.stdin.write('\x1B')
-	await tick(50)
+	await until(
+		() =>
+			harness.lastFrame().includes('MESSAGE') && !harness.lastFrame().includes('Select a setting'),
+		'Escape did not return from settings to the composer',
+	)
 	expect(harness.lastFrame()).not.toContain('Select a setting')
 	expect(sends).toBe(0)
 })

@@ -95,7 +95,9 @@ without blocking new operator input. Cancellation still stops parent-owned
 children. A released tool wait does not cancel its child or mark it completed.
 The CLI's `wait_for_task` reads the complete result of a task owned by the same
 parent run, including text truncated in notifications; it does not launch a
-replacement. Budget stops remain visible beside any retained partial output.
+replacement. Results retained in that parent's task ledger remain readable
+after the manager evicts terminal task records. Another parent run cannot read
+them. Budget stops remain visible beside any retained partial output.
 
 `query()` accepts an optional `waitForInbound(signal)` callback alongside
 `inboundMessages()`. The callback observes arrival without consuming messages:
