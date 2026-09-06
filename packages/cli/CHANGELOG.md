@@ -1,5 +1,225 @@
 # @namzu/cli
 
+## 19.0.0
+
+### Major Changes
+
+- 2bcd95e: Make interactive command selection and reporting reflect the active session.
+
+  The CLI now opens a goal menu for `/goal` and the delegated-agent view for
+  `/agents`. Use `/goal status` for a goal report and `/agents available` for
+  the configured roster. `/status`, `/cost`, `/context`
+  and `/mcp` show concise reports; use the `details` variants or `/mcp tools`
+  for expanded diagnostics. Usage is labeled as current or latest run usage.
+  Searchable help, skill, branch and commit menus treat typed digits as search
+  text; use arrows and Enter to select. Esc cancels previous-prompt editing.
+
+  `/settings` shows effective model, reasoning and permission settings. Changing
+  a model preserves fallbacks and subagent preferences and saves only after
+  successful activation. `/tasks` reads the current or latest run's real store,
+  with no task state carried across conversation switches.
+
+  Resume hints include the working directory and the actual Node executable and
+  CLI entrypoint, preventing a checkout build from handing its UUID session to
+  an older global installation. Embedded hosts can supply their own launch
+  command; otherwise their hint uses `namzu`.
+
+  The SDK goal command reserves `status` for inspection and `set` for explicit
+  creation. To create an objective literally named `status`, use `/goal set status`.
+  The previous bare `/goal status` created that objective. Goal reports now use
+  `enabled`/`paused` and `Automatic turns` instead of `armed`/`disarmed` and
+  `Rounds admitted`; consumers parsing human-readable reports must update.
+
+- f6a46b2: New working directories inside a Git checkout now share the checkout-root Project,
+  conversation list and searchable memory. Previously every exact working directory
+  created a separate Project. Existing directory bindings retain their IDs, Topics
+  and histories; worktrees, nested repositories and standalone directories remain
+  separate. Existing records are not merged or moved. Use a separate checkout or
+  application home when new work needs separate history.
+
+  New project memory files created from a repository subdirectory now live at the
+  checkout root. An existing directory-local `.namzu/MEMORY.md` still takes precedence,
+  including an empty file. Create that local file before writing notes to retain
+  directory-specific memory.
+
+  Concurrent first launches now use one installation identity and one Topic per
+  Project. Malformed existing identity or Topic metadata causes an error instead
+  of being silently overwritten. Preserve or repair that metadata before retrying;
+  replacing an identity changes which tenant's history the CLI can access.
+
+- e15e923: Fewer slash commands: what a key already does is not also a command, and what one command already shows is not also another.
+
+  **Removed** (38 → 26). Each line names what to use instead.
+
+  - `/expand [n]` → **Ctrl+O**. Opens the collapsed tool bodies still on screen in place; once they have scrolled away it reprints the most recent one in full. The collapse hint now reads `… +N lines · ctrl+o`. Numbered reopening of older bodies is gone with the numbers.
+  - `/agent` → **Ctrl+T** (the delegated-work inspector; the command had already been hidden from help).
+  - `/clear-screen` → **Ctrl+L**.
+  - `/mention` → type **`@`** in the composer.
+  - `/quit` → `/exit`.
+  - `/title` → `/rename`; `/rename clear` removes the saved name.
+  - `/skill` → `/skills` (`/skills <name>` activates directly).
+  - `/provider`, `/pwd` → `/status`, which already shows both.
+  - `/tools` → `/status tools`.
+  - `/debug-config` → `/status config`.
+  - `/remember <text>` → `/memory <text>`; bare `/memory` still shows what is remembered.
+
+  A removed spelling is answered with "Unknown command: /x. Try /help." rather than silently sent to the model as prose. Scripts and muscle memory that used one of the old names are what this breaks; nothing else on the surface changed.
+
+  Kept on purpose: `/new` (a fresh conversation that leaves the screen alone is a different act from `/clear`), `/raw` (a distinct rendering mode with no key), `/effort` (the scriptable form of Shift+↑/↓).
+
+- 22cf680: The CLI has an identity. A tenant id is minted once per installation (`~/.namzu/identity.json`) and a topic id once per project (`projects/<id>/cli/topic.json`); every project, conversation and run is filed under them instead of the kernel's `tnt_unknown_legacy` placeholder and the constant `top_namzu-cli`. A conversation's id is chosen when the session opens and written under it at first use, so `session_start` hooks, logs and the screen all name the same id. The workspace-local legacy state backend (`<cwd>/.namzu/cli.json` pointing at a project stored inside the repository) is no longer read: state lives in the application home only, and `namzu state` reports what is there without minting anything. Conversations are matched to a project by project id alone.
+- 22cf680: Memory has a project scope. `#note` and `/memory <text>` now append to `<project>/.namzu/MEMORY.md`, not to `~/.namzu/MEMORY.md`; `/memory --user <text>` writes the user file. Every turn is given the project file, the user memory file and `USER.md`, each capped at 8,000 characters with a line naming what was left out. A workflow that relied on `#note` reaching every project should use `--user`.
+- 3ad8784: **Sessions run the kernel's `salience` compaction by default.** The context is held near half the model's window by scoring every message and clearing what the run has stopped using, before any summary; `/context` shows what it did. The previous behaviour is one line in the config file: `compaction: { strategy: structured }`.
+- 47e573c: Kernel ID factories, file-lock IDs and SDK-managed Docker/ACI sandbox IDs now generate UUID v4 strings instead of prefixed random strings. Nominal TypeScript entity brands remain, but their underlying type is an opaque string rather than a prefixed template literal. Before upgrading, remove prefix parsing and prefix-only validators in consumers; use checked constructors or the new `isEntityId(value, kind)` predicate and validate ownership through store records. Public Project, Run and Message schemas accept only UUIDs while remaining Zod string schemas. External sandbox/orchestrator IDs retain their service-defined contracts.
+
+  `InvalidIdError.expectedKind` replaces `expectedPrefix`; hosts displaying validation errors must read the entity kind instead. Built-in HTTP/webhook connector IDs and the default shell-hook plugin ID are now stable UUIDs.
+
+  Prefixed records, including formerly accepted safe prefixes, are no longer admitted. Constructors, schemas and disk readers require UUIDs. No automatic migration or deletion is performed. Supply UUIDs for custom IDs and use a fresh dedicated application home when previous state is no longer needed. Do not downgrade UUID stores to a prefix-only reader.
+
+  In-memory session and topic stores accept existing Project/Topic snapshots without creating replacement identities. The CLI uses this to bind delegation to the actual parent run, conversation, project and tenant. Child artifacts now live beneath the owning Project's `subagents/sessions` tree, without another generated Project layer. Scripts inspecting the old nested subagent layout must follow the new paths for new children; historical artifacts remain in place. Completed parent runs release their delegated children and bookkeeping. Tasks default to the actual invoking run instead of `run_namzu-cli`.
+
+  CLI state selectors, session maps and transcript export require UUIDs; export skips the reserved emergency-snapshot directory. Emergency-to-checkpoint projection uses the snapshot's existing UUID. The CLI always selects the checkout-root binding, even when an older directory-specific Project exists. Historical records are left in place and are not merged. Durable `drain` now requires an authoritative persisted Session and takes its Topic from that record; checkpoint-only hosts must persist the Session metadata before draining.
+
+- 87c0034: Enforce one token allowance across a parent run and its delegated descendants.
+  Previously the parent and delegation pool each received the full configured
+  budget. Parent, child and SDK auxiliary model requests now share measured usage
+  and finite child reservations. Unknown provider spend blocks further admission.
+
+  Replace `AgentTaskContext.budgetTracker` with a shared `TokenBudget` account at
+  `budget`. Custom schedulers must expose that same account, and custom agents must
+  use the supplied provider/account for model work. Run and agent usage describe
+  own-run counters; the new `budget` summary reports
+  subtree usage separately. `RouterAgent.usage` previously included its delegate;
+  read `budget.treeTokens` for that aggregate and `delegateResult.cost` for child
+  pricing. Router and Pipeline report unpriced own tokens when their own calls
+  have no price attribution, instead of pairing own usage with a child cost or
+  a misleading zero.
+  Update consumers that assumed a parent and every child could independently spend
+  the full configured token budget. Foreign dispatch without metering is refused.
+
+  Durable run-state version 4 and checkpoint schema 2 reference an independent
+  canonical ledger. Old checkpoint readers must be upgraded before resuming these
+  runs. Missing ledgers, conflicting scopes/caps and unresolved provider receipts
+  are refused rather than resetting available tokens. In-memory accounts require
+  their authoritative handle on resume; moving a durable tree between processes
+  requires exclusive root ownership.
+  An explicitly recovered final provider receipt can be applied through
+  `reconcileRequest`; automatic recovery never clears unknown spend.
+
+  Fix the CLI's scheduler parameter forwarding so delegated work uses the parent
+  query's authority. Streaming usage includes the separate budget summary.
+
+### Minor Changes
+
+- 4025c75: `/add-dir <path>` lets the file tools reach another directory for the rest of the session — by absolute path, bound read-write into the sandbox from the next turn — and `/add-dir` alone lists them. `--add-dir <path>` (repeatable) does it for one launch, and `additionalDirectories` in the config file for every session. The model is told which directories it may reach in the environment prompt, and `/status` lists them under where it may write.
+- bdb7fac: `/release-notes [version]` shows what changed in the version that is running, read from the CHANGELOG that now ships in the package. `/agents`, from the kernel, was already listing the delegates. (`Esc Esc` on an empty composer, which opens the picker of earlier prompts to fork from, was already there; the backlog had it wrong.)
+- 4dcb485: Background jobs that work the way the tool description promised. A session now owns a job registry: `bash` with `run_in_background` starts a job that outlives the turn, the model is told on its next tool result when a job ends, and the transcript shows a `⚙` row whether or not a turn is running; a job that ends between turns is reported to the model at the start of the next one. `/jobs` lists them. Jobs stop when the session closes. Under a sandbox no job can start, as before — the registry runs on the host and the kernel refuses to seat it beside a sandbox.
+- 37d1c27: A file-only `compaction` key: `strategy: salience` opts a project into the kernel's salience-scored working set (every message scored, the context held near half the window, no model in the loop), and `contextWindowTokens` overrides the window the kernel resolves from the model for a project that wants compaction earlier or knows its model's window better than the table. Absent, nothing changes: the structured strategy and the model's own window. The transcript row for a pass now also counts the narrations it stubbed. A `/context` command shows how full the window is, which strategy the session runs with its thresholds, and what the passes so far cleared, stubbed, summarised and reclaimed; `/cost` names the strategy instead of a fixed 70%. `consolidate: true` writes each run's decisions, discoveries and failures to the project's memory store as a `learning` a later session's `search_memory` finds.
+- d3f6a0f: Two composer prefixes that are not prompts. A line starting with `!` runs on the host as the operator's own command — no model call, no authorization gate, no sandbox, because the operator is not a tool call — with a transcript row, a pending glyph while it runs, a 60 s cap that kills the command's process group, and its output handed to the model on the next turn. A line starting with `#` is remembered, the way `/remember` is.
+- 6024fd9: The permission prompt is the box an operator already knows from other coding agents: a title naming the operation (`Bash command`, `Edit file src/x.ts`, `Start 4 agents`), the operation in its plainest form — the command without quotes, the change as a coloured diff — one question, and three numbered answers with a cursor on `Yes`. `↑↓` move the cursor, `Enter` confirms the highlighted answer, `1`–`3` answer directly; `y`, `a`, `n`, `esc`, `ctrl+c` and `d` (exact input) keep working. **Enter now confirms**, where it previously did nothing: the settle window that already guards `y` and `a` guards it too, so an Enter in flight when the prompt appears still decides nothing. Paging a long operation moved to `PgUp`/`PgDn`/`Home`/`End`.
+- f290174: File checkpoints. Before the session's `edit` or `write` tool changes a file, the file is recorded as it was — or as absent — once per file per turn. `/restore` lists the turns that changed files; `/restore N` puts every file back to before turn N, undoing N and every later turn (changed files rewritten, created files removed), and tells the model what was put back. Shell and sub-agent writes are not covered, and the records are dropped when the session closes.
+- 52c52bc: A project can define its own sub-agents.
+
+  `<cwd>/.namzu/agents/<name>.md` and `~/.namzu/agents/<name>.md` (project shadowing user) each define a `subagent_type` the `Agent` tool offers beside `general-purpose` and `explore`: YAML frontmatter with `name`, `description` and optionally `tools: read, grep`, `model`, `readOnly: true`, over a Markdown body that becomes the agent's prompt. The roster is the file's allowlist intersected with the parent's working set — a file cannot grant a tool the parent does not have — and `readOnly` narrows it the way `explore` is narrowed. The model is told each type's description so it can pick the right one. A file that cannot be loaded (no name, a built-in name, a bad `tools` line, an empty body) is named on stderr with its reason and the rest of the roster survives it.
+
+- 7e01452: The `hooks` config key accepts every shell hook event the kernel has — `user_prompt_submit`, `session_start`, `session_end`, `pre_compact`, `post_compact`, `subagent_stop` alongside the four it had — and the session fires `session_start` before its first turn (with the conversation's durable id) and `session_end` when it closes. `/hooks` lists the hooks this session runs, by event. `/exit` now closes the session before the process leaves — background jobs are stopped, MCP servers closed, `session_end` runs — where it used to leave with everything still running.
+- 23c140a: A tool server may be given its own connect deadline. `mcpServers.<name>.connectTimeoutMs` bounds how long that server has to connect, hand shake and list its tools; the default stays 10,000 ms. The default is sized for a wedged server, and a server whose first spawn is genuinely slow — a Python SDK server cold-boots in 15-20s on some machines — was a working server the CLI refused, stopping a headless run before its first turn with `did not answer within 10000ms`. A value that is not a positive number is refused with a reason rather than silently defaulted.
+- 23c140a: `namzu run` exits 75 when the provider paused the run, and no longer 1. A pause — a rate limit, an outage — keeps a checkpoint and is answered by waiting; a failure is not, and the two shared exit code 1, so a wrapper could neither back off on the one nor stop retrying the other. 75 is `EX_TEMPFAIL`, the sysexits convention for "try again later". A wrapper that treated every non-zero code as final keeps working; one that tested `$? -eq 1` for a pause has to test 75.
+- 1f554fd: A headless run can be given a longer leash. `--max-iterations <n>` and `--token-budget <n>` on `run` and `run-stream`, and a file-only `limits: { maxIterations, tokenBudget }` key they override, replace the fixed 50 model calls and one million tokens every run used to get — the numbers a chat turn wants, which a long autonomous task (a benchmark, a migration) outgrows and hit silently.
+- 97e0960: Background jobs work under the sandbox: `run_in_background` starts the job inside the same bwrap or seatbelt boundary the foreground command would run in, `/jobs` lists it, and it is stopped with the session. A sandbox tier that cannot start a detached process still has none, and the model is told which case it is in.
+- 1681904: Shell hooks: one line of config runs a command before or after a tool, or when a run starts or ends.
+
+  ```yaml
+  hooks:
+    pre_tool_use:
+      - matcher: bash
+        command: ./scripts/check-command.sh
+    post_tool_use:
+      - matcher: edit|write
+        command: pnpm biome format --write "$NAMZU_TOOL_PATH"
+    run_end:
+      - command: notify-send namzu "turn settled"
+  ```
+
+  A hook runs with `sh -c` in the working directory, receives the event as JSON on stdin (`event`, `tool_name`, `tool_input`, `tool_result`, `run_id`, `cwd`) and as `NAMZU_HOOK_EVENT` / `NAMZU_TOOL_NAME` / `NAMZU_TOOL_PATH` / `NAMZU_RUN_ID` in its environment. Its exit code is its answer: `0` carries on; `2` from a `pre_tool_use` hook **blocks the call** and tells the model why, with the hook's stderr as the reason; any other failure — including a timeout (default 30 s, capped at ten minutes) — is reported on stderr and never blocks. `matcher` is a tool name, a `|`-separated list, or a `prefix*`; absent means every tool. Hooks ride the plugin lifecycle manager, so they run with plugins on or off and take the same `plugins.hookTimeoutMs` ceiling. The key is file-only and never read from the environment, because a hook runs a command with the operator's authority. A hook cannot yet modify a tool's input or replace its result.
+
+- f089ea0: A long think reads as work, and `/cost` says how full the context is.
+
+  - **Thinking row.** While the model reasons, its current line is shown dim under the Working row (`└ thinking · …`; `└ thinking…` when the provider keeps its reasoning redacted) and disappears the moment the reply or a tool call begins. Reasoning never becomes a transcript row — the run keeps no such record either.
+  - **Context in `/cost`.** `/cost` now prints `Context: 54,000 / 128,000 tokens (42%)` when the run knows both how full the context is and how large the window is, each term with its provenance; a `~` marks an estimated count or an assumed window, and nothing is printed when there is no window to measure against. The footer stays quiet — the persistent gauge was removed on purpose — so this is on request, where a person asks.
+  - **`run-stream` wire (minor):** a new `reasoning` event (`{ kind: 'reasoning', text, done? }`) is emitted for reasoning deltas and block ends. Consumers that switch exhaustively on `kind` should add it; everything else is unchanged.
+
+- 8b887a7: A headless run can wait out a provider pause and resume itself. `namzu run --wait-for-provider <duration>` (`90s`, `30m`, `2h`) and the `limits.waitForProviderMs` config key give the run a budget of time to spend waiting when the provider pauses it — a rate limit, an outage. It waits the provider's own delay when one was named, otherwise a minute doubling to fifteen, then resumes from the checkpoint the pause kept, in the same process and with the run's own context; a wait that would overrun the budget is not taken and the run exits 75 saying why. Without a budget nothing changes: exit 75 at once. `AgentSession` gains `resumePaused({ runId, checkpointId })`, a streaming resume of the session's own paused run, and the `paused` event now carries `runId`; a host that builds `AgentSession` objects by hand has to add the method.
+- 1f339cf: Hard iteration, token, cost and timeout limits stop without an additional paid model call for a closing summary. Hosts must handle the unfinished stop reason instead of relying on a post-budget final answer. Child configuration cannot enlarge its reserved token allocation; a failed startup refunds that allocation and releases its workspace and session records.
+
+  Context triggering, retention and relief use one multimodal estimate rather than treating base64 bytes as prose or ignoring rich content. Image/document estimates are heuristics, not billing bounds. Text and rich tool content are budgeted independently, retained artifacts survive text reduction, and recovery guidance does not recommend replaying state-changing actions. Provider tool-call IDs are hashed before use in spill filenames.
+
+  Headless `run` and `run-stream` accept `--effort` and forward the explicit level to the selected provider. `run-stream` emits one terminal event after the persistence attempt and retains its stop reason. Consumers should not expect the former duplicate terminal event.
+
+### Patch Changes
+
+- c884bc8: File-defined agents and the read-only `explore` delegate now run on the kernel's loader, filters and prompt. `.namzu/agents/<name>.md` keeps its shape and behaviour; the CLI only decides the two directories and their order (user, then project shadowing it) and hands the rest to `@namzu/sdk`. One tightening rides along: a connected server's tool that merely claims to be read-only no longer reaches an `explore` or `readOnly: true` roster unless the server's read-only hints are trusted — the same rule the authorization gate already applied.
+- f6678f5: When computer use cannot reach a desktop (a WSL process with no interactive Windows session, an ssh session with no display), the tool is still offered — with every capability off and the reason attached — rather than left out. The model sees what it cannot do and why, and a call is refused with the same reason, so it stops on the first result instead of reasoning from a tool that was never there.
+- 698a5d8: The working doctrine the model reads and the interactive `ask_user_question` tool now come from `@namzu/sdk`. The prompt text is byte-for-byte what shipped; the question tool no longer has to be built through the coordinator set with a placeholder run id.
+- f5e62a3: Shell hooks now run on the kernel's adapter. The `hooks:` config key, its shape and its behaviour are unchanged; the CLI only reads the file and hands the table to `@namzu/sdk`'s `attachShellHooks`, so an ACP server or an embedder gets the same contract from the same code.
+- c5ef74c: Give the interactive terminal a compact Namzu identity, warm copper accents,
+  a single writing rail and quieter tool and agent panels. A single Working
+  animation replaces overlapping reply/tool spinners and shimmer. Existing
+  keyboard controls, raw output and native scrollback retain their behavior.
+
+  On short terminals, show the current tool and plan step with aggregate counts
+  so busy work cannot push the composer controls or Working status offscreen.
+
+- edc59a0: Give the terminal a phosphor-green identity with a compact NAMZU wordmark and a square message frame. Explicit palette indices keep colors consistent on 256-color terminals. The frame preserves input space and draft state, remains active while steering a running turn, and disappears when a text prompt owns input. Existing commands and keyboard bindings are unchanged.
+
+  Keep the transcript's scrollback owner mounted during initial provider selection. Previously, entering the credential picker could leave the renderer reading a freed layout node on exit and exhaust the process heap.
+
+- 6383358: The permission dialog opens readable for any batch it can show completely. A `read`, `grep`, `glob`, `ls` or connected-server call has no formatter and used to drop the whole batch into the exact JSON view, so an edit beside a read was reviewed as raw JSON by default; such a call is now listed key by key with every value JSON-escaped, which hides nothing, and the exact view stays one `d` away. An evolved shape of a tool that does have a formatter (`bash`, `edit`, `write`, `Agent`) and a tool whose name is not a plain token still open exact-first.
+- b3222f5: The permission modes (`prompt`, `accept-edits`, `auto`, `strict`, `plan`) now run on the kernel's review policy; the CLI supplies the terminal prompt and the session's approve-all state. Behaviour, refusal texts and the exempt roster are unchanged. `namzu run --help` now lists all five modes.
+- 51c0ea3: `namzu run-stream` no longer waits forever on a pipe that is open and silent. It read stdin to end-of-input whenever stdin was not a terminal, so a host that spawned it without closing stdin — a background task, a CI step, a UI that forgot — saw the boot log stop and nothing follow. It now takes the same quarter-second first-byte deadline `namzu run` already used: data that is there is read in full, silence means no history.
+- 46aee01: When startup fails to load state or construct a session, show a clear stopped screen instead of an unusable message composer. Esc or one Ctrl+C now exits that screen. The original error stays visible, and invalid identity files remain untouched.
+
+  Installations with a prefixed tenant ID must back up and move their old identity.json aside before starting the UUID-only CLI fresh. This creates a new installation identity; existing conversations stay on disk and are not imported. Provider preferences and credentials can be kept.
+
+- 37d2d60: Two things the terminal showed that the frame-string tests could not: the banner's working directory is cut at its start and sized to the room beside the wordmark instead of wrapping mid-word across it, and a tool result shown line by line no longer repeats its first line — the `⎿` summary is that line, and the body starts at the second.
+- 8a8de4a: Show a short, fading green light around the message frame while Namzu is working. The light follows multiline input and terminal resizing without moving or resetting the draft. It stops when the turn ends or another input surface takes focus, and stays off for non-interactive or color-disabled terminals and screen readers. The Working indicator and border use one shared animation scheduler.
+- 334b9c3: On WSL, the probe that asks Windows for the paired home directory (to find a Claude credential on the Windows side) now ends with SIGKILL when it overruns its second; the interop shim ignored SIGTERM, and a boot could wait on it indefinitely. The credential discovery step is also bracketed in the debug log with its duration, so a boot that stalls there says so.
+- 4510387: Add regression coverage for background jobs in supported sandboxes: the CLI
+  offers the capability, and the executor routes process creation and cleanup
+  through the sandbox. Correct an obsolete CLI test and documentation index
+  entry that still expected all sandbox background jobs to be unavailable.
+  Runtime behavior and public APIs are unchanged.
+- Updated dependencies [2bcd95e]
+- Updated dependencies [ec1ac3c]
+- Updated dependencies [1f339cf]
+- Updated dependencies [47e573c]
+- Updated dependencies [4510387]
+- Updated dependencies [4025c75]
+- Updated dependencies [c884bc8]
+- Updated dependencies [4dcb485]
+- Updated dependencies [85dddca]
+- Updated dependencies [f6678f5]
+- Updated dependencies [34282d5]
+- Updated dependencies [698a5d8]
+- Updated dependencies [7e01452]
+- Updated dependencies [d3f6a0f]
+- Updated dependencies [22cf680]
+- Updated dependencies [087abe9]
+- Updated dependencies [f6a46b2]
+- Updated dependencies [ec1ac3c]
+- Updated dependencies [b3222f5]
+- Updated dependencies [3ad8784]
+- Updated dependencies [f8168ee]
+- Updated dependencies [97e0960]
+- Updated dependencies [f5e62a3]
+- Updated dependencies [87c0034]
+  - @namzu/sdk@35.0.0
+  - @namzu/computer-use@1.4.1
+  - @namzu/anthropic@4.0.4
+  - @namzu/ollama@2.2.2
+  - @namzu/openai@2.1.0
+  - @namzu/openrouter@2.3.2
+
 ## 18.1.0
 
 ### Minor Changes

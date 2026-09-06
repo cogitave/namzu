@@ -1,5 +1,138 @@
 # Changelog
 
+## 35.0.0
+
+### Major Changes
+
+- 2bcd95e: Make interactive command selection and reporting reflect the active session.
+
+  The CLI now opens a goal menu for `/goal` and the delegated-agent view for
+  `/agents`. Use `/goal status` for a goal report and `/agents available` for
+  the configured roster. `/status`, `/cost`, `/context`
+  and `/mcp` show concise reports; use the `details` variants or `/mcp tools`
+  for expanded diagnostics. Usage is labeled as current or latest run usage.
+  Searchable help, skill, branch and commit menus treat typed digits as search
+  text; use arrows and Enter to select. Esc cancels previous-prompt editing.
+
+  `/settings` shows effective model, reasoning and permission settings. Changing
+  a model preserves fallbacks and subagent preferences and saves only after
+  successful activation. `/tasks` reads the current or latest run's real store,
+  with no task state carried across conversation switches.
+
+  Resume hints include the working directory and the actual Node executable and
+  CLI entrypoint, preventing a checkout build from handing its UUID session to
+  an older global installation. Embedded hosts can supply their own launch
+  command; otherwise their hint uses `namzu`.
+
+  The SDK goal command reserves `status` for inspection and `set` for explicit
+  creation. To create an objective literally named `status`, use `/goal set status`.
+  The previous bare `/goal status` created that objective. Goal reports now use
+  `enabled`/`paused` and `Automatic turns` instead of `armed`/`disarmed` and
+  `Rounds admitted`; consumers parsing human-readable reports must update.
+
+- 1f339cf: Hard iteration, token, cost and timeout limits stop without an additional paid model call for a closing summary. Hosts must handle the unfinished stop reason instead of relying on a post-budget final answer. Child configuration cannot enlarge its reserved token allocation; a failed startup refunds that allocation and releases its workspace and session records.
+
+  Context triggering, retention and relief use one multimodal estimate rather than treating base64 bytes as prose or ignoring rich content. Image/document estimates are heuristics, not billing bounds. Text and rich tool content are budgeted independently, retained artifacts survive text reduction, and recovery guidance does not recommend replaying state-changing actions. Provider tool-call IDs are hashed before use in spill filenames.
+
+  Headless `run` and `run-stream` accept `--effort` and forward the explicit level to the selected provider. `run-stream` emits one terminal event after the persistence attempt and retains its stop reason. Consumers should not expect the former duplicate terminal event.
+
+- 47e573c: Kernel ID factories, file-lock IDs and SDK-managed Docker/ACI sandbox IDs now generate UUID v4 strings instead of prefixed random strings. Nominal TypeScript entity brands remain, but their underlying type is an opaque string rather than a prefixed template literal. Before upgrading, remove prefix parsing and prefix-only validators in consumers; use checked constructors or the new `isEntityId(value, kind)` predicate and validate ownership through store records. Public Project, Run and Message schemas accept only UUIDs while remaining Zod string schemas. External sandbox/orchestrator IDs retain their service-defined contracts.
+
+  `InvalidIdError.expectedKind` replaces `expectedPrefix`; hosts displaying validation errors must read the entity kind instead. Built-in HTTP/webhook connector IDs and the default shell-hook plugin ID are now stable UUIDs.
+
+  Prefixed records, including formerly accepted safe prefixes, are no longer admitted. Constructors, schemas and disk readers require UUIDs. No automatic migration or deletion is performed. Supply UUIDs for custom IDs and use a fresh dedicated application home when previous state is no longer needed. Do not downgrade UUID stores to a prefix-only reader.
+
+  In-memory session and topic stores accept existing Project/Topic snapshots without creating replacement identities. The CLI uses this to bind delegation to the actual parent run, conversation, project and tenant. Child artifacts now live beneath the owning Project's `subagents/sessions` tree, without another generated Project layer. Scripts inspecting the old nested subagent layout must follow the new paths for new children; historical artifacts remain in place. Completed parent runs release their delegated children and bookkeeping. Tasks default to the actual invoking run instead of `run_namzu-cli`.
+
+  CLI state selectors, session maps and transcript export require UUIDs; export skips the reserved emergency-snapshot directory. Emergency-to-checkpoint projection uses the snapshot's existing UUID. The CLI always selects the checkout-root binding, even when an older directory-specific Project exists. Historical records are left in place and are not merged. Durable `drain` now requires an authoritative persisted Session and takes its Topic from that record; checkpoint-only hosts must persist the Session metadata before draining.
+
+- 22cf680: One prefix per id, and nothing is rewritten on read. The pre-0.2 `thd_` compatibility is removed whole: the `session/migration` module and its exports (`acceptLegacyContainerId`, `rejectLegacyContainerPrefix`, `DefaultFilesystemMigrator`, `readMarker`, `writeMarker`, the sinks and their types), the boot-time filesystem re-layout `query()` ran on every first call, `RunContextFactory.ensureMigrated`, the `namzu.migration.completed` boot event, and the `prj_legacy_` form in `ProjectIdSchema`. A run state or session record whose topic id carries `thd_` now throws `RetiredIdPrefixError` instead of being coerced to `top_`; records written before 0.2 must be opened by a 0.x namzu or abandoned. `UNKNOWN_TENANT_ID` is removed: a host names its tenant. `CreateSessionParams.id` lets a host create a session under an id it minted. The `parse*Id` functions are deprecated in favour of `as*Id`, which throw `InvalidIdError`.
+- f6a46b2: Checked `as*Id` constructors and deprecated `parse*Id` functions now accept a canonical UUID or the expected legacy prefix followed by a nonempty suffix containing only ASCII letters, digits, underscores or hyphens. Prefix-only ids and suffixes containing path separators, periods, colons, whitespace or Unicode now throw. `DiskSessionStore` also validates caller-supplied project, session and sub-session identifiers, including `CreateSessionParams.id`, before resolving them.
+
+  Factory-generated ids and safe custom ids retain their existing values. Applications using other custom ids must replace them and update every referring record before upgrading. Existing message-feedback records with unsafe custom ids are also rejected without rewriting their files; export those records using the previous SDK and remap references together, or retain the previous SDK for that data. Do not sanitize ids independently: distinct ids can collapse to the same value.
+
+  User questions and tool pauses without a durable recorder now receive separately generated checkpoint ids. Provider-issued tool-use ids and pause names still identify the question verbatim; hosts should correlate answers using `questionId` rather than deriving it from the fallback checkpoint id.
+
+- 3ad8784: **`compaction.strategy` defaults to `salience`.** A run under the default now scores every message — recency, relevance to the goal, use by a later turn, repetition — and holds the context near half the window by clearing the least salient tool results and stubbing narrations, without a model in the loop; older history is summarised only at the trigger, as before. The previous default was `structured`: positional retention and a pass only at the trigger. To keep it, pass `compactionConfig: { strategy: 'structured' }`. Measured on the same three-part coding task with a real model: 237k tokens against 271k, the task finished identically; on the eval that plants a fact early and cites it late, salience keeps the fact where structured loses it, with a smaller final history.
+- 87c0034: Enforce one token allowance across a parent run and its delegated descendants.
+  Previously the parent and delegation pool each received the full configured
+  budget. Parent, child and SDK auxiliary model requests now share measured usage
+  and finite child reservations. Unknown provider spend blocks further admission.
+
+  Replace `AgentTaskContext.budgetTracker` with a shared `TokenBudget` account at
+  `budget`. Custom schedulers must expose that same account, and custom agents must
+  use the supplied provider/account for model work. Run and agent usage describe
+  own-run counters; the new `budget` summary reports
+  subtree usage separately. `RouterAgent.usage` previously included its delegate;
+  read `budget.treeTokens` for that aggregate and `delegateResult.cost` for child
+  pricing. Router and Pipeline report unpriced own tokens when their own calls
+  have no price attribution, instead of pairing own usage with a child cost or
+  a misleading zero.
+  Update consumers that assumed a parent and every child could independently spend
+  the full configured token budget. Foreign dispatch without metering is refused.
+
+  Durable run-state version 4 and checkpoint schema 2 reference an independent
+  canonical ledger. Old checkpoint readers must be upgraded before resuming these
+  runs. Missing ledgers, conflicting scopes/caps and unresolved provider receipts
+  are refused rather than resetting available tokens. In-memory accounts require
+  their authoritative handle on resume; moving a durable tree between processes
+  requires exclusive root ownership.
+  An explicitly recovered final provider receipt can be applied through
+  `reconcileRequest`; automatic recovery never clears unknown spend.
+
+  Fix the CLI's scheduler parameter forwarding so delegated work uses the parent
+  query's authority. Streaming usage includes the separate budget summary.
+
+### Minor Changes
+
+- 4025c75: A run can reach directories besides its working directory. `query({ additionalDirectories })` — absolute paths — is threaded to every file tool as `ToolContext.additionalDirectories`: relative paths still resolve against the working directory, an absolute path inside any added directory is accepted, and anything else outside is refused as before (`resolveWithinAny` / `resolveWithinAnyReal` / `toolRoots` in `tools/paths`). A sandboxed run binds each added directory read-write at its own path (`SandboxCreateConfig.additionalDirectories`: bwrap `--bind`, seatbelt `subpath` rules), and the local sandbox's own file API is contained to the same set.
+- c884bc8: Delegates a host can define from files, and rosters narrower than the parent's.
+
+  - **`discoverAgentDefinitions(roots)`, `parseAgentFile`, `parseAgentMarkdown`** — a sub-agent defined in a Markdown file the way a skill is: frontmatter with `name`, `description`, optionally `tools` (one comma-separated line), `model` and `readOnly`, over a body that is the prompt. The host passes an ordered list of roots and later roots shadow earlier ones by name; a file that cannot be loaded is returned with its path and reason rather than silently dropped. Names a host reserves (`general-purpose`, `explore` by default) are refused.
+  - **`filterReadOnlyTools(registry)`** — the source's tools that declare themselves read-only and are trusted to say so, decided by `isTrustedReadOnly`, the same predicate the authorization gate uses; **`filterToolsNamed(registry, names)`** — the source intersected with an allowlist. Neither can widen.
+  - **`EXPLORE_AGENT_ID` / `EXPLORE_AGENT_DESCRIPTION` / `EXPLORE_AGENT_PROMPT`** — the read-only delegate's identity and prompt, for a host to build with `filterReadOnlyTools` and its own doctrine around it.
+
+  Nothing existing changed.
+
+- 4dcb485: A background job's exit reaches the model without polling: the run subscribes to `BackgroundJobRegistry.onExit` and the exit rides out on the next tool result as a `[Background job update]` notice, and reaches the host as a `background_job_exited` event (`background_job.exited` on the SSE wire). `query({ backgroundJobOwner })` binds the run's jobs to an owner other than the run — a host's session, say — so a dev server started in one turn is still there in the next; the run then stops nothing at its end, and the host calls `killOwner` when its session closes.
+- f6678f5: `ComputerUseCapabilities.unavailableReason`: when a host loaded but the desktop did not answer, the `computer_use` tool stays mountable with every capability false and the reason in its description and in every refusal — "requires capability screenshot which is not available on this host … the desktop did not answer: <why>. Do not retry; tell the user." The model reads why once instead of finding an absent tool or a bare error.
+- 34282d5: Consolidation, the bridge from episodic to semantic memory. `query({ consolidateInto: memoryStore })` writes what the run learned when it ends — its decisions, discoveries and failures, and the files it changed — as one memory entry tagged `learning` (`consolidationEntry` builds it; a run that learned nothing writes nothing), and emits `memory_consolidated` with the entry's id and counts. A store that fails is logged and never fails the run. The salience scorer (`scoreMessages`, `buildGoal`, `planWorkingSet`, `planSalienceWorkingSet`) is exported for a host that wants to render or tune it.
+- 698a5d8: The coding-agent doctrine, and a question that needs no gateway.
+
+  - **`CODING_AGENT_WORKING_DOCTRINE`, `CODING_AGENT_DELEGATION_DOCTRINE`, `PLAN_MODE_DOCTRINE`, `codingAgentDoctrineContribution(options?)`** — the rules that say HOW an agent built on this kernel works: act or ask, deliver the whole scope, report faithfully, prefer the bounded tools over their shell equivalents, what is off-limits in git without a person saying so. The working text names only builtin tools and suits every agent; the delegation text names `task_create` and `Agent` and suits the parent only, and `codingAgentDoctrineContribution({ delegation: false })` leaves it out for a sub-agent. The contribution is `static` and renders after `systemPrompt`, so a host keeps its own identity block in front of it.
+  - **`buildAskUserQuestionTool({ resumeHandler, runId?, questionParks?, pendingAnswers? })`** — `ask_user_question` on its own. It was reachable only through `buildCoordinatorTools`, which demands a gateway and a roster the question never uses and a run id at build time; the standalone builder takes the park handler and reads the run id from the calling `ToolContext` unless one is pinned. `buildCoordinatorTools` registers the same tool through it.
+
+  Nothing existing changed.
+
+- 7e01452: Six more hook events, so an extension or a shell hook can act on what other coding agents' operators script against: `user_prompt_submit` (the prompt before the model sees it, on `PluginHookContext.prompt`; the one lifecycle event that can block a run with `skip`, and the one that can add to what the model is told with the new `annotate` result), `pre_compact` / `post_compact` (the pass's reason, tokens before and after, and the window on `compaction`), `subagent_stop` (fired after a delegated run's `run_end`, with `parentRunId`), and `session_start` / `session_end` (a host's to fire, with `sessionId`). Shell hooks attach to all of them: exit 2 on the prompt event blocks it, stdout on exit 0 is context for the model, and the stdin JSON carries `prompt`, `session_id`, `parent_run_id` and `compaction`. `applyLifecycleHookResults` now returns the annotations; a JavaScript hook returning `annotate` on any other event is rejected.
+- 087abe9: A tool can pin a fact into the run's working memory. `ToolResult.workingState` is a list of `{ key, text }`; the executor pins each into the working state under the tool's name, a later pin under the same key replaces the earlier one, and pins render as `## Pinned by tools` in the working-memory slot — in front of the model every iteration, across compaction, and through checkpoints (`WorkingStateSnapshot.pins`, absent in older snapshots). An MCP server pins by returning a `resource` block of type `application/vnd.namzu.working-state+json` (`WORKING_STATE_MIME`) carrying a JSON array of pins. `WorkingStateManager.pin` / `unpin`, `MAX_PINS` (40) and `MAX_PIN_CHARS` (600) are exported; `WorkingState` gains `pins`, which a host that constructs the state by hand must add.
+- ec1ac3c: The repeat-call tracker refuses one thing. It advised on identical calls and never denied one, so a model that asked a desktop it could not reach for a screenshot, read the same error and asked again ran until the iteration budget ended it. After four consecutive identical failures the fifth identical call is answered with a refusal that names the count and asks for a different call; a success in between resets the count, so a poll that fails a few times before it succeeds is never touched. `refuseFailedAfter` on `RepeatCallThresholds` sets the number; `repeatCallAdvisory: false` on `query` switches the tracker off entirely, as before.
+- b3222f5: The review policy: what a run does with the calls no rule decided.
+
+  - **`createReviewPolicy({ mode, prompt, exempt | registry, remembered })`** — an `ApprovalPolicy` named after its mode, and **`createReviewHandler`** for a host that wants only the `ResumeHandler`. Five modes: `prompt` (ask the person the host supplies), `auto`, `accept-edits` (approve a batch of non-destructive `edit`/`write` calls, ask when anything else rides along), `plan` (refuse every mutation with `PLAN_MODE_REFUSAL`, the words that make the model present a plan), `strict` (refuse with `STRICT_MODE_REFUSAL`). A plan-approval request is approved and every other checkpoint continues. Only calls the gate routed to review reach it, so a mode can never reopen what a rule closed.
+  - **`isReviewExempt(registry, name, input)`** — the calls that skip review: a trusted read-only declaration or one of `REVIEW_EXEMPT_WRITES` (`task_create`, `task_update`, `update_goal`); never a `network` tool, never a tool the registry does not know. **`batchNeedsReview(toolCalls, exempt)`** — the batch rule.
+  - Types `ReviewMode`, `ToolReviewRequest`, `ToolReviewAnswer`, `ToolReviewPrompt`, `ReviewPolicyOptions`, `ReviewExemption`; constants `REVIEW_MODES`, `ACCEPT_EDITS_TOOLS`.
+
+  Two small alignments ride along: the kernel's execution-time plan-mode refusal now carries the same guidance text as the review-time one (`PLAN_MODE_REFUSAL`, exported from the permission types), and `ApiPermissionMode` is the kernel's `PermissionMode` rather than a second copy of the union.
+
+  Nothing else existing changed. The kernel's `permissionMode: 'plan'` stays the execution-time floor; `createReviewPolicy({ mode: 'plan' })` is the review-time counterpart that gives the model feedback instead of an error.
+
+- f8168ee: A new compaction strategy, opt-in: `compaction.strategy: 'salience'`. Every message is scored without a model — recency with a half-life, BM25 relevance to the goal (the task, the live requirements, the open task-list items, the latest intent), whether a later turn used it, and whether a later message repeats it — and from `softTarget` (half the window by default) the least salient tokens are evicted first: a tool result's body cleared to the same placeholder the stale-result pass uses, an assistant narration cut to its first sentence. No message is removed and no pair is split, so it runs on every iteration; the summary path is reached only at `triggerThreshold`, as before. `compaction_tool_results_cleared` gains an optional `stubbedCount`. `structured` remains the default and is unchanged. The scoring core (`scoreMessages`, `buildGoal`, `planWorkingSet`) is exported from the compaction module for a host that wants to render or tune it.
+- 97e0960: Background jobs inside the sandbox. `Sandbox.spawnDetached(command, args, { cwd, env })` — optional on the interface, implemented by the local provider for bwrap, seatbelt, namespace and basic tiers — starts a process under the same confinement as `exec` and hands it back running, with a `kill` that reaches bwrap's inner reaper. The background job registry accepts a `spawn` in `StartJobParams` (and `bindOwner` a `spawn` default) so the sandbox starts the job and the registry keeps it; the executor now binds jobs to a sandboxed run when its sandbox can spawn detached, and withholds them otherwise. `run_in_background` under a sandbox that cannot says so (`SANDBOX_CANNOT_DETACH`) instead of blaming the host.
+- f5e62a3: A shell command as a plugin hook, once, for every host.
+
+  `createShellHook(event, entry, { cwd, log })` turns `{ command, matcher?, timeoutMs? }` into a `PluginHookDefinition` the lifecycle manager accepts, and `attachShellHooks(manager, config, { cwd, log })` registers a whole `{ pre_tool_use, post_tool_use, run_start, run_end }` table. The command runs with `sh -c`, receives the event as JSON on stdin and as `NAMZU_HOOK_EVENT` / `NAMZU_RUN_ID` / `NAMZU_TOOL_NAME` / `NAMZU_TOOL_PATH`, and answers with its exit code: `0` carries on, `2` before a tool skips the call with the hook's stderr as the reason the model reads, anything else — a crash, a missing interpreter, a timeout — is the hook's own failure, reported through the logger and never blocking. `runShellHook`, `shellHookVerdict` and `shellHookMatches` are exported separately for a host that wants the pieces. Nothing existing changed.
+
+### Patch Changes
+
+- 4510387: Add regression coverage for background jobs in supported sandboxes: the CLI
+  offers the capability, and the executor routes process creation and cleanup
+  through the sandbox. Correct an obsolete CLI test and documentation index
+  entry that still expected all sandbox background jobs to be unavailable.
+  Runtime behavior and public APIs are unchanged.
+- 85dddca: `query` applies the compaction schema's defaults to a partial `compactionConfig`. A host that passed only a strategy and a window reached the compaction phase with `triggerThreshold` undefined, and `usage < undefined` is false: the pass ran on every iteration, and the salience strategy fell through to the stale-result clearing it exists to replace. Pass what you mean; the rest is filled in.
+- d3f6a0f: A background job is its process group, not its shell. A command that backgrounds its real work (`server &`) used to be reported `exited` the moment the shell returned, while the server kept the port; the model was told the job was over and nothing stopped the survivor at session end. The job now stays `running` while any process of its group is alive, ends with the shell's exit code when the group is empty, and `kill` takes the survivors.
+
 ## 34.2.0
 
 ### Minor Changes

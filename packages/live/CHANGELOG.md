@@ -1,5 +1,11 @@
 # @namzu/live
 
+## 1.0.1
+
+### Patch Changes
+
+- 47e573c: Validate the Namzu live adapter with factory-generated project, session, topic and tenant IDs. Its real-query regression fixtures now satisfy the SDK's durable path validation without bypassing the query configuration types.
+
 ## 1.0.0
 
 ### Minor Changes
