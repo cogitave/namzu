@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Creation**: [Command experience audit](/cli/command-experience-audit.md) — verified preference, permission, task, discovery and usage-report defects, with a comparison against pinned Codex source and a proposed implementation order.
 * **Update**: [Terminal design](/cli/terminal-design.md) — a short green light follows the working composer's border, with shared animation scheduling, stable input geometry, and quiet idle, overlay and accessible output states.
 * **Update**: [Terminal design](/cli/terminal-design.md) — phosphor-green wordmark and square message frame, exact indexed colors, no empty frame beneath text prompts, and a stable scrollback owner through provider selection.
 * **Update**: [Terminal design](/cli/terminal-design.md) and [Project and session state](/cli/project-state.md) — explicit startup refusal with one-key exit, and documented fresh initialization for installations that still have a prefixed tenant identity.
