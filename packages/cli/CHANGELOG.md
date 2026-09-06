@@ -1,5 +1,58 @@
 # @namzu/cli
 
+## 20.0.0
+
+### Major Changes
+
+- 32ef6f6: Make builtin `grep` enumerate files incrementally instead of listing an entire directory tree before searching. It stops at 20,000 examined entries and has a 15-second tool deadline, replacing the previous 120-second deadline. Narrow the search directory or include pattern when these bounds are reached. The default result limit remains 100; reaching it now explicitly reports an incomplete search rather than claiming that every file was searched. Partial matches and traversal errors remain visible.
+
+  Custom sandbox adapters must implement `Sandbox.walkFiles` for content search; `grep` refuses adapters that only provide eager `listFiles`, without falling back to the host filesystem. Existing recursive include semantics and the 5 MiB per-file limit remain in place. Oversized files are skipped before reading when size metadata is available, and cancellation stops consuming pending reads.
+
+- 0662f34: Make glob scope explicit and bound filesystem discovery while it runs. Bare `*` and `*.ts` now search only the selected directory; use `**/*` or `**/*.ts` to recurse. Wildcard searches exclude hidden entries by default; set `include_hidden: true` to retain searches that previously included them inside a sandbox. Glob returns regular files only and skips symlink entries during enumeration; authorized local root aliases remain supported. Its execution deadline changes from the generic 120 seconds to 15 seconds, so large searches should use a narrower directory or pattern.
+
+  Glob now uses the optional `Sandbox.walkFiles` capability instead of collecting a complete recursive `listFiles` inventory. Custom sandbox adapters must implement `walkFiles` to support builtin glob; unsupported adapters receive an explicit failure without a host fallback. Local, Docker, ACI and Firecracker adapters implement bounded incremental enumeration. `SandboxWalkFilesOptions` and `walkFilesViaExec` are exported for adapter authors. The sandbox package now requires the matching SDK major through its peer dependency because it imports this new runtime helper.
+
+  Result and traversal limits produce explicit incomplete-search metadata and preserve available matches. Patterns are limited to 4,096 characters and 256 brace expansions, with consistent hidden-file matching in grouped alternatives. Sandbox search paths are resolved once, fixing duplicated absolute paths in glob, grep and ls. Runtime guidance permits direct reads of known paths, and the CLI tool label now shows both the glob pattern and directory.
+
+- 65dc528: Make `/memory show` and `/memory list` inspect curated memory instead of saving the words `show` or `list`. `/memory add <text>` explicitly saves a note; empty `add` displays usage. To save a literal reserved word, use `/memory add show`, `/memory add list` or `/memory add add`. A leading `--user` keeps user scope; ordinary free-text notes remain supported. The inspection and add keywords are case-insensitive. Memory reports now show labelled sections, full file paths and bounded previews, without printing instructions intended for the model.
+
+  Permission menus now use plain preset labels, place advanced modes and rules under More options, and show the effective session approval state. Settings use named controls and reflect a previous approval of all tools. The approval prompt explicitly labels its session-wide all-tools choice. Underlying permission rules, mode shortcuts and sandbox restrictions are unchanged.
+
+### Minor Changes
+
+- f11a628: Add `/help <command>` to read usage and availability without running the command. `/help /permissions` also works. Bare `/help` keeps its command picker. Local commands explain their supported arguments, kernel commands retain their registered hints, and custom commands show their full source path and whether arguments are accepted without expanding the saved prompt. Help uses the same command precedence as execution.
+- 32ef6f6: Let the interactive parent respond to new messages while delegated agents continue working. An interrupted delegation wait returns the running task's identity instead of waiting for every child to finish, and eventual results reach the same parent run once. Parent cancellation still stops its children. Cancelled CLI turns retain the kernel's tool and reasoning history so a follow-up can see work already performed.
+
+  The model can retrieve a task's complete output using `wait_for_task`, including text beyond a notification's preview. This only accepts tasks owned by the current parent run. Budget-stopped tasks retain available partial prose and report their stop reason.
+
+  Add optional `query({ waitForInbound })` arrival notification and cancellable `CompletionInbox.waitForArrival(timeoutMs, signal)` waits. Neither consumes operator messages or cancels child work; callers release arrival listeners when the supplied signal aborts. Task-completion notifications include the child's stop reason when available.
+
+  Open child transcripts in a distinct framed terminal screen with more visible history, line/page scrolling and explicit return navigation. Completed children remain readable through `/agents` while retained in the current session. Returning to the main conversation restores its draft.
+
+### Patch Changes
+
+- afa0712: Keep completed tool receipts when cancellation interrupts a post-tool hook, withholding unreviewed output and failure-log details while preserving execution status. Cancellation stops retry scheduling, and calls cancelled before execution receive an explicit not-started result. Provider cancellation no longer waits on a blocked iterator, and unknown token spend remains reserved even when the idle timeout is disabled.
+
+  Shell commands now report incremental progress on the host as well as in a sandbox. Sandbox timeouts preserve partial stdout and stderr; clipped output no longer recommends blindly replaying a command.
+
+  The CLI retains long first lines and output beyond 200 lines for Ctrl+O and raw view. Long lines receive bounded, expandable previews. The composer header fits very narrow terminals, and animation regressions cover a complete border lap and cleanup.
+
+- 073a877: Show the beginning and end of long tool output with an omission count between them. Final diagnostics are visible before expansion, while Ctrl+O and raw view retain the complete admitted output.
+
+  The model picker now names other available providers beside a prominent provider-switch action. A detected Claude connection remains discoverable while browsing another provider's models; browsing does not change the active provider or saved preferences.
+
+- Updated dependencies [32ef6f6]
+- Updated dependencies [0662f34]
+- Updated dependencies [afa0712]
+- Updated dependencies [32ef6f6]
+- Updated dependencies [073a877]
+  - @namzu/sdk@36.0.0
+  - @namzu/computer-use@1.4.1
+  - @namzu/anthropic@4.0.4
+  - @namzu/ollama@2.2.2
+  - @namzu/openai@2.1.0
+  - @namzu/openrouter@2.3.2
+
 ## 19.0.0
 
 ### Major Changes
