@@ -41,10 +41,11 @@ requires no database, hosts no service, and has no preferred model vendor.
 ## Install
 
 ```bash
-pnpm add @namzu/sdk
+pnpm add @namzu/sdk zod@^3
 ```
 
-Requires Node.js 20+, ESM, and TypeScript strict mode.
+Requires Node.js 20+, ESM, and TypeScript strict mode. Pin Zod to v3, the
+supported peer range.
 
 The kernel ships alone. Add a driver for whichever backend you use —
 [`@namzu/anthropic`](https://www.npmjs.com/package/@namzu/anthropic),
@@ -60,62 +61,88 @@ pre-registered and scriptable.
 
 ## Quick start
 
+This first run needs no API key or network. The mock supplies a scripted model
+reply; the kernel executes the same run loop used by service-backed drivers.
+
 ```ts
-import { defineTool, ProviderRegistry, ReactiveAgent, ToolRegistry } from '@namzu/sdk'
-import { registerOpenRouter } from '@namzu/openrouter'
+import { ProviderRegistry, runAgent } from '@namzu/sdk'
+
+const { provider } = ProviderRegistry.create({ type: 'mock', responseText: 'Paris.' })
+
+const { output, run, identity } = await runAgent({
+  provider,
+  model: 'mock-model',
+  prompt: 'What is the capital of France?',
+})
+
+console.log(output)          // Paris.
+console.log(run.stopReason)  // end_turn
+console.log(identity)        // { sessionId, topicId, projectId, tenantId }
+```
+
+Save it as `agent.ts` in an ESM project and run it with `pnpm exec tsx agent.ts`
+after adding `tsx` as a development dependency. `runAgent` creates the four
+identity values when absent and returns them. Pass both `identity` and
+`run.messages` into the next call to continue a conversation; identity alone
+does not load its history. For store-backed delegation, supply the identity of
+records created in the session store.
+
+### Run a tool
+
+This complete example scripts two model turns and executes a real local tool.
+The mock requests `add`, then supplies the final answer; it does no inference.
+
+```ts
+import { defineTool, MockLLMProvider, runAgent, ToolRegistry } from '@namzu/sdk'
 import { z } from 'zod'
 
-registerOpenRouter()
-
-const searchWeb = defineTool({
-  name: 'search_web',
-  description: 'Search the web for information',
-  inputSchema: z.object({ query: z.string() }),
-  category: 'network',
-  permissions: ['network_access'],
+const tools = new ToolRegistry()
+tools.register(defineTool({
+  name: 'add',
+  description: 'Add two numbers.',
+  inputSchema: z.object({ a: z.number().finite(), b: z.number().finite() }),
+  category: 'custom',
+  permissions: [],
   readOnly: true,
   destructive: false,
   concurrencySafe: true,
-  execute: async ({ query }) => {
-    const r = await fetch(`https://api.search.com?q=${query}`)
-    return { success: true, output: await r.text() }
-  },
+  execute: async ({ a, b }) => ({ success: true, output: String(a + b) }),
+}))
+
+const provider = new MockLLMProvider({
+  turns: [
+    { toolCalls: [{ name: 'add', args: { a: 20, b: 22 } }] },
+    { text: '42' },
+  ],
 })
 
-const { provider } = ProviderRegistry.create({
-  type: 'openrouter',
-  apiKey: process.env.OPENROUTER_KEY ?? '',
+const { output, run } = await runAgent({
+  provider,
+  model: 'mock-model',
+  tools,
+  prompt: 'Add 20 and 22.',
+  maxIterations: 4,
+  tokenBudget: 8192,
+  timeoutMs: 30_000,
 })
 
-const tools = new ToolRegistry()
-tools.register(searchWeb)
-
-const agent = new ReactiveAgent({
-  id: 'researcher',
-  name: 'Research Assistant',
-  version: '1.0.0',
-  category: 'research',
-  description: 'Finds and synthesizes information',
-})
-
-const result = await agent.run(
-  {
-    messages: [{ role: 'user', content: 'Summarize the latest LLM benchmarks' }],
-    workingDirectory: process.cwd(),
-  },
-  { model: 'anthropic/claude-sonnet-4', tokenBudget: 8192, timeoutMs: 600_000, provider, tools },
-)
+console.log(output) // 42
+console.log(run.messages.filter((message) => message.role === 'tool'))
 ```
 
-That run uses the kernel's budget, tool loop, progressive disclosure and
-structured compaction. OS isolation is explicit rather than ambient: supply a
+To use inference, install a [provider driver](#install) and replace the mock
+provider and model with that driver's configuration. The tools and run call
+stay the same.
+
+These runs use the kernel's budgets, tool loop and checkpoint persistence.
+`ReactiveAgent` exposes additional configuration such as compaction and durable
+store routing; its `run` config requires `sessionId`, `topicId`, `projectId` and
+`tenantId`. OS isolation is explicit rather than ambient: supply a
 `sandboxProvider` when the host requires it. Direct SDK runs use a disposable
 sandbox workspace unless `sandbox: { workspace: 'working-directory' }` is
 selected and the provider advertises support for rooting itself at the run's
 declared working directory. Configure durable stores and
 telemetry exporters when the process must outlive or export the in-memory run.
-Swap the `registerOpenRouter()` line for any other driver and everything below
-it is unchanged.
 
 ## What you get
 

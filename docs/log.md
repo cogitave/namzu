@@ -1,5 +1,8 @@
 # Documentation update log
 
+## 2026-09-07
+* **Creation**: [Run the kernel](/sdk/quick-start.md) — runnable offline SDK examples, explicit history and identity ownership, and agent-kernel positioning across the repository entry points.
+
 ## 2026-09-06
 * **Update**: [Bounded file discovery](/sdk/file-discovery.md) — content search now enumerates incrementally with cancellation, a 15-second deadline, explicit traversal/result limits and retained partial matches, replacing eager sandbox directory listing.
 * **Update**: [Harness invariants](/sdk/harness-invariants.md), [Terminal design](/cli/terminal-design.md) and [Slash commands](/cli/slash-commands.md) — operator input releases delegation waits without cancelling children, completion delivery wakes for new messages, cancelled turns retain tool evidence, and child transcripts use a distinct framed screen with retained completed work and clear return navigation.

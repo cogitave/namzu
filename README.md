@@ -2,11 +2,11 @@
 type: Index
 title: Namzu
 description: >-
-  An open-source agent platform for TypeScript. Ships an operator application,
-  a reusable kernel and optional runtimes for supervised agents with explicit
+  An agent kernel for TypeScript. Ships a reusable SDK, a terminal application
+  and optional capabilities for supervised agents with explicit
   identity, budgets, permissions and pluggable durability. FSL-1.1-MIT,
   converting to MIT two years after each release.
-tags: [readme, index, typescript, agent-platform]
+tags: [readme, index, typescript, agent-kernel]
 status: stable
 generated: { by: human:bahadirarda, at: 2026-08-07T00:00:00Z }
 -->
@@ -15,7 +15,7 @@ generated: { by: human:bahadirarda, at: 2026-08-07T00:00:00Z }
 
 <h1>Namzu</h1>
 
-**An open-source agent platform for TypeScript.**
+**The kernel for AI agents. A TypeScript SDK. A runtime you control.**
 
 [![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](./LICENSE.md)
 [![npm @namzu/sdk](https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk)](https://www.npmjs.com/package/@namzu/sdk)
@@ -36,7 +36,7 @@ past, a record that can survive the process when durable stores are configured,
 and a way to shrink a conversation that is about to overflow without corrupting
 it.
 
-Namzu is the platform for those other things. Its `@namzu/sdk` kernel runs an
+Namzu is the kernel for those other things. Its `@namzu/sdk` package runs an
 agent the way an operating system runs a process: it is given an identity and a
 budget, scheduled, checkpointed, and optionally confined by the sandbox a host
 supplies. The kernel renders no UI, requires no database, hosts no service, and
@@ -76,8 +76,8 @@ needs no key and no network:
 pnpm add @namzu/sdk zod@^3
 ```
 
-<sub>The kernel bundles no runtime dependencies — `zod`, `zod-to-json-schema`
-and `@opentelemetry/api` are peer-declared so your lockfile owns the versions.
+<sub>`zod`, `zod-to-json-schema` and `@opentelemetry/api` are peer-declared
+so your lockfile owns their versions.
 Pin `zod` to v3: that is the range the kernel is built against, and a bare
 `pnpm add zod` installs v4.</sub>
 
@@ -94,7 +94,7 @@ const { output, run, identity } = await runAgent({
 
 console.log(output)          // 'Paris.'
 console.log(run.stopReason)  // 'end_turn'
-console.log(identity)        // { sessionId, threadId, projectId, tenantId }
+console.log(identity)        // { sessionId, topicId, projectId, tenantId }
 ```
 
 That is not a chat call with extra steps. It generated a session identity,

@@ -2,6 +2,7 @@
 
 The kernel.
 
+* [Run the kernel](quick-start.md) - An offline SDK run, real tool execution and conversation identity.
 * [Bounded file discovery](file-discovery.md) - Explicit glob scope, incremental sandbox enumeration and recoverable incomplete results.
 * [Pinned facts](pinned-facts.md) - How a tool puts a fact into the run's working memory by key, so it stays in front of the model across compaction.
 * [Ids](ids.md) - Opaque UUIDs, nominal entity types and strict storage admission.

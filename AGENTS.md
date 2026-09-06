@@ -4,7 +4,7 @@ Canonical instructions for AI agents working in this repository. `CLAUDE.md` imp
 
 ## Project
 
-Namzu is an AI agent platform. The monorepo ships:
+Namzu is an AI agent kernel. Its TypeScript SDK exposes the runtime; the CLI is an application built on it. The monorepo ships:
 
 - `@namzu/sdk` — core runtime (agents, tools, providers, stores, compaction)
 - `@namzu/cli` — the operator application

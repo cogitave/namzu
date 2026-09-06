@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "description": "Namzu — an open-source agent platform with a TypeScript kernel, operator application, and optional runtimes.",
+  "description": "Namzu — an agent kernel with a TypeScript SDK, a terminal application, and optional capability packages.",
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
