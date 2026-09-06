@@ -3,7 +3,6 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { render } from 'ink-testing-library'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { DiskSessionGoalStore, type SessionGoalStore } from '@namzu/sdk'
@@ -12,6 +11,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentSession, RunScope } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { type Screen, renderToScreen } from './support/screen.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -91,13 +91,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 
 const { App } = await import('../App.js')
 const { openSessions } = await import('../../integrations/sessions/store.js')
-const mounted: Array<{ unmount: () => void }> = []
+const mounted: Array<{ unmount: () => Promise<void>; screen: Screen }> = []
 const roots: string[] = []
 const tick = (ms = 25) => new Promise((resolve) => setTimeout(resolve, ms))
 
-afterEach(() => {
+afterEach(async () => {
 	vi.restoreAllMocks()
-	for (const harness of mounted.splice(0)) harness.unmount()
+	for (const harness of mounted.splice(0)) await harness.unmount()
 	for (const root of roots.splice(0)) removeTempDir(root)
 	scope = undefined
 	sends = 0
@@ -113,26 +113,43 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
 	}
 }
 
-async function until(check: () => boolean, why: string): Promise<void> {
-	const started = performance.now()
-	while (!check() && performance.now() - started < 4_000) await tick()
-	expect(check(), why).toBe(true)
+async function renderApp(root: string) {
+	const screen = await renderToScreen(
+		<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />,
+		{ cols: 100, rows: 30 },
+	)
+	return {
+		screen,
+		stdin: { write: (value: string) => screen.press(value) },
+		lastFrame: () => screen.viewport().join('\n'),
+		get frames() {
+			return [screen.scrollback().join('\n')]
+		},
+		unmount: () => screen.unmount(),
+	}
 }
 
-async function submit(
-	harness: { stdin: { write: (value: string) => void } },
-	text: string,
-): Promise<void> {
+async function until(check: () => boolean, why: string): Promise<void> {
+	await vi.waitFor(
+		async () => {
+			for (const harness of mounted) await harness.screen.waitForRender()
+			expect(check(), why).toBe(true)
+		},
+		{ timeout: 4_000 },
+	)
+}
+
+async function submit(harness: Awaited<ReturnType<typeof renderApp>>, text: string): Promise<void> {
 	harness.stdin.write(text)
-	await tick()
+	await harness.screen.waitForRender()
 	harness.stdin.write('\r')
-	await tick(50)
+	await harness.screen.waitForRender()
 }
 
 it('writes /goal to the active Session and admits automatic work only there', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-goal-reach-'))
 	roots.push(root)
-	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
+	const harness = await renderApp(root)
 	mounted.push(harness)
 	await until(() => scope?.sessionId !== undefined, 'the durable conversation never became ready')
 
@@ -161,13 +178,107 @@ it('writes /goal to the active Session and admits automatic work only there', as
 	await until(() => scope?.sessionId !== source, 'the new conversation did not replace the scope')
 	await submit(harness, '/goal')
 	await until(
-		() => harness.frames.join('\n').includes('No goal is currently set.'),
+		() => harness.frames.join('\n').includes('No goal set for this conversation.'),
 		'the new conversation did not read its own empty goal state',
 	)
 	expect(await reopened.goals.getGoal(source, reopened.tenantId)).toMatchObject({
 		objective: 'finish the durable release',
 	})
 	expect(sends).toBe(1)
+})
+
+it('inspects status without creating a goal, then starts only after an objective is submitted', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-goal-menu-'))
+	roots.push(root)
+	const harness = await renderApp(root)
+	mounted.push(harness)
+	await until(() => scope?.sessionId !== undefined, 'conversation did not become ready')
+	await submit(harness, '/goal status')
+	await until(
+		() => harness.frames.join('\n').includes('No goal is currently set.'),
+		'status was not read',
+	)
+	const sessions = await openSessions(root)
+	const sessionId = scope!.sessionId
+	expect(await sessions.goals.getGoal(sessionId, sessions.tenantId)).toBeNull()
+	expect(sends).toBe(0)
+	await submit(harness, '/goal')
+	await until(() => harness.lastFrame()?.includes('/goal set') ?? false, 'goal menu did not open')
+	expect(sends).toBe(0)
+	harness.stdin.write('\r')
+	await until(
+		() => harness.lastFrame()?.includes('Set a goal') ?? false,
+		'objective editor did not open',
+	)
+	expect(sends).toBe(0)
+	await submit(harness, 'finish the menu flow')
+	await vi.waitFor(
+		async () => {
+			expect(await sessions.goals.getGoal(sessionId, sessions.tenantId)).toMatchObject({
+				objective: 'finish the menu flow',
+				phase: 'complete',
+			})
+		},
+		{ timeout: 4_000 },
+	)
+	expect(sends).toBe(1)
+})
+
+it('returns to help when an asynchronous goal menu is cancelled and ignores its late read', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-goal-menu-cancel-'))
+	roots.push(root)
+	const harness = await renderApp(root)
+	mounted.push(harness)
+	await until(() => scope?.sessionId !== undefined, 'conversation did not become ready')
+	await submit(harness, '/goal status')
+	await until(
+		() => harness.frames.join('\n').includes('No goal is currently set.'),
+		'initial read did not finish',
+	)
+	await submit(harness, '/help')
+	const entered = deferred()
+	const release = deferred()
+	vi.spyOn(DiskSessionGoalStore.prototype, 'getGoal').mockImplementationOnce(async () => {
+		entered.resolve()
+		await release.promise
+		return null
+	})
+	await submit(harness, '/goal')
+	await entered.promise
+	await until(
+		() => harness.lastFrame()?.includes('Loading goal') ?? false,
+		'goal loading menu never appeared',
+	)
+	harness.stdin.write('\x1B')
+	await tick(50)
+	expect(harness.lastFrame()).not.toContain('Loading goal')
+	expect(harness.lastFrame()).toContain('/settings')
+	release.resolve()
+	await tick(75)
+	expect(harness.lastFrame()).not.toContain('No goal set for this conversation.')
+	expect(harness.lastFrame()).toContain('/settings')
+	expect(sends).toBe(0)
+})
+
+it('shows effective settings without sending a turn or changing them on cancel', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-settings-menu-'))
+	roots.push(root)
+	const harness = await renderApp(root)
+	mounted.push(harness)
+	await until(() => scope?.sessionId !== undefined, 'conversation did not become ready')
+	await submit(harness, '/settings')
+	await until(
+		() => harness.lastFrame()?.includes('Settings') ?? false,
+		'settings menu did not open',
+	)
+	expect(harness.lastFrame()).toContain('goal-provider')
+	expect(harness.lastFrame()).toContain('goal-model')
+	expect(harness.lastFrame()).toContain('prompt')
+	expect(sends).toBe(0)
+	harness.stdin.write('\x1B')
+	await tick(50)
+	expect(harness.lastFrame()).not.toContain('Select a setting')
+	expect(sends).toBe(0)
 })
 
 it('does not let a later conversation command overtake a pending durable goal write', async () => {
@@ -186,7 +297,7 @@ it('does not let a later conversation command overtake a pending durable goal wr
 		return await createGoal.call(this, params, tenantId)
 	})
 
-	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
+	const harness = await renderApp(root)
 	mounted.push(harness)
 	await until(() => scope?.sessionId !== undefined, 'the durable conversation never became ready')
 
@@ -196,7 +307,9 @@ it('does not let a later conversation command overtake a pending durable goal wr
 	if (!source) throw new Error('fixture requires a source conversation')
 	await submit(harness, '/new')
 	expect(scope?.sessionId).toBe(source)
-	expect(harness.frames.join('\n')).toContain('A goal command is still reaching durable session state')
+	expect(harness.frames.join('\n')).toContain(
+		'A goal command is still reaching durable session state',
+	)
 
 	release.resolve()
 	await until(

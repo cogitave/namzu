@@ -36,7 +36,12 @@ import {
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
-import { type PermissionMode, isPermissionMode } from '../permissions/mode.js'
+import {
+	PERMISSION_MODES,
+	type PermissionMode,
+	isPermissionMode,
+	permissionModeDescription,
+} from '../permissions/mode.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
@@ -55,6 +60,9 @@ export type SlashAction =
 	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
 	/** Observe child runs retained by this TUI conversation. */
 	| { kind: 'agent-cockpit' }
+	| { kind: 'settings-picker' }
+	| { kind: 'goal-picker' }
+	| { kind: 'goal-editor'; edit: boolean }
 	| { kind: 'exit' }
 	/** Empty only the rendered terminal transcript; model context is unchanged. */
 	| { kind: 'clear-screen' }
@@ -256,7 +264,7 @@ export interface SlashContext {
 		readonly levels: readonly ReasoningEffort[] | undefined
 	}
 	/**
-	 * CUMULATIVE run spend, or `null` before the first turn reports any.
+	 * Current or latest run spend, or `null` before the first usage report.
 	 *
 	 * The same numbers the status bar abbreviates. Kept as the kernel's own
 	 * quantity rather than a formatted string so `/cost` can print exact
@@ -359,6 +367,8 @@ export interface SlashCommand {
 	readonly description: string
 	/** Compatibility-only commands remain executable but stay out of discovery UI. */
 	readonly discoverable?: false
+	/** A live precondition shared by discovery and execution. */
+	readonly unavailable?: (ctx: SlashContext) => string | undefined
 	readonly action: (ctx: SlashContext, args: readonly string[]) => SlashAction
 }
 
@@ -454,7 +464,7 @@ export class CommandNameCollisionError extends Error {
  * {@link CommandNameCollisionError} exists to prevent; naming each one here
  * keeps the refusal for every collision nobody decided about.
  */
-export const HOST_OWNED_COMMAND_NAMES: readonly string[] = ['skills']
+export const HOST_OWNED_COMMAND_NAMES: readonly string[] = ['skills', 'agents', 'goal']
 
 export function mergeHostCommands(
 	descriptors: readonly SerializableHostCommand[],
@@ -558,6 +568,35 @@ export function parseSlash(line: string): ParsedSlash | null {
  */
 export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
+		name: 'settings',
+		description: 'View current settings and change model, reasoning or permissions.',
+		action: () => ({ kind: 'settings-picker' }),
+	},
+	{
+		name: 'agents',
+		description: 'Inspect delegated agents; /agents available lists configured agents.',
+		action: (_ctx, args) =>
+			args.length === 0 || (args.length === 1 && args[0] === 'running')
+				? { kind: 'agent-cockpit' }
+				: args.length === 1 && args[0] === 'available'
+					? { kind: 'host-command', name: 'agents', args: [] }
+					: { kind: 'message', role: 'system', content: 'Usage: /agents [running|available]' },
+	},
+	{
+		name: 'goal',
+		description: 'Manage this conversation’s goal and automatic continuation.',
+		action: (_ctx, args) => {
+			if (args.length === 0) return { kind: 'goal-picker' }
+			if (args.length === 1 && args[0] === 'status') {
+				return { kind: 'host-command', name: 'goal', args: [] }
+			}
+			if (args.length === 1 && (args[0] === 'set' || args[0] === 'edit')) {
+				return { kind: 'goal-editor', edit: args[0] === 'edit' }
+			}
+			return { kind: 'host-command', name: 'goal', args }
+		},
+	},
+	{
 		name: 'help',
 		description: 'Choose and run an available slash command.',
 		action: (ctx) => {
@@ -573,6 +612,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 						.map((command) => ({
 							name: command.name,
 							description: command.description,
+							...(command.unavailable?.(ctx) ? { problem: command.unavailable(ctx) } : {}),
 						})),
 					...ctx.userCommands.map((command) => ({
 						name: command.name,
@@ -585,6 +625,10 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'feedback',
+		unavailable: (ctx) =>
+			ctx.lastAssistantMessageId()
+				? undefined
+				: 'Nothing to rate yet. Wait for an assistant answer.',
 		description: 'Rate the last answer; choose good/bad or add an optional note.',
 		action: (ctx, args) => {
 			if (args.length === 0) {
@@ -721,7 +765,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'model',
-		description: 'Re-open the provider picker to switch the primary provider.',
+		description: 'Choose a model for the current provider, or change providers.',
 		action: () => ({ kind: 'repick' }),
 	},
 	{
@@ -752,12 +796,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'cost',
-		description: 'Show tokens and spend for this run.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content: renderCost(ctx.usage, ctx.compaction),
-		}),
+		description: 'Show usage and cost for the current or latest run.',
+		action: (ctx, args) =>
+			reportCommand('cost', args, (details) => renderCost(ctx.usage, ctx.compaction, details)),
 	},
 	{
 		name: 'jobs',
@@ -788,12 +829,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'context',
-		description: 'Show how full the context is and what compaction has done to keep it that way.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content: renderContext(ctx.usage, ctx.compaction),
-		}),
+		description: 'Show context usage and automatic cleanup.',
+		action: (ctx, args) =>
+			reportCommand('context', args, (details) =>
+				renderContext(ctx.usage, ctx.compaction, details),
+			),
 	},
 	{
 		name: 'review',
@@ -805,12 +845,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'mcp',
-		description: 'Show current tool-server connections, tools, and failures.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content: renderMcp(ctx.mcp()),
-		}),
+		description: 'Show connected tool servers and connection problems.',
+		action: (ctx, args) =>
+			reportCommand('mcp', args, (details) => renderMcp(ctx.mcp(), details), 'tools'),
 	},
 	{
 		name: 'diff',
@@ -852,8 +889,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'status',
-		description:
-			'Show what this session is, where it may write, and when it stops to ask; /status config for where each setting came from, /status tools for what the agent can call.',
+		description: 'Show the model, permissions, workspace and latest cost.',
 		action: (ctx, args) => {
 			const which = args.join(' ').trim().toLowerCase()
 			if (which === 'config') {
@@ -874,27 +910,34 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 							: `Registered tools (${tools.length}):\n  ${tools.join('\n  ')}`,
 				}
 			}
-			if (which.length > 0) {
+			if (which.length > 0 && which !== 'details') {
 				return {
 					kind: 'message',
 					role: 'system',
-					content: 'Usage: /status [config|tools]',
+					content: 'Usage: /status [details|config|tools]',
 				}
 			}
-			return { kind: 'message', role: 'system', content: renderStatus(ctx) }
+			return { kind: 'message', role: 'system', content: renderStatus(ctx, which === 'details') }
 		},
 	},
 	{
 		name: 'permissions',
-		description: 'Choose how undecided tool calls are handled: /permissions [mode].',
-		action: (_ctx, args) => {
+		description: 'Choose which actions need your approval.',
+		action: (ctx, args) => {
 			if (args.length === 0) return { kind: 'permission-mode-picker' }
 			const mode = args.length === 1 ? args[0]?.toLowerCase() : undefined
+			if (mode === 'details') {
+				return {
+					kind: 'message',
+					role: 'system',
+					content: renderPermissions(ctx.permissions, true),
+				}
+			}
 			if (isPermissionMode(mode)) return { kind: 'permission-mode', mode }
 			return {
 				kind: 'message',
 				role: 'system',
-				content: 'Usage: /permissions [prompt|auto|strict]',
+				content: `Usage: /permissions [details|${PERMISSION_MODES.join('|')}]`,
 			}
 		},
 	},
@@ -1013,20 +1056,6 @@ export function initPrompt(instructionFiles: readonly string[]): string {
 	].join('\n')
 }
 
-/**
- * Spend, stated as spend.
- *
- * `totalTokens` is cumulative and monotone; it is NOT how full the context is,
- * and the two were conflated once already — the gauge divided cumulative spend
- * by a guessed window, so it climbed with turn count and read FULL on a
- * conversation with room to spare. This command prints the spend and says which
- * quantity it is, so that nobody reads it as the other one.
- */
-/**
- * The working set, as a reader would ask about it: how full, held where,
- * and what it has cost the transcript so far. Counts are for this session,
- * summed over every pass; a pass that declined leaves them unchanged.
- */
 /** The session's shell hooks, by event, in the order the config file gave them. */
 export function renderHooks(hooks: HooksConfig | undefined): string {
 	const events = Object.entries(hooks ?? {}).filter(([, entries]) => (entries?.length ?? 0) > 0)
@@ -1068,144 +1097,117 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 	].join('\n')
 }
 
+/** Reports validate their subcommand instead of silently ignoring mistyped arguments. */
+function reportCommand(
+	name: string,
+	args: readonly string[],
+	render: (details: boolean) => string,
+	detailName = 'details',
+): SlashAction {
+	const option = args.join(' ').trim().toLowerCase()
+	const details = option === detailName || option === 'details'
+	return {
+		kind: 'message',
+		role: 'system',
+		content: option.length === 0 || details ? render(details) : `Usage: /${name} [${detailName}]`,
+	}
+}
+
+function contextMeasurement(usage: SlashContext['usage']): string[] {
+	const context = usage?.context
+	if (!context || context.windowTokens <= 0) return ['No context measurement yet.']
+	const percent = Math.min(999, Math.round((context.tokens / context.windowTokens) * 100))
+	const approx = context.measured && !context.windowAssumed ? '' : '~'
+	return [
+		`Context: ${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')} tokens (${approx}${percent}%)`,
+		`${context.measured ? 'Counted by the provider' : 'Estimated by Namzu'}; window ${context.windowAssumed ? 'assumed from a table or default' : 'declared by the provider or config'}.`,
+	]
+}
+
 export function renderContext(
 	usage: SlashContext['usage'],
 	compaction: CompactionSummary | null,
+	details = false,
 ): string {
-	const lines: string[] = []
-	const context = usage?.context
-	if (context && context.windowTokens > 0) {
-		const percent = Math.min(999, Math.round((context.tokens / context.windowTokens) * 100))
-		const approx = context.measured && !context.windowAssumed ? '' : '~'
-		lines.push(
-			`Context: ${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')} tokens (${approx}${percent}%)`,
-			`${context.measured ? 'Counted by the provider' : 'Estimated on this side'}; window ${
-				context.windowAssumed
-					? 'assumed from a table or default'
-					: 'declared by the provider or config'
-			}.`,
-		)
-	} else {
-		lines.push('No context measurement yet. The kernel reports it as a turn runs.')
-	}
+	const lines = contextMeasurement(usage)
+	if (usage?.context) lines.push('Latest reported context size; not cumulative token usage.')
 	if (!compaction) {
-		lines.push('', 'No session yet, so no compaction strategy to report.')
-		return lines.join('\n')
-	}
-	const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
-	lines.push('')
-	if (compaction.strategy === 'salience') {
-		lines.push(
-			'Strategy: salience — every message is scored (recency, relevance to the goal,',
-			`whether a later turn used it, whether a later message repeats it) and from ${pct(compaction.softTarget)}`,
-			"of the window the least salient are evicted first: a tool result's body cleared, a",
-			`narration cut to its first sentence. Older history is summarised only at ${pct(compaction.triggerThreshold)}.`,
-		)
+		lines.push('Automatic cleanup: unavailable before a session starts.')
 	} else {
 		lines.push(
-			`Strategy: structured — at ${pct(compaction.triggerThreshold)} of the window, stale tool results are cleared`,
-			'and, if that is not enough, older history is replaced by a structured summary.',
+			`Cleanup this session: ${compaction.passes} passes, ~${compaction.reclaimedTokens.toLocaleString('en-US')} tokens freed.`,
 		)
+		if (details) {
+			const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
+			lines.push(`Strategy: ${compaction.strategy}`)
+			if (compaction.strategy === 'salience') {
+				lines.push(
+					`Older, less useful content is shortened from ${pct(compaction.softTarget)} of the window; older history is summarised at ${pct(compaction.triggerThreshold)}.`,
+				)
+			} else {
+				lines.push(
+					`Older tool results are cleared at ${pct(compaction.triggerThreshold)} of the window; history is summarised if needed.`,
+				)
+			}
+			lines.push(
+				`Tool results cleared: ${compaction.clearedResults.toLocaleString('en-US')}`,
+				`Messages shortened: ${compaction.stubbedNarrations.toLocaleString('en-US')}`,
+				`Summaries written: ${compaction.summaries.toLocaleString('en-US')}`,
+			)
+		}
 	}
-	lines.push(
-		'',
-		`Passes this session: ${compaction.passes}`,
-		`  tool results cleared:  ${compaction.clearedResults.toLocaleString('en-US')}`,
-		`  narrations stubbed:    ${compaction.stubbedNarrations.toLocaleString('en-US')}`,
-		`  summaries written:     ${compaction.summaries.toLocaleString('en-US')}`,
-		`  tokens reclaimed:      ~${compaction.reclaimedTokens.toLocaleString('en-US')}`,
-	)
+	if (!details) lines.push('/context details for cleanup history.')
 	return lines.join('\n')
+}
+
+/** Keep unknown prices distinct from measured zero, in status and cost alike. */
+function costAmount(cost: CostInfo): string {
+	if (cost.unpricedTokens > 0) {
+		return cost.totalCost > 0 ? `at least $${cost.totalCost.toFixed(4)}` : 'not known'
+	}
+	return `$${cost.totalCost.toFixed(4)}${cost.totalCost === 0 ? ' (measured zero)' : ''}`
 }
 
 export function renderCost(
 	usage: SlashContext['usage'],
 	compaction: CompactionSummary | null = null,
+	details = false,
 ): string {
-	if (usage === null) {
-		return 'No usage reported yet. The kernel emits it as a turn runs, so this fills in after the first exchange.'
-	}
-
-	// Three states, and the third used to read as the first.
-	//
-	// This printed `'$0.0000 (this provider reported no price)'` for any total
-	// that was not above zero — which was every run, because nothing fed the
-	// kernel's cost calculation at all. Two things were wrong with it beyond
-	// the number. A run on a local model costs nothing and is NOT the same
-	// event as a run nobody can price; and the parenthetical asserted a fact
-	// about the provider that no code had checked. What was actually known is
-	// that this side has no rate for the model — a statement about namzu, not
-	// about the vendor, and the difference decides who the operator goes to.
-	//
-	// The kernel exports `describeCost` for exactly this distinction and it is
-	// deliberately NOT used here: it renders through `formatCost`, which rounds
-	// to two decimals above a cent, and this command exists to print exact
-	// figures (see `SlashContext.usage`). Rounding `$0.0731` to `$0.07` to
-	// reuse a helper would trade the property someone asked for against tidy
-	// code. The status bar, which must fit, is where the short form belongs.
-	const amount = `$${usage.cost.totalCost.toFixed(4)}`
-	const unpriced = usage.cost.unpricedTokens > 0
+	if (usage === null) return 'No usage reported yet. Send a message to begin.'
 	const lines = [
-		`Tokens: ${usage.totalTokens.toLocaleString('en-US')}`,
-		`Cost:   ${unpriced && usage.cost.totalCost === 0 ? 'not known' : amount}${
-			unpriced && usage.cost.totalCost > 0 ? ' and counting — see below' : ''
-		}`,
-		'',
+		'Current or latest run',
+		`Tokens: ${usage.totalTokens.toLocaleString('en-US')} (own model calls)`,
+		`Cost: ${costAmount(usage.cost)}`,
 	]
-
+	if (usage.cost.unpricedTokens > 0) {
+		lines.push(
+			`${usage.cost.unpricedTokens.toLocaleString('en-US')} tokens have no known price and are excluded from the cost.`,
+		)
+	}
 	if (usage.budget) {
 		lines.push(
-			`Tree tokens (including descendants): ${usage.budget.treeTokens.toLocaleString('en-US')}`,
-			`Tree limit: ${usage.budget.limit === 0 ? 'unlimited' : usage.budget.limit.toLocaleString('en-US')}`,
-			"Cost above covers this run's own model calls.",
-			'',
+			`Including delegated agents: ${usage.budget.treeTokens.toLocaleString('en-US')} tokens; limit ${usage.budget.limit === 0 ? 'unlimited' : usage.budget.limit.toLocaleString('en-US')}.`,
 		)
 		if (usage.budget.poisoned)
-			lines.push('Further spending is blocked until unresolved usage is reconciled.', '')
+			lines.push('Further spending is blocked until unresolved request usage is reconciled.')
 	}
-
-	if (unpriced) {
+	if (details) {
 		lines.push(
-			`${usage.cost.unpricedTokens.toLocaleString('en-US')} tokens ran on a model namzu has no rate`,
-			'for, so what they cost is not in this figure and cannot be. This is not',
-			'a claim that they were free. Declare the rate to price them.',
+			'Cost covers this run’s own model calls, excluding delegated calls and earlier runs. These are not conversation totals.',
 		)
-	} else if (usage.cost.totalCost === 0) {
-		lines.push(
-			'A measured zero, not a missing figure: the model that served this run',
-			'bills nothing per token.',
-		)
+		if (usage.cost.unpricedTokens > 0) {
+			lines.push('Missing prices do not mean those tokens were free.')
+		} else {
+			lines.push('All reported tokens have a known rate.')
+		}
+		if (usage.cost.cacheDiscount > 0)
+			lines.push(`Cache discount: $${usage.cost.cacheDiscount.toFixed(4)}`)
+		if (usage.context && usage.context.windowTokens > 0) {
+			lines.push('', ...contextMeasurement(usage), '/context details for automatic cleanup.')
+		}
+		if (compaction) lines.push(`Cleanup passes this session: ${compaction.passes}.`)
 	} else {
-		lines.push('Every token in this run was charged at a known rate.')
-	}
-
-	lines.push(
-		'',
-		'Cumulative for this run, across every turn. Not a measure of how full',
-		'the context is — that is a different quantity and it goes down when the',
-		'conversation is compacted, while this only ever grows.',
-	)
-
-	// The other quantity, when the run has it. Each term with its provenance,
-	// because a ratio is only as sound as the weaker of its terms and a bare
-	// `42%` over an assumed window would be a measurement nobody made.
-	const context = usage.context
-	if (context && context.windowTokens > 0) {
-		const percent = Math.min(999, Math.round((context.tokens / context.windowTokens) * 100))
-		const approx = context.measured && !context.windowAssumed ? '' : '~'
-		lines.push(
-			'',
-			`Context: ${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')} tokens (${approx}${percent}%)`,
-			`${context.measured ? 'Counted by the provider' : 'Estimated on this side'}; window ${
-				context.windowAssumed
-					? 'assumed from a table or default'
-					: 'declared by the provider or config'
-			}. ${
-				compaction?.strategy === 'salience'
-					? `Salience holds it from ${Math.round(compaction.softTarget * 100)}%; /context has the detail.`
-					: `Automatic compaction runs at ${Math.round((compaction?.triggerThreshold ?? 0.7) * 100)}%.`
-			}`,
-		)
+		lines.push('/cost details for scope and pricing; /context for context size.')
 	}
 	return lines.join('\n')
 }
@@ -1309,156 +1311,94 @@ function reviewTargetPrompt(target: readonly string[]): string {
 	].join('\n')
 }
 
-export function renderMcp(mcp: ReturnType<SlashContext['mcp']>): string {
-	if (mcp === null) return 'No session yet — no tool servers have been contacted.'
-
-	const lines: string[] = []
+export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false): string {
+	if (mcp === null) return 'No session yet. Tool servers have not been checked.'
 	if (mcp.connected.length === 0 && mcp.failed.length === 0) {
-		return 'No tool servers configured. Add an `mcpServers` block to namzu.config.json.'
+		return 'No tool servers configured. Add mcpServers to namzu.config.json.'
 	}
-
+	const lines = [
+		`Tool servers: ${mcp.connected.length} connected, ${mcp.failed.length} unavailable.`,
+	]
 	for (const server of mcp.connected) {
-		lines.push(`${server.name} — connected, ${server.tools.length} tool(s)`)
-		// Named, not counted. A count answers "did it work"; the operator's
-		// actual question is whether the tool they wanted is among them.
-		for (const tool of server.tools) lines.push(`  ${tool}`)
+		lines.push(`${server.name}: connected, ${server.tools.length} tools`)
+		if (details) for (const tool of server.tools) lines.push(`  ${tool}`)
 	}
-
-	if (mcp.failed.length > 0) {
-		if (lines.length > 0) lines.push('')
-		for (const server of mcp.failed) {
-			lines.push(`${server.name} — NOT available: ${server.reason}`)
-		}
-	}
-
+	for (const server of mcp.failed) lines.push(`${server.name}: unavailable — ${server.reason}`)
+	if (!details && mcp.connected.length > 0) lines.push('/mcp tools to list available tools.')
 	return lines.join('\n')
 }
 
-export function renderStatus(ctx: SlashContext): string {
-	const lines: string[] = []
-
-	lines.push(`Provider: ${ctx.providerSummary ?? 'none — run /model to pick one'}`)
-	lines.push(`Model:    ${ctx.modelSummary ?? '—'}`)
-	lines.push('')
-
-	lines.push('Where it may write')
-	for (const dir of ctx.directories?.() ?? []) lines.push(`  Also ${dir} (added with /add-dir)`)
+export function renderStatus(ctx: SlashContext, details = false): string {
+	const lines = [
+		`Provider: ${ctx.providerSummary ?? 'none — run /model to choose one'}`,
+		`Model: ${ctx.modelSummary ?? 'not selected'}`,
+		`Working directory: ${ctx.cwd}`,
+		...renderPermissions(ctx.permissions, details).split('\n'),
+	]
 	const sandbox = ctx.sandbox
 	if (!sandbox) {
-		lines.push('  Not resolved yet — no session has started.')
+		lines.push('Sandbox: not resolved yet.')
 	} else if (sandbox.unconfined) {
-		// The loudest line on the page, and deliberately not softened by the
-		// environment name: a tier that enforces nothing is not a weaker
-		// sandbox, it is the absence of one.
-		lines.push('  Anywhere this shell can. Commands are NOT confined.')
-		if (sandbox.environment) {
-			lines.push(`  The sandbox is attached (${sandbox.environment}) and enforces nothing here.`)
-		}
-		lines.push('  Name what you need under `sandbox.requireIsolation` to be refused instead.')
+		lines.push('Sandbox: commands are not confined; they have this shell’s access.')
 	} else {
-		lines.push(`  Confined to this session's sandbox (${sandbox.environment ?? 'unknown'}).`)
-		lines.push(`  Enforced here: ${sandbox.enforced.join(', ')}.`)
-	}
-	if (sandbox && sandbox.required.length > 0) {
-		// Worth its own line even when it matches what is enforced: a demand
-		// travels to the next machine and a coincidence does not.
 		lines.push(
-			`  Required by config: ${sandbox.required.join(', ')} — a host without them refuses to run.`,
+			`Sandbox: ${sandbox.environment ?? 'active'}; enforces ${sandbox.enforced.join(', ') || 'no reported restrictions'}.`,
 		)
-	} else if (sandbox) {
-		lines.push('  Required by config: nothing — this host decides what you get.')
 	}
-	if (sandbox?.workspace === 'working-directory') {
-		lines.push('  Workspace: real project files — changes persist across turns.')
-	} else if (sandbox?.workspace === 'ephemeral') {
-		lines.push('  Workspace: disposable per run — changes are removed at teardown.')
-	} else if (sandbox?.workspace === 'host') {
-		lines.push('  Workspace: real project files on the host.')
+	if (sandbox?.workspace === 'ephemeral') {
+		lines.push('Workspace: temporary files; removed when the run ends.')
+	} else if (sandbox?.workspace === 'working-directory' || sandbox?.workspace === 'host') {
+		lines.push('Workspace: real project files; edits persist.')
 	}
-	lines.push('')
-
-	lines.push('When it stops to ask')
-	for (const line of renderPermissions(ctx.permissions).split('\n')) {
-		lines.push(line.length > 0 ? `  ${line}` : '')
+	if (details) {
+		for (const dir of ctx.directories?.() ?? []) lines.push(`Additional directory: ${dir}`)
+		if (sandbox) {
+			lines.push(
+				`Required isolation: ${sandbox.required.length > 0 ? sandbox.required.join(', ') : 'none'}.`,
+			)
+			if (sandbox.required.length > 0)
+				lines.push('A host missing required isolation cannot start the session.')
+		}
+		lines.push('/status config for setting sources; /status tools for available tools.')
 	}
-
-	if (ctx.usage) {
-		lines.push('')
-		lines.push(`Spend: ${renderCost(ctx.usage).split('\n')[0] ?? ''}`)
-	}
-
-	return lines.join('\n').trimEnd()
+	if (ctx.usage)
+		lines.push(`Spend (current or latest run, own calls): ${costAmount(ctx.usage.cost)}`)
+	if (!details) lines.push('/status details for rules and workspace details.')
+	return lines.join('\n')
 }
 
-export function renderPermissions(permissions: SlashContext['permissions']): string {
-	const lines: string[] = []
+export function renderPermissions(
+	permissions: SlashContext['permissions'],
+	details = false,
+): string {
 	const current = permissions.currentMode()
-	lines.push(`Current mode: ${current.mode}.`)
-	lines.push('')
-
-	// Four effective states, most permissive first, and the approve-all one is the reason this
-	// function was rewritten: it is reachable from a single keystroke at a
-	// prompt, it silently outranks the default, and it used to be invisible
-	// here — so the page answering "how do tool calls get approved" gave the
-	// safe answer to an operator who had already turned the safety off.
-	if (current.mode === 'auto') {
+	const approvedAll =
+		(current.mode === 'prompt' || current.mode === 'accept-edits') && permissions.approvalLatched()
+	const lines = [
+		`Permissions: ${current.mode}. ${approvedAll ? 'Tools are approved automatically because “approve all” is active.' : permissionModeDescription(current.mode)}`,
+	]
+	if (approvedAll) lines.push('Use /permissions prompt to ask again.')
+	if (!details) return lines.join('\n')
+	if (current.source === 'launch-bypass')
+		lines.push('Selected at launch with --dangerously-skip-permissions.')
+	lines.push('Explicit deny rules and the built-in safety gate apply in every mode.')
+	if (current.mode === 'plan')
+		lines.push('Plan mode also blocks writes that an allow rule would otherwise permit.')
+	const exempt = permissions.neverPrompted()
+	if (exempt.length > 0) {
+		lines.push(`Tools exempt from ordinary prompts: ${exempt.join(', ')}.`)
 		lines.push(
-			current.source === 'launch-bypass'
-				? 'Unreviewed calls: approved automatically (--dangerously-skip-permissions).'
-				: 'Unreviewed calls: approved automatically for future turns (/permissions auto).',
+			'Destructive calls still require review; the selected mode decides whether to allow, ask or refuse. Plan mode still requires read-only tools.',
 		)
-	} else if (current.mode === 'strict') {
-		lines.push('Unreviewed calls: rejected automatically for future turns (/permissions strict).')
+	}
+	if (permissions.rules.length > 0) {
 		lines.push(
-			'Only calls an explicit allow rule covers may run; no approval prompt can widen that.',
+			`Rules (${permissions.rules.length}):`,
+			...permissions.rules.map((rule) => `  ${describeRule(rule)}`),
 		)
-	} else if (permissions.approvalLatched()) {
-		lines.push('Unreviewed calls: approved automatically — "approve all" was chosen at')
-		lines.push('an earlier prompt. Run /permissions prompt to revoke that latch and ask again.')
 	} else {
-		lines.push('Unreviewed calls: you are asked before they run.')
+		lines.push('No custom rules. Configure permissions in namzu.config.json.')
 	}
-
-	// Stated in every mode, because it is true in every mode and an operator
-	// cannot discover it by using namzu: these tools simply never appear at a
-	// prompt, so their absence reads as "the agent did not use any".
-	const neverPrompted = permissions.neverPrompted()
-	if (neverPrompted.length > 0) {
-		lines.push('')
-		lines.push(`Never prompted for (${neverPrompted.length}):`)
-		lines.push(`  ${neverPrompted.join(', ')}`)
-		lines.push('Each of these declares itself read-only, or is a named exception')
-		lines.push("for the agent's own task list. A rule can still deny one, and any")
-		lines.push('call the kernel flags destructive is prompted for regardless.')
-	}
-
-	if (permissions.rules.length === 0) {
-		lines.push('')
-		lines.push('No rules configured. Add a "permissions" object to namzu.config.json')
-		lines.push('to allow or deny tools by name without being asked each time.')
-	} else {
-		lines.push('')
-		lines.push(`Rules (${permissions.rules.length}), from your config:`)
-		for (const rule of permissions.rules) lines.push(`  ${describeRule(rule)}`)
-	}
-
-	lines.push('')
-	// The order this function claims to describe starts here, and the page used
-	// to begin one step in. Omitting the gate is not a false statement, but it
-	// makes "a rule decides first" read as the whole story when something
-	// outranks the rules too — and a true-but-incomplete order is a wrong order
-	// for anyone reasoning about what can still get through.
-	lines.push('Before any of the below: a built-in safety gate hard-denies a narrow set')
-	lines.push('of catastrophic shell patterns (rm -rf /, mkfs, fork bombs, curl|sh, …).')
-	lines.push('It applies in every mode, including --dangerously-skip-permissions, and')
-	lines.push('nothing here can switch it off.')
-	lines.push('')
-	// Stated because the precedence is the part people get wrong, and getting it
-	// wrong in this direction is the dangerous one: assuming the flag lifts a
-	// `deny` they wrote.
-	lines.push('Then a rule decides. The approval setting above only reaches calls')
-	lines.push('no rule covered, so it can never reopen what a `deny` closed.')
-
 	return lines.join('\n')
 }
 
@@ -1576,7 +1516,12 @@ export function runSlash(
 	// a `problem` so their author is told, rather than leaving them to wonder
 	// why the file never ran.
 	const cmd = builtins.find((c) => c.name === parsed.name)
-	if (cmd) return cmd.action(ctx, parsed.args)
+	if (cmd) {
+		const reason = cmd.unavailable?.(ctx)
+		return reason
+			? { kind: 'message', role: 'system', content: reason }
+			: cmd.action(ctx, parsed.args)
+	}
 
 	const user = ctx.userCommands.find((c) => c.name === parsed.name)
 	if (user) {

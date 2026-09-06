@@ -55,8 +55,8 @@ describe('/status puts both axes on one page', () => {
 				},
 			}),
 		)
-		expect(rendered).toContain('Where it may write')
-		expect(rendered).toContain('When it stops to ask')
+		expect(rendered).toContain('Sandbox:')
+		expect(rendered).toContain('Permissions:')
 	})
 
 	it('names the tier and what it actually enforces', () => {
@@ -98,8 +98,8 @@ describe('/status puts both axes on one page', () => {
 			}),
 		)
 
-		expect(persistent).toMatch(/real project files.*persist across turns/i)
-		expect(disposable).toMatch(/disposable per run.*removed at teardown/i)
+		expect(persistent).toMatch(/real project files.*edits persist/i)
+		expect(disposable).toMatch(/temporary files.*removed when the run ends/i)
 	})
 
 	it('says plainly that an unconfined run is unconfined', () => {
@@ -111,7 +111,7 @@ describe('/status puts both axes on one page', () => {
 				sandbox: { unconfined: true, environment: 'basic', enforced: [], required: [] },
 			}),
 		)
-		expect(rendered).toMatch(/NOT confined/)
+		expect(rendered).toMatch(/not confined/)
 		expect(rendered).not.toMatch(/Confined to this session/)
 	})
 
@@ -129,9 +129,10 @@ describe('/status puts both axes on one page', () => {
 					required: ['filesystem'],
 				},
 			}),
+			true,
 		)
-		expect(demanded).toMatch(/Required by config: filesystem/)
-		expect(demanded).toMatch(/refuses to run/)
+		expect(demanded).toMatch(/Required isolation: filesystem/)
+		expect(demanded).toMatch(/cannot start the session/)
 
 		const coincidence = renderStatus(
 			context({
@@ -142,16 +143,16 @@ describe('/status puts both axes on one page', () => {
 					required: [],
 				},
 			}),
+			true,
 		)
-		expect(coincidence).toMatch(/Required by config: nothing/)
-		expect(coincidence).toMatch(/this host decides/)
+		expect(coincidence).toMatch(/Required isolation: none/)
 	})
 
 	it('says the sandbox is unresolved rather than reporting a safe default', () => {
 		// Before a session exists there is no answer, and inventing the
 		// reassuring one is how a page like this becomes worse than absent.
 		const rendered = renderStatus(context({ sandbox: null }))
-		expect(rendered).toMatch(/Not resolved yet/)
+		expect(rendered).toMatch(/not resolved yet/)
 		expect(rendered).not.toMatch(/Confined to this session/)
 	})
 

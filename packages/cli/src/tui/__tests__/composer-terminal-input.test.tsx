@@ -111,8 +111,9 @@ describe('the composer on a production-shaped terminal', () => {
 	})
 
 	it('uses the same tall-terminal window for project file completion', async () => {
-		const files = Array.from({ length: 16 }, (_, index) =>
-			`src/file-${String(index).padStart(2, '0')}.ts`,
+		const files = Array.from(
+			{ length: 16 },
+			(_, index) => `src/file-${String(index).padStart(2, '0')}.ts`,
 		)
 		const screen = await renderToScreen(
 			<Composer history={[]} mentionCandidates={files} onSubmit={vi.fn()} />,
@@ -365,10 +366,7 @@ describe('the composer on a production-shaped terminal', () => {
 	it('searches matching history backward and forward without losing the draft', async () => {
 		const submit = vi.fn()
 		const screen = await renderToScreen(
-			<Composer
-				history={['fix alpha', 'ship beta', 'fix gamma']}
-				onSubmit={submit}
-			/>,
+			<Composer history={['fix alpha', 'ship beta', 'fix gamma']} onSubmit={submit} />,
 			{ cols: 100, rows: 16 },
 		)
 		try {
@@ -401,10 +399,10 @@ describe('the composer on a production-shaped terminal', () => {
 
 	it('restores the exact draft cursor when Esc leaves history search', async () => {
 		const submit = vi.fn()
-		const screen = await renderToScreen(
-			<Composer history={['fix older']} onSubmit={submit} />,
-			{ cols: 100, rows: 16 },
-		)
+		const screen = await renderToScreen(<Composer history={['fix older']} onSubmit={submit} />, {
+			cols: 100,
+			rows: 16,
+		})
 		try {
 			screen.press('fix')
 			screen.press('\x1b[D')
@@ -427,10 +425,10 @@ describe('the composer on a production-shaped terminal', () => {
 
 	it('restores the unsent draft when search begins from a browsed history entry', async () => {
 		const submit = vi.fn()
-		const screen = await renderToScreen(
-			<Composer history={['older prompt']} onSubmit={submit} />,
-			{ cols: 100, rows: 16 },
-		)
+		const screen = await renderToScreen(<Composer history={['older prompt']} onSubmit={submit} />, {
+			cols: 100,
+			rows: 16,
+		})
 		try {
 			screen.press('unsent')
 			screen.press('\x1b[A')
@@ -451,10 +449,10 @@ describe('the composer on a production-shaped terminal', () => {
 
 	it('keeps a no-match search as an editable draft', async () => {
 		const submit = vi.fn()
-		const screen = await renderToScreen(
-			<Composer history={['older prompt']} onSubmit={submit} />,
-			{ cols: 100, rows: 16 },
-		)
+		const screen = await renderToScreen(<Composer history={['older prompt']} onSubmit={submit} />, {
+			cols: 100,
+			rows: 16,
+		})
 		try {
 			screen.press('unmatched')
 			screen.press('\x12')
@@ -662,16 +660,23 @@ describe('the composer on a production-shaped terminal', () => {
 	})
 
 	it('gives a slash description the remaining terminal width', async () => {
-		const screen = await renderToScreen(composer(vi.fn()), {
-			cols: 100,
-			rows: 16,
-		})
+		// Keep this a width regression even when the product's ordinary command
+		// description becomes shorter than the old fixed description column.
+		const description = 'Choose which actions need approval before running tools in this session.'
+		const screen = await renderToScreen(
+			<Composer
+				history={[]}
+				onSubmit={vi.fn()}
+				builtins={[{ name: 'permissions', description, action: () => ({ kind: 'none' }) }]}
+			/>,
+			{ cols: 100, rows: 16 },
+		)
 		try {
 			screen.press('/per')
 			await screen.waitForRender()
 
 			const row = screen.viewport().find((line) => line.includes('/permissions'))
-			expect(row).toContain('Choose how undecided tool calls are handled: /permissions [mode].')
+			expect(row).toContain(description)
 		} finally {
 			await screen.unmount()
 		}
@@ -708,7 +713,10 @@ describe('the composer on a production-shaped terminal', () => {
 
 	it('scrolls project files and inserts the selected @ token without sending it', async () => {
 		const submit = vi.fn()
-		const files = Array.from({ length: 12 }, (_, index) => `src/f${String(index).padStart(2, '0')}.ts`)
+		const files = Array.from(
+			{ length: 12 },
+			(_, index) => `src/f${String(index).padStart(2, '0')}.ts`,
+		)
 		const screen = await renderToScreen(
 			<Composer history={[]} mentionCandidates={files} onSubmit={submit} />,
 			{

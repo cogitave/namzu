@@ -135,7 +135,7 @@ describe('/goal is direct host control over durable session state', () => {
 		activation.disarm(session.id)
 		expect(await registry.dispatch('/goal resume')).toMatchObject({
 			kind: 'ack',
-			message: expect.stringContaining('Goal armed'),
+			message: expect.stringContaining('Goal resumed'),
 		})
 		expect(await store.getGoal(session.id, tenantId)).toEqual(beforeRearm)
 		expect(activation.get(session.id)).toMatchObject({ revision: 4 })
@@ -144,6 +144,78 @@ describe('/goal is direct host control over durable session state', () => {
 			message: 'Goal cleared.',
 		})
 		expect(await store.getGoal(session.id, tenantId)).toBeNull()
+	})
+
+	it.each(['status', 'set', 'clear', 'pause', 'resume', 'edit'])(
+		'creates the literal reserved-word objective "%s" through explicit set',
+		async (objective) => {
+			const { activation, registry, store, session, tenantId } = await registryWithGoal()
+
+			expect(await registry.dispatch(`/goal set ${objective}`)).toMatchObject({
+				kind: 'ack',
+				message: expect.stringContaining('Goal created'),
+			})
+			const goal = await store.getGoal(session.id, tenantId)
+			expect(goal).toMatchObject({ objective, phase: 'active', revision: 1 })
+			expect(activation.get(session.id)).toMatchObject({ id: goal?.id, revision: 1 })
+		},
+	)
+
+	it('reads status without creating a goal or changing its durable state or activation', async () => {
+		const { activation, registry, store, session, tenantId } = await registryWithGoal()
+
+		expect(await registry.dispatch('/goal status')).toMatchObject({
+			kind: 'ack',
+			message: expect.stringContaining('No goal is currently set.'),
+		})
+		expect(await store.getGoal(session.id, tenantId)).toBeNull()
+		expect(activation.get(session.id)).toBeNull()
+
+		await registry.dispatch('/goal set Finish the release')
+		const before = await store.getGoal(session.id, tenantId)
+		expect(await registry.dispatch('/goal status')).toEqual(await registry.dispatch('/goal'))
+		activation.disarm(session.id)
+		expect(await registry.dispatch('/goal STATUS')).toMatchObject({
+			kind: 'ack',
+			message: expect.stringContaining('Automatic continuation: paused'),
+		})
+		expect(await store.getGoal(session.id, tenantId)).toEqual(before)
+		expect(activation.get(session.id)).toBeNull()
+	})
+
+	it('reports automatic continuation separately from the durable goal phase', async () => {
+		const { registry, store, session, tenantId } = await registryWithGoal()
+		const created = await registry.dispatch('/goal set Ship the release')
+		const goal = await store.getGoal(session.id, tenantId)
+
+		expect(created).toMatchObject({
+			kind: 'ack',
+			message: expect.stringContaining('Automatic continuation: enabled'),
+		})
+		expect(created).toMatchObject({
+			message: expect.stringContaining(`Automatic turns: 0 / ${goal?.maxGoalRounds}`),
+		})
+		expect(await registry.dispatch('/goal pause')).toMatchObject({
+			kind: 'ack',
+			message: expect.stringContaining('Automatic continuation: paused'),
+		})
+		expect((await store.getGoal(session.id, tenantId))?.phase).toBe('paused')
+	})
+
+	it('refuses an empty explicit set and replacing an active goal without mutation', async () => {
+		const { activation, registry, store, session, tenantId } = await registryWithGoal()
+
+		expect(await registry.dispatch('/goal set   ')).toMatchObject({ kind: 'refused' })
+		expect(await store.getGoal(session.id, tenantId)).toBeNull()
+		expect(activation.get(session.id)).toBeNull()
+
+		await registry.dispatch('/goal set Original objective')
+		const before = await store.getGoal(session.id, tenantId)
+		const active = activation.get(session.id)
+		expect(await registry.dispatch('/goal set')).toMatchObject({ kind: 'refused' })
+		expect(await registry.dispatch('/goal set Replacement')).toMatchObject({ kind: 'refused' })
+		expect(await store.getGoal(session.id, tenantId)).toEqual(before)
+		expect(activation.get(session.id)).toEqual(active)
 	})
 
 	it('treats a control word as control only when it occupies the whole input', async () => {

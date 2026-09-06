@@ -28,4 +28,23 @@ A strategy is a property of a project's runs, which is why the key is file-only,
 
 # `/context`
 
-Shows how full the window is and what compaction has done this session: the strategy with its thresholds (`salience` holds the context from half the window and summarises only at the trigger; `structured` waits for the trigger), then the passes so far — tool results cleared, narrations stubbed, summaries written, tokens reclaimed. Every pass also leaves a `⌫` row in the transcript where it happened. `/cost` keeps the cumulative token figure and names the strategy in its context line.
+The short report shows the latest context token count, window size and
+percentage, followed by cleanup passes and estimated tokens freed this
+session. It labels whether the token count was measured by the provider or
+estimated by Namzu, and whether the window was declared or assumed. An
+approximate percentage is marked with `~`; missing measurements are reported
+as unavailable rather than zero.
+
+`/context details` adds the strategy and thresholds, the number of tool results
+cleared, messages shortened and summaries written. `salience` starts reducing
+less useful content at its soft target and summarises older history at its
+trigger; `structured` clears older tool results at its trigger and summarises
+when needed. Every completed pass also leaves a `⌫` row in the transcript.
+These cleanup counters cover the session, while the context size is the latest
+reported measurement and can fall after cleanup.
+
+`/cost` reports tokens and own model-call cost for the current or latest run.
+It does not accumulate every conversation turn and does not use token spend
+as a context-fullness gauge. Delegated token usage, when available, is labelled
+separately. `/cost details` shows pricing scope and any context measurement;
+unknown prices, measured zero and partly priced usage remain distinguishable.

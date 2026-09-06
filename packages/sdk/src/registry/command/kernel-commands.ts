@@ -53,11 +53,13 @@ export interface GoalCommandScope {
 	readonly activation?: SessionGoalActivation
 }
 
-const GOAL_USAGE = 'Usage: /goal [<objective>|clear|edit <objective>|pause|resume]'
+const GOAL_ARGUMENTS = '[status|set <objective>|<objective>|edit <objective>|pause|resume|clear]'
+const GOAL_USAGE = `Usage: /goal ${GOAL_ARGUMENTS}`
 
 type ParsedGoalCommand =
 	| { readonly kind: 'show' }
 	| { readonly kind: 'create'; readonly objective: string }
+	| { readonly kind: 'invalid-create' }
 	| { readonly kind: 'edit'; readonly objective: string }
 	| { readonly kind: 'invalid-edit' }
 	| { readonly kind: 'pause' }
@@ -68,6 +70,9 @@ function parseGoalCommand(args: readonly string[]): ParsedGoalCommand {
 	const input = args.join(' ').trim()
 	if (input.length === 0) return { kind: 'show' }
 	const control = input.toLowerCase()
+	if (control === 'status') return { kind: 'show' }
+	if (control === 'set') return { kind: 'invalid-create' }
+	if (/^set(?=\s)/iu.test(input)) return { kind: 'create', objective: input.slice(3).trim() }
 	if (control === 'clear') return { kind: 'clear' }
 	if (control === 'pause') return { kind: 'pause' }
 	if (control === 'resume') return { kind: 'resume' }
@@ -87,15 +92,15 @@ function goalCommands(goal: SessionGoal, armed: boolean): string {
 	if (goal.phase === 'paused' || goal.phase === 'blocked') {
 		return '/goal edit <objective>, /goal resume, /goal clear'
 	}
-	return '/goal <objective>, /goal clear'
+	return '/goal set <objective>, /goal clear'
 }
 
 function renderGoal(title: string, goal: SessionGoal, armed: boolean): string {
 	return [
 		title,
 		`Status: ${goal.phase}`,
-		`Automatic continuation: ${armed ? 'armed' : 'disarmed'}`,
-		`Rounds admitted: ${goal.roundsAdmitted} / ${goal.maxGoalRounds}`,
+		`Automatic continuation: ${armed ? 'enabled' : 'paused'}`,
+		`Automatic turns: ${goal.roundsAdmitted} / ${goal.maxGoalRounds}`,
 		...(goal.blockedReason
 			? [`Blocker: ${goal.blockedReason.code}: ${goal.blockedReason.message}`]
 			: []),
@@ -134,6 +139,11 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 							kind: 'ack' as const,
 							message: `No goal is currently set.\n${GOAL_USAGE}`,
 						}
+			case 'invalid-create':
+				return {
+					kind: 'refused' as const,
+					reason: `Setting a goal requires an objective.\n${GOAL_USAGE}`,
+				}
 			case 'invalid-edit':
 				return {
 					kind: 'refused' as const,
@@ -201,7 +211,7 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 					scope.activation?.arm(current)
 					return {
 						kind: 'ack' as const,
-						message: renderScopedGoal('Goal armed', current, scope),
+						message: renderScopedGoal('Goal resumed', current, scope),
 					}
 				}
 				const resumed = await scope.store.resumeGoal(
@@ -250,7 +260,7 @@ export function kernelHostCommands(options: KernelCommandOptions): HostCommandDe
 		{
 			name: 'goal',
 			description: 'Persist or inspect a completion goal for this conversation.',
-			hint: '[<objective>|clear|edit <objective>|pause|resume]',
+			hint: GOAL_ARGUMENTS,
 			handler: async ({ args }) => await runGoalCommand(options.goal, args),
 		},
 		{

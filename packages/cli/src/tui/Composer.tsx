@@ -17,7 +17,7 @@ import { readClipboardImage } from '../integrations/clipboard/image.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import type { UserCommand } from '../user-commands/store.js'
 import { activeFileMention, matchMentionableFiles } from './mentions.js'
-import { matchSlashCommands } from './slashCommands.js'
+import { type SlashCommand, matchSlashCommands } from './slashCommands.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -31,6 +31,8 @@ export interface ComposerProps {
 	readonly history: readonly string[]
 	/** Operator-defined commands, offered in the dropdown alongside builtins. */
 	readonly userCommands?: readonly UserCommand[]
+	/** The command vocabulary actually available in this session. */
+	readonly builtins?: readonly SlashCommand[]
 	/** Project-relative paths admitted once by App for `@` completion. */
 	readonly mentionCandidates?: readonly string[]
 	/**
@@ -329,6 +331,7 @@ export function Composer({
 	onSubmit,
 	history,
 	userCommands = [],
+	builtins,
 	mentionCandidates = [],
 	hidden = false,
 	escapeInterrupts = false,
@@ -383,7 +386,7 @@ export function Composer({
 	// Keep the complete match set. The six-row limit belongs to the rendered
 	// window, not to navigation: slicing here made every later command
 	// unreachable no matter how many times the operator pressed Down.
-	const commandSuggestions = matchSlashCommands(value, userCommands)
+	const commandSuggestions = matchSlashCommands(value, userCommands, builtins)
 	const activeMention = activeFileMention(value, cursor)
 	const fileSuggestions = activeMention
 		? matchMentionableFiles(activeMention.query, mentionCandidates)
@@ -495,7 +498,7 @@ export function Composer({
 			// component that draws nothing must not consume input on the
 			// strength of a second flag happening to agree with it.
 			if (disabled || hidden) return
-			const liveCommandSuggestions = matchSlashCommands(valueRef.current, userCommands)
+			const liveCommandSuggestions = matchSlashCommands(valueRef.current, userCommands, builtins)
 			const liveMention = activeFileMention(valueRef.current, cursorRef.current)
 			const liveFileSuggestions = liveMention
 				? matchMentionableFiles(liveMention.query, mentionCandidates)

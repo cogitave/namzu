@@ -47,7 +47,35 @@ describe('launchTui clean settlement', () => {
 			}),
 		)
 		expect(write).toHaveBeenLastCalledWith(
-			'To resume this conversation, run: namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
+			'To resume this conversation, run: cd /workspace && namzu resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n',
 		)
+	})
+
+	it('preserves the supplied launcher and conversation cwd instead of the test runner argv', async () => {
+		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		await launchTui(
+			{ cwd: '/project workspace', version: '0.0.0-test' },
+			{
+				resumeCommand: [
+					'/absolute/node',
+					'--import',
+					'/checkout/loader.mjs',
+					'/checkout/src/bin.ts',
+				],
+			},
+		)
+		expect(write).toHaveBeenLastCalledWith(
+			"To resume this conversation, run: cd '/project workspace' && /absolute/node --import /checkout/loader.mjs /checkout/src/bin.ts resume 6c43cf3e-5512-4678-9b77-179a4d4daed6\n",
+		)
+	})
+
+	it('prints no resume hint without a durable conversation', async () => {
+		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		render.mockImplementationOnce(() => ({ waitUntilExit }))
+		await launchTui(
+			{ cwd: '/workspace', version: '0.0.0-test' },
+			{ resumeCommand: ['/node', '/checkout/bin.js'] },
+		)
+		expect(write.mock.calls.some(([value]) => String(value).includes('To resume'))).toBe(false)
 	})
 })

@@ -10,6 +10,7 @@ import {
 	createUserMessage,
 	generateCheckpointId,
 	generateRunId,
+	generateSessionId,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -84,6 +85,7 @@ it('keeps default task ownership and listing with the actual fresh or resumed ru
 	const session = await createAgentSession(preferences, detected, { cwd, stateRoot, scope })
 	const reservedRunId = generateRunId()
 	try {
+		expect(session.currentTaskStore?.()).toBeUndefined()
 		await Promise.all(
 			[reservedRunId, undefined].map(async (runId) => {
 				for await (const event of session.send(
@@ -123,12 +125,40 @@ it('keeps default task ownership and listing with the actual fresh or resumed ru
 			if (event.kind === 'error') throw new Error(event.message)
 		}
 		const resumed = tasks.at(-1)
+		expect(session.currentTaskStore?.()).toBe(resumed?.store)
 		expect(resumed?.runId).toBe(reservedRunId)
 		expect(resumed?.task.runId).toBe(reservedRunId)
 		expect((await resumed?.store.list())?.map((task) => task.subject)).toEqual([
 			'fresh task',
 			'resumed task',
 		])
+		// Moving away and back must not resurrect a previously selected run.
+		const previousConversation = scope.sessionId
+		scope.sessionId = generateSessionId()
+		expect(session.currentTaskStore?.()).toBeUndefined()
+		scope.sessionId = previousConversation
+		expect(session.currentTaskStore?.()).toBeUndefined()
+		for await (const event of session.send([createUserMessage('new plan')])) {
+			if (event.kind === 'error') throw new Error(event.message)
+		}
+		expect(session.currentTaskStore?.()).toBe(tasks.at(-1)?.store)
+		expect(await session.currentTaskStore?.()?.list()).toHaveLength(1)
+		const nextRun = session.send([createUserMessage('replace the plan')])
+		const firstEvent = nextRun[Symbol.asyncIterator]().next()
+		// SessionOperationOwner queues generator admission on a microtask.
+		await Promise.resolve()
+		expect(
+			session.currentTaskStore?.(),
+			'starting a run retained the previous task list',
+		).toBeUndefined()
+		await firstEvent
+		for await (const event of nextRun) {
+			if (event.kind === 'error') throw new Error(event.message)
+		}
+		expect(session.currentTaskStore?.()).toBe(tasks.at(-1)?.store)
+		session.resetTaskStore?.()
+		expect(session.currentTaskStore?.()).toBeUndefined()
+		expect(await resumed?.store.list()).toHaveLength(2)
 	} finally {
 		await session.close()
 	}

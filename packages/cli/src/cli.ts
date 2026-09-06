@@ -68,6 +68,12 @@ const EX_USAGE = 64
 export interface RunCliOptions {
 	/** Argv with the leading `node` + script path, matching `process.argv` shape. */
 	readonly argv: readonly string[]
+	/**
+	 * Exact executable plus arguments for the interactive resume hint. The binary
+	 * supplies its absolute Node and entrypoint paths; embedded callers can supply
+	 * their own launcher. Omitted callers use `namzu` without guessing from argv.
+	 */
+	readonly resumeCommand?: readonly [string, ...string[]]
 }
 
 /** Extra process-owned context that command plugins do not need to know about. */
@@ -330,7 +336,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				buildTuiContext(resolveTrustedProjectContext(commandCtx, cwd), cwd),
 			)
 			const { launchTui } = await import('./tui/index.js')
-			await launchTui(tuiCtx)
+			if (opts.resumeCommand) await launchTui(tuiCtx, { resumeCommand: opts.resumeCommand })
+			else await launchTui(tuiCtx)
 			const code = await Promise.resolve(0)
 			setExitCode(code)
 			return

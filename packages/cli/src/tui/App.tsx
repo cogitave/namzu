@@ -14,6 +14,7 @@
 import { join, relative } from 'node:path'
 import {
 	type CostInfo,
+	DEFAULT_MAX_GOAL_ROUNDS,
 	DefaultPathBuilder,
 	DiskMessageFeedbackStore,
 	type GoalRoundAuthority,
@@ -102,7 +103,7 @@ import type { SubagentActivity } from '../integrations/subagents/activity.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
-import type { PermissionMode } from '../permissions/mode.js'
+import { type PermissionMode, permissionModeDescription } from '../permissions/mode.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
@@ -118,6 +119,7 @@ import {
 	agentTranscriptPageSize,
 	maxAgentTranscriptTailOffset,
 } from './AgentExplorer.js'
+import { BrandHeader } from './BrandHeader.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import {
 	Composer,
@@ -125,16 +127,15 @@ import {
 	type ComposerSubmitMode,
 	suggestionWindowSize,
 } from './Composer.js'
+import { ComposerFrame } from './ComposerFrame.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
-import { TaskList, type TaskListItem } from './TaskList.js'
 import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { StatusBar } from './StatusBar.js'
-import { BrandHeader } from './BrandHeader.js'
-import { ComposerFrame } from './ComposerFrame.js'
+import { TaskList, type TaskListItem } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
 import { Transcript, willCollapse } from './Transcript.js'
 import { TrustPrompt } from './TrustPrompt.js'
@@ -143,13 +144,18 @@ import {
 	type AgentSession,
 	type PermissionDecision,
 	type PermissionRequest,
-	type RunScope,
-	createAgentSession,
-	probeAgentSession,
 	type QuestionAnswer,
 	type QuestionFn,
+	type RunScope,
 	type UserQuestion,
+	createAgentSession,
+	probeAgentSession,
 } from './agent.js'
+import {
+	choicePickerWindowSize,
+	filterChoiceOptions,
+	moveChoiceSelection,
+} from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { planTurnPublication } from './conversation-history.js'
@@ -165,18 +171,27 @@ import {
 	describeLogout,
 	describeProviderLogout,
 } from './login-prompt.js'
+import { selectPrimaryProvider } from './provider-selection.js'
+import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
 
+import { renderCheckpoints, renderRestore } from '../checkpoints/store.js'
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
-	permissionReviewPageRows,
 	buildPermissionReview,
 	buildPermissionSummary,
+	permissionReviewPageRows,
 	permissionReviewRefusal,
 	permissionReviewRows,
 } from './permission-review.js'
 import { describeRunInterruption } from './run-interruption.js'
 import { moveSelection } from './selection-window.js'
+import {
+	describeShellEscape,
+	describeShellEscapeForModel,
+	runShellEscape,
+	shellEscapeCommand,
+} from './shell-escape.js'
 import {
 	type CommandPickerEntry,
 	type SlashContext,
@@ -191,13 +206,6 @@ import {
 } from './slashCommands.js'
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
-import {
-	describeShellEscape,
-	describeShellEscapeForModel,
-	runShellEscape,
-	shellEscapeCommand,
-} from './shell-escape.js'
-import { renderCheckpoints, renderRestore } from '../checkpoints/store.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 import { useSelectionIndex } from './use-selection-index.js'
@@ -260,7 +268,12 @@ type CopyPickerState = {
 type ReviewPreset = 'base-branch' | 'uncommitted' | 'commit' | 'custom'
 type TextPromptState = {
 	readonly token: number
-	readonly kind: 'conversation-title' | 'export-file' | 'user-question'
+	readonly kind:
+		| 'conversation-title'
+		| 'export-file'
+		| 'user-question'
+		| 'goal-create'
+		| 'goal-edit'
 	readonly title: string
 	readonly placeholder: string
 	readonly emptyNotice: string
@@ -273,7 +286,7 @@ type ConversationExportDestination =
 /** The value a question row carries: an option id, or the free-text escape. */
 const FREE_TEXT_ANSWER = '__free_text__'
 
-type ChoicePickerState =
+type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?: object } & (
 	| {
 			/**
 			 * A question the model put to the operator. `values` are option ids
@@ -368,6 +381,7 @@ type ChoicePickerState =
 			readonly values: readonly ReviewCommit[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
+)
 
 /**
  * The streaming assistant bubble, carried across events within one turn.
@@ -714,16 +728,16 @@ export function App({
 	 */
 	const [keyEntryFor, setKeyEntryFor] = useState<ProviderId | null>(null)
 	/** Which decision owns the next picker mount. */
-	const [pickerInitialView, setPickerInitialView] = useState<'providers' | 'subscriptions'>(
-		'providers',
-	)
+	const [pickerInitialView, setPickerInitialView] = useState<
+		'providers' | 'subscriptions' | 'models'
+	>('providers')
 	/** A narrowed first-run roster; null keeps the complete discovered list. */
 	const [pickerDetected, setPickerDetected] = useState<readonly DetectedProvider[] | null>(null)
 	/** Whether Enter accepts the provider directly or continues to model choice. */
 	const [pickerSelectionKind, setPickerSelectionKind] = useState<
 		'provider-and-model' | 'signed-in-subscription'
 	>('provider-and-model')
-	/** The chain read from disk, held while the picker repairs its credential. */
+	/** Active preferences, or the saved chain awaiting its missing credential. */
 	const savedPrefsRef = useRef<Preferences | null>(null)
 	/**
 	 * Why the picker is open, drawn ON the picker.
@@ -973,6 +987,8 @@ export function App({
 	/** Finite slash-command choice owned synchronously until apply or cancel. */
 	const [choicePicker, setChoicePickerState] = useState<ChoicePickerState | null>(null)
 	const choicePickerRef = useRef<ChoicePickerState | null>(null)
+	const [choiceQuery, setChoiceQuery] = useState('')
+	const choiceQueryRef = useRef('')
 	/**
 	 * Exact chooser React has committed. The synchronous owner ref is needed to
 	 * block queue/goal work immediately, but it must not accept the Return key
@@ -987,6 +1003,8 @@ export function App({
 	} = useSelectionIndex(0)
 	const setChoicePicker = useCallback((next: ChoicePickerState | null) => {
 		choicePickerRef.current = next
+		choiceQueryRef.current = ''
+		setChoiceQuery('')
 		if (next === null) choicePickerCommittedRef.current = null
 		setChoicePickerState(next)
 	}, [])
@@ -1841,6 +1859,7 @@ export function App({
 			if (!picker) return
 			const value = picker.values[index]
 			if (index < 0 || index >= picker.values.length) return
+			if (picker.options[index]?.disabledReason) return
 			if (picker.kind === 'review-preset') {
 				if (reviewChoiceInFlightRef.current) return
 				if (value === 'custom') {
@@ -1876,6 +1895,7 @@ export function App({
 							setSelectedChoice(0)
 							setChoicePicker({
 								kind: 'review-branch',
+								back: picker,
 								title: 'Select a base branch',
 								notice: `Current branch: ${listing.current}`,
 								values: listing.branches,
@@ -1902,6 +1922,7 @@ export function App({
 							setSelectedChoice(0)
 							setChoicePicker({
 								kind: 'review-commit',
+								back: picker,
 								title: 'Select a commit to review',
 								values: commits,
 								options: commits.map((commit) => ({
@@ -2033,6 +2054,8 @@ export function App({
 					return
 				}
 				commandPickerSubmitRef.current(`/${command.name}`)
+				const child = choicePickerRef.current
+				if (child) setChoicePicker({ ...child, back: picker })
 				return
 			}
 			if (picker.kind === 'archive-conversation') {
@@ -2069,12 +2092,7 @@ export function App({
 				return
 			}
 			if (picker.kind === 'feedback-rating') {
-				recordFeedback(
-					picker.sessionId,
-					picker.runId,
-					picker.messageId,
-					value as 'good' | 'bad',
-				)
+				recordFeedback(picker.sessionId, picker.runId, picker.messageId, value as 'good' | 'bad')
 				return
 			}
 			if (picker.kind === 'skill') {
@@ -2309,7 +2327,12 @@ export function App({
 	}, [ensureSessions])
 
 	const hydrateSession = useCallback(
-		async (prefs: Preferences, detectedNow: readonly DetectedProvider[], signal?: AbortSignal) => {
+		async (
+			prefs: Preferences,
+			detectedNow: readonly DetectedProvider[],
+			signal?: AbortSignal,
+			persistSelection = false,
+		) => {
 			if (signal?.aborted) return
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
@@ -2348,6 +2371,21 @@ export function App({
 				}
 				throw new Error(reason)
 			}
+			let commands: ReturnType<typeof discoverUserCommands>
+			try {
+				commands = discoverUserCommands({ cwd: activeCtx.cwd, reserved: hostCommandNames() })
+				// Construction and validation precede the saved change. There is no
+				// await between this atomic write and publishing the usable session.
+				if (persistSelection) writePreferences(prefs)
+			} catch (error) {
+				try {
+					await s.close()
+				} catch {
+					// Preserve the admission/save error and the still-active old session.
+				}
+				throw error
+			}
+			savedPrefsRef.current = prefs
 			// A picker-owned provider/model change is one state transition. Clear the
 			// old model's effort selection before publishing the replacement session
 			// or releasing any paused queue. Failed and superseded candidates returned
@@ -2359,15 +2397,7 @@ export function App({
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
-			setUserCommands(
-				discoverUserCommands({
-					cwd: activeCtx.cwd,
-					// Builtins are reserved: a `help.md` must not take over `/help`.
-					// Passing the names here is what lets the loader tell its author
-					// the file is shadowed instead of leaving it silently unused.
-					reserved: hostCommandNames(),
-				}),
-			)
+			setUserCommands(commands)
 			const mentionLoadOwner = {}
 			mentionLoadOwnerRef.current = mentionLoadOwner
 			void listMentionableFiles(activeCtx.cwd, appLifetime.signal).then((files) => {
@@ -3035,6 +3065,7 @@ export function App({
 			wakeGoalDriver()
 			conversationGenRef.current += 1
 			resetSubagentActivity()
+			session?.resetTaskStore?.()
 			activeTurnTokenRef.current = null
 			resetTranscript()
 			setMessages(restored)
@@ -3076,6 +3107,7 @@ export function App({
 			nextId,
 			pushMessage,
 			resetSubagentActivity,
+			session,
 			resetTranscript,
 			wakeGoalDriver,
 		],
@@ -3119,6 +3151,7 @@ export function App({
 				wakeGoalDriver()
 				conversationGenRef.current += 1
 				resetSubagentActivity()
+				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
 				modelHistoryRef.current = []
 				lastAssistantMessage.current = null
@@ -3174,6 +3207,7 @@ export function App({
 			interruptTurn,
 			pushMessage,
 			resetSubagentActivity,
+			session,
 			resetTranscript,
 			wakeGoalDriver,
 		],
@@ -3251,10 +3285,15 @@ export function App({
 			if (!scope || scope.sessionId !== prompt.sessionId) {
 				pushMessage(
 					'system',
-					prompt.kind === 'conversation-title'
-						? 'The conversation changed while its name editor was open. Nothing was renamed; open /rename again.'
-						: 'The conversation changed while its export filename editor was open. Nothing was exported; open /export again.',
+					'The conversation changed while this editor was open. Reopen the command in the current conversation.',
 				)
+				return
+			}
+			if (prompt.kind === 'goal-create' || prompt.kind === 'goal-edit') {
+				if (value.trim())
+					commandPickerSubmitRef.current(
+						`/goal ${prompt.kind === 'goal-create' ? 'set' : 'edit'} ${value.trim()}`,
+					)
 				return
 			}
 			if (prompt.kind === 'export-file') {
@@ -3344,6 +3383,7 @@ export function App({
 			// is reloaded or reset. Only where the NEXT turn is written changes.
 			scope.sessionId = forked.id
 			resetSubagentActivity()
+			session?.resetTaskStore?.()
 			goalActivation.clear()
 			wakeGoalDriver()
 			pushMessage(
@@ -3362,6 +3402,7 @@ export function App({
 		materializeConversation,
 		pushMessage,
 		resetSubagentActivity,
+		session,
 		wakeGoalDriver,
 	])
 
@@ -3403,7 +3444,10 @@ export function App({
 				return
 			}
 			if (abortRef.current || state !== 'idle' || hasUnsettledTurn()) {
-				pushMessage('system', 'A turn is still running. Wait for it, or interrupt it, before restoring files.')
+				pushMessage(
+					'system',
+					'A turn is still running. Wait for it, or interrupt it, before restoring files.',
+				)
 				return
 			}
 			try {
@@ -3467,6 +3511,7 @@ export function App({
 
 				conversationGenRef.current += 1
 				resetSubagentActivity()
+				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
 				goalActivation.clear()
 				wakeGoalDriver()
@@ -3514,6 +3559,7 @@ export function App({
 			nextId,
 			pushMessage,
 			resetSubagentActivity,
+			session,
 			resetTranscript,
 			wakeGoalDriver,
 		],
@@ -3610,7 +3656,9 @@ export function App({
 					budget,
 					cost: {
 						...(own?.cost ?? { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 }),
-						unpricedTokens: (own?.cost.unpricedTokens ?? 0) + Math.max(0, budget.ownTokens - (own?.totalTokens ?? 0)),
+						unpricedTokens:
+							(own?.cost.unpricedTokens ?? 0) +
+							Math.max(0, budget.ownTokens - (own?.totalTokens ?? 0)),
 					},
 					...(own && previous?.context ? { context: previous.context } : {}),
 				}))
@@ -4411,11 +4459,11 @@ export function App({
 						? 'forked'
 						: conversationMutationRef.current === 'edit'
 							? 'branched for prompt editing'
-						: conversationMutationRef.current === 'archive'
-							? 'archived'
-							: conversationMutationRef.current === 'materialize'
-								? 'initialized'
-								: 'moved to a fresh conversation'
+							: conversationMutationRef.current === 'archive'
+								? 'archived'
+								: conversationMutationRef.current === 'materialize'
+									? 'initialized'
+									: 'moved to a fresh conversation'
 				pushMessage(
 					'system',
 					`Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`,
@@ -4432,7 +4480,10 @@ export function App({
 					const path = appendMemory(note, { scope: 'project', cwd: ctx.cwd })
 					pushMessage('system', `Remembered for this project (${path}): ${note}`)
 				} catch (err) {
-					pushMessage('system', `Could not save memory: ${err instanceof Error ? err.message : String(err)}`)
+					pushMessage(
+						'system',
+						`Could not save memory: ${err instanceof Error ? err.message : String(err)}`,
+					)
 				}
 				return
 			}
@@ -4489,6 +4540,7 @@ export function App({
 								description: command.problem
 									? `Unavailable: ${command.problem}`
 									: command.description,
+								disabledReason: command.problem,
 							})),
 							windowSize: suggestionWindowSize(terminal.rows),
 						})
@@ -4498,9 +4550,161 @@ export function App({
 						if (!openAgentCockpit()) {
 							pushMessage(
 								'system',
-								'No delegated agents are active. When an Agent tool starts one, its live activity appears below the composer and this view can inspect it.',
+								`No delegated agents in this conversation.${session?.agentIds.length ? `\nAvailable: ${session.agentIds.join(', ')}` : '\nNo agents are configured.'}`,
 							)
 						}
+						return
+					}
+					case 'settings-picker': {
+						const commands: CommandPickerEntry[] = [
+							{
+								name: 'model',
+								description: `${session?.providerSummary ?? 'No provider'} · ${session?.modelSummary ?? 'No model'}. Change model or provider.`,
+							},
+							{
+								name: 'effort',
+								description: `${reasoningEffortRef.current ?? session?.reasoningEffortDefault ?? 'Model default'} · applies to future turns in this session.`,
+								...(session?.reasoningEffortLevels === undefined
+									? { problem: 'This model does not publish reasoning choices.' }
+									: {}),
+							},
+							{
+								name: 'permissions',
+								description: `${permissionModeRef.current} · applies to future turns in this session.`,
+							},
+							{
+								name: 'status config',
+								description: 'Show which configuration files and overrides are in use.',
+							},
+						]
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'command',
+							title: 'Settings',
+							notice: 'Select a setting to view or change it.',
+							values: commands,
+							options: commands.map((command) => ({
+								label: `/${command.name}`,
+								description: command.description,
+								disabledReason: command.problem,
+							})),
+							windowSize: 7,
+						})
+						return
+					}
+					case 'goal-editor': {
+						const scope = scopeRef.current
+						if (!scope || !sessionsRef.current) {
+							pushMessage('system', 'Goals require conversation history to be available.')
+							return
+						}
+						textPromptTokenRef.current += 1
+						setTextPrompt({
+							token: textPromptTokenRef.current,
+							kind: slash.edit ? 'goal-edit' : 'goal-create',
+							title: slash.edit ? 'Edit goal' : 'Set a goal',
+							placeholder: `Up to ${goalStatus?.maxGoalRounds ?? DEFAULT_MAX_GOAL_ROUNDS} automatic turns; /goal pause stops continuation.`,
+							emptyNotice: 'Describe the result you want, or press Esc to cancel.',
+							initialValue: slash.edit ? (goalStatus?.objective ?? '') : '',
+							sessionId: scope.sessionId,
+						})
+						return
+					}
+					case 'goal-picker': {
+						const generation = conversationGenRef.current
+						const request = {}
+						setSelectedChoice(-1)
+						setChoicePicker({
+							kind: 'command',
+							title: 'Goal',
+							notice: 'Loading goal…',
+							values: [],
+							options: [],
+							windowSize: 7,
+							request,
+						})
+						void (async () => {
+							try {
+								const sessions = sessionsRef.current
+								const scope = scopeRef.current
+								if (!sessions || !scope) {
+									setChoicePicker(null)
+									pushMessage('system', 'Goals require conversation history to be available.')
+									return
+								}
+								const goal = conversationMaterializedRef.current
+									? await sessions.goals.getGoal(scope.sessionId, sessions.tenantId)
+									: null
+								if (
+									appLifetime.signal.aborted ||
+									conversationGenRef.current !== generation ||
+									choicePickerRef.current?.request !== request
+								)
+									return
+								setGoalStatus(goal)
+								const commands: CommandPickerEntry[] = goal
+									? [
+											{
+												name: 'goal status',
+												description: 'View goal progress and continuation status.',
+											},
+											{ name: 'goal edit', description: 'Change the objective.' },
+											...(goal.phase === 'complete'
+												? []
+												: [
+														goal.phase === 'active' && goalActivation.isArmed(scope.sessionId, goal)
+															? {
+																	name: 'goal pause',
+																	description:
+																		'Stop automatic continuation after the current turn.',
+																}
+															: {
+																	name: 'goal resume',
+																	description: 'Continue working automatically toward this goal.',
+																},
+													]),
+											{
+												name: 'goal clear',
+												description: 'Remove this goal and stop its automatic continuation.',
+											},
+										]
+									: [
+											{
+												name: 'goal set',
+												description: 'Set an objective and start automatic continuation.',
+											},
+										]
+								setSelectedChoice(0)
+								setChoicePicker({
+									kind: 'command',
+									back: choicePickerRef.current?.back,
+									title: 'Goal',
+									notice: goal
+										? `${goal.phase} · ${goal.roundsAdmitted}/${goal.maxGoalRounds} automatic turns · ${goal.objective}`
+										: `No goal set for this conversation. Up to ${DEFAULT_MAX_GOAL_ROUNDS} automatic turns when started.`,
+									values: commands,
+									options: commands.map((command) => ({
+										label: `/${command.name}`,
+										description: command.description,
+									})),
+									windowSize: 7,
+								})
+							} catch (error) {
+								if (
+									!appLifetime.signal.aborted &&
+									conversationGenRef.current === generation &&
+									choicePickerRef.current?.request === request
+								) {
+									setChoicePicker(null)
+									pushMessage(
+										'system',
+										`Could not load goal: ${error instanceof Error ? error.message : String(error)}`,
+									)
+								}
+							} finally {
+								wakeGoalDriver()
+							}
+						})()
 						return
 					}
 					case 'clear-screen':
@@ -4586,7 +4790,7 @@ export function App({
 						setKeyEntryFor(null)
 						setPickerDetected(null)
 						setPickerSelectionKind('provider-and-model')
-						setPickerInitialView('providers')
+						setPickerInitialView('models')
 						setPhase('picker')
 						return
 					case 'permission-mode': {
@@ -4674,6 +4878,7 @@ export function App({
 								label: effort ?? 'default',
 								description: reasoningEffortDescription(effort),
 								current: effort === current,
+								default: effort === undefined,
 							})),
 						})
 						return
@@ -4733,7 +4938,8 @@ export function App({
 						const mem = composeMemoryPrompt(readMemory(undefined, ctx.cwd))
 						pushMessage(
 							'system',
-							mem ?? 'Nothing remembered yet. #note or /memory <text> saves a fact about this project (.namzu/MEMORY.md); /memory --user <text> saves one for every project (~/.namzu/MEMORY.md).',
+							mem ??
+								'Nothing remembered yet. #note or /memory <text> saves a fact about this project (.namzu/MEMORY.md); /memory --user <text> saves one for every project (~/.namzu/MEMORY.md).',
 						)
 						return
 					}
@@ -4847,10 +5053,21 @@ export function App({
 								if (goalCommand) await materializeConversation()
 								const durableSessions = sessionsRef.current
 								const runScope = scopeRef.current
+								const taskStore = slash.name === 'tasks' ? session?.currentTaskStore?.() : undefined
+								if (slash.name === 'tasks' && !taskStore) {
+									pushMessage(
+										'system',
+										session?.currentTaskStore
+											? 'No task list is available yet for this conversation.'
+											: 'Task listing is unavailable in this session.',
+									)
+									return
+								}
 								const registry = new HostCommandRegistry()
 								registry.register(
 									kernelHostCommands({
 										allowedAgentIds: session?.agentIds ?? [],
+										...(taskStore ? { taskStore } : {}),
 										...(durableSessions && runScope && conversationMaterializedRef.current
 											? {
 													goal: {
@@ -5184,11 +5401,15 @@ export function App({
 			advanceQueueContinuation,
 			applyPermissionMode,
 			applyReasoningEffort,
+			appLifetime,
 			ctx.cwd,
 			doResume,
 			enqueueQueued,
 			exitWithSummary,
 			hasUnsettledTurn,
+			goalActivation,
+			goalStatus,
+			hostCommands,
 			nextId,
 			openAgentCockpit,
 			pushMessage,
@@ -5196,6 +5417,7 @@ export function App({
 			removeStoredCredential,
 			resetTranscript,
 			runConversationExport,
+			session,
 			setChoicePicker,
 			setCopyPicker,
 			setReasoningEffort,
@@ -5431,16 +5653,16 @@ export function App({
 			prefs: Preferences,
 			detectedNow: readonly DetectedProvider[],
 			signal: AbortSignal,
-			revealAllOnFailure = false,
+			options: { readonly revealAllOnFailure?: boolean; readonly persistSelection?: boolean } = {},
 		): Promise<void> => {
 			try {
-				await hydrateSession(prefs, detectedNow, signal)
+				await hydrateSession(prefs, detectedNow, signal, options.persistSelection)
 			} catch (err) {
 				// A superseded choice no longer owns even its failure message. Its
 				// eventual session object is disposed inside `hydrateSession`; a live
 				// choice stays on the picker with the actionable construction error.
 				if (signal.aborted) return
-				if (revealAllOnFailure) {
+				if (options.revealAllOnFailure) {
 					setPickerDetected(null)
 					setPickerSelectionKind('provider-and-model')
 					setPickerInitialView('providers')
@@ -5471,21 +5693,13 @@ export function App({
 			setPickerNotice(null)
 			// The disposition, not the key. `credential` never reaches a message.
 			pushMessage('system', disposition)
-			// The SAVED chain when the credential is for the provider that was
-			// already chosen, and a fresh one-member chain otherwise. Rebuilding
-			// from the id alone would have been a quiet demotion in the one case
-			// this routing creates: an operator whose file pins a model, and whose
-			// only problem was a missing secret, would have been moved onto the
-			// registry default for supplying it.
+			// Supplying a credential changes the primary's access, not unrelated
+			// fallbacks, model pins, delegation or capability preferences.
 			const saved = savedPrefsRef.current
 			const prefs: Preferences =
 				saved && primaryProvider(saved).id === credential.entry.id
 					? saved
-					: {
-							version: 3,
-							providers: [{ id: credential.entry.id as ProviderId }],
-							subagents: { active: [] },
-						}
+					: selectPrimaryProvider(saved, { id: credential.entry.id as ProviderId })
 			void hydrateFromPicker(prefs, next, signal)
 		},
 		[detected, hydrateFromPicker, pushMessage],
@@ -5493,34 +5707,22 @@ export function App({
 
 	const handlePickerSubmit = useCallback(
 		(selection: { provider: string; model?: string }, signal: AbortSignal) => {
-			// One member for now. The picker builds a longer chain in a later
-			// change; the shape it writes into is already the chain.
-			const prefs: Preferences = {
-				version: 3,
-				providers: [
-					{
-						id: selection.provider as ProviderId,
-						...(selection.model !== undefined ? { model: selection.model } : {}),
-					},
-				],
-				subagents: { active: [] },
-			}
+			const prefs = selectPrimaryProvider(savedPrefsRef.current, {
+				id: selection.provider as ProviderId,
+				...(selection.model !== undefined ? { model: selection.model } : {}),
+			})
 			setKeyEntryFor(null)
 			setPickerNotice(null)
-			try {
-				writePreferences(prefs)
-			} catch (err) {
-				pushMessage(
-					'system',
-					`Could not save preferences: ${err instanceof Error ? err.message : String(err)}`,
-				)
-				return
-			}
 			// Keep a narrowed signed-in roster stable while construction is pending.
 			// Only a real refusal broadens back to the general, sign-in-capable picker.
-			void hydrateFromPicker(prefs, detected, signal, true)
+			void hydrateFromPicker(prefs, detected, signal, {
+				revealAllOnFailure: true,
+				persistSelection:
+					detected.find((provider) => provider.entry.id === selection.provider)?.source.kind !==
+					'session',
+			})
 		},
-		[detected, hydrateFromPicker, pushMessage],
+		[detected, hydrateFromPicker],
 	)
 
 	/**
@@ -5576,11 +5778,10 @@ export function App({
 				if (key.ctrl && input === 'c') exitWithSummary()
 				return
 			}
-			// Previous-prompt picker owns the keyboard. Esc keeps stepping toward
-			// older prompts, matching the second Esc that opened it; q is the cancel.
+			// Previous-prompt picker uses the same cancel key as other selectors.
 			if (phase === 'edit') {
 				if (editCommittedRef.current) return
-				if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+				if (key.escape || (key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
 					setEditList([])
 					setPhase('ready')
 					return
@@ -5595,7 +5796,7 @@ export function App({
 					)
 					return
 				}
-				if (key.escape || key.leftArrow || key.upArrow) {
+				if (key.leftArrow || key.upArrow) {
 					setSelectedEdit((index) => moveSelection(index, editList.length, 'previous'))
 					return
 				}
@@ -5813,10 +6014,7 @@ export function App({
 								agentIndex,
 								phaseAgents.length,
 								movement,
-								agentPickerPageSize(
-									terminal.rows,
-									agentCockpitIsWide(terminal.columns),
-								),
+								agentPickerPageSize(terminal.rows, agentCockpitIsWide(terminal.columns)),
 							)
 							const target = phaseAgents[next]
 							if (target) setAgentSurface({ ...agentView, selectedId: target.viewId })
@@ -5877,10 +6075,16 @@ export function App({
 				// the synchronous ref is an ownership fence but not yet an actionable
 				// menu. Only the exact object React committed may consume a choice.
 				if (choicePickerCommittedRef.current !== picker) return
-				const options = picker.options
+				const searchable = choicePickerSearchable(picker)
+				const options = filterChoiceOptions(picker.options, choiceQueryRef.current)
+				const applyVisibleChoice = (index: number) => {
+					const option = options[index]
+					if (option) applyChoiceSelection(picker.options.indexOf(option))
+				}
 				if (key.escape || (key.ctrl && input === 'c')) {
 					reviewChoiceInFlightRef.current = null
-					setChoicePicker(null)
+					setSelectedChoice(0)
+					setChoicePicker(key.escape ? (picker.back ?? null) : null)
 					// Esc leaves the question unanswered and the turn running; the
 					// tool tells the model so. Ctrl+C is the operator saying stop.
 					if (picker.kind === 'user-question') {
@@ -5889,11 +6093,20 @@ export function App({
 					return
 				}
 				if (key.home || key.end || key.pageUp || key.pageDown) {
-					const pageSize = picker.kind === 'command' ? picker.windowSize : undefined
+					const pageSize = choicePickerWindowSize({
+						rows: terminal.rows,
+						columns: Math.max(1, (terminal.columns ?? 80) - 2),
+						searchable,
+						notice: Boolean(picker.notice),
+						selectedDescription: options.some((option) =>
+							Boolean(option.selectedDescription || option.disabledReason),
+						),
+						windowSize: picker.kind === 'command' ? picker.windowSize : undefined,
+					})
 					setSelectedChoice((index) =>
-						moveSelection(
+						moveChoiceSelection(
+							options,
 							index,
-							options.length,
 							key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 							pageSize,
 						),
@@ -5901,20 +6114,32 @@ export function App({
 					return
 				}
 				if (key.upArrow) {
-					setSelectedChoice((index) => moveSelection(index, options.length, 'previous'))
+					setSelectedChoice((index) => moveChoiceSelection(options, index, 'previous'))
 					return
 				}
 				if (key.downArrow) {
-					setSelectedChoice((index) => moveSelection(index, options.length, 'next'))
+					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
 				}
 				if (key.return) {
-					applyChoiceSelection(selectedChoiceRef.current)
+					applyVisibleChoice(selectedChoiceRef.current)
+					return
+				}
+				if (searchable && !key.ctrl && !key.meta && (key.backspace || key.delete || input)) {
+					const next =
+						key.backspace || key.delete
+							? eraseLastChoiceGrapheme(choiceQueryRef.current)
+							: choiceQueryRef.current + input.replace(/\p{Cc}/gu, '')
+					choiceQueryRef.current = next
+					setChoiceQuery(next)
+					setSelectedChoice(
+						moveChoiceSelection(filterChoiceOptions(picker.options, next), 0, 'first'),
+					)
 					return
 				}
 				if (/^[1-9]$/.test(input)) {
 					const index = Number(input) - 1
-					if (options[index]) applyChoiceSelection(index)
+					if (options[index]) applyVisibleChoice(index)
 				}
 				return
 			}
@@ -6128,9 +6353,11 @@ export function App({
 									: agentSurface?.kind === 'transcript'
 										? 'observing agent — esc agents · q parent'
 										: textPrompt
-											? 'name editor open — enter save · esc cancel'
+											? 'editor open · enter apply · esc cancel'
 											: choicePicker
-												? 'choice open — ↑↓ / 1–9 select · enter apply · esc cancel'
+												? choicePickerSearchable(choicePicker)
+													? 'type to filter · ↑↓ select · enter apply · esc back'
+													: '↑↓ / 1–9 select · enter apply · esc back'
 												: copyPicker
 													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
 													: goalStatus && phase === 'ready' && state === 'idle'
@@ -6176,9 +6403,7 @@ export function App({
 						<Text color={theme.status.error} bold>
 							Startup stopped
 						</Text>
-						<Text color={theme.text.secondary}>
-							Resolve the error above, then restart Namzu.
-						</Text>
+						<Text color={theme.text.secondary}>Resolve the error above, then restart Namzu.</Text>
 					</Box>
 				) : phase === 'resume' ? (
 					<ResumePicker conversations={resumeList} selected={selectedResume} />
@@ -6218,7 +6443,9 @@ export function App({
 						{/* The plan for this request, kept current as the model works.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
-						{agentSurface === null && permission === null ? <TaskList tasks={tasks} compact={compactWork} /> : null}
+						{agentSurface === null && permission === null ? (
+							<TaskList tasks={tasks} compact={compactWork} />
+						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the
 						    operator was part-way through typing — text, paste chips
@@ -6251,9 +6478,11 @@ export function App({
 							/>
 						) : permission === null && agentSurface === null && choicePicker ? (
 							<ChoicePicker
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								title={choicePicker.title}
 								notice={choicePicker.notice}
-								options={choicePicker.options}
+								options={filterChoiceOptions(choicePicker.options, choiceQuery)}
+								query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 								selected={selectedChoice}
 								windowSize={choicePicker.kind === 'command' ? choicePicker.windowSize : undefined}
 							/>
@@ -6344,6 +6573,10 @@ export function App({
 								onDraftPresenceChange={setComposerHasDraft}
 								onOpenAgentPanel={openAgentCockpit}
 								userCommands={userCommands}
+								builtins={hostCommands.map((command) => ({
+									...command,
+									description: command.unavailable?.(slashCtx) ?? command.description,
+								}))}
 								mentionCandidates={mentionCandidates}
 								history={history}
 							/>
@@ -6431,7 +6664,7 @@ function hintForPhase(
 	// trust branch in the key handler above.
 	if (phase === 'trust') return 'y trust this folder · n / esc exit'
 	if (phase === 'resume') return '↑↓ navigate · enter resume · esc cancel'
-	if (phase === 'edit') return 'Esc / ← older · → newer · enter fork and edit · q cancel'
+	if (phase === 'edit') return '← older · → newer · enter fork and edit · esc cancel'
 	if (phase === 'probing') return 'discovering providers…'
 	// Esc does two different things here depending on how the picker was reached,
 	// so the hint says which. Naming Ctrl+C matters more here than anywhere else:
@@ -6471,19 +6704,8 @@ function labelOfOption(question: UserQuestion, optionId: string): string {
 	return question.options.find((option) => option.id === optionId)?.label ?? optionId
 }
 
-function permissionModeDescription(mode: PermissionMode): string {
-	switch (mode) {
-		case 'prompt':
-			return 'Ask before an undecided tool call runs'
-		case 'accept-edits':
-			return 'Approve file edits and writes without asking; shell and everything else still ask'
-		case 'plan':
-			return 'Read-only: the agent explores and presents a plan; leave plan mode to carry it out'
-		case 'auto':
-			return 'Approve undecided calls unless a rule or safety gate refuses'
-		case 'strict':
-			return 'Refuse undecided calls; explicit allow rules still work'
-	}
+function choicePickerSearchable(picker: ChoicePickerState): boolean {
+	return ['command', 'skill', 'review-branch', 'review-commit'].includes(picker.kind)
 }
 
 function permissionPickerNotice(session: AgentSession): string | undefined {

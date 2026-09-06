@@ -13,12 +13,7 @@ export interface EditPromptPickerProps {
 export function EditPromptPicker({ prompts, selected }: EditPromptPickerProps) {
 	const { start, items: visible } = selectionWindow(prompts, selected)
 	return (
-		<Box
-			flexDirection="column"
-			borderStyle="round"
-			borderColor={theme.border.focus}
-			paddingX={1}
-		>
+		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
 				<Text color={theme.accent.user} bold>
 					Edit a previous prompt in a new branch
@@ -47,7 +42,7 @@ export function EditPromptPicker({ prompts, selected }: EditPromptPickerProps) {
 							</Box>
 							{attachmentCount > 0 ? (
 								<Text color={theme.text.muted}>
-									 {'·'} {attachmentCount} attachment{attachmentCount === 1 ? '' : 's'}
+									{'·'} {attachmentCount} attachment{attachmentCount === 1 ? '' : 's'}
 								</Text>
 							) : null}
 						</Box>
@@ -56,8 +51,7 @@ export function EditPromptPicker({ prompts, selected }: EditPromptPickerProps) {
 			</Box>
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
-					Esc / ← older · → newer · PgUp/PgDn jump · Home/End boundary · enter fork and edit · q
-					cancel
+					← older · → newer · PgUp/PgDn jump · Home/End · enter fork and edit · esc cancel
 				</Text>
 			</Box>
 		</Box>

@@ -432,11 +432,11 @@ it('disarms after an abnormal turn and requires an explicit /goal resume', async
 		'the durable paused goal did not reach the footer',
 	)
 	const statusFrame = harness.frames.length
-	await submit(harness, '/goal')
+	await submit(harness, '/goal status')
 	await until(
 		() =>
 			/\bGoal\s*\n\s*Status: paused/.test(harness.frames.slice(statusFrame).join('\n')) &&
-			harness.frames.slice(statusFrame).join('\n').includes('Automatic continuation: disarmed'),
+			harness.frames.slice(statusFrame).join('\n').includes('Automatic continuation: paused'),
 		'the abnormal turn did not expose its disarmed state',
 	)
 	const resumeFrame = harness.frames.length
@@ -532,9 +532,9 @@ it('fails closed when goal-turn evidence cannot be published', async () => {
 		phase: 'active',
 		roundsAdmitted: 1,
 	})
-	await submit(harness, '/goal')
+	await submit(harness, '/goal status')
 	await until(
-		() => harness.frames.join('\n').includes('Automatic continuation: disarmed'),
+		() => harness.frames.join('\n').includes('Automatic continuation: paused'),
 		'the failed evidence boundary did not disarm automatic work',
 	)
 })
@@ -558,9 +558,9 @@ it('disarms when admitted messages cannot be persisted', async () => {
 	)
 	await tick(120)
 	expect(sends).toBe(1)
-	await submit(harness, '/goal')
+	await submit(harness, '/goal status')
 	await until(
-		() => harness.frames.join('\n').includes('Automatic continuation: disarmed'),
+		() => harness.frames.join('\n').includes('Automatic continuation: paused'),
 		'the persistence failure did not revoke automatic continuation',
 	)
 })

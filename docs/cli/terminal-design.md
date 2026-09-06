@@ -51,6 +51,44 @@ tool and total tool count; the plan shows the current step and completion
 counts. The full lists return when space allows. These panels also reserve
 space before the transcript keeps any older messages in its redrawable tail.
 
+## Commands and settings
+
+The writing area, `/help` and command execution share one catalogue. Commands
+with state-dependent availability explain why an action cannot run; execution
+checks again before changing state. Opening a menu keeps the draft and its
+attachments mounted beneath the overlay.
+
+The common choice row separates the label, current/default markers,
+description and unavailable reason. It measures terminal display width rather
+than JavaScript string length. Narrow screens put the description beneath the
+label and reduce the visible page to leave room for navigation. The selected
+row can show additional detail without hiding its current marker.
+
+Command, settings, goal, skill, branch and commit menus accept text filtering.
+Digits belong to the search query in these menus. Arrow keys navigate and
+Enter applies an available selection; non-searchable menus keep their numeric
+shortcuts. Esc returns to the parent or cancels, including the earlier-prompt
+picker. The footer describes the keys used by the active surface.
+
+`/status`, `/cost`, `/context` and `/mcp` lead with short factual summaries.
+Explicit details show configuration rules, pricing scope, cleanup counters or
+tool inventories. A missing measurement is labelled as missing; token totals,
+context occupancy and monetary cost are distinct quantities. Cost refers to
+the current or latest run, not an accumulated conversation total.
+
+`/settings` shows the current model, effort and approval mode with links to
+their controls and configuration-source diagnostics. It excludes credentials
+and does not edit arbitrary configuration keys. Model selection starts with
+the current provider and states whether it affects future launches or only a
+session using a temporary credential. The old session remains usable if
+replacement construction or preference persistence fails.
+
+`/goal` presents objective management and automatic continuation controls,
+including the automatic-turn allowance before work starts. `/tasks` reads the
+current or latest run’s own task store; changing conversations clears the
+selection without deleting tasks. `/agents` opens the retained delegated-work
+view, while `/agents available` separately reports the configured roster.
+
 ## Terminal boundaries
 
 The interface uses the normal terminal buffer so completed output remains in

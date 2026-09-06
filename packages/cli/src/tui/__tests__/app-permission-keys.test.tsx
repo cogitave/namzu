@@ -231,7 +231,10 @@ async function promptOpenWithDraftInFlight() {
 	// with "the prompt never opened" — a flake in the setup, reported as a
 	// failure of whatever the test was actually about.
 	const started = performance.now()
-	while (!(harness.lastFrame() ?? '').includes('Do you want to') && performance.now() - started < 3_000) {
+	while (
+		!(harness.lastFrame() ?? '').includes('Do you want to') &&
+		performance.now() - started < 3_000
+	) {
 		await tick(20)
 	}
 	expect(harness.lastFrame(), 'the prompt never opened').toContain('Do you want to')
@@ -433,9 +436,7 @@ describe('the permission prompt', () => {
 		const frame = lastFrame() ?? ''
 
 		expect(frame.toLowerCase(), 'the key that stops the turn is unnamed').toContain('ctrl+c')
-		expect(frame, 'named the key without naming what makes it different').toContain(
-			'stop the turn',
-		)
+		expect(frame, 'named the key without naming what makes it different').toContain('stop the turn')
 	})
 
 	it('toggles the immutable exact envelope without deciding the prompt', async () => {
@@ -613,7 +614,8 @@ describe('/permissions session mode', () => {
 		await tick(160)
 		const frame = lastFrame() ?? ''
 		expect(frame).toContain('Select Permission Mode')
-		expect(frame).toContain('Ask before an undecided tool call runs (current)')
+		expect(frame).toContain('Ask before changes and shell commands.')
+		expect(frame).toMatch(/prompt\s+\[current\]/)
 		expect(frame).not.toContain('approved automatically (--dangerously-skip-permissions)')
 	})
 

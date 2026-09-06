@@ -59,6 +59,9 @@ importers:
       react:
         specifier: 19.2.6
         version: 19.2.6
+      string-width:
+        specifier: 8.2.1
+        version: 8.2.1
       yaml:
         specifier: ^2.9.0
         version: 2.9.0

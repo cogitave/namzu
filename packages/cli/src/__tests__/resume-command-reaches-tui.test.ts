@@ -37,4 +37,24 @@ describe('namzu resume <conversation-id>', () => {
 			}),
 		)
 	})
+
+	it('carries explicit binary provenance through the CLI to the TUI launch', async () => {
+		Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true })
+		const resumeCommand = ['/opt/node/bin/node', '/checkout/namzu/dist/bin.js'] as const
+		await expect(
+			runCli({
+				argv: [
+					'test-runner-node',
+					'unrelated-script',
+					'resume',
+					'4aba553c-4222-48f2-8047-62a22f1f21d7',
+				],
+				resumeCommand,
+			}),
+		).resolves.toBe(0)
+		expect(launchTui).toHaveBeenCalledWith(
+			expect.objectContaining({ initialConversationId: '4aba553c-4222-48f2-8047-62a22f1f21d7' }),
+			{ resumeCommand },
+		)
+	})
 })

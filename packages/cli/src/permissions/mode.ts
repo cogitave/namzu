@@ -35,6 +35,22 @@ export { ACCEPT_EDITS_TOOLS, PLAN_MODE_REFUSAL } from '@namzu/sdk'
 
 export const isPermissionMode: (value: unknown) => value is PermissionMode = isReviewMode
 
+/** The behavior shown by both the permission selector and the session report. */
+export function permissionModeDescription(mode: PermissionMode): string {
+	switch (mode) {
+		case 'prompt':
+			return 'Ask before changes and shell commands.'
+		case 'accept-edits':
+			return 'Allow file edits; ask before shell commands and other changes.'
+		case 'auto':
+			return 'Allow tools without asking, subject to configured rules.'
+		case 'strict':
+			return 'Allow preapproved tools; refuse other calls without asking.'
+		case 'plan':
+			return 'Read-only: block changes until you leave plan mode.'
+	}
+}
+
 /**
  * The mode for a run, from the flag, the bypass alias, and whether anyone is
  * there to answer.

@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Update**: [Slash commands](/cli/slash-commands.md) — resume hints retain the actual launcher and working directory so a checkout session is not handed to an older global CLI.
+* **Update**: [Slash commands](/cli/slash-commands.md), [Context and compaction](/cli/context-and-compaction.md), [Terminal design](/cli/terminal-design.md) and [Command experience audit](/cli/command-experience-audit.md) — shared discovery and searchable choices, scoped settings and goals, preserved model preferences, accurate permission and usage summaries, actual run task lists, and explicitly historical audit findings with remaining limits.
 * **Creation**: [Command experience audit](/cli/command-experience-audit.md) — verified preference, permission, task, discovery and usage-report defects, with a comparison against pinned Codex source and a proposed implementation order.
 * **Update**: [Terminal design](/cli/terminal-design.md) — a short green light follows the working composer's border, with shared animation scheduling, stable input geometry, and quiet idle, overlay and accessible output states.
 * **Update**: [Terminal design](/cli/terminal-design.md) — phosphor-green wordmark and square message frame, exact indexed colors, no empty frame beneath text prompts, and a stable scrollback owner through provider selection.

@@ -22,7 +22,7 @@ describe('renderMcp', () => {
 		})
 		expect(rendered).toContain('search')
 		expect(rendered).toContain('command not found: uvx')
-		expect(rendered).toMatch(/NOT available/)
+		expect(rendered).toMatch(/unavailable/)
 	})
 
 	it('lists a failure even when nothing connected at all', () => {
@@ -37,10 +37,13 @@ describe('renderMcp', () => {
 	it('names the tools rather than only counting them', () => {
 		// A count answers "did it work". The operator's actual question is
 		// whether the tool they wanted is among them.
-		const rendered = renderMcp({
-			connected: [{ name: 'tickets', tools: ['mcp_tickets_create', 'mcp_tickets_search'] }],
-			failed: [],
-		})
+		const rendered = renderMcp(
+			{
+				connected: [{ name: 'tickets', tools: ['mcp_tickets_create', 'mcp_tickets_search'] }],
+				failed: [],
+			},
+			true,
+		)
 		expect(rendered).toContain('mcp_tickets_create')
 		expect(rendered).toContain('mcp_tickets_search')
 	})

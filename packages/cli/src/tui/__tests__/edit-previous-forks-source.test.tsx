@@ -248,13 +248,12 @@ it('forks before the selection, restores every attachment, and never mutates the
 	expect(durable.get(SOURCE)).toEqual(sourceBefore)
 })
 
-it('steps toward older prompts with Esc and permits an empty-prefix branch', async () => {
+it('steps toward older prompts with arrows and permits an empty-prefix branch', async () => {
 	const harness = await mountSource()
 	await openEditor(harness)
 
-	// The picker opens on the latest prompt. Further Esc presses mean "older",
-	// not cancel; q is the explicit reversible exit.
-	harness.stdin.write('\x1B')
+	// The picker opens on the latest prompt. Arrows navigate; Esc cancels.
+	harness.stdin.write('\x1B[D')
 	await frameShows(harness, '1/2')
 	expect(harness.lastFrame()).toContain('first prompt')
 	harness.stdin.write('\r')
@@ -266,11 +265,11 @@ it('steps toward older prompts with Esc and permits an empty-prefix branch', asy
 	expect(durable.get(SOURCE)).toEqual(sourceBefore)
 })
 
-it('cancels with q without creating a branch or changing the composer', async () => {
+it('cancels with Esc without creating a branch or changing the composer', async () => {
 	const harness = await mountSource()
 	await openEditor(harness)
 
-	harness.stdin.write('q')
+	harness.stdin.write('\x1B')
 	await frameShows(harness, '› Type a message… (/help for commands)')
 
 	expect(forkCalls).toEqual([])

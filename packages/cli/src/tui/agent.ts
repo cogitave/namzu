@@ -641,6 +641,10 @@ export interface AgentSession {
 	 * the runtime to find out.
 	 */
 	readonly agentIds: readonly string[]
+	/** Actual task store of this conversation's current/latest run; absent before a run starts. */
+	readonly currentTaskStore?: () => TaskStore | undefined
+	/** Forget the selected run when the operator leaves its conversation. Does not delete tasks. */
+	readonly resetTaskStore?: () => void
 	/** Children created in this process, available for the TUI's observational view. */
 	readonly subagents?: SubagentActivitySource
 	/**
@@ -1938,6 +1942,34 @@ export async function createAgentSession(
 			defaultRunId: runId,
 			tenantId,
 		})
+	let selectedTaskStore: { scope: RunScope; store: TaskStore } | undefined
+	let taskSelectionGeneration = 0
+	const resetTaskStore = () => {
+		selectedTaskStore = undefined
+		taskSelectionGeneration += 1
+	}
+	const matchesCurrentScope = (candidate: RunScope) =>
+		candidate.sessionId === scope.sessionId &&
+		candidate.projectId === scope.projectId &&
+		candidate.tenantId === scope.tenantId &&
+		candidate.topicId === scope.topicId
+	const currentTaskStore = () => {
+		if (selectedTaskStore && !matchesCurrentScope(selectedTaskStore.scope)) resetTaskStore()
+		return selectedTaskStore?.store
+	}
+	const beginTaskStoreReadout = () => {
+		// A starting turn must not show its predecessor's plan while credentials
+		// and other asynchronous setup are still being prepared.
+		resetTaskStore()
+		const generation = taskSelectionGeneration
+		return (runId: RunId, runScope: RunScope): TaskStore => {
+			const store = taskStoreForRun(runId, runScope.tenantId)
+			if (generation === taskSelectionGeneration && matchesCurrentScope(runScope)) {
+				selectedTaskStore = { scope: { ...runScope }, store }
+			}
+			return store
+		}
+	}
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
@@ -2073,6 +2105,7 @@ export async function createAgentSession(
 		readonly listener?: (event: RunEvent) => void
 	}): Promise<ResumeOutcome> =>
 		operations.promise(signal, async (ownedSignal) => {
+			const selectTaskStore = beginTaskStoreReadout()
 			// The same prelude a turn runs, and for the same reasons: a lapsed
 			// OAuth token has to be renewed before the provider is used, and the
 			// fallback chain has to be built AFTER that so its members do not
@@ -2116,7 +2149,7 @@ export async function createAgentSession(
 					pluginManager: pluginRuntime?.manager,
 					skillRegistry: pluginRuntime?.skills,
 					skills: pluginSkills,
-					taskStore: taskStoreForRun(entry.runId, entry.tenantId),
+					taskStore: selectTaskStore(entry.runId, { ...entry, topicId: scope.topicId }),
 					// The same availability the original run registered under.
 					// A resumed run re-registers the task tools; leaving them at
 					// the kernel's `deferred` default would hand the model a plan
@@ -2303,6 +2336,8 @@ export async function createAgentSession(
 				.map((t) => t.name)
 				.filter((name) => !goalToolNames.has(name)),
 		agentIds: allowedAgentIds,
+		currentTaskStore,
+		resetTaskStore,
 		jobs: () => jobRegistry?.list(jobOwner) ?? [],
 		...(options.hooks ? { hooks: options.hooks } : {}),
 		checkpoints,
@@ -2349,6 +2384,7 @@ export async function createAgentSession(
 		send: (messages, opts) =>
 			operations.stream(opts?.signal, (signal) =>
 				(async function* () {
+					const selectTaskStore = beginTaskStoreReadout()
 					const runId = opts?.runId ?? generateRunId()
 					const turnOpts: SendOptions = { ...opts, runId, signal }
 					const resumeHandler = makeResumeHandler(
@@ -2489,7 +2525,7 @@ export async function createAgentSession(
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
 								promoteMemory,
-								taskStore: taskStoreForRun(runId, turnScope.tenantId),
+								taskStore: selectTaskStore(runId, turnScope),
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createRunContext(),

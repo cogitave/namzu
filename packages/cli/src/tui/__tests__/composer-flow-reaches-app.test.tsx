@@ -1,6 +1,6 @@
 /** Return steers the active turn; Tab remains a durable next-turn FIFO. */
 
-import type { Message } from '@namzu/sdk'
+import { InMemoryTaskStore, type Message, generateRunId } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -25,6 +25,7 @@ const sent: Message[][] = []
 const sentOptions: SendOptions[] = []
 const delivered: Message[][] = []
 const replacements: Message[][] = []
+let taskStore = new InMemoryTaskStore()
 const { defaultEditor, discoveredUserCommands } = vi.hoisted(() => ({
 	defaultEditor: vi.fn(),
 	discoveredUserCommands: [] as UserCommand[],
@@ -100,6 +101,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			modelSummary: 'model',
 			reasoningEffortLevels: [],
 			toolNames: () => [],
+			currentTaskStore: () => taskStore,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],
@@ -181,6 +183,7 @@ beforeEach(() => {
 	sentOptions.length = 0
 	delivered.length = 0
 	replacements.length = 0
+	taskStore = new InMemoryTaskStore()
 	discoveredUserCommands.length = 0
 	defaultEditor.mockReset().mockResolvedValue('edited by configured host editor')
 	drainFirstTurn = true
@@ -297,10 +300,7 @@ describe('the two composer destinations', () => {
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() =>
-					screen
-						.scrollback()
-						.some((line) => line.includes('No usage reported yet')),
+				() => screen.scrollback().some((line) => line.includes('No usage reported yet')),
 				'burst-selected /cost command never reached App',
 			)
 
@@ -336,13 +336,15 @@ describe('the two composer destinations', () => {
 			expect(twelfth).toBeDefined()
 			expect(screen.viewport().some((line) => line.includes(`/${twelfth?.name}`))).toBe(true)
 
-			const agentsIndex = commands.findIndex((command) => command.name === 'agents')
-			expect(agentsIndex).toBeGreaterThan(0)
-			for (let index = 0; index < agentsIndex; index += 1) screen.press('\x1b[B')
+			screen.press('agents')
+			await screen.waitForRender()
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().some((line) => line.includes('Agents: none.')),
+				() =>
+					screen
+						.scrollback()
+						.some((line) => line.includes('No delegated agents in this conversation.')),
 				'the command selected from /help never re-entered App dispatch',
 			)
 			expect(sent).toHaveLength(0)
@@ -377,21 +379,79 @@ describe('the two composer destinations', () => {
 				() => screen.viewport().some((line) => line.includes('Choose a command')),
 				'/help did not reach the command palette',
 			)
-			screen.press('\x1b[F')
+			screen.press('tools built-in')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('"/tools" is a built-in command')
+			screen.press('\r')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('Choose a command')
+			expect(screen.viewport().join('\n')).toContain('0/1')
+			expect(screen.scrollback().join('\n')).not.toContain('No tools registered yet')
+			expect(sent).toHaveLength(0)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('dispatches the exact kernel task command from a filtered /help row', async () => {
+		const task = await taskStore.create({
+			runId: generateRunId(),
+			subject: 'Inspect filtered selection',
+		})
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, '/help', '\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Choose a command')),
+				'Help picker did not open',
+			)
+			screen.press('tasks')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('/tasks')
+			expect(screen.viewport().join('\n')).toContain('1/1')
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() =>
-					screen
-						.scrollback()
-						.some((line) =>
-							line.includes(
-								'Cannot run /tools: "/tools" is a built-in command, so this file is not used.',
-							),
-						),
-				'the refused project command did not keep its own refusal identity',
+				() => screen.scrollback().join('\n').includes(task.subject),
+				'Filtered command did not read the task store',
 			)
-			expect(screen.scrollback().join('\n')).not.toContain('No tools registered yet')
+			expect(screen.scrollback().join('\n')).toContain(task.id)
+			expect(sent).toHaveLength(0)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('keeps unavailable feedback discoverable without opening or applying a rating', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.scrollback().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, '/help', '\r')
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Choose a command')),
+				'Help picker did not open',
+			)
+			screen.press('feedback')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain(
+				'Nothing to rate yet. Wait for an assistant answer.',
+			)
+			expect(screen.viewport().join('\n')).toContain('0/1')
+			screen.press('\r')
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain('Choose a command')
+			expect(screen.viewport().join('\n')).not.toContain('Rate the last answer')
 			expect(sent).toHaveLength(0)
 		} finally {
 			await screen.unmount()
@@ -626,7 +686,11 @@ describe('the external draft editor', () => {
 			await screen.waitForRender()
 			expect(screen.viewport().join('\n')).toContain('Image #1')
 			screen.press('\x07')
-			await waitUntil(screen, () => editor.mock.calls.length === 1, 'Ctrl+G did not open the editor')
+			await waitUntil(
+				screen,
+				() => editor.mock.calls.length === 1,
+				'Ctrl+G did not open the editor',
+			)
 
 			expect(editor.mock.calls[0]?.[0]).toMatchObject({
 				seed: `first\nsecond\n\n${pasted}`,

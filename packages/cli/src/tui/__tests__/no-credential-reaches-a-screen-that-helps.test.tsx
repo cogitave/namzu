@@ -183,12 +183,14 @@ function text(screen: Screen): string {
  * promises deep and a duration here would be the scaffolding flake this suite
  * has already had three of.
  */
-async function until(screen: Screen, needle: string, attempts = 400): Promise<void> {
-	for (let i = 0; i < attempts; i += 1) {
-		if (text(screen).includes(needle)) return
-		await new Promise((r) => setTimeout(r, 0))
-		await screen.waitForRender()
-	}
+async function until(screen: Screen, needle: string): Promise<void> {
+	await vi.waitFor(
+		async () => {
+			await screen.waitForRender()
+			expect(screen.viewport().join('\n')).toContain(needle)
+		},
+		{ timeout: 4_000 },
+	)
 }
 
 async function launch(): Promise<Screen> {
@@ -336,7 +338,7 @@ describe('after the credential has been supplied', () => {
 			screen.press('/model')
 			await until(screen, '/model')
 			screen.press('\r')
-			await until(screen, 'Choose a provider')
+			await until(screen, 'Choose a model')
 
 			// The LIVE picker box, not the whole viewport. The launch refusal is
 			// also sitting further up the terminal as transcript history, which is
@@ -347,7 +349,8 @@ describe('after the credential has been supplied', () => {
 			const box = rows.slice(lastBorder)
 			const drawn = box.join('\n')
 
-			expect(drawn, 'the picker never reopened').toContain('Choose a provider')
+			expect(drawn, 'the picker never reopened').toContain('Choose a model')
+			expect(drawn).toContain('this session only (temporary credential)')
 			expect(drawn, 'a stale launch refusal is drawn on the picker').not.toContain(
 				'No credential found',
 			)

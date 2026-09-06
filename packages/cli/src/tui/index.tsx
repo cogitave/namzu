@@ -3,15 +3,25 @@
  * user exits. Called by `cli.ts`'s default action (no subcommand).
  */
 
+import { resolve } from 'node:path'
+
 import { render } from 'ink'
 import React from 'react'
 
 import { App } from './App.js'
-import { type TuiExitSummary, formatTuiExitSummary } from './exit-summary.js'
+import {
+	type TuiExitSummary,
+	type TuiResumeInvocation,
+	formatTuiExitSummary,
+} from './exit-summary.js'
 import { installTuiLogSink } from './log-pane.js'
 import type { TuiContext } from './types.js'
 
-export async function launchTui(ctx: TuiContext): Promise<void> {
+export async function launchTui(
+	ctx: TuiContext,
+	options: { readonly resumeCommand?: readonly [string, ...string[]] } = {},
+): Promise<void> {
+	const invocation: TuiResumeInvocation = { cwd: resolve(ctx.cwd), command: options.resumeCommand }
 	// Ink owns the terminal for the life of this function: it repaints the
 	// screen from its own virtual buffer, and any other write to
 	// stdout/stderr while it holds the terminal corrupts the frame
@@ -51,7 +61,7 @@ export async function launchTui(ctx: TuiContext): Promise<void> {
 		await instance.waitUntilExit()
 	} finally {
 		logs.close()
-		const summary = formatTuiExitSummary(exitSummary)
+		const summary = formatTuiExitSummary(exitSummary, invocation)
 		if (summary.length > 0) process.stdout.write(summary)
 	}
 }

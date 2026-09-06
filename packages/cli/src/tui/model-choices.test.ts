@@ -72,6 +72,23 @@ describe('modelStep', () => {
 		expect(step.choices[step.initialIndex]?.id).toBe(DEFAULT)
 	})
 
+	it('keeps the active custom pin selected when discovery cannot list it', () => {
+		for (const listing of [
+			{ kind: 'unsupported' },
+			{ kind: 'timeout' },
+			{ kind: 'failed', reason: 'offline' },
+			{ kind: 'ok', models: [] },
+			{ kind: 'ok', models: [{ id: 'other-model', name: 'Other' }] },
+		] as const) {
+			const step = modelStep(DEFAULT, listing, 'custom-deployment')
+			expect(step.choices[step.initialIndex]).toMatchObject({
+				id: 'custom-deployment',
+				note: '(current)',
+			})
+			expect(step.choices.some((choice) => choice.id === DEFAULT)).toBe(true)
+		}
+	})
+
 	// The four cases that used to be one empty array. Each must say which it is,
 	// and each must still leave something selectable — a screen that can end
 	// with nothing to pick is a dead end.

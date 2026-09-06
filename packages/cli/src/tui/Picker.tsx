@@ -43,8 +43,8 @@ export interface PickerProps {
 	 * device" back into a two-screen setup flow.
 	 */
 	readonly selectionKind?: 'provider-and-model' | 'signed-in-subscription'
-	/** Open directly on the subscription choice when `/login` owns this mount. */
-	readonly initialView?: 'providers' | 'subscriptions'
+	/** `/model` opens the active provider's models; `/login` opens subscriptions. */
+	readonly initialView?: 'providers' | 'subscriptions' | 'models'
 	/** The model in force, so re-opening starts on it rather than the default. */
 	readonly currentModel?: string | null
 	readonly onSubmit: (selection: { provider: string; model?: string }, signal: AbortSignal) => void
@@ -153,18 +153,16 @@ type SubscriptionChoice =
 function subscriptionChoices(detected: readonly DetectedProvider[]): readonly SubscriptionChoice[] {
 	return [
 		...signedInSubscriptionProviders(detected).map(
-			(provider): SubscriptionChoice => ({ kind: 'existing', detected: provider }),
+			(provider): SubscriptionChoice => ({
+				kind: 'existing',
+				detected: provider,
+			}),
 		),
-		...subscriptionProviders().map(
-			(entry): SubscriptionChoice => ({ kind: 'sign-in', entry }),
-		),
+		...subscriptionProviders().map((entry): SubscriptionChoice => ({ kind: 'sign-in', entry })),
 	]
 }
 
-function signInChoiceIndex(
-	choices: readonly SubscriptionChoice[],
-	provider: ProviderId,
-): number {
+function signInChoiceIndex(choices: readonly SubscriptionChoice[], provider: ProviderId): number {
 	return choices.findIndex((choice) => choice.kind === 'sign-in' && choice.entry.id === provider)
 }
 
@@ -255,9 +253,13 @@ export function Picker({
 	const [modelPhase, setModelPhase] = useState<{
 		readonly provider: DetectedProvider
 		readonly step: ModelStep | undefined
+		readonly returnToProviders: boolean
 	} | null>(null)
 	const [loginPhase, setLoginPhase] = useState(initialView === 'subscriptions')
-	useEffect(() => setLoginPhase(initialView === 'subscriptions'), [initialView])
+	useEffect(() => {
+		setLoginPhase(initialView === 'subscriptions')
+		if (initialView !== 'models') setModelPhase(null)
+	}, [initialView])
 	const [loginEntry, setLoginEntry] = useState<{
 		readonly entry: ProviderRegistryEntry
 		readonly value: string
@@ -277,6 +279,49 @@ export function Picker({
 		readonly status: 'typing' | 'checking'
 		readonly problem?: string
 	} | null>(null)
+	const openModels = useCallback(
+		(current: DetectedProvider, returnToProviders = true) => {
+			const operation = beginOperation()
+			setModelPhase({ provider: current, step: undefined, returnToProviders })
+			setCursor(0)
+			const activeModel =
+				currentProvider == null || currentProvider === current.entry.id
+					? (currentModel ?? undefined)
+					: undefined
+			const showListing = (listing: ModelListing) => {
+				if (!ownsOperation(operation)) return
+				finishOperation(operation)
+				const step = modelStep(current.entry.defaultModel, listing, activeModel)
+				setModelPhase({ provider: current, step, returnToProviders })
+				setCursor(step.initialIndex)
+			}
+			void describeModels(current.entry.id, current, operation.controller.signal)
+				.then(showListing)
+				.catch((error: unknown) =>
+					showListing({
+						kind: 'failed',
+						reason: error instanceof Error ? error.message : String(error),
+					}),
+				)
+		},
+		[
+			beginOperation,
+			currentModel,
+			currentProvider,
+			describeModels,
+			finishOperation,
+			ownsOperation,
+			setCursor,
+		],
+	)
+	const initialModelsOpened = useRef(false)
+	useEffect(() => {
+		if (initialView !== 'models' || initialModelsOpened.current) return
+		initialModelsOpened.current = true
+		const current = detected.find((provider) => provider.entry.id === currentProvider)
+		if (current?.entry.constructible) openModels(current, false)
+		else setErrorHint('The current provider is unavailable here. Choose another provider.')
+	}, [currentProvider, detected, initialView, openModels])
 
 	const acceptKey = async (): Promise<void> => {
 		const state = keyEntry
@@ -452,10 +497,7 @@ export function Picker({
 			const choices = subscriptionChoices(detected)
 			setCursor(
 				loginTarget?.subscriptionLogin
-					? Math.max(
-							0,
-							signInChoiceIndex(choices, loginTarget.id),
-						)
+					? Math.max(0, signInChoiceIndex(choices, loginTarget.id))
 					: 0,
 			)
 			return
@@ -476,6 +518,18 @@ export function Picker({
 			return
 		}
 
+		if (modelPhase && (key.leftArrow || input === 'p' || input === 'P')) {
+			invalidateOperation()
+			setCursor(
+				Math.max(
+					0,
+					detected.findIndex((provider) => provider.entry.id === modelPhase.provider.entry.id),
+				),
+			)
+			setModelPhase(null)
+			return
+		}
+
 		if (key.escape) {
 			if (loginPhase) {
 				invalidateOperation()
@@ -487,6 +541,16 @@ export function Picker({
 			// the picker: escape should undo one decision, not two.
 			if (modelPhase) {
 				invalidateOperation()
+				if (!modelPhase.returnToProviders) {
+					onCancel()
+					return
+				}
+				setCursor(
+					Math.max(
+						0,
+						detected.findIndex((provider) => provider.entry.id === modelPhase.provider.entry.id),
+					),
+				)
 				setModelPhase(null)
 				return
 			}
@@ -502,13 +566,7 @@ export function Picker({
 					moveSelection(
 						current,
 						choices.length,
-						key.home
-							? 'first'
-							: key.end
-								? 'last'
-								: key.pageUp
-									? 'previous-page'
-									: 'next-page',
+						key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 					),
 				)
 				return
@@ -540,7 +598,11 @@ export function Picker({
 					.then((disposition) => {
 						if (!ownsOperation(operation)) return
 						if (disposition === 'awaiting-input') {
-							setLoginEntry({ entry: chosen.entry, value: '', status: 'typing' })
+							setLoginEntry({
+								entry: chosen.entry,
+								value: '',
+								status: 'typing',
+							})
 							return
 						}
 						finishOperation(operation)
@@ -571,13 +633,7 @@ export function Picker({
 					moveSelection(
 						current,
 						step.choices.length,
-						key.home
-							? 'first'
-							: key.end
-								? 'last'
-								: key.pageUp
-									? 'previous-page'
-									: 'next-page',
+						key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 					),
 				)
 				return
@@ -613,13 +669,7 @@ export function Picker({
 				moveSelection(
 					current,
 					detected.length,
-					key.home
-						? 'first'
-						: key.end
-							? 'last'
-							: key.pageUp
-								? 'previous-page'
-								: 'next-page',
+					key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 				),
 			)
 			return
@@ -655,31 +705,7 @@ export function Picker({
 			// Ask the provider what it has, then show the model step. The list is
 			// raced against 3s inside `describeProviderModels`, so this resolves
 			// either way and the step always has at least the default.
-			const operation = beginOperation()
-			setModelPhase({ provider: current, step: undefined })
-			setCursor(0)
-			void describeModels(current.entry.id, current, operation.controller.signal)
-				.then((listing) => {
-					if (!ownsOperation(operation)) return
-					finishOperation(operation)
-					const step = modelStep(current.entry.defaultModel, listing, currentModel ?? undefined)
-					setModelPhase({ provider: current, step })
-					setCursor(step.initialIndex)
-				})
-				.catch((error: unknown) => {
-					if (!ownsOperation(operation)) return
-					finishOperation(operation)
-					const step = modelStep(
-						current.entry.defaultModel,
-						{
-							kind: 'failed',
-							reason: error instanceof Error ? error.message : String(error),
-						},
-						currentModel ?? undefined,
-					)
-					setModelPhase({ provider: current, step })
-					setCursor(step.initialIndex)
-				})
+			openModels(current)
 			return
 		}
 		// Numeric quick-select.
@@ -719,14 +745,18 @@ export function Picker({
 							cancels.
 						</Text>
 						<Box paddingTop={1}>
-							<Text color={loginEntry.value ? theme.text.primary : theme.text.muted}>{painted}</Text>
+							<Text color={loginEntry.value ? theme.text.primary : theme.text.muted}>
+								{painted}
+							</Text>
 						</Box>
 					</>
 				)}
 				<Box paddingTop={1} flexDirection="column">
 					{loginEntry.status === 'starting' ? (
 						<Text color={theme.text.muted}>
-							{waitsForDeviceApproval ? 'Waiting for browser approval…' : 'Starting browser sign-in…'}
+							{waitsForDeviceApproval
+								? 'Waiting for browser approval…'
+								: 'Starting browser sign-in…'}
 						</Text>
 					) : loginEntry.status === 'checking' ? (
 						<Text color={theme.text.muted}>Finishing sign-in…</Text>
@@ -791,6 +821,8 @@ export function Picker({
 					step={modelPhase.step}
 					cursor={cursor}
 					errorHint={errorHint}
+					returnToProviders={modelPhase.returnToProviders}
+					sessionOnly={modelPhase.provider.source.kind === 'session'}
 				/>
 			</Box>
 		)
@@ -954,21 +986,29 @@ function ModelStepView({
 	step,
 	cursor,
 	errorHint,
+	returnToProviders,
+	sessionOnly,
 }: {
 	readonly providerLabel: string
 	readonly step: ModelStep | undefined
 	readonly cursor: number
 	readonly errorHint: string | null
+	readonly returnToProviders: boolean
+	readonly sessionOnly: boolean
 }) {
 	const window = step ? selectionWindow(step.choices, cursor) : null
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between" paddingBottom={1}>
-				<Box flexDirection="column">
-					<Text color={theme.accent.system} bold>
-						Choose a model
+				<Box flexDirection="column" flexGrow={1} minWidth={0}>
+					<Text color={theme.accent.system} bold wrap="truncate-end">
+						Choose a model · {providerLabel}
 					</Text>
-					<Text color={theme.text.muted}>{providerLabel}</Text>
+					<Text color={theme.text.secondary}>
+						{sessionOnly
+							? 'Applies to this session only (temporary credential).'
+							: 'Applies to this session and future launches.'}
+					</Text>
 				</Box>
 				{step && step.choices.length > 0 ? (
 					<Text color={theme.text.muted}>
@@ -1004,7 +1044,7 @@ function ModelStepView({
 			)}
 			<Box flexDirection="column" paddingTop={1}>
 				<Text color={theme.text.muted}>
-					↑↓ or 1-9 navigate · PgUp/PgDn jump · Home/End boundary · enter accept · esc back
+					↑↓ · PgUp/PgDn · Home/End · enter apply · p change provider · esc {returnToProviders ? 'back' : 'cancel'}
 				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>

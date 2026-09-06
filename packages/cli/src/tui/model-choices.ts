@@ -57,11 +57,19 @@ export function modelStep(
 	listing: ModelListing,
 	currentModel?: string,
 ): ModelStep {
-	const fallback = (notice: string): ModelStep => ({
-		choices: [{ id: defaultModel, label: defaultModel, note: '(namzu default)' }],
-		notice,
-		initialIndex: 0,
-	})
+	const fallback = (notice: string): ModelStep => {
+		const choices: ModelChoice[] = [
+			{ id: defaultModel, label: defaultModel, note: '(namzu default)' },
+		]
+		if (currentModel && currentModel !== defaultModel) {
+			choices.push({
+				id: currentModel,
+				label: currentModel,
+				note: '(current)',
+			})
+		}
+		return { choices, notice, initialIndex: choices.length - 1 }
+	}
 
 	// "namzu's pick", never "its default", in all four. The row beside these
 	// sentences is labelled `(namzu default)` because the value comes from
@@ -104,7 +112,14 @@ export function modelStep(
 		})
 	}
 	if (!seen.has(defaultModel)) {
-		choices.unshift({ id: defaultModel, label: defaultModel, note: '(namzu default)' })
+		choices.unshift({
+			id: defaultModel,
+			label: defaultModel,
+			note: '(namzu default)',
+		})
+	}
+	if (currentModel && currentModel !== defaultModel && !seen.has(currentModel)) {
+		choices.push({ id: currentModel, label: currentModel, note: '(current)' })
 	}
 
 	const wanted = currentModel ?? defaultModel

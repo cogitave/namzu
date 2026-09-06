@@ -302,11 +302,11 @@ afterEach(async () => {
 	vi.restoreAllMocks()
 })
 
-async function screenShows(screen: Screen, text: string, attempts = 100): Promise<void> {
-	for (let i = 0; i < attempts && !screen.scrollback().join('\n').includes(text); i++) {
+async function screenShows(screen: Screen, text: string): Promise<void> {
+	await vi.waitFor(async () => {
 		await screen.waitForRender()
-	}
-	expect(screen.scrollback().join('\n')).toContain(text)
+		expect(screen.viewport().join('\n')).toContain(text)
+	})
 }
 
 async function screenMatchCount(
@@ -362,7 +362,7 @@ describe('trusted runtime config reaches hydration', () => {
 })
 
 /** A ready session, then `/model` to open the picker over the top of it. */
-async function pickerFromModelCommand() {
+async function providerPickerFromModelCommand() {
 	withSession = true
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
@@ -374,6 +374,8 @@ async function pickerFromModelCommand() {
 	harness.stdin.write('/model')
 	await tick(60)
 	harness.stdin.write('\r')
+	await frameShows(harness.lastFrame, 'Choose a model')
+	harness.stdin.write('p')
 	await frameShows(harness.lastFrame, 'Choose a provider')
 	expect(harness.lastFrame(), 'the picker never opened').toContain('Choose a provider')
 	await tick(60)
@@ -719,6 +721,8 @@ describe('publishing a picker selection', () => {
 		expect(bHistories).toEqual([])
 
 		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Choose a model')
+		harness.stdin.write('p')
 		await frameShows(harness.lastFrame, 'Choose a provider')
 		harness.stdin.write('\x1B[B')
 		await tick()
@@ -766,6 +770,8 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'paused after a failed turn')
 
 		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Choose a model')
+		harness.stdin.write('p')
 		await frameShows(harness.lastFrame, 'Choose a provider')
 		harness.stdin.write('\x1B[B')
 		await tick()
@@ -858,6 +864,8 @@ describe('publishing a picker selection', () => {
 		await submit(harness, '/effort max')
 		await frameShows(harness.lastFrame, 'Reasoning effort changed to max')
 		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Choose a model')
+		harness.stdin.write('p')
 		await frameShows(harness.lastFrame, 'Choose a provider')
 		// The frame can publish before Ink installs the picker input handler.
 		// Let that handler own stdin before sending the selection, otherwise a
@@ -902,25 +910,33 @@ describe('publishing a picker selection', () => {
 				errorHint: unavailable,
 			}
 		}
-		const { stdin, lastFrame } = await pickerFromModelCommand()
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 24 })
+		mountedScreens.push(screen)
+		await screenShows(screen, 'Connected to a-session')
+		screen.press('/model')
+		await screen.waitForRender()
+		screen.press('\r')
+		await screenShows(screen, 'a-model (current)')
+		screen.press('p')
+		await screenShows(screen, 'Choose a provider')
+		screen.press('\x1B[B')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toMatch(/›\s+2\.\s+B Provider/)
+		screen.press('\r')
+		await screenShows(screen, 'b-default-model')
+		screen.press('\r')
+		await screenShows(screen, unavailable)
 
-		stdin.write('\x1B[B')
-		await tick()
-		stdin.write('\r')
-		await frameShows(lastFrame, 'Choose a model')
-		await tick(60)
-		stdin.write('\r')
-		await frameShows(lastFrame, unavailable)
-
-		expect(lastFrame()).toContain(unavailable)
+		expect(screen.viewport().join('\n')).toContain(unavailable)
 		expect(closeB).toHaveBeenCalledTimes(1)
 		expect(closeA).not.toHaveBeenCalled()
 
-		stdin.write('\x1B')
-		await frameShows(lastFrame, 'Choose a provider')
-		stdin.write('\x1B')
-		await frameShows(lastFrame, 'Type a message')
-		expect(lastFrame()).toContain('a-session')
+		// A refused construction returns to the provider menu. Cancel that
+		// visible menu once; an earlier title in scrollback is not the live phase.
+		await screenShows(screen, 'Choose a provider')
+		screen.press('\x1B')
+		await screenShows(screen, 'Type a message')
+		expect(screen.viewport().join('\n')).toContain('a-session')
 		expect(closeA).not.toHaveBeenCalled()
 	})
 
@@ -963,10 +979,7 @@ describe('cancelling the picker opened by /model', () => {
 		screen.press('/model')
 		await screen.waitForRender()
 		screen.press('\r')
-		await screenShows(screen, 'Choose a provider')
-		expect(screen.viewport().join('\n')).toContain('Choose a provider')
-		screen.press('\r')
-		await screenShows(screen, 'Choose a model')
+		await screenShows(screen, 'a-model (current)')
 		expect(screen.viewport().join('\n')).toContain('Choose a model')
 		screen.press('\r')
 		await screenMatchCount(screen, /Connected to catalog-provider/g, 2)
@@ -980,7 +993,7 @@ describe('cancelling the picker opened by /model', () => {
 		// The defect: declining to change model threw away a working session,
 		// landing on a phase whose composer is disabled and from which `/model`
 		// cannot be typed again.
-		const { stdin, lastFrame } = await pickerFromModelCommand()
+		const { stdin, lastFrame } = await providerPickerFromModelCommand()
 
 		stdin.write('\x1B')
 		await frameShows(lastFrame, 'Type a message')
@@ -995,7 +1008,7 @@ describe('cancelling the picker opened by /model', () => {
 		// no way back to the picker and no way to talk to the agent. Asserting
 		// on the hint text would not have caught this: the ready hint ends with
 		// the same "Ctrl+C ×2 to exit" the unhealthy hint consists of.
-		const { stdin, lastFrame } = await pickerFromModelCommand()
+		const { stdin, lastFrame } = await providerPickerFromModelCommand()
 
 		stdin.write('\x1B')
 		await frameShows(lastFrame, 'Type a message')
@@ -1068,7 +1081,7 @@ describe('Ctrl+C in the picker', () => {
 	})
 
 	it('exits from a picker opened by /model too', async () => {
-		const { stdin } = await pickerFromModelCommand()
+		const { stdin } = await providerPickerFromModelCommand()
 
 		stdin.write('\x03')
 		await exitedWithin()
@@ -1168,7 +1181,7 @@ describe('the picker hint', () => {
 	})
 
 	it('says esc keeps the current model when there is a session behind it', async () => {
-		const { lastFrame } = await pickerFromModelCommand()
+		const { lastFrame } = await providerPickerFromModelCommand()
 		const frame = lastFrame() ?? ''
 
 		expect(frame).toContain('keep current')

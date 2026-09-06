@@ -128,6 +128,6 @@ it('reports a drop that happens after the command text rendered but before submi
 	live.dropped = true
 	mounted.stdin.write('\r')
 
-	await waitFor('tickets — NOT available: connection closed after startup')
+	await waitFor('tickets: unavailable — connection closed after startup')
 	expect(mounted.frames.join('\n')).not.toContain('tickets — connected, 1 tool(s)')
 })

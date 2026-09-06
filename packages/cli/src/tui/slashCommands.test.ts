@@ -43,7 +43,7 @@ function permissions(over: Partial<SlashContext['permissions']> = {}): SlashCont
 function permissionsReadout(ctx: SlashContext) {
 	return {
 		kind: 'message' as const,
-		content: renderPermissions(ctx.permissions),
+		content: renderPermissions(ctx.permissions, true),
 	}
 }
 
@@ -91,7 +91,7 @@ describe('matchSlashCommands', () => {
 		expect(matchSlashCommands('/')).toEqual(
 			CLI_LOCAL_COMMANDS.filter((command) => command.discoverable !== false),
 		)
-		expect(matchSlashCommands('/agent')).toEqual([])
+		expect(matchSlashCommands('/agent').map((command) => command.name)).toEqual(['agents'])
 	})
 
 	it('filters by name prefix (case-insensitive)', () => {
@@ -288,7 +288,7 @@ describe('/cost', () => {
 		const r = runSlash('/cost', context({ usage: { totalTokens: 900, cost: cost(0) } }))
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('measured zero')
-			expect(r.content).toContain('bills nothing')
+			expect(r.content).toContain('Cost: $0.0000')
 			// The old line said this about every zero, including this one.
 			expect(r.content).not.toContain('no price')
 		}
@@ -309,7 +309,7 @@ describe('/cost', () => {
 			// version with this disclaimer deleted. Matched against the prose
 			// with its wrapping collapsed: the sentence is the property, and
 			// where the line happens to break is not.
-			expect(r.content.replace(/\s+/g, ' ')).toContain('not a claim that they were free')
+			expect(r.content).toContain('no known price and are excluded from the cost')
 			// It must not read as the free case.
 			expect(r.content).not.toContain('measured zero')
 			// And it must not assert something about the provider that nothing
@@ -345,7 +345,7 @@ describe('/cost', () => {
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('$0.5000')
 			expect(r.content).toContain('400 tokens')
-			expect(r.content).toContain('see below')
+			expect(r.content).toContain('at least $0.5000')
 		}
 	})
 
@@ -354,8 +354,9 @@ describe('/cost', () => {
 		// without naming which it is invites the same misreading back.
 		const r = runSlash('/cost', context({ usage: { totalTokens: 10, cost: cost(1) } }))
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('Cumulative')
-			expect(r.content).toContain('how full')
+			expect(r.content).toContain('Current or latest run')
+			expect(r.content).toContain('own model calls')
+			expect(r.content).not.toContain('across every turn')
 		}
 	})
 })
@@ -386,13 +387,15 @@ describe('/permissions', () => {
 		const result = runSlash('/permissions yolo', context())
 		expect(result?.kind).toBe('message')
 		if (result?.kind === 'message') {
-			expect(result.content).toBe('Usage: /permissions [prompt|auto|strict]')
+			expect(result.content).toBe(
+				'Usage: /permissions [details|prompt|accept-edits|auto|strict|plan]',
+			)
 		}
 	})
 
 	it('reports that unreviewed calls are asked about by default', () => {
 		const r = permissionsReadout(context())
-		if (r?.kind === 'message') expect(r.content).toContain('you are asked')
+		if (r?.kind === 'message') expect(r.content).toContain('Ask before changes')
 	})
 
 	it('names the flag when approval is automatic', () => {
@@ -404,7 +407,7 @@ describe('/permissions', () => {
 			}),
 		)
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('approved automatically')
+			expect(r.content).toContain('Allow tools without asking')
 			expect(r.content).toContain('--dangerously-skip-permissions')
 		}
 	})
@@ -438,7 +441,7 @@ describe('/permissions', () => {
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('approved automatically')
 			expect(r.content).toContain('approve all')
-			expect(r.content, 'still claims calls are reviewed').not.toContain('you are asked')
+			expect(r.content, 'still claims calls are reviewed').not.toContain('Ask before changes')
 		}
 	})
 
@@ -452,8 +455,8 @@ describe('/permissions', () => {
 			}),
 		)
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('Current mode: strict')
-			expect(r.content).toContain('rejected automatically')
+			expect(r.content).toContain('Permissions: strict')
+			expect(r.content).toContain('refuse other calls without asking')
 			expect(r.content).not.toContain('approve all" was chosen')
 		}
 	})
@@ -470,14 +473,14 @@ describe('/permissions', () => {
 		})
 
 		const before = permissionsReadout(ctxLive)
-		if (before?.kind === 'message') expect(before.content).toContain('you are asked')
+		if (before?.kind === 'message') expect(before.content).toContain('Ask before changes')
 
 		latched = true
 
 		const after = permissionsReadout(ctxLive)
 		if (after?.kind === 'message') {
 			expect(after.content).toContain('approved automatically')
-			expect(after.content).not.toContain('you are asked')
+			expect(after.content).not.toContain('Ask before changes')
 		}
 	})
 
@@ -492,12 +495,12 @@ describe('/permissions', () => {
 			}),
 		)
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('Never prompted')
+			expect(r.content).toContain('Tools exempt from ordinary prompts')
 			expect(r.content).toContain('glob, read, task_create')
 			// Must not overclaim: a rule still outranks this, and a call flagged
 			// destructive is prompted for even when it is on the list.
 			expect(r.content).toContain('deny')
-			expect(r.content).toContain('destructive')
+			expect(r.content).toContain('Destructive')
 		}
 	})
 
@@ -580,7 +583,7 @@ describe('/permissions', () => {
 				}),
 			}),
 		)
-		if (r?.kind === 'message') expect(r.content).toContain('never reopen what a')
+		if (r?.kind === 'message') expect(r.content).toContain('Explicit deny rules')
 	})
 })
 
@@ -888,23 +891,31 @@ describe('/skills', () => {
 describe('/cost and the context', () => {
 	const cost = { totalCost: 0.05, unpricedTokens: 0 } as never
 	it('prints how full the context is, with the provenance of both terms', () => {
-		const text = renderCost({
-			totalTokens: 12_345,
-			cost,
-			context: { tokens: 54_000, windowTokens: 128_000, measured: true, windowAssumed: false },
-		})
+		const text = renderCost(
+			{
+				totalTokens: 12_345,
+				cost,
+				context: { tokens: 54_000, windowTokens: 128_000, measured: true, windowAssumed: false },
+			},
+			null,
+			true,
+		)
 		expect(text).toContain('Context: 54,000 / 128,000 tokens (42%)')
 		expect(text).toContain('Counted by the provider; window declared by the provider or config')
 	})
 
 	it('marks an estimate as an estimate', () => {
-		const text = renderCost({
-			totalTokens: 12_345,
-			cost,
-			context: { tokens: 54_000, windowTokens: 128_000, measured: false, windowAssumed: true },
-		})
+		const text = renderCost(
+			{
+				totalTokens: 12_345,
+				cost,
+				context: { tokens: 54_000, windowTokens: 128_000, measured: false, windowAssumed: true },
+			},
+			null,
+			true,
+		)
 		expect(text).toContain('(~42%)')
-		expect(text).toContain('Estimated on this side; window assumed from a table or default')
+		expect(text).toContain('Estimated by Namzu; window assumed from a table or default')
 	})
 
 	it('says nothing about the context when the run resolved no window', () => {
@@ -950,12 +961,12 @@ describe('/context', () => {
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
 		expect(r.content).toContain('No context measurement yet')
-		expect(r.content).toContain('no compaction strategy')
+		expect(r.content).toContain('unavailable before a session starts')
 	})
 
 	it('names the strategy, its thresholds and what the passes did', () => {
 		const r = runSlash(
-			'/context',
+			'/context details',
 			context({
 				usage: {
 					totalTokens: 50_000,
@@ -979,11 +990,11 @@ describe('/context', () => {
 		expect(r.content).toContain('7,000 / 14,000 tokens (50%)')
 		expect(r.content).toContain('Strategy: salience')
 		expect(r.content).toContain('from 50%')
-		expect(r.content).toContain('summarised only at 70%')
-		expect(r.content).toContain('Passes this session: 3')
-		expect(r.content).toContain('tool results cleared:  4')
-		expect(r.content).toContain('narrations stubbed:    2')
-		expect(r.content).toContain('tokens reclaimed:      ~2,400')
+		expect(r.content).toContain('summarised at 70%')
+		expect(r.content).toContain('Cleanup this session: 3 passes')
+		expect(r.content).toContain('Tool results cleared: 4')
+		expect(r.content).toContain('Messages shortened: 2')
+		expect(r.content).toContain('~2,400 tokens freed')
 	})
 })
 

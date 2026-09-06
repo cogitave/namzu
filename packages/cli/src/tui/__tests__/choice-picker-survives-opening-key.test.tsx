@@ -294,8 +294,10 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 	])
 	expect(feedback.configs).toEqual([
 		{
-			rootDir: '/tmp/.namzu/projects/b908c84b-ed5b-4dc3-aae8-e3483885fc5f/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/feedback',
-			runsDir: '/tmp/.namzu/projects/b908c84b-ed5b-4dc3-aae8-e3483885fc5f/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/runs',
+			rootDir:
+				'/tmp/.namzu/projects/b908c84b-ed5b-4dc3-aae8-e3483885fc5f/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/feedback',
+			runsDir:
+				'/tmp/.namzu/projects/b908c84b-ed5b-4dc3-aae8-e3483885fc5f/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/runs',
 		},
 	])
 })
@@ -319,7 +321,9 @@ it('opens bare /skills and activates the selected discovered skill', async () =>
 	expect(output).toContain('release-check')
 	expect(output).toContain('Verify a release candidate · user')
 
-	screen.press('2')
+	screen.press('release-check')
+	await screen.waitForRender()
+	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('Activated skill: release-check'))
 	expect(skillLoads).toEqual(['release-check'])
 })
@@ -349,7 +353,9 @@ it('opens /review presets, resolves a branch, and sends the immutable comparison
 	expect(output).toContain('Current branch: feature')
 	expect(output).toContain('feature → release')
 
-	screen.press('2')
+	screen.press('release')
+	await screen.waitForRender()
+	screen.press('\r')
 	await waitUntil(screen, () => reviewPrompts.length === 1)
 	expect(reviewPrompts[0]).toContain(`git diff ${reviewRepository.mergeBase}`)
 	expect(reviewPrompts[0]).not.toContain('release')
@@ -402,7 +408,9 @@ it('routes uncommitted and commit presets through the same model-input FIFO', as
 	screen.press('3')
 	await waitUntil(screen, () => painted(screen).includes('Select a commit to review'))
 	expect(screen.viewport().join('\n')).toContain('preserve a queue')
-	screen.press('2')
+	screen.press('preserve')
+	await screen.waitForRender()
+	screen.press('\r')
 	await waitUntil(screen, () => reviewPrompts.length === 2)
 	expect(reviewPrompts[1]).toContain(
 		`git diff ${reviewRepository.commits[1]?.sha}^ ${reviewRepository.commits[1]?.sha}`,
