@@ -1,5 +1,43 @@
 # Changelog
 
+## 36.0.0
+
+### Major Changes
+
+- 32ef6f6: Make builtin `grep` enumerate files incrementally instead of listing an entire directory tree before searching. It stops at 20,000 examined entries and has a 15-second tool deadline, replacing the previous 120-second deadline. Narrow the search directory or include pattern when these bounds are reached. The default result limit remains 100; reaching it now explicitly reports an incomplete search rather than claiming that every file was searched. Partial matches and traversal errors remain visible.
+
+  Custom sandbox adapters must implement `Sandbox.walkFiles` for content search; `grep` refuses adapters that only provide eager `listFiles`, without falling back to the host filesystem. Existing recursive include semantics and the 5 MiB per-file limit remain in place. Oversized files are skipped before reading when size metadata is available, and cancellation stops consuming pending reads.
+
+- 0662f34: Make glob scope explicit and bound filesystem discovery while it runs. Bare `*` and `*.ts` now search only the selected directory; use `**/*` or `**/*.ts` to recurse. Wildcard searches exclude hidden entries by default; set `include_hidden: true` to retain searches that previously included them inside a sandbox. Glob returns regular files only and skips symlink entries during enumeration; authorized local root aliases remain supported. Its execution deadline changes from the generic 120 seconds to 15 seconds, so large searches should use a narrower directory or pattern.
+
+  Glob now uses the optional `Sandbox.walkFiles` capability instead of collecting a complete recursive `listFiles` inventory. Custom sandbox adapters must implement `walkFiles` to support builtin glob; unsupported adapters receive an explicit failure without a host fallback. Local, Docker, ACI and Firecracker adapters implement bounded incremental enumeration. `SandboxWalkFilesOptions` and `walkFilesViaExec` are exported for adapter authors. The sandbox package now requires the matching SDK major through its peer dependency because it imports this new runtime helper.
+
+  Result and traversal limits produce explicit incomplete-search metadata and preserve available matches. Patterns are limited to 4,096 characters and 256 brace expansions, with consistent hidden-file matching in grouped alternatives. Sandbox search paths are resolved once, fixing duplicated absolute paths in glob, grep and ls. Runtime guidance permits direct reads of known paths, and the CLI tool label now shows both the glob pattern and directory.
+
+### Minor Changes
+
+- 32ef6f6: Let the interactive parent respond to new messages while delegated agents continue working. An interrupted delegation wait returns the running task's identity instead of waiting for every child to finish, and eventual results reach the same parent run once. Parent cancellation still stops its children. Cancelled CLI turns retain the kernel's tool and reasoning history so a follow-up can see work already performed.
+
+  The model can retrieve a task's complete output using `wait_for_task`, including text beyond a notification's preview. This only accepts tasks owned by the current parent run. Budget-stopped tasks retain available partial prose and report their stop reason.
+
+  Add optional `query({ waitForInbound })` arrival notification and cancellable `CompletionInbox.waitForArrival(timeoutMs, signal)` waits. Neither consumes operator messages or cancels child work; callers release arrival listeners when the supplied signal aborts. Task-completion notifications include the child's stop reason when available.
+
+  Open child transcripts in a distinct framed terminal screen with more visible history, line/page scrolling and explicit return navigation. Completed children remain readable through `/agents` while retained in the current session. Returning to the main conversation restores its draft.
+
+### Patch Changes
+
+- afa0712: Keep completed tool receipts when cancellation interrupts a post-tool hook, withholding unreviewed output and failure-log details while preserving execution status. Cancellation stops retry scheduling, and calls cancelled before execution receive an explicit not-started result. Provider cancellation no longer waits on a blocked iterator, and unknown token spend remains reserved even when the idle timeout is disabled.
+
+  Shell commands now report incremental progress on the host as well as in a sandbox. Sandbox timeouts preserve partial stdout and stderr; clipped output no longer recommends blindly replaying a command.
+
+  The CLI retains long first lines and output beyond 200 lines for Ctrl+O and raw view. Long lines receive bounded, expandable previews. The composer header fits very narrow terminals, and animation regressions cover a complete border lap and cleanup.
+
+- 073a877: Stop foreground host shell descendants on cancellation, timeout and output overflow by terminating the shell's owned POSIX process group. Previously the shell wrapper could exit while its child commands kept running. Preserve timeout and command-failure output and escalate termination after a three-second grace period.
+
+  Bound cancellation even when a descendant creates a separate session and retains inherited output pipes. Such a process has escaped the owned group and is not guaranteed to stop; the host shell runner is not a containment boundary.
+
+  Report clipped host output with stream truncation flags and a notice, including when the cap is reached during timeout cleanup. Keep complete UTF-8 characters at the output cap.
+
 ## 35.0.0
 
 ### Major Changes
