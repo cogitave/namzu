@@ -1,9 +1,9 @@
 /**
- * Theme tokens for the TUI — a single dark palette. We inherit the
+ * Theme tokens for the TUI — warm chalk, copper and quiet mineral tones. We inherit the
  * terminal's own background rather than painting one, and only theme the
  * foreground — a TUI that repaints the canvas fights whatever the user
- * already chose. Curated hex colors give a consistent look on dark
- * terminals.
+ * already chose. Foregrounds sit on the ANSI 256-color palette so reduced
+ * color terminals retain neutral text instead of rounding it into a hue.
  * `background` is kept for reference / a future light theme but is not
  * forced onto the canvas. A theme registry/picker is a follow-up.
  */
@@ -34,25 +34,25 @@ export interface SemanticColors {
 }
 
 export const theme: SemanticColors = {
-	background: '#000000',
+	background: '#181816',
 	text: {
-		primary: '#e6edf3',
-		secondary: '#8b949e',
-		muted: '#56606b',
+		primary: '#e4e4e4',
+		secondary: '#b2b2b2',
+		muted: '#8a8a8a',
 	},
 	accent: {
-		user: '#56d4dd',
-		assistant: '#7ee787',
-		system: '#e3b341',
-		tool: '#bc8cff',
+		user: '#d7af87',
+		assistant: '#d7af87',
+		system: '#afaf87',
+		tool: '#afafaf',
 	},
 	status: {
-		ok: '#7ee787',
-		warn: '#e3b341',
-		error: '#ff7b72',
+		ok: '#87af87',
+		warn: '#d7af5f',
+		error: '#d78787',
 	},
 	border: {
-		default: '#30363d',
-		focus: '#56d4dd',
+		default: '#585858',
+		focus: '#d7af87',
 	},
 }

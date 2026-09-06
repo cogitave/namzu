@@ -291,7 +291,7 @@ async function mountReady(tui?: TuiContext['tui']) {
 	}
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, '> Type a message… (/help for commands)')
+	await frameShows(harness, '› Type a message… (/help for commands)')
 	return harness
 }
 

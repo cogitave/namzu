@@ -38,7 +38,7 @@ export function StatusBar({ cwd, provider, model, effort, goal, state, hint }: S
 	return (
 		<Text wrap="truncate-end">
 			{layout.primary ? (
-				<Text color={theme.status.warn} bold>
+				<Text color={theme.text.primary} bold>
 					{layout.primary}
 				</Text>
 			) : null}
@@ -46,7 +46,7 @@ export function StatusBar({ cwd, provider, model, effort, goal, state, hint }: S
 			{layout.cwd ? (
 				<>
 					{layout.primary ? <Text color={theme.text.muted}> · </Text> : null}
-					<Text color={theme.status.ok}>{layout.cwd}</Text>
+					<Text color={theme.text.secondary}>{layout.cwd}</Text>
 				</>
 			) : null}
 			<Text>{layout.gap}</Text>
@@ -58,7 +58,7 @@ export function StatusBar({ cwd, provider, model, effort, goal, state, hint }: S
 function colorForState(state: StatusBarProps['state']): string {
 	switch (state) {
 		case 'idle':
-			return theme.status.ok
+			return theme.text.secondary
 		case 'thinking':
 			return theme.accent.system
 		case 'tool':
@@ -122,6 +122,8 @@ export function fitStatusLine(input: {
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
 	let right = input.hint ?? input.goal ?? ''
+	// Prefer the familiar Return symbol before cutting an action word in half.
+	if (input.hint && right.length > columns) right = right.replace(/\benter\b/g, '↵')
 	if (right.length > columns) right = shortenRightToFit(right, columns)
 
 	const primarySource = input.model ?? input.provider

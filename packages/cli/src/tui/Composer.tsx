@@ -900,7 +900,7 @@ export function Composer({
 	// preserving it is what an unmounting ternary could not do.
 	if (hidden) return null
 
-	const promptGlyph = disabled ? '…' : '>'
+	const promptGlyph = disabled ? '…' : '›'
 	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
 	const historySearchQuery = historySearch
 		? composerDisplayValue(historySearch.query, historySearch.query.length)

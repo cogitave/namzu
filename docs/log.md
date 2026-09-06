@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Creation**: [Terminal design](/cli/terminal-design.md) — compact Namzu identity, copper writing rail, quieter agent panels and one activity animation, with native scrollback and draft preservation.
 * **Creation**: [Token budgets](/sdk/token-budgets.md) — one authority for parent and descendant tokens, atomic reservations, durable request receipts and conservative restart behavior; own usage remains separate from tree totals.
 * **Update**: [Run limits](/cli/run-limits.md), [Run exit codes](/cli/run-exit-codes.md) and [Harness invariants](/sdk/harness-invariants.md) — aggregate delegation accounting, CLI scheduler wiring and checkpoint references to the canonical ledger.
 * **Update**: [Ids](/sdk/ids.md) and [Project and session state](/cli/project-state.md) — UUID-only entity admission, one checkout-root binding without legacy directory overrides, and durable drain Topic resolution from its Session.

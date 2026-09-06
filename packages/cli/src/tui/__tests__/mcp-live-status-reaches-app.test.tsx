@@ -117,7 +117,7 @@ async function waitFor(text: string): Promise<void> {
 
 it('reports a drop that happens after the command text rendered but before submission', async () => {
 	mounted = render(<App ctx={ctx} />)
-	await waitFor('> Type a message')
+	await waitFor('› Type a message')
 
 	mounted.stdin.write('/mcp')
 	await waitFor('/mcp')

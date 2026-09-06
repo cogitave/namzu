@@ -133,6 +133,8 @@ import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { StatusBar } from './StatusBar.js'
+import { BrandHeader } from './BrandHeader.js'
+import { ComposerFrame } from './ComposerFrame.js'
 import { TextPrompt } from './TextPrompt.js'
 import { Transcript, willCollapse } from './Transcript.js'
 import { TrustPrompt } from './TrustPrompt.js'
@@ -163,14 +165,7 @@ import {
 	describeLogout,
 	describeProviderLogout,
 } from './login-prompt.js'
-import {
-	NAMZU_MARK,
-	NAMZU_MARK_COLOR,
-	NAMZU_WORDMARK,
-	NAMZU_WORDMARK_GRADIENT,
-	NAMZU_WORDMARK_MIN_WIDTH,
-	NAMZU_WORDMARK_WIDTH,
-} from './logo.js'
+
 import { expandFileMentions, listMentionableFiles } from './mentions.js'
 import { openInBrowser } from './open-browser.js'
 import {
@@ -2775,6 +2770,13 @@ export function App({
 	}, [activateTrustedProject, pushMessage, runProbe])
 
 	const finalized = messages.filter((m) => !m.pending)
+	// Activity and the plan share the terminal with the draft. Collapse the two
+	// lists together only when their full previews would crowd the input area.
+	const fullTaskFurniture = tasks.length === 0 ? 0 : Math.min(tasks.length, 8) + 3
+	const fullToolFurniture = activeTools.length === 0 ? 0 : Math.min(activeTools.length, 3) * 2 + 2
+	const compactWork = LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture >= terminal.rows
+	const taskFurniture = compactWork && fullTaskFurniture > 0 ? 2 : fullTaskFurniture
+	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
 	// How much of the transcript is still redrawable. The rest belongs to native
 	// terminal scrollback; the live tail stays deliberately small so an activity
 	// tick never repaints the whole conversation.
@@ -2786,7 +2788,7 @@ export function App({
 		messages: finalized,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS,
+		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
@@ -6149,9 +6151,10 @@ export function App({
 							showLive={!lifecycleOwnsViewport}
 							header={
 								transcriptOwned ? (
-									<Banner
+									<BrandHeader
 										version={ctx.version}
-										session={session}
+										provider={session?.providerSummary}
+										model={session?.modelSummary}
 										permissionMode={permissionMode}
 										cwd={ctx.cwd}
 									/>
@@ -6189,6 +6192,7 @@ export function App({
 						    depend on an estimate of rows Ink has already rendered. */}
 						{agentSurface === null ? (
 							<LiveActivity
+								compact={compactWork}
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
 								interruptible={abortRef.current !== null}
@@ -6199,7 +6203,7 @@ export function App({
 						{/* The plan for this request, kept current as the model works.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
-						{agentSurface === null && permission === null ? <TaskList tasks={tasks} /> : null}
+						{agentSurface === null && permission === null ? <TaskList tasks={tasks} compact={compactWork} /> : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the
 						    operator was part-way through typing — text, paste chips
@@ -6377,125 +6381,9 @@ function describeJobExit(job: {
 	return `background job ${job.jobId} (${job.command}) ${outcome}`
 }
 
-function Banner({
-	version,
-	session,
-	permissionMode,
-	cwd,
-}: {
-	readonly version: string
-	readonly session: AgentSession | null
-	readonly permissionMode: PermissionMode
-	readonly cwd: string
-}) {
-	const { columns } = useWindowSize()
-	const wide = columns >= NAMZU_WORDMARK_MIN_WIDTH
-	const provider = session?.providerSummary
-	const model = session?.modelSummary
-	const home = process.env.HOME
-	const prettyCwd = home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd
-	// The meta column is given its width outright. Left to flex, a long path
-	// widens the column past the row and the terminal wraps the overflow,
-	// which is exactly the mid-word break the truncation below exists to
-	// prevent: the padding on both sides, then the wordmark and its margin.
-	const metaWidth = Math.max(
-		16,
-		columns - 2 - (wide ? NAMZU_WORDMARK_WIDTH + 2 : `${NAMZU_MARK} `.length),
-	)
-	return (
-		<Box flexDirection="column" paddingX={1} paddingTop={1} paddingBottom={1}>
-			<Box flexDirection="row">
-				{wide ? (
-					<Box flexDirection="column" marginRight={2} flexShrink={0}>
-						{NAMZU_WORDMARK.map((line, i) => (
-							<Text key={`wm-${i}`} color={NAMZU_WORDMARK_GRADIENT[i]} bold>
-								{line}
-							</Text>
-						))}
-					</Box>
-				) : (
-					<Text color={NAMZU_MARK_COLOR}>{NAMZU_MARK} </Text>
-				)}
-				{/* Center the meta column against the 5-row wordmark. */}
-				<Box flexDirection="column" marginTop={wide ? 1 : 0} width={metaWidth}>
-					<Text>
-						<Text color={theme.text.secondary}>Cogitave</Text>
-						{/* Wide layout already spells "namzu" in the wordmark, so the
-						    text avoids repeating it; the compact fallback keeps it. */}
-						{wide ? null : (
-							<Text color={NAMZU_MARK_COLOR} bold>
-								{' '}
-								Namzu
-							</Text>
-						)}
-						<Text color={theme.text.muted}> v{version}</Text>
-					</Text>
-					<Text color={theme.text.secondary}>
-						{provider ? `${provider}${model ? ` · ${model}` : ''}` : 'the agent in your terminal'}
-					</Text>
-					{/* A long path is cut at its START, the way the status bar cuts it:
-					    the end of a path is the part that says where you are, and a
-					    wrapped path breaks mid-word across the wordmark's rows. */}
-					<Text color={theme.text.muted} wrap="truncate-start">
-						{prettyCwd}
-					</Text>
-				</Box>
-			</Box>
-			{permissionMode === 'auto' ? (
-				<Box marginTop={1}>
-					<Text color={theme.status.error} bold>
-						⚠ launched in auto permission mode — undecided tools run without asking until
-						/permissions changes it
-					</Text>
-				</Box>
-			) : null}
-		</Box>
-	)
-}
-
 function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
 	// Borderless, edge-to-edge — the message glyph gutter provides structure.
 	return <Box flexDirection="column">{children}</Box>
-}
-
-function ComposerFrame({
-	focus,
-	hidden = false,
-	children,
-}: {
-	readonly focus: boolean
-	/**
-	 * Draw no frame, but keep the children mounted.
-	 *
-	 * The border is dropped rather than the Box, and that is not a style
-	 * preference. React reconciles by element type at a position: returning
-	 * `<>{children}</>` here instead of `<Box>{children}</Box>` changes the
-	 * type, which unmounts and remounts the subtree — the exact destruction
-	 * this component exists to prevent, reintroduced by the guard meant to
-	 * prevent it. The first version of this fix did that and the tests caught
-	 * it. So the Box is unconditional and only its decoration varies; the
-	 * children render nothing while hidden, so an undecorated Box around
-	 * nothing prints nothing.
-	 */
-	readonly hidden?: boolean
-	readonly children: React.ReactNode
-}) {
-	// Input-field look: a rounded rule above and below the composer, no side
-	// borders, so the input reads as a field rather than a heavy box.
-	return (
-		<Box
-			flexDirection="column"
-			{...(hidden ? {} : { borderStyle: 'round' as const })}
-			borderTop={true}
-			borderBottom={true}
-			borderLeft={false}
-			borderRight={false}
-			borderColor={focus ? theme.border.focus : theme.border.default}
-			marginTop={hidden ? 0 : 1}
-		>
-			{children}
-		</Box>
-	)
 }
 
 // Tool call label: the tool name title-cased, then its most identifying

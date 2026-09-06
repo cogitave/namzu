@@ -1,9 +1,8 @@
 /**
  * The live region rendered just below the (static) transcript: the tool(s)
- * currently executing — each with an animated spinner and a ticking elapsed
- * timer — or, before the first token of a reply, a "thinking" line. Unlike
- * the transcript these rows re-render on a timer, so they stay tiny (only the
- * in-flight work) to keep per-frame cost bounded.
+ * currently executing, with elapsed time and progress, or a "thinking" line
+ * before the first token of a reply. One spinner on the Working row marks the
+ * active turn. These rows stay tiny to keep per-frame cost bounded.
  */
 
 import { Box, Text } from 'ink'
@@ -23,6 +22,8 @@ export interface ActiveTool {
 }
 
 export interface LiveActivityProps {
+	/** Show the current tool and total count in two rows on a short terminal. */
+	readonly compact?: boolean
 	readonly activeTools: readonly ActiveTool[]
 	/** The parent turn is active, including while answer text is streaming. */
 	readonly working: boolean
@@ -44,6 +45,7 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
 const MAX_VISIBLE_TOOLS = 3
 
 export function LiveActivity({
+	compact = false,
 	activeTools,
 	working,
 	agentCount = 0,
@@ -63,11 +65,46 @@ export function LiveActivity({
 	const visibleTools = activeTools.slice(0, MAX_VISIBLE_TOOLS)
 	const hiddenTools = activeTools.length - visibleTools.length
 
+	if (compact) {
+		const current = activeTools[0]
+		return (
+			<Box flexDirection="column">
+				<Text wrap="truncate-end">
+					<Text color={theme.accent.assistant}>{spinner} </Text>
+					<Text color={theme.text.secondary}>Working</Text>
+					<Text color={theme.text.muted}>
+						{' · '}
+						{elapsed}
+						{activeTools.length > 0
+							? ` · ${activeTools.length} tool${activeTools.length === 1 ? '' : 's'}`
+							: ''}
+					</Text>
+				</Text>
+				{current ? (
+					<Box paddingLeft={2}>
+						<Text color={theme.text.secondary} wrap="truncate-end">
+							{terminalDisplayText(current.label)}
+							{current.progress ? (
+								<Text color={theme.text.muted}> · {terminalDisplayText(current.progress)}</Text>
+							) : null}
+						</Text>
+					</Box>
+				) : thinking !== null ? (
+					<Box paddingLeft={2}>
+						<Text color={theme.text.muted} wrap="truncate-end">
+							thinking{thinking ? ` · ${terminalDisplayText(thinking)}` : '…'}
+						</Text>
+					</Box>
+				) : null}
+			</Box>
+		)
+	}
+
 	return (
 		<Box flexDirection="column">
 			<Box flexDirection="row">
-				<Text color={theme.accent.assistant}>• </Text>
-				<ShimmerText text="Working" tick={tick} animate={animate} />
+				<Text color={theme.accent.assistant}>{animate ? spinner : '∴'} </Text>
+				<Text color={theme.text.secondary}>Working</Text>
 				<Text color={theme.text.muted}>
 					{' ('}
 					{elapsed}
@@ -83,12 +120,11 @@ export function LiveActivity({
 					<Box key={t.id} flexDirection="column" paddingLeft={2}>
 						<Box flexDirection="row">
 							<Box width={2} flexShrink={0}>
-								<Text color={theme.accent.tool}>
+								<Text color={theme.text.muted}>
 									{index === visibleTools.length - 1 && hiddenTools === 0 ? '└' : '├'}
 								</Text>
 							</Box>
 							<Text color={theme.text.secondary} wrap="truncate-end">
-								<Text color={theme.accent.tool}>{spinner} </Text>
 								{terminalDisplayText(t.label)}
 								<Text color={theme.text.muted}> · {formatElapsed(now - t.startedAt)}</Text>
 							</Text>
@@ -117,33 +153,6 @@ export function LiveActivity({
 				</Box>
 			) : null}
 		</Box>
-	)
-}
-
-/** Three spans regardless of text length: animation cost stays constant. */
-function ShimmerText({
-	text,
-	tick,
-	animate,
-}: {
-	readonly text: string
-	readonly tick: number
-	readonly animate: boolean
-}) {
-	if (!animate || text.length < 2) return <Text color={theme.text.secondary}>{text}</Text>
-	const sweep = (tick % (text.length + 4)) - 2
-	const start = Math.max(0, Math.min(text.length, sweep))
-	const end = Math.max(start, Math.min(text.length, sweep + 3))
-	return (
-		<Text>
-			<Text color={theme.text.muted} dimColor>
-				{text.slice(0, start)}
-			</Text>
-			<Text color={theme.text.primary} bold>
-				{text.slice(start, end)}
-			</Text>
-			<Text color={theme.text.secondary}>{text.slice(end)}</Text>
-		</Text>
 	)
 }
 

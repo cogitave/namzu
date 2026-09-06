@@ -2,13 +2,13 @@
  * Conversation transcript. Borderless and edge-to-edge: each message is a
  * two-column row — a fixed glyph gutter plus the content — so wrapped
  * lines hang-indent under the text and the role reads from the glyph +
- * color alone (no separate label line). A pending assistant message shows
- * a braille spinner in the gutter while the agent works.
+ * color alone (no separate label line). Role marks stay still while output
+ * streams; the Working row owns the active turn's animation.
  */
 
 import { Box, Static, Text } from 'ink'
 import type { ReactNode } from 'react'
-import { memo, useEffect, useState } from 'react'
+import { memo } from 'react'
 
 import { Markdown } from './Markdown.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -62,8 +62,6 @@ export interface TranscriptProps {
 
 const COLLAPSE_LINES = 6
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
-
 type StaticRow =
 	| { readonly kind: 'header' }
 	| {
@@ -75,7 +73,6 @@ type StaticRow =
 export function Transcript({
 	messages,
 	pending,
-	state,
 	settled,
 	resetKey,
 	raw = false,
@@ -83,8 +80,6 @@ export function Transcript({
 	showLive = true,
 	header,
 }: TranscriptProps) {
-	const spinner = useSpinner(state !== 'idle')
-
 	const inScrollback = Math.min(Math.max(settled, 0), messages.length)
 	// The banner is row 0 so it prints to the very top of scrollback; messages
 	// follow it. <Static> renders each row exactly once and never re-renders it,
@@ -99,12 +94,8 @@ export function Transcript({
 			prev: messages[i - 1],
 		})),
 	]
-	// The live window. Memoised per row, and that is what keeps this affordable:
-	// the spinner ticks about twelve times a second and every tick re-renders
-	// this component, so an unmemoised window would re-render its rows — parse
-	// their markdown, rebuild their elements — on each one. The rows themselves
-	// are unchanged objects between ticks, so the memo holds; the row that just
-	// changed is the only one that renders.
+	// The live window is memoised per row so streamed output does not reparse
+	// Markdown in unchanged history. The row that changed is the one that renders.
 	const live = messages.slice(inScrollback)
 	return (
 		<Box flexDirection="column">
@@ -119,7 +110,6 @@ export function Transcript({
 							key={row.message.id}
 							message={row.message}
 							prev={row.prev}
-							spinner=""
 							hyperlinks={hyperlinks}
 						/>
 					)
@@ -138,7 +128,6 @@ export function Transcript({
 								key={message.id}
 								message={message}
 								prev={messages[inScrollback + i - 1]}
-								spinner=""
 								hyperlinks={hyperlinks}
 							/>
 						),
@@ -150,7 +139,6 @@ export function Transcript({
 				<MessageRow
 					message={pending}
 					prev={messages[messages.length - 1]}
-					spinner={spinner}
 					hyperlinks={hyperlinks}
 				/>
 			) : null}
@@ -169,7 +157,7 @@ export function Transcript({
  * A row in the live window.
  *
  * Memoised on the whole props object rather than on a hand-picked key. React's
- * default shallow compare over `{message, prev, spinner}` is already exactly
+ * default shallow compare over `{message, prev, hyperlinks}` is already exactly
  * "has anything about this row changed": the transcript is held as immutable
  * rows, so an update rebuilds only the rows it touches and leaves every other
  * object identical. A `(id, detailExpanded)` key would be the same answer for
@@ -219,19 +207,17 @@ function RawMessageRow({
 function MessageRow({
 	message,
 	prev,
-	spinner,
 	hyperlinks,
 }: {
 	readonly message: TranscriptMessage
 	readonly prev: TranscriptMessage | undefined
-	readonly spinner: string
 	readonly hyperlinks: boolean
 }) {
 	// Assistant content is projected inside <Markdown>, its actual renderer.
 	// The other roles flow straight into Ink here and need the projection now.
 	const content =
 		message.role === 'assistant' ? message.content : terminalDisplayText(message.content)
-	const glyph = message.pending ? spinner : (message.glyph ?? glyphForRole(message.role))
+	const glyph = message.glyph ?? glyphForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
 		message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
@@ -412,24 +398,12 @@ function detailLineColor(line: string): string {
 	return theme.text.muted
 }
 
-function useSpinner(active: boolean): string {
-	const [frame, setFrame] = useState<number>(0)
-	useEffect(() => {
-		if (!active) return
-		const interval = setInterval(() => {
-			setFrame((f) => (f + 1) % SPINNER_FRAMES.length)
-		}, 80)
-		return () => clearInterval(interval)
-	}, [active])
-	return SPINNER_FRAMES[frame] ?? '⠋'
-}
-
 function glyphForRole(role: TranscriptMessage['role']): string {
 	switch (role) {
 		case 'user':
-			return '>'
+			return '›'
 		case 'assistant':
-			return '✦'
+			return '∴'
 		case 'system':
 			return '·'
 		case 'tool':

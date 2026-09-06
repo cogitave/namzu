@@ -94,7 +94,7 @@ it('shows the exact winning source handed to App', async () => {
 	}
 	const harness = render(<App ctx={ctx} />)
 	mounted = harness
-	await waitFor(harness, '> Type a message')
+	await waitFor(harness, '› Type a message')
 
 	harness.stdin.write('/status config')
 	await tick()

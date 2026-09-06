@@ -178,7 +178,7 @@ async function mountReady() {
 	// composer is disabled and drops every key. Wait for text only the live
 	// composer can render, or the test exercises silence before the feature is
 	// reachable and reports it as a command failure.
-	await frameShows(harness, '> Type a message… (/help for commands)')
+	await frameShows(harness, '› Type a message… (/help for commands)')
 	return harness
 }
 

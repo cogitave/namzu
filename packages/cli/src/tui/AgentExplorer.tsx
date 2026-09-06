@@ -40,10 +40,15 @@ export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentT
 	const narrow = terminalColumns < 64
 
 	return (
-		<Box flexDirection="column" borderStyle="single" borderColor={theme.border.focus} paddingX={1}>
+		<Box
+			flexDirection="column"
+			borderStyle="single"
+			borderColor={theme.border.default}
+			paddingX={1}
+		>
 			<Box>
 				<Box flexGrow={1} flexShrink={1}>
-					<Text color={theme.accent.user} bold wrap="truncate-end">
+					<Text color={theme.text.primary} bold wrap="truncate-end">
 						{terminalDisplayText(title)}
 					</Text>
 				</Box>
@@ -68,11 +73,9 @@ export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentT
 							</Text>
 						</Box>
 						<Box flexGrow={narrow ? 0 : 1} flexShrink={1} marginLeft={1}>
-							<Text color={statusColor(agent.status)} wrap="truncate-end">
+							<Text color={theme.text.secondary} wrap="truncate-end">
 								{elapsed}
-								{!narrow && agent.latestActivity
-									? ` · ${oneLine(agent.latestActivity)}`
-									: ''}
+								{!narrow && agent.latestActivity ? ` · ${oneLine(agent.latestActivity)}` : ''}
 							</Text>
 						</Box>
 					</Box>
@@ -158,9 +161,14 @@ export function AgentCockpit({
 	const sideBySide = wide || compact
 
 	return (
-		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
+		<Box
+			flexDirection="column"
+			borderStyle="single"
+			borderColor={theme.border.default}
+			paddingX={1}
+		>
 			<Box justifyContent="space-between">
-				<Text color={theme.accent.user} bold wrap="truncate-end">
+				<Text color={theme.text.primary} bold wrap="truncate-end">
 					{selectedPhase?.workflow ?? 'Delegated work'}
 				</Text>
 				<Text color={theme.text.muted}>
@@ -168,7 +176,9 @@ export function AgentCockpit({
 				</Text>
 			</Box>
 			{compact ? null : (
-				<Text color={theme.text.muted}>Live delegated work · select a phase, then inspect a child.</Text>
+				<Text color={theme.text.muted}>
+					Live delegated work · select a phase, then inspect a child.
+				</Text>
 			)}
 			<Box flexDirection={sideBySide ? 'row' : 'column'} paddingTop={compact ? 0 : 1}>
 				<Box
@@ -226,7 +236,7 @@ function PhasePane({
 	const multipleWorkflows = new Set(phases.map((phase) => phase.workflowId)).size > 1
 	return (
 		<>
-			<Text color={focused ? theme.accent.user : theme.text.secondary} bold>
+			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
 				Phases {phases.length > 0 ? `· ${selected + 1}/${phases.length}` : ''}
 			</Text>
 			{items.map((phase, visibleIndex) => {
@@ -234,7 +244,7 @@ function PhasePane({
 				return (
 					<Box key={phase.id}>
 						<Box width={3} flexShrink={0}>
-							<Text color={active && focused ? theme.accent.user : theme.text.muted}>
+							<Text color={active && focused ? theme.accent.assistant : theme.text.muted}>
 								{active ? '›' : ' '} {statusGlyph(phase.status)}
 							</Text>
 						</Box>
@@ -276,7 +286,7 @@ function AgentPane({
 	const { start, items } = selectionWindow(agents, selected, pageSize)
 	return (
 		<>
-			<Text color={focused ? theme.accent.user : theme.text.secondary} bold>
+			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
 				Agents {agents.length > 0 ? `· ${selected + 1}/${agents.length}` : ''}
 			</Text>
 			{items.map((agent, visibleIndex) => {
@@ -285,7 +295,7 @@ function AgentPane({
 				return (
 					<Box key={agent.viewId}>
 						<Box width={3} flexShrink={0}>
-							<Text color={active && focused ? theme.accent.user : theme.text.muted}>
+							<Text color={active && focused ? theme.accent.assistant : theme.text.muted}>
 								{active ? '›' : ' '} {statusGlyph(agent.status)}
 							</Text>
 						</Box>
@@ -299,7 +309,7 @@ function AgentPane({
 							</Text>
 						</Box>
 						<Box flexGrow={wide ? 1 : 0}>
-							<Text color={statusColor(agent.status)} wrap="truncate-end">
+							<Text color={theme.text.secondary} wrap="truncate-end">
 								{wide ? `${statusLabel(agent.status)} · ` : ' · '}
 								{elapsed}
 								{agent.latestActivity ? ` · ${oneLine(agent.latestActivity)}` : ''}
@@ -408,9 +418,14 @@ export function AgentTranscript({
 	const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
 
 	return (
-		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
+		<Box
+			flexDirection="column"
+			borderStyle="single"
+			borderColor={theme.border.default}
+			paddingX={1}
+		>
 			<Box justifyContent="space-between">
-				<Text color={theme.accent.user} bold wrap="truncate-end">
+				<Text color={theme.text.primary} bold wrap="truncate-end">
 					{statusGlyph(agent.status)} {oneLine(agent.description || agent.agentId)}
 				</Text>
 				<Text color={statusColor(agent.status)}>
@@ -427,7 +442,15 @@ export function AgentTranscript({
 					page.rows.map((line) => (
 						<Box key={line.id}>
 							<Box width={3} flexShrink={0}>
-								<Text color={lineColor(line)}>{line.continuation ? ' ' : lineGlyph(line)}</Text>
+								<Text
+									color={
+										line.source !== 'prompt' && line.source.kind === 'tool'
+											? statusColor(line.source.status)
+											: lineColor(line)
+									}
+								>
+									{line.continuation ? ' ' : lineGlyph(line)}
+								</Text>
 							</Box>
 							<Text color={lineColor(line)}>{line.text}</Text>
 						</Box>
@@ -607,12 +630,12 @@ function statusLabel(status: SubagentActivityStatus): string {
 function statusColor(status: SubagentActivityStatus): string {
 	switch (status) {
 		case 'completed':
-			return theme.status.ok
+			return theme.text.secondary
 		case 'failed':
 			return theme.status.error
 		case 'starting':
 		case 'working':
-			return theme.status.warn
+			return theme.accent.assistant
 		case 'cancelled':
 			return theme.text.muted
 	}
@@ -624,7 +647,7 @@ function lineGlyph(line: AgentTranscriptLine): string {
 }
 
 function rowGlyph(row: SubagentActivity['transcript'][number]): string {
-	if (row.kind === 'assistant') return '✦'
+	if (row.kind === 'assistant') return '∴'
 	if (row.kind === 'system') return '·'
 	return row.status === 'working' ? '◌' : row.status === 'failed' ? '✗' : '✓'
 }
@@ -637,11 +660,7 @@ function lineColor(line: AgentTranscriptLine): string {
 function rowColor(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'assistant') return theme.text.primary
 	if (row.kind === 'system') return theme.text.muted
-	return row.status === 'failed'
-		? theme.status.error
-		: row.status === 'working'
-			? theme.status.warn
-			: theme.accent.tool
+	return row.status === 'failed' ? theme.status.error : theme.text.secondary
 }
 
 function useLiveNow(active: boolean): number {
