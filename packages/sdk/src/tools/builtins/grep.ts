@@ -1,60 +1,54 @@
-import { glob, readFile } from 'node:fs/promises'
-import { relative, resolve, sep } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { z } from 'zod'
-import type { Sandbox } from '../../types/sandbox/index.js'
+import { walkFilesLocally } from '../../sandbox/file-walk.js'
+import type { SandboxWalkFilesOptions } from '../../types/sandbox/index.js'
+import { subscribeToAbort } from '../../utils/abort.js'
 import { defineTool } from '../defineTool.js'
-import { matchesGlob } from '../glob-match.js'
-import { resolveWithinAny } from '../paths.js'
+import {
+	resolveWithin,
+	resolveWithinAny,
+	resolveWithinAnyReal,
+	resolveWithinReal,
+	toolRoots,
+} from '../paths.js'
 import { relativePosix, resolveWithinPosix } from '../posix-path.js'
 
-/**
- * Where the files come from.
- *
- * The host and the sandbox differ in exactly two operations — enumerate
- * and read — so that is all this abstracts. Matching, context lines and
- * the caps stay in one implementation; duplicating them per source is how
- * the two would drift apart, and the sandbox path is the one nobody runs
- * by accident.
- */
-interface FileSource {
-	/** The root every reported path is relative to. */
-	readonly root: string
-	/** True when paths are the sandbox's, not the host's. */
-	readonly posix?: boolean
-	list(searchRoot: string, pattern: string): AsyncIterable<string>
-	read(path: string): Promise<Buffer>
-}
-
-function hostSource(workingDirectory: string): FileSource {
-	return {
-		root: workingDirectory,
-		async *list(searchRoot, pattern) {
-			for await (const entry of glob(pattern, { cwd: searchRoot })) {
-				yield resolve(searchRoot, entry)
-			}
-		},
-		read: (path) => readFile(path),
+/** A remote read has no signal parameter; stop consuming it when the turn ends. */
+async function readWithSignal(read: () => Promise<Buffer>, signal?: AbortSignal): Promise<Buffer> {
+	signal?.throwIfAborted()
+	if (!signal) return await read()
+	let dispose: (() => void) | undefined
+	try {
+		const cancelled = new Promise<never>((_, reject) => {
+			dispose = subscribeToAbort(signal, () => reject(signal.reason))
+		})
+		// Promise.race observes any late rejection. A late buffer is never searched.
+		return await Promise.race([
+			Promise.resolve().then(() => {
+				signal.throwIfAborted()
+				return read()
+			}),
+			cancelled,
+		])
+	} finally {
+		dispose?.()
 	}
 }
 
-function sandboxSource(sandbox: Sandbox): FileSource {
-	return {
-		root: sandbox.rootDir,
-		posix: true,
-		async *list(searchRoot, pattern) {
-			for (const entry of await sandbox.listFiles(searchRoot)) {
-				// Sandbox paths stay in the sandbox's own coordinate system.
-				// Running them through the host's path module would rewrite a
-				// POSIX container path into a host-shaped one whenever the
-				// two disagree, and then hand the model a path its own
-				// sandbox cannot open.
-				const absolute = resolveWithinPosix(searchRoot, entry.path)
-				const relPath = relativePosix(searchRoot, absolute)
-				if (matchesGlob(relPath, pattern)) yield absolute
-			}
-		},
-		read: (path) => sandbox.readFile(path),
+function relativeInclude(include: string, root: string, sandboxed: boolean): string {
+	let pattern = sandboxed ? include : include.split(sep).join('/')
+	if (pattern.split('/').includes('..'))
+		throw new Error('Include pattern escapes the search directory')
+	if (sandboxed ? pattern.startsWith('/') : isAbsolute(include)) {
+		const absolute = sandboxed ? resolveWithinPosix(root, pattern) : resolveWithin(root, include)
+		pattern = sandboxed
+			? relativePosix(root, absolute)
+			: relative(root, absolute).split(sep).join('/')
 	}
+	while (pattern.startsWith('./')) pattern = pattern.slice(2)
+	// Grep's existing unqualified include is recursive: *.ts means **/*.ts.
+	return pattern.includes('/') ? pattern : `**/${pattern}`
 }
 
 const inputSchema = z.object({
@@ -84,6 +78,7 @@ const inputSchema = z.object({
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB — skip binaries/large files
 const BINARY_CHECK_BYTES = 512
+const MAX_VISITED_ENTRIES = 20_000
 
 function isBinaryContent(buffer: Buffer): boolean {
 	const check = buffer.subarray(0, BINARY_CHECK_BYTES)
@@ -96,15 +91,17 @@ function isBinaryContent(buffer: Buffer): boolean {
 export const GrepTool = defineTool({
 	name: 'grep',
 	description:
-		'Searches file contents using a regular expression. Returns matching lines with file paths, line numbers, and optional context lines. Skips binary files.',
+		'Searches file contents using a regular expression. Returns matching lines with file paths, line numbers, and optional context lines. Searches incrementally with a bounded traversal; identifies incomplete searches. Skips binary files, files over 5 MB, and symlinks. Choose the narrowest relevant directory.',
 	inputSchema,
 	category: 'analysis',
 	permissions: ['file_read'],
 	readOnly: true,
 	destructive: false,
 	concurrencySafe: true,
+	timeoutMs: 15_000,
 
 	async execute(input, context) {
+		context.abortSignal?.throwIfAborted()
 		const flags = input.case_sensitive ? 'g' : 'gi'
 		let regex: RegExp
 		try {
@@ -117,108 +114,145 @@ export const GrepTool = defineTool({
 			}
 		}
 
-		// Inside the sandbox when there is one, on the host otherwise. Only
-		// the file SOURCE differs — matching, context lines and the caps are
-		// one implementation, because duplicating the substantive half is
-		// how the two paths would drift.
-		//
-		// This tool read the host filesystem through `node:fs` and
-		// referenced `context.sandbox` nowhere, so with a container backend
-		// wired in the sandbox was not a read boundary at all — and grep
-		// returns file CONTENT, so what leaked was not a listing.
-		const source: FileSource = context.sandbox
-			? sandboxSource(context.sandbox)
-			: hostSource(context.workingDirectory)
-
-		// Contained, not merely resolved — see `resolveWithin`. Bare
-		// resolution let `path: "../../.."` read whatever sits above the
-		// working directory, with no sandbox needed to make it work.
-		const searchRoot = source.posix
-			? resolveWithinPosix(source.root, input.path)
-			: resolveWithinAny([source.root, ...(context.additionalDirectories ?? [])], input.path)
-
-		// Auto-prepend **/ for simple patterns (e.g. "*.ts" → "**/*.ts")
-		let filePattern = input.include ?? '**/*'
-		if (filePattern !== '**/*' && !filePattern.includes('/') && !filePattern.startsWith('**/')) {
-			filePattern = `**/${filePattern}`
+		const sandbox = context.sandbox
+		const lexicalRoot = sandbox
+			? resolveWithinPosix(sandbox.rootDir, input.path)
+			: resolveWithinAny(toolRoots(context), input.path)
+		const root = sandbox ? lexicalRoot : await resolveWithinAnyReal(toolRoots(context), input.path)
+		const filePattern = relativeInclude(input.include ?? '**/*', lexicalRoot, sandbox !== undefined)
+		const walkSandbox = sandbox?.walkFiles?.bind(sandbox)
+		if (sandbox && !walkSandbox) {
+			return {
+				success: false,
+				output: '',
+				error:
+					'This sandbox does not support bounded file discovery (Sandbox.walkFiles). Update its adapter before searching file contents.',
+			}
 		}
+		const options: SandboxWalkFilesOptions = {
+			pattern: filePattern,
+			signal: context.abortSignal,
+			maxEntries: MAX_VISITED_ENTRIES + 1,
+			maxVisitedEntries: MAX_VISITED_ENTRIES,
+			// Preserve existing source behavior: sandbox grep included dotfiles;
+			// node's host glob excluded wildcard dotfiles.
+			includeHidden: sandbox !== undefined,
+		}
+		const entries = walkSandbox ? walkSandbox(root, options) : walkFilesLocally(root, options)
 
 		const results: string[] = []
 		let totalMatches = 0
 		let filesSearched = 0
 		let filesMatched = 0
 
-		for await (const filePath of source.list(searchRoot, filePattern)) {
-			filesSearched++
+		let truncated = false
+		let failure: string | undefined
+		let unreadableFiles = 0
+		try {
+			for await (const entry of entries) {
+				context.abortSignal?.throwIfAborted()
+				const filePath = sandbox
+					? resolveWithinPosix(root, entry.path)
+					: resolveWithin(root, entry.path)
+				if (filesSearched >= MAX_VISITED_ENTRIES) {
+					throw new Error(
+						`File search stopped after examining ${MAX_VISITED_ENTRIES} files; narrow its root or include pattern.`,
+					)
+				}
+				filesSearched++
+				if (entry.size > MAX_FILE_SIZE) continue
 
-			let content: string
-			try {
-				const buffer = await source.read(filePath)
-				if (buffer.length > MAX_FILE_SIZE) continue
-				if (isBinaryContent(buffer)) continue
-				content = buffer.toString('utf-8')
-			} catch {
-				continue // Skip unreadable files (directories, permissions, etc.)
-			}
-
-			const lines = content.split('\n')
-			let fileHasMatch = false
-
-			for (let i = 0; i < lines.length; i++) {
-				const line = lines[i] ?? ''
-				regex.lastIndex = 0
-				if (!regex.test(line)) continue
-
-				if (!fileHasMatch) {
-					fileHasMatch = true
-					filesMatched++
+				let content: string
+				try {
+					const buffer = await readWithSignal(
+						() =>
+							sandbox
+								? sandbox.readFile(filePath)
+								: resolveWithinReal(root, filePath).then((contained) =>
+										readFile(contained, { signal: context.abortSignal }),
+									),
+						context.abortSignal,
+					)
+					context.abortSignal?.throwIfAborted()
+					if (buffer.length > MAX_FILE_SIZE || isBinaryContent(buffer)) continue
+					content = buffer.toString('utf-8')
+				} catch (error) {
+					if (context.abortSignal?.aborted) throw error
+					unreadableFiles++
+					continue
 				}
 
-				// Relative to the root the file came FROM. Reporting a
-				// host-relative path for a file read inside the sandbox would
-				// hand the model a string `read` then resolves somewhere else.
-				const relPath = source.posix
-					? `./${relativePosix(source.root, filePath)}`
-					: `./${relative(source.root, filePath).split(sep).join('/')}`
+				const lines = content.split('\n')
+				let fileHasMatch = false
 
-				if (input.context_lines > 0) {
-					const start = Math.max(0, i - input.context_lines)
-					const end = Math.min(lines.length - 1, i + input.context_lines)
+				for (let i = 0; i < lines.length; i++) {
+					context.abortSignal?.throwIfAborted()
+					const line = lines[i] ?? ''
+					regex.lastIndex = 0
+					if (!regex.test(line)) continue
 
-					if (results.length > 0) {
-						results.push('--')
+					if (!fileHasMatch) {
+						fileHasMatch = true
+						filesMatched++
 					}
 
-					for (let j = start; j <= end; j++) {
-						const prefix = j === i ? ':' : '-'
-						results.push(`${relPath}${prefix}${j + 1}${prefix}${lines[j]}`)
+					const relPath = sandbox
+						? `./${relativePosix(sandbox.rootDir, filePath)}`
+						: `./${relative(context.workingDirectory, join(lexicalRoot, relative(root, filePath)))
+								.split(sep)
+								.join('/')}`
+
+					if (input.context_lines > 0) {
+						const start = Math.max(0, i - input.context_lines)
+						const end = Math.min(lines.length - 1, i + input.context_lines)
+
+						if (results.length > 0) {
+							results.push('--')
+						}
+
+						for (let j = start; j <= end; j++) {
+							const prefix = j === i ? ':' : '-'
+							results.push(`${relPath}${prefix}${j + 1}${prefix}${lines[j]}`)
+						}
+					} else {
+						results.push(`${relPath}:${i + 1}:${line}`)
 					}
-				} else {
-					results.push(`${relPath}:${i + 1}:${line}`)
+
+					totalMatches++
+					if (totalMatches >= input.max_results) break
 				}
 
-				totalMatches++
-				if (totalMatches >= input.max_results) break
+				if (totalMatches >= input.max_results) {
+					// Do not read another file just to prove there are more hits. Reaching
+					// the requested cap means completeness was not established.
+					truncated = true
+					break
+				}
 			}
-
-			if (totalMatches >= input.max_results) break
+		} catch (error) {
+			truncated = true
+			failure = (error instanceof Error ? error.message : String(error)) || 'File search failed.'
 		}
-
-		if (totalMatches === 0) {
-			return {
-				success: true,
-				output: `No matches found for pattern "${input.pattern}"`,
-				data: { totalMatches: 0, filesSearched, filesMatched: 0 },
-			}
+		if (unreadableFiles > 0) {
+			truncated = true
+			failure ??= `${unreadableFiles} file(s) could not be read.`
 		}
-
-		const summary = `Found ${totalMatches} match(es) in ${filesMatched} file(s) (${filesSearched} files searched)`
-		const output = `${results.join('\n')}\n\n${summary}`
-
+		const summary =
+			totalMatches > 0
+				? `Found ${totalMatches} match(es) in ${filesMatched} file(s) (${filesSearched} files searched)`
+				: truncated
+					? `No matches found in the files searched for pattern "${input.pattern}"`
+					: `No matches found for pattern "${input.pattern}"`
+		const notice = failure
+			? `[Search incomplete: ${failure}]`
+			: truncated
+				? `[Search incomplete: reached max_results (${input.max_results}). Narrow the directory or include pattern for a complete search.]`
+				: undefined
 		return {
-			success: true,
-			output,
-			data: { totalMatches, filesSearched, filesMatched },
+			success: failure === undefined,
+			output: [results.join('\n'), summary, notice].filter(Boolean).join('\n\n'),
+			data: { totalMatches, filesSearched, filesMatched, truncated },
+			...(failure ? { error: failure } : {}),
 		}
 	},
 })

@@ -139,6 +139,11 @@ lower bound, and measured zero is shown distinctly.
 
 ## Picker navigation
 
+In `/agents`, Enter opens the selected child's live transcript as a separate
+framed screen. Esc returns to the agent list; `q` or Ctrl+T returns to the main
+conversation. Completed children remain available while retained in this
+session, even after their automatic activity rail disappears.
+
 Command, settings, goal, skill, branch and commit menus support typing to
 filter. In searchable menus digits are search text, not immediate selection
 shortcuts. Arrow keys navigate; Enter applies the selected available action.

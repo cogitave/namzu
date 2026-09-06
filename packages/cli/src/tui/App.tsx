@@ -581,6 +581,7 @@ interface LiveInput {
 interface ActiveTurnInbox {
 	accept(input: LiveInput): boolean
 	drain(): Message[]
+	waitForInbound(signal: AbortSignal): Promise<void>
 	close(): readonly LiveInput[]
 }
 
@@ -1053,13 +1054,12 @@ export function App({
 			setSubagentsState(next)
 			const surface = agentSurfaceRef.current
 			if (!surface) return
-			const activeCohorts = activeSubagentCohorts(next)
-			if (activeCohorts.length === 0) {
+			if (next.length === 0) {
 				setAgentSurface(null)
 				return
 			}
-			if (activeCohorts.some((agent) => agent.viewId === surface.selectedId)) return
-			const phases = agentPhases(activeCohorts)
+			if (next.some((agent) => agent.viewId === surface.selectedId)) return
+			const phases = agentPhases(next)
 			const fallbackPhase =
 				phases.find((phase) => phase.id === surface.selectedPhaseId) ?? phases[0]
 			const fallbackAgent = fallbackPhase?.agents[0]
@@ -1077,7 +1077,7 @@ export function App({
 		[setAgentSurface],
 	)
 	const openAgentCockpit = useCallback((): boolean => {
-		const agents = activeSubagentCohorts(subagentsRef.current)
+		const agents = subagentsRef.current
 		const firstPhase = agentPhases(agents)[0]
 		const firstAgent = firstPhase?.agents[0]
 		if (!firstPhase || !firstAgent) return false
@@ -4128,6 +4128,7 @@ export function App({
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
 			let inboxOpen = true
 			const inboxEntries: LiveInput[] = []
+			const inputWaiters = new Set<() => void>()
 			const inbox: ActiveTurnInbox = {
 				accept(input): boolean {
 					if (
@@ -4140,7 +4141,28 @@ export function App({
 						return false
 					inboxEntries.push(input)
 					setPendingSteers([...inboxEntries])
+					for (const wake of [...inputWaiters]) wake()
 					return true
+				},
+				waitForInbound(signal): Promise<void> {
+					if (signal.aborted) return Promise.reject(signal.reason)
+					if (!inboxOpen || inboxEntries.length > 0) return Promise.resolve()
+					return new Promise((resolve, reject) => {
+						const cleanup = () => {
+							inputWaiters.delete(wake)
+							signal.removeEventListener('abort', abort)
+						}
+						const wake = () => {
+							cleanup()
+							resolve()
+						}
+						const abort = () => {
+							cleanup()
+							reject(signal.reason)
+						}
+						inputWaiters.add(wake)
+						signal.addEventListener('abort', abort, { once: true })
+					})
 				},
 				drain(): Message[] {
 					if (
@@ -4179,6 +4201,7 @@ export function App({
 				},
 				close(): readonly LiveInput[] {
 					inboxOpen = false
+					for (const wake of [...inputWaiters]) wake()
 					return inboxEntries.splice(0, inboxEntries.length)
 				},
 			}
@@ -4256,6 +4279,7 @@ export function App({
 						onPermission: askPermission,
 						onQuestion: askQuestion,
 						inboundMessages: () => inbox.drain(),
+						waitForInbound: (signal) => inbox.waitForInbound(signal),
 						extraSystem:
 							[composeSkillsPrompt(activeSkills), drainIdleJobNotices(), drainOperatorShell()]
 								.filter((part): part is string => Boolean(part))
@@ -5957,7 +5981,7 @@ export function App({
 				// The Return that opened `/agent` cannot also drill into the
 				// highlighted child before the list has appeared on screen.
 				if (agentSurfaceCommittedRef.current !== agentView) return
-				const agents = activeSubagentCohorts(subagentsRef.current)
+				const agents = subagentsRef.current
 				if (agentView.kind === 'cockpit') {
 					const phases = agentPhases(agents)
 					const phaseIndex = Math.max(
@@ -6336,7 +6360,7 @@ export function App({
 				: representedUnscopedSubagentToolUseIds.has(tool.id)),
 	)
 	const selectedSubagent = agentSurface
-		? liveSubagents.find((agent) => agent.viewId === agentSurface.selectedId)
+		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
 		: undefined
 	const lifecycleOwnsViewport =
 		phase === 'trust' ||
@@ -6533,7 +6557,8 @@ export function App({
 								permission !== null ||
 								textPrompt !== null ||
 								choicePicker !== null ||
-								copyPicker !== null
+								copyPicker !== null ||
+								agentSurface?.kind === 'transcript'
 							}
 						>
 							{pendingSteers.length > 0 &&
@@ -6583,7 +6608,8 @@ export function App({
 									permission !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
-									copyPicker !== null
+									copyPicker !== null ||
+									agentSurface?.kind === 'transcript'
 								}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
@@ -6616,7 +6642,7 @@ export function App({
 							/>
 						) : permission === null && agentSurface?.kind === 'cockpit' ? (
 							<AgentCockpit
-								agents={liveSubagents}
+								agents={subagents}
 								selectedPhaseId={agentSurface.selectedPhaseId}
 								selectedId={agentSurface.selectedId}
 								focus={agentSurface.focus}

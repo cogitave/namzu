@@ -231,38 +231,33 @@ export class CompletionInbox {
 	}
 
 	/**
-	 * Wait for the next completion, or for the deadline, whichever comes first.
+	 * Wait for the next completion, deadline or abort, whichever comes first.
+	 * Aborting releases only this waiter; work and undelivered results remain owned.
 	 *
 	 * Bounded on purpose. A worker that never finishes must not hold a run
 	 * open forever, and the caller decides how long "long enough" is — the
 	 * run's own budget is the only thing that knows.
 	 */
-	waitForArrival(timeoutMs: number): Promise<void> {
+	waitForArrival(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+		if (signal?.aborted) return Promise.resolve()
 		if (this.unheard.size > 0) return Promise.resolve()
 		if (this.outstanding.size === 0) return Promise.resolve()
 
 		return new Promise((resolve) => {
+			const finish = (): void => {
+				clearTimeout(timer)
+				this.arrivals.delete(finish)
+				signal?.removeEventListener('abort', finish)
+				resolve()
+			}
 			const timer = setTimeout(finish, timeoutMs)
 			// `unref` where the runtime has it, so a pending wait never keeps
 			// a process alive past the work it was waiting for.
 			;(timer as { unref?: () => void }).unref?.()
 
-			function finish(): void {
-				clearTimeout(timer)
-				wake.done = true
-				resolve()
-			}
-
-			const wake = Object.assign(
-				() => {
-					if (!wake.done) {
-						this.arrivals.delete(wake)
-						finish()
-					}
-				},
-				{ done: false },
-			)
-			this.arrivals.add(wake)
+			this.arrivals.add(finish)
+			signal?.addEventListener('abort', finish, { once: true })
+			if (signal?.aborted) finish()
 		})
 	}
 
@@ -423,7 +418,21 @@ function neutralizeNotificationDelimiter(content: string): string {
 export function formatCompletionNotification(handles: readonly TaskHandle[]): string {
 	const blocks = handles.map((handle) => {
 		const durationMs = handle.completedAt ? handle.completedAt - handle.createdAt : undefined
-		const output = handle.result?.result ?? handle.result?.lastError ?? ''
+		const run = handle.result
+		let output = run?.result || run?.lastError || ''
+		// A hard guard can stop immediately after a tool round, before the result
+		// assembler has a final answer. Preserve visible partial prose, never reasoning.
+		if (!output && run?.stopReason && run.stopReason !== 'end_turn') {
+			const partial = [...(run.messages ?? [])]
+				.reverse()
+				.find(
+					(message) =>
+						message.role === 'assistant' &&
+						typeof message.content === 'string' &&
+						message.content.length > 0,
+				)
+			if (partial) output = `Partial output before ${run.stopReason}:\n${partial.content}`
+		}
 		const overLimit = output.length > NOTIFICATION_OUTPUT_LIMIT
 		const shown = overLimit ? output.slice(0, NOTIFICATION_OUTPUT_LIMIT) : output
 
@@ -455,6 +464,7 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 			`task_id: ${handle.taskId}`,
 			`agent: ${handle.agentId}`,
 			`state: ${handle.state}`,
+			...(handle.result?.stopReason ? [`stop_reason: ${handle.result.stopReason}`] : []),
 			...(durationMs !== undefined ? [`duration_ms: ${durationMs}`] : []),
 			'',
 			body,

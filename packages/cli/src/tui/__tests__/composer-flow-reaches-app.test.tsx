@@ -578,6 +578,62 @@ describe('the two composer destinations', () => {
 		}
 	})
 
+	it('wakes the active turn without draining its input and removes cancelled waiters', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'start delegated work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'first turn did not start')
+			const waitForInbound = sentOptions[0]?.waitForInbound
+			expect(waitForInbound).toBeTypeOf('function')
+			if (!waitForInbound) throw new Error('App did not supply the input wake callback')
+
+			const cancelled = new AbortController()
+			const removeCancelledListener = vi.spyOn(cancelled.signal, 'removeEventListener')
+			const cancelledWait = waitForInbound(cancelled.signal)
+			const cancellation = new Error('delegated wait cancelled')
+			const rejected = expect(cancelledWait).rejects.toBe(cancellation)
+			cancelled.abort(cancellation)
+			await rejected
+			expect(removeCancelledListener).toHaveBeenCalledTimes(1)
+			expect(removeCancelledListener).toHaveBeenCalledWith('abort', expect.any(Function))
+
+			const active = new AbortController()
+			const removeActiveListener = vi.spyOn(active.signal, 'removeEventListener')
+			let woke = false
+			const wake = waitForInbound(active.signal).then(() => {
+				woke = true
+			})
+			await screen.waitForRender()
+			expect(woke).toBe(false)
+			await typeAndPress(screen, 'also inspect the new evidence', '\r')
+			await waitUntil(screen, () => woke, 'Return did not wake the waiting active turn')
+			await wake
+			expect(removeActiveListener).toHaveBeenCalledTimes(1)
+			expect(removeCancelledListener).toHaveBeenCalledTimes(1)
+			expect(delivered).toEqual([])
+			expect(sent).toHaveLength(1)
+			expect(screen.viewport().join('\n')).toContain('1 message steering the active turn')
+
+			// Readiness remains true until the provider boundary asks for the messages.
+			await expect(waitForInbound(new AbortController().signal)).resolves.toBeUndefined()
+			expect(delivered).toEqual([])
+			releaseFirstTurn()
+			await waitUntil(screen, () => delivered.length === 1, 'provider boundary never drained input')
+			expect(delivered[0]).toMatchObject([
+				{ role: 'user', content: 'also inspect the new evidence' },
+			])
+			expect(sent).toHaveLength(1)
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
 	it('requeues an undrained steer at its original position relative to Tab input', async () => {
 		drainFirstTurn = false
 		const screen = await renderToScreen(<App ctx={ctx} />, {

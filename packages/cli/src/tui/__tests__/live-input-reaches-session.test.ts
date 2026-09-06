@@ -63,15 +63,19 @@ describe('the live-input session hop', () => {
 			timestamp: 2,
 		}
 		const inboundMessages = vi.fn(() => [steered])
+		const waitForInbound = vi.fn(async (_signal: AbortSignal) => {})
 		try {
 			for await (const _event of session.send([{ role: 'user', content: 'start', timestamp: 1 }], {
 				inboundMessages,
+				waitForInbound,
 			})) {
 				// drain the real AgentSession boundary
 			}
 
 			expect(queryCalls).toHaveLength(1)
 			expect(queryCalls[0]?.inboundMessages).toBe(inboundMessages)
+			expect(queryCalls[0]?.waitForInbound).toBe(waitForInbound)
+			expect(queryCalls[0]?.completionInbox).toBeDefined()
 			expect((queryCalls[0]?.inboundMessages as () => Message[])()).toEqual([steered])
 			expect(inboundMessages).toHaveBeenCalledTimes(1)
 		} finally {

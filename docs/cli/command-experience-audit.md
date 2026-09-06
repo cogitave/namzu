@@ -200,13 +200,13 @@ accurate action scope, rather than one identical permission model across apps:
 * [Codex developer commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
   documents opening `/permissions`, selecting a preset and receiving a policy
   update. Namzu follows that menu interaction while retaining its own rules.
-* [Claude Code permissions](https://code.claude.com/docs/en/permissions) describes
+* The [tool approval reference](https://code.claude.com/docs/en/permissions) describes
   scoped tool approvals. Namzu's existing all-tools session approval is broader
   than approving one command, so its button now names that scope explicitly.
-* [Gemini settings](https://geminicli.com/docs/cli/settings/) presents named
+* The [settings reference](https://geminicli.com/docs/cli/settings/) presents named
   settings, values and descriptions. Namzu now uses setting labels instead of
   exposing the slash command used to open each control.
-* [Gemini memory commands](https://geminicli.com/docs/reference/commands/#memory)
+* The [memory command reference](https://geminicli.com/docs/reference/commands/#memory)
   uses inspection verbs for reading memory. Namzu's `show` and `list` now inspect
   its combined curated content; its `list` alias does not enumerate file paths.
 

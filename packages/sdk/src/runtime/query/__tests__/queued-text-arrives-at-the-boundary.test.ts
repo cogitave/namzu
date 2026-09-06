@@ -4,14 +4,18 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { stubTaskScheduler } from '../../../__fixtures__/task-scheduler.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
+import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { SessionId, TenantId } from '../../../types/ids/index.js'
+import type { TaskHandle } from '../../../types/agent/scheduler.js'
+import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { type Message, createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import { generateRunId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
 
@@ -76,6 +80,8 @@ async function run(opts: {
 	turns: unknown[]
 	inbound?: () => Message[]
 	steering?: SteeringBinding
+	inbox?: CompletionInbox
+	waitForInbound?: (signal: AbortSignal) => Promise<void>
 }) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-inbound-'))
 	dirs.push(workingDirectory)
@@ -94,6 +100,8 @@ async function run(opts: {
 		projectId: '78c64c0b-4e41-463a-a5a7-b0aa85c33338' as ProjectId,
 		tenantId: '2d00498b-cbc5-4c9a-a2bd-ff8eee5dbd80' as TenantId,
 		...(opts.inbound ? { inboundMessages: opts.inbound } : {}),
+		...(opts.inbox ? { completionInbox: opts.inbox } : {}),
+		...(opts.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
 		...(opts.steering ? { steering: opts.steering } : {}),
 	})
 
@@ -111,6 +119,80 @@ function onceQueue(...messages: Message[]): () => Message[] {
 }
 
 describe('text queued between turns arrives at the next one', () => {
+	it('answers repeated input while background work stays pending, then delivers its result once', async () => {
+		const inbox = new CompletionInbox()
+		let complete!: (handle: TaskHandle) => void
+		const taskId = 'b4379739-e054-4c42-8021-71a9edc4f027' as TaskId
+		inbox.attach(
+			stubTaskScheduler({
+				getTask: () => undefined,
+				onTaskCompleted: (cb) => {
+					complete = cb
+					return () => {}
+				},
+			}),
+		)
+		inbox.expect(taskId)
+		const pending: Message[] = []
+		const waiterSignals: AbortSignal[] = []
+		let waits = 0
+		try {
+			const { result, requests } = await run({
+				turns: [
+					{ text: 'The worker is running.' },
+					{ text: 'First follow-up answered.' },
+					{ text: 'Second follow-up answered.' },
+					{ text: 'Worker report acknowledged.' },
+				],
+				inbox,
+				inbound: () => pending.splice(0),
+				waitForInbound: async (signal) => {
+					waiterSignals.push(signal)
+					waits++
+					if (waits <= 2) {
+						expect(inbox.outstandingTaskIds).toContain(taskId)
+						pending.push(createUserMessage(`Follow-up ${waits}`))
+					} else {
+						complete({
+							taskId,
+							agentId: 'worker',
+							state: 'completed',
+							createdAt: 1,
+							completedAt: 2,
+							result: {
+								runId: generateRunId(),
+								status: 'completed',
+								result: 'ACTUAL WORKER FINDINGS',
+								usage: {
+									promptTokens: 0,
+									completionTokens: 0,
+									totalTokens: 0,
+									cachedTokens: 0,
+									cacheWriteTokens: 0,
+								},
+								cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+								iterations: 1,
+								durationMs: 1,
+								messages: [],
+							},
+						})
+					}
+				},
+			})
+			expect(result.status).toBe('completed')
+			expect(requests).toHaveLength(4)
+			expect(textOf(requests[1] ?? [])).toContain('Follow-up 1')
+			expect(textOf(requests[1] ?? [])).not.toContain('ACTUAL WORKER FINDINGS')
+			expect(textOf(requests[2] ?? [])).toContain('Follow-up 2')
+			expect(textOf(requests[2] ?? [])).not.toContain('ACTUAL WORKER FINDINGS')
+			expect(textOf(requests[3] ?? []).match(/ACTUAL WORKER FINDINGS/g)).toHaveLength(1)
+			expect(waiterSignals.every((signal) => signal.aborted)).toBe(true)
+			expect(inbox.hasPendingWork).toBe(false)
+		} finally {
+			inbox.close()
+		}
+	})
+
 	it('puts a queued message in the next request', async () => {
 		// Asserted on the request the provider received, not on the queue
 		// being empty — a drain that dropped everything on the floor empties

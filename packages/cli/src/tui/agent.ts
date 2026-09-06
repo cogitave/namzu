@@ -30,6 +30,7 @@ import {
 	type CheckpointStore,
 	type CompactionConfig,
 	type CompactionResult,
+	type CompletionInbox,
 	type CostInfo,
 	DefaultPathBuilder,
 	DiskCheckpointStore,
@@ -437,6 +438,8 @@ export interface SendOptions {
 	 * input that has not crossed that boundary yet.
 	 */
 	readonly inboundMessages?: () => Message[]
+	/** Resolve when undelivered input exists; abort removes this waiter. */
+	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
 	/**
@@ -1793,6 +1796,7 @@ export async function createAgentSession(
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<RunId, RunScope>()
+	const delegatedInputWaiters = new Map<RunId, NonNullable<SendOptions['waitForInbound']>>()
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
@@ -1823,6 +1827,7 @@ export async function createAgentSession(
 			},
 			sandboxWorkspace,
 			resolveResumeHandler: (runId) => delegatedResumeHandlers.get(runId),
+			resolveWaitForInbound: (runId) => delegatedInputWaiters.get(runId),
 			...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 			...(options.sandbox?.teardownTimeoutMs !== undefined
 				? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
@@ -1871,7 +1876,7 @@ export async function createAgentSession(
 			authorizationGate: gateFor(options.rules),
 		})
 		subagentRuntime = sub
-		registry.register([sub.agentTool])
+		registry.register([sub.agentTool, sub.waitForTaskTool])
 		allowedAgentIds = sub.allowedAgentIds
 	} catch (err) {
 		await subagentRuntime?.close().catch((closeError: unknown) => {
@@ -2397,6 +2402,7 @@ export async function createAgentSession(
 						throw new Error(`Run ${runId} already owns a delegated review channel.`)
 					}
 					delegatedResumeHandlers.set(runId, resumeHandler)
+					if (opts?.waitForInbound) delegatedInputWaiters.set(runId, opts.waitForInbound)
 					const turnScope = { ...scope }
 					delegationScopes.set(runId, turnScope)
 					try {
@@ -2532,6 +2538,7 @@ export async function createAgentSession(
 								opts: turnOpts,
 								resumeHandler,
 								taskGateway: await subagentRuntime?.gatewayForRun(runId),
+								completionInbox: await subagentRuntime?.completionInboxForRun(runId),
 								promptContributions,
 								...(webCapability ? { web: webCapability } : {}),
 								// Active, not deferred: the doctrine tells the model to open a
@@ -2562,6 +2569,7 @@ export async function createAgentSession(
 					} finally {
 						if (delegatedResumeHandlers.get(runId) === resumeHandler) {
 							delegatedResumeHandlers.delete(runId)
+							delegatedInputWaiters.delete(runId)
 							delegationScopes.delete(runId)
 							await subagentRuntime?.releaseRun(runId)
 						}
@@ -3113,6 +3121,7 @@ interface RunTurnParams {
 	readonly projectInstructionContext: ProjectInstructionContext
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskScheduler | undefined
+	readonly completionInbox?: CompletionInbox
 	/** Host text for the `turn` placement; absent means none this session. */
 	readonly promptContributions?: PromptContributionRegistry
 	/** How this turn reaches the web; absent means the web tools report themselves unwired. */
@@ -3164,6 +3173,7 @@ async function* runTurn({
 	projectInstructionContext,
 	opts,
 	taskGateway,
+	completionInbox,
 	promptContributions,
 	runtimeToolOverrides,
 	web,
@@ -3236,6 +3246,8 @@ async function* runTurn({
 			projectInstructionContext,
 			messages: [...messages],
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
+			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
+			...(completionInbox ? { completionInbox } : {}),
 			workingDirectory,
 			...(additionalDirectories?.length ? { additionalDirectories } : {}),
 			// The exemption reads `tools` at decision time, so it sees the task
@@ -3249,6 +3261,7 @@ async function* runTurn({
 			...scope,
 		})
 		let settled = false
+		let abortReported = false
 		try {
 			while (true) {
 				const next = await events.next()
@@ -3269,8 +3282,14 @@ async function* runTurn({
 				// be a recording of the interface rather than of the session.
 				onRunEvent?.(event)
 				if (signal?.aborted) {
-					yield { kind: 'error', message: 'aborted' }
-					return
+					if (!abortReported) {
+						abortReported = true
+						yield { kind: 'error', message: 'aborted' }
+					}
+					// Let cancellation settle in the kernel. Calling return() here
+					// discarded its Run and forced App to save only visible prose,
+					// losing tool receipts and reasoning before the next user turn.
+					continue
 				}
 				const mapped = toAgentEvent(event, presenter)
 				if (!mapped) continue

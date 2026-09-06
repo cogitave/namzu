@@ -1450,9 +1450,9 @@ export class IterationOrchestrator {
 	/**
 	 * Hold the run open for a worker that has not finished, and deliver it.
 	 *
-	 * Returns whether a completion arrived and was put in the transcript — the
-	 * caller continues the loop on `true`, so the model gets a turn in which to
-	 * USE the result. That turn is the entire justification for waiting, which
+	 * Returns whether a completion or operator message entered the transcript —
+	 * the caller continues on `true`, so the model gets a turn to respond.
+	 * That turn is the entire justification for waiting, which
 	 * is why only the exits that can still take one call this.
 	 *
 	 * Bounded by `settleGraceMs` and by `maxIterations`, so a worker that never
@@ -1473,14 +1473,34 @@ export class IterationOrchestrator {
 			[NAMZU.ITERATION]: iterationNum,
 			'namzu.runtime.grace_ms': graceMs,
 		})
-		await this.ctx.completionInbox.waitForArrival(graceMs)
+		// User input releases this wait without cancelling any child. Both waits
+		// share a disposable signal so the losing arrival listener cannot leak.
+		const waiting = new AbortController()
+		const runSignal = this.ctx.abortController.signal
+		const cancelWait = () => waiting.abort(runSignal.reason)
+		runSignal.addEventListener('abort', cancelWait, { once: true })
+		if (runSignal.aborted) cancelWait()
+		try {
+			await Promise.race([
+				this.ctx.completionInbox.waitForArrival(graceMs, waiting.signal),
+				...(this.ctx.waitForInbound ? [this.ctx.waitForInbound(waiting.signal)] : []),
+			])
+		} catch (error) {
+			if (!runSignal.aborted) throw error
+		} finally {
+			waiting.abort()
+			runSignal.removeEventListener('abort', cancelWait)
+		}
+		runSignal.throwIfAborted()
 
 		const arrived = this.ctx.completionInbox.drain()
-		if (arrived.length === 0) return false
-
-		this.ctx.runMgr.pushMessage(
-			createRuntimeContextMessage(formatCompletionNotification(arrived), 'task-completion'),
-		)
+		if (arrived.length > 0) {
+			this.ctx.runMgr.pushMessage(
+				createRuntimeContextMessage(formatCompletionNotification(arrived), 'task-completion'),
+			)
+		}
+		const inbound = this.deliverInbound()
+		if (arrived.length === 0 && inbound === 0) return false
 		await this.ctx.emitEvent({
 			type: 'iteration_completed',
 			runId: this.ctx.runMgr.id,

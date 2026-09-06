@@ -112,6 +112,20 @@ current or latest run’s own task store; changing conversations clears the
 selection without deleting tasks. `/agents` opens the retained delegated-work
 view, while `/agents available` separately reports the configured roster.
 
+Selecting an agent opens its own framed transcript screen. The parent composer
+and live rows are hidden while their state remains mounted. The child view
+uses the available terminal height, identifies the task and its live status,
+and supports line and page scrolling. Esc returns to the agent list; `q` or
+Ctrl+T returns to the main conversation and restores the draft. A child that
+finishes remains readable in the open view and can be reopened from `/agents`
+while retained by the current session. The automatic activity rail shows only
+cohorts with work still running.
+
+Messages submitted with Enter while an `Agent` call waits for a child release
+that wait so the parent can respond while children continue. Results arrive in
+the same run as task notifications. Tab still queues a future turn; Esc still
+interrupts the current run and its children.
+
 ## Terminal boundaries
 
 The interface uses the normal terminal buffer so completed output remains in

@@ -19,6 +19,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
+import { RunCancelled } from '../../../types/run/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -403,6 +404,66 @@ describe('a run that ends some other way still hands over what finished', () => 
 			userMessages.some((m) => m.includes('THE BACKGROUND WORKER RESULT')),
 			'the stopWhen exit dropped a finished completion',
 		).toBe(true)
+	})
+
+	it('records cancellation while holding for work instead of accepting the stop predicate', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-stopwhen-cancel-'))
+		workdirs.push(workingDirectory)
+		const inbox = new CompletionInbox()
+		inbox.expect('tsk_still_running' as TaskId)
+		const tools = new ToolRegistry()
+		tools.register(
+			defineTool({
+				name: 'finisher',
+				description: 'the worker remains active after this tool returns',
+				inputSchema: z.object({}),
+				category: 'analysis',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async () => ({ success: true, output: 'launched' }),
+			}),
+		)
+		const provider = new CallsFinisherProvider()
+		const caller = new AbortController()
+		let held = false
+		try {
+			const run = await drainQuery({
+				provider,
+				tools,
+				completionInbox: inbox,
+				signal: caller.signal,
+				stopWhen: () => true,
+				waitForInbound: async (signal) => {
+					held = true
+					expect(inbox.outstandingTaskIds).toContain('tsk_still_running')
+					caller.abort(new RunCancelled('user'))
+					expect(signal.aborted).toBe(true)
+				},
+				agentId: 'agent_test',
+				agentName: 'Test Agent',
+				messages: [createUserMessage('delegate and report')],
+				workingDirectory,
+				runConfig: {
+					model: 'mock-model',
+					timeoutMs: 20_000,
+					tokenBudget: 100_000,
+					maxIterations: 4,
+					maxResponseTokens: 256,
+				},
+				sessionId: '1ed9f9be-fd1c-48e7-8838-25078c3a565c' as SessionId,
+				topicId: 'cb989855-824c-46bc-89c2-abb0167af5e2' as TopicId,
+				projectId: '27eb7b81-e899-4ea0-bb0e-03036b729ead' as ProjectId,
+				tenantId: 'a11660b4-4fce-4579-9606-0794222c11c2' as TenantId,
+			})
+			expect(held).toBe(true)
+			expect(run.status).toBe('cancelled')
+			expect(run.stopReason).toBe('cancelled')
+			expect(provider.calls).toBe(1)
+		} finally {
+			inbox.close()
+		}
 	})
 
 	it('lets a worker that has not arrived yet outrank the host stop predicate, once', async () => {

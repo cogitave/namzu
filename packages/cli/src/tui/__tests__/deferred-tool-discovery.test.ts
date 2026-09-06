@@ -48,9 +48,16 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 		capturedBuildTools = opts.buildTools
 		return {
 			gatewayForRun: async () => ({}) as never,
+			completionInboxForRun: async () => new (await import('@namzu/sdk')).CompletionInbox(),
 			releaseRun: async () => {},
 			agentTool: {
 				name: 'Agent',
+				description: 'stub',
+				inputSchema: { type: 'object', properties: {} },
+				execute: async () => ({ success: true, output: '' }),
+			},
+			waitForTaskTool: {
+				name: 'wait_for_task',
 				description: 'stub',
 				inputSchema: { type: 'object', properties: {} },
 				execute: async () => ({ success: true, output: '' }),

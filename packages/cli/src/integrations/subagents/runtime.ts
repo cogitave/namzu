@@ -3,9 +3,9 @@
  * DEFINE a specialist on the fly — pass a `role` (the persona / system prompt)
  * and namzu spins up a fresh sub-agent with that role at runtime, no
  * pre-registered definition needed. Omit `role` for a general-purpose one.
- * The call blocks until the child finishes and its final text returns as the
- * tool result, so a delegation surfaces in the transcript as a normal
- * `⏺ Agent(...)` call.
+ * The call waits for a final result unless operator input releases the wait.
+ * The child then stays owned by the parent run, and its completion reaches the
+ * same query's inbox. Headless callers without an input waiter remain blocking.
  *
  * The runtime is fully self-contained: a dedicated in-memory session/thread
  * store backs the AgentManager, so sub-agent bookkeeping never touches the
@@ -23,6 +23,7 @@ import {
 	type BaseAgentConfig,
 	type BaseAgentResult,
 	type CancelCause,
+	CompletionInbox,
 	type Agent as CoreAgent,
 	type CreateTaskOptions,
 	DefaultCapacityValidator,
@@ -51,14 +52,17 @@ import {
 	type ToolContext,
 	type ToolDefinition,
 	type ToolRegistryContract,
+	type ToolResult,
 	type Topic,
 	TopicArchivedError,
 	TopicManager,
 	WorkspaceBackendRegistry,
+	asTaskId,
 	defineTool,
 	filterReadOnlyTools,
 	filterToolsNamed,
 	generateSummaryId,
+	isTerminalAgentTaskState,
 	mcpJsonSchemaToZod,
 	openTokenBudget,
 	requireOpenProject,
@@ -142,6 +146,10 @@ export interface SubagentRuntimeOptions {
 	 * the Agent tool. Absent means the child has no human review channel.
 	 */
 	readonly resolveResumeHandler?: (runId: ToolContext['runId']) => ResumeHandler | undefined
+	/** Wake a delegation wait when this parent has undelivered operator input. */
+	readonly resolveWaitForInbound?: (
+		runId: RunId,
+	) => ((signal: AbortSignal) => Promise<void>) | undefined
 	/** Use the same execution boundary the parent session reports. */
 	readonly sandboxProvider?: SandboxProvider
 	/** Bound child teardown with the parent's operator-selected value. */
@@ -171,9 +179,13 @@ export interface SubagentRuntimeOptions {
 export interface SubagentRuntime {
 	/** One immutable scheduler context per actual parent run. */
 	gatewayForRun(runId: RunId): Promise<TaskScheduler>
+	/** The same inbox the parent query drains after a delegation yields. */
+	completionInboxForRun(runId: RunId): Promise<CompletionInbox>
 	/** Release a settled parent's bookkeeping and cancel children it still owns. */
 	releaseRun(runId: RunId): Promise<void>
 	readonly agentTool: ToolDefinition
+	/** Retrieve a child result without starting another task. */
+	readonly waitForTaskTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
@@ -274,6 +286,7 @@ export async function createSubagentRuntime(
 
 	interface ParentRuntime {
 		readonly gateway: TaskScheduler
+		readonly completionInbox: CompletionInbox
 		close(): void
 	}
 	interface SessionRuntime {
@@ -439,21 +452,26 @@ export async function createSubagentRuntime(
 						tenantId: parent.project.tenantId,
 					},
 				}
+				const gateway = new ParentTaskScheduler(manager, taskContext, opts.onEvent, async () => {
+					assertOwned()
+					const current = await resolveParent(runId)
+					assertOwned()
+					if (sessionKey(current) !== sessionKey(parent))
+						throw new Error('Delegation run changed its parent scope')
+					await refreshLimits(lease.shared, current)
+					assertOwned()
+				})
+				const completionInbox = new CompletionInbox()
+				completionInbox.attach(gateway)
 				const runtime: ParentRuntime = {
-					gateway: new ParentTaskScheduler(manager, taskContext, opts.onEvent, async () => {
-						assertOwned()
-						const current = await resolveParent(runId)
-						assertOwned()
-						if (sessionKey(current) !== sessionKey(parent))
-							throw new Error('Delegation run changed its parent scope')
-						await refreshLimits(lease.shared, current)
-						assertOwned()
-					}),
+					gateway,
+					completionInbox,
 					close() {
 						if (released) return
 						released = true
 						parentAbortController.abort(new RunCancelled('parent'))
 						manager.cancelAll(runId, 'parent')
+						completionInbox.close()
 						lease.release()
 					},
 				}
@@ -484,6 +502,12 @@ export async function createSubagentRuntime(
 			() => undefined,
 		)
 	}
+	const completionInboxForRun = async (runId: RunId): Promise<CompletionInbox> => {
+		await gatewayForRun(runId)
+		const pending = parents.get(runId)
+		if (!pending) throw new Error(`Parent run ${runId} was released`)
+		return (await pending).completionInbox
+	}
 
 	const activity = new SubagentActivityMonitor()
 
@@ -494,7 +518,7 @@ export async function createSubagentRuntime(
 	const agentTool = defineTool({
 		name: 'Agent',
 		description: [
-			'Delegate a self-contained task to a sub-agent and get its result back (BLOCKING).',
+			'Delegate a self-contained task to a sub-agent and wait for its result. If the operator sends a message while you wait, this call returns the running task ID so you can respond; the child keeps working and its result arrives later as a task notification.',
 			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which files reference Y, how does Z work — it has reading and searching tools only and never asks for permission.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
 			'Define a specialist inline with `role` — a system prompt describing who the sub-agent is and how to behave (e.g.',
@@ -620,10 +644,23 @@ export async function createSubagentRuntime(
 				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
 				resumeHandler,
 			}
+			let taskOwnsCleanup = false
+			const cleanupDefinition = (): void => {
+				if (dynamic) registry.unregister(agentId)
+			}
 			try {
-				const completed = await runBlockingAgentTask({
+				const completionInbox = await completionInboxForRun(context.runId)
+				const outcome = await runBlockingAgentTask({
 					gateway: await gatewayForRun(context.runId),
 					signal: context.abortSignal,
+					waitForInbound: opts.resolveWaitForInbound?.(context.runId),
+					completionInbox,
+					onCreated: () => {
+						taskOwnsCleanup = true
+					},
+					onSettled: (completed) => tracker.settle(completed),
+					onFailed: (error) => tracker.fail(error),
+					onFinished: cleanupDefinition,
 					create: {
 						agentId,
 						prompt,
@@ -638,35 +675,83 @@ export async function createSubagentRuntime(
 						onEvent: tracker.onEvent,
 					},
 				})
-				tracker.settle(completed)
-				const runStatus = completed.result?.status
-				const succeeded =
-					completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
-				const resultText =
-					typeof completed.result?.result === 'string'
-						? completed.result.result
-						: completed.result?.result !== undefined
-							? JSON.stringify(completed.result.result)
-							: ''
-				if (!succeeded) {
+				if (outcome.kind === 'yielded') {
 					return {
-						success: false,
-						output: '',
-						error: `Sub-agent ${agentId} ${completed.state}: ${completed.result?.lastError ?? resultText ?? '(no detail)'}`,
+						success: true,
+						output: `Sub-agent ${agentId} is still running as task ${outcome.handle.taskId}; it has not completed. Waiting was released because the operator sent a message. Respond to that message while this task continues. Its actual result will arrive as a task notification; do not launch the same work again.`,
+						data: {
+							task_id: outcome.handle.taskId,
+							state: outcome.handle.state,
+							wait_released: 'operator_input',
+						},
 					}
 				}
-				return {
-					success: true,
-					output: resultText || '(sub-agent returned no text)',
-				}
+				return completedAgentResult(outcome.handle)
 			} catch (error) {
 				tracker.fail(error)
 				throw error
 			} finally {
-				// A per-call dynamic specialist is single-use — drop its definition
-				// (and retained persona string) so long sessions don't leak `dyn-N`
-				// registrations whether the task succeeded, failed, or threw.
-				if (dynamic) registry.unregister(agentId)
+				// A yielded task retains its definition until its actual completion.
+				// Before creation succeeds, this invocation owns that cleanup.
+				if (!taskOwnsCleanup) cleanupDefinition()
+			}
+		},
+	})
+	const waitForTaskTool = defineTool({
+		name: 'wait_for_task',
+		description:
+			'Wait for a task this run already launched, or retrieve its complete result after a task notification. This does not start new work. Operator input releases the wait while the task continues.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				task_id: {
+					type: 'string',
+					description: 'The task ID returned by Agent or a task notification.',
+				},
+			},
+			required: ['task_id'],
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+		async execute(input, context) {
+			const gateway = await gatewayForRun(context.runId)
+			let taskId: TaskId
+			try {
+				taskId = asTaskId((input as { task_id: string }).task_id)
+			} catch {
+				return {
+					success: false,
+					output: '',
+					error: 'task_id must be a task UUID returned by Agent or a task notification.',
+				}
+			}
+			const task = gateway.getTask(taskId)
+			if (!task)
+				return {
+					success: false,
+					output: '',
+					error: `Task ${taskId} does not belong to this parent run.`,
+				}
+			const outcome = await runBlockingAgentTask({
+				gateway,
+				task,
+				signal: context.abortSignal,
+				completionInbox: await completionInboxForRun(context.runId),
+				waitForInbound: opts.resolveWaitForInbound?.(context.runId),
+				onCreated: () => {},
+				onSettled: () => {},
+				onFailed: () => {},
+				onFinished: () => {},
+			})
+			if (outcome.kind === 'completed') return completedAgentResult(outcome.handle)
+			return {
+				success: true,
+				output: `Task ${taskId} is still running; it has not completed. Waiting was released for an operator message. Its result will arrive as a task notification.`,
+				data: { task_id: taskId, state: outcome.handle.state, wait_released: 'operator_input' },
 			}
 		},
 	})
@@ -681,28 +766,41 @@ export async function createSubagentRuntime(
 
 	return {
 		gatewayForRun,
+		completionInboxForRun,
 		releaseRun,
 		agentTool,
+		waitForTaskTool,
 		allowedAgentIds: agentTypeIds,
 		activity,
 		close,
 	}
 }
 
-interface BlockingAgentTaskInput {
+type BlockingAgentTaskInput = {
 	readonly gateway: TaskScheduler
 	readonly signal: AbortSignal
-	readonly create: CreateTaskOptions
-}
+	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
+	readonly completionInbox: CompletionInbox
+	readonly onCreated: () => void
+	readonly onSettled: (handle: TaskHandle) => void
+	readonly onFailed: (error: unknown) => void
+	readonly onFinished: () => void
+} & (
+	| { readonly create: CreateTaskOptions; readonly task?: never }
+	| { readonly task: TaskHandle; readonly create?: never }
+)
 
 /** CLI copy of the SDK Agent tool's ownership boundary. */
-async function runBlockingAgentTask(input: BlockingAgentTaskInput): Promise<TaskHandle> {
+async function runBlockingAgentTask(
+	input: BlockingAgentTaskInput,
+): Promise<{ kind: 'completed'; handle: TaskHandle } | { kind: 'yielded'; handle: TaskHandle }> {
 	const { gateway, signal } = input
 	signal.throwIfAborted()
 
 	let handle: TaskHandle | undefined
 	let cancellationRequested = false
 	let taskCancellationAttempted = false
+	const wakeController = new AbortController()
 	let rejectAbort: (reason: unknown) => void = () => {}
 	const aborted = new Promise<never>((_resolve, reject) => {
 		rejectAbort = reject
@@ -725,7 +823,8 @@ async function runBlockingAgentTask(input: BlockingAgentTaskInput): Promise<Task
 
 	signal.addEventListener('abort', onAbort, { once: true })
 	if (signal.aborted) onAbort()
-	const creation = gateway.createTask(input.create)
+	const creation =
+		input.create === undefined ? Promise.resolve(input.task) : gateway.createTask(input.create)
 	creation.catch(() => {})
 
 	try {
@@ -734,8 +833,35 @@ async function runBlockingAgentTask(input: BlockingAgentTaskInput): Promise<Task
 			cancel(handle)
 			signal.throwIfAborted()
 		}
-		const completed = await Promise.race([gateway.waitForTask(handle.taskId), aborted])
-		return completed
+		input.onCreated()
+		input.completionInbox.launched(handle.taskId)
+		const completion = gateway.waitForTask(handle.taskId).then(
+			(completed) => {
+				input.onSettled(completed)
+				input.onFinished()
+				return { kind: 'completed' as const, handle: completed }
+			},
+			(error) => {
+				input.onFailed(error)
+				input.onFinished()
+				throw error
+			},
+		)
+		const inbound = input
+			.waitForInbound?.(wakeController.signal)
+			.then(() => ({ kind: 'inbound' as const }))
+		const outcome = await Promise.race(
+			inbound ? [completion, aborted, inbound] : [completion, aborted],
+		)
+		const current = gateway.getTask(handle.taskId)
+		if (outcome.kind === 'completed' || (current && isTerminalAgentTaskState(current.state))) {
+			input.completionInbox.claim(handle.taskId)
+			return outcome.kind === 'completed' ? outcome : await completion
+		}
+		// Only the wait has ended. Parent runtime ownership, token reservations and
+		// the completion observer all outlive this tool invocation's local signal.
+		input.completionInbox.expect(handle.taskId)
+		return { kind: 'yielded', handle }
 	} catch (error) {
 		if (handle) cancel(handle)
 		throw error
@@ -744,6 +870,50 @@ async function runBlockingAgentTask(input: BlockingAgentTaskInput): Promise<Task
 			void creation.then(cancel, () => {})
 		}
 		signal.removeEventListener('abort', onAbort)
+		wakeController.abort()
+	}
+}
+
+/** Lifecycle completion is not proof the requested task finished successfully. */
+function completedAgentResult(completed: TaskHandle): ToolResult {
+	const run = completed.result
+	const succeeded =
+		completed.state === 'completed' && (run?.status === undefined || run.status === 'completed')
+	const value = run?.structuredOutput ?? run?.result
+	let resultText =
+		typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value)
+	if (!resultText && run?.stopReason && run.stopReason !== 'end_turn') {
+		// A hard limit can stop between tool rounds without setting Run.result.
+		// Keep the child's last visible statement, never its reasoning or tool data.
+		const partial = [...run.messages]
+			.reverse()
+			.find(
+				(message) =>
+					message.role === 'assistant' &&
+					typeof message.content === 'string' &&
+					message.content.trim().length > 0,
+			)?.content
+		if (typeof partial === 'string') resultText = partial
+	}
+	const stopNote =
+		run?.stopReason && run.stopReason !== 'end_turn'
+			? `Sub-agent run ended with stop reason "${run.stopReason}". Output may be partial; this does not establish task completion.\n\n`
+			: ''
+	const output = stopNote + (resultText || '(sub-agent returned no text)')
+	return {
+		success: succeeded,
+		output,
+		...(!succeeded
+			? {
+					error: `Sub-agent ${completed.agentId} ${completed.state}: ${run?.lastError ?? ''}\n${output}`,
+				}
+			: {}),
+		data: {
+			task_id: completed.taskId,
+			state: completed.state,
+			...(run?.status ? { status: run.status } : {}),
+			...(run?.stopReason ? { stop_reason: run.stopReason } : {}),
+		},
 	}
 }
 

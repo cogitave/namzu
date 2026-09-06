@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Update**: [Bounded file discovery](/sdk/file-discovery.md) — content search now enumerates incrementally with cancellation, a 15-second deadline, explicit traversal/result limits and retained partial matches, replacing eager sandbox directory listing.
+* **Update**: [Harness invariants](/sdk/harness-invariants.md), [Terminal design](/cli/terminal-design.md) and [Slash commands](/cli/slash-commands.md) — operator input releases delegation waits without cancelling children, completion delivery wakes for new messages, cancelled turns retain tool evidence, and child transcripts use a distinct framed screen with retained completed work and clear return navigation.
 * **Update**: [Slash commands](/cli/slash-commands.md) and [Command experience audit](/cli/command-experience-audit.md) — command-specific `/help` reports usage and availability without invoking the target, and identifies user-command source paths, scope and refusal problems.
 * **Update**: [Slash commands](/cli/slash-commands.md), [Memory](/cli/memory.md), [Terminal design](/cli/terminal-design.md) and [Command experience audit](/cli/command-experience-audit.md) — plain permission choices with advanced options, effective approval state in settings, explicit all-tool approval scope, and read-only memory inspection commands with explicit note creation.
 * **Creation**: [Bounded file discovery](/sdk/file-discovery.md) — explicit shallow and recursive glob scope, incremental local and remote sandbox enumeration, cancellation, traversal limits, path handoff fixes and adapter upgrade requirements.

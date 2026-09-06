@@ -188,6 +188,8 @@ export interface IterationContext {
 	 * after tool results and before the next turn.
 	 */
 	readonly inboundMessages?: () => readonly import('../../../../types/message/index.js').Message[]
+	/** Observes pending input without draining it; abort releases the waiter. */
+	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
 
 	/** Live project policy; separate from human inbound continuation. */
 	readonly projectInstructionContext?: ProjectInstructionContext

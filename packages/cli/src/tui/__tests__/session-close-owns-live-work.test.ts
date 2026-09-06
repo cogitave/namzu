@@ -110,8 +110,15 @@ vi.mock('../../integrations/mcp/servers.js', async (importOriginal) => {
 vi.mock('../../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async () => ({
 		gatewayForRun: async () => ({}) as never,
+		completionInboxForRun: async () => new (await import('@namzu/sdk')).CompletionInbox(),
 		releaseRun: async () => {},
 		agentTool: {
+			name: operations.subagentToolName,
+			description: 'stub',
+			inputSchema: { type: 'object', properties: {} },
+			execute: async () => ({ success: true, output: '' }),
+		},
+		waitForTaskTool: {
 			name: operations.subagentToolName,
 			description: 'stub',
 			inputSchema: { type: 'object', properties: {} },

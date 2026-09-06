@@ -11,7 +11,6 @@ import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 const MAX_PICKER_ROWS = 9
-const MAX_TRANSCRIPT_ROWS = 12
 const COCKPIT_FRAME_COLUMNS = 4
 const WIDE_COCKPIT_INNER_COLUMNS = 84
 
@@ -406,7 +405,7 @@ export interface AgentTranscriptProps {
 	readonly terminalColumns: number
 }
 
-/** Bounded observational child transcript. Deliberately contains no Ink Static. */
+/** Child screen; the parent keeps its Static owner and two footer rows mounted. */
 export function AgentTranscript({
 	agent,
 	tailOffset,
@@ -416,31 +415,49 @@ export function AgentTranscript({
 	const page = agentTranscriptPage(agent, tailOffset, terminalRows, terminalColumns)
 	const now = useLiveNow(agent.completedAt === undefined)
 	const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
+	const tailLabel = isTerminalStatus(agent.status) ? 'Latest' : 'Live'
+	const navigation =
+		terminalColumns >= 70
+			? `PgUp/PgDn · Home oldest · End ${tailLabel.toLowerCase()} · esc agents · q parent`
+			: terminalColumns >= 40
+				? '↑↓ scroll · esc agents · q parent'
+				: terminalColumns >= 30
+					? '↑↓ · esc list · q parent'
+					: 'esc list · q parent'
 
 	return (
 		<Box
 			flexDirection="column"
+			height={page.pageSize + 8}
+			flexShrink={0}
 			borderStyle="single"
-			borderColor={theme.border.default}
+			borderColor={theme.accent.assistant}
 			paddingX={1}
 		>
-			<Box justifyContent="space-between">
-				<Text color={theme.text.primary} bold wrap="truncate-end">
-					{statusGlyph(agent.status)} {oneLine(agent.description || agent.agentId)}
-				</Text>
-				<Text color={statusColor(agent.status)}>
-					{statusLabel(agent.status)} · {elapsed}
-				</Text>
+			<Box justifyContent="space-between" height={1} flexShrink={0}>
+				<Box flexGrow={1} minWidth={0}>
+					<Text color={theme.accent.assistant} bold wrap="truncate-end">
+						Subagent
+					</Text>
+				</Box>
+				<Box flexShrink={0}>
+					<Text color={statusColor(agent.status)} wrap="truncate-end">
+						{statusLabel(agent.status)}
+						{terminalColumns >= 40 ? ` · ${elapsed}` : ''}
+					</Text>
+				</Box>
 			</Box>
-			<Text color={theme.text.muted} wrap="truncate-end">
-				{oneLine(agent.agentId)} · {agent.taskId ?? agent.viewId}
+			<Text color={theme.text.primary} bold wrap="truncate-end">
+				{oneLine(agent.description || agent.agentId)}
 			</Text>
-			<Box flexDirection="column" paddingTop={1} height={page.pageSize}>
+			<Box flexDirection="column" marginTop={1} height={page.pageSize} flexShrink={0}>
 				{page.rows.length === 0 ? (
-					<Text color={theme.text.muted}>Waiting for this scheduler to expose child events…</Text>
+					<Text color={theme.text.muted} wrap="truncate-end">
+						Waiting for child output…
+					</Text>
 				) : (
 					page.rows.map((line) => (
-						<Box key={line.id}>
+						<Box key={line.id} height={1} flexShrink={0}>
 							<Box width={3} flexShrink={0}>
 								<Text
 									color={
@@ -457,12 +474,13 @@ export function AgentTranscript({
 					))
 				)}
 			</Box>
-			<Box justifyContent="space-between" paddingTop={1}>
-				<Text color={theme.text.muted}>
-					PgUp/PgDn scroll · Home oldest · End live · esc agents · q parent
-				</Text>
-				<Text color={theme.text.muted}>
+			<Box flexDirection="column" marginTop={1} height={2} flexShrink={0}>
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{page.last === page.total ? tailLabel : 'History'} ·{' '}
 					{page.total === 0 ? '0/0' : `${page.first}-${page.last}/${page.total}`}
+				</Text>
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{navigation}
 				</Text>
 			</Box>
 		</Box>
@@ -477,7 +495,8 @@ export function agentPickerPageSize(terminalRows: number, wide = true): number {
 }
 
 export function agentTranscriptPageSize(terminalRows: number): number {
-	return Math.max(3, Math.min(MAX_TRANSCRIPT_ROWS, terminalRows - 11))
+	// Two parent footer rows plus borders, heading, title, spacing and navigation.
+	return Math.max(1, terminalRows - 10)
 }
 
 export function maxAgentTranscriptTailOffset(

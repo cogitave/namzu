@@ -40,13 +40,38 @@ during enumeration. Known file paths can be read directly. The runtime prompt
 no longer requires a discovery call before every read. The tool call label
 includes both pattern and directory.
 
+## Content searches
+
+`grep` uses the same incremental enumerator before reading file contents.
+Its existing include shorthand remains recursive: `include: "*.ts"` means
+`**/*.ts`, and brace filters such as `*.{ts,js}` use the shared matcher.
+Choose a narrow `path` or a directory prefix in `include` to limit traversal.
+Wildcard dotfiles remain included in sandbox Grep searches and excluded on
+the host; explicitly named dotfiles remain searchable on either path.
+
+Grep examines at most 20,000 filesystem entries and has a 15-second execution
+deadline. It skips symlink entries, binary contents and files larger than
+5 MiB (5,242,880 bytes). Enumerator size metadata rejects known oversized files
+before a read; the content size is checked again after reading. This is a
+per-file limit, not a total byte budget. The result limit remains 100 matching
+lines by default and is configurable through `max_results`.
+
+Reaching `max_results` closes enumeration immediately and reports
+`data.truncated: true` with an incomplete-search notice: finding the requested
+number of matches does not establish that the search was exhaustive. Traversal
+errors, unreadable files and cancellation retain any matches already collected
+and report an incomplete failure. An empty partial result describes only the
+files searched. The signal reaches enumeration and host reads. A sandbox read
+already in progress may settle later because `Sandbox.readFile` has no signal
+parameter; its late contents are not searched, and iteration is closed.
+
 ## Sandbox enumeration
 
 `Sandbox.walkFiles(rootPath, options)` is an optional capability returning an
 async iterable of `SandboxFileEntry`. Entries contain absolute paths and byte
 sizes for regular files. The selected backend owns filesystem access; the tool
-does not substitute a host search for a sandbox search. Glob refuses a sandbox
-without this capability and identifies the required adapter update.
+does not substitute a host search for a sandbox search. Glob and Grep refuse a
+sandbox without this capability and identify the required adapter update.
 
 `SandboxWalkFilesOptions` contains:
 
@@ -89,9 +114,9 @@ async function firstFile(exec: SandboxFileWalkExec, root: string) {
 }
 ```
 
-`listFiles` remains the eager enumeration API. Its absolute-path contract also
-applies to `grep` and `ls`: those tools resolve returned paths once, rather than
-appending an absolute path to the search directory again.
+`listFiles` remains the eager enumeration API used by `ls`. The absolute-path
+contract applies to both enumeration APIs: filesystem tools resolve returned
+paths once, rather than appending an absolute path to the search directory again.
 
 ## Upgrade
 
@@ -101,6 +126,10 @@ included. Host glob results now contain regular files only, matching the
 sandbox behavior. The deadline falls from the generic 120 seconds to 15 seconds;
 narrow the directory or pattern for large inventories.
 
-Custom sandbox adapters must implement `walkFiles` to support builtin glob.
+Grep's execution deadline also falls from 120 seconds to 15 seconds. Its new
+traversal budget can stop a broad content search before every file is read;
+inspect `data.truncated` and narrow the directory or include filter when needed.
+
+Custom sandbox adapters must implement `walkFiles` to support builtin glob and grep.
 Use the matching SDK major with the sandbox package: its peer range now tracks
 the SDK that exports the bounded execution helper.

@@ -70,9 +70,17 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 vi.mock('../../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async () => ({
 		gatewayForRun: async () => ({}) as never,
+		completionInboxForRun: async () => new (await import('@namzu/sdk')).CompletionInbox(),
 		releaseRun: async () => {},
 		agentTool: {
 			name: 'Agent',
+			description: 'stub',
+			inputSchema: { type: 'object', properties: {} },
+			modelInputSchema: { type: 'object', properties: {}, additionalProperties: false },
+			execute: async () => ({ success: true, output: '' }),
+		},
+		waitForTaskTool: {
+			name: 'wait_for_task',
 			description: 'stub',
 			inputSchema: { type: 'object', properties: {} },
 			modelInputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -157,6 +165,7 @@ describe('computer use session reachability', () => {
 				'computer_use',
 				'search_tools',
 				'Agent',
+				'wait_for_task',
 			].sort(),
 		)
 		const computerUse = queryTools.find((t) => t.function.name === 'computer_use')?.function

@@ -44,6 +44,11 @@ cancelled call does not discard an earlier completed receipt.
 Cancellation also stops retry scheduling. An interrupted review's failure log
 uses the withheld diagnostic instead of the tool's unreviewed error text.
 
+The CLI drains a cancelled query through kernel settlement before publishing
+its conversation snapshot. It suppresses late display events but retains the
+actual tool calls, receipts and provider reasoning for the next turn. Visible
+prose alone is insufficient evidence of work already performed.
+
 Provider cancellation does not wait for an async iterator whose pending
 `next()` ignores the abort signal. This also holds with the idle watchdog
 disabled. The budget records known usage and unresolved spend before the
@@ -76,6 +81,28 @@ another session. Windows uses the existing process-tree termination helper;
 these Linux results do not verify its behavior on Windows or remote sandboxes.
 
 ## Delegation accounting
+
+Interactive delegation can release its wait when operator input arrives. The
+tool returns a receipt naming the running task; its child stays owned by the
+same parent run. The parent receives input after every outstanding tool call
+has a matching result, preserving the provider's tool-call ordering. Other
+tools continue to observe their normal completion and cancellation contracts.
+
+The CLI and query loop share one `CompletionInbox` per parent run. Results
+delivered inline are claimed; results from released waits arrive once as
+completion notifications. A finishing parent can wait for outstanding children
+without blocking new operator input. Cancellation still stops parent-owned
+children. A released tool wait does not cancel its child or mark it completed.
+The CLI's `wait_for_task` reads the complete result of a task owned by the same
+parent run, including text truncated in notifications; it does not launch a
+replacement. Budget stops remain visible beside any retained partial output.
+
+`query()` accepts an optional `waitForInbound(signal)` callback alongside
+`inboundMessages()`. The callback observes arrival without consuming messages:
+it resolves immediately when unconsumed input exists and releases listeners
+when its signal aborts. The normal message callback remains the only consumer.
+`CompletionInbox.waitForArrival(timeoutMs, signal?)` likewise releases its wait
+on abort while retaining task ownership and undelivered results.
 
 Let the parent's remaining tokens be `R` and a child's allocation be `A`.
 Admission reserves atomically, leaving `R - A`. A positive smaller builder cap

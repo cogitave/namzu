@@ -321,6 +321,34 @@ describe('a launch nobody is waiting for holds the run open', () => {
 		await inbox.waitForArrival(600_000)
 	})
 
+	it('cancels one arrival wait without dropping work or consuming its eventual result', async () => {
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		inbox.expect('tsk_1' as TaskId)
+		const caller = new AbortController()
+		const removeListener = vi.spyOn(caller.signal, 'removeEventListener')
+		const waited = inbox.waitForArrival(600_000, caller.signal)
+		caller.abort()
+		await waited
+		expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function))
+		expect(inbox.hasPendingWork).toBe(true)
+		expect(inbox.drain()).toEqual([])
+		const next = inbox.waitForArrival(600_000)
+		settle(handleFor('tsk_1', 'late findings'))
+		await next
+		expect(inbox.drain().map((handle) => handle.result?.result)).toEqual(['late findings'])
+		inbox.close()
+	})
+
+	it('does not install a wait after cancellation was already requested', async () => {
+		const inbox = new CompletionInbox()
+		inbox.expect('tsk_pending' as TaskId)
+		await inbox.waitForArrival(600_000, AbortSignal.abort())
+		expect(inbox.hasPendingWork).toBe(true)
+		inbox.close()
+	})
+
 	it('gives up at the deadline rather than holding a run forever', async () => {
 		// The bound is the point: a worker that never finishes must not keep
 		// the run open indefinitely.
@@ -347,6 +375,30 @@ describe('a launch nobody is waiting for holds the run open', () => {
 })
 
 describe('the notification says which task and what it produced', () => {
+	it('reports a budget stop beside the retained partial output', () => {
+		const task = handleFor('tsk_partial', 'Partial findings remain useful.')
+		if (!task.result) throw new Error('Expected a task result')
+		task.result.stopReason = 'token_budget'
+		const text = formatCompletionNotification([task])
+		expect(text).toContain('stop_reason: token_budget')
+		expect(text).toContain('Partial findings remain useful.')
+	})
+
+	it('retains visible partial prose when a hard stop produced no final answer', () => {
+		const task = handleFor('tsk_partial', '')
+		if (!task.result) throw new Error('Expected a task result')
+		task.result.stopReason = 'token_budget'
+		task.result.messages = [
+			{ role: 'assistant', content: 'Observed one real finding.', timestamp: 1 },
+			{ role: 'assistant', content: '', timestamp: 2 },
+			{ role: 'tool', toolCallId: 'call_partial', content: 'TOOL PAYLOAD', timestamp: 3 },
+		]
+		const text = formatCompletionNotification([task])
+		expect(text).toContain('Partial output before token_budget:')
+		expect(text).toContain('Observed one real finding.')
+		expect(text).not.toContain('TOOL PAYLOAD')
+	})
+
 	it('carries the id, the agent, the state and the output', () => {
 		// All four matter. Without the id the supervisor cannot say which of
 		// five workers this was; without the output it has to make the extra

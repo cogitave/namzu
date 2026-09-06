@@ -671,6 +671,13 @@ export interface QueryParams {
 	 * started. See `BaseAgentConfig.inboundMessages` for what it closes.
 	 */
 	inboundMessages?: () => import('../../types/message/index.js').Message[]
+	/**
+	 * Wake a background-task hold when operator input is available, without draining it.
+	 * Resolve immediately if input is already pending. Otherwise wait for its arrival;
+	 * the supplied signal ends the wait and must release any listeners. Messages are
+	 * still consumed only through `inboundMessages` at a provider-valid boundary.
+	 */
+	waitForInbound?: (signal: AbortSignal) => Promise<void>
 
 	/**
 	 * Live project policy for this run. Unlike `inboundMessages`, snapshot
@@ -1963,6 +1970,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 		compactionConfig,
 		...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
+		...(params.waitForInbound ? { waitForInbound: params.waitForInbound } : {}),
 		...(params.projectInstructionContext
 			? { projectInstructionContext: params.projectInstructionContext }
 			: {}),

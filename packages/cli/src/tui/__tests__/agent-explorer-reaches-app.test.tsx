@@ -211,6 +211,7 @@ function agent(
 ): SubagentActivity {
 	return {
 		viewId: input.viewId,
+		...(input.taskId ? { taskId: input.taskId } : {}),
 		agentId: input.agentId ?? 'general-purpose',
 		description: input.description ?? input.viewId,
 		prompt: input.prompt ?? `prompt for ${input.viewId}`,
@@ -985,7 +986,105 @@ describe('Ctrl+T', () => {
 		)
 	})
 
-	it('returns to the parent once the observed cohort settles and publishes it once', async () => {
+	it('shows a live child screen, pages its full tool output and restores the parent draft', async () => {
+		const child = agent({
+			viewId: 'child-screen-id',
+			description: 'Inspect project sources',
+			prompt: 'CHILD_TASK_START',
+			transcript: [
+				{
+					id: 'read-output',
+					kind: 'tool',
+					status: 'completed',
+					text: 'Read(project.ts)',
+					detail: Array.from(
+						{ length: 40 },
+						(_, index) => `TOOL_EVIDENCE_${String(index + 1).padStart(2, '0')}`,
+					).join('\n'),
+				},
+			],
+		})
+		activity.set([child])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await submit(screen, 'start parent')
+		screen.press('PARENT_DRAFT_RESTORED')
+		screen.press('\x14')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('TOOL_EVIDENCE_40'),
+			'child transcript missing',
+		)
+		let frame = screen.viewport().join('\n')
+		expect(frame).toContain('Subagent')
+		expect(frame).toContain('Inspect project sources')
+		expect(frame).toContain('q parent')
+		expect(frame).not.toContain('PARENT_DRAFT_RESTORED')
+		expect(frame).not.toContain('MESSAGE')
+		expect(frame).not.toContain('child-screen-id')
+		expect(frame).not.toContain('CHILD_TASK_START')
+
+		activity.set([
+			{
+				...child,
+				transcript: [
+					...child.transcript,
+					{ id: 'live-answer', kind: 'assistant', text: 'CHILD_LIVE_UPDATE' },
+				],
+			},
+		])
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('CHILD_LIVE_UPDATE'),
+			'child output did not update while observed',
+		)
+		screen.press('\x1b[H')
+		await screen.waitForRender()
+		frame = screen.viewport().join('\n')
+		expect(frame).toContain('CHILD_TASK_START')
+		expect(frame).toContain('Read(project.ts)')
+		expect(frame).toContain('History')
+		const seen = new Set(frame.match(/TOOL_EVIDENCE_\d{2}/g) ?? [])
+		for (let page = 0; page < 4; page += 1) {
+			screen.press('\x1b[6~')
+			await screen.waitForRender()
+			frame = screen.viewport().join('\n')
+			for (const line of frame.match(/TOOL_EVIDENCE_\d{2}/g) ?? []) seen.add(line)
+		}
+		expect(seen).toEqual(
+			new Set(
+				Array.from(
+					{ length: 40 },
+					(_, index) => `TOOL_EVIDENCE_${String(index + 1).padStart(2, '0')}`,
+				),
+			),
+		)
+		expect(frame).toContain('CHILD_LIVE_UPDATE')
+		expect(frame).toContain('Live')
+		expect(screen.bufferType()).toBe('normal')
+
+		screen.press('\x1b')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Phases'),
+			'escape did not return to the agent list',
+		)
+		screen.press('\r')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('CHILD_LIVE_UPDATE')
+		screen.press('q')
+		await screen.waitForRender()
+		frame = screen.viewport().join('\n')
+		expect(frame).toContain('PARENT_DRAFT_RESTORED')
+		expect(frame).toContain('MESSAGE')
+		expect(frame).not.toContain('CHILD_LIVE_UPDATE')
+		expect(painted(screen)).not.toContain('parent finished')
+	})
+
+	it('keeps a completed child open, publishes the parent once on return and can reopen its history', async () => {
 		const child = agent({
 			viewId: 'agent-child',
 			description: 'Child run',
@@ -1009,6 +1108,7 @@ describe('Ctrl+T', () => {
 			'child transcript missing',
 		)
 
+		expect(screen.viewport().join('\n')).toContain('Live ·')
 		releaseParent()
 		activity.set([
 			{
@@ -1016,15 +1116,37 @@ describe('Ctrl+T', () => {
 				status: 'completed',
 				completedAt: 30,
 				latestActivity: 'Completed',
+				transcript: [
+					...child.transcript,
+					{ id: 'child-final', kind: 'assistant', text: 'child final answer' },
+				],
 			},
 		])
 		await waitUntil(
 			screen,
+			() => screen.viewport().join('\n').includes('child final answer'),
+			'child completion closed its transcript',
+		)
+		expect(screen.viewport().join('\n')).toContain('Completed')
+		expect(screen.viewport().join('\n')).toContain('Latest ·')
+		expect(screen.viewport().join('\n')).not.toContain('Live ·')
+		expect(screen.viewport().join('\n')).toContain('Child run')
+		expect(screen.viewport().join('\n')).not.toContain('parent finished')
+		screen.press('q')
+		await waitUntil(
+			screen,
 			() => painted(screen).includes('parent finished'),
-			'parent result missing after the child cohort settled',
+			'parent result missing after returning from the child',
 		)
 		expect(screen.viewport().join('\n')).not.toContain('Child run')
 		expect(painted(screen).match(/parent finished/g)).toHaveLength(1)
+
+		await submit(screen, '/agents')
+		expect(screen.viewport().join('\n')).toContain('Child run')
+		screen.press('\r')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('child final answer')
+		expect(screen.viewport().join('\n')).toContain('Completed')
 	})
 })
 
@@ -1073,9 +1195,7 @@ describe('agent explorer projection', () => {
 		const agents = Array.from({ length: 6 }, (_, index) =>
 			agent({ viewId: `agent-${index}`, description: `Worker ${index}` }),
 		)
-		const panel = render(
-			<AgentTaskPanel agents={agents} terminalRows={15} terminalColumns={90} />,
-		)
+		const panel = render(<AgentTaskPanel agents={agents} terminalRows={15} terminalColumns={90} />)
 		try {
 			expect(panel.lastFrame()).toContain('Worker 0')
 			expect(panel.lastFrame()).not.toContain('Worker 1')
@@ -1181,6 +1301,51 @@ describe('agent explorer projection', () => {
 			cockpit.unmount()
 		}
 	})
+
+	it.each([
+		{ cols: 80, rows: 40, first: 11 },
+		{ cols: 40, rows: 14, first: 37 },
+		{ cols: 30, rows: 14, first: 37 },
+	])(
+		'gives a child its own bounded transcript screen at $cols×$rows',
+		async ({ cols, rows, first }) => {
+			const child = agent({
+				viewId: 'internal-view-id',
+				taskId: 'internal-task-id',
+				description: 'Inspect sources',
+				prompt: 'Read the project',
+				transcript: [
+					{
+						id: 'answer',
+						kind: 'assistant',
+						text: Array.from({ length: 40 }, (_, index) => `CHILD_${index + 1}`).join('\n'),
+					},
+				],
+			})
+			const screen = await renderToScreen(
+				<AgentTranscript agent={child} tailOffset={0} terminalRows={rows} terminalColumns={cols} />,
+				{ cols, rows },
+			)
+			mounted = screen
+			const viewport = screen.viewport()
+			const frame = viewport.join('\n')
+			expect(frame).toContain('Subagent')
+			expect(frame).toContain('Inspect sources')
+			expect(frame).toContain('Working')
+			for (let line = first; line <= 40; line += 1) {
+				expect(frame).toContain(`CHILD_${line}`)
+			}
+			expect(frame).toContain('Live')
+			expect(frame).toContain('q parent')
+			expect(frame).not.toContain('internal-view-id')
+			expect(frame).not.toContain('internal-task-id')
+			const top = viewport.findIndex((line) => line.startsWith('┌'))
+			const bottom = viewport.findIndex((line) => line.startsWith('└'))
+			expect(top).toBeGreaterThanOrEqual(0)
+			expect(bottom - top + 1).toBe(rows - 2)
+			expect(screen.bufferType()).toBe('normal')
+		},
+	)
 
 	it('ticks elapsed time even when the child emits no events', async () => {
 		vi.useFakeTimers()
