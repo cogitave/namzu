@@ -159,6 +159,7 @@ function harness(opts: {
 		emitEvent: async () => {},
 		drainPending: function* (): Generator<RunEvent> {},
 		checkpointMgr: {
+			setLatestUserMessageSource: () => {},
 			create: async () =>
 				({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as unknown as IterationCheckpoint,
 		} as unknown as CheckpointManager,

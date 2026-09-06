@@ -86,10 +86,9 @@ export interface CompactionCliConfig {
 	 */
 	readonly contextWindowTokens?: number
 	/**
-	 * Write what each run learned — its decisions, discoveries and failures —
-	 * to this project's memory store when the run ends, as one entry tagged
-	 * `learning` that `search_memory` finds in a later session. Off by
-	 * default: a memory that outlives the run is the operator's to want.
+	 * Use consolidation (one `learning` entry) instead of the default
+	 * extracted-claim promoter when the run ends. Both write to the project's
+	 * memory store. This selects the writer; `memory.recall` controls retrieval.
 	 */
 	readonly consolidate?: boolean
 }
@@ -98,6 +97,11 @@ export interface CompactionCliConfig {
 export interface WebConfig {
 	/** Mount `web_fetch` over the guarded provider. Default `false`. */
 	readonly fetch?: boolean
+}
+
+export interface MemoryCliConfig {
+	/** Recall bounded active project records before each model step. Default true. */
+	readonly recall?: boolean
 }
 
 /**
@@ -224,6 +228,8 @@ export interface NamzuCliConfig {
 	 * shell. Absent means the kernel's `salience` strategy.
 	 */
 	readonly compaction?: CompactionCliConfig
+	/** Automatic project-memory recall; explicit curated notes are separate. */
+	readonly memory?: MemoryCliConfig
 	/**
 	 * Observability this CLI turns on for itself.
 	 *

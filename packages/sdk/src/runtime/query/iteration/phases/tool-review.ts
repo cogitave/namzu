@@ -146,7 +146,11 @@ export async function* runToolReview(
 		// user message wedged between them is rejected by the provider. Same
 		// delivery a denial already uses, without the refusal.
 		for (const msg of attachRepeatNotice(
-			attachNotice(attachSteering(batch.messages, ctx.steering), ctx.jobNotices, formatJobNote),
+			attachNotice(
+				attachSteering(batch.messages, ctx.steering, ctx.onSteeringDelivered),
+				ctx.jobNotices,
+				formatJobNote,
+			),
 			notices,
 		)) {
 			ctx.runMgr.pushMessage(msg)

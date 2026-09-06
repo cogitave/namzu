@@ -14,19 +14,26 @@ function defineSearchMemoryTool(search: SearchMemory): ToolDefinition {
 	return defineTool({
 		name: 'search_memory',
 		description:
-			'Search stored memories by query, tags, or status. Returns titles and summaries only — use read_memory for full content.',
+			'Search active stored memories by relevant words or tags. The built-in store ranks matches in titles, summaries and full content. Returns titles and summaries; use read_memory for evidence. Set status to archived to inspect obsolete records.',
 		inputSchema: z.object({
-			query: z.string().optional().describe('Search query to match against titles and summaries'),
+			query: z.string().optional().describe('Relevant words or identifiers to search'),
 			tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),
-			limit: z.number().positive().default(10).describe('Maximum results to return'),
+			status: z.enum(['active', 'archived']).default('active'),
+			limit: z
+				.number()
+				.int()
+				.min(1)
+				.max(50)
+				.default(10)
+				.describe('Maximum results to return (1–50)'),
 		}),
 		category: 'analysis',
 		permissions: [],
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
-		async execute({ query, tags, limit }) {
-			const result = await search({ query, tags, limit })
+		async execute({ query, tags, status, limit }) {
+			const result = await search({ query, tags, status, limit })
 
 			if (result.entries.length === 0) {
 				return {

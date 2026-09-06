@@ -8,7 +8,7 @@ import { chmod, mkdtemp, readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { DiskMemoryStore } from '../disk.js'
@@ -16,8 +16,17 @@ import { DiskMemoryStore } from '../disk.js'
 const roots: string[] = []
 
 afterEach(async () => {
+	vi.restoreAllMocks()
 	await removeTempDirs(roots.splice(0))
 })
+
+function failNextIndexWrite(store: DiskMemoryStore): void {
+	// Fail the commit after lock acquisition and content IO. Making the whole
+	// directory read-only now refuses lock acquisition before the transaction
+	// starts, which no longer exercises index-publication failure recovery.
+	const records = Reflect.get(store, 'indexRecords') as { write(): Promise<void> }
+	vi.spyOn(records, 'write').mockRejectedValueOnce(new Error('injected index publication failure'))
+}
 
 async function root(): Promise<string> {
 	const path = await mkdtemp(join(tmpdir(), 'namzu-memory-coordinate-'))
@@ -100,14 +109,10 @@ describe('DiskMemoryStore same-process coordination', () => {
 			const contentDir = join(memoryDir, 'content')
 			const indexPath = join(memoryDir, 'index.json')
 
-			await chmod(memoryDir, 0o555)
-			try {
-				await expect(
-					store.create({ title: 'blocked', summary: 'blocked', content: 'written first' }),
-				).rejects.toThrow()
-			} finally {
-				await chmod(memoryDir, 0o755)
-			}
+			failNextIndexWrite(store)
+			await expect(
+				store.create({ title: 'blocked', summary: 'blocked', content: 'written first' }),
+			).rejects.toThrow('injected index publication failure')
 
 			expect(store.getIndex().count()).toBe(0)
 			await expect(readFile(indexPath, 'utf-8')).rejects.toMatchObject({ code: 'ENOENT' })
@@ -161,14 +166,10 @@ describe('DiskMemoryStore same-process coordination', () => {
 			const indexPath = join(memoryDir, 'index.json')
 			const indexBytes = await readFile(indexPath, 'utf-8')
 
-			await chmod(memoryDir, 0o555)
-			try {
-				await expect(
-					store.update(entry.id, { title: 'must not become live', content: 'valid newer body' }),
-				).rejects.toThrow()
-			} finally {
-				await chmod(memoryDir, 0o755)
-			}
+			failNextIndexWrite(store)
+			await expect(
+				store.update(entry.id, { title: 'must not become live', content: 'valid newer body' }),
+			).rejects.toThrow('injected index publication failure')
 
 			expect(store.getIndex().getEntry(entry.id)?.title).toBe('original')
 			expect(await readFile(indexPath, 'utf-8')).toBe(indexBytes)
@@ -225,12 +226,8 @@ describe('DiskMemoryStore same-process coordination', () => {
 			const indexPath = join(memoryDir, 'index.json')
 			const indexBytes = await readFile(indexPath, 'utf-8')
 
-			await chmod(memoryDir, 0o555)
-			try {
-				await expect(store.delete(entry.id)).rejects.toThrow()
-			} finally {
-				await chmod(memoryDir, 0o755)
-			}
+			failNextIndexWrite(store)
+			await expect(store.delete(entry.id)).rejects.toThrow('injected index publication failure')
 
 			expect(store.getIndex().getEntry(entry.id)?.id).toBe(entry.id)
 			expect(await readFile(indexPath, 'utf-8')).toBe(indexBytes)

@@ -153,6 +153,7 @@ describe('computer use session reachability', () => {
 		expect([...queryToolNames].sort()).toEqual(
 			[
 				'bash',
+				'delete_memory',
 				'edit',
 				'glob',
 				'grep',
@@ -165,6 +166,7 @@ describe('computer use session reachability', () => {
 				'computer_use',
 				'search_tools',
 				'Agent',
+				'update_memory',
 				'wait_for_task',
 			].sort(),
 		)

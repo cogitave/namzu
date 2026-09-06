@@ -27,3 +27,5 @@ export type { LimitCheckerState, LimitCheckResult } from './LimitChecker.js'
 
 export { RUN_MEMORY_TAG, createMemoryPromoter } from './memory-promoter.js'
 export type { MemoryPromoterOptions } from './memory-promoter.js'
+export { createMemoryRecallStep } from './memory-recall.js'
+export type { MemoryRecallOptions } from './memory-recall.js'

@@ -38,7 +38,11 @@ function readPackageVersion(): string {
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
 	const first = detected[0]
 	return first
-		? { version: 3, providers: [{ id: first.entry.id }], subagents: { active: [] } }
+		? {
+				version: 3,
+				providers: [{ id: first.entry.id }],
+				subagents: { active: [] },
+			}
 		: null
 }
 
@@ -216,6 +220,7 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.web ? { web: projectCtx.config.web } : {}),
 					...(projectCtx.config.hooks ? { hooks: projectCtx.config.hooks } : {}),
 					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
+					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
 					onRunEvent: (event) => routeOwner.current?.route?.(event),
 				})

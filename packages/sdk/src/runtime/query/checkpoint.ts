@@ -10,7 +10,7 @@ import type {
 	IterationCheckpoint,
 	PendingDecision,
 } from '../../types/hitl/index.js'
-import type { AssistantMessage } from '../../types/message/index.js'
+import type { AssistantMessage, UserMessage } from '../../types/message/index.js'
 import type {
 	CheckpointRunScope,
 	CheckpointStore,
@@ -20,7 +20,53 @@ import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { CheckpointListEntry } from '../../types/run/replay.js'
 import { ZERO_COST } from '../../utils/cost.js'
 import { buildToolResultHashes } from '../../utils/hash.js'
-import { asCheckpointId, asEmergencySaveId, generateCheckpointId } from '../../utils/id.js'
+import {
+	asCheckpointId,
+	asEmergencySaveId,
+	asGoalId,
+	generateCheckpointId,
+} from '../../utils/id.js'
+
+/** Keep intent text/provenance without copying attachment payloads into a second slot. */
+function snapshotUserIntent(value: unknown): UserMessage {
+	const invalid = (): never => {
+		throw new Error('Checkpoint latestUserMessage has invalid operator intent or provenance')
+	}
+	if (!value || typeof value !== 'object') return invalid()
+	const message = value as Record<string, unknown>
+	if (message.role !== 'user' || typeof message.content !== 'string') return invalid()
+	const result: UserMessage = { role: 'user', content: message.content }
+	if (message.timestamp !== undefined) {
+		if (typeof message.timestamp !== 'number' || !Number.isFinite(message.timestamp))
+			return invalid()
+		result.timestamp = message.timestamp
+	}
+	if (message.source === undefined) return result
+	if (!message.source || typeof message.source !== 'object') return invalid()
+	const source = message.source as Record<string, unknown>
+	if (source.type === 'runtime-context' && source.kind === 'steering') {
+		result.source = { type: 'runtime-context', kind: 'steering' }
+		return result
+	}
+	if (
+		source.type !== 'goal-round' ||
+		typeof source.goalId !== 'string' ||
+		typeof source.objective !== 'string' ||
+		![source.goalRevision, source.round, source.maxGoalRounds].every(
+			(value) => typeof value === 'number' && Number.isInteger(value) && value > 0,
+		)
+	)
+		return invalid()
+	result.source = {
+		type: 'goal-round',
+		goalId: asGoalId(source.goalId),
+		objective: source.objective,
+		goalRevision: source.goalRevision as number,
+		round: source.round as number,
+		maxGoalRounds: source.maxGoalRounds as number,
+	}
+	return result
+}
 
 /**
  * Projection from a full checkpoint payload to the public listing entry.
@@ -166,6 +212,8 @@ export class CheckpointManager {
 	 * activity, and the record of everything before the resume is gone.
 	 */
 	private workingStateSource?: () => WorkingStateSnapshot | undefined
+	private latestUserMessageSource?: () => UserMessage | undefined
+	private restoredUserMessage?: UserMessage
 
 	/**
 	 * The most recent checkpoint this manager wrote, if any.
@@ -237,6 +285,15 @@ export class CheckpointManager {
 		this.workingStateSource = source
 	}
 
+	/** One current intent snapshot, including checkpoints created by tool/HITL paths. */
+	setLatestUserMessageSource(source: () => UserMessage | undefined): void {
+		this.latestUserMessageSource = source
+	}
+
+	get restoredLatestUserMessage(): UserMessage | undefined {
+		return this.restoredUserMessage
+	}
+
 	/**
 	 * The run's root span, so every checkpoint records the trace it was
 	 * taken inside and a resume can join it rather than starting a second,
@@ -260,6 +317,7 @@ export class CheckpointManager {
 		// fact, and naming it after the earlier one would make it wrong in
 		// exactly the way that is hard to notice.
 		this.runCreatedAt ??= runMgr.getSession().startedAt ?? Date.now()
+		const latestUserMessage = this.latestUserMessageSource?.() ?? this.restoredUserMessage
 
 		const checkpoint: IterationCheckpoint = {
 			id: generateCheckpointId(),
@@ -267,6 +325,7 @@ export class CheckpointManager {
 			runCreatedAt: this.runCreatedAt,
 			iteration,
 			messages: [...runMgr.messages],
+			...(latestUserMessage ? { latestUserMessage: snapshotUserIntent(latestUserMessage) } : {}),
 			tokenUsage: { ...runMgr.tokenUsage },
 			budgetBinding: runMgr.budget?.binding,
 			budgetAccountId: runMgr.budget?.accountId,
@@ -457,6 +516,10 @@ export class CheckpointManager {
 		// its origin's age. A guard that no input can trip would have read as
 		// protection and been none.
 		this.runCreatedAt ??= checkpoint.runCreatedAt
+		this.restoredUserMessage =
+			checkpoint.latestUserMessage === undefined
+				? undefined
+				: snapshotUserIntent(checkpoint.latestUserMessage)
 
 		return checkpoint
 	}

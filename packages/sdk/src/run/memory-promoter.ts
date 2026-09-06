@@ -1,41 +1,10 @@
 /**
- * The default {@link PromoteMemory}: write what a run learned into a
- * {@link MemoryStore}, or write nothing at all.
- *
- * `promoteMemory` is called once at settle with the compaction extractor's
- * already-structured output — decisions, discoveries, user requirements,
- * failures, environment facts — and **nothing shipped supplied the hook**.
- * So the structure the compaction pass had spent tokens producing was
- * serialized into one system message and dropped on the floor when the run
- * ended, exactly as its own module comment says. This is the supplier, and
- * it is mostly a filter: the hard part — extracting facts from a transcript
- * — already happened.
- *
- * ## The filter, which is the only decision here
- *
- * **A run that learned nothing must leave nothing.** Not an empty record,
- * not a record whose body says "no decisions" — nothing. A promoter that
- * wrote a row per run would fill the store with the runs least worth
- * remembering, and `search_memory` would then return them: the model reads
- * that store on later runs, so noise here is not merely wasted disk, it is
- * context spent on a run that did nothing.
- *
- * What counts as having learned something is the five KNOWLEDGE categories —
- * decisions, discoveries, user requirements, failures, environment. Not
- * `task`, which every run has because it is the prompt restated. Not
- * `files`, which every run that opened anything has, and which says what was
- * touched rather than what was learned. A run whose only trace is "it read
- * six files" is the exact record this filter exists to refuse.
- *
- * ## What it does NOT do
- *
- * Deduplicate against what is already stored, merge with a previous run's
- * record, or expire anything. Each is a policy with real trade-offs and a
- * host that wants one owns it — `promoteMemory` is a callback precisely so
- * that the runtime does not decide this. This is the obvious default, not
- * the only possible one.
+ * Select useful extracted claims for durable recall. Exact repeated claim sets
+ * are suppressed when already stored; archived claims are not reactivated.
+ * This deterministic filter does not verify truth or reconcile paraphrases.
  */
 
+import { createHash } from 'node:crypto'
 import type { MemoryStore } from '../types/memory/index.js'
 import type { PromoteMemory, RunMemoryCandidate } from '../types/run/memory-promotion.js'
 
@@ -85,15 +54,18 @@ function knowledge(
 ): readonly (readonly [string, readonly string[]])[] {
 	const out: (readonly [string, readonly string[]])[] = []
 	for (const [key, heading] of KNOWLEDGE) {
-		const items = candidate[key] as readonly string[]
+		const items = [
+			...new Set((candidate[key] as readonly string[]).map((item) => item.trim()).filter(Boolean)),
+		]
 		if (items.length > 0) out.push([heading, items.slice(0, cap)])
 	}
 	return out
 }
 
-/** A one-line summary naming what kind of knowledge the record holds. */
+/** Carry actual claims into search results, with their category attribution. */
 function summarize(sections: readonly (readonly [string, readonly string[]])[]): string {
-	return sections.map(([heading, items]) => `${heading.toLowerCase()} (${items.length})`).join(', ')
+	const text = sections.map(([heading, items]) => `${heading}: ${items[0]}`).join('; ')
+	return text.length <= 600 ? text : `${text.slice(0, 599).replace(/[\uD800-\uDBFF]$/, '')}…`
 }
 
 function render(
@@ -131,6 +103,8 @@ function render(
  */
 export function createMemoryPromoter(options: MemoryPromoterOptions): PromoteMemory {
 	const cap = options.maxPerCategory ?? 20
+	if (!Number.isSafeInteger(cap) || cap < 1)
+		throw new Error('maxPerCategory must be a positive integer')
 	const tags = [RUN_MEMORY_TAG, ...(options.tags ?? [])]
 
 	return async (candidate: RunMemoryCandidate): Promise<void> => {
@@ -139,17 +113,35 @@ export function createMemoryPromoter(options: MemoryPromoterOptions): PromoteMem
 		// of rows describing runs that discovered nothing is a store whose
 		// search results are mostly noise, and the model reads that store.
 		if (sections.length === 0) return
+		const digest = createHash('sha256').update(JSON.stringify(sections)).digest('hex')
+		const knowledgeTag = `knowledge:${digest}`
+		// A prior exact claim, including one deliberately archived, need not be
+		// saved again. This is not a cross-process uniqueness guarantee: the
+		// store's individual operations are atomic, not this read/create pair.
+		const existing = await options.store.list({
+			tags: [...tags, knowledgeTag],
+		})
+		for (const entry of existing.entries) {
+			const full = await options.store.get(entry.id)
+			if (full?.metadata?.source === RUN_MEMORY_TAG && full.metadata.knowledgeDigest === digest)
+				return
+		}
 
 		await options.store.create({
 			title: candidate.task.trim() || `Run ${candidate.runId}`,
 			summary: summarize(sections),
 			content: render(candidate, sections),
-			tags,
+			tags: [...tags, knowledgeTag],
 			format: 'markdown',
 			// The run id, so a record can be traced back to the run that formed
 			// it. Evidence rather than decoration: without it a surprising
 			// memory cannot be checked against what actually happened.
-			metadata: { runId: candidate.runId, source: RUN_MEMORY_TAG },
+			metadata: {
+				runId: candidate.runId,
+				source: RUN_MEMORY_TAG,
+				knowledgeDigest: digest,
+				verification: 'unverified',
+			},
 		})
 	}
 }

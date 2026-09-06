@@ -59,6 +59,7 @@ class CountingProvider extends MockLLMProvider {
 async function run(opts: {
 	readonly beforeStep?: BeforeStep
 	readonly maxIterations?: number
+	readonly signal?: AbortSignal
 }): Promise<{
 	provider: CountingProvider
 	run: Awaited<ReturnType<typeof drainQuery>>
@@ -88,6 +89,7 @@ async function run(opts: {
 			projectId: 'e3862781-64d1-4d67-85d0-5e165052394b' as ProjectId,
 			tenantId: '8b7a77fa-b479-4a6d-9ad4-9e045999eba1' as TenantId,
 			...(opts.beforeStep ? { beforeStep: opts.beforeStep } : {}),
+			...(opts.signal ? { signal: opts.signal } : {}),
 		},
 		(event: RunEvent) => {
 			events.push(event)
@@ -133,6 +135,39 @@ describe('a host can refuse the next model call', () => {
 		expect(settled.lastError).toContain('the rate-limit service is down')
 		expect(provider.calls).toBe(0)
 	})
+
+	it.each(['throw', 'refuse', 'continue'] as const)(
+		'keeps cancellation when a pending hook responds with %s',
+		async (response) => {
+			const controller = new AbortController()
+			const {
+				provider,
+				run: settled,
+				events,
+			} = await run({
+				signal: controller.signal,
+				beforeStep: async ({ signal }) => {
+					if (!signal) throw new Error('The run signal was not supplied')
+					const aborted = new Promise<void>((resolve) => {
+						signal.addEventListener('abort', () => resolve(), { once: true })
+					})
+					controller.abort(new Error('Operator stopped the run'))
+					await aborted
+					if (response === 'throw') signal.throwIfAborted()
+					return response === 'refuse' ? { reason: 'stale policy reply' } : undefined
+				},
+			})
+			expect(settled.status).toBe('cancelled')
+			expect(settled.stopReason).toBe('cancelled')
+			expect(settled.lastError).toBeUndefined()
+			expect(provider.calls).toBe(0)
+			expect(provider.requests).toHaveLength(0)
+			expect(events.some((event) => event.type === 'iteration_started')).toBe(false)
+			expect(events.find((event) => event.type === 'run_completed')).toMatchObject({
+				stopReason: 'cancelled',
+			})
+		},
+	)
 
 	it('leaves prepareStep failing OPEN, so the two polarities are pinned together', async () => {
 		// Asserted in the same file as the case above, because the value is

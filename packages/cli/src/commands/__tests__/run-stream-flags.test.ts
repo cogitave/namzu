@@ -6,6 +6,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { openSessions } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
+import { createAgentSession } from '../../tui/agent.js'
 import { parseRunFlags } from '../run-flags.js'
 import { historyCommand, runStreamCommand, skillsJSONCommand } from '../run-stream.js'
 import type { CommandContext } from '../types.js'
@@ -354,4 +355,20 @@ describe('run-stream honours the permission surface, not just parses it', () => 
 			.map((e) => e.message ?? '')
 		expect(messages.some((m) => m.includes('permissions.bash."git push*"'))).toBe(true)
 	})
+})
+
+it('forwards the automatic memory recall opt-out into the streaming session', async () => {
+	const { restore } = capture()
+	try {
+		const code = await runStreamCommand.handler({
+			rawArgs: ['hello'],
+			ctx: { ...ctx, config: { memory: { recall: false } } },
+		} as never)
+		expect(code).toBe(0)
+		expect(vi.mocked(createAgentSession).mock.lastCall?.[2]).toMatchObject({
+			memory: { recall: false },
+		})
+	} finally {
+		restore()
+	}
 })

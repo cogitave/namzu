@@ -1,6 +1,7 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { resolveContextWindow } from '../../../compaction/context-window.js'
 import { extractFromAssistantMessage } from '../../../compaction/extractor.js'
+import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
 import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
@@ -24,6 +25,7 @@ import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
 import {
 	type Message,
+	type UserMessage,
 	createAssistantMessage,
 	createRuntimeContextMessage,
 	createSystemMessage,
@@ -33,6 +35,7 @@ import { classifyProviderError } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { AnswerReview } from '../../../types/run/answer-review.js'
 import type {
+	PrepareStepContext,
 	PrepareStepResult,
 	RunEvent,
 	StepFailure,
@@ -168,9 +171,17 @@ export class IterationOrchestrator {
 	 * sets it.
 	 */
 	private stopDeferredForOutstandingWork = false
+	/** One current input, independent of the compactable history array. */
+	private latestUserMessage: UserMessage | undefined
 
 	constructor(ctx: IterationContext) {
-		this.ctx = ctx
+		this.ctx = {
+			...ctx,
+			onSteeringDelivered: (text) => {
+				this.rememberUserMessage(createRuntimeContextMessage(text, 'steering'))
+			},
+		}
+		ctx.checkpointMgr.setLatestUserMessageSource(() => this.latestUserMessage)
 	}
 
 	/**
@@ -252,6 +263,11 @@ export class IterationOrchestrator {
 		const { runConfig, runMgr } = this.ctx
 		const { model } = runConfig
 		const tracer = getTracer()
+		// Resume hydration happens after construction, before the loop starts.
+		this.latestUserMessage = this.ctx.checkpointMgr.restoredLatestUserMessage
+		if (!this.latestUserMessage) {
+			for (const message of runMgr.messages) this.rememberUserMessage(message)
+		}
 
 		// One context-overflow relief per *stuck point*, not per run.
 		//
@@ -325,6 +341,14 @@ export class IterationOrchestrator {
 				// run and been paid for; this is the seam a host with a live
 				// rate limit or a revoked tenant actually needs.
 				const veto = await this.beforeStep(runMgr.currentIteration + 1)
+				// The hook may settle because its run signal was aborted. Stop
+				// before interpreting that settlement as a policy refusal or
+				// counting an iteration that will never reach the provider.
+				if (this.ctx.abortController.signal.aborted) {
+					runMgr.setStopReason('cancelled')
+					runMgr.markCancelled()
+					break
+				}
 				if (veto) {
 					// Namespaced. The un-namespaced keys elsewhere in this file are
 					// the frozen inventory LOG-22 exists to drain; a new call site
@@ -1603,19 +1627,47 @@ export class IterationOrchestrator {
 	 * message becomes the reason, so an operator is not left with a run
 	 * that stopped and no account of it.
 	 */
+	private stepContext(stepNumber: number, prepared: PrepareStepResult): PrepareStepContext {
+		const model = prepared.model ?? this.ctx.runConfig.model
+		const window = resolveContextWindow(
+			this.ctx.compactionConfig?.contextWindowTokens,
+			model,
+			model === this.ctx.runConfig.model ? this.ctx.providerContextWindow : undefined,
+		)
+		const skills = prepared.skills ? renderSkillsSection([...prepared.skills]) : null
+		const preamble = [prepared.system, skills].filter(Boolean).join('\n\n')
+		const preparedTokens = preamble ? estimateMessageTokens(createSystemMessage(preamble)) : 0
+		const responseReserve = Math.min(
+			prepared.maxResponseTokens ??
+				this.ctx.runConfig.maxResponseTokens ??
+				Math.floor(window.tokens / 4),
+			Math.floor(window.tokens / 4),
+		)
+		return {
+			runId: this.ctx.runMgr.id,
+			stepNumber,
+			messages: this.ctx.runMgr.messages,
+			...(this.latestUserMessage ? { latestUserMessage: this.latestUserMessage } : {}),
+			signal: this.ctx.abortController.signal,
+			contextBudget: {
+				windowTokens: window.tokens,
+				remainingTokens: Math.max(
+					0,
+					Math.floor(
+						window.tokens - measureContext(this.ctx).tokens - preparedTokens - responseReserve,
+					),
+				),
+			},
+			steps: this.steps,
+			prepared,
+		}
+	}
+
 	private async beforeStep(stepNumber: number): Promise<StepVeto | undefined> {
 		const configured = this.ctx.beforeStep
 		if (!configured) return undefined
 		try {
-			return (
-				(await configured({
-					runId: this.ctx.runMgr.id,
-					stepNumber,
-					messages: this.ctx.runMgr.messages,
-					steps: this.steps,
-					prepared: {},
-				})) ?? undefined
-			)
+			return (await configured(this.stepContext(stepNumber, {}))) ?? undefined
 		} catch (err) {
 			return { reason: `beforeStep threw: ${toErrorMessage(err)}` }
 		}
@@ -1641,13 +1693,7 @@ export class IterationOrchestrator {
 		let result: PrepareStepResult = {}
 		for (const stage of stages) {
 			try {
-				const decided = await stage({
-					runId: this.ctx.runMgr.id,
-					stepNumber,
-					messages: this.ctx.runMgr.messages,
-					steps: this.steps,
-					prepared: result,
-				})
+				const decided = await stage(this.stepContext(stepNumber, result))
 				if (decided) result = { ...result, ...decided }
 			} catch (err) {
 				// Skipped, and the rest still run: one broken concern must
@@ -1738,18 +1784,33 @@ export class IterationOrchestrator {
 	 * empty drain must change nothing at all: a `continue` on nothing queued
 	 * spends an iteration and a model call to say the same thing again.
 	 */
+	private rememberUserMessage(message: Message): void {
+		if (message.role !== 'user') return
+		const source = message.source
+		if (
+			!source ||
+			source.type === 'goal-round' ||
+			(source.type === 'runtime-context' && source.kind === 'steering')
+		) {
+			this.latestUserMessage = message
+		}
+	}
+
 	private deliverInbound(): number {
 		const queued = this.ctx.inboundMessages?.() ?? []
-		for (const message of queued) this.ctx.runMgr.pushMessage(message)
+		for (const message of queued) {
+			this.ctx.runMgr.pushMessage(message)
+			this.rememberUserMessage(message)
+		}
 
 		// The steering channel's remainder. `attachSteering` already took
 		// what it could carry on a tool result; anything still pending is
 		// guidance from a turn that had no result to attach it to.
 		const stranded = this.ctx.steering?.drain()
 		if (stranded) {
-			this.ctx.runMgr.pushMessage(
-				createRuntimeContextMessage(formatSteeringNote(stranded), 'steering'),
-			)
+			const message = createRuntimeContextMessage(formatSteeringNote(stranded), 'steering')
+			this.ctx.runMgr.pushMessage(message)
+			this.rememberUserMessage(createRuntimeContextMessage(stranded, 'steering'))
 		}
 
 		return queued.length + (stranded ? 1 : 0)

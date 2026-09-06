@@ -1,8 +1,10 @@
 import type { MemoryIndex, MemoryStore } from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
+import { buildDeleteMemoryTool } from './delete.js'
 import { buildReadMemoryTool } from './read.js'
 import { buildSaveMemoryTool } from './save.js'
 import { buildSearchMemoryTool, buildStoreSearchMemoryTool } from './search.js'
+import { buildUpdateMemoryTool } from './update.js'
 
 /**
  * Build memory tools over one authoritative store.
@@ -28,9 +30,13 @@ export function buildMemoryTools(store: MemoryStore, index?: MemoryIndex): ToolD
 		index ? buildSearchMemoryTool(index) : buildStoreSearchMemoryTool(store),
 		buildReadMemoryTool(store),
 		buildSaveMemoryTool(store),
+		buildUpdateMemoryTool(store),
+		buildDeleteMemoryTool(store),
 	]
 }
 
 export { buildSearchMemoryTool } from './search.js'
 export { buildReadMemoryTool } from './read.js'
 export { buildSaveMemoryTool } from './save.js'
+export { buildUpdateMemoryTool } from './update.js'
+export { buildDeleteMemoryTool } from './delete.js'

@@ -380,6 +380,8 @@ export type {
 // nothing.
 export { RUN_MEMORY_TAG, createMemoryPromoter } from './run/index.js'
 export type { MemoryPromoterOptions } from './run/index.js'
+export { createMemoryRecallStep } from './run/memory-recall.js'
+export type { MemoryRecallOptions } from './run/memory-recall.js'
 
 // ─── personas, skills, advisory ──────────────────────────────────────────
 

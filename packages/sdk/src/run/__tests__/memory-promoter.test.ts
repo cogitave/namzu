@@ -8,7 +8,7 @@
  * discovered nothing.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { InMemoryMemoryStore } from '../../store/memory/memory.js'
 import type { RunId } from '../../types/ids/index.js'
@@ -71,13 +71,18 @@ describe('a run that learned something', () => {
 		const body = await store.get(entry?.id as never)
 		// Without it, a surprising memory cannot be checked against what
 		// actually happened.
-		expect(body?.metadata).toMatchObject({ runId: 'e88daa46-7351-4bf1-ba52-19112767bf4a' })
+		expect(body?.metadata).toMatchObject({
+			runId: 'e88daa46-7351-4bf1-ba52-19112767bf4a',
+		})
 	})
 
 	it('says it is reading a truncated account when entries were evicted', async () => {
 		const store = new InMemoryMemoryStore()
 		await createMemoryPromoter({ store })(
-			candidate({ discoveries: ['the parser is hand-rolled'], evicted: { discoveries: 4 } }),
+			candidate({
+				discoveries: ['the parser is hand-rolled'],
+				evicted: { discoveries: 4 },
+			}),
 		)
 
 		const [entry] = (await stored(store)).entries
@@ -158,11 +163,10 @@ describe('a run that learned nothing', () => {
 
 describe('what it does not hide', () => {
 	it('lets a broken store surface, rather than swallowing it', async () => {
-		const store = {
-			create: async () => {
-				throw new Error('the memory store is unreachable')
-			},
-		} as unknown as InMemoryMemoryStore
+		const store = new InMemoryMemoryStore()
+		vi.spyOn(store, 'create').mockImplementation(async () => {
+			throw new Error('the memory store is unreachable')
+		})
 
 		// The runtime already catches and LOGS a promoter's failure at settle,
 		// so catching here as well would hide a broken store from the one place
@@ -172,4 +176,22 @@ describe('what it does not hide', () => {
 			/unreachable/,
 		)
 	})
+})
+
+it('puts useful facts in the summary and avoids replaying the same claims or reviving archived ones', async () => {
+	const store = new InMemoryMemoryStore()
+	const promote = createMemoryPromoter({ store })
+	const fact = candidate({
+		discoveries: ['cerulean-cache expires after 14 hours'],
+	})
+	await promote(fact)
+	await promote(fact)
+	const page = await store.list()
+	expect(page.totalCount).toBe(1)
+	expect(page.entries[0]?.summary).toContain('14 hours')
+	const entry = page.entries[0]
+	if (!entry) throw new Error('Expected a promoted record')
+	await store.update(entry.id, { status: 'archived' })
+	await promote(fact)
+	expect((await store.list({ status: 'active' })).totalCount).toBe(0)
 })

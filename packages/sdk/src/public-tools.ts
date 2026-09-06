@@ -97,7 +97,11 @@ export {
 	buildTaskUpdateTool,
 } from './tools/task/index.js'
 export { buildAdvisoryTools } from './tools/advisory/index.js'
-export { buildMemoryTools } from './tools/memory/index.js'
+export {
+	buildMemoryTools,
+	buildUpdateMemoryTool,
+	buildDeleteMemoryTool,
+} from './tools/memory/index.js'
 export { buildCoordinatorTools } from './tools/coordinator/index.js'
 export {
 	buildAskUserQuestionTool,

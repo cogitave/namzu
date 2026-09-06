@@ -27,12 +27,13 @@ describe('terminal notification config reaches the TUI', () => {
 		else Reflect.deleteProperty(process.stdout, 'isTTY')
 	})
 
-	it('passes the exact event filter and method through the default CLI action', async () => {
+	it('passes notification settings and the memory opt-out through the default CLI action', async () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-tui-notification-'))
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
 			JSON.stringify({
 				tui: { notifications: ['approval-required'], notificationMethod: 'bel' },
+				memory: { recall: false },
 			}),
 		)
 		vi.spyOn(process, 'cwd').mockReturnValue(cwd)
@@ -46,6 +47,7 @@ describe('terminal notification config reaches the TUI', () => {
 		expect(resolveTrustedProjectContext(bootstrap, cwd)).toEqual(
 			expect.objectContaining({
 				cwd,
+				memory: { recall: false },
 				tui: {
 					notifications: ['approval-required'],
 					notificationMethod: 'bel',

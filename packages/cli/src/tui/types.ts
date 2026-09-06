@@ -10,6 +10,7 @@ import type { ConfigDebugSnapshot } from '../config/debug.js'
 import type {
 	CompactionCliConfig,
 	HooksConfig,
+	MemoryCliConfig,
 	PluginConfig,
 	SandboxConfig,
 	TuiConfig,
@@ -87,6 +88,7 @@ export interface TuiContext {
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
 	readonly compaction?: CompactionCliConfig
+	readonly memory?: MemoryCliConfig
 	/** See `NamzuCliConfig.additionalDirectories`, resolved absolute, plus `--add-dir`. */
 	readonly additionalDirectories?: readonly string[]
 	/**

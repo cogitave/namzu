@@ -1,6 +1,9 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Creation**: [Structured memory](/sdk/memory.md) — bounded per-step recall, current operator intent retained across compaction and checkpoints, ranked body search, explicit correction/archive/delete tools, and cooperating-process disk coordination with honest recovery limits.
+* **Update**: [Memory](/cli/memory.md) and [Context and compaction](/cli/context-and-compaction.md) — default project recall with a file-config opt-out, one selected durable-memory writer, bounded scoped markdown reads and visible skipped-file or clipped-note diagnostics.
+* **Update**: [Pinned facts](/sdk/pinned-facts.md) — removing the last tool pin clears its managed context slot; extracted negative requirements survive, assistant decisions retain source attribution, and bounded requirements disclose truncation.
 * **Update**: [Ids](/sdk/ids.md) — `query` and `drainQuery` reject missing session, topic, project or tenant identity before provider calls, run events or persistence, including untyped JavaScript callers.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — verification retains rich-result text, tool-call chronology and attachment descriptors within one character budget, without copying encoded attachments or provider-private reasoning.
 * **Update**: [Harness invariants](/sdk/harness-invariants.md) — full delegated results remain readable from their parent ledger after manager eviction, with foreign-parent and closed-runtime access refused.

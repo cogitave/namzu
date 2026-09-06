@@ -525,9 +525,23 @@ const CONFIG_READERS: ConfigReaders = {
 		if (isConfigMapping(v)) return v as McpServersConfig
 		return invalidConfigValue(context, [], 'must be a mapping of server names')
 	},
+	memory: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'recall') return invalidConfigValue(context, [key], 'is not a memory key')
+		}
+		if (v.recall !== undefined && typeof v.recall !== 'boolean') {
+			return invalidConfigValue(context, ['recall'], 'must be true or false')
+		}
+		return v.recall === undefined ? {} : { recall: v.recall as boolean }
+	},
 	compaction: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
-		const raw = v as { strategy?: unknown; contextWindowTokens?: unknown; consolidate?: unknown }
+		const raw = v as {
+			strategy?: unknown
+			contextWindowTokens?: unknown
+			consolidate?: unknown
+		}
 		for (const key of Object.keys(v)) {
 			if (key !== 'strategy' && key !== 'contextWindowTokens' && key !== 'consolidate') {
 				return invalidConfigValue(context, [key], 'is not a compaction key')
@@ -588,7 +602,11 @@ const CONFIG_READERS: ConfigReaders = {
 				if (!isConfigMapping(entry)) {
 					return invalidConfigValue(context, [event, index], 'must be a mapping with a `command`')
 				}
-				const raw = entry as { command?: unknown; matcher?: unknown; timeoutMs?: unknown }
+				const raw = entry as {
+					command?: unknown
+					matcher?: unknown
+					timeoutMs?: unknown
+				}
 				for (const key of Object.keys(entry)) {
 					if (key !== 'command' && key !== 'matcher' && key !== 'timeoutMs') {
 						return invalidConfigValue(
@@ -936,6 +954,7 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	additionalDirectories: undefined,
 	// A strategy is a property of a project's runs, declared where they are reviewed.
 	compaction: undefined,
+	memory: undefined,
 	// Deliberately not env-settable. A `NAMZU_TELEMETRY_SESSION_EXPORT=/tmp/x`
 	// in a shell profile would start exporting conversation content with
 	// nothing in the config file to show for it — the disclosure would be

@@ -134,6 +134,8 @@ export function formatSteeringNote(text: string): string {
 export function attachSteering(
 	messages: readonly Message[],
 	channel: SteeringChannel | undefined,
+	/** Receives accepted operator text, never inferred from a tool's output. */
+	onDelivered?: (text: string) => void,
 ): readonly Message[] {
 	if (!channel?.pending) return messages
 
@@ -163,5 +165,6 @@ export function attachSteering(
 
 	const next = [...messages]
 	next[lastToolIndex] = { ...target, content: target.content + formatSteeringNote(guidance) }
+	onDelivered?.(guidance)
 	return next
 }

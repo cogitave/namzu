@@ -16,17 +16,18 @@
  * to edit the file — which is the whole point of a curated memory.
  *
  * Separate from the kernel's memory store (`save_memory` / `search_memory`),
- * which holds what the agent chose to keep and is searched, not injected.
+ * which holds structured records retrieved by tools or bounded automatic recall.
  */
 
-import { appendFileSync, lstatSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 import { namzuHomePath } from '../integrations/state/home.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
 
-const DIR_MODE = 0o700
-const FILE_MODE = 0o600
+import { type MemoryLocation, appendMemoryFile, readMemoryFile, resolveMemoryPath } from './io.js'
+
+export { MEMORY_FILE_MAX_BYTES } from './io.js'
 
 /** Characters of one section injected before the rest is left to the file. */
 export const MEMORY_SECTION_MAX_CHARS = 8_000
@@ -53,45 +54,70 @@ export function projectMemoryFilePath(cwd: string): string {
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
 	}
+	const root = cliProjectRoot(directory)
 	const local = join(directory, '.namzu', 'MEMORY.md')
-	try {
-		// An empty file or symlink is still an intentional directory-local file.
-		lstatSync(local)
-		return local
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-	}
-	return join(cliProjectRoot(directory), '.namzu', 'MEMORY.md')
+	// An empty file or an in-scope symlink remains an intentional local file.
+	if (resolveMemoryPath({ path: local, root }) !== null) return local
+	return join(root, '.namzu', 'MEMORY.md')
+}
+
+export interface MemoryDiagnostic {
+	readonly path: string
+	readonly reason: string
 }
 
 export interface MemoryContent {
 	readonly user: string | null
 	readonly memory: string | null
-	/** The project's own file; null when no working directory was given or the file is empty. */
+	/** The project's own file; null when absent, empty, or refused with a diagnostic. */
 	readonly project: string | null
+	readonly diagnostics?: readonly MemoryDiagnostic[]
 }
 
-function readIfPresent(path: string): string | null {
-	try {
-		const text = readFileSync(path, 'utf8').trim()
-		return text.length > 0 ? text : null
-	} catch {
-		return null
-	}
+function projectLocation(cwd: string): MemoryLocation {
+	const directory = realpathSync(resolve(cwd))
+	return { path: projectMemoryFilePath(directory), root: cliProjectRoot(directory) }
 }
 
-/** Read the user files under `home` and, when `cwd` is given, the project file. */
+/** Read bounded, valid UTF-8 files; distinguish missing/empty files from refused content. */
 export function readMemory(home?: string, cwd?: string): MemoryContent {
-	return {
-		user: readIfPresent(userFilePath(home)),
-		memory: readIfPresent(memoryFilePath(home)),
-		project: cwd ? readIfPresent(projectMemoryFilePath(cwd)) : null,
+	const diagnostics: MemoryDiagnostic[] = []
+	const read = (path: string, location: () => MemoryLocation): string | null => {
+		let selectedPath = path
+		try {
+			const selected = location()
+			selectedPath = selected.path
+			const text = readMemoryFile(selected)?.trim()
+			return text || null
+		} catch (error) {
+			diagnostics.push({
+				path: selectedPath,
+				reason: error instanceof Error ? error.message : String(error),
+			})
+			return null
+		}
 	}
+	const userRoot = memoryDir(home)
+	const user = read(join(userRoot, 'USER.md'), () => ({
+		root: userRoot,
+		path: join(userRoot, 'USER.md'),
+	}))
+	const memory = read(join(userRoot, 'MEMORY.md'), () => ({
+		root: userRoot,
+		path: join(userRoot, 'MEMORY.md'),
+	}))
+	const project = cwd
+		? read(join(resolve(cwd), '.namzu', 'MEMORY.md'), () => projectLocation(cwd))
+		: null
+	return { user, memory, project, ...(diagnostics.length > 0 ? { diagnostics } : {}) }
 }
 
 function capped(text: string, file: string): string {
 	if (text.length <= MEMORY_SECTION_MAX_CHARS) return text
-	const head = text.slice(0, MEMORY_SECTION_MAX_CHARS)
+	let end = MEMORY_SECTION_MAX_CHARS
+	const last = text.charCodeAt(end - 1)
+	if (last >= 0xd800 && last <= 0xdbff) end -= 1
+	const head = text.slice(0, end)
 	const cut = head.lastIndexOf('\n')
 	const kept = cut > MEMORY_SECTION_MAX_CHARS / 2 ? head.slice(0, cut) : head
 	return `${kept}\n\n(… ${text.length - kept.length} more characters in ${file} were not included; the file wants curating.)`
@@ -126,19 +152,39 @@ export interface AppendMemoryTarget {
  * second argument names the application home and means the user scope.
  */
 export function appendMemory(text: string, target?: string | AppendMemoryTarget): string {
+	return appendMemoryWithStatus(text, target).path
+}
+
+export interface AppendMemoryResult {
+	readonly path: string
+	readonly scope: MemoryScope
+	readonly appended: boolean
+	/** Whether the entire appended note fits in this section's next prompt snapshot. */
+	readonly includedInPrompt: boolean
+}
+
+export function appendMemoryWithStatus(
+	text: string,
+	target?: string | AppendMemoryTarget,
+): AppendMemoryResult {
 	const trimmed = text.trim()
 	const scope = typeof target === 'object' ? target.scope : 'user'
 	const home = typeof target === 'object' ? target.home : target
-	let path: string
+	let location: MemoryLocation
 	if (scope === 'project') {
 		const cwd = typeof target === 'object' ? target.cwd : undefined
 		if (!cwd) throw new Error('A project memory needs the working directory it belongs to.')
-		path = projectMemoryFilePath(cwd)
+		location = projectLocation(cwd)
 	} else {
-		path = memoryFilePath(home)
+		location = { path: memoryFilePath(home), root: memoryDir(home) }
 	}
-	if (trimmed.length === 0) return path
-	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
-	appendFileSync(path, `- ${trimmed}\n`, { mode: FILE_MODE })
-	return path
+	if (trimmed.length === 0)
+		return { path: location.path, scope, appended: false, includedInPrompt: false }
+	const combined = appendMemoryFile(location, `- ${trimmed}\n`)
+	return {
+		path: location.path,
+		scope,
+		appended: true,
+		includedInPrompt: combined.trim().length <= MEMORY_SECTION_MAX_CHARS,
+	}
 }

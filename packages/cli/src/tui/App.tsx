@@ -102,8 +102,8 @@ import type {
 import type { SubagentActivity } from '../integrations/subagents/activity.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
-import { renderMemoryReport } from '../memory/presentation.js'
-import { appendMemory, readMemory } from '../memory/store.js'
+import { renderMemoryReport, renderMemorySaveResult } from '../memory/presentation.js'
+import { appendMemoryWithStatus, readMemory } from '../memory/store.js'
 import {
 	type PermissionMode,
 	effectivePermissionMode,
@@ -2379,6 +2379,7 @@ export function App({
 				...(activeCtx.web ? { web: activeCtx.web } : {}),
 				...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 				...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
+				...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
 				...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 				// Somebody is at this terminal, so the model may ask them one
 				// question when a decision is genuinely theirs.
@@ -4528,8 +4529,8 @@ export function App({
 			if (value.startsWith('#') && value.slice(1).trim().length > 0) {
 				const note = value.slice(1).trim()
 				try {
-					const path = appendMemory(note, { scope: 'project', cwd: ctx.cwd })
-					pushMessage('system', `Remembered for this project (${path}): ${note}`)
+					const saved = appendMemoryWithStatus(note, { scope: 'project', cwd: ctx.cwd })
+					pushMessage('system', renderMemorySaveResult(saved, note))
 				} catch (err) {
 					pushMessage(
 						'system',
@@ -4971,10 +4972,10 @@ export function App({
 					}
 					case 'remember':
 						try {
-							const path = appendMemory(slash.text, { scope: slash.scope, cwd: ctx.cwd })
+							const saved = appendMemoryWithStatus(slash.text, { scope: slash.scope, cwd: ctx.cwd })
 							pushMessage(
 								'system',
-								`Remembered ${slash.scope === 'user' ? 'for every project' : 'for this project'} (${path}): ${slash.text}`,
+								renderMemorySaveResult(saved, slash.text),
 							)
 						} catch (err) {
 							pushMessage(

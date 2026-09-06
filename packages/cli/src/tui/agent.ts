@@ -47,6 +47,7 @@ import {
 	type Message,
 	type ModelInfo,
 	type PluginLifecycleManager,
+	type PrepareStep,
 	type ProjectId,
 	type ProjectInstructionContext,
 	type PromoteMemory,
@@ -88,6 +89,7 @@ import {
 	compactNow,
 	createComputerUseTool,
 	createMemoryPromoter,
+	createMemoryRecallStep,
 	createReviewHandler,
 	createToolPresenter,
 	generateProjectId,
@@ -112,6 +114,7 @@ import { CHECKPOINTED_TOOLS, withCheckpoints } from '../checkpoints/wrap.js'
 import type {
 	CompactionCliConfig,
 	HooksConfig,
+	MemoryCliConfig,
 	PluginConfig,
 	RunLimitsConfig,
 	SandboxConfig,
@@ -176,6 +179,7 @@ import { SubagentPathBuilder, resolveSubagentParent } from '../integrations/suba
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
+import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { projectRunConversation } from './conversation-history.js'
@@ -1254,6 +1258,7 @@ export interface AgentSessionOptions {
 	readonly additionalDirectories?: readonly string[]
 	/** See `NamzuCliConfig.compaction`. Absent means the kernel's structured strategy. */
 	readonly compaction?: CompactionCliConfig
+	readonly memory?: MemoryCliConfig
 	/** See `NamzuCliConfig.limits`: how many model calls and tokens one run may spend. */
 	readonly limits?: RunLimitsConfig
 	/**
@@ -1978,16 +1983,9 @@ export async function createAgentSession(
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
-	// What a settled run leaves behind, over the SAME store `search_memory`
-	// reads on the next run. Built once per session rather than per turn: it
-	// holds no per-run state, and a per-turn construction would re-open the
-	// index for every message.
-	//
-	// Unconditional, unlike the answer gate. A gate changes what a run may do
-	// and so must be asked for; promotion changes only what survives it, and
-	// the alternative — the run's own extracted knowledge being discarded at
-	// settle — is what this repository has been doing all along by accident.
-	// A run that learned nothing still writes nothing.
+	// Share the project store with tools and recall. Each run selects either
+	// this extracted-claim promoter or explicit consolidation, never both.
+	// Candidates without useful claims write nothing.
 	const promoteMemory = createMemoryPromoter({ store: memoryStore })
 	// Plugins are the last fallible startup resource. The ordering is ownership:
 	// a malformed MCP entry cannot strand imported plugin hooks, and a plugin
@@ -2119,7 +2117,9 @@ export async function createAgentSession(
 			const pluginSkills = pluginRuntime
 				? await currentPluginSkills(pluginRuntime.skills)
 				: undefined
-			const memoryPrompt = composeMemoryPrompt(readMemory(undefined, cwd))
+			const curatedMemory = readMemory(undefined, cwd)
+			for (const notice of formatMemoryDiagnostics(curatedMemory)) cliLogger().warn(notice)
+			const memoryPrompt = composeMemoryPrompt(curatedMemory)
 			const environmentPrompt = composeEnvironmentPrompt({
 				...(await readEnvironmentFacts(cwd)),
 				additionalDirectories: [...directories],
@@ -2154,7 +2154,10 @@ export async function createAgentSession(
 					pluginManager: pluginRuntime?.manager,
 					skillRegistry: pluginRuntime?.skills,
 					skills: pluginSkills,
-					taskStore: selectTaskStore(entry.runId, { ...entry, topicId: scope.topicId }),
+					taskStore: selectTaskStore(entry.runId, {
+						...entry,
+						topicId: scope.topicId,
+					}),
 					// The same availability the original run registered under.
 					// A resumed run re-registers the task tools; leaving them at
 					// the kernel's `deferred` default would hand the model a plan
@@ -2171,6 +2174,12 @@ export async function createAgentSession(
 						: {}),
 					authorizationGate: gateFor(options.rules),
 					compactionConfig: compactionConfigFor(options.compaction),
+					...(options.memory?.recall === false
+						? {}
+						: { prepareStep: createMemoryRecallStep({ store: memoryStore }) }),
+					...(options.compaction?.consolidate
+						? { consolidateInto: memoryStore }
+						: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createRunContext(),
 					pathBuilder,
 					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
@@ -2423,7 +2432,11 @@ export async function createAgentSession(
 						const pluginSkills = pluginRuntime
 							? await currentPluginSkills(pluginRuntime.skills)
 							: undefined
-						const memoryPrompt = composeMemoryPrompt(readMemory(undefined, cwd))
+						const curatedMemory = readMemory(undefined, cwd)
+						for (const notice of formatMemoryDiagnostics(curatedMemory)) {
+							yield { kind: 'context' as const, text: notice, shed: false }
+						}
+						const memoryPrompt = composeMemoryPrompt(curatedMemory)
 						currentOnQuestion = opts?.onQuestion
 						const [environmentFacts, turnSnapshot] = await Promise.all([
 							readEnvironmentFacts(cwd),
@@ -2530,7 +2543,15 @@ export async function createAgentSession(
 								rules: options.rules,
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
-								promoteMemory,
+								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
+								...(options.memory?.recall === false
+									? {}
+									: {
+											prepareStep: createMemoryRecallStep({
+												store: memoryStore,
+												query: lastUserText(messages),
+											}),
+										}),
 								taskStore: selectTaskStore(runId, turnScope),
 								systemPrompt,
 								messages,
@@ -3112,7 +3133,8 @@ interface RunTurnParams {
 	readonly reviewAnswer: ReviewAnswer | undefined
 	readonly maxAnswerReviews: number | undefined
 	/** What this run should leave behind when it settles. */
-	readonly promoteMemory: PromoteMemory
+	readonly promoteMemory: PromoteMemory | undefined
+	readonly prepareStep?: PrepareStep
 	/** Exact interactive authority shared with children launched by this run. */
 	readonly resumeHandler: ResumeHandler
 	readonly taskStore: TaskStore
@@ -3166,6 +3188,7 @@ async function* runTurn({
 	reviewAnswer,
 	maxAnswerReviews,
 	promoteMemory,
+	prepareStep,
 	resumeHandler,
 	taskStore,
 	systemPrompt,
@@ -3235,11 +3258,9 @@ async function* runTurn({
 			// that shipped before gates existed.
 			...(reviewAnswer ? { reviewAnswer } : {}),
 			...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
-			// Always present, unlike the gate: a gate changes what a run may
-			// do and so must be asked for; promotion changes only what
-			// survives it, and a run that learned nothing still writes
-			// nothing.
+			// Undefined when the host selected consolidation as its writer.
 			promoteMemory,
+			...(prepareStep ? { prepareStep } : {}),
 			agentId: 'namzu',
 			agentName: 'namzu',
 			...(systemPrompt ? { systemPrompt } : {}),

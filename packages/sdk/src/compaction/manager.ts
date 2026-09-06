@@ -13,6 +13,16 @@ export const MAX_PINS = 40
 /** Characters one pin may carry; a pin is a fact, not a document. */
 export const MAX_PIN_CHARS = 600
 
+/** @internal Keep the omission visible within the existing character budget. */
+export function truncateStateText(text: string, max: number): string {
+	if (max === undefined || text.length <= max) return text
+	const marker = max >= '… [truncated]'.length ? '… [truncated]' : '…'
+	let head = text.slice(0, Math.max(0, max - marker.length))
+	const last = head.charCodeAt(head.length - 1)
+	if (last >= 0xd800 && last <= 0xdbff) head = head.slice(0, -1)
+	return `${head}${marker}`
+}
+
 function createEmptyState(): WorkingState {
 	return {
 		task: '',
@@ -130,7 +140,7 @@ export class WorkingStateManager {
 	}
 
 	addUserRequirement(requirement: string): void {
-		const truncated = requirement.slice(0, this.config.maxCharsPerRequirement)
+		const truncated = truncateStateText(requirement, this.config.maxCharsPerRequirement)
 		this.pushWithEviction(
 			'userRequirements',
 			this.state.userRequirements,

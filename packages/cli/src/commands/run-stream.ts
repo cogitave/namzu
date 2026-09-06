@@ -348,6 +348,7 @@ export const runStreamCommand: CommandDef = {
 			...(ctx.config.web ? { web: ctx.config.web } : {}),
 			...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
 			...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
+			...(ctx.config.memory ? { memory: ctx.config.memory } : {}),
 			...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
 				? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
 				: {}),

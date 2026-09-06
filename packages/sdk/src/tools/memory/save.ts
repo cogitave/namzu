@@ -6,7 +6,8 @@ import { defineTool } from '../defineTool.js'
 export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 	return defineTool({
 		name: 'save_memory',
-		description: 'Save a new memory with title, summary, and full content for future reference.',
+		description:
+			'Save a new historical claim for future reference. Include the actual useful fact and its evidence in the summary and content. For corrections to an existing record use update_memory instead of creating contradictory duplicates.',
 		inputSchema: z.object({
 			title: z.string().min(1).describe('Short descriptive title'),
 			summary: z.string().min(1).describe('Brief summary (1-2 sentences)'),
@@ -18,12 +19,13 @@ export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		async execute({ title, summary, content, tags }) {
+		async execute({ title, summary, content, tags }, context) {
 			const { entry } = await store.create({
 				title,
 				summary,
 				content,
 				tags,
+				metadata: { source: 'agent-memory', runId: context.runId },
 			})
 
 			return {

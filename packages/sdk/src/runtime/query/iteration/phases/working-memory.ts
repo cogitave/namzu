@@ -14,6 +14,10 @@ import type { IterationContext } from './context.js'
 export const WORKING_MEMORY_HEADER =
 	'[WORKING MEMORY] Authoritative state for this conversation — you produced these.'
 
+// Stored in the message, so ownership survives checkpoint JSON. Unmarked
+// inherited blocks may be opaque host ledgers and must never be guessed away.
+const TOOL_PINS_HEADER = `${WORKING_MEMORY_HEADER}\n[Tool-managed pins]`
+
 /**
  * True when `content` is the pinned working-memory slot (header identity only).
  * Shared with `compaction.ts` so the survival guard re-pins by the SAME rule.
@@ -34,16 +38,15 @@ export function isWorkingMemoryMessage(content: string | null | undefined): bool
  *
  * Failure-isolated (the `web-search` seam rule): a throwing/slow provider
  * degrades to "no refresh this turn" (keeps the prior slot), never breaks the
- * run. Early-returns when no provider is configured ⇒ byte-identical run path.
+ * run. With no provider or tool-owned slot, the history is left unchanged.
  */
 export async function refreshWorkingMemory(ctx: IterationContext): Promise<void> {
 	const provider = ctx.workingMemoryProvider
 	// What the tools pinned joins the slot beside what the host provides: a
 	// pin exists to be in front of the model every iteration, and until this
 	// the working state reached the history only through a compaction
-	// summary. No provider and no pins leaves the history untouched.
+	// summary. When the final pin is removed, retire only a tool-owned slot.
 	const pinned = ctx.workingStateManager ? renderPins(ctx.workingStateManager.getState()) : null
-	if (!provider && !pinned) return
 
 	let block = ''
 	if (provider) {
@@ -80,13 +83,20 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 		}
 	}
 
+	if (!provider && !pinned) {
+		if (!ctx.workingStateManager) return
+		const prior = msgs[idx]?.content
+		if (typeof prior !== 'string' || !prior.startsWith(TOOL_PINS_HEADER)) return
+	}
+
 	if (!block.trim()) {
 		// Empty block ⇒ remove the slot (byte-identical-when-empty).
 		if (idx >= 0) msgs.splice(idx, 1)
 		return
 	}
 
-	const wm = createSystemMessage(`${WORKING_MEMORY_HEADER}\n\n${block}`, 'ephemeral')
+	const header = provider ? WORKING_MEMORY_HEADER : TOOL_PINS_HEADER
+	const wm = createSystemMessage(`${header}\n\n${block}`, 'ephemeral')
 	if (idx >= 0) {
 		msgs[idx] = wm
 	} else {

@@ -31,6 +31,12 @@ export interface MemoryContent {
 	readonly metadata?: Record<string, unknown>
 }
 
+/** Metadata and body observed together at one store read boundary. */
+export interface MemoryRecord {
+	readonly entry: MemoryIndexEntry
+	readonly content: MemoryContent
+}
+
 export interface MemorySearchParams {
 	readonly query?: string
 	readonly tags?: string[]
@@ -52,10 +58,17 @@ export interface CreateMemoryParams {
 	readonly metadata?: Record<string, unknown>
 }
 
+/** Change a memory's content or explicitly archive/reactivate it. */
+export interface UpdateMemoryParams extends Partial<CreateMemoryParams> {
+	readonly status?: MemoryStatus
+}
+
 export interface MemoryStore {
 	create(params: CreateMemoryParams): Promise<{ entry: MemoryIndexEntry; content: MemoryContent }>
 	get(id: MemoryId): Promise<MemoryContent | undefined>
-	update(id: MemoryId, updates: Partial<CreateMemoryParams>): Promise<MemoryIndexEntry | undefined>
+	/** Current metadata/body snapshot; supports rechecking status after search. */
+	getRecord?(id: MemoryId): Promise<MemoryRecord | undefined>
+	update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined>
 	delete(id: MemoryId): Promise<boolean>
 	list(params?: MemorySearchParams): Promise<MemorySearchResult>
 }

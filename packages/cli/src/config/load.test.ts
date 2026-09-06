@@ -162,6 +162,22 @@ describe('plugin runtime config', () => {
 	})
 })
 
+describe('automatic memory recall config', () => {
+	it('preserves explicit opt-out from a file', () => {
+		const home = userConfig('memory:\n  recall: false\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).memory).toEqual({
+			recall: false,
+		})
+	})
+	it.each(['memory: true\n', 'memory:\n  recall: sometimes\n', 'memory:\n  magic: true\n'])(
+		'rejects malformed policy %s',
+		(contents) => {
+			const home = userConfig(contents)
+			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(ConfigValueError)
+		},
+	)
+})
+
 describe('pre-trust bootstrap config', () => {
 	it('does not read or validate the project layer before trust', () => {
 		const home = userConfig('format: yaml\n')
@@ -535,7 +551,9 @@ describe('web', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-web-'))
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  fetch: true\n')
-		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).web).toEqual({ fetch: true })
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).web).toEqual({
+			fetch: true,
+		})
 
 		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  fetch: yes\n')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(/web\.fetch/)

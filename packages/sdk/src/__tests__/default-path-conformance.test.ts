@@ -146,7 +146,10 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		log,
 		emitEvent: async () => {},
 		drainPending: function* (): Generator<RunEvent> {},
-		checkpointMgr: { create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) },
+		checkpointMgr: {
+			setLatestUserMessageSource: () => {},
+			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }),
+		},
 		planManager: { active: undefined },
 		// The CLI's permission prompt resolves to exactly this.
 		resumeHandler: async () => opts.decision,

@@ -6,16 +6,24 @@ import type {
 	CreateMemoryParams,
 	MemoryContent,
 	MemoryIndexEntry,
+	MemoryRecord,
 	MemorySearchParams,
 	MemorySearchResult,
 	MemoryStore,
+	UpdateMemoryParams,
 } from '../../types/memory/index.js'
+import { assertMemoryStatus } from '../../types/memory/index.js'
 import { generateMemoryId, isEntityId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
 import { defineSchema } from '../schema.js'
-import { InMemoryMemoryIndex } from './index.js'
+import { InMemoryMemoryIndex, searchMemoryEntries } from './index.js'
+import {
+	DEFAULT_MEMORY_LOCK_TIMEOUT_MS,
+	acquireMemoryOperationLock,
+	validateMemoryLockTimeout,
+} from './operation-lock.js'
 
 /**
  * This store's on-disk format, versioned as a unit — which is how a
@@ -30,27 +38,6 @@ const SCHEMA = defineSchema({ kind: 'memory-store', current: 1, migrations: {} }
 interface StorageLocation {
 	readonly indexPath: string
 	readonly contentDir: string
-}
-
-const operationTails = new Map<string, Promise<void>>()
-
-/** Serialize every operation over one canonical disk projection in this process. */
-async function withMemoryOperationLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
-	const previous = operationTails.get(key) ?? Promise.resolve()
-	let release = () => {}
-	const current = new Promise<void>((resolveCurrent) => {
-		release = resolveCurrent
-	})
-	const tail = previous.then(() => current)
-	operationTails.set(key, tail)
-
-	await previous
-	try {
-		return await operation()
-	} finally {
-		release()
-		if (operationTails.get(key) === tail) operationTails.delete(key)
-	}
 }
 
 function invalidIndex(
@@ -163,11 +150,14 @@ function assertMemoryContent(value: unknown, expectedId: MemoryId): asserts valu
 export interface DiskMemoryStoreConfig {
 	baseDir: string
 	logger?: Logger
+	/** Maximum wait for another process's operation; default 10 seconds. Never breaks stale locks. */
+	lockTimeoutMs?: number
 }
 
 export class DiskMemoryStore implements MemoryStore {
 	private readonly baseDir: string
 	private readonly log: Logger
+	private readonly lockTimeoutMs: number
 	private readonly index = new InMemoryMemoryIndex()
 	private location?: StorageLocation
 	// Two instances of one primitive rather than two copies of its body.
@@ -180,6 +170,8 @@ export class DiskMemoryStore implements MemoryStore {
 	constructor(config: DiskMemoryStoreConfig) {
 		this.baseDir = join(config.baseDir, 'memory')
 		this.log = resolveLogger(config.logger).child({ [SCOPE_ATTRIBUTE]: 'store/memory/disk' })
+		this.lockTimeoutMs = config.lockTimeoutMs ?? DEFAULT_MEMORY_LOCK_TIMEOUT_MS
+		validateMemoryLockTimeout(this.lockTimeoutMs)
 	}
 
 	private get contentDir(): string {
@@ -235,10 +227,16 @@ export class DiskMemoryStore implements MemoryStore {
 		operation: (location: StorageLocation) => Promise<T>,
 	): Promise<T> {
 		const location = await this.storageLocation()
-		return withMemoryOperationLock(location.indexPath, async () => {
+		const release = await acquireMemoryOperationLock(
+			join(dirname(location.indexPath), 'operation.lock'),
+			this.lockTimeoutMs,
+		)
+		try {
 			await this.reloadIndex(location)
-			return operation(location)
-		})
+			return await operation(location)
+		} finally {
+			await release()
+		}
 	}
 
 	private async readContent(location: StorageLocation, id: MemoryId): Promise<MemoryContent> {
@@ -307,10 +305,17 @@ export class DiskMemoryStore implements MemoryStore {
 		})
 	}
 
-	async update(
-		id: MemoryId,
-		updates: Partial<CreateMemoryParams>,
-	): Promise<MemoryIndexEntry | undefined> {
+	async getRecord(id: MemoryId): Promise<MemoryRecord | undefined> {
+		return this.withAuthoritativeIndex(async (location) => {
+			assertStorageMemoryId(id, (reason) => invalidContent(id, reason, { field: 'id' }))
+			const entry = this.index.getEntry(id)
+			if (!entry) return undefined
+			return structuredClone({ entry, content: await this.readContent(location, id) })
+		})
+	}
+
+	async update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined> {
+		if (updates.status !== undefined) assertMemoryStatus(updates.status)
 		return this.withAuthoritativeIndex(async (location) => {
 			assertStorageMemoryId(id, (reason) => invalidContent(id, reason, { field: 'id' }))
 			const existing = this.index.getEntry(id)
@@ -321,6 +326,7 @@ export class DiskMemoryStore implements MemoryStore {
 				title: updates.title ?? existing.title,
 				summary: updates.summary ?? existing.summary,
 				tags: updates.tags ? [...updates.tags] : existing.tags,
+				status: updates.status ?? existing.status,
 				updatedAt: Date.now(),
 			}
 			const updatesContent =
@@ -367,7 +373,17 @@ export class DiskMemoryStore implements MemoryStore {
 	}
 
 	async list(params?: MemorySearchParams): Promise<MemorySearchResult> {
-		return this.withAuthoritativeIndex(async () => this.index.search(params ?? {}))
+		return this.withAuthoritativeIndex(async (location) => {
+			if (!params?.query?.trim()) return this.index.search(params ?? {})
+			// Search the current bodies inside the same operation as the index
+			// snapshot. No retained cache can hide another process's update.
+			const candidates = this.index.search({ ...params, query: undefined, limit: undefined })
+			const contents = new Map<MemoryId, string>()
+			for (const entry of candidates.entries) {
+				contents.set(entry.id, (await this.readContent(location, entry.id)).content)
+			}
+			return searchMemoryEntries(candidates.entries, params, (id) => contents.get(id) ?? '')
+		})
 	}
 
 	getIndex(): InMemoryMemoryIndex {

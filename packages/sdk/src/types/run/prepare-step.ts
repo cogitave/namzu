@@ -1,5 +1,5 @@
 import type { RunId } from '../ids/index.js'
-import type { Message } from '../message/index.js'
+import type { Message, UserMessage } from '../message/index.js'
 import type { ToolChoice } from '../provider/chat.js'
 import type { Skill } from '../skills/index.js'
 import type { StepResult } from './step.js'
@@ -21,6 +21,24 @@ export interface PrepareStepContext {
 	readonly stepNumber: number
 	/** Full history as it stands, so a decision can read what happened. */
 	readonly messages: readonly Message[]
+	/**
+	 * Latest operator, goal-round, or steering input accepted by this run,
+	 * retained even when compaction removes it from `messages`. Project
+	 * instructions and task-completion context do not replace operator intent.
+	 */
+	readonly latestUserMessage?: UserMessage
+	/** The run's cancellation signal, for bounded asynchronous preparation. */
+	readonly signal?: AbortSignal
+	/**
+	 * Estimated room for additional step context after existing messages,
+	 * earlier stages' system/skills, and a response reserve. Recomputed for
+	 * each stage and its selected model; not a billing limit or fit guarantee.
+	 * `beforeStep` observes its existing boundary before compaction runs.
+	 */
+	readonly contextBudget?: {
+		readonly remainingTokens: number
+		readonly windowTokens: number
+	}
 	/** Every completed step, in order. */
 	readonly steps: readonly StepResult[]
 

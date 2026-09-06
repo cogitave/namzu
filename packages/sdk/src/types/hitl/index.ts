@@ -2,7 +2,7 @@ import type { WorkingStateSnapshot } from '../../compaction/wire.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PlanId, RunId } from '../ids/index.js'
-import type { Message } from '../message/index.js'
+import type { Message, UserMessage } from '../message/index.js'
 import type { PlanStatus } from '../plan/index.js'
 import type { TokenBudgetBinding } from '../run/token-budget-store.js'
 
@@ -212,6 +212,12 @@ export interface IterationCheckpoint {
 	runId: RunId
 	iteration: number
 	messages: Message[]
+	/**
+	 * Current operator/goal/steering text and provenance, independent of
+	 * compacted history. Attachments are not duplicated here. Older
+	 * checkpoints omit this field and use surviving history on resume.
+	 */
+	latestUserMessage?: UserMessage
 	tokenUsage: TokenUsage
 	costInfo: CostInfo
 	/**

@@ -18,7 +18,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { EXIT_USAGE } from '../../exit-codes.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
-import type { AgentEvent } from '../../tui/agent.js'
+import { type AgentEvent, createAgentSession } from '../../tui/agent.js'
 import { composePrompt, runCommand } from '../run.js'
 import type { CommandContext } from '../types.js'
 
@@ -351,5 +351,17 @@ describe('a flag that was never read is refused, not swallowed', () => {
 		expect(code).toBe(EXIT_USAGE)
 		expect(errors.join('')).toContain('--instance')
 		expect(seen.prompt).toBeNull()
+	})
+})
+
+it('forwards the automatic memory recall opt-out into the headless session', async () => {
+	const { ctx } = context()
+	const code = await runCommand.handler({
+		rawArgs: ['hello'],
+		ctx: { ...ctx, config: { memory: { recall: false } } },
+	} as never)
+	expect(code).toBe(0)
+	expect(vi.mocked(createAgentSession).mock.lastCall?.[2]).toMatchObject({
+		memory: { recall: false },
 	})
 })

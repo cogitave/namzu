@@ -1,6 +1,6 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { EDIT_TOOLS, READ_TOOLS, SEARCH_TOOLS, SHELL_TOOLS } from '../constants/compaction/index.js'
-import type { WorkingStateManager } from './manager.js'
+import { type WorkingStateManager, truncateStateText } from './manager.js'
 
 function tryParseJson(raw: string): Record<string, unknown> | null {
 	try {
@@ -25,12 +25,17 @@ function splitSentences(text: string): string[] {
 }
 
 function isSubstantive(sentence: string): boolean {
-	const fillerPatterns = [
-		/^(ok|okay|sure|alright|got it|understood|i see|let me|i'll|i will|now i|here)/i,
-		/^(great|perfect|excellent|good|nice|cool|right|yes|no|thanks)/i,
-		/^(let's|we can|we should|i can|i should)/i,
-	]
-	return !fillerPatterns.some((pattern) => pattern.test(sentence))
+	// Discard standalone acknowledgements, not sentences beginning with one:
+	// "No production writes" and even "Node 24" used to match the `no` prefix.
+	return !/^(ok|okay|sure|alright|got it|understood|i see|great|perfect|excellent|good|nice|cool|right|yes|no|thanks)[.!?]*$/i.test(
+		sentence,
+	)
+}
+
+function isExplicitAssistantDecision(sentence: string): boolean {
+	return /^(?:(?:the|my|our) decision is\b|decision\s*:|(?:i|we)(?: have|'ve)? (?:decided|chose|chosen)\b)/i.test(
+		sentence,
+	)
 }
 
 function truncateResult(result: string, maxLen: number): string {
@@ -199,6 +204,14 @@ export function extractFromAssistantMessage(
 	const selected = substantive.slice(0, config.maxSentencesPerTurn)
 
 	for (const sentence of selected) {
-		manager.addAssistantNote(sentence)
+		if (isExplicitAssistantDecision(sentence)) {
+			// A recorded assertion, not verified truth or an instruction from the
+			// user. Keep that provenance when a host later promotes the decision.
+			manager.addDecision(
+				truncateStateText(`Assistant stated: ${sentence}`, config.maxCharsPerNote),
+			)
+		} else {
+			manager.addAssistantNote(sentence)
+		}
 	}
 }

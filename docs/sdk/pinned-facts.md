@@ -29,5 +29,5 @@ At most 40 pins, each at most 600 characters; past the budget the oldest pin is 
 ## What it is not
 
 - Not the extractor: rule-based guesses from tool names stay as they were, and a pin never replaces them.
-- Not the memory store: `save_memory` is durable across runs and searched on demand; a pin lives for the run and is always in view.
+- Not the memory store: `save_memory` persists through the configured store and is found by explicit search or [optional automatic recall](memory.md); a pin lives for the run and is always in view.
 - Not `assistantNotes`: those are the model's; pins are the tool's.

@@ -3,12 +3,15 @@ import type {
 	CreateMemoryParams,
 	MemoryContent,
 	MemoryIndexEntry,
+	MemoryRecord,
 	MemorySearchParams,
 	MemorySearchResult,
 	MemoryStore,
+	UpdateMemoryParams,
 } from '../../types/memory/index.js'
+import { assertMemoryStatus } from '../../types/memory/index.js'
 import { generateMemoryId } from '../../utils/id.js'
-import { InMemoryMemoryIndex } from './index.js'
+import { InMemoryMemoryIndex, searchMemoryEntries } from './index.js'
 
 export class InMemoryMemoryStore implements MemoryStore {
 	private content = new Map<string, MemoryContent>()
@@ -47,10 +50,14 @@ export class InMemoryMemoryStore implements MemoryStore {
 		return this.content.get(id)
 	}
 
-	async update(
-		id: MemoryId,
-		updates: Partial<CreateMemoryParams>,
-	): Promise<MemoryIndexEntry | undefined> {
+	async getRecord(id: MemoryId): Promise<MemoryRecord | undefined> {
+		const entry = this.index.getEntry(id)
+		const content = this.content.get(id)
+		return entry && content ? structuredClone({ entry, content }) : undefined
+	}
+
+	async update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined> {
+		if (updates.status !== undefined) assertMemoryStatus(updates.status)
 		const existing = this.index.getEntry(id)
 		if (!existing) return undefined
 
@@ -61,6 +68,7 @@ export class InMemoryMemoryStore implements MemoryStore {
 			title: updates.title ?? existing.title,
 			summary: updates.summary ?? existing.summary,
 			tags: updates.tags ? [...updates.tags] : existing.tags,
+			status: updates.status ?? existing.status,
 			updatedAt: now,
 		}
 
@@ -94,7 +102,11 @@ export class InMemoryMemoryStore implements MemoryStore {
 	}
 
 	async list(params?: MemorySearchParams): Promise<MemorySearchResult> {
-		return this.index.search(params ?? {})
+		return searchMemoryEntries(
+			this.index.allEntries(),
+			params ?? {},
+			(id) => this.content.get(id)?.content ?? '',
+		)
 	}
 
 	getIndex(): InMemoryMemoryIndex {

@@ -6,37 +6,64 @@ import type {
 	MemorySearchResult,
 } from '../../types/memory/index.js'
 
+function terms(text: string): Set<string> {
+	return new Set(
+		text
+			.normalize('NFKC')
+			.toLowerCase()
+			.match(/[\p{L}\p{N}]+/gu) ?? [],
+	)
+}
+
+/** Shared lexical ranking; a caller-owned index can omit body content. */
+export function searchMemoryEntries(
+	entries: readonly MemoryIndexEntry[],
+	params: MemorySearchParams,
+	contentOf: (id: MemoryId) => string = () => '',
+): MemorySearchResult {
+	const query = terms(params.query ?? '')
+	if (params.query?.trim() && query.size === 0) return { entries: [], totalCount: 0 }
+	const ranked = entries
+		.filter(
+			(entry) =>
+				(!params.status || entry.status === params.status) &&
+				(!params.tags?.length || params.tags.every((tag) => entry.tags.includes(tag))),
+		)
+		.map((entry) => {
+			let coverage = 0
+			let score = 0
+			if (query.size > 0) {
+				const title = terms(entry.title)
+				const summary = terms(entry.summary)
+				const body = terms(contentOf(entry.id))
+				for (const term of query) {
+					const weight =
+						(title.has(term) ? 8 : 0) + (summary.has(term) ? 4 : 0) + (body.has(term) ? 1 : 0)
+					if (weight > 0) coverage++
+					score += weight
+				}
+			}
+			return { entry, coverage, score }
+		})
+		.filter(({ coverage }) => query.size === 0 || coverage > 0)
+		.sort(
+			(a, b) =>
+				b.coverage - a.coverage ||
+				b.score - a.score ||
+				b.entry.updatedAt - a.entry.updatedAt ||
+				(a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0),
+		)
+	return {
+		entries: ranked.slice(0, params.limit ?? ranked.length).map(({ entry }) => entry),
+		totalCount: ranked.length,
+	}
+}
+
 export class InMemoryMemoryIndex implements MemoryIndex {
 	private entries = new Map<string, MemoryIndexEntry>()
 
 	search(params: MemorySearchParams): MemorySearchResult {
-		let results = Array.from(this.entries.values())
-
-		if (params.query) {
-			const q = params.query.toLowerCase()
-			results = results.filter(
-				(e) => e.title.toLowerCase().includes(q) || e.summary.toLowerCase().includes(q),
-			)
-		}
-
-		if (params.tags && params.tags.length > 0) {
-			const requiredTags = params.tags
-			results = results.filter((e) => requiredTags.every((tag) => e.tags.includes(tag)))
-		}
-
-		if (params.status) {
-			results = results.filter((e) => e.status === params.status)
-		}
-
-		results.sort((a, b) => b.updatedAt - a.updatedAt)
-
-		const totalCount = results.length
-		const limit = params.limit ?? totalCount
-
-		return {
-			entries: results.slice(0, limit),
-			totalCount,
-		}
+		return searchMemoryEntries([...this.entries.values()], params)
 	}
 
 	getEntry(id: MemoryId): MemoryIndexEntry | undefined {

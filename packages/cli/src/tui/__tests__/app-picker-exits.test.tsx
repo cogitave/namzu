@@ -633,7 +633,7 @@ describe('publishing a picker selection', () => {
 		]
 		vi.spyOn(userCommandStore, 'discoverUserCommands').mockReturnValue(customCommands)
 		const expand = vi.spyOn(userCommandStore, 'expandCommand')
-		const remember = vi.spyOn(memoryStore, 'appendMemory').mockReturnValue('/w/.namzu/MEMORY.md')
+		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus').mockReturnValue({ path: '/w/.namzu/MEMORY.md', scope: 'project', appended: true, includedInPrompt: true })
 		const read = vi.spyOn(memoryStore, 'readMemory').mockReturnValue({
 			user: null,
 			memory: null,
@@ -674,10 +674,25 @@ describe('publishing a picker selection', () => {
 		expect(send).not.toHaveBeenCalled()
 	})
 
+	it('forwards the automatic memory recall opt-out into the interactive session', async () => {
+		const create = vi.fn(async () => sessionFixture())
+		createSession = create
+		const harness = render(<App ctx={{ ...ctx, memory: { recall: false } }} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await vi.waitFor(() =>
+			expect(create).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				expect.objectContaining({ memory: { recall: false } }),
+			),
+		)
+	})
+
 	it('shows saved memory to the operator without prompt instructions or inspection writes', async () => {
 		const fact = 'Use pnpm for this project'
 		const path = '/w/.namzu/MEMORY.md'
-		const remember = vi.spyOn(memoryStore, 'appendMemory').mockReturnValue(path)
+		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus').mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: true })
 		const read = vi.spyOn(memoryStore, 'readMemory').mockReturnValue({
 			user: null,
 			memory: null,
@@ -703,6 +718,20 @@ describe('publishing a picker selection', () => {
 			expect(frame).not.toContain('Do not repeat it back')
 		}
 		expect(remember).toHaveBeenCalledExactlyOnceWith(fact, { scope: 'project', cwd: ctx.cwd })
+	})
+
+	it.each(['/memory add NEW_NOTE', '#NEW_NOTE'])('reports saved but clipped memory for %s', async (command) => {
+		const path = '/w/.namzu/MEMORY.md'
+		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus').mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: false })
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+		await submit(harness, command)
+		await frameShows(harness.lastFrame, 'not be fully included')
+		expect(harness.lastFrame()).toContain(path)
+		expect(harness.lastFrame()).not.toContain('Remembered')
+		expect(remember).toHaveBeenCalledExactlyOnceWith('NEW_NOTE', { scope: 'project', cwd: ctx.cwd })
 	})
 
 	it('shows effective session approval in Settings and clears it only when a preset is applied', async () => {

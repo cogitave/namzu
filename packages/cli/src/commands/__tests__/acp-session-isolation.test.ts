@@ -273,12 +273,14 @@ describe('the CLI ACP runtime', () => {
 								permissions: { bash: 'deny' },
 								mcpServers: { alpha: { command: 'alpha-server' } },
 								plugins: { enabled: true, allowedScopes: ['project'] },
+								memory: { recall: false },
 								sandbox: { enabled: true, teardownTimeoutMs: 101 },
 							}
 						: {
 								permissions: { read: 'allow' },
 								mcpServers: { beta: { command: 'beta-server' } },
 								plugins: { enabled: true, allowedScopes: ['user'] },
+								memory: { recall: true },
 								sandbox: { enabled: false, teardownTimeoutMs: 202 },
 							},
 				),
@@ -351,6 +353,7 @@ describe('the CLI ACP runtime', () => {
 				cwd: '/canonical/a',
 				mcpServers: { alpha: { command: 'alpha-server' } },
 				plugins: { enabled: true, allowedScopes: ['project'] },
+				memory: { recall: false },
 				sandbox: { enabled: true, teardownTimeoutMs: 101 },
 			}),
 		)
@@ -359,6 +362,7 @@ describe('the CLI ACP runtime', () => {
 				cwd: '/canonical/b',
 				mcpServers: { beta: { command: 'beta-server' } },
 				plugins: { enabled: true, allowedScopes: ['user'] },
+				memory: { recall: true },
 				sandbox: { enabled: false, teardownTimeoutMs: 202 },
 			}),
 		)

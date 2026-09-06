@@ -1,4 +1,11 @@
-import { type MemoryContent, memoryFilePath, projectMemoryFilePath, userFilePath } from './store.js'
+import {
+	type AppendMemoryResult,
+	MEMORY_SECTION_MAX_CHARS,
+	type MemoryContent,
+	memoryFilePath,
+	projectMemoryFilePath,
+	userFilePath,
+} from './store.js'
 
 export const MEMORY_PREVIEW_MAX_CHARS = 2_000
 export const MEMORY_PREVIEW_MAX_LINES = 20
@@ -28,10 +35,26 @@ export function renderMemoryReport(
 	const add = (label: string, text: string | null, path: string): void => {
 		if (text) sections.push(`${label}\n${path}\n\n${preview(text, path)}`)
 	}
-	add('Project memory', content.project, projectMemoryFilePath(options.cwd))
+	if (content.project) add('Project memory', content.project, projectMemoryFilePath(options.cwd))
 	add('User memory (all projects)', content.memory, memoryFilePath(options.home))
 	add('About you', content.user, userFilePath(options.home))
+	sections.push(...formatMemoryDiagnostics(content))
 	return sections.length > 0
 		? sections.join('\n\n')
 		: 'No saved memory. Use /memory add <text> for this project, or /memory --user add <text> for all projects.'
+}
+
+/** Operator notices for refused files; these are not model prompt instructions. */
+export function formatMemoryDiagnostics(content: MemoryContent): readonly string[] {
+	return (content.diagnostics ?? []).map(
+		({ path, reason }) => `Memory not loaded: ${path} — ${reason}`,
+	)
+}
+
+export function renderMemorySaveResult(result: AppendMemoryResult, text: string): string {
+	if (!result.appended) return `No memory added (${result.path}). Use /memory add <text>.`
+	if (!result.includedInPrompt) {
+		return `Saved to ${result.path}, but this note will not be fully included in the next prompt because the section exceeds ${MEMORY_SECTION_MAX_CHARS.toLocaleString('en-US')} characters. Curate that file to include the note.`
+	}
+	return `Remembered ${result.scope === 'user' ? 'for every project' : 'for this project'} (${result.path}): ${text}`
 }
