@@ -1,11 +1,13 @@
-import { exec } from 'node:child_process'
-import { promisify } from 'node:util'
+import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 import { z } from 'zod'
+import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
+import { killTree } from '../../process/kill-tree.js'
+import { subscribeToAbort } from '../../utils/abort.js'
 import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv } from '../env-scrub.js'
 
-const execAsync = promisify(exec)
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS`.
 // The Vandal fallback (`VANDAL_NAMZU_TIMEOUT_MS`) lived here as a
 // historical bridge while Namzu was carved out of the Vandal repo,
@@ -117,6 +119,155 @@ function shellProgress(report?: (message: string) => void) {
 			// A diagnostic observer cannot break the process output reader.
 		}
 	}
+}
+
+/**
+ * Keep the shell's process group until inherited pipes close. Node's exec
+ * timeout/AbortSignal kills only the wrapper and closes its pipes immediately,
+ * leaving the command and its descendants running after the promise settles.
+ */
+function execHostShell(
+	command: string,
+	options: {
+		cwd: string
+		env: NodeJS.ProcessEnv
+		timeout: number
+		maxBuffer: number
+		signal?: AbortSignal
+		onOutput?: ReturnType<typeof shellProgress>
+	},
+): Promise<{ stdout: string; stderr: string }> {
+	options.signal?.throwIfAborted()
+	return new Promise((resolve, reject) => {
+		const child = spawn(command, {
+			cwd: options.cwd,
+			env: options.env,
+			shell: true,
+			// killTree's negative PID must never target the caller's own group.
+			detached: process.platform !== 'win32',
+		})
+		const captures = {
+			stdout: {
+				chunks: [] as Buffer[],
+				bytes: 0,
+				truncated: false,
+				decoder: new StringDecoder('utf8'),
+			},
+			stderr: {
+				chunks: [] as Buffer[],
+				bytes: 0,
+				truncated: false,
+				decoder: new StringDecoder('utf8'),
+			},
+		}
+		let cause: 'caller' | 'timeout' | 'maxBuffer' | undefined
+		let failure: (Error & { code?: string | number }) | undefined
+		let escalation: ReturnType<typeof setTimeout> | undefined
+		let disposeAbort: (() => void) | undefined
+		let closed = false
+		const cancel = (origin: NonNullable<typeof cause>) => {
+			if (closed || cause !== undefined) return
+			cause = origin
+			escalation = setTimeout(() => {
+				escalation = undefined
+				killTree(child, 'SIGKILL')
+				// A descendant can deliberately start a separate session. It is
+				// outside this group, but its inherited pipes must not hold the
+				// cancelled call forever. Keep what was captured during grace.
+				child.stdin?.destroy()
+				child.stdout?.destroy()
+				child.stderr?.destroy()
+			}, SANDBOX_KILL_GRACE_MS)
+			escalation.unref?.()
+			killTree(child, 'SIGTERM')
+		}
+		const capture = (stream: 'stdout' | 'stderr', chunk: Buffer) => {
+			const state = captures[stream]
+			const kept = Math.min(chunk.length, options.maxBuffer - state.bytes)
+			if (kept > 0) {
+				state.chunks.push(Buffer.from(chunk.subarray(0, kept)))
+				state.bytes += kept
+			}
+			if (kept < chunk.length) {
+				state.truncated = true
+				if (cause === undefined) {
+					failure = Object.assign(new RangeError(`${stream} maxBuffer length exceeded`), {
+						code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+					})
+					cancel('maxBuffer')
+				}
+			}
+			if (options.onOutput) {
+				const data = state.decoder.write(chunk)
+				if (data) options.onOutput({ stream, data })
+			}
+		}
+		const onStdout = (chunk: Buffer) => capture('stdout', chunk)
+		const onStderr = (chunk: Buffer) => capture('stderr', chunk)
+		child.stdout?.on('data', onStdout)
+		child.stderr?.on('data', onStderr)
+		child.once('error', (error: NodeJS.ErrnoException) => {
+			failure ??= error
+		})
+		child.once('close', (code, signal) => {
+			closed = true
+			disposeAbort?.()
+			clearTimeout(deadline)
+			if (escalation !== undefined) {
+				clearTimeout(escalation)
+				// Pipes closing can precede a descendant which closed its copies.
+				// Force the owned group now instead of retaining its PID in a timer.
+				killTree(child, 'SIGKILL')
+			}
+			child.stdout?.off('data', onStdout)
+			child.stderr?.off('data', onStderr)
+			for (const stream of ['stdout', 'stderr'] as const) {
+				const data = captures[stream].decoder.end()
+				if (data) options.onOutput?.({ stream, data })
+			}
+			const decodeCapture = (stream: 'stdout' | 'stderr') => {
+				const state = captures[stream]
+				const bytes = Buffer.concat(state.chunks, state.bytes)
+				// Do not flush an incomplete UTF-8 character cut by our byte cap.
+				return state.truncated ? new StringDecoder('utf8').write(bytes) : bytes.toString('utf8')
+			}
+			const stdout = decodeCapture('stdout')
+			const stderr = decodeCapture('stderr')
+			if (!failure && cause === undefined && code === 0 && signal === null) {
+				resolve({ stdout, stderr })
+				return
+			}
+			const error =
+				failure ??
+				(cause === 'caller'
+					? Object.assign(
+							new Error('The operation was aborted', { cause: options.signal?.reason }),
+							{
+								name: 'AbortError',
+								code: 'ABORT_ERR',
+							},
+						)
+					: new Error(`Command failed: ${command}\n${stderr}`))
+			reject(
+				Object.assign(error, {
+					stdout,
+					stderr,
+					stdoutTruncated: captures.stdout.truncated,
+					stderrTruncated: captures.stderr.truncated,
+					code: failure?.code ?? (cause === 'caller' ? 'ABORT_ERR' : code),
+					killed: cause !== undefined,
+					signal,
+					timedOut: cause === 'timeout',
+				}),
+			)
+		})
+		const deadline = setTimeout(() => cancel('timeout'), options.timeout)
+		deadline.unref?.()
+		if (options.signal) {
+			disposeAbort = subscribeToAbort(options.signal, () => cancel('caller'))
+			if (options.signal.aborted) cancel('caller')
+		}
+	})
 }
 
 function isDangerousCommand(command: string): boolean {
@@ -278,22 +429,8 @@ export const BashTool = defineTool({
 			}
 		}
 
-		// Thread the run/deadline signal into the child process. Without it
-		// a Stop tore down the model stream and left the command running,
-		// and the executor's deadline could only ever DETACH from the tool
-		// rather than end the work it started.
-		// `exec` REJECTS on a non-zero exit, on its own timeout, and on a
-		// kill — and the rejection carries `stdout`, `stderr`, `code` and
-		// `killed`. Letting it propagate threw all of that away: the registry
-		// turned the throw into a structured failure, so the model was told a
-		// command failed and not one word about how.
-		//
-		// That is the common case, not an edge one. A failing test run and a
-		// failing build are the two things an agent runs bash for most, and
-		// both exit non-zero WITH the output that explains why. The sandbox
-		// branch above already reports all of it; this branch did not, so the
-		// same command told the model two different amounts depending on where
-		// it happened to run.
+		// The owned runner retains stdout/stderr on non-zero exit and timeout,
+		// so a failed command still returns the evidence explaining its failure.
 		// The inherited half is scrubbed; `context.env` is not. Inheritance is
 		// implicit — nobody decided this command should see `process.env` — while
 		// a `context.env` key is one a host wrote on purpose. See
@@ -302,54 +439,51 @@ export const BashTool = defineTool({
 		const inherited = scrubInheritedEnv()
 
 		try {
-			const pending = execAsync(input.command, {
+			const { stdout, stderr } = await execHostShell(input.command, {
 				cwd: context.workingDirectory,
 				timeout: input.timeout,
 				env: { ...inherited.env, ...context.env },
 				maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
 				signal: context.abortSignal,
+				onOutput,
 			})
-			const onStdout = (data: string) => onOutput?.({ stream: 'stdout', data })
-			const onStderr = (data: string) => onOutput?.({ stream: 'stderr', data })
-			if (onOutput) {
-				// Readable's decoder carries incomplete UTF-8 bytes between chunks.
-				pending.child.stdout?.setEncoding('utf8').on('data', onStdout)
-				pending.child.stderr?.setEncoding('utf8').on('data', onStderr)
-			}
-			try {
-				const { stdout, stderr } = await pending
-				return {
-					success: true,
-					output: formatShellOutput(stdout, stderr) || '(no output)',
-					data: { exitCode: 0 },
-				}
-			} finally {
-				pending.child.stdout?.off('data', onStdout)
-				pending.child.stderr?.off('data', onStderr)
+			return {
+				success: true,
+				output: formatShellOutput(stdout, stderr) || '(no output)',
+				data: { exitCode: 0 },
 			}
 		} catch (err) {
 			const failure = err as NodeJS.ErrnoException & {
 				stdout?: string
 				stderr?: string
+				stdoutTruncated?: boolean
+				stderrTruncated?: boolean
 				code?: number | string
 				killed?: boolean
 				signal?: string
+				timedOut?: boolean
 			}
 
 			// A caller-owned Stop is the caller's, not a command failure.
 			if (context.abortSignal?.aborted) throw err
 
-			// `exec` reports its own timeout as a kill, and the distinction
-			// matters to the model: "ran out of time" is a different next move
-			// from "exited 1".
-			const timedOut = failure.killed === true && failure.signal === 'SIGTERM'
+			// A maxBuffer stop or an ordinary signal is not a deadline. The
+			// runner latches the first cancellation cause before signalling.
+			const timedOut = failure.timedOut === true
 			const exitCode = typeof failure.code === 'number' ? failure.code : undefined
+			const clipped = [
+				failure.stdoutTruncated ? 'stdout' : '',
+				failure.stderrTruncated ? 'stderr' : '',
+			].filter(Boolean)
 			// Only on the failure path. A successful command did not need to know,
 			// and appending this to every result would make the common case noisy
 			// to buy nothing. A failing one is exactly where "authentication
 			// failed" has to be distinguishable from "the variable was withheld".
 			const output = [
 				formatShellOutput(failure.stdout, failure.stderr),
+				clipped.length > 0
+					? `[${clipped.join(' and ')} ${clipped.length === 1 ? 'was' : 'were'} truncated by the host output cap. The omitted output is unavailable in this result.]`
+					: '',
 				describeWithheldEnv(inherited.dropped),
 			]
 				.filter(Boolean)
@@ -361,6 +495,8 @@ export const BashTool = defineTool({
 				data: {
 					...(exitCode !== undefined ? { exitCode } : {}),
 					timedOut,
+					stdoutTruncated: failure.stdoutTruncated ?? false,
+					stderrTruncated: failure.stderrTruncated ?? false,
 					...(failure.signal ? { signal: failure.signal } : {}),
 				},
 				error: timedOut

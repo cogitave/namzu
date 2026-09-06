@@ -267,24 +267,7 @@ function MessageRow({
 
 /**
  * Collapsible tool diff / output, aligned under the content gutter.
- *
- * `expanded` comes from the ROW, and that is now load-bearing in the opposite
- * direction from the reason it was written.
- *
- * It used to say that a view-wide setting could not work, because every
- * finalized row went through `<Static>`: that renders each item once and calls
- * the CURRENT render function only for items it has not emitted yet, so a flag
- * flipped now would apply to rows that have not happened and to none of the
- * rows on screen. True of a row in scrollback, and it is why `/expand` pushes a
- * new row carrying the same lines rather than reopening the old one.
- *
- * It is not true of the live window. Those rows are re-rendered from state on
- * every frame, so flipping this flag on one of them redraws that row in place —
- * which is what the expand key now does, for the rows an operator is actually
- * looking at. The flag stays on the row rather than becoming view-wide because
- * the two mechanisms have to coexist: `/expand` still appends for anything that
- * has settled into scrollback, and a view-wide flag would mean something
- * different to each half.
+ * Ctrl+O expands live rows in place or reprints the latest settled body.
  */
 function DetailBlock({
 	lines,
@@ -293,10 +276,10 @@ function DetailBlock({
 }: {
 	readonly lines: readonly string[]
 	readonly expanded: boolean
-	/** The number `/expand` takes for this block, when it has one. */
+	/** Stable reference that lets App offer expansion for this body. */
 	readonly detailRef: number | undefined
 }) {
-	const { shown, hint } = splitDetail(lines.map(terminalDisplayText), expanded, detailRef)
+	const shown = splitDetail(lines.map(terminalDisplayText), expanded, detailRef)
 	// A dim left rule (`▏`) under the gutter frames the output as a block,
 	// so tool output is visibly not the assistant speaking.
 	const Rule = () => (
@@ -307,7 +290,7 @@ function DetailBlock({
 	return (
 		<Box flexDirection="column" paddingLeft={1}>
 			{shown.map((line, i) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: immutable output lines retain their positions when expanded.
+				// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no local state; expansion replaces their text in place.
 				<Box key={`d-${i}`} flexDirection="row">
 					<Rule />
 					<Box flexGrow={1}>
@@ -317,31 +300,11 @@ function DetailBlock({
 					</Box>
 				</Box>
 			))}
-			{hint ? (
-				<Box flexDirection="row">
-					<Rule />
-					{/* The hint names its OWN number rather than telling the operator
-					    to find one. Counting collapsed blocks up a scrolled
-					    transcript is work, and a hint that costs work is a hint
-					    that gets ignored. A block with no number cannot be named,
-					    so it says how many lines it is hiding and stops there
-					    rather than printing a command that would not resolve. */}
-					<Text color={theme.text.muted}>{hint}</Text>
-				</Box>
-			) : null}
 		</Box>
 	)
 }
 
-/**
- * Whether a body will be truncated, and so will print a hint naming itself.
- *
- * Exported because only bodies that actually collapse get a `/expand` number,
- * and this file owns `COLLAPSE_LINES`. Numbering the rest would produce numbers
- * no hint ever shows: gaps in the sequence, a bare `/expand` that reprints a
- * two-line body while the truncated one above it stays hidden, and a
- * "there are N" message counting blocks the operator was never offered.
- */
+/** Whether the preview hides text and App should mark the body as expandable. */
 export function willCollapse(detail: readonly string[] | undefined): boolean {
 	return (
 		detail !== undefined &&
@@ -350,14 +313,18 @@ export function willCollapse(detail: readonly string[] | undefined): boolean {
 	)
 }
 
-/** How much of a body prints, and how much stays behind the hint. */
+/** One projection for rendered rows and their height estimate; source lines stay intact. */
 function splitDetail(
 	lines: readonly string[],
 	expanded: boolean,
 	detailRef?: number,
-): { readonly shown: readonly string[]; readonly hint: string | undefined } {
-	if (expanded) return { shown: lines, hint: undefined }
-	const selected = lines.slice(0, COLLAPSE_LINES)
+): readonly string[] {
+	if (expanded) return lines
+	const fragmentLines = COLLAPSE_LINES / 2
+	const selected =
+		lines.length > COLLAPSE_LINES
+			? [...lines.slice(0, fragmentLines), ...lines.slice(-fragmentLines)]
+			: lines
 	const hidden = lines.length - selected.length
 	const clipped = selected.some((line) => line.length > PREVIEW_LINE_CHARS)
 	const shown = selected.map((line) =>
@@ -365,11 +332,12 @@ function splitDetail(
 			? `${line.slice(0, PREVIEW_LINE_CHARS - 1).replace(/[\uD800-\uDBFF]$/, '')}…`
 			: line,
 	)
-	const hint =
-		hidden > 0 || clipped
-			? `… ${hidden > 0 ? `+${hidden} lines` : 'line shortened'}${hidden > 0 && clipped ? ' · shortened preview' : ''}${detailRef === undefined ? '' : ' · ctrl+o'}`
-			: undefined
-	return { shown, hint }
+	const action = detailRef === undefined ? '' : ' · ctrl+o'
+	if (hidden > 0) {
+		const hint = `… ${hidden} line${hidden === 1 ? '' : 's'} omitted${action}${clipped ? ' · shortened preview' : ''}`
+		return [...shown.slice(0, fragmentLines), hint, ...shown.slice(fragmentLines)]
+	}
+	return clipped ? [...shown, `… line shortened${action}`] : shown
 }
 
 /**
@@ -385,7 +353,7 @@ function splitDetail(
 export function renderedDetailLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
 	if (!lines || lines.length === 0) return []
-	const { shown, hint } = splitDetail(
+	const shown = splitDetail(
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,
 		message.detailRef,
@@ -397,9 +365,7 @@ export function renderedDetailLines(message: TranscriptMessage): readonly string
 	// redrawable region too far. The prefix is what the estimator measures, so the
 	// arithmetic is done by making the string the width it really is.
 	const gutter = '   '
-	const body = shown.map((line) => gutter + line)
-	// The hint's real text, `/expand n` included, because that is what wraps.
-	return hint ? [...body, gutter + hint] : body
+	return shown.map((line) => gutter + line)
 }
 
 function detailLineColor(line: string): string {

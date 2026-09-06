@@ -34,7 +34,7 @@ export interface TranscriptMessage {
 	/** Collapsible body under the line (tool diff / output). */
 	readonly detail?: readonly string[]
 	/**
-	 * The number this row's collapse hint prints, so `/expand <n>` can name it.
+	 * Stable reference identifying an expandable body for Ctrl+O.
 	 *
 	 * Assigned once, when the row is pushed, and monotone for the life of the
 	 * transcript. Deliberately NOT an index into the message list: system, user
@@ -43,17 +43,8 @@ export interface TranscriptMessage {
 	 */
 	readonly detailRef?: number
 	/**
-	 * This row prints its whole body, with no collapse and no hint.
-	 *
-	 * A property of the ROW rather than a setting on the view, and that is
-	 * forced rather than chosen. Finalized rows render through Ink's `<Static>`,
-	 * which renders `items.slice(index)` and calls the render function only for
-	 * items it has not emitted yet — so a view-wide "expanded" flag reaches rows
-	 * that have not arrived and no row that has. That is what the key this
-	 * replaced actually did, and why it was worse than useless: it expanded
-	 * output you had not seen and could not touch the output you were looking at.
-	 * The only expansion available to a row already on screen is a NEW row, which
-	 * is what `/expand` pushes and what this flag marks.
+	 * Print the complete retained body, without clipping or omission markers.
+	 * Ctrl+O toggles this on live rows; a settled body is reprinted in a new row.
 	 */
 	readonly detailExpanded?: boolean
 }

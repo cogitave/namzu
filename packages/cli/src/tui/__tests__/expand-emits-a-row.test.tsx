@@ -78,8 +78,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 		}),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
-				sandbox: { unconfined: true, enforced: [], required: [] },
-				compact: async () => null,
+			sandbox: { unconfined: true, enforced: [], required: [] },
+			compact: async () => null,
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
@@ -192,11 +192,10 @@ async function twoCollapsedBlocks() {
 	harness.stdin.write('go')
 	await tick(20)
 	harness.stdin.write('\r')
-	await frameShows(harness.lastFrame, 'result-line-6')
-	expect(harness.lastFrame(), 'the turn never produced output').toContain('result-line-6')
+	await frameShows(harness.lastFrame, 'result-line-12')
+	expect(harness.lastFrame(), 'the turn never produced output').toContain('result-line-12')
 	return harness
 }
-
 
 describe('a collapsed body advertises how to read it', () => {
 	it('names the key, and nothing else', async () => {
@@ -204,7 +203,7 @@ describe('a collapsed body advertises how to read it', () => {
 
 		const frame = lastFrame() ?? ''
 		// Both blocks hide six lines, and each points at the same key.
-		expect(frame.split('… +6 lines · ctrl+o').length - 1, 'both bodies name the key').toBe(2)
+		expect(frame.split('… 6 lines omitted · ctrl+o').length - 1, 'both bodies name the key').toBe(2)
 		// The command this replaced must not still be advertised anywhere.
 		expect(frame, 'a removed command is still advertised').not.toContain('/expand')
 	})
@@ -239,12 +238,11 @@ describe('a body that fits', () => {
 			await frameShows(harness.lastFrame, 'short-c')
 
 			harness.stdin.write('\x0f') // Ctrl+O
-			await frameShows(harness.lastFrame, 'result-line-12')
+			await frameShows(harness.lastFrame, 'result-line-7')
 
-			expect(
-				harness.lastFrame() ?? '',
-				'Ctrl+O reprinted a body that was already whole',
-			).toContain('result-line-12')
+			expect(harness.lastFrame() ?? '', 'Ctrl+O reprinted a body that was already whole').toContain(
+				'result-line-7',
+			)
 		})
 	})
 })
@@ -263,12 +261,12 @@ describe('Ctrl+O', () => {
 			const harness = await twoCollapsedBlocks()
 
 			harness.stdin.write('\x0f')
-			await frameShows(harness.lastFrame, 'result-line-12')
+			await frameShows(harness.lastFrame, 'result-line-7')
 
 			const frame = harness.lastFrame() ?? ''
-			expect(frame, 'the hidden lines never appeared').toContain('result-line-12')
+			expect(frame, 'the hidden lines never appeared').toContain('result-line-7')
 			expect(frame, 'the reprint did not say what it is of').toContain('in full (12 lines)')
-			expect(frame, 'the most recent body is the one reprinted').not.toContain('call-line-12')
+			expect(frame, 'the most recent body is the one reprinted').not.toContain('call-line-7')
 		})
 	})
 

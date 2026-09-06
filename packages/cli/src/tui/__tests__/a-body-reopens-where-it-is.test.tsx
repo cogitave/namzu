@@ -58,8 +58,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 		}),
 		createAgentSession: async (): Promise<AgentSession> => ({
 			hasProvider: true,
-				sandbox: { unconfined: true, enforced: [], required: [] },
-				compact: async () => null,
+			sandbox: { unconfined: true, enforced: [], required: [] },
+			compact: async () => null,
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
@@ -131,7 +131,11 @@ function rowOf(screen: Screen, text: string): number {
 
 /** Render, run the turn, and stop with one collapsed twelve-line body on screen. */
 async function aCollapsedBody(): Promise<Screen> {
-	const screen = await renderToScreen(<App ctx={ctx} />, { cols: COLS, rows: ROWS, scrollback: 400 })
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: COLS,
+		rows: ROWS,
+		scrollback: 400,
+	})
 	mounted.push(screen)
 	// The composer's placeholder draws from the first frame while the composer
 	// is still disabled, so it is not readiness. The connect line only exists
@@ -140,8 +144,8 @@ async function aCollapsedBody(): Promise<Screen> {
 	screen.press('go')
 	await screen.waitForRender()
 	screen.press('\r')
-	await screenShows(screen, 'result-line-6')
-	expect(screen.viewport().join('\n'), 'the turn never produced output').toContain('result-line-6')
+	await screenShows(screen, 'result-line-12')
+	expect(screen.viewport().join('\n'), 'the turn never produced output').toContain('result-line-12')
 	return screen
 }
 
@@ -150,16 +154,16 @@ describe('the expand key, on a body that is still on screen', () => {
 		const screen = await aCollapsedBody()
 
 		const before = screen.viewport().join('\n')
-		expect(before, 'the body was not collapsed to begin with').toContain('… +6 lines')
+		expect(before, 'the body was not collapsed to begin with').toContain('… 6 lines omitted')
 		expect(before, 'the hidden lines were visible before the key was pressed').not.toContain(
-			'result-line-7',
+			'result-line-4',
 		)
-		const hintRow = rowOf(screen, '… +6 lines')
+		const hintRow = rowOf(screen, '… 6 lines omitted')
 		const anchorRow = rowOf(screen, 'result-line-1')
 		expect(hintRow, 'the hint is not on screen').toBeGreaterThan(-1)
 
 		screen.press('\x0f') // Ctrl+O
-		await screenShows(screen, 'result-line-7')
+		await screenShows(screen, 'result-line-4')
 
 		// The rows above did not move, so the row indexes below mean something.
 		// If this fails the viewport scrolled, and the test says so rather than
@@ -167,15 +171,15 @@ describe('the expand key, on a body that is still on screen', () => {
 		expect(rowOf(screen, 'result-line-1'), 'the viewport scrolled under the assertion').toBe(
 			anchorRow,
 		)
-		// The row that carried the hint now carries the seventh line of the body.
+		// The row that carried the hint now carries the fourth line of the body.
 		// This is the assertion a frame string cannot make.
 		expect(
 			screen.row(hintRow),
 			'the row that advertised the hidden lines is not the row that now shows them',
-		).toContain('result-line-7')
+		).toContain('result-line-4')
 		// And the hint is gone rather than still sitting above a copy.
 		expect(screen.viewport().join('\n'), 'the collapsed row was left behind').not.toContain(
-			'… +6 lines',
+			'… 6 lines omitted',
 		)
 		// One copy of the body on screen, not two. An appended expansion leaves
 		// the collapsed rows above its copy and would satisfy every "the hidden
@@ -196,7 +200,7 @@ describe('the expand key, on a body that is still on screen', () => {
 
 		const viewport = screen.viewport()
 		const composer = viewport.findIndex((line) => line.includes('Type a message'))
-		const lastTranscript = viewport.findIndex((line) => line.includes('… +6 lines'))
+		const lastTranscript = viewport.findIndex((line) => line.includes('result-line-12'))
 		expect(composer, 'the composer is not on screen').toBeGreaterThan(-1)
 		expect(lastTranscript, 'the transcript tail is not on screen').toBeGreaterThan(-1)
 		expect(
@@ -221,7 +225,10 @@ describe('the expand key, on a body that is still on screen', () => {
 
 		await screen.resize(COLS, 50)
 		expect(screen.viewport().join('\n')).toContain('Type a message')
-		expect(screen.scrollback().filter(call), 'resize printed a second durable tool row').toHaveLength(1)
+		expect(
+			screen.scrollback().filter(call),
+			'resize printed a second durable tool row',
+		).toHaveLength(1)
 	}, 30_000)
 
 	it('still reaches the rows of the conversation after Ctrl+L', async () => {
@@ -241,32 +248,32 @@ describe('the expand key, on a body that is still on screen', () => {
 		screen.press('\x0c')
 		await screenShows(screen, 'Type a message')
 		expect(screen.viewport().join('\n'), 'the transcript was not cleared').not.toContain(
-			'result-line-6',
+			'result-line-12',
 		)
 
 		screen.press('go')
 		await screen.waitForRender()
 		screen.press('\r')
-		await screenShows(screen, 'result-line-6')
+		await screenShows(screen, 'result-line-12')
 
 		screen.press('\x0f')
-		await screenShows(screen, 'result-line-7')
+		await screenShows(screen, 'result-line-4')
 		expect(
 			screen.viewport().join('\n'),
 			'the key stopped reaching anything once the transcript had been cleared',
-		).toContain('result-line-7')
+		).toContain('result-line-4')
 	}, 30_000)
 
 	it('closes it again, because it is a toggle', async () => {
 		const screen = await aCollapsedBody()
 
 		screen.press('\x0f')
-		await screenShows(screen, 'result-line-7')
+		await screenShows(screen, 'result-line-4')
 		screen.press('\x0f')
-		await screenShows(screen, '… +6 lines')
+		await screenShows(screen, '… 6 lines omitted')
 
 		const frame = screen.viewport().join('\n')
-		expect(frame, 'the key only ever opened').toContain('… +6 lines')
-		expect(frame, 'the body stayed open').not.toContain('result-line-7')
+		expect(frame, 'the key only ever opened').toContain('… 6 lines omitted')
+		expect(frame, 'the body stayed open').not.toContain('result-line-4')
 	}, 30_000)
 })

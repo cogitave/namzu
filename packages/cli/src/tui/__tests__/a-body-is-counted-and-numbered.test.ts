@@ -1,19 +1,9 @@
 /**
  * A collapsed tool body is measured, and the collapse rule has one owner.
  *
- * Two claims, and they are the same claim from opposite ends.
- *
- * The redrawable tail is bounded by estimated terminal height. Counting each
- * row's `content` and nothing else makes a six-line collapsed tool body look
- * like one row and can grow the live region into Ink's whole-history repaint
- * path. `/expand` makes that acute: it produces a row whose whole substance is
- * its body.
- *
- * And the count has to come from the renderer, because the renderer is the only
- * thing that knows how much of a body prints. A copy of `COLLAPSE_LINES` kept
- * on the measuring side would be correct on the day it was written and silently
- * wrong the first time the collapse changed — with no failure, because a low
- * estimate does not throw.
+ * The live-window estimate must count both preview fragments and the omission
+ * row, including wrapping. Expanded bodies are measured in full so a large
+ * result enters scrollback instead of forcing whole-history redraws.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -35,19 +25,24 @@ describe('renderedDetailLines', () => {
 	})
 
 	it('counts the hint row, because the hint occupies a row too', () => {
-		// Twelve lines collapse to six plus the hint: seven, not six. Off by one
-		// in the low direction is still the low direction.
+		// Three opening lines, the omission row, and three closing lines.
 		const lines = renderedDetailLines(row({ detail: body(12) }))
-		expect(lines).toHaveLength(7)
-		expect(lines[6]).toContain('+6 lines')
+		expect(lines).toEqual([
+			'   line-1',
+			'   line-2',
+			'   line-3',
+			'   … 6 lines omitted',
+			'   line-10',
+			'   line-11',
+			'   line-12',
+		])
 	})
 
 	it('gives the hint the text it really prints, command included', () => {
-		// `… +6 lines · ctrl+o` is nine columns longer than `… +6 lines`, and
-		// on a narrow terminal those eleven columns are a second rendered row that
-		// the estimate would not know about.
+		// The complete hint can wrap on a narrow terminal, so measurement must
+		// include both the omission count and the available action.
 		const lines = renderedDetailLines(row({ detail: body(12), detailRef: 3 }))
-		expect(lines[6]).toContain('ctrl+o')
+		expect(lines[3]).toBe('   … 6 lines omitted · ctrl+o')
 	})
 
 	it('measures a body against the width it has, not the width of the terminal', () => {
@@ -62,14 +57,25 @@ describe('renderedDetailLines', () => {
 
 	it('counts every line of a body that fits, with no hint', () => {
 		// Nothing is hidden, so nothing advertises hiding it.
-		const lines = renderedDetailLines(row({ detail: body(4) }))
-		expect(lines).toHaveLength(4)
-		expect(lines[0]).toContain('line-1')
+		const lines = renderedDetailLines(row({ detail: body(6), detailRef: 1 }))
+		expect(lines).toEqual(body(6).map((line) => `   ${line}`))
+	})
+
+	it('omits exactly the middle line when a body first exceeds the preview', () => {
+		const lines = renderedDetailLines(row({ detail: body(7), detailRef: 1 }))
+		expect(lines).toEqual([
+			'   line-1',
+			'   line-2',
+			'   line-3',
+			'   … 1 line omitted · ctrl+o',
+			'   line-5',
+			'   line-6',
+			'   line-7',
+		])
 	})
 
 	it('counts the whole body of an expanded row', () => {
-		// The row `/expand` pushes. This is the case that would be measured as a
-		// single line by anything reading `content` alone.
+		// Reading only the summary would count a single line for this full body.
 		expect(renderedDetailLines(row({ detail: body(200), detailExpanded: true }))).toHaveLength(200)
 	})
 })

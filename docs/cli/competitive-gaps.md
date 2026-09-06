@@ -43,10 +43,11 @@ This review reproduced three gaps in Namzu:
   expansion or `/raw` could recover them. Retained presentation lines now
   survive; the renderer bounds the default preview, including long single lines.
 
-The completed-output preview still favors the beginning. A head/tail preview
-is a candidate improvement for immediate visibility of final test failures.
-It needs clear omission markers and must preserve expansion, terminal safety
-and the viewport budget.
+The completed-output preview now shows three beginning and three ending lines,
+with an omission count between them. Final test failures can remain visible
+before expansion. Screen regressions verify that Ctrl+O and raw view restore
+the omitted middle, terminal controls remain inert, and the height estimator
+uses the same projection as the renderer.
 
 ## Motion and redraw cost
 
@@ -79,14 +80,23 @@ result content, settle calls that never started explicitly, and let cancellation
 finish without assuming unknown provider usage is zero. See
 [Harness invariants](../sdk/harness-invariants.md).
 
+An additional real-process probe found that foreground host shell aborts and
+timeouts killed the shell wrapper while its descendants continued running.
+Host execution now owns and terminates its POSIX process group, escalates after
+a bounded grace period and preserves timeout and command-failure output. Linux
+regressions cover ordinary and termination-resistant descendants. A child that
+creates a separate session can escape that group, but its inherited pipes can
+no longer hold cancellation open indefinitely. This establishes a host
+process-group boundary, not containment of arbitrary descendants.
+
 The next review should prioritize:
 
-1. Process-tree cancellation on supported hosts and sandboxes, using real
-   subprocess tests. An `AbortSignal` alone does not prove all descendants stop.
+1. Remaining cancellation boundaries on Windows and remote sandboxes, using
+   real subprocess tests. Linux host results do not establish those paths.
 2. Restart and cross-process races in the budget ledger, using durable receipts
    and held provider responses rather than only mocked totals.
-3. Completed-output head/tail previews and discoverable artifact access, with
-   screen tests that measure wrapping, scrollback and expansion.
+3. Discoverable artifact access for output beyond the runtime limit, preserving
+   source ownership and avoiding command replay.
 
 This review does not attribute ARC scores to any one of these defects. That
 requires a controlled comparison with the same model, effort, budget, tools

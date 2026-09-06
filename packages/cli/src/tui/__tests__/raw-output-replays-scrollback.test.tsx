@@ -127,7 +127,11 @@ function holdNextTurn(): void {
 	})
 }
 
-async function waitUntil(_screen: Screen, predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+async function waitUntil(
+	_screen: Screen,
+	predicate: () => boolean,
+	timeoutMs = 3_000,
+): Promise<void> {
 	const started = performance.now()
 	while (!predicate() && performance.now() - started < timeoutMs) {
 		await new Promise((resolve) => setTimeout(resolve, 20))
@@ -240,8 +244,8 @@ it('prints complete tool bodies without rich gutters or collapse hints', () => {
 	)
 	try {
 		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('plain-detail-12')
-		expect(frame).not.toContain('… +6 lines')
+		expect(frame.split('\n')).toEqual(expect.arrayContaining(detail))
+		expect(frame).not.toContain('… 6 lines omitted')
 		expect(frame).not.toContain('▏')
 		expect(frame).not.toContain('⏺')
 	} finally {

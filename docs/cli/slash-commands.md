@@ -30,7 +30,7 @@ explain why they cannot run and are checked again when selected.
 | `/memory` | Show what namzu remembers, or save a fact: /memory [something to remember]. |
 | `/skills` | Choose an available skill; use /skills list for the full roster. |
 | `/resume` | Resume a past conversation in this project. |
-| `/model` | Choose a model for the current provider; use `p` to change provider. The picker states whether the selection is saved for future launches. |
+| `/model` | Choose a model for the current provider. Other detected providers are named above the list; press `p` to switch providers, then choose a model. The picker states whether the selection is saved for future launches. |
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
 | `/cost` | Show usage and cost for the current or latest run; `/cost details` adds pricing and scope information. |

@@ -7,8 +7,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
-	PROVIDER_REGISTRY,
 	type DetectedProvider,
+	PROVIDER_REGISTRY,
 	type Preferences,
 } from '../../integrations/providers/index.js'
 import {
@@ -29,8 +29,8 @@ const original: Preferences = {
 	subagents: { active: ['reviewer-instance'] },
 	allowCapabilityMismatch: true,
 }
-const detected: readonly DetectedProvider[] = ['openai', 'deepseek'].map((id) => ({
-	entry: PROVIDER_REGISTRY[id as 'openai' | 'deepseek'],
+const detected: readonly DetectedProvider[] = ['openai', 'deepseek', 'anthropic'].map((id) => ({
+	entry: PROVIDER_REGISTRY[id as 'openai' | 'deepseek' | 'anthropic'],
 	source: { kind: 'env', envName: 'FIXTURE_KEY' },
 	apiKey: 'not-a-real-key',
 	alternatives: [],
@@ -295,6 +295,41 @@ it('offers provider changes explicitly and preserves remaining fallback settings
 	expect(constructed[1]?.providers).toHaveLength(2)
 	expect(constructed[1]?.providers[0]?.id).toBe('deepseek')
 	expect(constructed[1]?.providers[1]).toEqual(original.providers[1])
+})
+
+it('names Claude on the current model screen and opens its models through the advertised action', async () => {
+	const saved = readFileSync(preferencesPath(home), 'utf8')
+	const screen = await openModels()
+	expect(screen.viewport().join('\n')).toContain('Anthropic (Claude)')
+	expect(screen.viewport().join('\n')).toContain('p change provider')
+	await press(screen, 'p')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Choose a provider'),
+		'Provider menu missing',
+	)
+	await press(screen, '\x1b[B')
+	await press(screen, '\x1b[B')
+	await press(screen, '\r')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Choose a model · Anthropic (Claude)'),
+		'Claude model menu missing',
+	)
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Next model'),
+		'Claude models did not load',
+	)
+	expect(constructed).toHaveLength(1)
+	expect(readFileSync(preferencesPath(home), 'utf8')).toBe(saved)
+	await press(screen, '\r')
+	await until(
+		screen,
+		() => constructed.length === 2 && closeOld.mock.calls.length === 1,
+		'Claude selection was not activated',
+	)
+	expect(constructed[1]?.providers[0]?.id).toBe('anthropic')
 })
 
 it('removes only an exact primary duplicate from the fallback chain', async () => {

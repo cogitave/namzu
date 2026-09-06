@@ -52,6 +52,25 @@ host and sandbox paths. Sandbox timeouts retain captured output. A clipping
 notice identifies missing evidence without asking the model to repeat a
 possibly state-changing command.
 
+Foreground host shells own a separate process group on POSIX. Cancellation,
+timeout and output overflow terminate that group, with forced termination after
+the three-second grace period. Timeout and command-failure results retain
+captured output; caller cancellation still returns the cancellation receipt.
+Releasing the owned pipe readers after that grace also bounds cancellation when
+a descendant deliberately starts a separate session and keeps an inherited
+pipe open. Such a descendant has escaped the group and is not guaranteed to
+stop; process-group ownership is not containment.
+
+Output caps apply independently to stdout and stderr. Host failure results name
+clipped streams and expose `stdoutTruncated` and `stderrTruncated`, even if the
+cap was reached during timeout cleanup. UTF-8 clipping retains complete encoded
+characters and does not manufacture a replacement character at the cap boundary.
+
+Linux process regressions exercise real shell, parent and child processes,
+including children that ignore graceful termination and children that create
+another session. Windows uses the existing process-tree termination helper;
+these Linux results do not verify its behavior on Windows or remote sandboxes.
+
 ## Delegation accounting
 
 Let the parent's remaining tokens be `R` and a child's allocation be `A`.

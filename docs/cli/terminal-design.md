@@ -26,11 +26,13 @@ diffs. Color supports the text and symbols: errors, permissions and task states
 retain explicit labels. Raw output remains the original source projection.
 
 Tool output retains every line admitted by the runtime, including long first
-lines and diagnostics beyond line 200. The default preview shows at most six
-lines, each shortened to 240 characters, and advertises Ctrl+O whenever it hides
-text. Ctrl+O opens the retained body; `/raw` also includes it. Runtime output
-limits still apply: a retained artifact path identifies output beyond those
-limits. Neither action re-executes the tool.
+lines and diagnostics beyond line 200. For more than six lines, the default
+preview shows the first three and last three, with an omission count between
+them. This keeps final diagnostics visible without joining nonadjacent lines
+silently. Each visible line is shortened to 240 characters, and Ctrl+O is
+advertised whenever text is hidden. Ctrl+O opens the retained body; `/raw` also
+includes it. Runtime output limits still apply: a retained artifact path
+identifies output beyond those limits. Neither action re-executes the tool.
 
 A square message frame marks the writing area. Green corners and the `MESSAGE`
 label identify the active input; its long edges stay quiet. The two frame rows
@@ -86,8 +88,10 @@ the current or latest run, not an accumulated conversation total.
 `/settings` shows the current model, effort and approval mode with links to
 their controls and configuration-source diagnostics. It excludes credentials
 and does not edit arbitrary configuration keys. Model selection starts with
-the current provider and states whether it affects future launches or only a
-session using a temporary credential. The old session remains usable if
+the current provider. A visible `p change provider` action above the model list
+names other detected providers that Namzu can construct from available
+credentials. The list states whether selection affects future launches or only
+a session using a temporary credential. The old session remains usable if
 replacement construction or preference persistence fails.
 
 `/goal` presents objective management and automatic continuation controls,

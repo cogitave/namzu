@@ -16,8 +16,8 @@ import {
 	PROVIDER_REGISTRY,
 	type ProviderId,
 	type ProviderRegistryEntry,
-	signedInSubscriptionProviders,
 	type SubscriptionProviderId,
+	signedInSubscriptionProviders,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
@@ -30,6 +30,7 @@ import {
 } from './credential-entry.js'
 import { type ModelStep, modelStep } from './model-choices.js'
 import { moveSelection, selectionWindow } from './selection-window.js'
+import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { useSelectionIndex } from './use-selection-index.js'
 
@@ -818,6 +819,12 @@ export function Picker({
 				{noticeBox}
 				<ModelStepView
 					providerLabel={modelPhase.provider.entry.label}
+					otherProviders={detected
+						.filter(
+							(provider) =>
+								provider.entry.constructible && provider.entry.id !== modelPhase.provider.entry.id,
+						)
+						.map((provider) => provider.entry.label)}
 					step={modelPhase.step}
 					cursor={cursor}
 					errorHint={errorHint}
@@ -983,6 +990,7 @@ export function Picker({
 
 function ModelStepView({
 	providerLabel,
+	otherProviders,
 	step,
 	cursor,
 	errorHint,
@@ -990,6 +998,7 @@ function ModelStepView({
 	sessionOnly,
 }: {
 	readonly providerLabel: string
+	readonly otherProviders: readonly string[]
 	readonly step: ModelStep | undefined
 	readonly cursor: number
 	readonly errorHint: string | null
@@ -999,7 +1008,7 @@ function ModelStepView({
 	const window = step ? selectionWindow(step.choices, cursor) : null
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-			<Box justifyContent="space-between" paddingBottom={1}>
+			<Box justifyContent="space-between">
 				<Box flexDirection="column" flexGrow={1} minWidth={0}>
 					<Text color={theme.accent.system} bold wrap="truncate-end">
 						Choose a model · {providerLabel}
@@ -1014,6 +1023,21 @@ function ModelStepView({
 					<Text color={theme.text.muted}>
 						{cursor + 1}/{step.choices.length}
 					</Text>
+				) : null}
+			</Box>
+			{/* Use the former header spacer for a visible provider action. */}
+			<Box>
+				<Box flexShrink={0}>
+					<Text color={theme.accent.system}>p change provider</Text>
+				</Box>
+				{otherProviders.length > 0 ? (
+					<Box minWidth={0} flexShrink={1}>
+						<Text color={theme.text.muted} wrap="truncate-end">
+							{' · '}
+							{otherProviders.slice(0, 2).map(terminalDisplayText).join(' / ')}
+							{otherProviders.length > 2 ? ` / +${otherProviders.length - 2} more` : ''}
+						</Text>
+					</Box>
 				) : null}
 			</Box>
 			{step === undefined ? (
@@ -1044,7 +1068,7 @@ function ModelStepView({
 			)}
 			<Box flexDirection="column" paddingTop={1}>
 				<Text color={theme.text.muted}>
-					↑↓ · PgUp/PgDn · Home/End · enter apply · p change provider · esc {returnToProviders ? 'back' : 'cancel'}
+					↑↓ · PgUp/PgDn · Home/End · enter apply · esc {returnToProviders ? 'back' : 'cancel'}
 				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>
