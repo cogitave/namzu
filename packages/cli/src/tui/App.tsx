@@ -102,8 +102,14 @@ import type {
 import type { SubagentActivity } from '../integrations/subagents/activity.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
-import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
-import { type PermissionMode, permissionModeDescription } from '../permissions/mode.js'
+import { renderMemoryReport } from '../memory/presentation.js'
+import { appendMemory, readMemory } from '../memory/store.js'
+import {
+	type PermissionMode,
+	effectivePermissionMode,
+	permissionModeDescription,
+	permissionModeLabel,
+} from '../permissions/mode.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
@@ -326,7 +332,7 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly kind: 'permission-mode'
 			readonly title: string
 			readonly notice?: string
-			readonly values: readonly PermissionMode[]
+			readonly values: readonly (PermissionMode | 'more' | 'rules')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -1426,7 +1432,7 @@ export function App({
 	const applyPermissionMode = useCallback(
 		(mode: PermissionMode): void => {
 			if (!session?.hasProvider) {
-				pushMessage('system', 'No active session — pick a provider before changing permissions.')
+				pushMessage('system', 'Choose a model before changing permissions.')
 				return
 			}
 			if (
@@ -1439,14 +1445,14 @@ export function App({
 			) {
 				pushMessage(
 					'system',
-					'Permission mode was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+					'Permissions were not changed. Finish or stop the current work first.',
 				)
 				return
 			}
 			if (!session.resetApprovalLatch) {
 				pushMessage(
 					'system',
-					'Permission mode was not changed: this embedded session cannot revoke an earlier "approve all" choice. Reconnect it before changing modes.',
+					'This session cannot reset approvals. Reconnect before changing permissions.',
 				)
 				return
 			}
@@ -1456,7 +1462,7 @@ export function App({
 			setPermissionModeState(mode)
 			pushMessage(
 				'system',
-				`Permission mode changed to ${mode}. Any earlier "approve all" choice was revoked. Declarative deny rules and the built-in safety gate still take precedence.`,
+				`Permissions: ${permissionModeLabel(mode)} for this session. ${permissionModeDescription(mode)}`,
 			)
 		},
 		[hasUnsettledTurn, pushMessage, session, state],
@@ -2088,6 +2094,25 @@ export function App({
 				return
 			}
 			if (picker.kind === 'permission-mode') {
+				if (value === 'more') {
+					const child = permissionPicker(
+						permissionModeRef.current,
+						session?.approvalLatched() ?? false,
+						true,
+					)
+					setSelectedChoice(
+						Math.max(
+							0,
+							child.options.findIndex((option) => option.current),
+						),
+					)
+					setChoicePicker({ ...child, back: picker })
+					return
+				}
+				if (value === 'rules') {
+					commandPickerSubmitRef.current('/permissions details')
+					return
+				}
 				applyPermissionMode(value as PermissionMode)
 				return
 			}
@@ -2119,7 +2144,9 @@ export function App({
 			removeStoredCredential,
 			runConversationExport,
 			setChoicePicker,
+			setSelectedChoice,
 			setTextPrompt,
+			session,
 		],
 	)
 
@@ -4556,13 +4583,15 @@ export function App({
 						return
 					}
 					case 'settings-picker': {
-						const commands: CommandPickerEntry[] = [
+						const commands: (CommandPickerEntry & { label: string })[] = [
 							{
 								name: 'model',
+								label: 'Model',
 								description: `${session?.providerSummary ?? 'No provider'} · ${session?.modelSummary ?? 'No model'}. Change model or provider.`,
 							},
 							{
 								name: 'effort',
+								label: 'Reasoning effort',
 								description: `${reasoningEffortRef.current ?? session?.reasoningEffortDefault ?? 'Model default'} · applies to future turns in this session.`,
 								...(session?.reasoningEffortLevels === undefined
 									? { problem: 'This model does not publish reasoning choices.' }
@@ -4570,10 +4599,12 @@ export function App({
 							},
 							{
 								name: 'permissions',
-								description: `${permissionModeRef.current} · applies to future turns in this session.`,
+								label: 'Permissions',
+								description: `${permissionModeLabel(effectivePermissionMode(permissionModeRef.current, session?.approvalLatched() ?? false))} · this session.`,
 							},
 							{
 								name: 'status config',
+								label: 'Configuration',
 								description: 'Show which configuration files and overrides are in use.',
 							},
 						]
@@ -4584,7 +4615,7 @@ export function App({
 							notice: 'Select a setting to view or change it.',
 							values: commands,
 							options: commands.map((command) => ({
-								label: `/${command.name}`,
+								label: command.label,
 								description: command.description,
 								disabledReason: command.problem,
 							})),
@@ -4799,10 +4830,7 @@ export function App({
 					}
 					case 'permission-mode-picker': {
 						if (!session?.hasProvider) {
-							pushMessage(
-								'system',
-								'No active session — pick a provider before changing permissions.',
-							)
+							pushMessage('system', 'Choose a model before changing permissions.')
 							return
 						}
 						if (
@@ -4816,23 +4844,20 @@ export function App({
 						) {
 							pushMessage(
 								'system',
-								'Permission choices are unavailable until the active turn, prompt, compaction, queued work, or embedded-session approval latch can be safely settled.',
+								!session.resetApprovalLatch
+									? 'This session cannot reset approvals. Reconnect before changing permissions.'
+									: 'Finish or stop the current work before changing permissions.',
 							)
 							return
 						}
-						const values = ['prompt', 'accept-edits', 'auto', 'strict', 'plan'] as const
-						setSelectedChoice(Math.max(0, values.indexOf(permissionModeRef.current)))
-						setChoicePicker({
-							kind: 'permission-mode',
-							title: 'Select Permission Mode',
-							notice: permissionPickerNotice(session),
-							values,
-							options: values.map((mode) => ({
-								label: mode,
-								description: permissionModeDescription(mode),
-								current: mode === permissionModeRef.current,
-							})),
-						})
+						const picker = permissionPicker(permissionModeRef.current, session.approvalLatched())
+						setSelectedChoice(
+							Math.max(
+								0,
+								picker.options.findIndex((option) => option.current),
+							),
+						)
+						setChoicePicker(picker)
 						return
 					}
 					case 'reasoning-effort': {
@@ -4935,11 +4960,9 @@ export function App({
 						}
 						return
 					case 'show-memory': {
-						const mem = composeMemoryPrompt(readMemory(undefined, ctx.cwd))
 						pushMessage(
 							'system',
-							mem ??
-								'Nothing remembered yet. #note or /memory <text> saves a fact about this project (.namzu/MEMORY.md); /memory --user <text> saves one for every project (~/.namzu/MEMORY.md).',
+							renderMemoryReport(readMemory(undefined, ctx.cwd), { cwd: ctx.cwd }),
 						)
 						return
 					}
@@ -6368,6 +6391,10 @@ export function App({
 																session?.hasProvider === true,
 																composerHasDraft,
 															)
+	const displayedPermissionMode = effectivePermissionMode(
+		permissionMode,
+		session?.approvalLatched() ?? false,
+	)
 	return (
 		<Box flexDirection="column" display={externalEditorRequest ? 'none' : 'flex'}>
 			<Box flexDirection="column" paddingX={1}>
@@ -6389,7 +6416,7 @@ export function App({
 									version={ctx.version}
 									provider={session?.providerSummary}
 									model={session?.modelSummary}
-									permissionMode={permissionMode}
+									permissionMode={displayedPermissionMode}
 									cwd={ctx.cwd}
 								/>
 							) : undefined
@@ -6542,7 +6569,7 @@ export function App({
 								</Box>
 							) : null}
 							<Composer
-								permissionMode={permissionMode}
+								permissionMode={displayedPermissionMode}
 								onCycleMode={cyclePermissionMode}
 								disabled={
 									phase !== 'ready' ||
@@ -6708,14 +6735,39 @@ function choicePickerSearchable(picker: ChoicePickerState): boolean {
 	return ['command', 'skill', 'review-branch', 'review-commit'].includes(picker.kind)
 }
 
-function permissionPickerNotice(session: AgentSession): string | undefined {
-	const notices: string[] = []
-	if (session.approvalLatched()) {
-		notices.push('Approve all is active; applying any mode revokes it.')
+function permissionPicker(
+	mode: PermissionMode,
+	approvedAll: boolean,
+	more = false,
+): Extract<ChoicePickerState, { kind: 'permission-mode' }> {
+	const current = effectivePermissionMode(mode, approvedAll)
+	const values = more
+		? (['auto', 'strict', 'rules'] as const)
+		: (['prompt', 'accept-edits', 'plan', 'more'] as const)
+	return {
+		kind: 'permission-mode',
+		title: more ? 'More permission options' : 'Permissions',
+		notice: `Current: ${permissionModeLabel(current)} · this session`,
+		values,
+		options: values.map((value) => {
+			if (value === 'more')
+				return {
+					label: 'More options',
+					description: 'Other approval modes and permission rules',
+					current: current === 'auto' || current === 'strict',
+				}
+			if (value === 'rules')
+				return {
+					label: 'View rules',
+					description: 'Show the permission rules in use',
+				}
+			return {
+				label: permissionModeLabel(value),
+				description: permissionModeDescription(value),
+				current: value === current,
+			}
+		}),
 	}
-	const exempt = session.promptExemptTools()
-	if (exempt.length > 0) notices.push(`Never prompted: ${exempt.join(', ')}.`)
-	return notices.length > 0 ? notices.join(' ') : undefined
 }
 
 function reasoningEffortDescription(effort: ReasoningEffort | undefined): string {

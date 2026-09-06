@@ -35,6 +35,29 @@ export { ACCEPT_EDITS_TOOLS, PLAN_MODE_REFUSAL } from '@namzu/sdk'
 
 export const isPermissionMode: (value: unknown) => value is PermissionMode = isReviewMode
 
+export function permissionModeLabel(mode: PermissionMode): string {
+	switch (mode) {
+		case 'prompt':
+			return 'Ask before changes'
+		case 'accept-edits':
+			return 'Auto-approve edits'
+		case 'auto':
+			return 'Auto-approve tools'
+		case 'strict':
+			return 'Preapproved tools only'
+		case 'plan':
+			return 'Plan (read-only)'
+	}
+}
+
+/** Session-wide approval overrides prompting, but never plan or strict mode. */
+export function effectivePermissionMode(
+	mode: PermissionMode,
+	approvedAll: boolean,
+): PermissionMode {
+	return approvedAll && (mode === 'prompt' || mode === 'accept-edits') ? 'auto' : mode
+}
+
 /** The behavior shown by both the permission selector and the session report. */
 export function permissionModeDescription(mode: PermissionMode): string {
 	switch (mode) {

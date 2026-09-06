@@ -37,10 +37,11 @@ import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
 import {
-	PERMISSION_MODES,
 	type PermissionMode,
+	effectivePermissionMode,
 	isPermissionMode,
 	permissionModeDescription,
+	permissionModeLabel,
 } from '../permissions/mode.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
@@ -739,13 +740,28 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'memory',
 		description:
-			'Show what namzu remembers, or save a fact about this project: /memory [text]. /memory --user [text] saves it for every project.',
+			'Show curated memory, or save a fact with /memory add <text>. Use /memory --user add <text> for every project.',
 		action: (_ctx, args) => {
 			const user = args[0] === '--user'
-			const text = (user ? args.slice(1) : args).join(' ').trim()
-			return text.length === 0
-				? { kind: 'show-memory' }
-				: { kind: 'remember', text, scope: user ? 'user' : 'project' }
+			const memoryArgs = user ? args.slice(1) : args
+			const text = memoryArgs.join(' ').trim()
+			// Reserve standalone inspection words while retaining multiword facts.
+			if (text.length === 0 || ['show', 'list'].includes(text.toLowerCase())) {
+				return { kind: 'show-memory' }
+			}
+			if (memoryArgs[0]?.toLowerCase() === 'add') {
+				const fact = memoryArgs.slice(1).join(' ').trim()
+				if (fact.length === 0) {
+					return {
+						kind: 'message',
+						role: 'system',
+						content:
+							'Usage: /memory add <text> or /memory --user add <text>. /memory show displays saved memory.',
+					}
+				}
+				return { kind: 'remember', text: fact, scope: user ? 'user' : 'project' }
+			}
+			return { kind: 'remember', text, scope: user ? 'user' : 'project' }
 		},
 	},
 	{
@@ -937,7 +953,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			return {
 				kind: 'message',
 				role: 'system',
-				content: `Usage: /permissions [details|${PERMISSION_MODES.join('|')}]`,
+				content:
+					'Usage: /permissions opens the permission menu. Choose a preset there, or use /permissions details to view rules.',
 			}
 		},
 	},
@@ -1372,12 +1389,12 @@ export function renderPermissions(
 	details = false,
 ): string {
 	const current = permissions.currentMode()
-	const approvedAll =
-		(current.mode === 'prompt' || current.mode === 'accept-edits') && permissions.approvalLatched()
+	const effective = effectivePermissionMode(current.mode, permissions.approvalLatched())
+	const approvedAll = effective !== current.mode
 	const lines = [
-		`Permissions: ${current.mode}. ${approvedAll ? 'Tools are approved automatically because “approve all” is active.' : permissionModeDescription(current.mode)}`,
+		`Permissions: ${permissionModeLabel(effective)}. ${approvedAll ? 'Tools are approved automatically for this session.' : permissionModeDescription(effective)}`,
 	]
-	if (approvedAll) lines.push('Use /permissions prompt to ask again.')
+	if (approvedAll) lines.push('Choose a preset in /permissions to change this.')
 	if (!details) return lines.join('\n')
 	if (current.source === 'launch-bypass')
 		lines.push('Selected at launch with --dangerously-skip-permissions.')

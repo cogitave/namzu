@@ -121,7 +121,8 @@ describe('permission reports match all selectable modes', () => {
 		}
 		expect(renderPermissions(permissions)).toContain(permissionModeDescription(mode))
 		expect(runSlash(`/permissions ${mode}`, ctx)).toEqual({ kind: 'permission-mode', mode })
-		expect(report('/permissions invalid', ctx)).toContain(mode)
+		expect(report('/permissions invalid', ctx)).toContain('/permissions opens the permission menu')
+		expect(report('/permissions invalid', ctx)).not.toContain('prompt|accept-edits')
 	})
 
 	it('plan and strict ignore an old approve-all choice while accept-edits honors it', () => {

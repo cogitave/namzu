@@ -14,7 +14,7 @@ import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
-import type { PermissionMode } from '../permissions/mode.js'
+import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
 import type { UserCommand } from '../user-commands/store.js'
 import { activeFileMention, matchMentionableFiles } from './mentions.js'
 import { type SlashCommand, matchSlashCommands } from './slashCommands.js'
@@ -930,13 +930,8 @@ export function Composer({
 				// differs from what the operator would assume.
 				<Box paddingX={1}>
 					<Text color={permissionMode === 'strict' ? theme.status.warn : theme.accent.user}>
-						{permissionMode === 'accept-edits'
-							? '⏵⏵ accept edits on'
-							: permissionMode === 'plan'
-								? '⏸ plan mode on · read-only'
-								: permissionMode === 'auto'
-									? '⏵⏵ auto-approve on'
-									: '⏸ strict: undecided calls refused'}
+						{permissionMode === 'accept-edits' || permissionMode === 'auto' ? '⏵⏵' : '⏸'}{' '}
+						{permissionModeLabel(permissionMode)}
 					</Text>
 					{onCycleMode ? <Text color={theme.text.muted}> (shift+tab to cycle)</Text> : null}
 				</Box>

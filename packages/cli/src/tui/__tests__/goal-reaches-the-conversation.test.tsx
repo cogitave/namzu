@@ -273,7 +273,7 @@ it('shows effective settings without sending a turn or changing them on cancel',
 	)
 	expect(harness.lastFrame()).toContain('goal-provider')
 	expect(harness.lastFrame()).toContain('goal-model')
-	expect(harness.lastFrame()).toContain('prompt')
+	expect(harness.lastFrame()).toContain('Ask before changes')
 	expect(sends).toBe(0)
 	harness.stdin.write('\x1B')
 	await tick(50)

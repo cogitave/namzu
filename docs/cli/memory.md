@@ -22,7 +22,23 @@ Three files, two scopes. Each is markdown the operator may edit by hand.
 | `~/.namzu/MEMORY.md` | user | facts that hold in every project |
 | `~/.namzu/USER.md` | user | who the operator is |
 
-`#note` in the composer and `/memory <text>` append to the **project** file: a note typed while working in a repository is almost always about that repository. `/memory --user <text>` appends to the user file. `/memory` alone shows what the next turn will be given.
+`/memory`, `/memory show` and `/memory list` display the combined curated memory
+without saving anything. `show` and `list` are aliases for this content view;
+`list` does not enumerate memory-file paths.
+
+The terminal report labels each saved section and shows its full file path.
+Each preview is limited to 20 lines and 2,000 characters; an omission notice
+identifies the remaining content and the file to open. Model-directed prompt
+instructions are not printed in this report. The per-turn model prompt retains
+its separate 8,000-character section budget described below.
+
+`#note` and `/memory add <text>` append to the **project** file.
+`/memory --user add <text>` appends to the user file. Bare `add` shows usage
+without writing. The inspection keywords and `add` are case-insensitive; saved
+text keeps its original case. The existing `/memory <text>` and
+`/memory --user <text>` shortcuts remain available for ordinary facts.
+To save a literal `show`, `list` or `add`, use `/memory add show`, for example.
+Multiword facts such as `/memory show errors clearly` remain notes.
 
 For new files, `<project>` is the nearest checkout root (a `.git` directory or worktree `.git` file), or the working directory when outside a repository. Launching from `packages/cli` therefore reads and writes the checkout's memory. An existing `.namzu/MEMORY.md` in the working directory takes precedence, including an empty file, so old directory-specific notes remain accessible. Create that file explicitly to keep directory-specific memory. This changes the default destination for a new note from a repository subdirectory; it does not move existing files.
 

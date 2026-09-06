@@ -85,7 +85,9 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 			case 'bash':
 				return 'Do you want to proceed?'
 			case 'edit':
-				return path ? `Do you want to make this edit to ${basename(path)}?` : 'Do you want to make this edit?'
+				return path
+					? `Do you want to make this edit to ${basename(path)}?`
+					: 'Do you want to make this edit?'
 			case 'write':
 				return path ? `Do you want to write ${basename(path)}?` : 'Do you want to write this file?'
 			case 'Agent':
@@ -100,12 +102,11 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 	return `Do you want to run these ${toolCalls.length} tools?`
 }
 
-/** The three answers, worded for the batch. */
-export function permissionChoices(toolCalls: readonly PermissionToolCall[]): readonly string[] {
-	const agents = toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')
+/** The three answers; session approval applies to all tools. */
+export function permissionChoices(_toolCalls: readonly PermissionToolCall[]): readonly string[] {
 	return [
 		'Yes',
-		agents ? 'Yes, and allow all tools this session' : "Yes, and don't ask again this session",
+		'Yes, allow all tools for this session',
 		'No, and tell namzu what to do differently (esc)',
 	]
 }

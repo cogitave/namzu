@@ -114,25 +114,25 @@ describe('Shift+Tab in the composer', () => {
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(60)
 		expect(harness.lastFrame() ?? '', 'the default mode draws no line').not.toContain(
-			'accept edits on',
+			'⏵⏵ Auto-approve edits',
 		)
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '⏵⏵ accept edits on')
+		await frameShows(harness.lastFrame, '⏵⏵ Auto-approve edits')
 		const frame = harness.lastFrame() ?? ''
 		expect(frame).toContain('shift+tab to cycle')
 		expect(frame, 'the change is also a transcript fact').toContain(
-			'Permission mode changed to accept-edits',
+			'Permissions: Auto-approve edits for this session.',
 		)
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '⏸ plan mode on · read-only')
-		expect(harness.lastFrame() ?? '').toContain('Permission mode changed to plan')
+		await frameShows(harness.lastFrame, '⏸ Plan (read-only)')
+		expect(harness.lastFrame() ?? '').toContain('Permissions: Plan (read-only) for this session.')
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameStopsShowing(harness.lastFrame, 'plan mode on')
-		expect(harness.lastFrame() ?? '').not.toContain('accept edits on')
-		expect(harness.lastFrame() ?? '').toContain('Permission mode changed to prompt')
+		await frameStopsShowing(harness.lastFrame, '⏸ Plan (read-only)')
+		expect(harness.lastFrame() ?? '').not.toContain('⏵⏵ Auto-approve edits')
+		expect(harness.lastFrame() ?? '').toContain('Permissions: Ask before changes for this session.')
 	})
 
 	it('does not queue or submit the draft the way plain Tab would', async () => {
@@ -144,7 +144,7 @@ describe('Shift+Tab in the composer', () => {
 		harness.stdin.write('half a thought')
 		await tick(20)
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '⏵⏵ accept edits on')
+		await frameShows(harness.lastFrame, '⏵⏵ Auto-approve edits')
 
 		expect(harness.lastFrame() ?? '', 'the draft is still in the composer').toContain(
 			'half a thought',

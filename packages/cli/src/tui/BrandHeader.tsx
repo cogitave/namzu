@@ -1,6 +1,6 @@
 import { Box, Text, useWindowSize } from 'ink'
 
-import type { PermissionMode } from '../permissions/mode.js'
+import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
 import {
 	NAMZU_COMPACT_WORDMARK,
 	NAMZU_MARK_COLOR,
@@ -53,8 +53,8 @@ export function BrandHeader({ version, provider, model, permissionMode, cwd }: B
 			{permissionMode === 'auto' ? (
 				<Box marginTop={1}>
 					<Text color={theme.status.warn}>
-						⚠ launched in auto permission mode — undecided tools run without asking until
-						/permissions changes it
+						⚠ {permissionModeLabel(permissionMode)} — tools run without asking. Use /permissions to
+						change this.
 					</Text>
 				</Box>
 			) : null}

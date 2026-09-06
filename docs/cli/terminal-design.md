@@ -84,6 +84,13 @@ Enter applies an available selection; non-searchable menus keep their numeric
 shortcuts. Esc returns to the parent or cancels, including the earlier-prompt
 picker. The footer describes the keys used by the active surface.
 
+Permission choices use plain labels: Ask before changes, Auto-approve edits and
+Plan (read-only). More options holds automatic tool approval, preapproved-only
+execution and the rule report. Both levels identify the effective current
+behavior and session scope. Settings use named controls and the same effective
+permission value. Internal mode identifiers remain accepted as typed shortcuts.
+The approval prompt spells out when a choice allows all tools for the session.
+
 `/status`, `/cost`, `/context` and `/mcp` lead with short factual summaries.
 Explicit details show configuration rules, pricing scope, cleanup counters or
 tool inventories. A missing measurement is labelled as missing; token totals,

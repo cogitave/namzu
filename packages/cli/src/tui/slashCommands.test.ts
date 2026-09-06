@@ -383,12 +383,12 @@ describe('/permissions', () => {
 		})
 	})
 
-	it('refuses an unknown mode with the complete vocabulary', () => {
+	it('guides an unknown mode back to the permission menu', () => {
 		const result = runSlash('/permissions yolo', context())
 		expect(result?.kind).toBe('message')
 		if (result?.kind === 'message') {
 			expect(result.content).toBe(
-				'Usage: /permissions [details|prompt|accept-edits|auto|strict|plan]',
+				'Usage: /permissions opens the permission menu. Choose a preset there, or use /permissions details to view rules.',
 			)
 		}
 	})
@@ -440,7 +440,7 @@ describe('/permissions', () => {
 		)
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('approved automatically')
-			expect(r.content).toContain('approve all')
+			expect(r.content).toContain('for this session')
 			expect(r.content, 'still claims calls are reviewed').not.toContain('Ask before changes')
 		}
 	})
@@ -455,7 +455,7 @@ describe('/permissions', () => {
 			}),
 		)
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('Permissions: strict')
+			expect(r.content).toContain('Permissions: Preapproved tools only')
 			expect(r.content).toContain('refuse other calls without asking')
 			expect(r.content).not.toContain('approve all" was chosen')
 		}

@@ -29,6 +29,7 @@ import {
 	PROVIDER_REGISTRY,
 	type Preferences,
 } from '../../integrations/providers/index.js'
+import * as memoryStore from '../../memory/store.js'
 
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 import type { TuiExitSummary } from '../exit-summary.js'
@@ -569,19 +570,163 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Reasoning effort changed to low')
 
 		await submit(harness, '/permissions')
-		await frameShows(harness.lastFrame, 'Select Permission Mode')
-		expect(harness.lastFrame()).toContain('prompt')
-		expect(harness.lastFrame()).toContain('auto')
-		expect(harness.lastFrame()).toContain('accept-edits')
-		expect(harness.lastFrame()).toContain('strict')
-		// Fourth row: prompt, accept-edits, auto, strict.
+		await frameShows(harness.lastFrame, 'Ask before changes')
+		expect(harness.lastFrame()).toContain('Auto-approve edits')
+		expect(harness.lastFrame()).toContain('Plan (read-only)')
+		expect(harness.lastFrame()).not.toContain('Preapproved tools only')
+		harness.stdin.write('2')
+		await frameShows(harness.lastFrame, 'Permissions: Auto-approve edits for this session.')
+		await submit(harness, 'use automatic file edits')
+		await vi.waitFor(() => expect(modes).toEqual(['accept-edits']))
+
+		await submit(harness, '/permissions')
+		await frameShows(harness.lastFrame, 'More options')
+		harness.stdin.write('3')
+		await frameShows(harness.lastFrame, 'Permissions: Plan (read-only) for this session.')
+		await submit(harness, 'plan the next change')
+		await vi.waitFor(() => expect(modes).toEqual(['accept-edits', 'plan']))
+
+		await submit(harness, '/permissions')
+		await frameShows(harness.lastFrame, 'More options')
 		harness.stdin.write('4')
-		await frameShows(harness.lastFrame, 'Permission mode changed to strict')
+		await frameShows(harness.lastFrame, 'More permission options')
+		expect(harness.lastFrame()).toContain('Auto-approve tools')
+		expect(harness.lastFrame()).toContain('View rules')
+		harness.stdin.write('\x1b[B')
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'Permissions: Preapproved tools only for this session.')
+		await submit(harness, '/permissions')
+		await frameShows(harness.lastFrame, 'More options')
+		harness.stdin.write('4')
+		await frameShows(harness.lastFrame, 'More permission options')
+		harness.stdin.write('3')
+		await frameShows(harness.lastFrame, 'No custom rules.')
 
 		await submit(harness, 'use the selected settings')
-		await vi.waitFor(() => expect(efforts).toEqual(['low']))
-		expect(modes).toEqual(['strict'])
+		await vi.waitFor(() => expect(efforts).toEqual(['low', 'low', 'low']))
+		expect(modes).toEqual(['accept-edits', 'plan', 'strict'])
 	})
+
+	it('shows saved memory to the operator without prompt instructions or inspection writes', async () => {
+		const fact = 'Use pnpm for this project'
+		const path = '/w/.namzu/MEMORY.md'
+		const remember = vi.spyOn(memoryStore, 'appendMemory').mockReturnValue(path)
+		const read = vi.spyOn(memoryStore, 'readMemory').mockReturnValue({
+			user: null,
+			memory: null,
+			project: `- ${fact}`,
+		})
+		vi.spyOn(memoryStore, 'projectMemoryFilePath').mockReturnValue(path)
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+		await submit(harness, `/memory add ${fact}`)
+		await vi.waitFor(() => expect(remember).toHaveBeenCalledTimes(1))
+
+		for (const command of ['/memory show', '/memory list']) {
+			const previousReads = read.mock.calls.length
+			await submit(harness, command)
+			await vi.waitFor(() => expect(read.mock.calls.length).toBe(previousReads + 1))
+			await frameShows(harness.lastFrame, 'Project memory')
+			const frame = harness.lastFrame() ?? ''
+			expect(frame).toMatch(/Project memory\n\s+\/w\/\.namzu\/MEMORY\.md/)
+			expect(frame).toContain(fact)
+			expect(frame).not.toContain('The following is persistent context')
+			expect(frame).not.toContain('Do not repeat it back')
+		}
+		expect(remember).toHaveBeenCalledExactlyOnceWith(fact, { scope: 'project', cwd: ctx.cwd })
+	})
+
+	it('shows effective session approval in Settings and clears it only when a preset is applied', async () => {
+		let approvedAll = true
+		const resetApprovals = vi.fn(() => {
+			approvedAll = false
+		})
+		const modes: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture(),
+			approvalLatched: () => approvedAll,
+			resetApprovalLatch: resetApprovals,
+			promptExemptTools: () => ['glob', 'read'],
+			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+				modes.push({ mode: opts?.permissionMode, approvedAll })
+				yield { kind: 'done', stopReason: 'end_turn' }
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, '/settings')
+		await frameShows(harness.lastFrame, 'Settings')
+		expect(harness.lastFrame()).toContain('Reasoning effort')
+		expect(harness.lastFrame()).toContain('Configuration')
+		expect(harness.lastFrame()).toContain('Auto-approve tools')
+		expect(harness.lastFrame()).not.toContain('/status config')
+		harness.stdin.write('Permissions')
+		await tick(40)
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'Current: Auto-approve tools')
+		expect(harness.lastFrame()).not.toContain('Never prompted')
+		expect(harness.lastFrame()).toMatch(/More options\s+\[current\]/)
+		harness.stdin.write('4')
+		await frameShows(harness.lastFrame, 'More permission options')
+		harness.stdin.write('\x1b')
+		await frameShows(harness.lastFrame, 'Plan (read-only)')
+		harness.stdin.write('\x1b')
+		await frameShows(harness.lastFrame, 'Settings')
+		expect(resetApprovals).not.toHaveBeenCalled()
+		expect(approvedAll).toBe(true)
+
+		harness.stdin.write('Permissions')
+		await tick(40)
+		harness.stdin.write('\r')
+		await frameShows(harness.lastFrame, 'Ask before changes')
+		harness.stdin.write('1')
+		await frameShows(harness.lastFrame, 'Permissions: Ask before changes for this session.')
+		expect(resetApprovals).toHaveBeenCalledTimes(1)
+		await submit(harness, 'continue with approvals')
+		await vi.waitFor(() => expect(modes).toEqual([{ mode: 'prompt', approvedAll: false }]))
+	})
+
+	it.each([
+		['auto', 'Auto-approve tools'],
+		['strict', 'Preapproved tools only'],
+	] as const)(
+		'keeps %s visible while browsing and cancelling permission options',
+		async (mode, label) => {
+			const sent: unknown[] = []
+			const resetApprovals = vi.fn()
+			createSession = async () => ({
+				...sessionFixture(),
+				resetApprovalLatch: resetApprovals,
+				send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+					sent.push(opts?.permissionMode)
+					yield { kind: 'done', stopReason: 'end_turn' }
+				},
+			})
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+			await submit(harness, `/permissions ${mode}`)
+			await frameShows(harness.lastFrame, `Permissions: ${label} for this session.`)
+			await submit(harness, '/permissions')
+			await frameShows(harness.lastFrame, `Current: ${label}`)
+			expect(harness.lastFrame()).toMatch(/More options\s+\[current\]/)
+			harness.stdin.write('4')
+			await frameShows(harness.lastFrame, 'More permission options')
+			harness.stdin.write('\x1b')
+			await frameShows(harness.lastFrame, 'Plan (read-only)')
+			harness.stdin.write('\x1b')
+			await vi.waitFor(() => expect(harness.lastFrame()).not.toContain('More options'))
+			expect(resetApprovals).toHaveBeenCalledTimes(1)
+			await submit(harness, 'keep this mode')
+			await vi.waitFor(() => expect(sent).toEqual([mode]))
+		},
+	)
 
 	it('applies and clears reasoning effort at the mounted App send boundary', async () => {
 		const efforts: unknown[] = []

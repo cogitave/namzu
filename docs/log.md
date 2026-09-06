@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Update**: [Slash commands](/cli/slash-commands.md), [Memory](/cli/memory.md), [Terminal design](/cli/terminal-design.md) and [Command experience audit](/cli/command-experience-audit.md) — plain permission choices with advanced options, effective approval state in settings, explicit all-tool approval scope, and read-only memory inspection commands with explicit note creation.
 * **Creation**: [Bounded file discovery](/sdk/file-discovery.md) — explicit shallow and recursive glob scope, incremental local and remote sandbox enumeration, cancellation, traversal limits, path handoff fixes and adapter upgrade requirements.
 * **Update**: [Harness invariants](/sdk/harness-invariants.md) and [Terminal design](/cli/terminal-design.md) — bounded file discovery, known-path reads without mandatory discovery, and visible glob patterns alongside search directories.
 * **Update**: [Harness invariants](/sdk/harness-invariants.md) and [Peer comparison](/cli/competitive-gaps.md) — foreground host-shell process-group cancellation, preserved partial output and bounded pipe cleanup, with Linux subprocess regressions and explicit containment limits.

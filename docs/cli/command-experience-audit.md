@@ -181,16 +181,42 @@ validated.
 | Area | Implemented behavior |
 | --- | --- |
 | Model changes | `/model` starts at the current provider’s models and offers a separate provider action. Selection preserves unrelated preferences and fallback models. Replacement construction precedes atomic preference persistence and activation; failures retain the old session. Temporary credentials keep selection local to the session. |
-| Permissions | All five modes use a shared behavior description. Direct help includes every mode. `plan` and `accept-edits` reports match their execution behavior, and an old approve-all choice cannot override plan or strict reporting. Rule lists are available through `/permissions details`. |
+| Permissions | The first menu offers Ask before changes, Auto-approve edits and Plan (read-only). More options holds Auto-approve tools, Preapproved tools only and View rules. Menus and settings show effective approval state, including an earlier all-tools approval. Selecting a preset resets that approval. The prompt explicitly labels its all-tools/session scope; typed modes and `/permissions details` remain available. |
 | Tasks | `/tasks` reads the actual store supplied to the current/latest run, including resumed runs. Starting another run or switching conversations clears the selected readout. Empty, not-yet-available and unsupported lists are distinct; stored tasks are not deleted. |
 | Discovery | Composer completion, `/help` and dispatch use the same merged command catalogue. Shared availability metadata can explain an unavailable action, and execution rechecks it. |
 | Reports | `/status`, `/cost` and `/context` show summaries with explicit `details` variants. `/mcp tools` expands the server summary. Spend is rendered from monetary data; own-run cost, delegated tokens, estimated context and unknown prices remain distinct. |
-| Settings | `/settings` shows safe effective model, effort and permission values and opens their existing controls. Configuration provenance remains a separate values-free report. |
+| Settings | `/settings` shows effective values for Model, Reasoning effort and Permissions, and opens their controls. Configuration opens a separate values-free source report. |
+| Memory | Bare `/memory` and standalone `show`/`list` inspect curated memory without writing. `add <text>` explicitly saves a note; empty `add` displays usage. Ordinary free-text notes remain supported. |
 | Goals | Bare `/goal` opens a menu; `status` is read-only and `set` explicitly creates an objective, either directly or through the editor. The menu exposes continuation controls and the automatic-turn allowance. Reports use enabled/paused continuation language. |
 | Choice menus | Shared rows support current/default markers, terminal display width, narrow layouts, selected detail and unavailable reasons. Command, skill, branch and commit menus filter by typing, including digits. Esc returns or cancels rather than stepping through earlier prompts. |
 | Agent activity | `/agents` and `/agents running` open the delegated-work view already available through Ctrl+T. `/agents available` reports the configured roster separately. |
 
+## Follow-up comparison of command contents
+
+Official references checked on 2026-09-06 support familiar navigation and
+accurate action scope, rather than one identical permission model across apps:
+
+* [Codex developer commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
+  documents opening `/permissions`, selecting a preset and receiving a policy
+  update. Namzu follows that menu interaction while retaining its own rules.
+* [Claude Code permissions](https://code.claude.com/docs/en/permissions) describes
+  scoped tool approvals. Namzu's existing all-tools session approval is broader
+  than approving one command, so its button now names that scope explicitly.
+* [Gemini settings](https://geminicli.com/docs/cli/settings/) presents named
+  settings, values and descriptions. Namzu now uses setting labels instead of
+  exposing the slash command used to open each control.
+* [Gemini memory commands](https://geminicli.com/docs/reference/commands/#memory)
+  uses inspection verbs for reading memory. Namzu's `show` and `list` now inspect
+  its combined curated content; its `list` alias does not enumerate file paths.
+
+These are interaction comparisons. For example, Namzu's Auto-approve tools
+does not change sandbox access or add another product's automatic review.
+
 ## Remaining limits
+
+* `/help <command>` still opens the command picker rather than command-specific
+  usage. The main catalogue is shared, but per-command usage is not yet a
+  separate read-only help view.
 
 * Running agents and configured agents remain separate views. The available
   roster is still a list of configured identifiers; it is not a combined,

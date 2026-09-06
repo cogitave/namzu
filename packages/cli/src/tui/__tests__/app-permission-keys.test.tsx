@@ -305,7 +305,7 @@ describe('the permission prompt', () => {
 
 		stdin.write('\x1b[B')
 		await tick(50)
-		expect(lastFrame()).toContain("❯ 2. Yes, and don't ask again this session")
+		expect(lastFrame()).toContain('❯ 2. Yes, allow all tools for this session')
 
 		settle()
 		stdin.write('\r')
@@ -418,7 +418,7 @@ describe('the permission prompt', () => {
 		// status bar's own hint satisfies from the other side of the screen. Two
 		// assertions that could not fail, guarding the advertisement that four
 		// separate fixes tonight were about.
-		expect(frame).toContain("don't ask again this session")
+		expect(frame).toContain('Yes, allow all tools for this session')
 		expect(frame).toContain('tell namzu what to do differently')
 		// The advertisement is the contract the handler is held to: Enter
 		// confirms the highlighted answer, and the box says so.
@@ -537,6 +537,9 @@ describe('/permissions after approve-all', () => {
 		// Worth naming: this step was not needed while the composer unmounted,
 		// so this test used to pass BECAUSE the draft was being destroyed.
 		await tick(120)
+		expect(lastFrame(), 'the composer must show effective automatic approval').toContain(
+			'⏵⏵ Auto-approve tools',
+		)
 		stdin.write('\x1B')
 		await tick(60)
 		stdin.write('/permissions')
@@ -545,14 +548,16 @@ describe('/permissions after approve-all', () => {
 		await tick(200)
 
 		const frame = lastFrame() ?? ''
-		expect(frame, 'the chooser never rendered').toContain('Select Permission Mode')
-		expect(frame).toContain('Approve all is active')
-		expect(frame).toContain('applying any mode revokes it')
-		// And that App hands the readout the REAL never-prompted set. The unit
-		// test supplies its own list, so it would pass just as happily against an
-		// empty one — this is the assertion that fails if the wiring is dropped.
-		expect(frame, 'the never-prompted disclosure is missing').toContain('Never prompted')
-		expect(frame).toContain('glob')
+		expect(frame, 'the chooser never rendered').toContain('More options')
+		expect(frame).toContain('Current: Auto-approve tools')
+		expect(frame).toContain('this session')
+		expect(frame).not.toContain('Never prompted')
+		stdin.write('1')
+		await tick(120)
+		expect(lastFrame()).toContain('Permissions: Ask before changes for this session.')
+		expect(lastFrame()).toContain('Type a message')
+		expect(lastFrame()).not.toContain('⏵⏵ Auto-approve tools')
+		expect(permissionModes).toEqual(['prompt'])
 	})
 })
 
@@ -573,8 +578,8 @@ describe('/permissions session mode', () => {
 		stdin.write('\r')
 		await tick(120)
 
-		expect(lastFrame()).toContain('Permission mode was not changed')
-		expect(lastFrame()).not.toContain('Permission mode changed to strict')
+		expect(lastFrame()).toContain('Permissions were not changed')
+		expect(lastFrame()).not.toContain('Permissions: Preapproved tools only for this session.')
 		expect(permissionModes).toEqual(['prompt'])
 	})
 
@@ -588,7 +593,7 @@ describe('/permissions session mode', () => {
 		await tick(60)
 		stdin.write('\r')
 		await tick(160)
-		expect(lastFrame()).toContain('Permission mode changed to prompt')
+		expect(lastFrame()).toContain('Permissions: Ask before changes for this session.')
 
 		stdin.write('change the file')
 		await tick(60)
@@ -613,9 +618,9 @@ describe('/permissions session mode', () => {
 		stdin.write('\r')
 		await tick(160)
 		const frame = lastFrame() ?? ''
-		expect(frame).toContain('Select Permission Mode')
+		expect(frame).toContain('More options')
 		expect(frame).toContain('Ask before changes and shell commands.')
-		expect(frame).toMatch(/prompt\s+\[current\]/)
+		expect(frame).toMatch(/Ask before changes\s+\[current\]/)
 		expect(frame).not.toContain('approved automatically (--dangerously-skip-permissions)')
 	})
 
@@ -636,7 +641,7 @@ describe('/permissions session mode', () => {
 		await tick(60)
 		stdin.write('\r')
 		await tick(160)
-		expect(lastFrame()).toContain('Permission mode changed to prompt')
+		expect(lastFrame()).toContain('Permissions: Ask before changes for this session.')
 
 		stdin.write('ask again')
 		await tick(60)

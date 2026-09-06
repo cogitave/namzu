@@ -247,16 +247,22 @@ it('paints /permissions choices before a later key can select one', async () => 
 	// pending chooser. It has the same ownership as the opening Return: there is
 	// still no painted menu for it to accept.
 	screen.press('\r')
-	await waitUntil(screen, () => painted(screen).includes('Select Permission Mode'))
+	await waitUntil(screen, () => painted(screen).includes('More options'))
 	let output = painted(screen)
-	expect(output).not.toContain('Permission mode changed to prompt')
+	expect(output).not.toContain('Permissions: Ask before changes for this session.')
 
 	// A later key, sent after the menu is visible, does own a choice.
-	// Fourth row: prompt, accept-edits, auto, strict.
+	// A submenu also waits for its own visible frame before accepting a choice.
 	screen.press('4')
-	await waitUntil(screen, () => painted(screen).includes('Permission mode changed to strict'))
+	screen.press('\r')
+	await waitUntil(screen, () => painted(screen).includes('More permission options'))
+	expect(painted(screen)).not.toContain('Permissions: Auto-approve tools for this session.')
+	screen.press('2')
+	await waitUntil(screen, () =>
+		painted(screen).includes('Permissions: Preapproved tools only for this session.'),
+	)
 	output = painted(screen)
-	expect(output.match(/Permission mode changed to strict/g)).toHaveLength(1)
+	expect(output.match(/Permissions: Preapproved tools only for this session\./g)).toHaveLength(1)
 })
 
 it('opens bare /feedback as a finite chooser for the completed answer', async () => {

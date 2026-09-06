@@ -27,7 +27,7 @@ explain why they cannot run and are checked again when selected.
 | `/exit` | Exit namzu. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
 | `/fork` | Continue in a copy of this conversation, leaving the original where it is. |
-| `/memory` | Show what namzu remembers, or save a fact: /memory [something to remember]. |
+| `/memory` | Show curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a project fact; put `--user` before `add` to save a user fact. |
 | `/skills` | Choose an available skill; use /skills list for the full roster. |
 | `/resume` | Resume a past conversation in this project. |
 | `/model` | Choose a model for the current provider. Other detected providers are named above the list; press `p` to switch providers, then choose a model. The picker states whether the selection is saved for future launches. |
@@ -46,7 +46,7 @@ explain why they cannot run and are checked again when selected.
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
 | `/status` | Show model, permissions, workspace and latest cost. `/status details` expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
-| `/permissions` | Choose an approval mode; `/permissions details` shows rules and exceptions. Direct modes are `prompt`, `accept-edits`, `auto`, `strict` and `plan`. |
+| `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/effort` | Choose reasoning effort for future turns: /effort [level\|default]. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
@@ -62,8 +62,10 @@ refers to a different global installation. Embedded hosts without an explicit
 launch command use the `namzu` fallback. Copy the full command when resuming
 from another directory.
 
-`/settings` shows safe effective values and opens the existing model, effort
-and permission controls. It is not a general configuration-file editor and
+`/settings` shows Model, Reasoning effort and Permissions with their effective
+values, and opens the corresponding controls. Configuration opens source details.
+Its permission value includes a previous approval of all tools for the session.
+It is not a general configuration-file editor and
 does not display credentials. `/status config` remains a report of sources;
 it deliberately omits resolved values.
 
@@ -81,6 +83,15 @@ The effort choices depend on the selected model and usable fallback models.
 Changing any permission mode clears a previous “approve all” choice. Explicit
 deny rules and built-in safety checks still apply; `plan` additionally blocks
 writes even when a rule would allow them.
+
+The permission menu shows the effective current behavior, including any earlier
+approval of all tools. More options keeps automatic approval and preapproved-only
+execution available without placing their internal mode names in the main menu.
+Esc returns from More options without applying a change. The approval prompt's
+second choice explicitly allows **all tools for this session**, not just the
+displayed operation. Configured rules and sandbox restrictions still apply.
+For typed shortcuts, `/permissions prompt`, `accept-edits`, `auto`, `strict`
+and `plan` remain accepted. `/permissions details` opens the rule report directly.
 
 ## Goals and task scope
 
