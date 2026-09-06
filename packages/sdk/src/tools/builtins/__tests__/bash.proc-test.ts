@@ -56,6 +56,43 @@ async function run(
 }
 
 describe('a command that succeeds', () => {
+	it('reports both streams while the process waits for the host to release it', async () => {
+		const context = ctx()
+		writeFileSync(
+			join(context.workingDirectory, 'progress.cjs'),
+			[
+				"const fs = require('node:fs')",
+				"process.stdout.write('stdout ready\\n')",
+				"process.stderr.write('stderr ready\\n')",
+				"const timer = setInterval(() => { if (fs.existsSync('release')) clearInterval(timer) }, 10)",
+			].join('\n'),
+		)
+		const messages: string[] = []
+		let ready!: () => void
+		const observed = new Promise<void>((resolve) => {
+			ready = resolve
+		})
+		context.report = (message) => {
+			messages.push(message)
+			if (messages.includes('stdout ready') && messages.includes('stderr ready')) ready()
+		}
+		const pending = run({ command: 'node progress.cjs', timeout: 5000 }, context)
+		try {
+			await Promise.race([
+				observed,
+				pending.then(() => {
+					throw new Error('The command ended before both progress events arrived')
+				}),
+			])
+		} finally {
+			writeFileSync(join(context.workingDirectory, 'release'), '')
+		}
+		const result = await pending
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('STDOUT:\nstdout ready')
+		expect(result.output).toContain('STDERR:\nstderr ready')
+	}, 10_000)
+
 	it('returns its stdout', async () => {
 		const result = await run({ command: 'echo hello' })
 

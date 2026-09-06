@@ -3389,16 +3389,14 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				},
 			)
 			const detail = viewToLines(view)
-			// For output shown line by line, the summary IS the first rendered
-			// line, so the body can drop it without a second, differently
-			// whitespaced copy of the same text — a `read` used to show its
-			// first line twice, once collapsed and once numbered.
+			// Drop only an exact duplicate. A shortened summary cannot replace
+			// the first line's evidence in expanded or raw output.
 			const summary =
 				view.kind === 'terminal' && detail && detail.length > 0
 					? truncate(detail[0] as string, 120)
 					: firstLine(event.result)
 			const withoutRepeatedSummary =
-				view.kind === 'terminal' && detail && detail.length > 0 ? detail.slice(1) : detail
+				view.kind === 'terminal' && detail?.[0] === summary ? detail.slice(1) : detail
 			return {
 				kind: 'tool-end',
 				runId: event.runId,
@@ -3685,7 +3683,7 @@ function describeFallback(event: {
  * server's, a plugin's — could not get a diff no matter what it did.
  *
  * The tool now says which admitted shape it wants, and this decides what
- * that looks like in a terminal. Clamping and the `STDOUT:`/`STDERR:`
+ * that looks like in a terminal. Collapsing and the `STDOUT:`/`STDERR:`
  * cleanup stay here on purpose: how many rows fit and how a shell labels
  * its streams are properties of this surface, not of the tool.
  */
@@ -3701,19 +3699,19 @@ export function viewToLines(view: ToolResultView): readonly string[] | undefined
 			// never produces this — it returns no view at all for an insert,
 			// rather than claim the file was empty.
 			if (view.before === '') {
-				const lines = clampLines(view.after)
+				const lines = outputLines(view.after)
 				return lines.length > 0 ? lines : undefined
 			}
 			const lines: string[] = []
-			for (const line of clampLines(view.before)) lines.push(`- ${line}`)
-			for (const line of clampLines(view.after)) lines.push(`+ ${line}`)
+			for (const line of outputLines(view.before)) lines.push(`- ${line}`)
+			for (const line of outputLines(view.after)) lines.push(`+ ${line}`)
 			return lines.length > 0 ? lines : undefined
 		}
 		case 'terminal': {
 			if (view.output.trim().length === 0) return undefined
 			const lines = resultToLines(view.output)
 			// A single short line is already the summary — no need to repeat it.
-			return lines.length <= 1 ? undefined : lines
+			return lines.length === 1 && lines[0] === truncate(lines[0] ?? '', 120) ? undefined : lines
 		}
 	}
 }
@@ -3735,11 +3733,10 @@ function truncate(value: string, max: number): string {
 	return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
 }
 
-const MAX_DETAIL_LINES = 200
-
-function clampLines(value: string): string[] {
-	const lines = value.replace(/\s+$/, '').split('\n')
-	return lines.length > MAX_DETAIL_LINES ? lines.slice(0, MAX_DETAIL_LINES) : lines
+function outputLines(value: string): string[] {
+	// The renderer bounds the preview. Retain admitted output so expanding
+	// or selecting raw text never loses a diagnostic after an arbitrary line.
+	return value.replace(/\s+$/, '').split('\n')
 }
 
 /** Parse a string as a JSON object, or null. Connector tools return JSON. */
@@ -3779,10 +3776,10 @@ function payloadString(result: string): string | null {
 /** Pretty-print JSON tool output; otherwise return the raw text as lines. */
 function resultToLines(result: string): string[] {
 	const payload = payloadString(result)
-	if (payload !== null) return clampLines(payload)
+	if (payload !== null) return outputLines(payload)
 	const obj = parseJsonObject(result)
-	if (obj) return clampLines(JSON.stringify(obj, null, 2))
-	return clampLines(cleanToolText(result.trim()))
+	if (obj) return outputLines(JSON.stringify(obj, null, 2))
+	return outputLines(cleanToolText(result.trim()))
 }
 
 /** Concise one-line summary of a tool result for the `⎿` line. */

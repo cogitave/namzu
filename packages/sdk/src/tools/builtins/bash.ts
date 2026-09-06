@@ -67,25 +67,56 @@ const inputSchema = z.object({
 
 type BashInput = z.infer<typeof inputSchema>
 
+const MAX_SHELL_PROGRESS_CHARS = 160
+
+/** Keep a bounded tail even when a process never writes a newline. */
+function appendProgressTail(previous: string, chunk: string, start: number, end: number): string {
+	return (previous + chunk.slice(Math.max(start, end - MAX_SHELL_PROGRESS_CHARS), end)).slice(
+		-MAX_SHELL_PROGRESS_CHARS,
+	)
+}
+
+/** Clipping a UTF-16 string must not display half of a surrogate pair. */
+function progressLine(value: string): string {
+	let line = value.trim()
+	const first = line.charCodeAt(0)
+	if (first >= 0xdc00 && first <= 0xdfff) line = line.slice(1)
+	const last = line.charCodeAt(line.length - 1)
+	if (last >= 0xd800 && last <= 0xdbff) line = line.slice(0, -1)
+	return line
+}
+
 /**
- * The last line worth showing from one chunk of streamed output.
- *
- * A progress line is a status, not a log: the host renders one line and
- * replaces it as the next arrives, so sending a whole chunk sends a wall
- * of text into a slot that shows one line of it. A chunk usually ends
- * mid-line and usually ends with a newline, so the last NON-EMPTY line is
- * the most recent complete thing the command actually said.
- *
- * Progress is capped rather than truncated with an ellipsis: this is
- * glanced at, and a marker in a line nobody reads to the end is noise.
+ * One latest line per stream, independent of transport chunk boundaries.
+ * Reports stay synchronous: the executor owns coalescing and backpressure.
+ * This projection adds neither an output log nor a queue of pending reports.
  */
-function lastNonEmptyLine(chunk: string): string | undefined {
-	const lines = chunk.split('\n')
-	for (let i = lines.length - 1; i >= 0; i--) {
-		const line = lines[i]?.trim()
-		if (line) return line.length > 160 ? line.slice(0, 160) : line
+function shellProgress(report?: (message: string) => void) {
+	if (!report) return undefined
+	const partial = { stdout: '', stderr: '' }
+	let lastMessage = ''
+	return ({ stream, data }: { stream: 'stdout' | 'stderr'; data: string }): void => {
+		let line = partial[stream]
+		let latest = ''
+		let start = 0
+		// Scan delimiters without allocating an array for arbitrarily chatty output.
+		for (const match of data.matchAll(/[\r\n]/g)) {
+			line = appendProgressTail(line, data, start, match.index)
+			latest = progressLine(line) || latest
+			line = ''
+			start = match.index + 1
+		}
+		line = appendProgressTail(line, data, start, data.length)
+		partial[stream] = line
+		const message = progressLine(line) || latest
+		if (!message || message === lastMessage) return
+		lastMessage = message
+		try {
+			report(message)
+		} catch {
+			// A diagnostic observer cannot break the process output reader.
+		}
 	}
-	return undefined
 }
 
 function isDangerousCommand(command: string): boolean {
@@ -192,6 +223,7 @@ export const BashTool = defineTool({
 		// sandbox can be added later as an explicit
 		// `SandboxExecOptions.workspaceRelativeCwd` field; the bash
 		// builtin doesn't have that requirement today.
+		const onOutput = shellProgress(context.report)
 		if (context.sandbox) {
 			const result = await context.sandbox.exec('/bin/sh', ['-c', input.command], {
 				timeout: input.timeout,
@@ -206,21 +238,8 @@ export const BashTool = defineTool({
 				// durable transcript — so this is a progress signal, not a
 				// second copy of the output. `result.stdout` remains the
 				// answer the model is given.
-				onOutput: context.report
-					? ({ data }) => {
-							const line = lastNonEmptyLine(data)
-							if (line) context.report?.(line)
-						}
-					: undefined,
+				onOutput,
 			})
-
-			if (result.timedOut) {
-				return {
-					success: false,
-					output: '',
-					error: `Command timed out after ${input.timeout}ms`,
-				}
-			}
 
 			// The sandbox reports when IT clipped a stream. Dropping those
 			// flags meant the model saw a complete-looking result that had
@@ -235,22 +254,27 @@ export const BashTool = defineTool({
 				result.stdout ? `STDOUT:\n${result.stdout}` : '',
 				result.stderr ? `STDERR:\n${result.stderr}` : '',
 				clipped.length > 0
-					? `[${clipped.join(' and ')} was truncated by the sandbox output cap — re-run with a filter (grep/head/tail) to see the rest]`
+					? `[${clipped.join(' and ')} was truncated by the sandbox output cap. The omitted output is unavailable in this result. Use a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.]`
 					: '',
 			]
 				.filter(Boolean)
 				.join('\n\n')
 
 			return {
-				success: result.exitCode === 0,
+				success: !result.timedOut && result.exitCode === 0,
 				output: output || '(no output)',
 				data: {
 					exitCode: result.exitCode,
 					sandboxed: true,
+					timedOut: result.timedOut,
 					stdoutTruncated: result.stdoutTruncated ?? false,
 					stderrTruncated: result.stderrTruncated ?? false,
 				},
-				error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
+				error: result.timedOut
+					? `Command timed out after ${input.timeout}ms. Any captured output before the deadline is above.`
+					: result.exitCode !== 0
+						? `Command exited with code ${result.exitCode}`
+						: undefined,
 			}
 		}
 
@@ -278,18 +302,30 @@ export const BashTool = defineTool({
 		const inherited = scrubInheritedEnv()
 
 		try {
-			const { stdout, stderr } = await execAsync(input.command, {
+			const pending = execAsync(input.command, {
 				cwd: context.workingDirectory,
 				timeout: input.timeout,
 				env: { ...inherited.env, ...context.env },
 				maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
 				signal: context.abortSignal,
 			})
-
-			return {
-				success: true,
-				output: formatShellOutput(stdout, stderr) || '(no output)',
-				data: { exitCode: 0 },
+			const onStdout = (data: string) => onOutput?.({ stream: 'stdout', data })
+			const onStderr = (data: string) => onOutput?.({ stream: 'stderr', data })
+			if (onOutput) {
+				// Readable's decoder carries incomplete UTF-8 bytes between chunks.
+				pending.child.stdout?.setEncoding('utf8').on('data', onStdout)
+				pending.child.stderr?.setEncoding('utf8').on('data', onStderr)
+			}
+			try {
+				const { stdout, stderr } = await pending
+				return {
+					success: true,
+					output: formatShellOutput(stdout, stderr) || '(no output)',
+					data: { exitCode: 0 },
+				}
+			} finally {
+				pending.child.stdout?.off('data', onStdout)
+				pending.child.stderr?.off('data', onStderr)
 			}
 		} catch (err) {
 			const failure = err as NodeJS.ErrnoException & {

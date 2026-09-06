@@ -1279,6 +1279,9 @@ export class ToolExecutor {
 		settleProgress: () => Promise<void>,
 		preparedCall?: PreparedDirectCall,
 	): Promise<ToolCallOutcome> {
+		if (this.config.abortSignal.aborted) {
+			return this.recordCancelledBeforeExecution(toolCall.id, toolCall.function.name, {})
+		}
 		if (preparedCall?.kind === 'synthetic') {
 			return this.recordSyntheticPreparation(preparedCall)
 		}
@@ -1376,7 +1379,15 @@ export class ToolExecutor {
 
 			input = resolved.input
 
-			const preOutcome = await this.runPreToolHook(toolName, input)
+			let preOutcome: PreToolHookOutcome
+			try {
+				preOutcome = await this.runPreToolHook(toolName, input)
+			} catch (error) {
+				if (!this.config.abortSignal.aborted) throw error
+				// A later call's interrupted preparation must not reject the batch
+				// that already holds an earlier call's settled side-effect receipt.
+				return this.recordCancelledBeforeExecution(toolCall.id, toolName, input)
+			}
 			if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
 				return this.recordSyntheticHookOutcome(toolCall.id, toolName, preOutcome.input, preOutcome)
 			}
@@ -1483,6 +1494,7 @@ export class ToolExecutor {
 			...this.config.toolRetryBackoff,
 		}
 		for (let attempt = 1; ; attempt++) {
+			if (this.config.abortSignal.aborted) break
 			// A missing file will not appear on the second attempt; burning
 			// the budget on it only delays the error the model needs to see.
 			const toolWants = !result.success && result.retryable === true
@@ -1606,7 +1618,7 @@ export class ToolExecutor {
 
 		if (this.workingStateManager) {
 			extractFromToolResult(this.workingStateManager, toolName, output, effectiveIsError)
-			for (const pin of result.workingState ?? []) {
+			for (const pin of this.config.abortSignal.aborted ? [] : (result.workingState ?? [])) {
 				this.workingStateManager.pin(pin.key, pin.text, toolName)
 			}
 		}
@@ -1623,7 +1635,7 @@ export class ToolExecutor {
 				[NAMZU.RUN_ID]: this.config.runId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.duration_ms': durationMs,
-				'exception.message': result.error ?? 'unknown',
+				'exception.message': postOverride ? output : (result.error ?? 'unknown'),
 			})
 		}
 
@@ -2369,17 +2381,33 @@ export class ToolExecutor {
 		toolResult: ToolResult,
 	): Promise<{ override: PostToolOverride | null; retry: boolean }> {
 		if (!this.config.pluginManager) return { override: null, retry: false }
-		const results = await this.config.pluginManager.executeHooks(
-			'post_tool_use',
-			{
-				runId: this.config.runId,
-				toolName,
-				toolInput: input,
-				toolResult,
-				signal: this.config.abortSignal,
-			},
-			this.emitEvent,
-		)
+		let results: PluginHookResult[]
+		try {
+			results = await this.config.pluginManager.executeHooks(
+				'post_tool_use',
+				{
+					runId: this.config.runId,
+					toolName,
+					toolInput: input,
+					toolResult,
+					signal: this.config.abortSignal,
+				},
+				this.emitEvent,
+			)
+		} catch (error) {
+			if (!this.config.abortSignal.aborted) throw error
+			// The tool has already returned. Cancellation of a later redaction
+			// cannot erase that execution or turn it into a safe-to-repeat call.
+			// Withhold both channels until their post-tool policy has completed.
+			const outcome = toolResult.success
+				? 'reported success before cancellation. The call already executed.'
+				: 'reported failure while cancellation was in progress. Side effects are possible.'
+			const output = `Tool "${toolName}" ${outcome} Output withheld because post-tool review was interrupted. Inspect external state before any retry.`
+			return {
+				override: { output, content: output, isError: !toolResult.success },
+				retry: false,
+			}
+		}
 		let override: PostToolOverride | null = null
 		let retry = false
 		for (const result of results) {
@@ -2482,6 +2510,18 @@ export class ToolExecutor {
 		})
 
 		return { toolCallId: toolCall.id, toolName, output, isError: true }
+	}
+
+	private recordCancelledBeforeExecution(
+		toolCallId: string,
+		toolName: string,
+		input: unknown,
+	): Promise<ToolCallOutcome> {
+		const reason = abortReasonText(this.config.abortSignal.reason)
+		return this.recordSyntheticHookOutcome(toolCallId, toolName, input, {
+			kind: 'error',
+			output: `Tool "${toolName}" was not started because the run was cancelled${reason ? `: ${reason}` : '.'}`,
+		})
 	}
 
 	private async recordSyntheticHookOutcome(

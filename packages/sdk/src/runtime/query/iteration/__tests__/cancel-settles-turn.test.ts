@@ -134,6 +134,62 @@ afterEach(() => {
 })
 
 describe('a turn cancelled mid-stream', () => {
+	it('settles while a provider is still blocked inside its next pull', async () => {
+		const controller = new AbortController()
+		let enter!: () => void
+		const entered = new Promise<void>((resolve) => {
+			enter = resolve
+		})
+		let release!: () => void
+		const held = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		let cleanup!: () => void
+		const closed = new Promise<void>((resolve) => {
+			cleanup = resolve
+		})
+		const provider: LLMProvider = {
+			id: 'ignores-abort',
+			name: 'Ignores abort',
+			async *chatStream() {
+				try {
+					yield { id: 'a', delta: { content: 'retained answer' } }
+					enter()
+					await held
+				} finally {
+					cleanup()
+				}
+			},
+		}
+		const events: RunEvent[] = []
+		const turn = streamProviderTurn(
+			provider,
+			{ model: 'mock', messages: [], signal: controller.signal },
+			async (event) => {
+				events.push(event)
+			},
+			function* () {},
+			RUN_ID,
+			1,
+			false,
+			makeLogger(),
+		)
+		const pending = turn.next()
+		await entered
+		const reason = new Error('stop without waiting for the driver')
+		controller.abort(reason)
+		try {
+			await expect(pending).rejects.toBe(reason)
+			expect(events.filter((event) => event.type === 'message_completed')).toEqual([
+				expect.objectContaining({ stopReason: 'cancelled', content: 'retained answer' }),
+			])
+		} finally {
+			release()
+			await closed
+			await pending.catch(() => {})
+		}
+	})
+
 	it('records the tokens it already spent', async () => {
 		const { written } = await runCancelled()
 		const tokens = written.filter((w) => w.instrument === 'gen_ai.client.token.usage')

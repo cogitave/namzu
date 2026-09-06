@@ -49,8 +49,44 @@ export function withTokenBudget(provider: LLMProvider, budget: TokenBudget): LLM
 		let completed = false
 		let outputObserved = false
 		let uncertainRetry = false
+		let contacted = false
+		let abandoned = false
+		let iterator: AsyncIterator<StreamChunk> | undefined
+		let onAbort: (() => void) | undefined
+		const signal = params.signal
+		const cancellation = signal
+			? new Promise<never>((_resolve, reject) => {
+					onAbort = () => {
+						abandoned = true
+						reject(signal.reason)
+					}
+					signal.addEventListener('abort', onAbort, { once: true })
+				})
+			: undefined
+		// Admission persistence can have outlived the caller's authority. The
+		// check below may reject before the first pull attaches a race handler.
+		cancellation?.catch(() => {})
 		try {
-			for await (const chunk of provider.chatStream(params)) {
+			signal?.throwIfAborted()
+			contacted = true
+			iterator = provider.chatStream(params)[Symbol.asyncIterator]()
+			for (;;) {
+				signal?.throwIfAborted()
+				const next = iterator.next()
+				// Observe an already-issued pull even after cancellation wins the
+				// race. A late usage frame is evidence of spend, not permission to
+				// reopen the account or to request another frame.
+				void next
+					.then(async (result) => {
+						if (!result.done && result.value.usage) {
+							usage = usage ? mergeTokenUsage(usage, result.value.usage) : { ...result.value.usage }
+							if (abandoned) await budget.failRequest(requestId, usage)
+						}
+					})
+					.catch(() => {})
+				const result = await (cancellation ? Promise.race([next, cancellation]) : next)
+				if (result.done) break
+				const chunk = result.value
 				const recovery = chunk.retry ?? chunk.fallback
 				if (
 					recovery &&
@@ -71,9 +107,6 @@ export function withTokenBudget(provider: LLMProvider, budget: TokenBudget): LLM
 					})
 				}
 				if (Object.keys(chunk.delta).length > 0) outputObserved = true
-				if (chunk.usage) {
-					usage = usage ? mergeTokenUsage(usage, chunk.usage) : { ...chunk.usage }
-				}
 				if (chunk.error) throw new Error(chunk.error)
 				yield chunk
 			}
@@ -88,16 +121,27 @@ export function withTokenBudget(provider: LLMProvider, budget: TokenBudget): LLM
 			// A typed rejection before any generation differs from a lost reply.
 			// In particular a context-overflow retry must not reset or poison spend.
 			if (
-				!outputObserved &&
-				usage === undefined &&
-				!uncertainRetry &&
-				rejectedBeforeGeneration(error)
+				!contacted ||
+				(!abandoned &&
+					!outputObserved &&
+					usage === undefined &&
+					!uncertainRetry &&
+					rejectedBeforeGeneration(error))
 			) {
 				await budget.finishRequest(requestId, { ...EMPTY_TOKEN_USAGE })
 				completed = true
 			}
 			throw error
 		} finally {
+			abandoned = !completed
+			if (onAbort) signal?.removeEventListener('abort', onAbort)
+			// A blocked async generator queues return() behind its pending next().
+			// Waiting for it would also delay the durable unknown-spend marker.
+			try {
+				void iterator?.return?.().catch(() => {})
+			} catch {
+				// Cleanup cannot replace the provider outcome.
+			}
 			if (!completed) await budget.failRequest(requestId, usage)
 		}
 	}

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { Sandbox, SandboxExecOptions } from '../../../types/sandbox/index.js'
+import type {
+	Sandbox,
+	SandboxExecOptions,
+	SandboxExecResult,
+} from '../../../types/sandbox/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { BashTool } from '../bash.js'
 
@@ -63,6 +67,31 @@ function contextWith(sandbox: Sandbox, report?: ToolContext['report']): ToolCont
 }
 
 describe('a command running in a sandbox', () => {
+	it('joins fragmented lines without mixing stdout and stderr', async () => {
+		const report = vi.fn()
+		const { sandbox, settle } = streamingSandbox([
+			{ stream: 'stdout', data: 'compil' },
+			{ stream: 'stderr', data: 'warning\n' },
+			{ stream: 'stdout', data: 'ing module one\r' },
+			{ stream: 'stdout', data: '\ncompleted\n' },
+		])
+		const pending = BashTool.execute(
+			{ command: 'build', timeout: 1000 },
+			contextWith(sandbox, report),
+		)
+		try {
+			expect(report.mock.calls.map(([message]) => message)).toEqual([
+				'compil',
+				'warning',
+				'compiling module one',
+				'completed',
+			])
+		} finally {
+			settle()
+			await pending
+		}
+	})
+
 	it('reports output while it is still running, not after it ends', async () => {
 		const report = vi.fn()
 		const { sandbox, settle } = streamingSandbox([
@@ -154,5 +183,37 @@ describe('a command running in a sandbox', () => {
 
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('output')
+	})
+})
+
+describe('sandbox command evidence survives a failure', () => {
+	it.each([
+		{ timedOut: true, exitCode: 0, reason: 'timed out after 1000ms' },
+		{ timedOut: false, exitCode: 2, reason: 'exited with code 2' },
+	])('keeps both streams when $reason', async ({ timedOut, exitCode, reason }) => {
+		const evidence: SandboxExecResult = {
+			stdout: '3 tests failed\n',
+			stderr: 'compiler diagnostics\n',
+			exitCode,
+			timedOut,
+			durationMs: 1000,
+			stdoutTruncated: true,
+		}
+		const sandbox = { exec: vi.fn(async () => evidence) } as unknown as Sandbox
+		const result = await BashTool.execute({ command: 'build', timeout: 1000 }, contextWith(sandbox))
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain(reason)
+		expect(result.output).toContain('STDOUT:\n3 tests failed')
+		expect(result.output).toContain('STDERR:\ncompiler diagnostics')
+		expect(result.output).toContain('truncated by the sandbox output cap')
+		expect(result.output).not.toContain('re-run with a filter')
+		expect(result.output).toContain('saved artifact or a read-only observation')
+		expect(result.data).toMatchObject({
+			exitCode,
+			timedOut,
+			sandboxed: true,
+			stdoutTruncated: true,
+		})
 	})
 })

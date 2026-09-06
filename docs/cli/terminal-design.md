@@ -25,6 +25,13 @@ Tool results remain grouped beneath their calls, with expandable output and
 diffs. Color supports the text and symbols: errors, permissions and task states
 retain explicit labels. Raw output remains the original source projection.
 
+Tool output retains every line admitted by the runtime, including long first
+lines and diagnostics beyond line 200. The default preview shows at most six
+lines, each shortened to 240 characters, and advertises Ctrl+O whenever it hides
+text. Ctrl+O opens the retained body; `/raw` also includes it. Runtime output
+limits still apply: a retained artifact path identifies output beyond those
+limits. Neither action re-executes the tool.
+
 A square message frame marks the writing area. Green corners and the `MESSAGE`
 label identify the active input; its long edges stay quiet. The two frame rows
 take the place of vertical padding, so the frame adds no height to the previous

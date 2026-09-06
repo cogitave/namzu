@@ -4,9 +4,12 @@ import { createRequire } from 'node:module'
 
 import type { Message } from '@namzu/sdk'
 import { Terminal } from '@xterm/headless'
+import { Box, Text } from 'ink'
+import type { ComponentProps } from 'react'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { ComposerFrame } from '../ComposerFrame.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import type { AgentEvent, PermissionDecision } from '../agent.js'
 import { type Screen, renderToScreen } from './support/screen.js'
@@ -130,6 +133,26 @@ afterEach(() => {
 })
 
 const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 20))
+const realSetTimeout = globalThis.setTimeout
+
+/** Advance Ink's real scheduler without putting the terminal parser on the fake clock. */
+function controlAnimationClock() {
+	vi.useFakeTimers({
+		toFake: ['setTimeout', 'clearTimeout', 'performance'],
+		shouldClearNativeTimers: true,
+	})
+	const fakeSetTimeout = globalThis.setTimeout
+	const timer = vi
+		.spyOn(globalThis, 'setTimeout')
+		.mockImplementation(((...args: Parameters<typeof setTimeout>) =>
+			(args[1] ?? 0) === 0
+				? realSetTimeout(...args)
+				: fakeSetTimeout(...args)) as typeof setTimeout)
+	return () => {
+		timer.mockRestore()
+		vi.useRealTimers()
+	}
+}
 
 async function waitUntil(screen: Screen, predicate: () => boolean, message: string): Promise<void> {
 	const deadline = performance.now() + 3_000
@@ -329,5 +352,162 @@ it('moves the working border, stops for a prompt and idle, and preserves the typ
 		completeTurn()
 		await screen.unmount()
 		border.dispose()
+	}
+})
+
+it('travels clockwise through every corner without rendering the input or transcript again', async () => {
+	const restoreClock = controlAnimationClock()
+	const inputRender = vi.fn()
+	const transcriptRender = vi.fn()
+	function Input() {
+		inputRender()
+		return <Text>{'draft\nsecond\nthird\nfourth\nfifth\nsixth\nseventh'}</Text>
+	}
+	function Transcript() {
+		transcriptRender()
+		return <Text>Conversation stays steady</Text>
+	}
+	const screen = await renderToScreen(
+		<Box flexDirection="column">
+			<Transcript />
+			<ComposerFrame working focus>
+				<Input />
+			</ComposerFrame>
+		</Box>,
+		{ cols: 32, rows: 20 },
+	)
+	const border = borderProbe(screen, 32, 20)
+	try {
+		const stableText = screen.viewport()
+		const first = await border.read()
+		const geometry = first?.map(({ x, y, glyph }) => ({ x, y, glyph }))
+		// These checkpoints cover the top moving right, the right moving down,
+		// the bottom moving left, the left moving up, then the next lap.
+		const checkpoints = new Map([
+			[400, { x: 16, y: 0 }],
+			[560, { x: 22, y: 0 }],
+			[880, { x: 31, y: 2 }],
+			[1040, { x: 31, y: 5 }],
+			[1280, { x: 27, y: 8 }],
+			[1440, { x: 21, y: 8 }],
+			[2080, { x: 0, y: 6 }],
+			[2240, { x: 0, y: 3 }],
+			[2720, { x: 14, y: 0 }],
+		])
+		const visitedCorners = new Set<string>()
+		const writesBefore = screen.writes().length
+		for (let elapsed = 80; elapsed <= 2720; elapsed += 80) {
+			await vi.advanceTimersByTimeAsync(80)
+			await screen.waitForRender()
+			const cells = await border.read()
+			expect(cells?.map(({ x, y, glyph }) => ({ x, y, glyph }))).toEqual(geometry)
+			expect(screen.viewport()).toEqual(stableText)
+			for (const cell of cells ?? []) {
+				if ('┌┐└┘'.includes(cell.glyph) && cell.color !== 83) visitedCorners.add(cell.glyph)
+			}
+			const checkpoint = checkpoints.get(elapsed)
+			if (checkpoint)
+				expect(cells).toContainEqual(expect.objectContaining({ ...checkpoint, color: 194 }))
+		}
+		expect(visitedCorners).toEqual(new Set(['┌', '┐', '└', '┘']))
+		expect(inputRender).toHaveBeenCalledTimes(1)
+		expect(transcriptRender).toHaveBeenCalledTimes(1)
+		// At most one terminal repaint per 80 ms animation interval.
+		expect(
+			screen
+				.writes()
+				.slice(writesBefore)
+				.filter((write) => write.includes('MESSAGE')).length,
+		).toBeLessThanOrEqual(34)
+	} finally {
+		await screen.unmount()
+		border.dispose()
+		restoreClock()
+	}
+})
+
+it.each([
+	{ name: 'idle', props: { working: false } },
+	{ name: 'unfocused', props: { focus: false } },
+	{ name: 'hidden', props: { hidden: true } },
+	{ name: 'animation disabled', props: { animate: false } },
+	{ name: 'NO_COLOR', env: ['NO_COLOR', '1'] },
+	{ name: 'FORCE_COLOR=0', env: ['FORCE_COLOR', '0'] },
+	{ name: 'TERM=dumb', env: ['TERM', 'dumb'] },
+] satisfies readonly {
+	readonly name: string
+	readonly props?: Partial<ComponentProps<typeof ComposerFrame>>
+	readonly env?: readonly [string, string]
+}[])('removes the light and its scheduler subscription when $name', async (mode) => {
+	const restoreClock = controlAnimationClock()
+	const props: ComponentProps<typeof ComposerFrame> = {
+		working: true,
+		focus: true,
+		children: <Text>Retained draft</Text>,
+	}
+	const screen = await renderToScreen(<ComposerFrame {...props} />, { cols: 32, rows: 12 })
+	const border = borderProbe(screen, 32, 12)
+	try {
+		await vi.advanceTimersByTimeAsync(400)
+		await screen.waitForRender()
+		expect((await border.read())?.some(({ color }) => color === 194)).toBe(true)
+		if ('env' in mode && mode.env) vi.stubEnv(...mode.env)
+		screen.rerender(<ComposerFrame {...props} {...('props' in mode ? mode.props : {})} />)
+		await screen.waitForRender()
+		const stopped = await border.read()
+		expect(stopped?.some(({ color }) => color === 194) ?? false).toBe(false)
+		const writesBefore = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(1600)
+		await screen.waitForRender()
+		expect(await border.read()).toEqual(stopped)
+		expect(screen.bytesWritten()).toBe(writesBefore)
+		expect(vi.getTimerCount()).toBe(0)
+	} finally {
+		await screen.unmount()
+		border.dispose()
+		restoreClock()
+	}
+})
+
+it.each([2, 8, 11, 12, 40])('keeps both frame corners on one row at %i columns', async (cols) => {
+	const screen = await renderToScreen(
+		<ComposerFrame focus animate={false}>
+			<Box height={1} />
+		</ComposerFrame>,
+		{ cols, rows: 12 },
+	)
+	try {
+		const lines = screen.viewport().filter((line) => line.trim())
+		expect(lines).toHaveLength(3)
+		expect(lines[0]?.at(0)).toBe('┌')
+		expect(lines[0]?.at(-1)).toBe('┐')
+		expect(lines[0]?.length).toBe(cols)
+		expect(lines[2]?.at(0)).toBe('└')
+		expect(lines[2]?.at(-1)).toBe('┘')
+		expect(lines[2]?.length).toBe(cols)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('never schedules decorative motion for a screen reader', async () => {
+	vi.stubEnv('INK_SCREEN_READER', 'true')
+	const restoreClock = controlAnimationClock()
+	const screen = await renderToScreen(
+		<ComposerFrame working focus>
+			<Text>Accessible draft</Text>
+		</ComposerFrame>,
+		{ cols: 32, rows: 12 },
+	)
+	try {
+		expect(screen.viewport().join('\n')).toContain('Accessible draft')
+		const bytesBefore = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(1600)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBe(bytesBefore)
+		expect(vi.getTimerCount()).toBe(0)
+	} finally {
+		await screen.unmount()
+		restoreClock()
 	}
 })

@@ -20,6 +20,64 @@ function provider(stream: () => AsyncIterable<StreamChunk>): LLMProvider {
 }
 
 describe('provider calls use the shared token account', () => {
+	it('records cancellation before a stalled driver settles and retains its late usage', async () => {
+		let lateSaved!: () => void
+		const lateReceipt = new Promise<void>((resolve) => {
+			lateSaved = resolve
+		})
+		const budget = TokenBudget.create(1_000, generateRunId(), {
+			save: async (snapshot) => {
+				if (snapshot.requests[0]?.usage?.totalTokens === 180) lateSaved()
+			},
+		})
+		const caller = new AbortController()
+		let enter!: () => void
+		const entered = new Promise<void>((resolve) => {
+			enter = resolve
+		})
+		let release!: () => void
+		const held = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		let calls = 0
+		const wrapped = withTokenBudget(
+			provider(async function* () {
+				calls++
+				yield { id: 'a', delta: { content: 'partial' }, usage: usage(120) }
+				enter()
+				await held
+				yield { id: 'a', delta: {}, usage: usage(180) }
+			}),
+			budget,
+		)
+		const iterator = wrapped
+			.chatStream({ ...params, signal: caller.signal })
+			[Symbol.asyncIterator]()
+		await iterator.next()
+		const pending = iterator.next()
+		await entered
+		const reason = new Error('operator stopped')
+		caller.abort(reason)
+		try {
+			await expect(pending).rejects.toBe(reason)
+			expect(budget.ownTokens).toBe(120)
+			expect(budget.summary()).toMatchObject({ poisoned: true, inFlightRequests: 1 })
+			expect(budget.snapshot().requests[0]?.usage?.totalTokens).toBe(120)
+			release()
+			await lateReceipt
+			await budget.flush()
+			expect(budget.ownTokens).toBe(180)
+			expect(budget.summary()).toMatchObject({ poisoned: true, inFlightRequests: 1 })
+			await expect(collectChatCompletion(wrapped.chatStream(params))).rejects.toThrow(
+				'no available allowance',
+			)
+			expect(calls).toBe(1)
+		} finally {
+			release()
+			await pending.catch(() => {})
+		}
+	})
+
 	it('persists admission before contacting the driver and merges streaming receipts once', async () => {
 		let persisted = false
 		const budget = TokenBudget.create(1_000, generateRunId(), {

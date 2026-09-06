@@ -29,6 +29,29 @@ channel receives its own bounded preview. Model-content spills use the
 artifact. Withholding rich blocks preserves bounded text and its recovery path
 when the configured text cap can contain it.
 
+## Cancellation preserves evidence
+
+A tool that already returned has executed even if cancellation interrupts its
+post-tool hook. The receipt preserves the tool's reported success or failure,
+but withholds unreviewed text and rich content because that hook may perform
+redaction. The model is told to inspect external state before retrying. Serial
+calls still waiting to start receive explicit not-started results, so a later
+cancelled call does not discard an earlier completed receipt.
+Cancellation also stops retry scheduling. An interrupted review's failure log
+uses the withheld diagnostic instead of the tool's unreviewed error text.
+
+Provider cancellation does not wait for an async iterator whose pending
+`next()` ignores the abort signal. This also holds with the idle watchdog
+disabled. The budget records known usage and unresolved spend before the
+wrapper settles; an already-issued late usage frame can increase recorded
+usage without reopening admission. Cleanup is requested but cannot guarantee
+that a non-cooperative provider has stopped remote work.
+
+Shell progress assembles bounded stdout and stderr lines independently on both
+host and sandbox paths. Sandbox timeouts retain captured output. A clipping
+notice identifies missing evidence without asking the model to repeat a
+possibly state-changing command.
+
 ## Delegation accounting
 
 Let the parent's remaining tokens be `R` and a child's allocation be `A`.

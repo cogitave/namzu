@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Update**: [Terminal design](/cli/terminal-design.md), [Harness invariants](/sdk/harness-invariants.md) and [Peer comparison](/cli/competitive-gaps.md) — recoverable tool previews, incremental host-shell progress, preserved timeout and cancellation evidence, bounded provider cancellation with conservative token accounting, and pinned primary-source comparisons with terminal animation regressions.
 * **Update**: [Slash commands](/cli/slash-commands.md) — resume hints retain the actual launcher and working directory so a checkout session is not handed to an older global CLI.
 * **Update**: [Slash commands](/cli/slash-commands.md), [Context and compaction](/cli/context-and-compaction.md), [Terminal design](/cli/terminal-design.md) and [Command experience audit](/cli/command-experience-audit.md) — shared discovery and searchable choices, scoped settings and goals, preserved model preferences, accurate permission and usage summaries, actual run task lists, and explicitly historical audit findings with remaining limits.
 * **Creation**: [Command experience audit](/cli/command-experience-audit.md) — verified preference, permission, task, discovery and usage-report defects, with a comparison against pinned Codex source and a proposed implementation order.

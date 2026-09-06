@@ -518,11 +518,15 @@ export async function* streamProviderTurn(
 		streamCause = err
 	} finally {
 		if (onAbort) signal?.removeEventListener('abort', onAbort)
-		// Release the underlying connection on every exit (natural end, error,
-		// or abort). `for await` did this implicitly on natural completion; the
-		// manual drive must do it explicitly. `.return()` on an already-finished
-		// provider generator is a no-op.
-		await it.return?.().catch(() => {})
+		// Request cleanup on every exit, but never wait for a blocked provider's
+		// pending next(). An async generator queues return() behind that pull;
+		// awaiting it would undo the cancellation race above. Provider metering
+		// independently records cancellation and any already-issued late receipt.
+		try {
+			void it.return?.().catch(() => {})
+		} catch {
+			// Cleanup cannot replace the original stream outcome.
+		}
 	}
 
 	// Flush any tool buckets the provider failed to close (no toolCallEnd

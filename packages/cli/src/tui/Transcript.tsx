@@ -61,6 +61,7 @@ export interface TranscriptProps {
 }
 
 const COLLAPSE_LINES = 6
+const PREVIEW_LINE_CHARS = 240
 
 type StaticRow =
 	| { readonly kind: 'header' }
@@ -295,7 +296,7 @@ function DetailBlock({
 	/** The number `/expand` takes for this block, when it has one. */
 	readonly detailRef: number | undefined
 }) {
-	const { shown, hidden } = splitDetail(lines.map(terminalDisplayText), expanded)
+	const { shown, hint } = splitDetail(lines.map(terminalDisplayText), expanded, detailRef)
 	// A dim left rule (`▏`) under the gutter frames the output as a block,
 	// so tool output is visibly not the assistant speaking.
 	const Rule = () => (
@@ -306,6 +307,7 @@ function DetailBlock({
 	return (
 		<Box flexDirection="column" paddingLeft={1}>
 			{shown.map((line, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: immutable output lines retain their positions when expanded.
 				<Box key={`d-${i}`} flexDirection="row">
 					<Rule />
 					<Box flexGrow={1}>
@@ -315,7 +317,7 @@ function DetailBlock({
 					</Box>
 				</Box>
 			))}
-			{hidden > 0 ? (
+			{hint ? (
 				<Box flexDirection="row">
 					<Rule />
 					{/* The hint names its OWN number rather than telling the operator
@@ -324,10 +326,7 @@ function DetailBlock({
 					    that gets ignored. A block with no number cannot be named,
 					    so it says how many lines it is hiding and stops there
 					    rather than printing a command that would not resolve. */}
-					<Text color={theme.text.muted}>
-						… +{hidden} lines
-						{detailRef === undefined ? '' : ' · ctrl+o'}
-					</Text>
+					<Text color={theme.text.muted}>{hint}</Text>
 				</Box>
 			) : null}
 		</Box>
@@ -344,16 +343,33 @@ function DetailBlock({
  * "there are N" message counting blocks the operator was never offered.
  */
 export function willCollapse(detail: readonly string[] | undefined): boolean {
-	return detail !== undefined && detail.length > COLLAPSE_LINES
+	return (
+		detail !== undefined &&
+		(detail.length > COLLAPSE_LINES ||
+			detail.some((line) => terminalDisplayText(line).length > PREVIEW_LINE_CHARS))
+	)
 }
 
 /** How much of a body prints, and how much stays behind the hint. */
 function splitDetail(
 	lines: readonly string[],
 	expanded: boolean,
-): { readonly shown: readonly string[]; readonly hidden: number } {
-	const shown = expanded ? lines : lines.slice(0, COLLAPSE_LINES)
-	return { shown, hidden: lines.length - shown.length }
+	detailRef?: number,
+): { readonly shown: readonly string[]; readonly hint: string | undefined } {
+	if (expanded) return { shown: lines, hint: undefined }
+	const selected = lines.slice(0, COLLAPSE_LINES)
+	const hidden = lines.length - selected.length
+	const clipped = selected.some((line) => line.length > PREVIEW_LINE_CHARS)
+	const shown = selected.map((line) =>
+		line.length > PREVIEW_LINE_CHARS
+			? `${line.slice(0, PREVIEW_LINE_CHARS - 1).replace(/[\uD800-\uDBFF]$/, '')}…`
+			: line,
+	)
+	const hint =
+		hidden > 0 || clipped
+			? `… ${hidden > 0 ? `+${hidden} lines` : 'line shortened'}${hidden > 0 && clipped ? ' · shortened preview' : ''}${detailRef === undefined ? '' : ' · ctrl+o'}`
+			: undefined
+	return { shown, hint }
 }
 
 /**
@@ -369,9 +385,10 @@ function splitDetail(
 export function renderedDetailLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
 	if (!lines || lines.length === 0) return []
-	const { shown, hidden } = splitDetail(
+	const { shown, hint } = splitDetail(
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,
+		message.detailRef,
 	)
 	// Indented by the gutter this block actually renders inside: `paddingLeft={1}`
 	// plus the two-column `▏` rule. Those columns are not available to the text,
@@ -382,14 +399,7 @@ export function renderedDetailLines(message: TranscriptMessage): readonly string
 	const gutter = '   '
 	const body = shown.map((line) => gutter + line)
 	// The hint's real text, `/expand n` included, because that is what wraps.
-	return hidden > 0
-		? [
-				...body,
-				`${gutter}… +${hidden} lines${
-					message.detailRef === undefined ? '' : ' · ctrl+o'
-				}`,
-			]
-		: body
+	return hint ? [...body, gutter + hint] : body
 }
 
 function detailLineColor(line: string): string {

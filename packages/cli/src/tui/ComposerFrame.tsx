@@ -31,11 +31,13 @@ export function ComposerFrame({
 		<Box ref={frame} position="relative" flexDirection="column" marginTop={hidden ? 0 : 1}>
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
 				<Box flexShrink={0}>
-					<Text color={accent}>┌─ </Text>
-					<Text color={accent} bold>
-						MESSAGE
+					<Text color={accent}>┌</Text>
+				</Box>
+				{/* The caption yields to narrow widths while both corners stay fixed. */}
+				<Box minWidth={0}>
+					<Text color={accent} wrap="truncate-end">
+						─ <Text bold>MESSAGE</Text>{' '}
 					</Text>
-					<Text> </Text>
 				</Box>
 				<Rule />
 				<Box flexShrink={0}>
@@ -55,7 +57,12 @@ export function ComposerFrame({
 			</Box>
 			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
 				<Box flexShrink={0}>
-					<Text color={accent}>└─</Text>
+					<Text color={accent}>└</Text>
+				</Box>
+				<Box minWidth={0}>
+					<Text color={accent} wrap="truncate-end">
+						─
+					</Text>
 				</Box>
 				<Rule />
 				<Box flexShrink={0}>
