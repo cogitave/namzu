@@ -51,3 +51,9 @@ Screen regressions drive the production Ink renderer through a terminal
 emulator. They check wrapped input, short viewports, retained drafts, normal
 scrollback and the amount of output emitted during streaming. These checks use
 controlled session events and require no model calls.
+
+When startup cannot load its state or construct a session, a `Startup stopped`
+notice replaces the writing area. The detailed error remains in scrollback;
+Esc or one Ctrl+C closes the application so the operator can repair the named
+file and restart. A startup refusal does not create an unscoped session or
+silently replace an installation identity.

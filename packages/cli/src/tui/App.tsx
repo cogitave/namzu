@@ -5554,6 +5554,12 @@ export function App({
 
 	useInput(
 		(input, key) => {
+			// Startup has refused admission, so there is no draft or active turn to
+			// protect with the ready screen's two-press exit ladder.
+			if (phase === 'unhealthy') {
+				if (key.escape || (key.ctrl && input === 'c')) exitWithSummary()
+				return
+			}
 			// The provider picker owns its own keyboard — arrows, digits, enter,
 			// esc and the typed-key screen are all its business. Ctrl+C is not: it
 			// is the one key that must work on every screen, and this handler used
@@ -6165,6 +6171,15 @@ export function App({
 				) : null}
 				{phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
+				) : phase === 'unhealthy' ? (
+					<Box flexDirection="column" marginTop={1}>
+						<Text color={theme.status.error} bold>
+							Startup stopped
+						</Text>
+						<Text color={theme.text.secondary}>
+							Resolve the error above, then restart Namzu.
+						</Text>
+					</Box>
 				) : phase === 'resume' ? (
 					<ResumePicker conversations={resumeList} selected={selectedResume} />
 				) : phase === 'edit' ? (
@@ -6418,7 +6433,7 @@ function hintForPhase(
 			? '↑↓ navigate · enter accept · esc keep current · Ctrl+C exit'
 			: '↑↓ navigate · enter accept · esc or Ctrl+C exit'
 	}
-	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
+	if (phase === 'unhealthy') return 'esc or Ctrl+C exit'
 	// Enter is absent because Enter decides nothing here, deliberately — see the
 	// permission gate in the key handler above.
 	if (state === 'awaiting-permission') return '↑↓ select · enter confirm · esc decline'

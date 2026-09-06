@@ -55,6 +55,15 @@ Entity IDs are opaque UUIDs. Prefixed IDs are rejected at admission. Callers use
 membership are checked separately by the stores. The root-path binding selects
 the Project, independently of its ID's spelling.
 
+An installation whose `identity.json` still contains a prefixed tenant ID
+cannot start the UUID-only CLI. To start fresh, close Namzu, move that identity
+file to a backup location, then launch again. Only an absent identity is minted
+automatically. Keep the backup: a new tenant selects new Projects, and existing
+conversations remain on disk under their original identity without being
+imported or made resumable. Provider preferences and credentials do not need
+to be reset. For an accidentally damaged UUID identity, restore its valid
+backup to retain access to the same Projects.
+
 ## State boundaries
 
 A historical binding for an exact subdirectory cannot override the checkout
