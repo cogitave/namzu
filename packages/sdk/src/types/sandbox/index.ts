@@ -181,6 +181,20 @@ export interface SandboxFileEntry {
 	readonly size: number
 }
 
+/** A bounded search; patterns and depth are relative to the requested root. */
+export interface SandboxWalkFilesOptions {
+	readonly pattern?: string
+	readonly signal?: AbortSignal
+	/** Direct children have depth 1. Omitted means no additional depth bound. */
+	readonly maxDepth?: number
+	/** Positive safe integer bounding emitted matching files. */
+	readonly maxEntries: number
+	/** Positive safe integer bounding examined directory entries; defaults to 20,000. */
+	readonly maxVisitedEntries?: number
+	/** Match hidden names through wildcards; explicit dotfile patterns always work. Defaults to false. */
+	readonly includeHidden?: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Sandbox interface — the core abstraction
 // ---------------------------------------------------------------------------
@@ -294,6 +308,13 @@ export interface Sandbox {
 	 * MAY throw for other I/O failures.
 	 */
 	listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]>
+	/**
+	 * Lazily enumerate regular files as absolute paths, without following symlinks.
+	 * Cancellation and iterator return stop traversal. Exceeding the examined-entry
+	 * budget throws an error with code `ERR_FILE_WALK_LIMIT`; it is not an empty or
+	 * complete listing. Hosts requiring bounded search must refuse an absent method.
+	 */
+	walkFiles?(rootPath: string, options: SandboxWalkFilesOptions): AsyncIterable<SandboxFileEntry>
 	/**
 	 * Release every resource owned by this sandbox.
 	 *

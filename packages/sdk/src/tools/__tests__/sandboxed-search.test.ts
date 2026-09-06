@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { Sandbox } from '../../types/sandbox/index.js'
+import { Minimatch } from 'minimatch'
+import type { Sandbox, SandboxWalkFilesOptions } from '../../types/sandbox/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { GlobTool } from '../builtins/glob.js'
 import { GrepTool } from '../builtins/grep.js'
@@ -36,9 +37,20 @@ function fakeSandbox(files: Record<string, string>): Sandbox & { reads: string[]
 			if (content === undefined) throw new Error(`no such file: ${path}`)
 			return Buffer.from(content, 'utf-8')
 		}),
-		listFiles: vi.fn(async () =>
-			Object.keys(files).map((path) => ({ path, size: files[path]?.length ?? 0 })),
+		listFiles: vi.fn(async (root: string) =>
+			Object.keys(files)
+				.map((path) => ({ path: `${SANDBOX_ROOT}/${path}`, size: files[path]?.length ?? 0 }))
+				.filter((entry) => entry.path.startsWith(`${root}/`)),
 		),
+		walkFiles: vi.fn(async function* (root: string, options: SandboxWalkFilesOptions) {
+			const matcher = new Minimatch(options.pattern ?? '**/*', { dot: options.includeHidden })
+			for (const [path, content] of Object.entries(files)) {
+				const absolute = `${SANDBOX_ROOT}/${path}`
+				if (absolute.startsWith(`${root}/`) && matcher.match(absolute.slice(root.length + 1))) {
+					yield { path: absolute, size: content.length }
+				}
+			}
+		}),
 		destroy: vi.fn(),
 		status: vi.fn(),
 	} as unknown as Sandbox & { reads: string[] }
@@ -60,7 +72,8 @@ describe('glob inside a sandbox', () => {
 		const sandbox = fakeSandbox({ 'src/a.ts': 'a', 'src/b.js': 'b' })
 		const result = await GlobTool.execute({ pattern: '**/*.ts' } as never, context(sandbox))
 
-		expect(sandbox.listFiles).toHaveBeenCalled()
+		expect(sandbox.walkFiles).toHaveBeenCalled()
+		expect(sandbox.listFiles).not.toHaveBeenCalled()
 		expect(result.output).toContain('src/a.ts')
 		expect(result.output).not.toContain('b.js')
 	})

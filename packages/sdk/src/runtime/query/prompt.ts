@@ -41,7 +41,8 @@ export interface PromptBuilderConfig {
 	contributions?: PromptContributionRegistry
 }
 
-function buildEnvContext(workingDirectory: string, runtimeContext?: AgentRuntimeContext): string {
+function buildEnvContext(workingDirectory: string, config: PromptBuilderConfig): string {
+	const { runtimeContext, tools, allowedTools } = config
 	const lines = [
 		`<env>
 Working directory: ${workingDirectory}
@@ -69,7 +70,23 @@ Platform: ${process.platform}`,
 
 	lines.push(`</env>
 
-IMPORTANT: Always use absolute paths based on the working directory above. Before reading a file, use the glob tool to discover actual file paths — never guess or hallucinate paths.`)
+Resolve relative paths against the working directory above; use supplied absolute paths as given.`)
+
+	if (hasFilesystemTools(tools, allowedTools)) {
+		lines.push(
+			'When file contents are needed, read known file paths directly. Discover unknown paths with available filesystem tools using targeted directories and patterns.',
+		)
+		const canGlob =
+			tools.has('glob') &&
+			(!allowedTools || allowedTools.includes('glob')) &&
+			tools.getAvailability('glob') === 'active'
+		lines.push(
+			canGlob
+				? "For an immediate directory overview, use glob with pattern '*' or an available directory listing tool. Use '**' only when recursive discovery is needed."
+				: 'For an immediate directory overview, use an available directory listing tool.',
+			"Keep discovery within the task's scope; do not recursively inventory unrelated home directories or cache trees.",
+		)
+	}
 
 	return lines.join('\n')
 }
@@ -224,7 +241,7 @@ export class PromptBuilder {
 				hasFilesystemTools(this.config.tools, this.config.allowedTools) ||
 				Boolean(this.config.runtimeContext)
 			if (shouldIncludeEnv) {
-				parts.push(buildEnvContext(workingDirectory, this.config.runtimeContext))
+				parts.push(buildEnvContext(workingDirectory, this.config))
 			}
 		}
 
@@ -290,7 +307,7 @@ export class PromptBuilder {
 				hasFilesystemTools(this.config.tools, this.config.allowedTools) ||
 				Boolean(this.config.runtimeContext)
 			if (shouldIncludeEnv) {
-				dynamicParts.push(buildEnvContext(workingDirectory, this.config.runtimeContext))
+				dynamicParts.push(buildEnvContext(workingDirectory, this.config))
 			}
 		}
 

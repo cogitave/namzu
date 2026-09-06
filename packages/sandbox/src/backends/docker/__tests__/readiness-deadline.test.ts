@@ -4,6 +4,8 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { checkFileWalkOwnership, fileWalkExec } from '../../__tests__/fixtures/file-walk-exec.js'
+import { HttpWorkerClient } from '../../http-worker-client.js'
 import { buildDockerBackend, resolveLayout } from '../index.js'
 
 const realFetch = globalThis.fetch
@@ -33,6 +35,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+	vi.restoreAllMocks()
 	globalThis.fetch = realFetch
 	process.env.NAMZU_TEST_DOCKER_LOG = undefined
 	process.env.NAMZU_TEST_HOLD_DOCKER_RM = undefined
@@ -58,6 +61,23 @@ function cleanupCalls(): number {
 }
 
 describe('docker worker readiness deadline', () => {
+	it.each(['complete', 'return', 'caller', 'unknown'] as const)(
+		'owns a lazy file walk until worker termination after %s',
+		async (stop) => {
+			globalThis.fetch = vi.fn(async () => new Response('ok', { status: 200 })) as typeof fetch
+			const sandbox = await backend(100).create({ workingDirectory: workDir })
+			const entry = { path: `${sandbox.rootDir}/first.ts`, size: 3 }
+			const worker = fileWalkExec(entry)
+			vi.spyOn(HttpWorkerClient.prototype, 'exec').mockImplementation(worker.exec)
+			try {
+				await checkFileWalkOwnership(sandbox, worker, entry, stop)
+				if (stop === 'unknown') expect(cleanupCalls()).toBe(1)
+			} finally {
+				await sandbox.destroy()
+			}
+		},
+	)
+
 	it('routes a cancellable exec through the worker lease protocol', async () => {
 		const paths: string[] = []
 		globalThis.fetch = vi.fn(async (input) => {

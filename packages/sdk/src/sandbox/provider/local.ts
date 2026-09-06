@@ -40,6 +40,7 @@ import type {
 	SandboxProvider,
 	SandboxSpawnOptions,
 	SandboxStatus,
+	SandboxWalkFilesOptions,
 } from '../../types/sandbox/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { generateSandboxId } from '../../utils/id.js'
@@ -49,6 +50,7 @@ import {
 	applyEnvironmentOverrides,
 	pickEnvironmentEntries,
 } from '../../utils/process-environment.js'
+import { walkFilesLocally } from '../file-walk.js'
 import { assertIsolation, describeIsolation } from '../isolation.js'
 import type { PtyLoader } from '../terminal.js'
 
@@ -777,6 +779,17 @@ class LocalSandbox implements Sandbox {
 			}
 		}
 		return entries
+	}
+
+	async *walkFiles(
+		rootPath: string,
+		options: SandboxWalkFilesOptions,
+	): AsyncGenerator<SandboxFileEntry> {
+		if (this._status === 'destroyed') throw new Error(`Sandbox ${this.id} is destroyed`)
+		options.signal?.throwIfAborted()
+		const resolved = await resolveWithinAnyReal(this.roots, rootPath)
+		options.signal?.throwIfAborted()
+		yield* walkFilesLocally(resolved, options)
 	}
 
 	async destroy(_options?: SandboxDestroyOptions): Promise<void> {

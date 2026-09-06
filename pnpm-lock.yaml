@@ -361,6 +361,13 @@ importers:
         version: 3.2.7(@types/node@22.19.17)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0)
 
   packages/sdk:
+    dependencies:
+      brace-expansion:
+        specifier: ^2.1.4
+        version: 2.1.4
+      minimatch:
+        specifier: ^9.0.9
+        version: 9.0.9
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -368,6 +375,9 @@ importers:
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
+      '@types/brace-expansion':
+        specifier: ^1.1.2
+        version: 1.1.2
       '@types/node':
         specifier: ^22.19.17
         version: 22.19.17
@@ -1611,6 +1621,9 @@ packages:
 
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
+
+  '@types/brace-expansion@1.1.2':
+    resolution: {integrity: sha512-+YDjlWHMm/zoiQSKhEhL/0HdfYxCVuGlP5tQLm5hoHtxGPAMqyHjGpLqm58YDw7vG+RafAahp7HKXeNIwBP3kQ==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -3764,6 +3777,8 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@types/brace-expansion@1.1.2': {}
 
   '@types/chai@5.2.3':
     dependencies:

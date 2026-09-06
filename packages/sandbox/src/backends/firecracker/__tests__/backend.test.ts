@@ -18,8 +18,9 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { checkFileWalkOwnership, fileWalkExec } from '../../__tests__/fixtures/file-walk-exec.js'
 import { buildFirecrackerBackend, normalizeHandle } from '../index.js'
-import { type WireSandboxAgentHandle, __framing } from '../transport.js'
+import { VsockAgentTransport, type WireSandboxAgentHandle, __framing } from '../transport.js'
 import { localIpcPath } from './fixtures/ipc-path.js'
 import {
 	CA_CRT,
@@ -62,6 +63,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+	vi.restoreAllMocks()
 	globalThis.fetch = realFetch
 	process.env.PATH = realPath
 	// biome-ignore lint/performance/noDelete: restore module-level test configuration.
@@ -127,6 +129,58 @@ function stubOrchestrator(
 }
 
 describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
+	it('walks matching files through the real guest worker', async () => {
+		server = await startAgent()
+		stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 1000,
+			readyPollIntervalMs: 10,
+		})
+		const sandbox = await backend.create({ workingDirectory: workDir })
+		writeFileSync(join(workDir, 'first.ts'), 'abc')
+		writeFileSync(join(workDir, 'other.js'), 'skip')
+		try {
+			const entries = []
+			for await (const entry of sandbox.walkFiles!(workDir, {
+				maxEntries: 2,
+				maxDepth: 1,
+				pattern: '*.ts',
+			}))
+				entries.push(entry)
+			expect(entries).toEqual([{ path: join(workDir, 'first.ts'), size: 3 }])
+			expect(sandbox.status).toBe('ready')
+		} finally {
+			await sandbox.destroy()
+		}
+	})
+
+	it.each(['complete', 'return', 'caller', 'unknown'] as const)(
+		'owns a lazy file walk until worker termination after %s',
+		async (stop) => {
+			server = await startAgent()
+			const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+			const backend = buildFirecrackerBackend({
+				orchestratorEndpoint: 'https://orchestrator.test/',
+				getToken: async () => 'tok',
+				readyTimeoutMs: 1000,
+				readyPollIntervalMs: 10,
+			})
+			const sandbox = await backend.create({ workingDirectory: workDir })
+			const entry = { path: `${sandbox.rootDir}/first.ts`, size: 3 }
+			const worker = fileWalkExec(entry)
+			vi.spyOn(VsockAgentTransport.prototype, 'exec').mockImplementation(worker.exec)
+			try {
+				await checkFileWalkOwnership(sandbox, worker, entry, stop)
+				if (stop === 'unknown')
+					expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
+			} finally {
+				await sandbox.destroy()
+			}
+		},
+	)
+
 	it('creates a Sandbox handle and round-trips exec/write/read/listFiles/destroy', async () => {
 		server = await startAgent()
 		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })

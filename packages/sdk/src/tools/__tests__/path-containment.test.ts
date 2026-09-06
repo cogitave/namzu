@@ -92,7 +92,7 @@ describe('glob', () => {
 		// The base directory lifted out of a pattern is caller-supplied too.
 		const result = await GlobTool.execute({ pattern: '../secrets/**/*.txt' } as never, context())
 		expect(result.success).toBe(false)
-		expect(result.error).toMatch(/escapes the working directory/)
+		expect(result.error).toMatch(/escapes the search directory/)
 	})
 
 	it('still finds what is inside', async () => {

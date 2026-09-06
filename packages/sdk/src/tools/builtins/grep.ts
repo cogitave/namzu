@@ -5,7 +5,7 @@ import type { Sandbox } from '../../types/sandbox/index.js'
 import { defineTool } from '../defineTool.js'
 import { matchesGlob } from '../glob-match.js'
 import { resolveWithinAny } from '../paths.js'
-import { joinPosix, relativePosix, resolveWithinPosix } from '../posix-path.js'
+import { relativePosix, resolveWithinPosix } from '../posix-path.js'
 
 /**
  * Where the files come from.
@@ -48,8 +48,8 @@ function sandboxSource(sandbox: Sandbox): FileSource {
 				// POSIX container path into a host-shaped one whenever the
 				// two disagree, and then hand the model a path its own
 				// sandbox cannot open.
-				const absolute = joinPosix(searchRoot, entry.path)
-				const relPath = relativePosix(sandbox.rootDir, absolute)
+				const absolute = resolveWithinPosix(searchRoot, entry.path)
+				const relPath = relativePosix(searchRoot, absolute)
 				if (matchesGlob(relPath, pattern)) yield absolute
 			}
 		},

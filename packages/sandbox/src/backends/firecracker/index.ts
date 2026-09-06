@@ -55,7 +55,9 @@ import type {
 	SandboxFileEntry,
 	SandboxId,
 	SandboxStatus,
+	SandboxWalkFilesOptions,
 } from '@namzu/sdk'
+import { walkFilesViaExec } from '@namzu/sdk'
 
 import type { AgentSnapshotRef, SandboxBackend, SandboxBackendOptions } from '../../index.js'
 import { OperationDeadline, resolveReadinessOptions, runFailureCleanup } from '../readiness.js'
@@ -571,6 +573,26 @@ async function spawnFirecrackerSandbox(
 				}
 				return entries
 			})
+		},
+
+		async *walkFiles(
+			rootPath: string,
+			options: SandboxWalkFilesOptions,
+		): AsyncIterable<SandboxFileEntry> {
+			assertActive()
+			activeExecutions += 1
+			try {
+				// Keep ownership through iterator.return(), including worker cancellation.
+				yield* walkFilesViaExec(
+					(command, argv, opts) => transport.exec(command, argv, opts),
+					rootPath,
+					options,
+				)
+			} catch (error) {
+				await classifyExecutionFailure(error)
+			} finally {
+				activeExecutions = Math.max(0, activeExecutions - 1)
+			}
 		},
 
 		async destroy(options?: SandboxDestroyOptions): Promise<void> {

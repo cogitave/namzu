@@ -5,7 +5,7 @@ import type { Sandbox } from '../../types/sandbox/index.js'
 import type { ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAny, toolRoots } from '../paths.js'
-import { joinPosix, relativePosix, resolveWithinPosix } from '../posix-path.js'
+import { relativePosix, resolveWithinPosix } from '../posix-path.js'
 
 const inputSchema = z.object({
 	path: z.string().default('.').describe('Directory path to list. Defaults to working directory.'),
@@ -140,7 +140,7 @@ async function listInSandbox(
 	// Relative to the LISTED directory, in the sandbox's own coordinates.
 	const relativePaths: { segments: string[]; size: number }[] = []
 	for (const entry of entries) {
-		const rel = relativePosix(root, joinPosix(root, entry.path))
+		const rel = relativePosix(root, resolveWithinPosix(root, entry.path))
 		if (!rel || rel.startsWith('..')) continue
 		const segments = rel.split('/').filter(Boolean)
 		if (segments.length === 0) continue

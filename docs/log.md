@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Creation**: [Bounded file discovery](/sdk/file-discovery.md) — explicit shallow and recursive glob scope, incremental local and remote sandbox enumeration, cancellation, traversal limits, path handoff fixes and adapter upgrade requirements.
+* **Update**: [Harness invariants](/sdk/harness-invariants.md) and [Terminal design](/cli/terminal-design.md) — bounded file discovery, known-path reads without mandatory discovery, and visible glob patterns alongside search directories.
 * **Update**: [Harness invariants](/sdk/harness-invariants.md) and [Peer comparison](/cli/competitive-gaps.md) — foreground host-shell process-group cancellation, preserved partial output and bounded pipe cleanup, with Linux subprocess regressions and explicit containment limits.
 * **Update**: [Terminal design](/cli/terminal-design.md), [Slash commands](/cli/slash-commands.md) and [Peer comparison](/cli/competitive-gaps.md) — bounded beginning/end tool previews with recoverable omitted lines, and visible provider alternatives in the current model menu.
 * **Update**: [Terminal design](/cli/terminal-design.md), [Harness invariants](/sdk/harness-invariants.md) and [Peer comparison](/cli/competitive-gaps.md) — recoverable tool previews, incremental host-shell progress, preserved timeout and cancellation evidence, bounded provider cancellation with conservative token accounting, and pinned primary-source comparisons with terminal animation regressions.

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ResolvedContainerSandboxLayout } from '@namzu/sdk'
 
+import { checkFileWalkOwnership, fileWalkExec } from '../../__tests__/fixtures/file-walk-exec.js'
+import { HttpWorkerClient } from '../../http-worker-client.js'
 import { buildAciStandbyPoolBackend } from '../index.js'
 
 const realFetch = globalThis.fetch
@@ -13,6 +15,7 @@ const layout: ResolvedContainerSandboxLayout = {
 }
 
 afterEach(() => {
+	vi.restoreAllMocks()
 	globalThis.fetch = realFetch
 })
 
@@ -102,6 +105,23 @@ function stubClaim(
 }
 
 describe('standby worker readiness deadline', () => {
+	it.each(['complete', 'return', 'caller', 'unknown'] as const)(
+		'owns a lazy file walk until worker termination after %s',
+		async (stop) => {
+			const claim = stubClaim({ ready: true })
+			const sandbox = await backend(100).create({ workingDirectory: '/workspace' })
+			const entry = { path: `${sandbox.rootDir}/first.ts`, size: 3 }
+			const worker = fileWalkExec(entry)
+			vi.spyOn(HttpWorkerClient.prototype, 'exec').mockImplementation(worker.exec)
+			try {
+				await checkFileWalkOwnership(sandbox, worker, entry, stop)
+				if (stop === 'unknown') expect(claim.deleteCalls()).toBe(1)
+			} finally {
+				await sandbox.destroy()
+			}
+		},
+	)
+
 	it('routes a cancellable exec through the worker lease protocol', async () => {
 		const workerPaths: string[] = []
 		globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

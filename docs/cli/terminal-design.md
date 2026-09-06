@@ -34,6 +34,11 @@ advertised whenever text is hidden. Ctrl+O opens the retained body; `/raw` also
 includes it. Runtime output limits still apply: a retained artifact path
 identifies output beyond those limits. Neither action re-executes the tool.
 
+File-discovery calls name both the glob pattern and its directory. A shallow
+`*` search is visibly distinct from recursive `**/*`; result and traversal
+limits add an explicit incomplete-search notice. See
+[Bounded file discovery](../sdk/file-discovery.md).
+
 A square message frame marks the writing area. Green corners and the `MESSAGE`
 label identify the active input; its long edges stay quiet. The two frame rows
 take the place of vertical padding, so the frame adds no height to the previous

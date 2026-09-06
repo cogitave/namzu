@@ -22,12 +22,16 @@ by regression tests and a bounded live CLI smoke check.
 | Artifact paths | Provider correlation IDs never become path components. Spill filenames use a digest and exclusive creation. |
 | Delegation | A child's effective token cap cannot exceed its reserved allocation. Failed startup returns the reservation and disposes owned resources. |
 | Completion | Exhausted hard guards do not buy an extra model summary. Streaming completion is emitted once, after the persistence attempt. |
+| File discovery | Glob scope is explicit; incremental enumeration observes cancellation and both result and traversal limits. Incomplete searches remain identifiable. |
 
 The host-readable output and model-readable content can differ. Each text
 channel receives its own bounded preview. Model-content spills use the
 `tool-output/content/<digest>.txt` directory, separate from the host-output
 artifact. Withholding rich blocks preserves bounded text and its recovery path
 when the configured text cap can contain it.
+
+See [Bounded file discovery](file-discovery.md) for glob semantics, sandbox
+enumeration and adapter requirements.
 
 ## Cancellation preserves evidence
 

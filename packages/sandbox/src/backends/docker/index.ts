@@ -40,7 +40,9 @@ import {
 	type SandboxExecResult,
 	type SandboxFileEntry,
 	type SandboxStatus,
+	type SandboxWalkFilesOptions,
 	generateSandboxId,
+	walkFilesViaExec,
 	withHint,
 } from '@namzu/sdk'
 import { EgressProxy } from '../../egress/index.js'
@@ -776,6 +778,27 @@ async function spawnDockerSandbox(
 
 		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
 			return await runExecution(async () => await listFilesViaWorker(workerClient, rootPath))
+		},
+
+		async *walkFiles(
+			rootPath: string,
+			options: SandboxWalkFilesOptions,
+		): AsyncIterable<SandboxFileEntry> {
+			assertActive()
+			activeExecutions += 1
+			try {
+				// Keep ownership through iterator.return(), including worker cancellation.
+				yield* walkFilesViaExec(
+					(command, argv, opts) => workerClient.exec(command, argv, opts),
+					rootPath,
+					options,
+				)
+			} catch (error) {
+				if (error instanceof RemoteCancellationUnknownError) error.retirement = await retire()
+				throw error
+			} finally {
+				activeExecutions = Math.max(0, activeExecutions - 1)
+			}
 		},
 
 		async destroy(options?: SandboxDestroyOptions): Promise<void> {
