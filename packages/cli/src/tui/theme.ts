@@ -1,9 +1,8 @@
 /**
- * Theme tokens for the TUI — warm chalk, copper and quiet mineral tones. We inherit the
+ * Theme tokens for the TUI — phosphor green, neutral text and quiet graphite. We inherit the
  * terminal's own background rather than painting one, and only theme the
- * foreground — a TUI that repaints the canvas fights whatever the user
- * already chose. Foregrounds sit on the ANSI 256-color palette so reduced
- * color terminals retain neutral text instead of rounding it into a hue.
+ * foreground. Explicit ANSI indices avoid Chalk's RGB cube approximation,
+ * which can turn an intended palette color into a different hue.
  * `background` is kept for reference / a future light theme but is not
  * forced onto the canvas. A theme registry/picker is a follow-up.
  */
@@ -34,25 +33,25 @@ export interface SemanticColors {
 }
 
 export const theme: SemanticColors = {
-	background: '#181816',
+	background: '#0b0f0c',
 	text: {
-		primary: '#e4e4e4',
-		secondary: '#b2b2b2',
-		muted: '#8a8a8a',
+		primary: 'ansi256(252)',
+		secondary: 'ansi256(248)',
+		muted: 'ansi256(245)',
 	},
 	accent: {
-		user: '#d7af87',
-		assistant: '#d7af87',
-		system: '#afaf87',
-		tool: '#afafaf',
+		user: 'ansi256(83)',
+		assistant: 'ansi256(83)',
+		system: 'ansi256(109)',
+		tool: 'ansi256(248)',
 	},
 	status: {
-		ok: '#87af87',
-		warn: '#d7af5f',
-		error: '#d78787',
+		ok: 'ansi256(77)',
+		warn: 'ansi256(221)',
+		error: 'ansi256(203)',
 	},
 	border: {
-		default: '#585858',
-		focus: '#d7af87',
+		default: 'ansi256(239)',
+		focus: 'ansi256(83)',
 	},
 }

@@ -1,7 +1,12 @@
 import { Box, Text, useWindowSize } from 'ink'
 
 import type { PermissionMode } from '../permissions/mode.js'
-import { NAMZU_MARK, NAMZU_MARK_COLOR, NAMZU_MONOGRAM, NAMZU_MONOGRAM_MIN_WIDTH } from './logo.js'
+import {
+	NAMZU_COMPACT_WORDMARK,
+	NAMZU_MARK_COLOR,
+	NAMZU_WORDMARK,
+	NAMZU_WORDMARK_MIN_WIDTH,
+} from './logo.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -16,41 +21,35 @@ interface BrandHeaderProps {
 /** Printed once by the transcript's Static owner; active model state lives in the footer. */
 export function BrandHeader({ version, provider, model, permissionMode, cwd }: BrandHeaderProps) {
 	const { columns } = useWindowSize()
-	const wide = columns >= NAMZU_MONOGRAM_MIN_WIDTH
+	const wordmark = columns >= NAMZU_WORDMARK_MIN_WIDTH ? NAMZU_WORDMARK : NAMZU_COMPACT_WORDMARK
+	const attribution = `${columns >= 40 ? 'Cogitave ' : ''}v${terminalDisplayText(version)}`
 	const home = process.env.HOME
 	const prettyCwd =
 		home && (cwd === home || cwd.startsWith(`${home}/`)) ? `~${cwd.slice(home.length)}` : cwd
 	return (
 		<Box flexDirection="column" marginY={1}>
 			<Box flexDirection="row">
-				<Box width={wide ? 6 : 2} flexShrink={0} flexDirection="column">
-					{wide ? (
-						NAMZU_MONOGRAM.map((line) => (
-							<Text key={line} color={NAMZU_MARK_COLOR}>
-								{line}
-							</Text>
-						))
-					) : (
-						<Text color={NAMZU_MARK_COLOR}>{NAMZU_MARK}</Text>
-					)}
+				<Box flexShrink={0}>
+					<Text color={NAMZU_MARK_COLOR} bold>
+						{wordmark}
+					</Text>
 				</Box>
-				<Box flexDirection="column" flexGrow={1} minWidth={0}>
-					<Text wrap="truncate-end">
-						<Text color={theme.text.primary} bold>
-							namzu
+				{columns >= 16 ? (
+					<Box marginLeft={2} flexGrow={1} minWidth={0}>
+						<Text color={theme.text.muted} wrap="truncate-end">
+							{attribution}
 						</Text>
-						<Text color={theme.text.muted}> Cogitave v{terminalDisplayText(version)}</Text>
-					</Text>
-					<Text color={theme.text.secondary} wrap="truncate-start">
-						{terminalDisplayText(prettyCwd)}
-					</Text>
-					<Text color={theme.text.muted} wrap="truncate-end">
-						{provider
-							? terminalDisplayText(`${provider}${model ? ` · ${model}` : ''}`)
-							: 'Ready when you are'}
-					</Text>
-				</Box>
+					</Box>
+				) : null}
 			</Box>
+			<Text color={theme.text.secondary} wrap="truncate-start">
+				{terminalDisplayText(prettyCwd)}
+			</Text>
+			<Text color={theme.text.muted} wrap="truncate-end">
+				{provider
+					? terminalDisplayText(`${provider}${model ? ` · ${model}` : ''}`)
+					: 'Ready when you are'}
+			</Text>
 			{permissionMode === 'auto' ? (
 				<Box marginTop={1}>
 					<Text color={theme.status.warn}>

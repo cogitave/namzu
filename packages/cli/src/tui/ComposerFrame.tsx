@@ -1,9 +1,9 @@
-import { Box } from 'ink'
+import { Box, Text } from 'ink'
 import type { ReactNode } from 'react'
 
 import { theme } from './theme.js'
 
-/** A single active rail. Keep the Box and children mounted when a prompt takes focus. */
+/** A bounded command frame; its content stays mounted while another prompt owns focus. */
 export function ComposerFrame({
 	focus,
 	hidden = false,
@@ -13,19 +13,58 @@ export function ComposerFrame({
 	readonly hidden?: boolean
 	readonly children: ReactNode
 }) {
+	const accent = focus ? theme.border.focus : theme.text.muted
+	return (
+		<Box flexDirection="column" marginTop={hidden ? 0 : 1}>
+			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
+				<Box flexShrink={0}>
+					<Text color={accent}>┌─ </Text>
+					<Text color={accent} bold>
+						MESSAGE
+					</Text>
+					<Text> </Text>
+				</Box>
+				<Rule />
+				<Box flexShrink={0}>
+					<Text color={accent}>┐</Text>
+				</Box>
+			</Box>
+			<Box
+				flexDirection="column"
+				{...(hidden ? {} : { borderStyle: 'single' as const })}
+				borderTop={false}
+				borderBottom={false}
+				borderLeft={!hidden}
+				borderRight={!hidden}
+				borderColor={theme.border.default}
+			>
+				{children}
+			</Box>
+			<Box display={hidden ? 'none' : 'flex'} height={1} flexShrink={0}>
+				<Box flexShrink={0}>
+					<Text color={accent}>└─</Text>
+				</Box>
+				<Rule />
+				<Box flexShrink={0}>
+					<Text color={accent}>┘</Text>
+				</Box>
+			</Box>
+		</Box>
+	)
+}
+
+/** Yoga sizes the rule; a repeated text string would truncate with an ellipsis. */
+function Rule() {
 	return (
 		<Box
-			flexDirection="column"
-			{...(hidden ? {} : { borderStyle: 'single' as const })}
-			borderTop={false}
+			flexGrow={1}
+			minWidth={0}
+			height={1}
+			borderStyle="single"
 			borderBottom={false}
-			borderLeft={!hidden}
+			borderLeft={false}
 			borderRight={false}
-			borderColor={focus ? theme.border.focus : theme.border.default}
-			paddingY={hidden ? 0 : 1}
-			marginTop={hidden ? 0 : 1}
-		>
-			{children}
-		</Box>
+			borderColor={theme.border.default}
+		/>
 	)
 }

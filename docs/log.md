@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-06
+* **Update**: [Terminal design](/cli/terminal-design.md) — phosphor-green wordmark and square message frame, exact indexed colors, no empty frame beneath text prompts, and a stable scrollback owner through provider selection.
 * **Update**: [Terminal design](/cli/terminal-design.md) and [Project and session state](/cli/project-state.md) — explicit startup refusal with one-key exit, and documented fresh initialization for installations that still have a prefixed tenant identity.
 * **Creation**: [Terminal design](/cli/terminal-design.md) — compact Namzu identity, copper writing rail, quieter agent panels and one activity animation, with native scrollback and draft preservation.
 * **Creation**: [Token budgets](/sdk/token-budgets.md) — one authority for parent and descendant tokens, atomic reservations, durable request receipts and conservative restart behavior; own usage remains separate from tree totals.

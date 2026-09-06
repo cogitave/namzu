@@ -1,9 +1,10 @@
 import { theme } from './theme.js'
 
-/** The three-point signature used beside Namzu's replies and compact header. */
+/** The three-point signature used beside Namzu's replies. */
 export const NAMZU_MARK = '∴'
 export const NAMZU_MARK_COLOR = theme.accent.assistant
 
-/** A four-cell N drawn as one continuous stroke, with no gradient or filled canvas. */
-export const NAMZU_MONOGRAM = ['╭╮ ╷', '│╰╮│', '╵ ╰╯'] as const
-export const NAMZU_MONOGRAM_MIN_WIDTH = 52
+/** A single-row console wordmark, legible without gradients or box-drawing glyphs. */
+export const NAMZU_WORDMARK = '[ NAMZU ]'
+export const NAMZU_COMPACT_WORDMARK = 'NAMZU'
+export const NAMZU_WORDMARK_MIN_WIDTH = 24

@@ -6144,31 +6144,31 @@ export function App({
 	return (
 		<Box flexDirection="column" display={externalEditorRequest ? 'none' : 'flex'}>
 			<Box flexDirection="column" paddingX={1}>
-				{transcriptOwned || !lifecycleOwnsViewport ? (
-					<TranscriptFrame>
-						<Transcript
-							messages={finalized}
-							pending={messages.find((m) => m.pending) ?? null}
-							state={state}
-							settled={renderedSettled}
-							resetKey={resetKey}
-							raw={rawOutput}
-							hyperlinks={hyperlinks}
-							showLive={!lifecycleOwnsViewport}
-							header={
-								transcriptOwned ? (
-									<BrandHeader
-										version={ctx.version}
-										provider={session?.providerSummary}
-										model={session?.modelSummary}
-										permissionMode={permissionMode}
-										cwd={ctx.cwd}
-									/>
-								) : undefined
-							}
-						/>
-					</TranscriptFrame>
-				) : null}
+				{/* Keep the Static owner mounted through startup pickers. Removing its
+				    ancestor frees Yoga memory that Ink still references during its final flush. */}
+				<TranscriptFrame>
+					<Transcript
+						messages={finalized}
+						pending={messages.find((m) => m.pending) ?? null}
+						state={state}
+						settled={transcriptOwned ? renderedSettled : 0}
+						resetKey={resetKey}
+						raw={rawOutput}
+						hyperlinks={hyperlinks}
+						showLive={!lifecycleOwnsViewport}
+						header={
+							transcriptOwned ? (
+								<BrandHeader
+									version={ctx.version}
+									provider={session?.providerSummary}
+									model={session?.modelSummary}
+									permissionMode={permissionMode}
+									cwd={ctx.cwd}
+								/>
+							) : undefined
+						}
+					/>
+				</TranscriptFrame>
 				{phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
 				) : phase === 'unhealthy' ? (
@@ -6262,15 +6262,22 @@ export function App({
 						) : null}
 						<ComposerFrame
 							focus={
-								state === 'idle' &&
 								phase === 'ready' &&
+								state !== 'awaiting-permission' &&
+								!compacting &&
+								externalEditorRequest === null &&
 								conversationMutation === null &&
 								textPrompt === null &&
 								choicePicker === null &&
 								copyPicker === null &&
 								agentSurface === null
 							}
-							hidden={permission !== null || choicePicker !== null || copyPicker !== null}
+							hidden={
+								permission !== null ||
+								textPrompt !== null ||
+								choicePicker !== null ||
+								copyPicker !== null
+							}
 						>
 							{pendingSteers.length > 0 &&
 							permission === null &&

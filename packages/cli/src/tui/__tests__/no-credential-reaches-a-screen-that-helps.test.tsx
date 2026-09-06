@@ -26,6 +26,7 @@
  * this operator was sitting at.
  */
 
+import type { StaticProps } from 'ink'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type {
@@ -36,7 +37,7 @@ import type {
 import { PROVIDER_REGISTRY } from '../../integrations/providers/registry.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
-import { renderToScreen, type Screen } from './support/screen.js'
+import { type Screen, renderToScreen } from './support/screen.js'
 
 /**
  * The three providers this exercises, named as ids and looked up.
@@ -75,6 +76,28 @@ const world: {
 	built: Preferences | null
 	credentials: DetectedProvider[]
 } = { prefs: SAVED_PREFS, detected: [], built: null, credentials: [] }
+
+const staticLifecycle = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }))
+
+// Keep Ink's real renderer and Static implementation. Counting only the owner
+// lifecycle makes a removed Static deterministic to detect: a freed Yoga node
+// can otherwise appear harmless until a later layout reuses its memory.
+vi.mock('ink', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('ink')>()
+	const { useEffect } = await import('react')
+	return {
+		...actual,
+		Static: function TrackedStatic<T>(props: StaticProps<T>) {
+			useEffect(() => {
+				staticLifecycle.mounts += 1
+				return () => {
+					staticLifecycle.unmounts += 1
+				}
+			}, [])
+			return <actual.Static {...props} />
+		},
+	}
+})
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -179,18 +202,47 @@ beforeEach(() => {
 	world.detected = []
 	world.built = null
 	world.credentials = []
+	staticLifecycle.mounts = 0
+	staticLifecycle.unmounts = 0
 })
 
 describe('launching with a saved provider and no credential', () => {
+	it('keeps one Static owner through startup, credential entry, and session exit', async () => {
+		const screen = await launch()
+		const banner = 'Cogitave v0.0.0-test'
+		try {
+			expect(staticLifecycle).toEqual({ mounts: 1, unmounts: 0 })
+			expect(text(screen)).toContain('No credential found')
+			expect(text(screen)).not.toContain(banner)
+
+			screen.press('k')
+			await until(screen, 'Paste a credential')
+			expect(text(screen)).toContain('Paste a credential')
+			expect(text(screen)).not.toContain(banner)
+			expect(staticLifecycle).toEqual({ mounts: 1, unmounts: 0 })
+
+			screen.press('sk-ant-api03-not-a-real-key')
+			await until(screen, '••••')
+			screen.press('\r')
+			await until(screen, 'Type a message')
+			expect(text(screen)).toContain('Type a message')
+			expect(world.credentials).toHaveLength(1)
+			expect(text(screen).split(banner)).toHaveLength(2)
+			expect(staticLifecycle).toEqual({ mounts: 1, unmounts: 0 })
+		} finally {
+			await screen.unmount()
+		}
+		expect(staticLifecycle).toEqual({ mounts: 1, unmounts: 1 })
+		expect(text(screen).split(banner)).toHaveLength(2)
+	})
+
 	it('reaches a screen that takes a credential, not a disabled composer', async () => {
 		const screen = await launch()
 		try {
 			// The refusal, and then the thing that makes it a refusal rather than a
 			// dead end: the picker, which `unhealthy` is not.
 			expect(text(screen)).toContain('No credential found')
-			expect(text(screen), 'landed on the phase with no way out').not.toContain(
-				'Ctrl+C ×2 to exit',
-			)
+			expect(text(screen), 'landed on the phase with no way out').not.toContain('Ctrl+C ×2 to exit')
 
 			screen.press('k')
 			await until(screen, 'Paste a credential')
