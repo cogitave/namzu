@@ -74,7 +74,19 @@ can run. LLM verification is optional for salience and off by default. Planning
 does not promise lossless memory: retained facts, summaries and durable learning
 have different lifetimes. Cross-run consolidation remains an explicit host option.
 
+When verification runs, its conversation excerpt preserves visible message text,
+tool-call IDs, names and arguments, and each result's ID and reported error flag
+in chronological order. Rich tool results retain their text blocks. Image and
+document attachments contribute descriptive markers, never their encoded payloads
+or storage references; provider-private reasoning is excluded. The verifier does
+not inspect the omitted visual or document contents. `convoTextBudget` bounds the
+entire excerpt, including labels, separators and its truncation marker. Arguments
+and attachment names consume that same budget, so a large earlier value can still
+exclude later evidence.
+
 The regression suites in `compaction/__tests__/multimodal-token-estimates.test.ts`
 and `runtime/query/iteration/phases/context-measurement.test.ts` cover representation
 invariance, provider measurement, token relief and retention. The local salience
 eval exercises textual fact retention; it is not a visual benchmark score.
+`compaction/__tests__/verifier-excerpt.test.ts` covers the separate bounded text
+projection used for verification, including a host-triggered compaction pass.

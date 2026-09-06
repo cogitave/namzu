@@ -2,7 +2,7 @@ import type { CompactionConfig } from '../config/runtime.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import type { TokenUsage } from '../types/common/index.js'
-import type { Message } from '../types/message/index.js'
+import type { Message, MessageAttachment, ToolResultBlock } from '../types/message/index.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { WorkingStateManager } from './manager.js'
 import { serializeState } from './serializer.js'
@@ -20,28 +20,90 @@ If the structured state is complete, respond with exactly: COMPLETE
 
 If something important is missing, respond with a brief bullet list of the missing items (no preamble, just the bullets). Each bullet should be a single concise sentence.`
 
-function truncateMessages(messages: Message[], budget: number): string {
-	const lines: string[] = []
-	let charCount = 0
-
-	for (const msg of messages) {
-		if (!msg.content) continue
-		const prefix = `[${msg.role}]: `
-		const content = msg.content
-
-		if (charCount + prefix.length + content.length > budget) {
-			const remaining = budget - charCount - prefix.length
-			if (remaining > 0) {
-				lines.push(`${prefix}${content.slice(0, remaining)}...`)
-			}
-			break
-		}
-
-		lines.push(`${prefix}${content}`)
-		charCount += prefix.length + content.length
+function* attachmentExcerpt(
+	attachment: MessageAttachment | Exclude<ToolResultBlock, { type: 'text' }>,
+): Generator<string> {
+	const kind =
+		attachment.type === 'stored'
+			? attachment.kind
+			: attachment.type === 'document'
+				? 'document'
+				: 'image'
+	yield `[${kind}`
+	if ('name' in attachment && attachment.name) {
+		yield ' "'
+		yield attachment.name
+		yield '"'
 	}
+	yield ': '
+	yield attachment.mediaType
+	yield ' — not included in this text excerpt]'
+}
 
-	return lines.join('\n\n')
+/** Visible evidence only: never stringify a whole message or its attachment bytes. */
+function* conversationExcerpt(messages: readonly Message[]): Generator<string> {
+	let first = true
+	for (const message of messages) {
+		const hasDetails =
+			message.role === 'tool' ||
+			(message.role === 'assistant' && message.toolCalls?.length) ||
+			(message.role === 'user' && message.attachments?.length)
+		if (!message.content && !hasDetails) continue
+		if (!first) yield '\n\n'
+		first = false
+		yield `[${message.role}]: `
+		if (message.role === 'tool') {
+			yield '[tool result '
+			yield message.toolCallId
+			yield `; isError=${message.isError === true}]\n`
+		}
+		if (typeof message.content === 'string') yield message.content
+		else if (message.content) {
+			for (const [index, block] of message.content.entries()) {
+				if (index > 0) yield '\n'
+				if (block.type === 'text') yield block.text
+				else yield* attachmentExcerpt(block)
+			}
+		}
+		if (message.role === 'assistant') {
+			for (const call of message.toolCalls ?? []) {
+				yield '\n[tool call '
+				yield call.id
+				yield '] '
+				yield call.function.name
+				yield '('
+				yield call.function.arguments
+				yield ')'
+			}
+		}
+		if (message.role === 'user') {
+			for (const attachment of message.attachments ?? []) {
+				yield '\n'
+				yield* attachmentExcerpt(attachment)
+			}
+		}
+	}
+}
+
+function truncateMessages(messages: readonly Message[], budget: number): string {
+	if (budget <= 0) return ''
+	const parts: string[] = []
+	let remaining = budget
+	for (const part of conversationExcerpt(messages)) {
+		if (part.length > remaining) {
+			parts.push(part.slice(0, remaining))
+			// Role labels, separators and the omission marker all consume the
+			// same budget. Consume fragments lazily so huge arguments and rich
+			// results cannot bypass the cap or require a full serialized copy.
+			let prefix = parts.join('').slice(0, budget - 1)
+			const last = prefix.charCodeAt(prefix.length - 1)
+			if (last >= 0xd800 && last <= 0xdbff) prefix = prefix.slice(0, -1)
+			return `${prefix}…`
+		}
+		parts.push(part)
+		remaining -= part.length
+	}
+	return parts.join('')
 }
 
 /**

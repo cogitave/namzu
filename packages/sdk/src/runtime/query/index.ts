@@ -1027,6 +1027,18 @@ function withoutOwnedResumeTurn(
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
+	// Required types do not protect JavaScript callers. Reject missing scope
+	// before opening a budget or persisting a run without its owning identity.
+	const missingFields = (['sessionId', 'topicId', 'projectId', 'tenantId'] as const).filter(
+		(field) => !params[field],
+	)
+	if (missingFields.length > 0) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `query requires sessionId, topicId, projectId, and tenantId; missing: ${missingFields.join(', ')}.`,
+			details: { missingFields },
+		})
+	}
 	const selectedResumeState = selectedResumeStates.get(params)
 	selectedResumeStates.delete(params)
 	// Resolved at the DOOR, before a run id exists or a logger is built.

@@ -49,6 +49,12 @@ against filesystem symlinks.
 
 ## Admission and upgrade
 
+`query` and `drainQuery` require `sessionId`, `topicId`, `projectId` and
+`tenantId` at runtime as well as in their TypeScript inputs. Missing, null or
+empty values are rejected with `invalid_config` and `details.missingFields`
+before a model call or filesystem persistence. This presence check does not
+replace checked ID constructors or establish store ownership.
+
 Only UUID entity IDs are admitted. This applies to constructors, schemas,
 directory discovery and persisted record boundaries. Prefixes such as `prj_`,
 `ses_`, `run_`, `cp_` and `thd_` have no compatibility path. Invalid records are

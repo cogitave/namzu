@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Update**: [Ids](/sdk/ids.md) — `query` and `drainQuery` reject missing session, topic, project or tenant identity before provider calls, run events or persistence, including untyped JavaScript callers.
+* **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — verification retains rich-result text, tool-call chronology and attachment descriptors within one character budget, without copying encoded attachments or provider-private reasoning.
 * **Creation**: [Run the kernel](/sdk/quick-start.md) — runnable offline SDK examples, explicit history and identity ownership, and agent-kernel positioning across the repository entry points.
 
 ## 2026-09-06
