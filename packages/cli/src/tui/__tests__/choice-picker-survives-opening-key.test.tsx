@@ -232,7 +232,7 @@ it('paints /permissions choices before a later key can select one', async () => 
 		rows: 28,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	for (const key of ['/', 'p', 'e', 'r']) {
 		screen.press(key)
@@ -271,7 +271,7 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 		rows: 28,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('answer me')
 	await screen.waitForRender()
@@ -314,7 +314,7 @@ it('opens bare /skills and activates the selected discovered skill', async () =>
 		rows: 28,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('/skills')
 	await screen.waitForRender()
@@ -340,7 +340,7 @@ it('opens /review presets, resolves a branch, and sends the immutable comparison
 		rows: 28,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('/review')
 	await screen.waitForRender()
@@ -373,7 +373,7 @@ it('returns the custom review choice to the composer and sends exact instruction
 		rows: 28,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('/review')
 	await screen.waitForRender()
@@ -395,7 +395,7 @@ it('routes uncommitted and commit presets through the same model-input FIFO', as
 		rows: 28,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('/review')
 	await screen.waitForRender()
@@ -429,7 +429,7 @@ it('asks which Namzu-owned subscription to remove and preserves the sibling', as
 		rows: 28,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('/logout')
 	await screen.waitForRender()

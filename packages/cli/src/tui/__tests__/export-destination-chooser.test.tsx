@@ -141,7 +141,7 @@ async function startConversation(screen: Screen): Promise<void> {
 it('chooses a file, prefills its session filename, and writes the verified projection', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 24 })
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 	await startConversation(screen)
 	await openExportChooser(screen)
 
@@ -171,7 +171,7 @@ it('chooses a file, prefills its session filename, and writes the verified proje
 it('sends the same verified projection as one truthful OSC 52 clipboard request', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 24 })
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 	await startConversation(screen)
 	await openExportChooser(screen)
 

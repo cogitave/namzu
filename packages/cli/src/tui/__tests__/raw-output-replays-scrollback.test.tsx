@@ -156,7 +156,7 @@ it('replays already-settled Markdown as literal source and restores rich renderi
 		rows: 24,
 	})
 	mounted = screen
-	await waitUntil(screen, () => scrollback(screen).includes('Connected to a-provider'))
+	await waitUntil(screen, () => scrollback(screen).includes('a-model default'))
 
 	await submit(screen, 'show the source')
 	await waitUntil(screen, () => scrollback(screen).includes('const rawFence = true'))
@@ -186,7 +186,7 @@ it('clears only the idle display with Ctrl+L and keeps the next model history', 
 		rows: 24,
 	})
 	mounted = screen
-	await waitUntil(screen, () => scrollback(screen).includes('Connected to a-provider'))
+	await waitUntil(screen, () => scrollback(screen).includes('a-model default'))
 
 	await submit(screen, 'first context')
 	await waitUntil(screen, () => scrollback(screen).includes('const rawFence = true'))
@@ -214,7 +214,7 @@ it('keeps a running turn visible when Ctrl+L is pressed', async () => {
 		rows: 24,
 	})
 	mounted = screen
-	await waitUntil(screen, () => scrollback(screen).includes('Connected to a-provider'))
+	await waitUntil(screen, () => scrollback(screen).includes('a-model default'))
 
 	await submit(screen, 'held context')
 	await waitUntil(screen, () => scrollback(screen).includes('const rawFence = true'))

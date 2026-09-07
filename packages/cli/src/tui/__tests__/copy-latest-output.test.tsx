@@ -174,10 +174,8 @@ async function chooseWholeResponse(harness: {
 async function mountReady() {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	// The probing screen also says "Type a message to begin", while its
-	// composer is disabled and drops every key. Wait for text only the live
-	// composer can render, or the test exercises silence before the feature is
-	// reachable and reports it as a command failure.
+	// Wait for the live composer, because the probing screen drops every key
+	// before the feature is reachable and would report that as a command failure.
 	await frameShows(harness, '› Type a message… (/help for commands)')
 	return harness
 }

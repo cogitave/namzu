@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink'
 import { useEffect, useState } from 'react'
+import stringWidth from 'string-width'
 
 import type {
 	SubagentActivity,
@@ -13,6 +14,7 @@ import { theme } from './theme.js'
 const MAX_PICKER_ROWS = 9
 const COCKPIT_FRAME_COLUMNS = 4
 const WIDE_COCKPIT_INNER_COLUMNS = 84
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 export interface AgentTaskPanelProps {
 	readonly agents: readonly SubagentActivity[]
@@ -157,7 +159,15 @@ export function AgentCockpit({
 	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
 	const wide = agentCockpitIsWide(terminalColumns)
 	const compact = terminalRows < 20
-	const sideBySide = wide || compact
+	const sideBySide = wide
+	const navigation =
+		terminalColumns >= 90
+			? '←→ pane · ↑↓ navigate · PgUp/PgDn jump · enter select · esc return'
+			: terminalColumns >= 60
+				? '←→ pane · ↑↓ navigate · enter select · esc return'
+				: terminalColumns >= 38
+					? '←→ pane · ↑↓ · enter · esc return'
+					: 'enter · esc return'
 
 	return (
 		<Box
@@ -166,17 +176,21 @@ export function AgentCockpit({
 			borderColor={theme.border.default}
 			paddingX={1}
 		>
-			<Box justifyContent="space-between">
-				<Text color={theme.text.primary} bold wrap="truncate-end">
-					{selectedPhase?.workflow ?? 'Delegated work'}
-				</Text>
-				<Text color={theme.text.muted}>
-					{active} active · {agents.length} total
-				</Text>
+			<Box height={1} flexShrink={0}>
+				<Box flexGrow={1} minWidth={0}>
+					<Text color={theme.text.primary} bold wrap="truncate-end">
+						{oneLine(selectedPhase?.workflow ?? 'Delegated work')}
+					</Text>
+				</Box>
+				<Box flexShrink={0} marginLeft={1}>
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{active} active · {agents.length} total
+					</Text>
+				</Box>
 			</Box>
 			{compact ? null : (
-				<Text color={theme.text.muted}>
-					Live delegated work · select a phase, then inspect a child.
+				<Text color={theme.text.muted} wrap="truncate-end">
+					Select a phase, then inspect a child.
 				</Text>
 			)}
 			<Box flexDirection={sideBySide ? 'row' : 'column'} paddingTop={compact ? 0 : 1}>
@@ -184,12 +198,10 @@ export function AgentCockpit({
 					flexDirection="column"
 					width={
 						sideBySide
-							? compact
-								? Math.max(18, Math.min(26, Math.floor(terminalColumns * 0.4)))
-								: Math.max(28, Math.min(42, Math.floor(terminalColumns * 0.32)))
+							? Math.max(24, Math.min(36, Math.floor(terminalColumns * 0.3)))
 							: undefined
 					}
-					marginRight={sideBySide ? 2 : 0}
+					flexShrink={0}
 				>
 					<PhasePane
 						phases={phases}
@@ -198,7 +210,24 @@ export function AgentCockpit({
 						pageSize={compact ? 1 : agentPhasePageSize(terminalRows, wide)}
 					/>
 				</Box>
-				<Box flexDirection="column" flexGrow={1} paddingTop={sideBySide ? 0 : 1}>
+				{sideBySide ? (
+					<Box
+						width={1}
+						marginX={1}
+						flexShrink={0}
+						borderStyle="single"
+						borderColor={theme.border.default}
+						borderTop={false}
+						borderBottom={false}
+						borderRight={false}
+					/>
+				) : null}
+				<Box
+					flexDirection="column"
+					flexGrow={1}
+					minWidth={0}
+					paddingTop={sideBySide || compact ? 0 : 1}
+				>
 					<AgentPane
 						agents={phaseAgents}
 						selected={selectedAgentIndex}
@@ -210,10 +239,8 @@ export function AgentCockpit({
 				</Box>
 			</Box>
 			<Box paddingTop={compact ? 0 : 1}>
-				<Text color={theme.text.muted}>
-					{compact
-						? '←→ pane · ↑↓ navigate · enter select · esc return'
-						: '←→ pane · ↑↓ navigate · PgUp/PgDn jump · enter select · esc return'}
+				<Text color={theme.text.muted} wrap="truncate-end">
+					{navigation}
 				</Text>
 			</Box>
 		</Box>
@@ -242,7 +269,7 @@ function PhasePane({
 				const active = start + visibleIndex === selected
 				return (
 					<Box key={phase.id}>
-						<Box width={3} flexShrink={0}>
+						<Box width={4} flexShrink={0}>
 							<Text color={active && focused ? theme.accent.assistant : theme.text.muted}>
 								{active ? '›' : ' '} {statusGlyph(phase.status)}
 							</Text>
@@ -293,12 +320,12 @@ function AgentPane({
 				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
 				return (
 					<Box key={agent.viewId}>
-						<Box width={3} flexShrink={0}>
+						<Box width={4} flexShrink={0}>
 							<Text color={active && focused ? theme.accent.assistant : theme.text.muted}>
 								{active ? '›' : ' '} {statusGlyph(agent.status)}
 							</Text>
 						</Box>
-						<Box width={wide ? 28 : undefined} flexGrow={wide ? 0 : 1} flexShrink={wide ? 0 : 1}>
+						<Box flexGrow={1} flexShrink={1} minWidth={0}>
 							<Text
 								color={active ? theme.text.primary : theme.text.secondary}
 								bold={active && focused}
@@ -307,11 +334,11 @@ function AgentPane({
 								{oneLine(agent.description || agent.agentId)}
 							</Text>
 						</Box>
-						<Box flexGrow={wide ? 1 : 0}>
+						<Box marginLeft={1} flexShrink={0} width={wide ? '50%' : undefined}>
 							<Text color={theme.text.secondary} wrap="truncate-end">
-								{wide ? `${statusLabel(agent.status)} · ` : ' · '}
+								{statusLabel(agent.status)} ·{' '}
 								{elapsed}
-								{agent.latestActivity ? ` · ${oneLine(agent.latestActivity)}` : ''}
+								{wide && distinctActivity(agent) ? ` · ${distinctActivity(agent)}` : ''}
 							</Text>
 						</Box>
 					</Box>
@@ -391,7 +418,7 @@ export function agentPhases(agents: readonly SubagentActivity[]): readonly Agent
 }
 
 export function agentPhasePageSize(terminalRows: number, wide = true): number {
-	const available = Math.max(2, terminalRows - 10)
+	const available = Math.max(2, terminalRows - (wide ? 14 : 16))
 	return wide
 		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
 		: Math.max(1, Math.min(4, Math.floor(available * 0.4)))
@@ -405,7 +432,7 @@ export interface AgentTranscriptProps {
 	readonly terminalColumns: number
 }
 
-/** Child screen; the parent keeps its Static owner and two footer rows mounted. */
+/** Child screen; leave two parent footer rows and one terminal cursor row free. */
 export function AgentTranscript({
 	agent,
 	tailOffset,
@@ -433,6 +460,7 @@ export function AgentTranscript({
 			borderStyle="single"
 			borderColor={theme.accent.assistant}
 			paddingX={1}
+			overflow="hidden"
 		>
 			<Box justifyContent="space-between" height={1} flexShrink={0}>
 				<Box flexGrow={1} minWidth={0}>
@@ -457,7 +485,7 @@ export function AgentTranscript({
 					</Text>
 				) : (
 					page.rows.map((line) => (
-						<Box key={line.id} height={1} flexShrink={0}>
+						<Box key={line.id} height={1} flexShrink={0} overflow="hidden">
 							<Box width={3} flexShrink={0}>
 								<Text
 									color={
@@ -469,7 +497,11 @@ export function AgentTranscript({
 									{line.continuation ? ' ' : lineGlyph(line)}
 								</Text>
 							</Box>
-							<Text color={lineColor(line)}>{line.text}</Text>
+							<Box flexGrow={1} minWidth={0}>
+								<Text color={lineColor(line)} wrap="truncate-end">
+									{line.text}
+								</Text>
+							</Box>
 						</Box>
 					))
 				)}
@@ -488,15 +520,15 @@ export function AgentTranscript({
 }
 
 export function agentPickerPageSize(terminalRows: number, wide = true): number {
-	const available = Math.max(2, terminalRows - 10)
+	const available = Math.max(2, terminalRows - (wide ? 14 : 16))
 	return wide
 		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
 		: Math.max(1, Math.min(MAX_PICKER_ROWS, available - agentPhasePageSize(terminalRows, false)))
 }
 
 export function agentTranscriptPageSize(terminalRows: number): number {
-	// Two parent footer rows plus borders, heading, title, spacing and navigation.
-	return Math.max(1, terminalRows - 10)
+	// Parent footer, cursor row, borders, heading, title, spacing and navigation.
+	return Math.max(1, terminalRows - 11)
 }
 
 export function maxAgentTranscriptTailOffset(
@@ -572,9 +604,8 @@ export function agentTranscriptRows(
 			let text = ''
 			let cells = 0
 			let continuation = sourceLine > 0
-			for (const point of logical) {
-				const codePoint = point.codePointAt(0)
-				const pointCells = codePoint !== undefined && codePoint <= 0x7e ? 1 : 2
+			for (const { segment: point } of graphemes.segment(expandTabs(logical))) {
+				const pointCells = stringWidth(point)
 				if (text.length > 0 && cells + pointCells > width) {
 					lines.push({
 						id: `${source.id}:${sourceLine++}`,
@@ -600,8 +631,27 @@ export function agentTranscriptRows(
 	return lines
 }
 
+/** Resolve indentation before paging; raw tabs can move the terminal beyond a row's box. */
+function expandTabs(line: string): string {
+	let text = ''
+	let cells = 0
+	for (const { segment } of graphemes.segment(line)) {
+		const point = segment === '\t' ? ' '.repeat(8 - (cells % 8)) : segment
+		text += point
+		cells += stringWidth(point)
+	}
+	return text
+}
+
 function oneLine(text: string): string {
 	return terminalDisplayText(text).replace(/\r?\n/g, ' ↵ ').replace(/\t/g, ' ⇥ ')
+}
+
+function distinctActivity(agent: SubagentActivity): string | undefined {
+	const activity = agent.latestActivity ? oneLine(agent.latestActivity) : undefined
+	if (!activity || activity.toLowerCase() === agent.status) return undefined
+	const prefix = `${statusLabel(agent.status)} · `
+	return activity.startsWith(prefix) ? activity.slice(prefix.length) : activity
 }
 
 function phaseStatus(agents: readonly SubagentActivity[]): SubagentActivityStatus {

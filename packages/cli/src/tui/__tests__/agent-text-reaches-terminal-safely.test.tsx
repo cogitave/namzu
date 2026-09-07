@@ -192,7 +192,7 @@ function expectNoAgentControls(screen: Screen): void {
 it('escapes permission, live-tool and transcript output while preserving the request DTO', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 32 })
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
+	await waitUntil(screen, () => painted(screen).includes('a-model default'))
 
 	await submit(screen, 'run the proposed call')
 	await waitUntil(screen, () => painted(screen).includes('Do you want to'))
@@ -229,7 +229,7 @@ it('pages a single long JSON string by physical rows in a narrow terminal', asyn
 	)
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 24 })
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
+	await waitUntil(screen, () => painted(screen).includes('a-model default'))
 	await submit(screen, 'run the long proposed call')
 	await waitUntil(screen, () => screen.viewport().join('\n').includes('Exact prepared input'))
 
@@ -273,7 +273,7 @@ it('refuses a TUI batch whose complete input cannot fit without truncation', asy
 	activeRequest = permissionRequest(input)
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24 })
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
+	await waitUntil(screen, () => painted(screen).includes('a-model default'))
 	await submit(screen, 'run an oversized proposed call')
 	await waitUntil(screen, () => permissionDecisions.length === 1)
 
@@ -306,7 +306,7 @@ it('keeps the destination visible when the terminal path is not known to support
 		rows: 32,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to a-provider'))
+	await waitUntil(screen, () => painted(screen).includes('a-model default'))
 	await submit(screen, 'run the proposed call')
 	await waitUntil(screen, () => painted(screen).includes('Do you want to'))
 

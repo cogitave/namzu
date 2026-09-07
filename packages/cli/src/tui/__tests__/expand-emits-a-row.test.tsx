@@ -188,7 +188,7 @@ async function twoCollapsedBlocks() {
 	// frame, while the composer stays `disabled` until the session is up, so a
 	// key sent on sight of it is dropped and the turn never runs. The connect
 	// line is the first thing that only exists once `phase === 'ready'`.
-	await frameShows(harness.lastFrame, 'Connected to a-provider')
+	await frameShows(harness.lastFrame, 'a-model default')
 	harness.stdin.write('go')
 	await tick(20)
 	harness.stdin.write('\r')
@@ -231,7 +231,7 @@ describe('a body that fits', () => {
 		await onAShortTerminal(async () => {
 			const harness = render(<App ctx={ctx} />)
 			mounted.push(harness)
-			await frameShows(harness.lastFrame, 'Connected to a-provider')
+			await frameShows(harness.lastFrame, 'a-model default')
 			harness.stdin.write('go')
 			await tick(20)
 			harness.stdin.write('\r')
@@ -277,8 +277,8 @@ describe('Ctrl+O', () => {
 		mounted.push(harness)
 		// The COMPOSER's placeholder is not readiness — it draws from the first
 		// frame, while the composer stays `disabled` until the session is up. The
-		// connect line is the first thing that only exists once `phase === 'ready'`.
-		await frameShows(harness.lastFrame, 'Connected to a-provider')
+		// model footer is the first thing that only exists once the session is up.
+		await frameShows(harness.lastFrame, 'a-model default')
 
 		harness.stdin.write('\x0f')
 		await frameShows(harness.lastFrame, 'Nothing to expand yet')

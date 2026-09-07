@@ -507,11 +507,13 @@ describe('the two composer destinations', () => {
 				() => screen.viewport().some((line) => line.includes('first answer')),
 				'first streamed answer never reached the viewport',
 			)
+			const bannerRow = screen.viewport().findIndex((line) => line.includes('[ NAMZU ]'))
 			const firstPromptRow = screen.viewport().findIndex((line) => line.includes('start here'))
+			expect(bannerRow, 'the banner is not on screen').toBeGreaterThanOrEqual(0)
 			expect(
 				firstPromptRow,
 				`the submitted prompt did not flow down from the banner:\n${screen.viewport().join('\n')}`,
-			).toBeGreaterThanOrEqual(5)
+			).toBeGreaterThan(bannerRow)
 			expect(firstPromptRow).toBeLessThan(14)
 			const composerRow = screen.viewport().findIndex((line) => line.includes('Type a message'))
 			expect(composerRow).toBeGreaterThan(firstPromptRow)

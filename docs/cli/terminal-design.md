@@ -10,10 +10,14 @@ status: stable
 # Terminal design
 
 Namzu uses neutral text with phosphor-green accents on the terminal's own
-background. The compact `[ NAMZU ]` wordmark sits above the workspace and
-connection identity; narrow terminals use the plain `NAMZU` name.
-The header is printed once into native scrollback; the footer keeps
-the current model, reasoning effort and interaction keys visible. Colors use
+background. The compact `[ NAMZU ]` wordmark and version form a single opening
+line; narrow terminals use the plain `NAMZU` name. The header is printed once
+into native scrollback. The footer alone shows the current model, reasoning
+effort and working directory, with interaction keys taking priority on narrow
+screens. Provider and tool details remain available through `/status` and
+`/status tools`. A normal startup does not add a redundant connection message
+to the conversation; explicit provider/model changes still receive confirmation.
+The composer owns the empty-conversation typing hint. Colors use
 explicit ANSI 256-color indices so the green accent and neutral text do not
 shift hue through RGB-to-palette approximation. Terminals with color disabled
 retain the same text, symbols and boundaries.
@@ -67,6 +71,10 @@ space before the transcript keeps any older messages in its redrawable tail.
 
 ## Commands and settings
 
+Successful reasoning changes receive a short session-scoped confirmation;
+resetting the selection names the provider default. Configuration warnings,
+instruction-file disclosure, unavailable tools and startup errors remain visible.
+
 The writing area, `/help` and command execution share one catalogue. Commands
 with state-dependent availability explain why an action cannot run; execution
 checks again before changing state. Opening a menu keeps the draft and its
@@ -117,10 +125,16 @@ current or latest run’s own task store; changing conversations clears the
 selection without deleting tasks. `/agents` opens the retained delegated-work
 view, while `/agents available` separately reports the configured roster.
 
+The delegated-work view separates phases and agents with a column divider on
+wide terminals and stacked panes on narrow terminals. Task labels, status and
+elapsed time occupy separate cells; activity text does not repeat the status.
+
 Selecting an agent opens its own framed transcript screen. The parent composer
 and live rows are hidden while their state remains mounted. The child view
 uses the available terminal height, identifies the task and its live status,
-and supports line and page scrolling. Esc returns to the agent list; `q` or
+and supports line and page scrolling. File-output tabs are expanded before
+pagination, and wrapping uses terminal cell widths for Unicode graphemes. Each
+body row stays within its frame, with room for navigation and the cursor. Esc returns to the agent list; `q` or
 Ctrl+T returns to the main conversation and restores the draft. A child that
 finishes remains readable in the open view and can be reopened from `/agents`
 while retained by the current session. The automatic activity rail shows only
@@ -141,10 +155,11 @@ keeps the selected agent and the input draft, while model/path text yields to
 the keys needed to leave a prompt. The palette targets dark backgrounds; the
 application does not paint a full-screen background or depend on color alone.
 
-Terminal reflow can leave an earlier activity snapshot in native scrollback
-after a window is narrowed and enlarged. Those rows are inactive output;
-the live task state is not duplicated. Namzu keeps finalized history rather
-than clearing scrollback to erase those snapshots.
+When the terminal contracts, native reflow can push old live rows into
+scrollback before the renderer can erase them. Namzu clears and reconstructs
+its normal-buffer transcript once at the new size, preserving conversation
+messages, the draft and the selected agent. This costs one history replay per
+contraction; ordinary streaming and animation frames remain incremental.
 
 Screen regressions drive the production Ink renderer through a terminal
 emulator. They check wrapped input, short viewports, retained drafts, normal

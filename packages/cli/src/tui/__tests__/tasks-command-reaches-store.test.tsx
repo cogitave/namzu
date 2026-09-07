@@ -95,7 +95,7 @@ async function submit(command: string) {
 
 it('reads the actual current task store without a model call and clears it on a new conversation', async () => {
 	mounted = render(<App ctx={{ cwd: '/work/tasks-command', version: 'test' }} />)
-	await waitFor('Connected to mock')
+	await waitFor('mock-model default')
 	await tick(80)
 	await submit('/tasks')
 	await waitFor('No task list is available yet for this conversation.')

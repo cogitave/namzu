@@ -138,9 +138,9 @@ async function aCollapsedBody(): Promise<Screen> {
 	})
 	mounted.push(screen)
 	// The composer's placeholder draws from the first frame while the composer
-	// is still disabled, so it is not readiness. The connect line only exists
+	// is still disabled, so it is not readiness. The model footer only exists
 	// once the session is up.
-	await screenShows(screen, 'Connected to a-provider')
+	await screenShows(screen, 'a-model default')
 	screen.press('go')
 	await screen.waitForRender()
 	screen.press('\r')
@@ -215,21 +215,33 @@ describe('the expand key, on a body that is still on screen', () => {
 		expect(screen.viewport().join('\n')).toContain('✓ Bash(ls) · 3.0s')
 	}, 30_000)
 
-	it('keeps one transcript and a usable composer through tall-short-tall resize', async () => {
-		const screen = await aCollapsedBody()
-		const call = (line: string) => line.includes('✓ Bash(ls)')
+	it.each([
+		[72, 20],
+		[COLS, 14],
+		[72, ROWS],
+	])(
+		'keeps one transcript and the draft through resize to %ix%i and back',
+		async (cols, rows) => {
+			const screen = await aCollapsedBody()
+			const call = (line: string) => line.includes('✓ Bash(ls)')
+			screen.press('unsent draft')
+			await screen.waitForRender()
 
-		await screen.resize(72, 20)
-		expect(screen.bufferType()).toBe('normal')
-		expect(screen.viewport().join('\n')).toContain('Type a message')
+			await screen.resize(cols, rows)
+			expect(screen.bufferType()).toBe('normal')
+			expect(screen.viewport().join('\n')).toContain('unsent draft')
 
-		await screen.resize(COLS, 50)
-		expect(screen.viewport().join('\n')).toContain('Type a message')
-		expect(
-			screen.scrollback().filter(call),
-			'resize printed a second durable tool row',
-		).toHaveLength(1)
-	}, 30_000)
+			await screen.resize(COLS, 50)
+			expect(screen.viewport().join('\n')).toContain('unsent draft')
+			expect(
+				screen.scrollback().filter(call),
+				'resize printed a second durable tool row',
+			).toHaveLength(1)
+			expect(screen.scrollback().filter((line) => line.includes('NAMZU'))).toHaveLength(1)
+			expect(screen.scrollback().join('\n')).toContain('result-line-12')
+		},
+		30_000,
+	)
 
 	it('still reaches the rows of the conversation after Ctrl+L', async () => {
 		// Ctrl+L empties the transcript and remounts the static log, and the

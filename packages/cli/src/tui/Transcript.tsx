@@ -143,13 +143,6 @@ export function Transcript({
 					hyperlinks={hyperlinks}
 				/>
 			) : null}
-			{showLive && messages.length === 0 && !pending ? (
-				<Box paddingY={1}>
-					<Text color={theme.text.muted}>
-						Type a message to begin · <Text color={theme.text.secondary}>/help</Text> for commands
-					</Text>
-				</Box>
-			) : null}
 		</Box>
 	)
 }

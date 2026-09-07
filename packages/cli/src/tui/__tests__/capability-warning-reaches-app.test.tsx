@@ -87,7 +87,7 @@ it('renders the real DeepSeek text-model refusal without a false driver warning'
 	const harness = render(<App ctx={{ cwd, version: '0.0.0-test' } as TuiContext} />)
 	mounted.push(harness)
 	await until(
-		() => (harness.lastFrame() ?? '').includes('Connected to DeepSeek'),
+		() => (harness.lastFrame() ?? '').includes('deepseek-v4-flash default'),
 		'App did not publish the real provider session',
 	)
 	await tick(600)

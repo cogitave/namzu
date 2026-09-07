@@ -172,7 +172,7 @@ it('pages through App resume boundaries without selecting an offscreen conversat
 	loadedConversationIds.length = 0
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 16 })
 	mounted.push(screen)
-	await waitUntil(screen, () => screen.scrollback().join('\n').includes('Connected to A Provider'))
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('model-default default'))
 
 	screen.press('/resume')
 	await screen.waitForRender()

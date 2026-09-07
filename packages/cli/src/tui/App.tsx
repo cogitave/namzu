@@ -1120,7 +1120,9 @@ export function App({
 		codexLoginRef.current?.cancel()
 		codexLoginRef.current = null
 	}, [])
-	const runProbeRef = useRef<((signal?: AbortSignal) => Promise<void>) | null>(null)
+	const runProbeRef = useRef<
+		((options?: { readonly signal?: AbortSignal; readonly announce?: boolean }) => Promise<void>) | null
+	>(null)
 	useEffect(() => cancelPendingLogin, [cancelPendingLogin])
 	/**
 	 * The session currently holding resources, so a re-hydration can release the
@@ -1308,6 +1310,22 @@ export function App({
 		setResetKey((k) => k + 1)
 	}, [stdout.isTTY, writeStdout])
 
+	const previousTerminalRef = useRef(terminal)
+	useEffect(() => {
+		const previous = previousTerminalRef.current
+		previousTerminalRef.current = terminal
+		if (
+			externalEditorRequestRef.current === null &&
+			(terminal.columns < previous.columns || terminal.rows < previous.rows)
+		) {
+			// A contraction can reflow live rows into native scrollback before Ink
+			// receives resize. Its old row count cannot erase those rows. Rebuild
+			// Namzu's normal-buffer view at the committed size, retaining the same
+			// messages, draft and selected child. Regular frames remain incremental.
+			resetTranscript()
+		}
+	}, [terminal, resetTranscript])
+
 	const requestExternalEditor = useCallback(
 		(seed: string): Promise<string> => {
 			if (
@@ -1493,10 +1511,7 @@ export function App({
 			}
 			if (effort === undefined) {
 				setReasoningEffort(undefined)
-				pushMessage(
-					'system',
-					'Reasoning effort reset to the provider default for future main-query turns.',
-				)
+				pushMessage('system', 'Reasoning: provider default.')
 				return
 			}
 			if (!session.reasoningEffortLevels?.includes(effort)) {
@@ -1507,10 +1522,7 @@ export function App({
 				return
 			}
 			setReasoningEffort(effort)
-			pushMessage(
-				'system',
-				`Reasoning effort changed to ${effort} for future main-query turns in this session.`,
-			)
+			pushMessage('system', `Reasoning: ${effort} (this session).`)
 		},
 		[hasUnsettledTurn, pushMessage, session, setReasoningEffort, state],
 	)
@@ -2357,9 +2369,13 @@ export function App({
 		async (
 			prefs: Preferences,
 			detectedNow: readonly DetectedProvider[],
-			signal?: AbortSignal,
-			persistSelection = false,
+			options: {
+				readonly signal?: AbortSignal
+				readonly persistSelection?: boolean
+				readonly announce?: boolean
+			} = {},
 		) => {
+			const { signal, persistSelection = false, announce = false } = options
 			if (signal?.aborted) return
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
@@ -2440,15 +2456,14 @@ export function App({
 			if (s.hasProvider) {
 				setTranscriptOwned(true)
 				setPhase('ready')
-				pushMessage(
-					'system',
-					// Counted here, at connect. The number is deliberately the one true
-					// at this moment rather than the one that will be true after the
-					// first turn registers the deferred tools — a line reporting that a
-					// connection just happened should describe the connection that just
-					// happened. `/tools` is the present-tense question and asks later.
-					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames().length} tools`,
-				)
+				// Startup identity already lives in the footer. Confirm an explicit
+				// picker selection, but do not add a routine connection log to chat.
+				if (announce) {
+					pushMessage(
+						'system',
+						`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''}`,
+					)
+				}
 				// Before the rest: a limitation the operator accepted once and has
 				// been living with since is the thing they are least likely to
 				// remember and most likely to be surprised by.
@@ -2528,7 +2543,7 @@ export function App({
 				pushMessage('system', describeLoginOutcome(outcome))
 				if (outcome.ok) {
 					setPickerInitialView('providers')
-					await runProbeRef.current?.()
+					await runProbeRef.current?.({ announce: true })
 				}
 				return
 			}
@@ -2596,7 +2611,7 @@ export function App({
 				setPickerNotice(describeLoginOutcome(outcome))
 				if (outcome.ok) {
 					setPickerInitialView('providers')
-					await runProbeRef.current?.(signal)
+					await runProbeRef.current?.({ signal, announce: true })
 				}
 				return 'finished'
 			}
@@ -2661,7 +2676,7 @@ export function App({
 			setPickerNotice(describeLoginOutcome(outcome))
 			if (outcome.ok) {
 				setPickerInitialView('providers')
-				await runProbeRef.current?.(signal)
+				await runProbeRef.current?.({ signal, announce: true })
 			}
 			return 'finished'
 		},
@@ -2669,7 +2684,8 @@ export function App({
 	)
 
 	const runProbe = useCallback(
-		async (signal?: AbortSignal) => {
+		async (options: { readonly signal?: AbortSignal; readonly announce?: boolean } = {}) => {
+			const { signal, announce = false } = options
 			try {
 				if (signal?.aborted) return
 				// An exact shell resume owns conversation admission before provider
@@ -2722,7 +2738,7 @@ export function App({
 				if (probe.preferences) {
 					setPickerDetected(null)
 					setPickerSelectionKind('provider-and-model')
-					await hydrateSession(probe.preferences, probe.detected, signal)
+					await hydrateSession(probe.preferences, probe.detected, { signal, announce })
 					return
 				}
 				const signedIn = signedInSubscriptionProviders(probe.detected)
@@ -2739,7 +2755,10 @@ export function App({
 					// not strand first run on the disabled unhealthy screen.
 					const admissionSignal = signal ?? appLifetime.signal
 					try {
-						await hydrateSession(automaticPreferences, probe.detected, admissionSignal)
+						await hydrateSession(automaticPreferences, probe.detected, {
+							signal: admissionSignal,
+							announce,
+						})
 						return
 					} catch (error) {
 						if (admissionSignal.aborted) return
@@ -5704,7 +5723,11 @@ export function App({
 			options: { readonly revealAllOnFailure?: boolean; readonly persistSelection?: boolean } = {},
 		): Promise<void> => {
 			try {
-				await hydrateSession(prefs, detectedNow, signal, options.persistSelection)
+				await hydrateSession(prefs, detectedNow, {
+					signal,
+					persistSelection: options.persistSelection,
+					announce: true,
+				})
 			} catch (err) {
 				// A superseded choice no longer owns even its failure message. Its
 				// eventual session object is disposed inside `hydrateSession`; a live
@@ -6439,10 +6462,7 @@ export function App({
 							transcriptOwned ? (
 								<BrandHeader
 									version={ctx.version}
-									provider={session?.providerSummary}
-									model={session?.modelSummary}
 									permissionMode={displayedPermissionMode}
-									cwd={ctx.cwd}
 								/>
 							) : undefined
 						}

@@ -156,7 +156,7 @@ it('prefills, edits, persists, and exposes the conversation name to /resume', as
 		rows: 24,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('/rename')
 	await screen.waitForRender()
@@ -192,7 +192,7 @@ it('keeps a long name and its cursor reachable in a narrow editor without shorte
 	titleState.current = original
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 14 })
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 	screen.press('/rename')
 	await screen.waitForRender()
 	screen.press('\r')
@@ -230,7 +230,7 @@ it('cancels without mutating the durable name', async () => {
 		rows: 20,
 	})
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('/rename')
 	await screen.waitForRender()
@@ -251,7 +251,7 @@ it('cancels without mutating the durable name', async () => {
 it('holds an already queued turn until the name editor closes', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 22 })
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('start work')
 	screen.press('\r')
@@ -277,7 +277,7 @@ it('holds an already queued turn until the name editor closes', async () => {
 it('uses Ctrl+C to cancel the editor without arming App exit', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 20 })
 	mounted = screen
-	await waitUntil(screen, () => painted(screen).includes('Connected to OpenAI'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
 
 	screen.press('/rename')
 	screen.press('\r')

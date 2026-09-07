@@ -18,6 +18,7 @@ import {
 	query,
 } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
+import stringWidth from 'string-width'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -280,6 +281,7 @@ afterEach(async () => {
 	await mounted?.unmount()
 	mounted = null
 	vi.restoreAllMocks()
+	vi.useRealTimers()
 })
 
 describe('Ctrl+T', () => {
@@ -296,7 +298,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		await submit(screen, 'tool row correlation')
 		await waitUntil(
 			screen,
@@ -334,7 +336,7 @@ describe('Ctrl+T', () => {
 		])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		await submit(screen, 'reused tool id')
 		await waitUntil(
 			screen,
@@ -381,7 +383,7 @@ describe('Ctrl+T', () => {
 				rows: 28,
 			})
 			mounted = screen
-			await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+			await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 
 			const executions = Array.from({ length: 4 }, (_, index) =>
 				runtime.agentTool.execute(
@@ -565,7 +567,7 @@ describe('Ctrl+T', () => {
 			activity.delegate(runtime.activity)
 			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 			mounted = screen
-			await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+			await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 
 			await submit(screen, 'production executor fan-out')
 			await waitUntil(
@@ -609,7 +611,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('interim evidence'),
@@ -661,7 +663,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
@@ -678,7 +680,7 @@ describe('Ctrl+T', () => {
 		)
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 90, rows: 14 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
@@ -698,7 +700,7 @@ describe('Ctrl+T', () => {
 		])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 14 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
@@ -711,7 +713,7 @@ describe('Ctrl+T', () => {
 		activity.set([agent({ viewId: 'short-inspector', description: 'Short inspector child' })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 60, rows: 14 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		screen.press('draft remains visible')
 		screen.press('\x14')
 		await waitUntil(
@@ -737,7 +739,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 
 		await submit(screen, 'start parent')
 		await waitUntil(
@@ -773,7 +775,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 
 		screen.press('\x14')
 		await waitUntil(
@@ -808,7 +810,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		screen.press('\x14')
 		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'picker missing')
@@ -838,7 +840,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 
 		screen.press('\x14')
 		await screen.waitForRender()
@@ -896,7 +898,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 
 		screen.press('\x14')
 		await screen.waitForRender()
@@ -931,7 +933,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		screen.press('\x14')
 		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'cockpit missing')
@@ -962,7 +964,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		screen.press('\x14')
 		await screen.waitForRender()
 		await waitUntil(
@@ -987,10 +989,12 @@ describe('Ctrl+T', () => {
 	})
 
 	it('shows a live child screen, pages its full tool output and restores the parent draft', async () => {
+		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
 		const child = agent({
 			viewId: 'child-screen-id',
 			description: 'Inspect project sources',
 			prompt: 'CHILD_TASK_START',
+			startedAt: Date.now(),
 			transcript: [
 				{
 					id: 'read-output',
@@ -998,8 +1002,9 @@ describe('Ctrl+T', () => {
 					status: 'completed',
 					text: 'Read(project.ts)',
 					detail: Array.from(
-						{ length: 40 },
-						(_, index) => `TOOL_EVIDENCE_${String(index + 1).padStart(2, '0')}`,
+						{ length: 412 },
+						(_, index) =>
+							`TOOL_EVIDENCE_${String(index + 1).padStart(3, '0')}\t\t\t\t\t\treturn "漢字 café 👩🏽‍💻"; // value_${index + 1}`,
 					).join('\n'),
 				},
 			],
@@ -1007,7 +1012,7 @@ describe('Ctrl+T', () => {
 		activity.set([child])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 		await submit(screen, 'start parent')
 		screen.press('PARENT_DRAFT_RESTORED')
 		screen.press('\x14')
@@ -1015,7 +1020,7 @@ describe('Ctrl+T', () => {
 		screen.press('\r')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('TOOL_EVIDENCE_40'),
+			() => screen.viewport().join('\n').includes('TOOL_EVIDENCE_412'),
 			'child transcript missing',
 		)
 		let frame = screen.viewport().join('\n')
@@ -1026,6 +1031,29 @@ describe('Ctrl+T', () => {
 		expect(frame).not.toContain('MESSAGE')
 		expect(frame).not.toContain('child-screen-id')
 		expect(frame).not.toContain('CHILD_TASK_START')
+		expect(screen.writes().join('')).not.toContain('\t')
+		const expectChildFrame = (columns: number) => {
+			const viewport = screen.viewport()
+			const top = viewport.findIndex((line) => line.startsWith(' ┌'))
+			const bottom = viewport.findIndex((line) => line.startsWith(' └'))
+			expect(top).toBeGreaterThanOrEqual(0)
+			expect(bottom).toBeGreaterThan(top)
+			for (const line of viewport.slice(top + 1, bottom)) {
+				expect(line).toMatch(/^ │.*│$/u)
+				expect(stringWidth(line)).toBe(columns - 1)
+			}
+		}
+		expectChildFrame(80)
+		const tickStartedAt = Date.now()
+		const clock = vi.spyOn(Date, 'now')
+		for (let tick = 1; tick <= 3; tick += 1) {
+			clock.mockReturnValue(tickStartedAt + tick * 1_000)
+			await vi.advanceTimersByTimeAsync(1_000)
+			await screen.waitForRender()
+			expect(painted(screen).match(/Subagent/g)).toHaveLength(1)
+			expectChildFrame(80)
+		}
+		clock.mockRestore()
 
 		activity.set([
 			{
@@ -1041,30 +1069,36 @@ describe('Ctrl+T', () => {
 			() => screen.viewport().join('\n').includes('CHILD_LIVE_UPDATE'),
 			'child output did not update while observed',
 		)
+		expect(painted(screen).match(/Subagent/g)).toHaveLength(1)
 		screen.press('\x1b[H')
 		await screen.waitForRender()
 		frame = screen.viewport().join('\n')
 		expect(frame).toContain('CHILD_TASK_START')
 		expect(frame).toContain('Read(project.ts)')
 		expect(frame).toContain('History')
-		const seen = new Set(frame.match(/TOOL_EVIDENCE_\d{2}/g) ?? [])
-		for (let page = 0; page < 4; page += 1) {
+		const seen = new Set(frame.match(/TOOL_EVIDENCE_\d{3}/g) ?? [])
+		for (let page = 0; page < 90 && !frame.includes('CHILD_LIVE_UPDATE'); page += 1) {
 			screen.press('\x1b[6~')
 			await screen.waitForRender()
 			frame = screen.viewport().join('\n')
-			for (const line of frame.match(/TOOL_EVIDENCE_\d{2}/g) ?? []) seen.add(line)
+			for (const line of frame.match(/TOOL_EVIDENCE_\d{3}/g) ?? []) seen.add(line)
 		}
 		expect(seen).toEqual(
 			new Set(
 				Array.from(
-					{ length: 40 },
-					(_, index) => `TOOL_EVIDENCE_${String(index + 1).padStart(2, '0')}`,
+					{ length: 412 },
+					(_, index) => `TOOL_EVIDENCE_${String(index + 1).padStart(3, '0')}`,
 				),
 			),
 		)
 		expect(frame).toContain('CHILD_LIVE_UPDATE')
 		expect(frame).toContain('Live')
 		expect(screen.bufferType()).toBe('normal')
+		await screen.resize(40, 14)
+		expectChildFrame(40)
+		expect(screen.viewport().join('\n')).toContain('q parent')
+		await screen.resize(80, 24)
+		expectChildFrame(80)
 
 		screen.press('\x1b')
 		await waitUntil(
@@ -1096,7 +1130,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('Connected to provider'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
 
 		await submit(screen, 'start parent')
 		screen.press('\x14')
@@ -1236,31 +1270,49 @@ describe('agent explorer projection', () => {
 		])
 	})
 
-	it('keeps both cockpit panes visible on a narrow terminal', () => {
+	it.each([
+		{ cols: 120, rows: 28 },
+		{ cols: 60, rows: 20 },
+		{ cols: 40, rows: 14 },
+	])('separates cockpit panes and names a settled status once at $cols×$rows', async ({ cols, rows }) => {
 		const research = agent({
 			viewId: 'research',
 			workflow: 'Narrow workflow',
 			phase: 'Research',
 			phaseOrder: 0,
 			description: 'Research worker',
+			status: 'completed',
+			startedAt: 1_000,
+			completedAt: 59_000,
+			latestActivity: 'Completed',
 		})
-		const cockpit = render(
+		const screen = await renderToScreen(
 			<AgentCockpit
 				agents={[research]}
 				selectedPhaseId={research.phaseId}
 				selectedId={research.viewId}
 				focus="phases"
-				terminalRows={20}
-				terminalColumns={60}
+				terminalRows={rows}
+				terminalColumns={cols}
 			/>,
+			{ cols, rows },
 		)
-		try {
-			expect(cockpit.lastFrame()).toContain('Phases · 1/1')
-			expect(cockpit.lastFrame()).toContain('Agents · 1/1')
-			expect(cockpit.lastFrame()).toContain('Research worker')
-		} finally {
-			cockpit.unmount()
+		mounted = screen
+		const viewport = screen.viewport()
+		const phaseHeading = viewport.findIndex((line) => line.includes('Phases · 1/1'))
+		const agentHeading = viewport.findIndex((line) => line.includes('Agents · 1/1'))
+		const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
+		expect(phaseHeading).toBeGreaterThanOrEqual(0)
+		expect(agentHeading).toBeGreaterThanOrEqual(0)
+		expect(worker).toMatch(/Research worker\s+Completed · 58s/)
+		expect(worker.match(/Completed/g)).toHaveLength(1)
+		if (cols >= 88) {
+			expect(agentHeading).toBe(phaseHeading)
+			expect(viewport[phaseHeading]).toMatch(/Phases.*│\s+Agents/)
+		} else {
+			expect(agentHeading).toBeGreaterThan(phaseHeading)
 		}
+		expect(viewport.join('\n')).toContain('esc return')
 	})
 
 	it('surfaces failed and cancelled children in phase summaries', () => {
@@ -1303,9 +1355,9 @@ describe('agent explorer projection', () => {
 	})
 
 	it.each([
-		{ cols: 80, rows: 40, first: 11 },
-		{ cols: 40, rows: 14, first: 37 },
-		{ cols: 30, rows: 14, first: 37 },
+		{ cols: 80, rows: 40, first: 12 },
+		{ cols: 40, rows: 14, first: 38 },
+		{ cols: 30, rows: 14, first: 38 },
 	])(
 		'gives a child its own bounded transcript screen at $cols×$rows',
 		async ({ cols, rows, first }) => {
@@ -1342,7 +1394,7 @@ describe('agent explorer projection', () => {
 			const top = viewport.findIndex((line) => line.startsWith('┌'))
 			const bottom = viewport.findIndex((line) => line.startsWith('└'))
 			expect(top).toBeGreaterThanOrEqual(0)
-			expect(bottom - top + 1).toBe(rows - 2)
+			expect(bottom - top + 1).toBe(rows - 3)
 			expect(screen.bufferType()).toBe('normal')
 		},
 	)

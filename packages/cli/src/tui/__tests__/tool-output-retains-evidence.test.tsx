@@ -174,7 +174,7 @@ it.each(['\u000f', '/raw'])(
 		})
 		screens.push(screen)
 		const text = () => screen.scrollback().join('\n')
-		await until(screen, () => text().includes('Connected to mock'))
+		await until(screen, () => text().includes('mock-model default'))
 		screen.press('inspect')
 		await screen.waitForRender()
 		screen.press('\r')

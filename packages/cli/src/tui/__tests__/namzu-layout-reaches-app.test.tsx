@@ -208,18 +208,34 @@ function expectActiveLayout(screen: Screen): void {
 	expect.soft(screen.scrollback().join('\n').split(historyMarker)).toHaveLength(2)
 }
 
+function expectIdleLayout(screen: Screen): void {
+	const viewport = screen.viewport().join('\n')
+	const output = screen.scrollback().join('\n')
+	expect.soft(viewport.match(/fixture-model/g)).toHaveLength(1)
+	expect.soft(viewport.match(/\/workspace\/namzu/g)).toHaveLength(1)
+	expect.soft(output).not.toContain('Connected to')
+	expect.soft(output).not.toContain('fixture-provider')
+	expect.soft(output).not.toContain('Type a message to begin')
+	expect.soft(output.match(/\[ NAMZU \]/g)).toHaveLength(1)
+	expect.soft(output.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)
+	expect.soft(viewport).toContain('/help')
+	expect.soft(screen.bufferType()).toBe('normal')
+}
+
 it('keeps live work, a multiline draft and controls reachable across terminal sizes', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 30, scrollback: 2_000 })
 	const capture = recorder(screen, 100, 30)
 	try {
 		await waitUntil(
 			screen,
-			() => screen.scrollback().join('\n').includes('Connected to fixture-provider'),
+			() => screen.scrollback().join('\n').includes('fixture-model default'),
 			'App did not become ready',
 		)
 		capture.capture('idle-100x30')
+		expectIdleLayout(screen)
 		await capture.resize(60, 18)
 		capture.capture('idle-60x18')
+		expectIdleLayout(screen)
 		await capture.resize(100, 30)
 		await submit(screen, 'Keep earlier evidence')
 		await waitUntil(

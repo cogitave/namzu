@@ -143,7 +143,7 @@ describe('the shell resume handoff inside App', () => {
 		try {
 			await waitUntil(
 				screen,
-				() => screen.scrollback().some((line) => line.includes('Connected to provider')),
+				() => screen.scrollback().some((line) => line.includes('model default')),
 				'App never became ready',
 			)
 			expect(loadResumableConversation).toHaveBeenCalledWith(expect.anything(), 'b74ac146-4b6d-45b8-b04b-e019792facf9')
@@ -188,7 +188,7 @@ describe('the shell resume handoff inside App', () => {
 		try {
 			await waitUntil(
 				screen,
-				() => screen.scrollback().some((line) => line.includes('Connected to provider')),
+				() => screen.scrollback().some((line) => line.includes('model default')),
 				'App never became ready',
 			)
 			screen.press('\x12')

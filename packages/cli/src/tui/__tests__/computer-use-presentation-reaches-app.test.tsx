@@ -136,7 +136,7 @@ it('shows authored desktop actions, screenshot dimensions and failures without e
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
 	mounted = screen
 	const painted = () => screen.scrollback().join('\n')
-	await waitUntil(screen, () => painted().includes('Connected to a-provider'))
+	await waitUntil(screen, () => painted().includes('a-model default'))
 
 	screen.press('inspect')
 	await screen.waitForRender()

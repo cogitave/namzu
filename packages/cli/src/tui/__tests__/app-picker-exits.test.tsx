@@ -418,7 +418,7 @@ describe('first-run signed-in subscriptions', () => {
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
 
-		await frameShows(harness.lastFrame, 'Connected to claude-device-session')
+		await frameShows(harness.lastFrame, 'a-model default')
 		expect(constructed).toEqual([
 			{
 				version: 3,
@@ -428,6 +428,7 @@ describe('first-run signed-in subscriptions', () => {
 		])
 		expect(writePrefs).not.toHaveBeenCalled()
 		expect(harness.lastFrame()).not.toContain('Choose a provider')
+		expect(harness.lastFrame()).not.toContain('Connected to')
 	})
 
 	it('asks only between Claude and Codex, then accepts the provider without a model detour', async () => {
@@ -569,7 +570,7 @@ describe('publishing a picker selection', () => {
 		harness.stdin.write('\x1b[5~')
 		harness.stdin.write('\x1b[B')
 		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'Reasoning effort changed to low')
+		await frameShows(harness.lastFrame, 'Reasoning: low (this session).')
 
 		await submit(harness, '/permissions')
 		await frameShows(harness.lastFrame, 'Ask before changes')
@@ -843,13 +844,13 @@ describe('publishing a picker selection', () => {
 		await tick(80)
 
 		await submit(harness, '/effort max')
-		await frameShows(harness.lastFrame, 'Reasoning effort changed to max')
+		await frameShows(harness.lastFrame, 'Reasoning: max (this session).')
 		await submit(harness, 'first turn')
 		await vi.waitFor(() => expect(efforts).toEqual(['max']))
 		await frameShows(harness.lastFrame, 'Type a message')
 
 		await submit(harness, '/effort default')
-		await frameShows(harness.lastFrame, 'reset to the provider default')
+		await frameShows(harness.lastFrame, 'Reasoning: provider default.')
 		await submit(harness, 'second turn')
 		await vi.waitFor(() => expect(efforts).toEqual(['max', undefined]))
 	})
@@ -874,7 +875,7 @@ describe('publishing a picker selection', () => {
 		await tick(80)
 
 		harness.stdin.write('\x1b[1;2A')
-		await frameShows(harness.lastFrame, 'Reasoning effort changed to xhigh')
+		await frameShows(harness.lastFrame, 'Reasoning: xhigh (this session).')
 		harness.stdin.write('\x1b[1;2A')
 		await frameShows(harness.lastFrame, 'already at the highest shortcut level (xhigh)')
 		await submit(harness, 'raised once')
@@ -882,9 +883,9 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Type a message')
 
 		await submit(harness, '/effort default')
-		await frameShows(harness.lastFrame, 'reset to the provider default')
+		await frameShows(harness.lastFrame, 'Reasoning: provider default.')
 		harness.stdin.write('\x1b[1;2B')
-		await frameShows(harness.lastFrame, 'Reasoning effort changed to medium')
+		await frameShows(harness.lastFrame, 'Reasoning: medium (this session).')
 		await submit(harness, 'lowered once')
 		await vi.waitFor(() => expect(efforts).toEqual(['xhigh', 'medium']))
 	})
@@ -951,7 +952,7 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
 		await submit(harness, '/effort max')
-		await frameShows(harness.lastFrame, 'Reasoning effort changed to max')
+		await frameShows(harness.lastFrame, 'Reasoning: max (this session).')
 
 		await submit(harness, 'unsupported premise')
 		await vi.waitFor(() => expect(aSends).toBe(1))
@@ -1103,7 +1104,7 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'Type a message')
 		await tick(80)
 		await submit(harness, '/effort max')
-		await frameShows(harness.lastFrame, 'Reasoning effort changed to max')
+		await frameShows(harness.lastFrame, 'Reasoning: max (this session).')
 		await submit(harness, '/model')
 		await frameShows(harness.lastFrame, 'Choose a model')
 		harness.stdin.write('p')
@@ -1131,7 +1132,7 @@ describe('publishing a picker selection', () => {
 		await frameShows(lastFrame, 'Choose a provider')
 		stdin.write('\x1B')
 		await frameShows(lastFrame, 'Type a message')
-		expect(lastFrame()).toContain('a-session')
+		expect(lastFrame()).toContain('a-model max')
 		expect(closeA).not.toHaveBeenCalled()
 		await submit(harness, 'still use max')
 		await vi.waitFor(() => expect(aEfforts).toEqual(['max']))
@@ -1142,9 +1143,10 @@ describe('publishing a picker selection', () => {
 		const closeA = vi.fn(async () => {})
 		const closeB = vi.fn(async () => {})
 		const unavailable = 'B provider is unavailable'
+		const sendA = vi.fn(sessionFixture().send)
 		createSession = async (prefs) => {
 			const id = prefs.providers[0]?.id
-			if (id !== 'deepseek') return sessionFixture('a-session', closeA)
+			if (id !== 'deepseek') return { ...sessionFixture('a-session', closeA), send: sendA }
 			return {
 				...sessionFixture('b-session', closeB),
 				hasProvider: false,
@@ -1153,7 +1155,7 @@ describe('publishing a picker selection', () => {
 		}
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 24 })
 		mountedScreens.push(screen)
-		await screenShows(screen, 'Connected to a-session')
+		await screenShows(screen, 'Type a message')
 		screen.press('/model')
 		await screen.waitForRender()
 		screen.press('\r')
@@ -1177,8 +1179,12 @@ describe('publishing a picker selection', () => {
 		await screenShows(screen, 'Choose a provider')
 		screen.press('\x1B')
 		await screenShows(screen, 'Type a message')
-		expect(screen.viewport().join('\n')).toContain('a-session')
+		expect(screen.viewport().join('\n')).toContain('a-model')
 		expect(closeA).not.toHaveBeenCalled()
+		screen.press('still use the original provider')
+		await screen.waitForRender()
+		screen.press('\r')
+		await vi.waitFor(() => expect(sendA).toHaveBeenCalledTimes(1))
 	})
 
 	it('disposes a typed-credential session when its picker operation is withdrawn', async () => {
@@ -1212,10 +1218,13 @@ describe('publishing a picker selection', () => {
 describe('cancelling the picker opened by /model', () => {
 	it('keeps one terminal-owned banner through a complete model-picker round trip', async () => {
 		detectedProviders = DETECTED
-		createSession = async () => sessionFixture('catalog-provider')
+		const create = vi.fn(async () => sessionFixture('catalog-provider'))
+		createSession = create
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 24 })
 		mountedScreens.push(screen)
-		await screenShows(screen, 'Connected to catalog-provider')
+		await screenShows(screen, 'a-model default')
+		expect(create).toHaveBeenCalledTimes(1)
+		expect(screen.scrollback().join('\n')).not.toContain('Connected to catalog-provider')
 
 		screen.press('/model')
 		await screen.waitForRender()
@@ -1223,11 +1232,12 @@ describe('cancelling the picker opened by /model', () => {
 		await screenShows(screen, 'a-model (current)')
 		expect(screen.viewport().join('\n')).toContain('Choose a model')
 		screen.press('\r')
-		await screenMatchCount(screen, /Connected to catalog-provider/g, 2)
+		await screenMatchCount(screen, /Connected to catalog-provider/g, 1)
+		expect(create).toHaveBeenCalledTimes(2)
 
 		const painted = screen.scrollback().join('\n')
 		expect(painted.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)
-		expect(painted.match(/Connected to catalog-provider/g)).toHaveLength(2)
+		expect(painted.match(/Connected to catalog-provider/g)).toHaveLength(1)
 	})
 
 	it('returns to the session that was already running', async () => {
@@ -1451,7 +1461,7 @@ describe('subscription selection from the ready TUI', () => {
 
 		harness.stdin.write('\r')
 		await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2))
-		await frameShows(harness.lastFrame, 'Type a message')
+		await frameShows(harness.lastFrame, 'Connected to codex-provider')
 
 		expect(writePrefs).toHaveBeenCalledWith({
 			version: 3,
@@ -1460,41 +1470,50 @@ describe('subscription selection from the ready TUI', () => {
 		})
 	})
 
-	it('finishes Claude browser sign-in in the picker that started it', async () => {
-		const completeWithPastedCode = vi.fn(async () => ({
-			ok: true as const,
-			credential: { accessToken: 'not-a-real-token' },
-			storedAt: '/home/test/.namzu/credentials.json',
-		}))
-		const cancel = vi.fn()
-		beginLogin = async () => ({
-			url: 'https://browser.example.test/authorize?state=test',
-			redirectUri: 'https://callback.example.test/oauth/code',
-			completeWithPastedCode,
-			cancel,
-		})
-		const harness = render(<App ctx={ctx} />)
-		mounted.push(harness)
-		await frameShows(harness.lastFrame, 'Type a message')
-		await tick(80)
+	it.each([true, false])(
+		'finishes Claude browser sign-in in its picker (saved preferences: %s)',
+		async (hasSavedPreferences) => {
+			const completeWithPastedCode = vi.fn(async () => ({
+				ok: true as const,
+				credential: { accessToken: 'not-a-real-token' },
+				storedAt: '/home/test/.namzu/credentials.json',
+			}))
+			const cancel = vi.fn()
+			beginLogin = async () => ({
+				url: 'https://browser.example.test/authorize?state=test',
+				redirectUri: 'https://callback.example.test/oauth/code',
+				completeWithPastedCode,
+				cancel,
+			})
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
 
-		await submit(harness, '/login')
-		await frameShows(harness.lastFrame, 'Choose a subscription')
-		expect(harness.lastFrame()).toContain('Anthropic (Claude)')
-		expect(harness.lastFrame()).toContain('OpenAI (Codex subscription)')
+			await submit(harness, '/login')
+			await frameShows(harness.lastFrame, 'Choose a subscription')
+			expect(harness.lastFrame()).toContain('Anthropic (Claude)')
+			expect(harness.lastFrame()).toContain('OpenAI (Codex subscription)')
 
-		harness.stdin.write('\r')
-		await frameShows(harness.lastFrame, 'Complete Anthropic (Claude) sign-in')
-		expect(harness.lastFrame()).toContain('paste it below and press enter')
-		await tick()
-		harness.stdin.write('copied-code')
-		await tick()
-		harness.stdin.write('\r')
+			harness.stdin.write('\r')
+			await frameShows(harness.lastFrame, 'Complete Anthropic (Claude) sign-in')
+			expect(harness.lastFrame()).toContain('paste it below and press enter')
+			await tick()
+			withSession = hasSavedPreferences
+			detectedProviders = [CLAUDE_DEVICE]
+			harness.stdin.write('copied-code')
+			await tick()
+			harness.stdin.write('\r')
 
-		await vi.waitFor(() => expect(completeWithPastedCode).toHaveBeenCalledWith('copied-code'))
-		await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
-		expect(harness.lastFrame()).not.toContain('copied-code')
-	})
+			await vi.waitFor(() => expect(completeWithPastedCode).toHaveBeenCalledWith('copied-code'))
+			await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
+			await frameShows(
+				harness.lastFrame,
+				`Connected to ${hasSavedPreferences ? 'openai' : 'anthropic'}-provider`,
+			)
+			expect(harness.lastFrame()).not.toContain('copied-code')
+		},
+	)
 
 	it('routes /login through the Claude-or-Codex picker and starts the chosen device flow', async () => {
 		const cancel = vi.fn()
