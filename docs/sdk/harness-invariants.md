@@ -82,6 +82,34 @@ these Linux results do not verify its behavior on Windows or remote sandboxes.
 
 ## Delegation accounting
 
+Project `maxDelegationWidth` limits live direct children: pending and active
+subsessions consume slots, while idle, failed and archived history remains
+readable without consuming capacity. The default remains eight. This changes
+the former lifetime child-count interpretation; hosts that require a lifetime
+quota must enforce that separately. Depth limits still apply to ancestry.
+
+`AgentManager` defaults to `capacityBehavior: 'reject'`, which refuses a full
+live width immediately. With `capacityBehavior: 'queue'`, excess work receives
+a stable pending task handle and waits in FIFO order across parent runs sharing
+the same parent Session. `maxPendingTasks` bounds queued work across the manager
+(default 128). Queued tasks do not reserve tokens, construct providers or create
+child workspaces until admitted. `CreateTaskOptions.beforeStart` revalidates
+host authority at admission and may run repeatedly while waiting; it must be
+safe to repeat. The CLI uses it to reread the live parent scope and Project/Topic
+state. Queueing does not approve a tool call.
+
+Cancellation removes queued work before it starts. A running child's slot is
+released after its invocation settles, so an early cancellation notification
+cannot authorize an overlapping replacement while the old invocation still
+runs. Limits and historical results survive task-handle eviction.
+
+The CLI enables queueing. A ten-task request with eight available slots runs
+eight children and retains two queued tasks; receipts distinguish those states.
+Queue mode divides the remaining token allowance among the unoccupied live
+slots plus one parent share, capped by `maxBudgetFraction`. This avoids geometric
+allocations that starved later children and left the parent unable to answer
+operator input. Budgets still bound the complete delegation tree.
+
 Interactive delegation can release its wait when operator input arrives. The
 tool returns a receipt naming the running task; its child stays owned by the
 same parent run. The parent receives input after every outstanding tool call

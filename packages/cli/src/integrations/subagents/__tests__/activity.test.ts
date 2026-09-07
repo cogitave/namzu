@@ -140,6 +140,63 @@ describe('the CLI sub-agent activity monitor', () => {
 		expect(monitor.getSnapshot()[0]?.latestActivity).toContain('public interim result')
 	})
 
+	it('keeps a named workflow across tool batches without inventing another phase', () => {
+		const monitor = new SubagentActivityMonitor()
+		for (const [batchId, phase, phaseOrder] of [
+			['batch-one', 'Research', 0],
+			['batch-two', 'Research', 0],
+			['batch-three', 'Verify', 1],
+		] as const) {
+			monitor.begin({
+				agentId: batchId,
+				description: batchId,
+				prompt: batchId,
+				workflowId: 'parent-one',
+				workflow: 'Audit',
+				batchId,
+				phase,
+				phaseOrder,
+			})
+		}
+		const snapshot = monitor.getSnapshot()
+		expect(new Set(snapshot.map((entry) => entry.workflowGroupId)).size).toBe(1)
+		expect(snapshot[0]?.phaseId).toBe(snapshot[1]?.phaseId)
+		expect(snapshot[2]?.phaseId).not.toBe(snapshot[0]?.phaseId)
+	})
+
+	it('separates repeated named work in another run and unlabelled concurrent batches', () => {
+		const monitor = new SubagentActivityMonitor()
+		for (const input of [
+			{ workflowId: 'parent-one', workflow: 'Audit', batchId: 'batch-one' },
+			{ workflowId: 'parent-two', workflow: 'Audit', batchId: 'batch-one' },
+			{ workflowId: 'parent-one', batchId: 'batch-one' },
+			{ workflowId: 'parent-one', batchId: 'batch-two' },
+		])
+			monitor.begin({ agentId: 'worker', description: 'inspect', prompt: 'inspect', ...input })
+		expect(new Set(monitor.getSnapshot().map((entry) => entry.workflowGroupId)).size).toBe(4)
+		expect(new Set(monitor.getSnapshot().map((entry) => entry.phaseId)).size).toBe(4)
+	})
+
+	it('keeps a queued child open until it starts and settles', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'worker', description: 'ninth', prompt: 'wait' })
+		tracker.onEvent({
+			type: 'agent_pending',
+			runId,
+			taskId,
+			parentAgentId: 'namzu',
+			childAgentId: 'worker',
+			depth: 0,
+		})
+		expect(monitor.getSnapshot()[0]).toMatchObject({ status: 'queued', latestActivity: 'Queued' })
+		tracker.settle({ ...handle('pending'), completedAt: undefined })
+		expect(monitor.getSnapshot()[0]).not.toHaveProperty('completedAt')
+		tracker.onEvent({ type: 'run_started', runId })
+		expect(monitor.getSnapshot()[0]?.status).toBe('working')
+		tracker.settle(handle())
+		expect(monitor.getSnapshot()[0]?.status).toBe('completed')
+	})
+
 	it('owns events that arrive before the scheduler returns a handle', () => {
 		const monitor = new SubagentActivityMonitor()
 		const tracker = monitor.begin({

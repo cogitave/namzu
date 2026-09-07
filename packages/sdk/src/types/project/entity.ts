@@ -18,6 +18,7 @@ import type { ProjectId } from '../session/ids.js'
  */
 export interface ProjectConfig {
 	maxDelegationDepth: number
+	/** Maximum pending or active direct delegations; completed history does not consume capacity. */
 	maxDelegationWidth: number
 	maxInterventionDepth: number
 	sharedMemoryStores?: readonly MemoryStoreRef[]

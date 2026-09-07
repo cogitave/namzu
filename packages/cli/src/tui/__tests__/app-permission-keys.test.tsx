@@ -380,8 +380,11 @@ describe('the permission prompt', () => {
 		const approval = lastFrame() ?? ''
 
 		expect(approval).toContain('Start 4 agents')
-		expect(approval).toContain('1. API research')
-		expect(approval).toContain('4. Delivery plan')
+		expect(approval).toContain('1. API research · general-purpose (default)')
+		expect(approval).toContain('4. Delivery plan · general-purpose (default)')
+		expect(approval).toContain('❯ 1. Start these 4 agents')
+		expect(approval).toContain('2. Start and allow all tools for this session')
+		expect(approval).toContain('3. Do not start')
 		expect(approval).not.toContain('"calls"')
 		expect(approval).not.toContain('agent-call-0')
 
@@ -389,6 +392,7 @@ describe('the permission prompt', () => {
 		stdin.write('y')
 		await decisionSettles()
 		await tick(100)
+		expect(decisions).toEqual([{ kind: 'approve' }])
 
 		const working = lastFrame() ?? ''
 		expect(working).toContain('Working')

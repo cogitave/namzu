@@ -109,7 +109,16 @@ function agentCohortKey(agent: SubagentActivity): string {
 	return JSON.stringify([agent.workflowId, agent.batchId])
 }
 
-export type AgentCockpitFocus = 'phases' | 'agents'
+export type AgentCockpitFocus = 'workflows' | 'phases' | 'agents'
+
+export interface AgentWorkflow {
+	readonly id: string
+	readonly name: string
+	readonly startedAt: number
+	readonly status: SubagentActivityStatus
+	readonly phases: readonly AgentPhase[]
+	readonly agents: readonly SubagentActivity[]
+}
 
 export interface AgentPhase {
 	readonly id: string
@@ -144,7 +153,13 @@ export function AgentCockpit({
 	terminalRows,
 	terminalColumns,
 }: AgentCockpitProps) {
-	const phases = agentPhases(agents)
+	const workflows = agentWorkflows(agents)
+	const workflowIndex = Math.max(
+		0,
+		workflows.findIndex((workflow) => workflow.phases.some((phase) => phase.id === selectedPhaseId)),
+	)
+	const workflow = workflows[workflowIndex]
+	const phases = workflow?.phases ?? []
 	const selectedPhaseIndex = Math.max(
 		0,
 		phases.findIndex((phase) => phase.id === selectedPhaseId),
@@ -156,10 +171,61 @@ export function AgentCockpit({
 		phaseAgents.findIndex((agent) => agent.viewId === selectedId),
 	)
 	const now = useLiveNow(agents.some((agent) => agent.completedAt === undefined))
-	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
+	const active = workflow?.agents.filter((agent) => !isTerminalStatus(agent.status)).length ?? 0
 	const wide = agentCockpitIsWide(terminalColumns)
 	const compact = terminalRows < 20
 	const sideBySide = wide
+	if (focus === 'workflows') {
+		const { items } = selectionWindow(workflows, workflowIndex, agentWorkflowPageSize(terminalRows))
+		return (
+			<Box
+				flexDirection="column"
+				borderStyle="single"
+				borderColor={theme.border.default}
+				paddingX={1}
+			>
+				<Text color={theme.accent.assistant} bold wrap="truncate-end">
+					Workflows · {workflowIndex + 1}/{workflows.length}
+				</Text>
+				{compact ? null : (
+					<Text color={theme.text.muted} wrap="truncate-end">
+						Select a workflow to inspect its phases and agents.
+					</Text>
+				)}
+				<Box flexDirection="column" paddingTop={compact ? 0 : 1}>
+					{items.map((item) => (
+						<Box key={item.id} height={1} flexShrink={0}>
+							<Box width={4} flexShrink={0}>
+								<Text color={item.id === workflow?.id ? theme.accent.assistant : theme.text.muted}>
+									{item.id === workflow?.id ? '›' : ' '} {statusGlyph(item.status)}
+								</Text>
+							</Box>
+							<Box flexGrow={1} minWidth={0}>
+								<Text color={theme.text.primary} bold={item.id === workflow?.id} wrap="truncate-end">
+									{oneLine(item.name)}
+								</Text>
+							</Box>
+							<Box flexShrink={0} marginLeft={1}>
+								<Text color={statusColor(item.status)} wrap="truncate-end">
+									{terminalColumns >= 70
+										? `${item.phases.length} ${item.phases.length === 1 ? 'phase' : 'phases'} · `
+										: ''}
+									{item.agents.length} agents · {statusLabel(item.status)}
+								</Text>
+							</Box>
+						</Box>
+					))}
+				</Box>
+				<Box paddingTop={compact ? 0 : 1}>
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{terminalColumns >= 60
+							? '↑↓ navigate · PgUp/PgDn jump · enter select · esc return'
+							: '↑↓ · enter select · esc return'}
+					</Text>
+				</Box>
+			</Box>
+		)
+	}
 	const navigation =
 		terminalColumns >= 90
 			? '←→ pane · ↑↓ navigate · PgUp/PgDn jump · enter select · esc return'
@@ -184,13 +250,15 @@ export function AgentCockpit({
 				</Box>
 				<Box flexShrink={0} marginLeft={1}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{active} active · {agents.length} total
+						{active} active · {workflow?.agents.length ?? 0} total
 					</Text>
 				</Box>
 			</Box>
 			{compact ? null : (
 				<Text color={theme.text.muted} wrap="truncate-end">
-					Select a phase, then inspect a child.
+					{workflows.length > 1
+						? 'Select a phase, then inspect a child. Esc returns to workflows.'
+						: 'Select a phase, then inspect a child.'}
 				</Text>
 			)}
 			<Box flexDirection={sideBySide ? 'row' : 'column'} paddingTop={compact ? 0 : 1}>
@@ -259,7 +327,6 @@ function PhasePane({
 	readonly pageSize: number
 }) {
 	const { start, items } = selectionWindow(phases, selected, pageSize)
-	const multipleWorkflows = new Set(phases.map((phase) => phase.workflowId)).size > 1
 	return (
 		<>
 			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
@@ -281,7 +348,7 @@ function PhasePane({
 								wrap="truncate-end"
 							>
 								{phase.order !== undefined ? `${phase.order + 1} ` : ''}
-								{oneLine(multipleWorkflows ? `${phase.workflow} / ${phase.name}` : phase.name)}
+								{oneLine(phase.name)}
 							</Text>
 						</Box>
 						<Box flexShrink={0} marginLeft={1}>
@@ -350,6 +417,30 @@ function AgentPane({
 
 export function agentCockpitIsWide(terminalColumns: number): boolean {
 	return Math.max(0, terminalColumns - COCKPIT_FRAME_COLUMNS) >= WIDE_COCKPIT_INNER_COLUMNS
+}
+
+/** Group retained work before exposing phases. Labels do not create execution dependencies. */
+export function agentWorkflows(agents: readonly SubagentActivity[]): readonly AgentWorkflow[] {
+	const groups = new Map<string, SubagentActivity[]>()
+	for (const agent of agents) {
+		const group = groups.get(agent.workflowGroupId)
+		if (group) group.push(agent)
+		else groups.set(agent.workflowGroupId, [agent])
+	}
+	return [...groups]
+		.map(([id, members]) => ({
+			id,
+			name: members[0]?.workflow ?? 'Delegated work',
+			startedAt: Math.min(...members.map((agent) => agent.startedAt)),
+			status: phaseStatus(members),
+			phases: agentPhases(members),
+			agents: members,
+		}))
+		.sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id))
+}
+
+export function agentWorkflowPageSize(terminalRows: number): number {
+	return Math.max(1, Math.min(MAX_PICKER_ROWS, terminalRows - 10))
 }
 
 export function agentPhases(agents: readonly SubagentActivity[]): readonly AgentPhase[] {
@@ -657,6 +748,7 @@ function distinctActivity(agent: SubagentActivity): string | undefined {
 function phaseStatus(agents: readonly SubagentActivity[]): SubagentActivityStatus {
 	if (agents.some((agent) => agent.status === 'failed')) return 'failed'
 	if (agents.some((agent) => agent.status === 'working')) return 'working'
+	if (agents.some((agent) => agent.status === 'queued')) return 'queued'
 	if (agents.some((agent) => agent.status === 'starting')) return 'starting'
 	if (agents.some((agent) => agent.status === 'cancelled')) return 'cancelled'
 	return 'completed'
@@ -680,6 +772,7 @@ function isTerminalStatus(status: SubagentActivityStatus): boolean {
 function statusGlyph(status: SubagentActivityStatus): string {
 	switch (status) {
 		case 'starting':
+		case 'queued':
 			return '◌'
 		case 'working':
 			return '●'
@@ -703,6 +796,7 @@ function statusColor(status: SubagentActivityStatus): string {
 		case 'failed':
 			return theme.status.error
 		case 'starting':
+		case 'queued':
 		case 'working':
 			return theme.accent.assistant
 		case 'cancelled':

@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	DefaultPathBuilder,
-	DelegationCapacityExceeded,
 	type LLMProvider,
 	MockLLMProvider,
 	type RunId,
@@ -62,21 +61,35 @@ async function setup(width: number, buildProvider?: () => LLMProvider) {
 }
 
 describe('parallel runs share their actual parent Session capacity', () => {
-	it('admits only one sibling across two concurrent runs when Session width is one', async () => {
-		const { runtime, first, second, task } = await setup(1)
+	it('queues siblings across concurrent runs and reuses a released slot', async () => {
+		let release!: () => void
+		const held = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		let started = 0
+		const provider = (): LLMProvider => ({
+			id: 'held',
+			name: 'Held',
+			async *chatStream(params) {
+				started++
+				await held
+				yield* new MockLLMProvider({ turns: [{ text: 'done' }] }).chatStream(params)
+			},
+		})
+		const { runtime, first, second, task } = await setup(1, provider)
 		try {
-			const results = await Promise.allSettled([first.createTask(task), second.createTask(task)])
-			const admitted = results.filter((result) => result.status === 'fulfilled')
-			const refused = results.filter((result) => result.status === 'rejected')
-			expect(admitted).toHaveLength(1)
-			expect(refused).toHaveLength(1)
-			expect(refused[0]?.reason).toBeInstanceOf(DelegationCapacityExceeded)
-			expect(refused[0]?.reason.details.dimension).toBe('width')
-			const owner = first.listTasks().length ? first : second
-			const handle = owner.listTasks()[0]
-			if (!handle) throw new Error('The admitted child disappeared')
-			expect((await owner.waitForTask(handle.taskId)).state).toBe('completed')
+			const [mine, theirs] = await Promise.all([first.createTask(task), second.createTask(task)])
+			await vi.waitFor(() => expect(started).toBe(1))
+			expect(
+				[...first.listTasks(), ...second.listTasks()].filter((task) => task.state === 'pending'),
+			).toHaveLength(1)
+			release()
+			expect((await first.waitForTask(mine.taskId)).state).toBe('completed')
+			expect((await second.waitForTask(theirs.taskId)).state).toBe('completed')
+			expect(started).toBe(2)
+			expect(first.getTask(mine.taskId)?.result?.result).toBe('done')
 		} finally {
+			release()
 			await runtime.close()
 		}
 	})
@@ -124,14 +137,11 @@ describe('parallel runs share their actual parent Session capacity', () => {
 		}
 	})
 
-	it('refreshes real limits and refuses archived metadata through an already acquired gateway', async () => {
+	it('retains completed work without consuming width and refuses archived metadata', async () => {
 		const { runtime, parent, first, second, task } = await setup(1)
 		try {
 			const firstChild = await first.createTask(task)
 			await first.waitForTask(firstChild.taskId)
-			await expect(second.createTask(task)).rejects.toBeInstanceOf(DelegationCapacityExceeded)
-			parent.project.config.maxDelegationWidth = 2
-			parent.project.updatedAt = new Date(parent.project.updatedAt.getTime() + 1)
 			const secondChild = await second.createTask(task)
 			await second.waitForTask(secondChild.taskId)
 			parent.project.status = 'archived'
@@ -140,6 +150,38 @@ describe('parallel runs share their actual parent Session capacity', () => {
 			parent.topic.status = 'archived'
 			await expect(first.createTask(task)).rejects.toThrow(/archived/i)
 		} finally {
+			await runtime.close()
+		}
+	})
+	it('rechecks live parent metadata before a queued task starts', async () => {
+		let release!: () => void
+		const held = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		let started = 0
+		const { runtime, parent, first, second, task } = await setup(1, () => ({
+			id: 'held',
+			name: 'Held',
+			async *chatStream(params) {
+				started++
+				await held
+				yield* new MockLLMProvider({ turns: [{ text: 'done' }] }).chatStream(params)
+			},
+		}))
+		try {
+			const firstChild = await first.createTask(task)
+			await vi.waitFor(() => expect(started).toBe(1))
+			const queued = await second.createTask(task)
+			expect(queued.state).toBe('pending')
+			parent.project.status = 'archived'
+			release()
+			await first.waitForTask(firstChild.taskId)
+			const refused = await second.waitForTask(queued.taskId)
+			expect(refused.state).toBe('failed')
+			expect(refused.result?.lastError).toMatch(/archived|closed/i)
+			expect(started).toBe(1)
+		} finally {
+			release()
 			await runtime.close()
 		}
 	})

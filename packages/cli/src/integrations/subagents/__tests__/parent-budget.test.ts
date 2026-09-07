@@ -15,8 +15,8 @@ afterEach(() => {
 
 describe('CLI delegation uses the parent token limit', () => {
 	it.each([
-		{ tokenBudget: 1_000, expectedChildBudget: 500 },
-		{ tokenBudget: undefined, expectedChildBudget: 500_000 },
+		{ tokenBudget: 1_000, expectedChildBudget: 111 },
+		{ tokenBudget: undefined, expectedChildBudget: 111_111 },
 		{ tokenBudget: 0, expectedChildBudget: 200_000 },
 		{ tokenBudget: 1, expectedChildBudget: undefined },
 	])('reserves from $tokenBudget without inventing extra budget', async (testCase) => {
@@ -48,7 +48,9 @@ describe('CLI delegation uses the parent token limit', () => {
 			if (testCase.expectedChildBudget === undefined) {
 				expect(result.success).toBe(false)
 				expect(provider.requests).toHaveLength(0)
-				expect((await runtime.gatewayForRun(parent.scope.runId)).listTasks()).toHaveLength(0)
+				expect((await runtime.gatewayForRun(parent.scope.runId)).listTasks()).toMatchObject([
+					{ state: 'failed' },
+				])
 				return
 			}
 			expect(result.success).toBe(true)

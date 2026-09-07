@@ -13,7 +13,7 @@ import {
 	drainQuery,
 	generateRunId,
 } from '@namzu/sdk'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
@@ -221,6 +221,210 @@ describe('operator input releases delegation waits without cancelling children',
 		},
 	)
 
+	it.each([false, true])(
+		'keeps ten tasks and a metered parent responsive with eight slots (cancel=%s)',
+		async (cancel) => {
+			const cwd = mkdtempSync(join(tmpdir(), 'namzu-ten-delegates-'))
+			workdirs.push(cwd)
+			const parent = await subagentParentFixture(cwd)
+			const inbox = new InputInbox()
+			const releases = Array.from({ length: 10 }, () => deferred<void>())
+			const started = Array.from({ length: 10 }, () => deferred<AbortSignal>())
+			const finished = Array.from({ length: 10 }, () => deferred<void>())
+			let childCount = 0
+			let active = 0
+			let peak = 0
+			let scopeReads = 0
+			const parentResponseRelease = deferred<void>()
+			const runtime = await createSubagentRuntime({
+				resolveParent: async (runId) => {
+					scopeReads++
+					return parent.resolveParent(runId)
+				},
+				resolveWaitForInbound: () => inbox.wait,
+				cwd,
+				model: 'mock-model',
+				tokenBudget: 1_000_000,
+				buildTools: () => new ToolRegistry(),
+				buildProvider: () => {
+					const index = childCount++
+					return {
+						id: `held-child-${index}`,
+						name: 'Metered held child',
+						async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+							active++
+							peak = Math.max(peak, active)
+							try {
+								// Charge realistic prompt usage while requests remain in flight.
+								// A zero-usage fake hid starvation of the parent's next response.
+								yield {
+									id: `held-${index}`,
+									delta: {},
+									usage: {
+										promptTokens: 22_000,
+										completionTokens: 0,
+										totalTokens: 22_000,
+										cachedTokens: 0,
+										cacheWriteTokens: 0,
+									},
+								}
+								started[index]!.resolve(params.signal as AbortSignal)
+								await releases[index]!.promise
+								yield* new MockLLMProvider({
+									turns: [
+										{
+											text: `child-result-${index}`,
+											usage: { promptTokens: 22_000, completionTokens: 500, totalTokens: 22_500 },
+										},
+									],
+								}).chatStream(params)
+							} finally {
+								active--
+								finished[index]!.resolve()
+							}
+						},
+					} satisfies LLMProvider
+				},
+			})
+			const gateway = await runtime.gatewayForRun(parent.scope.runId)
+			const completionInbox = await runtime.completionInboxForRun(parent.scope.runId)
+			const requests = Array.from({ length: 20 }, () => deferred<ChatCompletionParams>())
+			const script = new MockLLMProvider({
+				nextTurn: (_params, index) =>
+					index === 0
+						? {
+								toolCalls: Array.from({ length: 10 }, (_, i) => ({
+									id: `call_child_${i}`,
+									name: 'Agent',
+									args: {
+										description: `child ${i}`,
+										prompt: `complete task ${i}`,
+										subagent_type: 'explore',
+									},
+								})),
+								usage: { promptTokens: 29_000, completionTokens: 1_000, totalTokens: 30_000 },
+							}
+						: {
+								text: 'I received your message; the tasks remain tracked.',
+								usage: { promptTokens: 20_000, completionTokens: 500, totalTokens: 20_500 },
+							},
+			})
+			let parentRequests = 0
+			const provider: LLMProvider = {
+				id: 'held-parent',
+				name: 'Parent with a held response',
+				async *chatStream(params) {
+					const index = parentRequests++
+					requests[index]!.resolve(params)
+					if (index === 2) await parentResponseRelease.promise
+					yield* script.chatStream(params)
+				},
+			}
+			const tools = new ToolRegistry()
+			tools.register(runtime.agentTool)
+			const caller = new AbortController()
+			const pending = drainQuery({
+				provider,
+				tools,
+				taskScheduler: gateway,
+				completionInbox,
+				inboundMessages: inbox.drain,
+				waitForInbound: inbox.wait,
+				runConfig: {
+					model: 'mock-model',
+					timeoutMs: 30_000,
+					tokenBudget: 1_000_000,
+					maxIterations: 20,
+					permissionMode: 'auto',
+				},
+				agentId: 'namzu',
+				agentName: 'namzu',
+				messages: [createUserMessage('delegate ten tasks')],
+				workingDirectory: cwd,
+				...parent.scope,
+				signal: caller.signal,
+			}).finally(() => runtime.releaseRun(parent.scope.runId))
+			try {
+				const signals = await Promise.all(started.slice(0, 8).map((entry) => entry.promise))
+				// The generic tool batch also has eight workers. The remaining two
+				// Agent calls enter the scheduler when steering releases those waits.
+				await inbox.waiting(8)
+				expect(childCount).toBe(8)
+				expect(gateway.budget!.remaining).toBeGreaterThan(40_000)
+				inbox.enqueue('Can we talk while all ten tasks are tracked?')
+				const response = await requests[1]!.promise
+				expect(response.messages.at(-1)?.content).toBe(
+					'Can we talk while all ten tasks are tracked?',
+				)
+				const receipts = response.messages.filter((message) => message.role === 'tool')
+				expect(receipts).toHaveLength(10)
+				expect(gateway.listTasks()).toHaveLength(10)
+				expect(gateway.listTasks().filter((task) => task.state === 'pending')).toHaveLength(2)
+				expect(new Set(receipts.map((message) => message.toolCallId)).size).toBe(10)
+				expect(
+					receipts.filter((message) => String(message.content).includes('queued')),
+				).toHaveLength(2)
+				expect(
+					receipts.filter((message) => String(message.content).includes('still running')),
+				).toHaveLength(8)
+				expect(receipts.every((message) => !String(message.content).includes('Error:'))).toBe(true)
+				await inbox.waiting(1)
+				inbox.enqueue('Keep those same ten tasks; do not restart any.')
+				expect((await requests[2]!.promise).messages.at(-1)?.content).toBe(
+					'Keep those same ten tasks; do not restart any.',
+				)
+				// A child releases its slot while the parent still owns an open
+				// provider request. Admission must wait for that receipt, not fail
+				// the ninth task or reserve the parent's unmeasured allowance.
+				expect(gateway.budget!.hasInFlightRequest).toBe(true)
+				releases[0]!.resolve()
+				await vi.waitFor(() =>
+					expect(gateway.listTasks().filter((task) => task.state === 'completed')).toHaveLength(1),
+				)
+				const readsAfterCompletion = scopeReads
+				await vi.waitFor(() => expect(scopeReads).toBeGreaterThan(readsAfterCompletion + 1))
+				expect(childCount).toBe(8)
+				expect(gateway.listTasks().filter((task) => task.state === 'pending')).toHaveLength(2)
+				expect(gateway.listTasks().filter((task) => task.state === 'failed')).toHaveLength(0)
+				expect(signals.every((signal) => !signal.aborted)).toBe(true)
+				if (cancel) caller.abort(new RunCancelled('user'))
+				else {
+					parentResponseRelease.resolve()
+					await started[8]!.promise
+					expect(childCount).toBe(9)
+					releases[1]!.resolve()
+					await started[9]!.promise
+					expect(childCount).toBe(10)
+					for (const release of releases) release.resolve()
+				}
+				const run = await pending
+				expect(run.status).toBe(cancel ? 'cancelled' : 'completed')
+				expect(run.stopReason).not.toBe('token_budget')
+				expect(peak).toBeLessThanOrEqual(8)
+				expect(inbox.pendingWaiters).toBe(0)
+				if (cancel) {
+					expect(childCount).toBe(8)
+					expect(signals.slice(1).every((signal) => signal.aborted)).toBe(true)
+				} else {
+					for (let i = 0; i < 10; i++)
+						expect(
+							run.messages.filter((message) =>
+								String(message.content).includes(`child-result-${i}`),
+							),
+						).toHaveLength(1)
+				}
+			} finally {
+				parentResponseRelease.resolve()
+				caller.abort(new RunCancelled('user'))
+				for (const release of releases) release.resolve()
+				await pending.catch(() => {})
+				await runtime.close()
+				await Promise.all(finished.slice(0, childCount).map((entry) => entry.promise))
+			}
+		},
+		30_000,
+	)
+
 	it('retrieves complete yielded output, releases a repeated wait, and refuses an unrelated task', async () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-delegation-retrieve-'))
 		workdirs.push(cwd)
@@ -228,7 +432,7 @@ describe('operator input releases delegation waits without cancelling children',
 		const inbox = new InputInbox()
 		const release = deferred<void>()
 		const started = deferred<void>()
-		const completeOutput = `begin:${'x'.repeat(5_000)}:complete-tail`
+		const completeOutput = `Task 1: 596ec65e-b063-401c-b1f7-a2b6cc4ce35a\nbegin:${'x'.repeat(5_000)}:complete-tail`
 		const otherRunId = generateRunId()
 		let requests = 0
 		const runtime = await createSubagentRuntime({
@@ -277,7 +481,9 @@ describe('operator input releases delegation waits without cancelling children',
 			release.resolve()
 			const result = await runtime.waitForTaskTool.execute({ task_id: taskId }, context)
 			expect(result.success).toBe(true)
-			expect(result.output).toBe(completeOutput)
+			expect(result.output).toBe(
+				`task_id: ${taskId}\nstatus: completed\n\nAgent result:\n${completeOutput}`,
+			)
 			expect(requests).toBe(1)
 			expect((await runtime.completionInboxForRun(parent.scope.runId)).drain()).toEqual([])
 			const refused = await runtime.waitForTaskTool.execute(

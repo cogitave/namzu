@@ -125,18 +125,100 @@ describe('buildPermissionSummary', () => {
 		const summary = buildPermissionSummary(review.text)
 		expect(summary.complete).toBe(true)
 		expect(summary.text.split('\n').slice(0, 4)).toEqual([
-			'1. API research',
-			'2. Security review',
-			'3. UX critique',
-			'4. Delivery plan',
+			'1. API research · general-purpose (default)',
+			'2. Security review · general-purpose (default)',
+			'3. UX critique · general-purpose (default)',
+			'4. Delivery plan · general-purpose (default)',
 		])
 		expect(summary.text).toContain('Task: API research')
 		expect(summary.text).toContain('Instructions: Complete api research and report evidence.')
-		expect(summary.text).toContain('Workflow: Product review')
-		expect(summary.text).toContain('Phase order: 1')
+		expect(summary.text).toContain('Workflow label: Product review')
+		expect(summary.text).toContain('Phase display order: 1')
 		expect(summary.text).toContain('Task: Delivery plan')
 		expect(summary.text).not.toContain('call_0')
 		expect(summary.text).not.toContain('"calls"')
+	})
+
+	it('identifies the default Agent capability before a long task prompt', () => {
+		const review = buildPermissionReview([
+			{
+				id: 'agent-call',
+				name: 'Agent',
+				input: {
+					description: 'Audit the SDK',
+					prompt: `${'Inspect the implementation.\n'.repeat(15)}Report every finding.`,
+					role: 'Report risks with evidence.',
+					workflow: 'SDK review',
+					phase: 'Analysis',
+					phase_order: 1,
+				},
+				isDestructive: false,
+			},
+		])
+		expect(review.ok).toBe(true)
+		if (!review.ok) return
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('Agent: general-purpose (default)')
+		expect(summary.text).toContain('Tools: files and commands, subject to approval rules')
+		expect(summary.text.indexOf('Role:')).toBeLessThan(summary.text.indexOf('Instructions:'))
+		expect(summary.text.indexOf('Phase label:')).toBeLessThan(summary.text.indexOf('Instructions:'))
+		expect(summary.text).toContain('Report every finding.')
+		expect(summary.text).not.toContain('Model:')
+	})
+
+	it('distinguishes read-only tools from task instructions and unknown configured types', () => {
+		const review = buildPermissionReview(
+			['explore', 'project-reviewer'].map((subagent_type) => ({
+				id: subagent_type,
+				name: 'Agent',
+				input: {
+					description: 'Inspect without changing files',
+					prompt: 'Read the SDK and report its structure.',
+					subagent_type,
+					role: 'Be thorough.',
+				},
+				isDestructive: false,
+			})),
+		)
+		expect(review.ok).toBe(true)
+		if (!review.ok) return
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain('1. Inspect without changing files · explore (read-only tools)')
+		expect(summary.text).toContain('Agent: explore (read-only tools)')
+		expect(summary.text).toContain('Tools: reading and searching only')
+		expect(summary.text).toContain('Agent: project-reviewer')
+		expect(summary.text.split('Agent: project-reviewer')[1]).not.toContain('Tools:')
+		expect(summary.text.split('Agent: project-reviewer')[1]).not.toContain('Model:')
+	})
+
+	it('keeps evolved Agent inputs exact-first and destructive batch members labelled', () => {
+		const review = buildPermissionReview([
+			{
+				id: 'agent-call',
+				name: 'Agent',
+				input: { description: 'Review', prompt: 'Read the files.', model: 'future-model' },
+				isDestructive: false,
+			},
+		])
+		expect(review.ok).toBe(true)
+		if (!review.ok) return
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.complete).toBe(false)
+		expect(summary.text).toContain('future-model')
+
+		const batch = buildPermissionReview(
+			[false, true].map((isDestructive, index) => ({
+				id: `call-${index}`,
+				name: 'Agent',
+				input: { description: 'Review', prompt: 'Read the files.' },
+				isDestructive,
+			})),
+		)
+		expect(batch.ok).toBe(true)
+		if (!batch.ok) return
+		expect(buildPermissionSummary(batch.text).text.split('\n')[1]).toContain(' · destructive')
 	})
 
 	it('shows a tool no formatter knows key by key, complete, with nothing hidden', () => {

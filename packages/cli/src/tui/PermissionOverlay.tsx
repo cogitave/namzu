@@ -103,7 +103,14 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 }
 
 /** The three answers; session approval applies to all tools. */
-export function permissionChoices(_toolCalls: readonly PermissionToolCall[]): readonly string[] {
+export function permissionChoices(toolCalls: readonly PermissionToolCall[]): readonly string[] {
+	if (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')) {
+		return [
+			toolCalls.length === 1 ? 'Start this agent' : `Start these ${toolCalls.length} agents`,
+			'Start and allow all tools for this session',
+			'Do not start',
+		]
+	}
 	return [
 		'Yes',
 		'Yes, allow all tools for this session',

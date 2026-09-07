@@ -1,4 +1,5 @@
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
+import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { GENAI } from '../../constants/telemetry/index.js'
 import type { AgentRegistry } from '../../registry/agent/definitions.js'
 import {
@@ -91,6 +92,18 @@ interface AgentManagerBaseDeps {
  */
 export type AgentManagerDeps = AgentManagerBaseDeps & TopicManagerDependency
 
+/** Internal backpressure: the parent's unmeasured request owns its budget until its receipt. */
+class ParentBudgetRequestPending extends Error {}
+
+interface PendingSpawn {
+	ready: boolean
+	readonly task: AgentTask
+	readonly options: SendMessageOptions
+	readonly context: AgentTaskContext
+	readonly listener?: RunEventListener
+	readonly removeAbortListener: () => void
+}
+
 interface ChildSpawnRecord {
 	subSessionId: SubSessionId
 	childSessionId: SessionId
@@ -141,6 +154,12 @@ export class AgentManager {
 	private spawnLocks: Map<SessionId, Promise<void>> = new Map()
 	private deps: AgentManagerDeps
 	private topicManager: TopicManager
+	private readonly pendingSpawns = new Map<SessionId, PendingSpawn[]>()
+	private readonly drainingParents = new Set<SessionId>()
+	private readonly executingTasks = new Set<TaskId>()
+	private readonly cancelingTasks = new Set<TaskId>()
+	private admissionTimer: ReturnType<typeof setTimeout> | undefined
+	private disposed = false
 
 	constructor(
 		registry: AgentRegistry,
@@ -149,6 +168,9 @@ export class AgentManager {
 	) {
 		this.registry = registry
 		this.config = { ...AGENT_MANAGER_DEFAULTS, ...config }
+		const maxPending = this.config.maxPendingTasks ?? 128
+		if (!Number.isSafeInteger(maxPending) || maxPending < 1)
+			throw new Error('maxPendingTasks must be a positive safe integer')
 		this.log = resolveLogger(deps.log).child({
 			[SCOPE_ATTRIBUTE]: 'manager/agent/lifecycle',
 		})
@@ -161,6 +183,182 @@ export class AgentManager {
 		context: AgentTaskContext,
 		listener?: RunEventListener,
 	): Promise<AgentTask> {
+		if (this.disposed) throw new Error('Agent manager is disposed')
+		if (this.config.capacityBehavior === 'queue')
+			return this.enqueueMessage(options, context, listener)
+		return this.startMessage(options, context, listener)
+	}
+
+	private async enqueueMessage(
+		options: SendMessageOptions,
+		context: AgentTaskContext,
+		listener?: RunEventListener,
+	): Promise<AgentTask> {
+		context.parentAbortController.signal.throwIfAborted()
+		if (context.depth >= this.config.maxDepth)
+			throw new Error(`Max task depth ${this.config.maxDepth} exceeded`)
+		if (options.tenantId !== context.tenantId)
+			throw new Error('Tenant mismatch: cross-tenant spawn rejected')
+		const definition = this.registry.getOrThrow(options.agentId)
+		const count = [...this.pendingSpawns.values()].reduce((sum, queue) => sum + queue.length, 0)
+		if (count >= (this.config.maxPendingTasks ?? 128))
+			throw new Error(
+				`Delegation queue is full (${this.config.maxPendingTasks ?? 128} pending tasks). Wait for existing tasks before submitting more work.`,
+			)
+		const task: AgentTask = {
+			taskId: generateTaskId(),
+			agentId: options.agentId,
+			agent: definition.typedAgent,
+			childAbortController: createChildAbortController(context.parentAbortController),
+			context,
+			state: 'pending',
+			pendingMessages: [],
+			createdAt: Date.now(),
+			runEventListener: listener,
+		}
+		this.instances.set(task.taskId, task)
+		const onAbort = (): void => {
+			// Before admission this observer owns cancellation. Once child scope
+			// exists, startup rollback may abort its controller for a configuration
+			// error; that is a failure, not a user cancellation.
+			if (task.context === context || context.parentAbortController.signal.aborted)
+				this.cancel(task.taskId, 'parent')
+		}
+		task.childAbortController.signal.addEventListener('abort', onAbort, { once: true })
+		const entry: PendingSpawn = {
+			ready: false,
+			task,
+			options,
+			context,
+			listener,
+			removeAbortListener: () =>
+				task.childAbortController.signal.removeEventListener('abort', onAbort),
+		}
+		const queue = this.pendingSpawns.get(options.parentSessionId) ?? []
+		queue.push(entry)
+		this.pendingSpawns.set(options.parentSessionId, queue)
+		this.emit({
+			type: 'pending',
+			taskId: task.taskId,
+			agentId: options.agentId,
+			parentAgentId: context.parentAgentId,
+			depth: context.depth,
+		})
+		try {
+			await listener?.({
+				type: 'agent_pending',
+				runId: context.parentRunId,
+				taskId: task.taskId,
+				parentAgentId: context.parentAgentId,
+				childAgentId: options.agentId,
+				depth: context.depth,
+			})
+			entry.ready = true
+		} catch (error) {
+			this.failAdmission(entry, error)
+		}
+		this.pumpAdmissions(options.parentSessionId)
+		return task
+	}
+
+	private pumpAdmissions(parentSessionId: SessionId): void {
+		if (this.disposed || this.drainingParents.has(parentSessionId)) return
+		this.drainingParents.add(parentSessionId)
+		void this.drainAdmissions(parentSessionId)
+			.finally(() => {
+				this.drainingParents.delete(parentSessionId)
+				// External handoffs and metadata changes have no manager event. A
+				// single slow, unref'ed timer observes those without spinning or
+				// keeping a host alive. Actual completions wake admission directly.
+				if (!this.disposed && this.pendingSpawns.size > 0 && !this.admissionTimer) {
+					this.admissionTimer = setTimeout(() => {
+						this.admissionTimer = undefined
+						for (const parent of this.pendingSpawns.keys()) this.pumpAdmissions(parent)
+					}, 250)
+					this.admissionTimer.unref?.()
+				}
+			})
+			.catch((error) =>
+				this.log.error('Delegation admission failed', {
+					'exception.message': toErrorMessage(error),
+				}),
+			)
+	}
+
+	private async drainAdmissions(parentSessionId: SessionId): Promise<void> {
+		const queue = this.pendingSpawns.get(parentSessionId)
+		if (!queue) return
+		while (!this.disposed && queue.length > 0) {
+			const entry = queue[0]
+			if (!entry) break
+			if (isTerminalAgentTaskState(entry.task.state)) {
+				entry.removeAbortListener()
+				queue.shift()
+				continue
+			}
+			// A concurrent enqueue can pump this same FIFO while the head's
+			// pending listener still owns its acknowledgement. Do not provision
+			// or spend until that acknowledgement succeeds.
+			if (!entry.ready) return
+			try {
+				await entry.options.beforeStart?.()
+				entry.task.childAbortController.signal.throwIfAborted()
+				await this.validateSpawn(entry.options, entry.context)
+				entry.task.childAbortController.signal.throwIfAborted()
+				await this.startMessage(entry.options, entry.context, entry.listener, entry.task)
+				entry.removeAbortListener()
+			} catch (error) {
+				if (
+					(error instanceof ParentBudgetRequestPending ||
+						(error instanceof DelegationCapacityExceeded && error.details.dimension === 'width')) &&
+					!isTerminalAgentTaskState(entry.task.state)
+				)
+					return
+				this.failAdmission(entry, error)
+			}
+			queue.shift()
+		}
+		if (queue.length === 0 && this.pendingSpawns.get(parentSessionId) === queue)
+			this.pendingSpawns.delete(parentSessionId)
+	}
+
+	private failAdmission(entry: PendingSpawn, reason: unknown): void {
+		entry.removeAbortListener()
+		const task = entry.task
+		if (isTerminalAgentTaskState(task.state)) return
+		task.childAbortController.abort(reason)
+		const error = toErrorMessage(reason)
+		task.result = {
+			runId: entry.context.parentRunId,
+			status: 'failed',
+			usage: { ...EMPTY_TOKEN_USAGE },
+			cost: { ...ZERO_COST },
+			iterations: 0,
+			durationMs: Date.now() - task.createdAt,
+			messages: [],
+			lastError: error,
+		}
+		task.state = 'failed'
+		task.completedAt = Date.now()
+		this.emit({ type: 'failed', taskId: task.taskId, error })
+		this.emitRunEvent(task, {
+			type: 'agent_failed',
+			runId: entry.context.parentRunId,
+			taskId: task.taskId,
+			error,
+		})
+		this.scheduleEviction(task.taskId)
+		this.resolveCompletionCallbacks(task.taskId)
+	}
+
+	private async startMessage(
+		options: SendMessageOptions,
+		context: AgentTaskContext,
+		listener?: RunEventListener,
+		queuedTask?: AgentTask,
+	): Promise<AgentTask> {
+		await options.beforeStart?.()
+		queuedTask?.childAbortController.signal.throwIfAborted()
 		if (context.depth >= this.config.maxDepth) {
 			throw new Error(
 				`Max task depth ${this.config.maxDepth} exceeded (current: ${context.depth}). Recursive agent delegation is limited to prevent resource exhaustion.`,
@@ -200,9 +398,32 @@ export class AgentManager {
 		// Reserve synchronously before provisioning yields. The authority is shared
 		// across managers and nested sessions, while the session lock below only
 		// serializes filesystem capacity checks.
+		// Queued siblings share the available budget with the parent. The first
+		// of eight children receives at most one ninth; later siblings receive
+		// comparable grants instead of a geometric 1/2, 1/4, ... starvation tail.
+		let budgetShares = 1
+		if (queuedTask) {
+			const project = await requireOpenProject(
+				this.deps.sessionStore,
+				context.projectId,
+				context.tenantId,
+				'spawn',
+			)
+			const children = await this.deps.sessionStore.getChildren(
+				options.parentSessionId,
+				context.tenantId,
+			)
+			const active = children.filter(
+				(child) =>
+					child.status !== 'idle' && child.status !== 'failed' && child.status !== 'archived',
+			).length
+			budgetShares = Math.max(2, project.config.maxDelegationWidth - active + 1)
+		}
+		context.parentAbortController.signal.throwIfAborted()
+		queuedTask?.childAbortController.signal.throwIfAborted()
 		const remaining = context.budget.remaining
 		const maxAllocation = Number.isFinite(remaining)
-			? Math.floor(remaining * this.config.maxBudgetFraction)
+			? Math.floor(Math.min(remaining * this.config.maxBudgetFraction, remaining / budgetShares))
 			: (options.budgetAllocation?.tokenBudget ??
 				(options.configOverrides?.tokenBudget === 0
 					? 200_000
@@ -217,6 +438,12 @@ export class AgentManager {
 				message: `Cannot spawn "${options.agentId}": the parent has ${remaining} tokens remaining; a child allocation must be a finite positive integer.`,
 			})
 		}
+		// No await between this check and reserve: a parent's response may start
+		// during the scope reads above. Its own in-flight request is temporary
+		// backpressure; descendant requests are expected during a fan-out.
+		// Invalid/zero allocations above still fail rather than waiting forever.
+		if (queuedTask && context.budget.hasInFlightRequest)
+			throw new ParentBudgetRequestPending('The parent provider request is still in flight')
 		const childBudget = context.budget.reserve(allocatedTokens)
 		let spawnRecord: ChildSpawnRecord
 		try {
@@ -230,9 +457,12 @@ export class AgentManager {
 		let childAbortController: AbortController | undefined
 		let agentTask: AgentTask | undefined
 		try {
-			childAbortController = createChildAbortController(context.parentAbortController)
+			childAbortController =
+				queuedTask?.childAbortController ??
+				createChildAbortController(context.parentAbortController)
 
-			const taskId = generateTaskId()
+			childAbortController.signal.throwIfAborted()
+			const taskId = queuedTask?.taskId ?? generateTaskId()
 
 			const childParentActor: ActorRef = {
 				kind: 'agent',
@@ -279,39 +509,41 @@ export class AgentManager {
 				...(resolvedDenies.length > 0 ? { toolDenies: resolvedDenies } : {}),
 			}
 
-			agentTask = {
+			agentTask = Object.assign(queuedTask ?? {}, {
 				taskId,
 				agentId: options.agentId,
 				agent,
 				childAbortController,
 				context: childContext,
 				state: 'pending',
-				pendingMessages: [],
-				createdAt: Date.now(),
+				pendingMessages: queuedTask?.pendingMessages ?? [],
+				createdAt: queuedTask?.createdAt ?? Date.now(),
 				runEventListener: listener,
-			}
+			} satisfies AgentTask)
 
 			childAbortController.signal.throwIfAborted()
 			this.instances.set(taskId, agentTask)
 			if (resolvedDenies.length > 0) spawnRecord.resolvedToolDenies = resolvedDenies
 			this.spawnRecords.set(taskId, spawnRecord)
-			this.emit({
-				type: 'pending',
-				taskId,
-				agentId: options.agentId,
-				parentAgentId: context.parentAgentId,
-				depth: context.depth,
-			})
-
-			if (listener) {
-				await listener({
-					type: 'agent_pending',
-					runId: context.parentRunId,
+			if (!queuedTask)
+				this.emit({
+					type: 'pending',
 					taskId,
+					agentId: options.agentId,
 					parentAgentId: context.parentAgentId,
-					childAgentId: options.agentId,
 					depth: context.depth,
 				})
+
+			if (listener) {
+				if (!queuedTask)
+					await listener({
+						type: 'agent_pending',
+						runId: context.parentRunId,
+						taskId,
+						parentAgentId: context.parentAgentId,
+						childAgentId: options.agentId,
+						depth: context.depth,
+					})
 
 				const lineage: Lineage = {
 					parentSessionId: spawnRecord.parentSessionId,
@@ -503,17 +735,35 @@ export class AgentManager {
 
 			await childBudget.flush()
 			childAbortController.signal.throwIfAborted()
-			this.runChild(agentTask, options, childConfig, listener).catch(async (err) => {
-				// A thrown invocation supplied no final usage receipt. Keep its
-				// reservation, including when its task handle was canceled or evicted.
-				let failure = err
-				try {
-					await childBudget.flush()
-				} catch (writeError) {
-					failure = writeError
-				}
-				this.markFailed(taskId, toErrorMessage(failure))
-			})
+			this.executingTasks.add(taskId)
+			const runningTask = agentTask
+			this.runChild(runningTask, options, childConfig, listener)
+				.catch(async (err) => {
+					// A thrown invocation supplied no final usage receipt. Keep its
+					// reservation, including when its task handle was canceled or evicted.
+					let failure = err
+					try {
+						await childBudget.flush()
+					} catch (writeError) {
+						failure = writeError
+					}
+					// Cancellation may already have published a terminal handle. Its
+					// invocation has only NOW stopped; release the persisted edge here.
+					if (!this.instances.has(taskId) || isTerminalAgentTaskState(runningTask.state)) {
+						await this.failSubSession(spawnRecord)
+					} else this.markFailed(taskId, toErrorMessage(failure))
+				})
+				.finally(() => {
+					this.executingTasks.delete(taskId)
+					if (!this.instances.has(taskId)) this.spawnRecords.delete(taskId)
+					this.pumpAdmissions(options.parentSessionId)
+				})
+				.catch((error) =>
+					this.log.warn('Child cleanup failed', {
+						'namzu.task.id': taskId,
+						'exception.message': toErrorMessage(error),
+					}),
+				)
 
 			return agentTask
 		} catch (err) {
@@ -521,7 +771,7 @@ export class AgentManager {
 			// provisioned resources are still ours to return. A builder/listener
 			// failure must not strand a pending task the caller never received.
 			if (agentTask) {
-				await this.rollbackUnstartedSpawn(agentTask, spawnRecord, err)
+				await this.rollbackUnstartedSpawn(agentTask, spawnRecord, err, queuedTask !== undefined)
 			} else {
 				childAbortController?.abort()
 				childBudget.settle(0)
@@ -536,6 +786,7 @@ export class AgentManager {
 		agentTask: AgentTask,
 		spawnRecord: ChildSpawnRecord,
 		reason: unknown,
+		retainHandle = false,
 	): Promise<void> {
 		agentTask.childAbortController.abort()
 		agentTask.context.budget.settle(0)
@@ -559,7 +810,20 @@ export class AgentManager {
 			}
 		}
 		this.clearEvictionTimer(agentTask.taskId)
-		this.instances.delete(agentTask.taskId)
+		if (retainHandle) {
+			agentTask.result ??= {
+				runId: agentTask.context.parentRunId,
+				status: 'failed',
+				usage: { ...EMPTY_TOKEN_USAGE },
+				cost: { ...ZERO_COST },
+				iterations: 0,
+				durationMs: Date.now() - agentTask.createdAt,
+				messages: [],
+				lastError: toErrorMessage(reason),
+			}
+			agentTask.completedAt = Date.now()
+			this.scheduleEviction(agentTask.taskId)
+		} else this.instances.delete(agentTask.taskId)
 		this.spawnRecords.delete(agentTask.taskId)
 		this.resolveCompletionCallbacks(agentTask.taskId)
 		await this.rollbackSpawnResources(spawnRecord)
@@ -581,14 +845,22 @@ export class AgentManager {
 	}
 
 	cancel(taskId: TaskId, cause?: CancelCause): void {
+		if (this.cancelingTasks.has(taskId)) return
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
 		// Was the bare string `'canceled'`, which `abortReasonText` suppresses
 		// by name — its docblock cites this exact call site — so the child's
 		// run saw a cancellation with no attributable origin at all.
-		agentTask.childAbortController.abort(cause ? new RunCancelled(cause) : undefined)
-		this.markCanceled(taskId, cause)
+		// Abort listeners run synchronously. A pending task's parent observer
+		// must not reenter this method and replace an explicit user's cause.
+		this.cancelingTasks.add(taskId)
+		try {
+			agentTask.childAbortController.abort(cause ? new RunCancelled(cause) : undefined)
+			this.markCanceled(taskId, cause)
+		} finally {
+			this.cancelingTasks.delete(taskId)
+		}
 	}
 
 	cancelAll(parentRunId: RunId, cause: CancelCause = 'parent'): void {
@@ -687,12 +959,18 @@ export class AgentManager {
 			if (isTerminalAgentTaskState(agentTask.state)) {
 				this.clearEvictionTimer(taskId)
 				this.instances.delete(taskId)
-				this.spawnRecords.delete(taskId)
+				if (!this.executingTasks.has(taskId)) this.spawnRecords.delete(taskId)
 			}
 		}
 	}
 
 	dispose(): void {
+		this.disposed = true
+		if (this.admissionTimer) clearTimeout(this.admissionTimer)
+		this.admissionTimer = undefined
+		for (const queue of this.pendingSpawns.values())
+			for (const entry of queue) entry.removeAbortListener()
+		this.pendingSpawns.clear()
 		for (const taskId of this.instances.keys()) {
 			this.clearEvictionTimer(taskId)
 		}
@@ -704,7 +982,8 @@ export class AgentManager {
 			this.cancel(taskId)
 		}
 		this.instances.clear()
-		this.spawnRecords.clear()
+		for (const taskId of this.spawnRecords.keys())
+			if (!this.executingTasks.has(taskId)) this.spawnRecords.delete(taskId)
 		this.listeners.length = 0
 	}
 
@@ -748,10 +1027,10 @@ export class AgentManager {
 		}
 	}
 
-	private async provisionSpawnUnlocked(
+	private async validateSpawn(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-	): Promise<ChildSpawnRecord> {
+	): Promise<void> {
 		// Phase 9: deps are unconditional required. Every spawn produces a
 		// SubSession + Session + WorkspaceRef triple (Convention #0: no
 		// partial/legacy path).
@@ -782,6 +1061,8 @@ export class AgentManager {
 				`Parent session ${options.parentSessionId} not found for tenant ${context.tenantId} — spawn rejected`,
 			)
 		}
+		if (parentSession.status === 'archived')
+			throw new Error('Delegation parent session is archived')
 		if (parentSession.topicId !== context.topicId) {
 			throw new Error(
 				`Topic mismatch on spawn: parent session ${parentSession.id} is on topic ${parentSession.topicId}, but context.topicId=${context.topicId}. Cross-topic spawn is forbidden (session-hierarchy.md §6.3).`,
@@ -812,6 +1093,15 @@ export class AgentManager {
 			project.config.maxDelegationWidth,
 			context.tenantId,
 		)
+	}
+
+	private async provisionSpawnUnlocked(
+		options: SendMessageOptions,
+		context: AgentTaskContext,
+	): Promise<ChildSpawnRecord> {
+		await this.validateSpawn(options, context)
+		context.parentAbortController.signal.throwIfAborted()
+		const store = this.deps.sessionStore
 
 		// Ancestry walk gives both the child depth and the root session id
 		// attached to every sub-session event from here down.
@@ -1228,6 +1518,7 @@ export class AgentManager {
 	}
 
 	private scheduleEviction(taskId: TaskId): void {
+		if (this.disposed) return
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask) return
 
@@ -1235,7 +1526,7 @@ export class AgentManager {
 
 		const timer = setTimeout(() => {
 			this.instances.delete(taskId)
-			this.spawnRecords.delete(taskId)
+			if (!this.executingTasks.has(taskId)) this.spawnRecords.delete(taskId)
 			this.evictionTimers.delete(taskId)
 			this.log.info('Agent task evicted', { 'namzu.agent.task_id': taskId })
 		}, this.config.evictionMs)
@@ -1274,14 +1565,18 @@ export class AgentManager {
 
 	private emitRunEvent(agentTask: AgentTask, event: RunEvent): void {
 		if (!agentTask.runEventListener) return
-		try {
-			agentTask.runEventListener(event)
-		} catch (err) {
+		const reportFailure = (error: unknown): void => {
 			this.log.error('RunEvent emission error', {
 				'namzu.event.type': event.type,
-				'namzu.task.id': agentTask.taskId,
-				'exception.message': toErrorMessage(err),
+				'exception.message': toErrorMessage(error),
 			})
+		}
+		try {
+			// Terminal observation must not delay completion or leak a rejected
+			// listener promise into the host as an unhandled rejection.
+			void Promise.resolve(agentTask.runEventListener(event)).catch(reportFailure)
+		} catch (error) {
+			reportFailure(error)
 		}
 	}
 }

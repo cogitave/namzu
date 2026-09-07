@@ -378,6 +378,10 @@ export class TokenBudget {
 	get treeTokens(): number {
 		return this.totals(this.node).tree
 	}
+	/** This account's request is still awaiting its final receipt; descendants are independent. */
+	get hasInFlightRequest(): boolean {
+		return this.hasRequest(this.node)
+	}
 
 	get remaining(): number {
 		if (this.ledger.poisoned || this.node.settled) return 0

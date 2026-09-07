@@ -283,10 +283,13 @@ export function buildPermissionSummary(review: string): PermissionReviewSummary 
 		calls.length > 1 &&
 		calls.every((call) => call.name === 'Agent' && call.readable.label !== undefined)
 	) {
-		const overview = calls.map((call, index) => `${index + 1}. ${call.readable.label as string}`)
+		const overview = calls.map(
+			(call, index) =>
+				`${index + 1}. ${call.readable.label as string}${call.isDestructive ? ' · destructive' : ''}`,
+		)
 		const details = calls.map((call, index) =>
 			[
-				`${index + 1}. ${call.readable.label as string}`,
+				`${index + 1}. ${call.readable.label as string}${call.isDestructive ? ' · destructive' : ''}`,
 				...call.readable.lines.map((line) => `   ${line}`),
 			].join('\n'),
 		)
@@ -397,21 +400,22 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			return {
 				lines: [
 					...readableField('Task', known.description),
-					...(known.subagent_type !== undefined
-						? [
-								`Type: ${known.subagent_type}${known.subagent_type === 'explore' ? ' (read-only)' : ''}`,
-							]
+					...readableField('Agent', agentTypeLabel(known.subagent_type)),
+					...(known.subagent_type === 'explore'
+						? ['Tools: reading and searching only']
+						: known.subagent_type === undefined || known.subagent_type === 'general-purpose'
+							? ['Tools: files and commands, subject to approval rules']
+							: []),
+					...(known.role !== undefined ? readableField('Role', known.role) : []),
+					...(known.workflow !== undefined ? readableField('Workflow label', known.workflow) : []),
+					...(known.phase !== undefined ? readableField('Phase label', known.phase) : []),
+					...(known.phase_order !== undefined
+						? [`Phase display order: ${String(known.phase_order + 1)}`]
 						: []),
 					...readableField('Instructions', known.prompt),
-					...(known.role !== undefined ? readableField('Specialist', known.role) : []),
-					...(known.workflow !== undefined ? readableField('Workflow', known.workflow) : []),
-					...(known.phase !== undefined ? readableField('Phase', known.phase) : []),
-					...(known.phase_order !== undefined
-						? [`Phase order: ${String(known.phase_order + 1)}`]
-						: []),
 				],
 				complete: true,
-				label: oneLine(known.description),
+				label: `${oneLine(known.description)} · ${oneLine(agentTypeLabel(known.subagent_type))}`,
 			}
 		}
 	}
@@ -448,6 +452,12 @@ const PLAIN_TOOL_NAME = /^[\w.:-]+$/u
 
 /** The tools with a formatter above; an evolved shape of one opens exact-first. */
 const FORMATTED_TOOLS: ReadonlySet<string> = new Set(['bash', 'edit', 'write', 'Agent'])
+
+function agentTypeLabel(type: string | undefined): string {
+	if (type === undefined) return 'general-purpose (default)'
+	if (type === 'explore') return 'explore (read-only tools)'
+	return type
+}
 
 function oneLine(value: string): string {
 	return value.replace(/\s+/gu, ' ').trim() || '(untitled task)'

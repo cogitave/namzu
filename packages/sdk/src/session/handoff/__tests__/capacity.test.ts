@@ -134,4 +134,19 @@ describe('DefaultCapacityValidator', () => {
 			expect(e.details.limit).toBe(8)
 		}
 	})
+	it('counts pending and active edges while retaining completed, failed and archived history', async () => {
+		const store = new InMemorySessionStore()
+		const { project, thread, root } = await seedProject(store)
+		for (let i = 0; i < 5; i++) await spawnChild(store, root.id, project.id, thread.id)
+		const children = await store.getChildren(root.id, tenant)
+		const statuses = ['pending', 'active', 'idle', 'failed', 'archived'] as const
+		for (let i = 0; i < children.length; i++)
+			await store.updateSubSession({ ...children[i]!, status: statuses[i]! }, tenant)
+		const validator = new DefaultCapacityValidator(store)
+		await expect(validator.validateWidth(root.id, 1, 3, tenant)).resolves.toBeUndefined()
+		await expect(validator.validateWidth(root.id, 2, 3, tenant)).rejects.toMatchObject({
+			details: { dimension: 'width', current: 4, limit: 3 },
+		})
+		expect(await store.getChildren(root.id, tenant)).toHaveLength(5)
+	})
 })

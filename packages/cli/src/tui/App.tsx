@@ -123,6 +123,8 @@ import {
 	agentPhases,
 	agentPickerPageSize,
 	agentTranscriptPageSize,
+	agentWorkflowPageSize,
+	agentWorkflows,
 	maxAgentTranscriptTailOffset,
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
@@ -190,7 +192,7 @@ import {
 	permissionReviewRefusal,
 	permissionReviewRows,
 } from './permission-review.js'
-import { describeRunInterruption } from './run-interruption.js'
+import { describeRunInterruption, describeRunStop } from './run-interruption.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -1050,6 +1052,7 @@ export function App({
 	}, [agentSurface])
 	const replaceSubagents = useCallback(
 		(next: readonly SubagentActivity[]) => {
+			const previous = subagentsRef.current
 			subagentsRef.current = next
 			setSubagentsState(next)
 			const surface = agentSurfaceRef.current
@@ -1060,8 +1063,10 @@ export function App({
 			}
 			if (next.some((agent) => agent.viewId === surface.selectedId)) return
 			const phases = agentPhases(next)
+			const previousGroupId = previous.find((agent) => agent.viewId === surface.selectedId)?.workflowGroupId
+			const sameWorkflow = agentWorkflows(next).find((workflow) => workflow.id === previousGroupId)
 			const fallbackPhase =
-				phases.find((phase) => phase.id === surface.selectedPhaseId) ?? phases[0]
+				phases.find((phase) => phase.id === surface.selectedPhaseId) ?? sameWorkflow?.phases[0] ?? phases[0]
 			const fallbackAgent = fallbackPhase?.agents[0]
 			if (!fallbackPhase || !fallbackAgent) {
 				setAgentSurface(null)
@@ -1078,14 +1083,20 @@ export function App({
 	)
 	const openAgentCockpit = useCallback((): boolean => {
 		const agents = subagentsRef.current
-		const firstPhase = agentPhases(agents)[0]
+		const workflows = agentWorkflows(agents)
+		const currentWorkflow = [...workflows].reverse().find((workflow) =>
+			workflow.agents.some((agent) =>
+				agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working',
+			),
+		) ?? workflows.at(-1)
+		const firstPhase = currentWorkflow?.phases[0]
 		const firstAgent = firstPhase?.agents[0]
 		if (!firstPhase || !firstAgent) return false
 		setAgentSurface({
 			kind: 'cockpit',
 			selectedPhaseId: firstPhase.id,
 			selectedId: firstAgent.viewId,
-			focus: 'agents',
+			focus: workflows.length > 1 ? 'workflows' : 'agents',
 		})
 		return true
 	}, [setAgentSurface])
@@ -3950,7 +3961,7 @@ export function App({
 				case 'history-repair':
 					pushMessage('system', `History warning (${event.source}): ${event.text}`, false, '⚠')
 					break
-				case 'done':
+				case 'done': {
 					// `run_completed` is not synonymous with success: budgets,
 					// cancellation and output guardrails arrive through this event too.
 					// Missing remains a normal end for older producers, matching the
@@ -3963,7 +3974,10 @@ export function App({
 						outcome: st.completed ? 'completed' : 'stopped',
 					}
 					closeAssistant()
+					const stopNotice = describeRunStop(event.stopReason)
+					if (stopNotice) pushMessage('system', stopNotice, false, '■')
 					break
+				}
 				case 'paused':
 					// Paused is a recoverable SDK verdict, not success and not failure.
 					// Conversation evidence has no paused member, so it records the
@@ -6007,7 +6021,15 @@ export function App({
 				if (agentSurfaceCommittedRef.current !== agentView) return
 				const agents = subagentsRef.current
 				if (agentView.kind === 'cockpit') {
-					const phases = agentPhases(agents)
+					const workflows = agentWorkflows(agents)
+					const workflowIndex = Math.max(
+						0,
+						workflows.findIndex((workflow) =>
+							workflow.phases.some((phase) => phase.id === agentView.selectedPhaseId),
+						),
+					)
+					const workflow = workflows[workflowIndex]
+					const phases = workflow?.phases ?? []
 					const phaseIndex = Math.max(
 						0,
 						phases.findIndex((phase) => phase.id === agentView.selectedPhaseId),
@@ -6023,11 +6045,29 @@ export function App({
 						setAgentSurface(null)
 						return
 					}
-					if (key.escape || (key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
+					if ((key.ctrl && input === 'c') || input.toLowerCase() === 'q') {
 						setAgentSurface(null)
 						return
 					}
+					if (key.escape) {
+						setAgentSurface(
+							workflows.length > 1 && agentView.focus !== 'workflows'
+								? { ...agentView, focus: 'workflows' }
+								: null,
+						)
+						return
+					}
 					if (key.leftArrow || key.rightArrow || key.tab) {
+						if (agentView.focus === 'workflows') {
+							if (!key.leftArrow) {
+								setAgentSurface({ ...agentView, focus: phases.length > 1 ? 'phases' : 'agents' })
+							}
+							return
+						}
+						if (key.leftArrow && agentView.focus === 'phases' && workflows.length > 1) {
+							setAgentSurface({ ...agentView, focus: 'workflows' })
+							return
+						}
 						const focus = key.leftArrow
 							? 'phases'
 							: key.rightArrow
@@ -6039,6 +6079,10 @@ export function App({
 						return
 					}
 					if (key.return) {
+						if (agentView.focus === 'workflows') {
+							setAgentSurface({ ...agentView, focus: phases.length > 1 ? 'phases' : 'agents' })
+							return
+						}
 						if (agentView.focus === 'phases') {
 							setAgentSurface({ ...agentView, focus: 'agents' })
 							return
@@ -6064,7 +6108,20 @@ export function App({
 										: key.upArrow
 											? 'previous'
 											: 'next'
-						if (agentView.focus === 'phases') {
+						if (agentView.focus === 'workflows') {
+							const next = moveSelection(
+								workflowIndex, workflows.length, movement, agentWorkflowPageSize(terminal.rows),
+							)
+							const targetPhase = workflows[next]?.phases[0]
+							const targetAgent = targetPhase?.agents[0]
+							if (targetPhase && targetAgent) {
+								setAgentSurface({
+									...agentView,
+									selectedPhaseId: targetPhase.id,
+									selectedId: targetAgent.viewId,
+								})
+							}
+						} else if (agentView.focus === 'phases') {
 							const next = moveSelection(
 								phaseIndex,
 								phases.length,
@@ -6418,9 +6475,11 @@ export function App({
 							: permission
 								? hintForPhase(phase, state, session?.hasProvider === true)
 								: agentSurface?.kind === 'cockpit'
-									? agentSurface.focus === 'phases'
-										? 'agent phases — enter agents · esc return'
-										: 'agents — enter inspect · left phases · esc return'
+									? agentSurface.focus === 'workflows'
+										? 'workflows — enter select · esc return'
+										: agentSurface.focus === 'phases'
+											? 'agent phases — enter agents · esc return'
+											: 'agents — enter inspect · left phases · esc return'
 									: agentSurface?.kind === 'transcript'
 										? 'observing agent — esc agents · q parent'
 										: textPrompt

@@ -62,7 +62,7 @@ export interface CapacityValidator {
 	): Promise<void>
 
 	/**
-	 * Asserts `existingDirectChildren + pendingNewChildren ≤ projectMaxWidth`
+	 * Asserts `liveDirectChildren + pendingNewChildren ≤ projectMaxWidth`
 	 * under `parentSessionId`. The width cap applies to a single spawn call —
 	 * a broadcast of N recipients passes `pendingNewChildren = N`.
 	 */
@@ -77,7 +77,7 @@ export interface CapacityValidator {
 /**
  * Default validator backed by {@link SessionStore}. Uses `getAncestry` for
  * depth (root-to-self chain length) and `getChildren` for width (count of
- * existing direct sub-sessions).
+ * pending or active direct sub-sessions). Historical edges stay queryable.
  */
 export class DefaultCapacityValidator implements CapacityValidator {
 	constructor(private readonly store: SessionStore) {}
@@ -108,7 +108,11 @@ export class DefaultCapacityValidator implements CapacityValidator {
 		tenantId: TenantId,
 	): Promise<void> {
 		const existing = await this.store.getChildren(parentSessionId, tenantId)
-		const total = existing.length + pendingNewChildren
+		const live = existing.filter(
+			(child) =>
+				child.status !== 'idle' && child.status !== 'failed' && child.status !== 'archived',
+		)
+		const total = live.length + pendingNewChildren
 		if (total > projectMaxWidth) {
 			throw new DelegationCapacityExceeded({
 				dimension: 'width',

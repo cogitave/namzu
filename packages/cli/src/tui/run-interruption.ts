@@ -1,7 +1,51 @@
+import type { StopReason } from '@namzu/sdk'
+
 import type { AgentEvent } from './agent.js'
 import { terminalDisplayText } from './terminal-display.js'
 
 export type Interruption = Extract<AgentEvent, { kind: 'error' | 'paused' }>
+
+/**
+ * A completed event can carry a resource or policy stop without an error event.
+ * Budget admission includes reservations: refusal is not proof of money or
+ * tokens spent. Usage remains the reported measurement available through /cost.
+ */
+export function describeRunStop(reason: StopReason | undefined): string | undefined {
+	switch (reason) {
+		case undefined:
+		case 'end_turn':
+		case 'cancelled':
+			return undefined
+		case 'token_budget':
+			return 'Run stopped: the token allowance could not cover further work. /cost shows reported usage.'
+		case 'cost_limit':
+			return 'Run stopped: the cost allowance could not cover further work. /cost shows reported usage.'
+		case 'cost_unmeasurable':
+			return 'Run stopped: missing pricing prevented checking the cost limit. /cost shows reported usage.'
+		case 'timeout':
+			return 'Run stopped: the time limit was reached.'
+		case 'max_iterations':
+			return 'Run stopped: the step limit was reached.'
+		case 'plan_rejected':
+			return 'Run stopped: the plan was rejected.'
+		case 'stop_condition':
+			return 'Run stopped: the configured stop condition was met.'
+		case 'step_refused':
+			return 'Run stopped: the next model call was refused.'
+		case 'structured_output_failed':
+			return 'Run stopped: no valid structured result was produced.'
+		case 'answer_rejected':
+			return 'Run stopped: the final answer was not accepted.'
+		case 'input_guardrail':
+			return 'Run stopped: an input check refused this run.'
+		case 'output_guardrail':
+			return 'Run stopped: an output check refused the result.'
+		case 'paused':
+			return 'Run paused.'
+		case 'error':
+			return 'Run stopped after an error.'
+	}
+}
 
 /** One terminal-safe line, bounded so a provider response cannot own the screen. */
 function line(value: string, max = 480): string {

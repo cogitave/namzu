@@ -75,7 +75,9 @@ describe('retained delegated output', () => {
 
 			const result = await runtime.waitForTaskTool.execute({ task_id: taskId }, context)
 			expect(result.success).toBe(true)
-			expect(result.output).toBe(completeOutput)
+			expect(result.output).toBe(
+				`task_id: ${taskId}\nstatus: completed\n\nAgent result:\n${completeOutput}`,
+			)
 			expect(gateway.getTask(taskId)).toEqual(settled)
 			expect(await gateway.waitForTask(taskId)).toEqual(settled)
 			expect(provider.requests).toHaveLength(1)

@@ -82,7 +82,10 @@ and parent Session. Each parent run gets its own scheduler context, so parallel
 runs and a conversation change cannot overwrite one another's lineage. The
 scheduler uses the real parent run ID for events and stored child-run metadata.
 Concurrent parent runs in the same Session share the manager that enforces
-delegation width. A run can only inspect or control tasks it owns.
+live delegation width. Finished history does not consume slots. Excess tasks
+remain queued with their own IDs; they reserve budget and start execution only
+when admitted, after rechecking the parent and Project/Topic state. A run can
+only inspect or control tasks it owns.
 Settling or closing a parent releases its scheduler and cancels children it
 still owns.
 

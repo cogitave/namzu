@@ -198,10 +198,13 @@ describe('a scoped token budget', () => {
 
 	it('refuses reservation or another request during the same account provider call', async () => {
 		const root = TokenBudget.create(1_000, generateRunId())
+		expect(root.hasInFlightRequest).toBe(false)
 		const request = await root.beginRequest()
+		expect(root.hasInFlightRequest).toBe(true)
 		expect(() => root.reserve(10)).toThrow('in-flight')
 		await expect(root.beginRequest()).rejects.toThrow('in-flight')
 		await root.finishRequest(request, usage(10))
+		expect(root.hasInFlightRequest).toBe(false)
 		expect(root.reserve(990).limit).toBe(990)
 	})
 
@@ -209,7 +212,11 @@ describe('a scoped token budget', () => {
 		const root = TokenBudget.create(1_000, generateRunId())
 		const first = child(root, 400)
 		const second = child(root, 400)
-		await Promise.all([spend(first, 100), spend(second, 200)])
+		const request = await first.beginRequest()
+		expect(first.hasInFlightRequest).toBe(true)
+		expect(root.hasInFlightRequest).toBe(false)
+		expect(second.hasInFlightRequest).toBe(false)
+		await Promise.all([first.finishRequest(request, usage(100)), spend(second, 200)])
 		expect(root.treeTokens).toBe(300)
 		expect(root.remaining).toBe(200)
 	})

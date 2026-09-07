@@ -206,7 +206,13 @@ class ParentTaskScheduler extends LocalTaskScheduler {
 
 	override async createTask(options: CreateTaskOptions): Promise<TaskHandle> {
 		await this.validateParent()
-		return super.createTask(options)
+		return super.createTask({
+			...options,
+			beforeStart: async () => {
+				await options.beforeStart?.()
+				await this.validateParent()
+			},
+		})
 	}
 
 	private owns(taskId: TaskId): boolean {
@@ -344,7 +350,7 @@ export async function createSubagentRuntime(
 		await store.updateSession({ ...session, status: 'active' }, tenantId)
 		const manager = new AgentManager(
 			registry,
-			{ childTimeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS },
+			{ childTimeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS, capacityBehavior: 'queue' },
 			{
 				sessionStore: store,
 				summaryMaterializer: new SessionSummaryMaterializer({
@@ -529,7 +535,7 @@ export async function createSubagentRuntime(
 			'"You are a security auditor; flag vulnerabilities and rate severity"); with `subagent_type: "explore"` the role keeps the read-only roster.',
 			'Omit `role` for the plain sub-agent.',
 			'The sub-agent runs in its own context with its own tools and cannot see this conversation — put everything it needs in `prompt`.',
-			'Call this multiple times in one response to run specialists in parallel.',
+			"Call this multiple times in one response to run specialists in parallel. Tasks beyond the project's live-agent capacity wait in a queue and start as slots become available. Queued tasks have not started execution; do not relaunch them.",
 			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit.',
 			'These fields are display annotations only; they do not create dependencies, barriers, or serial execution.',
 			fileAgentSummary.length > 0 ? `Project-defined types: ${fileAgentSummary}.` : '',
@@ -680,9 +686,11 @@ export async function createSubagentRuntime(
 					},
 				})
 				if (outcome.kind === 'yielded') {
+					const progress =
+						outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 					return {
 						success: true,
-						output: `Sub-agent ${agentId} is still running as task ${outcome.handle.taskId}; it has not completed. Waiting was released because the operator sent a message. Respond to that message while this task continues. Its actual result will arrive as a task notification; do not launch the same work again.`,
+						output: `Sub-agent ${agentId} is ${progress} as task ${outcome.handle.taskId}; it has not completed. Waiting was released because the operator sent a message. Respond to that message while this task remains owned by the run. Its actual result will arrive as a task notification; do not launch the same work again.`,
 						data: {
 							task_id: outcome.handle.taskId,
 							state: outcome.handle.state,
@@ -710,7 +718,7 @@ export async function createSubagentRuntime(
 			properties: {
 				task_id: {
 					type: 'string',
-					description: 'The task ID returned by Agent or a task notification.',
+					description: 'The task_id from the Agent launch receipt or task notification metadata.',
 				},
 			},
 			required: ['task_id'],
@@ -752,9 +760,11 @@ export async function createSubagentRuntime(
 				onFinished: () => {},
 			})
 			if (outcome.kind === 'completed') return completedAgentResult(outcome.handle)
+			const progress =
+				outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 			return {
 				success: true,
-				output: `Task ${taskId} is still running; it has not completed. Waiting was released for an operator message. Its result will arrive as a task notification.`,
+				output: `Task ${taskId} is ${progress}; it has not completed. Waiting was released for an operator message. Its result will arrive as a task notification.`,
 				data: { task_id: taskId, state: outcome.handle.state, wait_released: 'operator_input' },
 			}
 		},
@@ -865,7 +875,7 @@ async function runBlockingAgentTask(
 		// Only the wait has ended. Parent runtime ownership, token reservations and
 		// the completion observer all outlive this tool invocation's local signal.
 		input.completionInbox.expect(handle.taskId)
-		return { kind: 'yielded', handle }
+		return { kind: 'yielded', handle: current ?? handle }
 	} catch (error) {
 		if (handle) cancel(handle)
 		throw error
@@ -903,7 +913,11 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 		run?.stopReason && run.stopReason !== 'end_turn'
 			? `Sub-agent run ended with stop reason "${run.stopReason}". Output may be partial; this does not establish task completion.\n\n`
 			: ''
-	const output = stopNote + (resultText || '(sub-agent returned no text)')
+	// ToolResult.data is host metadata, not necessarily model-visible content.
+	// Keep the handle and terminal status separate from arbitrary child output
+	// (which may itself contain UUIDs or text such as "Task 1").
+	const status = succeeded ? 'completed' : (run?.status ?? completed.state)
+	const output = `task_id: ${completed.taskId}\nstatus: ${status}\n\nAgent result:\n${stopNote}${resultText || '(sub-agent returned no text)'}`
 	return {
 		success: succeeded,
 		output,

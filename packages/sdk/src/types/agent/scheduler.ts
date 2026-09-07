@@ -30,6 +30,12 @@ export type SiblingFailurePolicy = 'continue' | 'cancel-siblings'
 
 export interface CreateTaskOptions {
 	/**
+	 * Revalidate host authority at actual admission, including after a capacity wait.
+	 * Queue retries may invoke this more than once; checks must tolerate repeated calls.
+	 */
+	readonly beforeStart?: () => Promise<void>
+
+	/**
 	 * Observe events from this one delegated run when the scheduler can expose
 	 * them.
 	 *

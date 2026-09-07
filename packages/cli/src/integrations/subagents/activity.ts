@@ -12,7 +12,13 @@ const NOTIFY_INTERVAL_MS = 100
 export const DEFAULT_AGENT_WORKFLOW = 'Delegated work'
 export const DEFAULT_AGENT_PHASE = 'Work'
 
-export type SubagentActivityStatus = 'starting' | 'working' | 'completed' | 'failed' | 'cancelled'
+export type SubagentActivityStatus =
+	| 'starting'
+	| 'queued'
+	| 'working'
+	| 'completed'
+	| 'failed'
+	| 'cancelled'
 
 export type SubagentTranscriptRow =
 	| {
@@ -47,6 +53,8 @@ export interface SubagentActivity {
 	readonly toolUseId?: string
 	/** Parent run identity; display labels never serve as orchestration identity. */
 	readonly workflowId: string
+	/** Display group scoped to a parent run and explicit workflow, or an unlabelled batch. */
+	readonly workflowGroupId: string
 	/** Monitor-owned phase identity, stable even when display labels collide. */
 	readonly phaseId: string
 	readonly workflow: string
@@ -86,6 +94,7 @@ interface MutableActivity {
 	batchId: string
 	toolUseId?: string
 	workflowId: string
+	workflowGroupId: string
 	phaseId: string
 	workflow: string
 	phase: string
@@ -146,7 +155,15 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			DEFAULT_AGENT_PHASE,
 			MAX_IDENTITY_LABEL_CODE_UNITS,
 		)
-		const phaseKey = JSON.stringify([workflowId, batchId, workflowIdentity, phaseIdentity])
+		// A tool batch is a concurrency boundary, not a workflow phase. Explicit
+		// workflow annotations may span several batches within their parent run;
+		// unrelated unlabelled batches have no evidence of a shared workflow.
+		const workflowGroupId = JSON.stringify(
+			input.workflow?.trim()
+				? [workflowId, 'workflow', workflowIdentity]
+				: [workflowId, 'batch', batchId],
+		)
+		const phaseKey = JSON.stringify([workflowGroupId, phaseIdentity])
 		let phaseDefinition = this.phases.get(phaseKey)
 		if (!phaseDefinition) {
 			const sequence = ++this.phaseCounter
@@ -170,6 +187,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				? { toolUseId: bounded(input.toolUseId, MAX_IDENTITY_LABEL_CODE_UNITS) }
 				: {}),
 			workflowId,
+			workflowGroupId,
 			phaseId: phaseDefinition.id,
 			workflow: bounded(workflowIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			phase: bounded(phaseIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
@@ -201,6 +219,11 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				owned.taskId = String(handle.taskId)
 				owned.agentId = bounded(handle.agentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 				owned.status = statusOf(handle)
+				if (!isTerminal(owned.status)) {
+					owned.latestActivity = terminalLabel(owned.status)
+					this.notifyNow()
+					return
+				}
 				owned.completedAt = handle.completedAt ?? Date.now()
 				owned.latestActivity = terminalLabel(owned.status)
 				if (owned.rows.length === 0) {
@@ -250,6 +273,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					batchId: record.batchId,
 					...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
 					workflowId: record.workflowId,
+					workflowGroupId: record.workflowGroupId,
 					phaseId: record.phaseId,
 					workflow: record.workflow,
 					phase: record.phase,
@@ -338,7 +362,8 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 		case 'agent_pending':
 			record.taskId = String(event.taskId)
 			record.agentId = bounded(event.childAgentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
-			record.latestActivity = 'Starting'
+			record.status = 'queued'
+			record.latestActivity = 'Queued'
 			return
 		case 'run_started':
 			record.runId = String(event.runId)
@@ -471,6 +496,7 @@ function oneLine(value: string): string {
 }
 
 function statusOf(handle: TaskHandle): SubagentActivityStatus {
+	if (handle.state === 'pending') return 'queued'
 	if (handle.state === 'canceled') return 'cancelled'
 	if (handle.state === 'failed' || handle.state === 'rejected') return 'failed'
 	if (handle.result && handle.result.status !== 'completed') {
@@ -488,6 +514,8 @@ function terminalLabel(status: SubagentActivityStatus): string {
 	switch (status) {
 		case 'starting':
 			return 'Starting'
+		case 'queued':
+			return 'Queued'
 		case 'working':
 			return 'Working'
 		case 'completed':

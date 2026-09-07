@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AGENT_MANAGER_DEFAULTS } from '../../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -22,7 +22,11 @@ import type {
 } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
-import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
+import type {
+	AgentManagerConfig,
+	AgentTaskContext,
+	SendMessageOptions,
+} from '../../../types/agent/task.js'
 import type { AgentId, RunId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
@@ -137,6 +141,7 @@ interface Harness {
 async function buildHarness(
 	childAgent: Agent<BaseAgentConfig, BaseAgentResult>,
 	tenantId: TenantId = tenant,
+	managerConfig?: Partial<AgentManagerConfig>,
 ): Promise<Harness> {
 	const store = new InMemorySessionStore()
 	const threadStore = new InMemoryTopicStore()
@@ -166,7 +171,7 @@ async function buildHarness(
 	const registry = new AgentRegistry()
 	registry.register(makeDefinition(childAgent))
 
-	const manager = new AgentManager(registry, undefined, {
+	const manager = new AgentManager(registry, managerConfig, {
 		sessionStore: store,
 		summaryMaterializer: materializer,
 		workspaceRegistry: new WorkspaceBackendRegistry(),
@@ -923,5 +928,399 @@ describe('a concurrent fan-out shares one budget', () => {
 			handedOut,
 			`four siblings were handed ${allocations.join(' + ')} from a pool of ${shared.limit}`,
 		).toBeLessThanOrEqual(shared.limit)
+	})
+})
+
+function deferred() {
+	let resolve!: () => void
+	const promise = new Promise<void>((done) => {
+		resolve = done
+	})
+	return { promise, resolve }
+}
+
+describe('bounded queued delegation admission', () => {
+	it('returns ten handles, runs at most eight, preserves history and leaves a parent budget share', async () => {
+		const releases = Array.from({ length: 10 }, deferred)
+		const grants: number[] = []
+		let running = 0
+		let peak = 0
+		const child = makeAgent('worker', async (_input, config) => {
+			const index = grants.length
+			grants.push(config.tokenBudget!)
+			peak = Math.max(peak, ++running)
+			await releases[index]!.promise
+			running--
+			return {
+				...successResult(),
+				usage: { ...EMPTY_TOKEN_USAGE, promptTokens: 22_000, totalTokens: 22_000 },
+			}
+		})
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		context.budget = TokenBudget.create(1_000_000, budgetRunId())
+		try {
+			const tasks = await Promise.all(
+				Array.from({ length: 10 }, () =>
+					h.manager.sendMessage(buildOptions('worker', h.parentSession.id, h.projectId), context),
+				),
+			)
+			expect(new Set(tasks.map((task) => task.taskId)).size).toBe(10)
+			await vi.waitFor(() => expect(grants).toHaveLength(8))
+			expect(tasks.filter((task) => task.state === 'running')).toHaveLength(8)
+			expect(tasks.filter((task) => task.state === 'pending')).toHaveLength(2)
+			expect(grants).toEqual(Array(8).fill(111_111))
+			expect(context.budget.remaining).toBe(111_112)
+			releases[0]!.resolve()
+			await vi.waitFor(() => expect(grants).toHaveLength(9))
+			expect(running).toBe(8)
+			releases[1]!.resolve()
+			await vi.waitFor(() => expect(grants).toHaveLength(10))
+			for (const release of releases) release.resolve()
+			await Promise.all(tasks.map((task) => h.manager.waitForCompletion(task.taskId)))
+			expect(peak).toBe(8)
+			expect(tasks.every((task) => task.state === 'completed')).toBe(true)
+			const history = await h.store.getChildren(h.parentSession.id, tenant)
+			expect(history).toHaveLength(10)
+			expect(history.every((entry) => entry.status === 'idle')).toBe(true)
+			expect(context.budget.summary()).toMatchObject({ treeTokens: 220_000, reservedTokens: 0 })
+		} finally {
+			for (const release of releases) release.resolve()
+			h.manager.dispose()
+		}
+	})
+
+	it('shares FIFO admission across parent runs and never starts or budgets a canceled waiter', async () => {
+		const releases = Array.from({ length: 3 }, deferred)
+		const started: string[] = []
+		const child = makeAgent('worker', async (input) => {
+			const index = started.length
+			started.push(String(input.messages[0]?.content))
+			await releases[index]!.promise
+			return successResult()
+		})
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+		await h.store.updateProject(h.projectId, { maxDelegationWidth: 1 }, tenant)
+		const firstContext = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		const secondContext = { ...firstContext, parentRunId: budgetRunId() }
+		const options = (text: string): SendMessageOptions => ({
+			...buildOptions('worker', h.parentSession.id, h.projectId),
+			input: { messages: [{ role: 'user', content: text }], workingDirectory: '/tmp' },
+		})
+		try {
+			const first = await h.manager.sendMessage(options('first'), firstContext)
+			await vi.waitFor(() => expect(started).toEqual(['first']))
+			const reserved = firstContext.budget.summary().reservedTokens
+			const canceled = await h.manager.sendMessage(options('never'), secondContext)
+			const third = await h.manager.sendMessage(options('third'), firstContext)
+			const fourth = await h.manager.sendMessage(options('fourth'), secondContext)
+			h.manager.cancel(canceled.taskId, 'user')
+			expect(h.manager.getState(canceled.taskId)).toBe('canceled')
+			expect(firstContext.budget.summary().reservedTokens).toBe(reserved)
+			releases[0]!.resolve()
+			await vi.waitFor(() => expect(started).toEqual(['first', 'third']))
+			releases[1]!.resolve()
+			await vi.waitFor(() => expect(started).toEqual(['first', 'third', 'fourth']))
+			releases[2]!.resolve()
+			await Promise.all(
+				[first, third, fourth].map((task) => h.manager.waitForCompletion(task.taskId)),
+			)
+			expect(await h.store.getChildren(h.parentSession.id, tenant)).toHaveLength(3)
+		} finally {
+			for (const release of releases) release.resolve()
+			h.manager.dispose()
+		}
+	})
+
+	it('holds capacity until a canceled invocation actually exits, even after handle eviction', async () => {
+		const firstRelease = deferred()
+		const secondRelease = deferred()
+		let calls = 0
+		const child = makeAgent('worker', async () => {
+			const index = calls++
+			await (index === 0 ? firstRelease.promise : secondRelease.promise)
+			return successResult()
+		})
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue', evictionMs: 5 })
+		await h.store.updateProject(h.projectId, { maxDelegationWidth: 1 }, tenant)
+		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		try {
+			const first = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+			)
+			await vi.waitFor(() => expect(calls).toBe(1))
+			h.manager.cancel(first.taskId, 'user')
+			const second = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+			)
+			await vi.waitFor(() => expect(h.manager.getInstance(first.taskId)).toBeUndefined())
+			expect(h.manager.getSpawnRecord(first.taskId)).toBeDefined()
+			expect(calls).toBe(1)
+			expect(second.state).toBe('pending')
+			firstRelease.resolve()
+			await vi.waitFor(() => expect(calls).toBe(2))
+			secondRelease.resolve()
+			await h.manager.waitForCompletion(second.taskId)
+		} finally {
+			firstRelease.resolve()
+			secondRelease.resolve()
+			h.manager.dispose()
+		}
+	})
+
+	it('rechecks host authority and archived metadata before reserving a queued child budget', async () => {
+		const release = deferred()
+		const child = makeAgent('worker', async () => {
+			await release.promise
+			return successResult()
+		})
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+		await h.store.updateProject(h.projectId, { maxDelegationWidth: 1 }, tenant)
+		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		let owned = true
+		try {
+			const first = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+			)
+			await vi.waitFor(() => expect(first.state).toBe('running'))
+			const queued = await h.manager.sendMessage(
+				{
+					...buildOptions('worker', h.parentSession.id, h.projectId),
+					beforeStart: async () => {
+						if (!owned) throw new Error('Parent ownership ended')
+					},
+				},
+				context,
+			)
+			owned = false
+			release.resolve()
+			await h.manager.waitForCompletion(queued.taskId)
+			expect(queued.result?.lastError).toContain('Parent ownership ended')
+			expect(await h.store.getChildren(h.parentSession.id, tenant)).toHaveLength(1)
+			const project = await h.store.getProject(h.projectId, tenant)
+			if (!project) throw new Error('Missing project')
+			await h.store.setProjectStatus(h.projectId, 'archived', tenant, project.ownerVersion)
+			const archived = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+			)
+			await h.manager.waitForCompletion(archived.taskId)
+			expect(archived.result?.lastError).toMatch(/archived|closed/i)
+			expect(context.budget.summary().reservedTokens).toBe(0)
+		} finally {
+			release.resolve()
+			h.manager.dispose()
+		}
+	})
+
+	it('bounds pending task storage before creating another child', async () => {
+		const release = deferred()
+		const child = makeAgent('worker', async () => {
+			await release.promise
+			return successResult()
+		})
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue', maxPendingTasks: 1 })
+		await h.store.updateProject(h.projectId, { maxDelegationWidth: 1 }, tenant)
+		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		try {
+			const first = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+			)
+			await vi.waitFor(() => expect(first.state).toBe('running'))
+			await h.manager.sendMessage(buildOptions('worker', h.parentSession.id, h.projectId), context)
+			await expect(
+				h.manager.sendMessage(buildOptions('worker', h.parentSession.id, h.projectId), context),
+			).rejects.toThrow('queue is full')
+			expect(h.manager.listActive()).toHaveLength(2)
+		} finally {
+			release.resolve()
+			h.manager.dispose()
+		}
+	})
+	it('retains a failed queued handle and returns resources after child configuration refuses admission', async () => {
+		const child = makeAgent('worker', async () => successResult())
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+		h.registry.getOrThrow('worker').configBuilder = async (options) => ({
+			model: 'test',
+			tokenBudget: options.tokenBudget ?? 1_000,
+			timeoutMs: 1_000,
+		})
+		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		try {
+			const task = await h.manager.sendMessage(
+				{
+					...buildOptions('worker', h.parentSession.id, h.projectId),
+					configOverrides: { tokenBudget: -1 },
+				},
+				context,
+			)
+			await h.manager.waitForCompletion(task.taskId)
+			expect(h.manager.getInstance(task.taskId)).toBe(task)
+			expect(task.state).toBe('failed')
+			expect(task.result?.lastError).toContain('Invalid child token budget')
+			expect(context.budget.summary().reservedTokens).toBe(0)
+			// Completion is observable before async workspace rollback finishes;
+			// admission remains serialized until that cleanup has returned.
+			await vi.waitFor(async () =>
+				expect(await h.store.getChildren(h.parentSession.id, tenant)).toHaveLength(0),
+			)
+			const retry = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+			)
+			await h.manager.waitForCompletion(retry.taskId)
+			expect(retry.state).toBe('completed')
+		} finally {
+			h.manager.dispose()
+		}
+	})
+	it.each([false, true])(
+		'waits for a parent request receipt before admitting a freed child slot (cancel=%s)',
+		async (cancel) => {
+			const releases = [deferred(), deferred()]
+			const started: string[] = []
+			const child = makeAgent('worker', async (input) => {
+				const index = started.length
+				started.push(String(input.messages[0]?.content))
+				await releases[index]!.promise
+				return successResult()
+			})
+			const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+			await h.store.updateProject(h.projectId, { maxDelegationWidth: 1 }, tenant)
+			const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+			const options = (name: string): SendMessageOptions => ({
+				...buildOptions('worker', h.parentSession.id, h.projectId),
+				input: { messages: [{ role: 'user', content: name }], workingDirectory: '/tmp' },
+			})
+			try {
+				const first = await h.manager.sendMessage(options('first'), context)
+				await vi.waitFor(() => expect(started).toEqual(['first']))
+				const request = await context.budget.beginRequest()
+				const beforeStart = vi.fn(async () => {})
+				const queued = await h.manager.sendMessage({ ...options('queued'), beforeStart }, context)
+				releases[0]!.resolve()
+				await h.manager.waitForCompletion(first.taskId)
+				// Both outer admission and the final synchronous reserve boundary run.
+				// Observe a retry as well so this cannot pass before admission was tried.
+				await vi.waitFor(() => expect(beforeStart.mock.calls.length).toBeGreaterThanOrEqual(4))
+				expect(queued.state).toBe('pending')
+				expect(started).toEqual(['first'])
+				expect(context.budget.summary().reservedTokens).toBe(0)
+				if (cancel) h.manager.cancel(queued.taskId, 'user')
+				await context.budget.finishRequest(request, { ...EMPTY_TOKEN_USAGE })
+				const admitted = cancel
+					? await h.manager.sendMessage(options('replacement'), context)
+					: queued
+				await vi.waitFor(() =>
+					expect(started).toEqual(['first', cancel ? 'replacement' : 'queued']),
+				)
+				if (cancel) expect(queued.state).toBe('canceled')
+				releases[1]!.resolve()
+				await h.manager.waitForCompletion(admitted.taskId)
+				expect(admitted.state).toBe('completed')
+			} finally {
+				for (const release of releases) release.resolve()
+				h.manager.dispose()
+			}
+		},
+	)
+
+	it('fails uncertain parent spend instead of treating it as a temporary request wait', async () => {
+		const child = makeAgent('worker', async () => successResult())
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		try {
+			const request = await context.budget.beginRequest()
+			await context.budget.failRequest(request)
+			const queued = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+			)
+			await h.manager.waitForCompletion(queued.taskId)
+			expect(queued.state).toBe('failed')
+			expect(queued.result?.lastError).toContain('0 tokens remaining')
+			expect(await h.store.getChildren(h.parentSession.id, tenant)).toHaveLength(0)
+		} finally {
+			h.manager.dispose()
+		}
+	})
+	it.each([false, true])(
+		'does not admit a FIFO head before its pending listener acknowledges (reject=%s)',
+		async (reject) => {
+			const acknowledgement = deferred()
+			const listenerEntered = deferred()
+			const started: string[] = []
+			const child = makeAgent('worker', async (input) => {
+				started.push(String(input.messages[0]?.content))
+				return successResult()
+			})
+			const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+			await h.store.updateProject(h.projectId, { maxDelegationWidth: 1 }, tenant)
+			const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+			const options = (name: string): SendMessageOptions => ({
+				...buildOptions('worker', h.parentSession.id, h.projectId),
+				input: { messages: [{ role: 'user', content: name }], workingDirectory: '/tmp' },
+			})
+			try {
+				const firstCreation = h.manager.sendMessage(options('first'), context, async (event) => {
+					if (event.type === 'agent_failed' && reject)
+						throw new Error('The terminal observer also rejected')
+					if (event.type !== 'agent_pending') return
+					listenerEntered.resolve()
+					await acknowledgement.promise
+					if (reject) throw new Error('Pending listener refused acknowledgement')
+				})
+				await listenerEntered.promise
+				const second = await h.manager.sendMessage(options('second'), context)
+				// Give the second enqueue's pump a full turn. Its head has no
+				// acknowledgement yet, so no queued task can have been provisioned.
+				await new Promise<void>((resolve) => setImmediate(resolve))
+				expect(started).toEqual([])
+				expect(context.budget.summary().reservedTokens).toBe(0)
+				expect(await h.store.getChildren(h.parentSession.id, tenant)).toHaveLength(0)
+				acknowledgement.resolve()
+				const first = await firstCreation
+				await Promise.all([first, second].map((task) => h.manager.waitForCompletion(task.taskId)))
+				expect(started).toEqual(reject ? ['second'] : ['first', 'second'])
+				expect(first.state).toBe(reject ? 'failed' : 'completed')
+				if (reject)
+					expect(first.result?.lastError).toContain('Pending listener refused acknowledgement')
+				expect(second.state).toBe('completed')
+			} finally {
+				acknowledgement.resolve()
+				h.manager.dispose()
+			}
+		},
+	)
+
+	it('preserves an explicit user cancellation cause on a pending task', async () => {
+		const child = makeAgent('worker', async () => successResult())
+		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
+		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
+		const events: RunEvent[] = []
+		try {
+			const request = await context.budget.beginRequest()
+			const task = await h.manager.sendMessage(
+				buildOptions('worker', h.parentSession.id, h.projectId),
+				context,
+				(event) => {
+					events.push(event)
+				},
+			)
+			h.manager.cancel(task.taskId, 'user')
+			await h.manager.waitForCompletion(task.taskId)
+			const cancelled = events.filter((event) => event.type === 'agent_canceled')
+			expect(cancelled).toHaveLength(1)
+			expect(cancelled[0]).toMatchObject({ taskId: task.taskId, cancelCause: 'user' })
+			expect(task.childAbortController.signal.reason).toMatchObject({ cancelCause: 'user' })
+			await context.budget.finishRequest(request, { ...EMPTY_TOKEN_USAGE })
+			expect(await h.store.getChildren(h.parentSession.id, tenant)).toHaveLength(0)
+		} finally {
+			h.manager.dispose()
+		}
 	})
 })

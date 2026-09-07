@@ -103,6 +103,12 @@ execution and the rule report. Both levels identify the effective current
 behavior and session scope. Settings use named controls and the same effective
 permission value. Internal mode identifiers remain accepted as typed shortcuts.
 The approval prompt spells out when a choice allows all tools for the session.
+Agent launch reviews lead with the task, type and built-in tool capabilities,
+including the default general-purpose type when omitted. A prompt saying
+"only inspect" does not change the displayed tool authority. Role and optional
+workflow/phase labels precede the full instructions, which remain pageable
+alongside exact JSON. Agent-only reviews use explicit start/do-not-start actions;
+the separate session-wide choice still says it allows all tools.
 
 `/status`, `/cost`, `/context` and `/mcp` lead with short factual summaries.
 Explicit details show configuration rules, pricing scope, cleanup counters or
@@ -124,6 +130,20 @@ including the automatic-turn allowance before work starts. `/tasks` reads the
 current or latest run’s own task store; changing conversations clears the
 selection without deleting tasks. `/agents` opens the retained delegated-work
 view, while `/agents available` separately reports the configured roster.
+
+The delegated-work view first separates workflows. Independently launched work
+in another parent run appears as a separate workflow, including when names are
+reused. Within a run, explicit workflow labels group phases across tool batches;
+unlabelled batches remain separate workflows. Repeated batches in the same
+explicit phase do not create new phases. These annotations describe grouping,
+not execution dependencies or barriers.
+
+With multiple workflows, the workflow picker opens first. Selecting a workflow
+shows only its phases and agents; Esc returns to workflows and `q` or Ctrl+T
+returns to the conversation. Older completed or cancelled work stays available.
+Pending admissions show `Queued` until the child run starts. Completed Agent
+and `wait_for_task` outputs name the actual `task_id` and terminal status before
+the child result, so identifiers inside that result remain clearly separate.
 
 The delegated-work view separates phases and agents with a column divider on
 wide terminals and stacked panes on narrow terminals. Task labels, status and
@@ -165,6 +185,12 @@ Screen regressions drive the production Ink renderer through a terminal
 emulator. They check wrapped input, short viewports, retained drafts, normal
 scrollback and the amount of output emitted during streaming. These checks use
 controlled session events and require no model calls.
+
+When a run stops for budget, iteration, policy or validation reasons, a short
+reason notice stays beside any retained partial output. Normal completion and
+operator cancellation do not add a redundant stop notice. The composer remains
+usable for a follow-up; a token allowance refusal does not claim every reserved
+token was spent.
 
 When startup cannot load its state or construct a session, a `Startup stopped`
 notice replaces the writing area. The detailed error remains in scrollback;

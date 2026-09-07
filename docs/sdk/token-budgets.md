@@ -63,6 +63,27 @@ supplied account/provider and reserve a child account before invoking another ag
 provider client cannot be intercepted by the kernel. Foreign delegation without
 the metering contract is refused when a budget is bound.
 
+## Queued delegation
+
+The CLI uses the manager's `capacityBehavior: 'queue'` policy. Queue entries
+hold no child token account until a live slot is available.
+`TokenBudget.hasInFlightRequest` reports an outstanding request owned by that
+account, independently of descendant requests. If the parent is responding,
+queued admission waits for its receipt before reserving another child grant;
+it does not turn that temporary contention into a failed task. At admission, the
+grant is the smaller of the existing `maxBudgetFraction` ceiling and the
+available allowance divided by the remaining live slots plus one parent share.
+For an unspent one-million-token root with eight slots, each initial child
+receives 111,111 tokens and the parent retains 111,112. Actual parent usage
+before admission reduces those amounts. Unlimited roots keep finite child
+grants. The SDK's default rejection policy retains its existing allocation
+formula.
+
+This parent share permits coordination while children are working; it is not
+an additional allowance. Further requests and overruns can still consume it.
+A token-budget stop is displayed in the CLI with a `/cost`
+command hint, instead of leaving the operator with an unexplained idle screen.
+
 ## Own usage and tree usage
 
 `Run.tokenUsage`, agent-result `usage`, and `token_usage_updated.usage` describe

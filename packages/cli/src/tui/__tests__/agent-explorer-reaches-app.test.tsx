@@ -35,6 +35,7 @@ import {
 	agentTaskPanelPageSize,
 	agentTranscriptPage,
 	agentTranscriptRows,
+	agentWorkflows,
 	maxAgentTranscriptTailOffset,
 } from '../AgentExplorer.js'
 import { type AgentEvent, type AgentSession, toAgentEvent } from '../agent.js'
@@ -219,11 +220,16 @@ function agent(
 		batchId: input.batchId ?? 'batch-live',
 		...(input.toolUseId ? { toolUseId: input.toolUseId } : {}),
 		workflowId: input.workflowId ?? 'run-parent',
+		workflowGroupId: input.workflowGroupId ?? JSON.stringify([
+			input.workflowId ?? 'run-parent',
+			input.workflow ? 'workflow' : 'batch',
+			input.workflow ?? input.batchId ?? 'batch-live',
+		]),
 		phaseId:
 			input.phaseId ??
 			JSON.stringify([
 				input.workflowId ?? 'run-parent',
-				input.workflow ?? 'Delegated work',
+				input.workflow ?? input.batchId ?? 'batch-live',
 				input.phase ?? 'Work',
 			]),
 		workflow: input.workflow ?? 'Delegated work',
@@ -875,6 +881,7 @@ describe('Ctrl+T', () => {
 				viewId: 'research-api',
 				description: 'API research',
 				workflow: 'Basicbox research',
+				batchId: 'research-batch',
 				phase: 'Research',
 				phaseOrder: 0,
 			}),
@@ -882,6 +889,7 @@ describe('Ctrl+T', () => {
 				viewId: 'verify-contract',
 				description: 'Contract critic',
 				workflow: 'Basicbox research',
+				batchId: 'verification-batch',
 				phase: 'Verify',
 				phaseOrder: 1,
 				transcript: [
@@ -917,6 +925,53 @@ describe('Ctrl+T', () => {
 			'phase selection did not reach the selected child transcript',
 		)
 		expect(screen.viewport().join('\n')).toContain('Contract critic')
+	})
+
+	it.each([{ cols: 110, rows: 28 }, { cols: 60, rows: 18 }])(
+		'keeps two eight-agent actions as separate workflows at $cols×$rows', async ({ cols, rows }) => {
+		const first = Array.from({ length: 8 }, (_, index) => agent({
+			viewId: `first-${index}`, description: `First agent ${index + 1}`,
+			workflowId: 'run-one', workflow: 'Capacity review', phase: 'Inspect', phaseOrder: 0,
+			status: 'completed', startedAt: 1, completedAt: 2,
+			transcript: [{ id: `first-result-${index}`, kind: 'assistant', text: 'first workflow evidence' }],
+		}))
+		const second = Array.from({ length: 8 }, (_, index) => agent({
+			viewId: `second-${index}`, description: `Second agent ${index + 1}`,
+			workflowId: 'run-two', workflow: 'Capacity review', phase: 'Inspect', phaseOrder: 0,
+			status: 'cancelled', startedAt: 3, completedAt: 4,
+			transcript: [{ id: `second-result-${index}`, kind: 'assistant', text: 'second workflow cancellation' }],
+		}))
+		activity.set([...first, ...second])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		screen.press('preserved draft')
+		await screen.waitForRender()
+		screen.press('\x14')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Workflows · 2/2'), 'workflow picker missing')
+		expect(screen.viewport().join('\n')).not.toContain('Phases · 1/2')
+		screen.press('\r')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Second agent 1'), 'latest workflow missing')
+		let frame = screen.viewport().join('\n')
+		expect(frame).toContain('Phases · 1/1')
+		expect(frame).toContain('0 active · 8 total')
+		expect(frame).not.toContain('First agent')
+		screen.press('\r')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('second workflow cancellation'), 'cancelled transcript missing')
+		screen.press('\x1b')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Phases · 1/1'), 'did not return to agents')
+		screen.press('\x1b')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Workflows · 2/2'), 'did not return to workflows')
+		screen.press('\x1b[A')
+		screen.press('\r')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('First agent 1'), 'previous workflow missing')
+		frame = screen.viewport().join('\n')
+		expect(frame).toContain('0 active · 8 total')
+		expect(frame).not.toContain('Second agent')
+		screen.press('q')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('preserved draft'), 'draft not restored')
+		screen.press('\x14')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Workflows · 2/2'), 'retained workflows did not reopen')
 	})
 
 	it('keeps the selected child while the mounted cockpit crosses its responsive breakpoint', async () => {
@@ -1270,6 +1325,29 @@ describe('agent explorer projection', () => {
 		])
 	})
 
+	it('keeps unlabelled batches separate even when they reuse the same phase label', () => {
+		const workflows = agentWorkflows([
+			agent({ viewId: 'first', batchId: 'one', phase: 'Inspect', startedAt: 1 }),
+			agent({ viewId: 'second', batchId: 'two', phase: 'Inspect', startedAt: 2 }),
+		])
+		expect(workflows.map((workflow) => workflow.phases.map((phase) => phase.agents.map((entry) => entry.viewId))))
+			.toEqual([[['first']], [['second']]])
+	})
+
+	it('shows queued children as active without claiming that they are working', async () => {
+		const queued = agent({ viewId: 'queued', description: 'Ninth review', status: 'queued', latestActivity: 'Queued' })
+		const running = agent({ viewId: 'running', description: 'Running review' })
+		const screen = await renderToScreen(<AgentCockpit agents={[running, queued]}
+			selectedPhaseId={queued.phaseId} selectedId={queued.viewId} focus="agents"
+			terminalRows={24} terminalColumns={110} />, { cols: 110, rows: 24 })
+		mounted = screen
+		await screen.waitForRender()
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('2 active · 2 total')
+		expect(frame).toMatch(/Ninth review\s+Queued/)
+		expect(frame).not.toMatch(/Queued.*Queued/)
+	})
+
 	it.each([
 		{ cols: 120, rows: 28 },
 		{ cols: 60, rows: 20 },
@@ -1324,14 +1402,14 @@ describe('agent explorer projection', () => {
 		const working = agent({ viewId: 'working' })
 		const cancelled = agent({
 			viewId: 'cancelled',
-			workflowId: 'run-two',
+			workflowId: 'run-parent',
 			phaseId: 'phase-two',
 			status: 'cancelled',
 			completedAt: 2,
 		})
 		const completed = agent({
 			viewId: 'completed',
-			workflowId: 'run-two',
+			workflowId: 'run-parent',
 			phaseId: 'phase-two',
 			status: 'completed',
 			completedAt: 2,

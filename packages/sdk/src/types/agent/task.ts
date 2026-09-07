@@ -122,6 +122,7 @@ export interface AgentTask {
 	agentId: string
 	agent: Agent<BaseAgentConfig, BaseAgentResult>
 	childAbortController: AbortController
+	/** While pending admission this is the submitting authority; admitted tasks receive child scope. */
 	context: AgentTaskContext
 	state: AgentTaskState
 	result?: BaseAgentResult
@@ -142,6 +143,12 @@ export interface AgentTask {
  * WorkspaceRef triple atomically on every spawn.
  */
 export interface SendMessageOptions {
+	/**
+	 * Revalidate host authority before admission, including after a capacity wait.
+	 * Queue retries may invoke this more than once; checks must tolerate repeated calls.
+	 */
+	readonly beforeStart?: () => Promise<void>
+
 	/** See {@link import('./scheduler.js').CreateTaskOptions.toolScope}. Deny-only. */
 	readonly toolScope?: { readonly deny: readonly string[] }
 	/** See {@link import('./scheduler.js').CreateTaskOptions.personaOverride}. */
@@ -179,6 +186,12 @@ export interface SendMessageOptions {
 }
 
 export interface AgentManagerConfig {
+	/** Reject a full parent immediately (default), or retain bounded pending task handles. */
+	capacityBehavior?: 'reject' | 'queue'
+
+	/** Maximum tasks awaiting admission across this manager. Defaults to 128. */
+	maxPendingTasks?: number
+
 	maxDepth: number
 
 	evictionMs: number
