@@ -17,6 +17,7 @@ import { render } from 'ink-testing-library'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { DetectedProvider } from '../../integrations/providers/index.js'
+import { PROVIDER_REGISTRY } from '../../integrations/providers/registry.js'
 
 import type { ModelListing } from '../agent.js'
 import { Picker } from '../Picker.js'
@@ -79,6 +80,37 @@ function selectedRow(frame: string): string | undefined {
 }
 
 describe('the model step', () => {
+	it('offers public Zen directly and removes an old paid pin from the model screen', async () => {
+		const entry = PROVIDER_REGISTRY.zen
+		const { lastFrame, stdin, onSubmit, unmount } = open({
+			detected: [{ entry, source: { kind: 'public' }, alternatives: [] }],
+			currentProvider: 'zen',
+			currentModel: 'glm-5.3-flash',
+			describeModels: async () => ({
+				kind: 'ok',
+				models: [
+					{ id: entry.defaultModel, name: 'Muse Spark Free' },
+					{ id: 'glm-5.3-flash', name: 'Paid GLM' },
+				],
+			}),
+		})
+		try {
+			expect(lastFrame()).toContain('free models · no API key')
+			stdin.write('\r')
+			await flush()
+			expect(lastFrame()).toContain('Muse Spark Free')
+			expect(lastFrame()).not.toContain('Paid GLM')
+			expect(lastFrame()).not.toContain('glm-5.3-flash')
+			stdin.write('\r')
+			await flush()
+			expect(onSubmit).toHaveBeenCalledWith(
+				{ provider: 'zen', model: entry.defaultModel },
+				expect.any(AbortSignal),
+			)
+		} finally {
+			unmount()
+		}
+	})
 	it('appears after a provider is accepted', async () => {
 		const { lastFrame, stdin, unmount } = open()
 		expect(lastFrame()).toContain('Choose a provider')

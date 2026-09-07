@@ -20,6 +20,8 @@ export interface ZenModel {
 	readonly outputPrice: number
 	readonly supportsToolUse: boolean
 	readonly supportsStreaming: boolean
+	/** True only for documented anonymous Zen models; omission grants no anonymous access. */
+	readonly supportsAnonymousAccess?: boolean
 	/** Exact advertised selectable effort levels; empty means no effort selector. */
 	readonly effortLevels?: readonly ReasoningEffort[]
 }
@@ -41,6 +43,9 @@ export interface ZenModel {
  *
  * Promotional free models with documented routes and complete metadata are
  * included at their advertised zero price; the service enforces access limits.
+ * Anonymous admission is explicit rather than inferred from price. OpenCode's
+ * own loader uses the public sentinel when credentials are absent:
+ * https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts#L185
  * Deprecated models are omitted. Unknown IDs have no inferred protocol or limits.
  * MiniMax and Qwen demonstrate why routes must be recorded per service/model.
  */
@@ -745,6 +750,7 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'big-pickle',
+		supportsAnonymousAccess: true,
 		name: 'Big Pickle',
 		protocol: 'chat',
 		contextWindow: 200000,
@@ -758,6 +764,7 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'mimo-v2.5-free',
+		supportsAnonymousAccess: true,
 		name: 'MiMo-V2.5 Free',
 		protocol: 'chat',
 		contextWindow: 200000,
@@ -771,6 +778,7 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'ling-3.0-flash-fin-free',
+		supportsAnonymousAccess: true,
 		name: 'Ling 3.0 Flash Fin Free',
 		protocol: 'chat',
 		contextWindow: 262144,
@@ -784,6 +792,7 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'nemotron-3-ultra-free',
+		supportsAnonymousAccess: true,
 		name: 'Nemotron 3 Ultra Free',
 		protocol: 'chat',
 		contextWindow: 1000000,
@@ -797,6 +806,7 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'nemotron-3.5-lightning-free',
+		supportsAnonymousAccess: true,
 		name: 'Nemotron 3.5 Lightning Free',
 		protocol: 'chat',
 		contextWindow: 262144,
@@ -810,6 +820,7 @@ const ZEN_MODELS = freezeModels([
 	},
 	{
 		id: 'muse-spark-1.3-contributor-free',
+		supportsAnonymousAccess: true,
 		name: 'Muse Spark 1.3 Contributor Free',
 		protocol: 'responses',
 		contextWindow: 1048576,

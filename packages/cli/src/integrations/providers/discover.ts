@@ -1,64 +1,19 @@
 /**
- * Credential discoverer for LLM provider clients.
+ * Discover usable credential sources, reachable local servers, and public Zen.
  *
- * For each entry in `PROVIDER_REGISTRY`, ask four questions:
- *   1. Is there a usable session owned by an installed Claude or Codex harness?
- *   2. Is there a subscription credential in namzu's own store?
- *   3. Is one of its optional API-key env vars set in `process.env`?
- *   4. Is the probe URL (if any) reachable right now?
+ * Claude/Codex device sessions precede Namzu-owned sign-ins and their optional
+ * API environment alternatives. Zen/Go use direct API environment variables,
+ * then exact API entries in OpenCode's owner store. Anonymous Zen is available
+ * without a credential or local installation and is ordered last.
  *
- * The header used to say "three" and list two, and the one it omitted was the
- * Keychain — the question that reads a secret off the machine, so the one a
- * reader most needs to see. A count that disagrees with its own list is the
- * tell that the list stopped being maintained; in a file about credentials that
- * is worth more than a typo.
- *
- * **The Keychain path is macOS-only, and question 2 is why that is no longer a
- * hole.** `readAgentKeychainCredential` returns `null` on any other platform
- * before it looks at anything; it reads a credential belonging to a
- * co-installed tool, so it can only ever help someone who has that tool, on
- * that operating system. namzu's own store works everywhere, which is what
- * makes signing in from inside namzu useful on a machine that has neither.
- *
- * Order matters when both answer. A current device-harness session wins; a
- * Namzu-owned sign-in is the fallback for a machine that has no usable harness
- * session. API-key/env sources remain optional alternatives after both.
- *
- * The first positive answer per provider wins; subsequent sources are
- * recorded as "also available from" so the picker can show alternatives
- * (e.g. anthropic via env, also reachable as a local server).
- *
- * ## Membership means "usable right now", and two consumers depend on that
- *
- * A provider appears in the returned list only when a source actually answered.
- * That is not merely a description of the loop — it is the contract the readers
- * are built on, and it is why this function does NOT return a local provider
- * whose server is down:
- *
- *  - the `providers.chain` doctor check reads presence itself as the verdict
- *    for a provider that needs no key (`requiresApiKey ? apiKey : Boolean(det)`),
- *    so an unreachable entry would make it print `reachable` for a dead server;
- *  - the session's chain builder applies no credential test to a local
- *    provider, so an unreachable entry would be built into the chain and fail
- *    on the day it was supposed to rescue a run.
- *
- * `DetectionSource` has no way to say "found, not usable" either — every
- * variant asserts a working source.
- *
- * A dead branch here used to propose the opposite: list a local provider whose
- * probe failed, so the picker could show `(not running)` and the operator would
- * know they could start the server. It was removed rather than built, because
- * the operator-facing half of that idea already exists somewhere better — the
- * picker's empty state names both local servers and their ports and says to
- * start one — while the machine-facing half would have made the two readers
- * above lie. See cogitave/namzu#258.
- *
- * Discovery is non-throwing. Network probes have short timeouts. The
- * picker can render immediately and refine if discovery completes later.
+ * A public source promises only access to the documented free model catalogue;
+ * it does not assert network reachability. Local servers still require a
+ * successful bounded probe. Discovery never writes borrowed credentials.
  */
 
 import { EnvCredentialProvider } from '@namzu/sdk'
 
+import { hasApiCredential } from './access.js'
 import {
 	credentialsPath,
 	readStoredCodexCredential,
@@ -68,6 +23,7 @@ import {
 	preferFresherCredential,
 	readClaudeFileCredentialCandidates,
 	readCodexFileCredentialCandidates,
+	readOpenCodeApiCredentialCandidates,
 } from './harness-credentials.js'
 import { KEYCHAIN_SERVICE, readAgentKeychainCredential } from './keychain.js'
 import type { CredentialOrigin } from './oauth.js'
@@ -75,6 +31,10 @@ import { PROVIDER_REGISTRY, type ProviderId, type ProviderRegistryEntry } from '
 
 export type DetectionSource =
 	| { readonly kind: 'env'; readonly envName: string }
+	/** Public free-model access; does not assert connectivity or an account credential. */
+	| { readonly kind: 'public' }
+	/** A read-only API key owned by OpenCode, kept on its original billing route. */
+	| { readonly kind: 'opencode-file'; readonly path: string }
 	| { readonly kind: 'probe'; readonly url: string }
 	| { readonly kind: 'keychain'; readonly service: string }
 	/** A read-only Claude Code OAuth envelope owned by the Claude CLI. */
@@ -230,6 +190,7 @@ export async function discoverProviders(
 	// Keychain.
 	const keychainCredential = opts.skipKeychain ? null : readAgentKeychainCredential()
 	const claudeFileCredentials = readClaudeFileCredentialCandidates(opts.home, env, opts.windowsHome)
+	const openCodeCredentials = readOpenCodeApiCredentialCandidates(opts.home, env, opts.windowsHome)
 	const codexFileCredentials = readCodexFileCredentialCandidates(
 		opts.home,
 		env,
@@ -253,6 +214,7 @@ export async function discoverProviders(
 		const entry = PROVIDER_REGISTRY[id]
 		const sources: DetectionSource[] = []
 		let apiKey: string | undefined
+		let anonymousSelected = false
 		let oauth: DetectedProvider['oauth']
 		let codex: DetectedProvider['codex']
 
@@ -266,7 +228,10 @@ export async function discoverProviders(
 					? [
 							{
 								credential: keychainCredential,
-								source: { kind: 'keychain', service: KEYCHAIN_SERVICE } as const,
+								source: {
+									kind: 'keychain',
+									service: KEYCHAIN_SERVICE,
+								} as const,
 							},
 						]
 					: []),
@@ -353,11 +318,29 @@ export async function discoverProviders(
 			// provider, and that the "is this a credential" vocabulary is the
 			// one the host-bash scrub uses rather than a third table beside it.
 			const resolved = await credentials.resolve(envName)
-			if (resolved) {
+			if (anonymousSelected) continue
+			if ((id === 'zen' || id === 'zen-go') && resolved?.value.trim() === 'public') {
+				if (sources.length === 0) {
+					anonymousSelected = true
+					sources.push({ kind: 'env', envName })
+				}
+				continue
+			}
+			if (resolved && hasApiCredential(entry, resolved.value)) {
 				if (apiKey === undefined) apiKey = resolved.value
 				sources.push({ kind: 'env', envName })
 			}
 		}
+		if (id === 'zen' || id === 'zen-go') {
+			for (const candidate of openCodeCredentials) {
+				if (anonymousSelected) break
+				if (candidate.provider !== id) continue
+				if (apiKey === undefined) apiKey = candidate.apiKey
+				sources.push(candidate.source)
+			}
+			if (id === 'zen' && sources.length === 0) sources.push({ kind: 'public' })
+		}
+		if (id === 'zen-go' && anonymousSelected) continue
 		if (sources.length === 0 && entry.probeUrl && !opts.skipProbes) {
 			const reachable = await probe(entry.probeUrl, opts)
 			if (reachable) {
@@ -376,7 +359,12 @@ export async function discoverProviders(
 			})
 		}
 	}
-	return detected
+	// A public fallback should not displace an existing account or local server
+	// when a headless caller has no saved provider preference. An explicit
+	// public environment marker retains env provenance but is still anonymous.
+	const anonymous = (provider: DetectedProvider) =>
+		provider.entry.id === 'zen' && !hasApiCredential(provider.entry, provider.apiKey)
+	return detected.sort((left, right) => Number(anonymous(left)) - Number(anonymous(right)))
 }
 
 async function probe(url: string, opts: DiscoverOptions): Promise<boolean> {

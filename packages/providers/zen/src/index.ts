@@ -24,7 +24,7 @@ export {
 	ZenProvider,
 	ZenGoProvider,
 } from './client.js'
-export type { ZenConfig, ZenProviderConfig, ZenGoProviderConfig } from './types.js'
+export type { ZenConfig, ZenGoConfig, ZenProviderConfig, ZenGoProviderConfig } from './types.js'
 export { getZenModels, findZenModel } from './models.js'
 export type { ZenModel, ZenProtocol, ZenService } from './models.js'
 export type {

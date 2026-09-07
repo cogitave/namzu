@@ -44,7 +44,7 @@ describe('discoverProviders — env-var scan', () => {
 			source: { kind: 'env', envName: 'OPENCODE_GO_API_KEY' },
 			baseUrl: 'https://opencode.ai/zen/go/v1',
 		})
-		expect(findDetected(go, 'zen')).toBeNull()
+		expect(findDetected(go, 'zen')?.source).toEqual({ kind: 'public' })
 	})
 
 	it('accepts the explicit Zen environment variable when the primary alias is absent', async () => {
@@ -87,13 +87,15 @@ describe('discoverProviders — env-var scan', () => {
 		}
 	})
 
-	it('returns empty list when no env + no secrets + no probes + no keychain', async () => {
+	it('offers public Zen when no env + no secrets + no probes + no keychain', async () => {
 		const list = await discoverProviders({
 			...HERMETIC,
 			env: {},
 			home: tmpHome(),
 		})
-		expect(list).toHaveLength(0)
+		expect(list.map((provider) => provider.entry.id)).toEqual(['zen'])
+		expect(list[0]?.source).toEqual({ kind: 'public' })
+		expect(list[0]?.apiKey).toBeUndefined()
 	})
 
 	it('detects multiple providers in one scan', async () => {

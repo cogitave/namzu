@@ -11,9 +11,9 @@ cancellation and classified provider errors remain part of the normal
 Namzu kernel lifecycle.
 
 The CLI exposes Zen (`zen`) and Zen Go (`zen-go`) in provider selection and
-headless runs. Configure Zen with `OPENCODE_API_KEY` or
-`OPENCODE_ZEN_API_KEY`, and Go with `OPENCODE_GO_API_KEY`. The actual Namzu
+headless runs. Zen supports anonymous public models and optional credentials;
+Go requires its own key. The actual Namzu
 conversation is retained for service attribution across turns and resume.
-The driver requires Node.js 20+, an explicit API key, and a known model or
-an explicit protocol for an unknown model. Bundled prices are estimates;
+The driver requires Node.js 20+ and a supported public model, or a real key
+with a known model or explicit protocol. Bundled prices are estimates;
 unsupported controls and content combinations are refused.

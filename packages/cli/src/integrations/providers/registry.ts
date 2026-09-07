@@ -53,7 +53,7 @@ export interface ProviderRegistryEntry {
 	 * operator can see it is a choice rather than a recommendation.
 	 */
 	readonly defaultModel: string
-	/** Does this provider require an apiKey? `false` for purely local. */
+	/** Does every model require an apiKey? Local and public Zen models do not. */
 	readonly requiresApiKey: boolean
 	/** Whether the picker may accept an opaque credential typed by the operator. */
 	readonly acceptsTypedCredential: boolean
@@ -154,8 +154,8 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			label: 'Zen',
 			envVars: ['OPENCODE_API_KEY', 'OPENCODE_ZEN_API_KEY'],
 			defaultBaseUrl: 'https://opencode.ai/zen/v1',
-			defaultModel: 'glm-5.3-flash',
-			requiresApiKey: true,
+			defaultModel: 'muse-spark-1.3-contributor-free',
+			requiresApiKey: false,
 			acceptsTypedCredential: true,
 			constructible: true,
 			driverPackage: '@namzu/zen',

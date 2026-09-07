@@ -117,6 +117,74 @@ export function codexCredentialsPath(
 	return join(root, 'auth.json')
 }
 
+export interface OpenCodeApiCredentialCandidate {
+	readonly provider: 'zen' | 'zen-go'
+	readonly apiKey: string
+	readonly source:
+		| { readonly kind: 'opencode-file'; readonly path: string }
+		| { readonly kind: 'env'; readonly envName: 'OPENCODE_AUTH_CONTENT' }
+}
+
+export function opencodeCredentialsPath(
+	home: string = homedir(),
+	env: NodeJS.ProcessEnv = process.env,
+): string {
+	const configured = env.XDG_DATA_HOME?.trim()
+	const root = configured && isAbsolute(configured) ? configured : join(home, '.local', 'share')
+	return join(root, 'opencode', 'auth.json')
+}
+
+/** Read only OpenCode-owned API entries; OAuth and provider aliases are not credentials here. */
+export function readOpenCodeApiCredentialCandidates(
+	home: string | undefined,
+	env: NodeJS.ProcessEnv = process.env,
+	windowsHome: string | null | undefined = home === undefined ? wslWindowsHome(env) : null,
+): readonly OpenCodeApiCredentialCandidate[] {
+	const parse = (
+		value: unknown,
+		source: OpenCodeApiCredentialCandidate['source'],
+	): OpenCodeApiCredentialCandidate[] => {
+		const root = record(value)
+		return (['opencode', 'opencode-go'] as const).flatMap((id) => {
+			const entry = record(root?.[id])
+			const apiKey = typeof entry?.key === 'string' ? entry.key.trim() : undefined
+			return entry?.type === 'api' && apiKey && apiKey !== 'public'
+				? [
+						{
+							provider: id === 'opencode' ? ('zen' as const) : ('zen-go' as const),
+							apiKey,
+							source,
+						},
+					]
+				: []
+		})
+	}
+	// OpenCode treats this as the complete store. Even an invalid override must
+	// not silently revive an older account from disk.
+	if (env.OPENCODE_AUTH_CONTENT !== undefined) {
+		try {
+			if (Buffer.byteLength(env.OPENCODE_AUTH_CONTENT, 'utf8') > MAX_CREDENTIAL_FILE_BYTES)
+				return []
+			return parse(JSON.parse(env.OPENCODE_AUTH_CONTENT), {
+				kind: 'env',
+				envName: 'OPENCODE_AUTH_CONTENT',
+			})
+		} catch {
+			return []
+		}
+	}
+	const paths =
+		env.XDG_DATA_HOME?.trim() && isAbsolute(env.XDG_DATA_HOME.trim())
+			? [opencodeCredentialsPath(home, env)]
+			: [
+					opencodeCredentialsPath(home, env),
+					...(windowsHome ? [opencodeCredentialsPath(windowsHome, {})] : []),
+				]
+	return [...new Set(paths)].flatMap((path) =>
+		parse(readCredentialJson(path), { kind: 'opencode-file', path }),
+	)
+}
+
 function readCredentialJson(path: string): unknown | null {
 	try {
 		const stat = statSync(path)

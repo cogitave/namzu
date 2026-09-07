@@ -142,6 +142,7 @@ import {
 	connectMcpServers,
 } from '../integrations/mcp/servers.js'
 import { createCliPluginRuntime } from '../integrations/plugins/runtime.js'
+import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import {
 	type AgentOAuthCredential,
 	CredentialRefreshRejectedError,
@@ -1044,9 +1045,14 @@ function credentialGap(
 	// one ever did, it is not a credential problem and must not be reported as
 	// one — a wrong diagnosis sends the operator to paste a key that would not
 	// have helped.
-	if (!entry || !entry.constructible || !entry.requiresApiKey) return null
+	if (
+		!entry ||
+		!entry.constructible ||
+		!requiresCredentialForModel(entry, primary.model ?? entry.defaultModel)
+	)
+		return null
 	const det = findDetected(detected, primary.id)
-	if (det?.apiKey) return null
+	if (hasApiCredential(entry, det?.apiKey)) return null
 	return { providerId: primary.id, reason: missingCredentialMessage(entry) }
 }
 
@@ -1341,7 +1347,10 @@ export async function createAgentSession(
 		return emptySession(`Unknown provider "${primary.id}" — pick another.`, 'invocation')
 	}
 	const det = findDetected(detected, primary.id)
-	if (entry.requiresApiKey && (!det || !det.apiKey)) {
+	if (
+		requiresCredentialForModel(entry, primary.model ?? entry.defaultModel) &&
+		!hasApiCredential(entry, det?.apiKey)
+	) {
 		// The BACKSTOP, not the operator-facing answer. The TUI never reaches this
 		// line any more: `probeAgentSession` reports the same gap as a
 		// `credentialGap` and the App routes into the picker, where a credential
@@ -1351,7 +1360,7 @@ export async function createAgentSession(
 		// `--provider`. Keeping the refusal is what makes those runs fail rather
 		// than quietly start on something else.
 		return emptySession(
-			`No credential found for ${entry.label}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
+			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Choose muse-spark-1.3-contributor-free for public access' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {
@@ -1403,7 +1412,9 @@ export async function createAgentSession(
 	}
 	let provider: LLMProvider
 	try {
-		provider = constructProvider(primary.id, det, model, { sessionId: scope.sessionId })
+		provider = constructProvider(primary.id, det, model, {
+			sessionId: scope.sessionId,
+		})
 	} catch (err) {
 		return emptySession(
 			`Failed to construct ${entry.label}: ${err instanceof Error ? err.message : String(err)}`,
@@ -2676,7 +2687,10 @@ function planFallbacks(
 			continue
 		}
 		const det = findDetected(detected, member.id)
-		if (entry.requiresApiKey && !det?.apiKey) {
+		if (
+			requiresCredentialForModel(entry, member.model ?? entry.defaultModel) &&
+			!hasApiCredential(entry, det?.apiKey)
+		) {
 			notices.push(
 				`Provider chain: ${position} (${entry.label}) has no credential, so nothing will fall over to it. ` +
 					`Set one of: ${entry.envVars.join(', ')}.`,
@@ -2704,7 +2718,9 @@ function planFallbacks(
 					const credential =
 						headToken !== undefined && det?.oauth ? { ...det, apiKey: headToken } : det
 					out.push({
-						provider: constructProvider(choice.id, credential, memberModel, { sessionId }),
+						provider: constructProvider(choice.id, credential, memberModel, {
+							sessionId,
+						}),
 						model: memberModel,
 					})
 				} catch {
@@ -2781,9 +2797,12 @@ export function constructProvider(
 		}
 		case 'zen':
 		case 'zen-go': {
+			const apiKey = hasApiCredential(PROVIDER_REGISTRY[id], det?.apiKey) ? det?.apiKey : undefined
+			if (id === 'zen-go' && apiKey === undefined) throw new Error('Zen Go requires an API key.')
 			const { provider } = ProviderRegistry.create({
-				type: id,
-				apiKey: det?.apiKey ?? '',
+				...(id === 'zen-go'
+					? { type: 'zen-go' as const, apiKey: apiKey as string }
+					: { type: 'zen' as const, ...(apiKey === undefined ? {} : { apiKey }) }),
 				baseURL: det?.baseUrl,
 				model,
 				...(context.sessionId ? { sessionId: context.sessionId } : {}),

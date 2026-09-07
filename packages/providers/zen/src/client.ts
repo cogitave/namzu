@@ -29,7 +29,7 @@ import {
 import { type ZenService, findZenModel } from './models.js'
 import { createCallOptions } from './options.js'
 import { createReplayState, toReasoningBlocks } from './prompt.js'
-import type { ZenConfig } from './types.js'
+import type { ZenConfig, ZenGoConfig } from './types.js'
 
 export const ZEN_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
@@ -53,9 +53,11 @@ export class ZenProvider implements LLMProvider {
 	private readonly baseURL: string
 	private readonly timeout: number
 	private readonly requestFetch: typeof fetch
+	private readonly apiKey: string
+	private readonly anonymous: boolean
 
 	constructor(
-		private readonly config: ZenConfig,
+		private readonly config: ZenConfig = {},
 		readonly service: ZenService = 'zen',
 	) {
 		if (service !== 'zen' && service !== 'go') throw new Error('Unknown service.')
@@ -63,7 +65,13 @@ export class ZenProvider implements LLMProvider {
 			throw new Error('Unknown model protocol.')
 		this.id = service === 'go' ? 'zen-go' : 'zen'
 		this.name = service === 'go' ? 'Zen Go' : 'Zen'
-		if (!config.apiKey.trim()) throw new Error(`${this.name} requires an API key.`)
+		if (config.apiKey !== undefined && typeof config.apiKey !== 'string')
+			throw new Error('apiKey must be a string.')
+		const apiKey = config.apiKey?.trim()
+		this.anonymous = !apiKey || apiKey === 'public'
+		if (service === 'go' && this.anonymous) throw new Error('Zen Go requires an API key.')
+		// OpenCode uses this non-secret sentinel for its documented anonymous models.
+		this.apiKey = apiKey || 'public'
 		this.sessionId = config.sessionId ?? randomUUID()
 		if (
 			!this.sessionId.trim() ||
@@ -98,8 +106,18 @@ export class ZenProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		const model = params.model || this.config.model || 'glm-5.3-flash'
+		const model =
+			params.model ||
+			this.config.model ||
+			(this.anonymous ? 'muse-spark-1.3-contributor-free' : 'glm-5.3-flash')
 		const info = findZenModel(this.service, model)
+		if (this.anonymous && info?.supportsAnonymousAccess !== true)
+			throw new ProviderRequestError({
+				providerId: this.id,
+				kind: 'auth',
+				detail:
+					'Anonymous Zen access requires a supported free model. Configure an API key for other models.',
+			})
 		const protocol = this.config.protocol ?? info?.protocol
 		if (!protocol)
 			throw new ProviderRequestError({
@@ -131,7 +149,7 @@ export class ZenProvider implements LLMProvider {
 			}
 			options.abortSignal = signal
 			const settings = {
-				apiKey: this.config.apiKey,
+				apiKey: this.apiKey,
 				baseURL: this.baseURL,
 				fetch: this.requestFetch,
 			}
@@ -401,7 +419,7 @@ export class ZenProvider implements LLMProvider {
 	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
 		try {
 			const response = await this.requestFetch(`${this.baseURL}/models`, {
-				headers: { Authorization: `Bearer ${this.config.apiKey}` },
+				headers: { Authorization: `Bearer ${this.apiKey}` },
 				signal: AbortSignal.any([AbortSignal.timeout(this.timeout), ...(signal ? [signal] : [])]),
 			})
 			if (!response.ok) {
@@ -423,7 +441,8 @@ export class ZenProvider implements LLMProvider {
 					continue
 				seen.add(item.id)
 				const model = findZenModel(this.service, item.id)
-				if (model) result.push({ ...model })
+				if (model && (!this.anonymous || model.supportsAnonymousAccess === true))
+					result.push({ ...model })
 			}
 			return result
 		} catch (error) {
@@ -446,7 +465,8 @@ export class ZenProvider implements LLMProvider {
 	}
 
 	private failure(error: unknown): ProviderRequestError {
-		const scrub = (text: string) => text.split(this.config.apiKey).join('[REDACTED:api-key]')
+		const scrub = (text: string) =>
+			this.anonymous ? text : text.split(this.apiKey).join('[REDACTED:api-key]')
 		if (APICallError.isInstance(error))
 			return providerHttpError({
 				providerId: this.id,
@@ -470,7 +490,7 @@ export class ZenProvider implements LLMProvider {
 }
 
 export class ZenGoProvider extends ZenProvider {
-	constructor(config: ZenConfig) {
+	constructor(config: ZenGoConfig) {
 		super(config, 'go')
 	}
 }

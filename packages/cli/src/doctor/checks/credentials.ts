@@ -48,6 +48,10 @@ export const credentialSourcesCheck: DoctorCheck = {
 			switch (d.source.kind) {
 				case 'env':
 					return `${d.entry.id} (env · ${d.source.envName})`
+				case 'public':
+					return `${d.entry.id} (free models · no API key; connectivity not checked)`
+				case 'opencode-file':
+					return `${d.entry.id} (OpenCode API key · ${d.source.path})`
 				case 'keychain':
 					return `${d.entry.id} (keychain · ${d.source.service})`
 				case 'claude-file':
@@ -64,7 +68,7 @@ export const credentialSourcesCheck: DoctorCheck = {
 		})
 		return {
 			status: 'pass',
-			message: `${detected.length} provider credential(s) found: ${lines.join(', ')}`,
+			message: `${detected.length} provider source(s) available: ${lines.join(', ')}`,
 		}
 	},
 }

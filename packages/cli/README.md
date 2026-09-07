@@ -129,19 +129,39 @@ session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
 
 Zen and Zen Go appear as separate providers in `/model` (press
-`p` to change providers). Set `OPENCODE_API_KEY` or `OPENCODE_ZEN_API_KEY` for
-Zen; set `OPENCODE_GO_API_KEY` for Go. When both Zen variables are present,
-`OPENCODE_API_KEY` wins. Namzu does not reuse a Zen key for Go or automatically
-read credentials from an OpenCode installation. Keys entered in the picker
-remain temporary; environment variables make them available on later launches.
+`p` to change providers). Zen works without an account key or an OpenCode
+installation: its default is Muse Spark 1.3 Contributor Free
+(`muse-spark-1.3-contributor-free`), and public discovery lists only the
+explicitly supported free models. Public Zen is not a signed-in subscription
+and selecting it does not open a login or key prompt. Availability and
+service limits remain controlled by OpenCode.
+
+For paid Zen models, set `OPENCODE_API_KEY` or `OPENCODE_ZEN_API_KEY`; Go
+requires `OPENCODE_GO_API_KEY` or its own installed API credential. When both
+Zen variables are present, `OPENCODE_API_KEY` wins. Environment keys take
+precedence over OpenCode's API-key entries in
+`OPENCODE_AUTH_CONTENT` when set, otherwise
+`$XDG_DATA_HOME/opencode/auth.json` for an absolute XDG path or
+`~/.local/share/opencode/auth.json`. `OPENCODE_AUTH_CONTENT` replaces the
+whole credential store; invalid JSON does not fall back to a disk account.
+Without an absolute XDG override, WSL also checks the paired Windows home's
+file when available.
+Namzu reads the `opencode` entry for Zen and `opencode-go` for Go, accepts
+only API-key entries, and leaves the file unchanged. OAuth entries are not
+converted into API keys, and a Zen key is never reused for Go. Keys entered
+in the picker remain temporary.
+Public Zen is listed after existing accounts and reachable local providers
+and carries the label `free models · no API key`.
 
 ```bash
-namzu run --provider zen --model glm-5.3-flash "Explain this project"
+namzu run --provider zen "Explain this project"
+namzu run --provider zen --model muse-spark-1.3-contributor-free "Explain this project"
 namzu run --provider zen-go --model glm-5.3-flash "Explain this project"
 ```
 
-These commands read the corresponding environment variable and use the existing
-folder-trust rules. The same provider/model flags work with `run-stream`.
+The Zen commands use public access when no key is available; Go requires its
+own credential. All use the existing folder-trust rules. The same
+provider/model flags work with `run-stream`.
 The picker lists each service's supported models from the provider catalogue;
 an explicit model selection is saved using the existing preferences flow.
 Go requests carry the actual Namzu conversation ID in `x-opencode-session`,

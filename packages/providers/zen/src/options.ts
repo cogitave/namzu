@@ -214,7 +214,15 @@ export function createCallOptions(
 						name: tool.function.name,
 						description: tool.function.description,
 						inputSchema: tool.function.parameters,
-						...(enforced.has(tool.function.name) ? { strict: true } : {}),
+						// Responses strict schemas cannot express Namzu's general
+						// tool contract (including conditional edit shapes). Like
+						// the Codex driver, retain the schema and validate inputs
+						// at execution; enforcement is a capability-dependent hint.
+						...(protocol === 'responses'
+							? { strict: false }
+							: enforced.has(tool.function.name)
+								? { strict: true }
+								: {}),
 					})),
 				}
 			: {}),

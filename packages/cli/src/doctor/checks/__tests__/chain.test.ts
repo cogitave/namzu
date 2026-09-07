@@ -31,6 +31,22 @@ function check(env: Record<string, string> = {}) {
 }
 
 describe('the provider chain check', () => {
+	it('describes keyless Zen as public access without claiming network reachability', async () => {
+		writePrefs({ version: 3, providers: [{ id: 'zen' }] })
+		const result = await check()
+		expect(result.status).toBe('pass')
+		expect(result.message).toContain('free models available (connectivity not checked)')
+		expect(result.message).not.toContain('reachable')
+	})
+	it('requires a credential for a paid saved Zen model', async () => {
+		writePrefs({
+			version: 3,
+			providers: [{ id: 'zen', model: 'glm-5.3-flash' }],
+		})
+		const result = await check()
+		expect(result.status).toBe('fail')
+		expect(result.message).toContain('NO CREDENTIAL')
+	})
 	it('is skipped, not failing and not unanswered, when nothing is configured yet', async () => {
 		// `skipped` rather than `inconclusive`: the check reached an answer, and
 		// the answer is that there is no chain here. It used to say

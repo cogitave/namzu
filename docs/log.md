@@ -1,5 +1,8 @@
 # Documentation update log
 
+## 2026-09-08
+* **Update**: [Zen and Zen Go](/sdk/zen.md) — anonymous access defaults to public Muse Spark 1.3 Contributor Free, public discovery requires no installed client, and CLI credential lookup reuses separate OpenCode API-key entries without modifying their file; explicit public selection suppresses stored accounts, Responses tools preserve optional fields, and live public text inference is distinguished from catalogue and fixture coverage.
+
 ## 2026-09-07
 * **Creation**: [Zen and Zen Go](/sdk/zen.md) — optional providers and CLI selection with exact native protocol routing, stable conversation attribution, validated reasoning replay, live catalogue admission and explicit transport and billing limits.
 * **Creation**: [AG-UI clients](/sdk/ag-ui.md) — optional typed/SSE adapter with explicit host identity and history admission, backend tools, request-owned state, bounded events, final outcomes and documented CopilotKit compatibility limits.

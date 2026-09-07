@@ -15,6 +15,10 @@ other Namzu providers, connecting to OpenCode's Zen and Go services.
 Install it alongside `@namzu/sdk >=36.0.0` and the
 SDK's Zod v3 peer in a Node.js 20+ application.
 
+Zen's public models work without an account key or an installed OpenCode
+client. Anonymous access defaults to Muse Spark 1.3 Contributor Free.
+Zen Go is a separate service and still requires its own API key.
+
 ```bash
 pnpm add @namzu/sdk @namzu/zen zod@^3
 ```
@@ -33,16 +37,13 @@ defines a single generation stream, not tool execution or a kernel.
 
 ```ts
 import { generateSessionId, runAgent } from '@namzu/sdk'
-import { ZenGoProvider } from '@namzu/zen'
-
-const apiKey = process.env.OPENCODE_GO_API_KEY
-if (!apiKey) throw new Error('Set OPENCODE_GO_API_KEY.')
+import { ZenProvider } from '@namzu/zen'
 
 const sessionId = generateSessionId()
-const provider = new ZenGoProvider({ apiKey, sessionId })
+const provider = new ZenProvider({ sessionId })
 const first = await runAgent({
   provider,
-  model: 'glm-5.3-flash',
+  model: 'muse-spark-1.3-contributor-free',
   sessionId,
   prompt: 'Describe an agent kernel in one paragraph.',
 })
@@ -50,14 +51,14 @@ const first = await runAgent({
 const second = await runAgent({
   ...first.identity,
   provider,
-  model: 'glm-5.3-flash',
+  model: 'muse-spark-1.3-contributor-free',
   prompt: [...first.run.messages, { role: 'user', content: 'Give one example.' }],
 })
 
 console.log(second.output)
 ```
 
-These calls perform inference when run with a real key. `runAgent` generates
+These calls perform public inference without an account key. `runAgent` generates
 the other missing native identity fields; a host with stored sessions
 supplies their actual identities instead. Reusing an ID does not reload
 history. Pass the durable messages, as above, or restore them through the
@@ -80,14 +81,70 @@ is attributed to its invoking conversation.
 | Registration | `registerZen()` | `registerZenGo()` |
 | Base URL | `https://opencode.ai/zen/v1` | `https://opencode.ai/zen/go/v1` |
 | CLI key lookup | `OPENCODE_API_KEY`, then `OPENCODE_ZEN_API_KEY` | `OPENCODE_GO_API_KEY` |
-| Default model | `glm-5.3-flash` | `glm-5.3-flash` |
+| SDK default model | Public Muse without a key; `glm-5.3-flash` with a real key | `glm-5.3-flash` |
+| CLI default model | `muse-spark-1.3-contributor-free` | `glm-5.3-flash` |
 
-The SDK constructors require `apiKey`; they do not read environment
-variables or another application's credential store. The CLI performs the
-environment lookup above and supports `--provider zen` and
-`--provider zen-go`. Its model picker uses live discovery.
+For `ZenProvider`, an omitted or blank `apiKey`, or the explicit `public`
+sentinel, selects anonymous access. A real API key selects credentialed
+access. `ZenGoProvider` requires a real key. SDK constructors do not read
+environment variables or another application's credential store.
+`new ZenProvider()` is valid; the Go constructor instead takes `ZenGoConfig`,
+which requires `apiKey`. Registry configs use `ZenProviderConfig` and
+`ZenGoProviderConfig` respectively.
 
-`ZenConfig` additionally accepts optional `sessionId`, `model`,
+The CLI checks the direct key environment variables above first, then
+resolves OpenCode's credential store in this order:
+
+1. If `OPENCODE_AUTH_CONTENT` is set, it supplies the complete JSON store.
+   An invalid override supplies no credentials and does not fall back to disk.
+2. Otherwise, an absolute `XDG_DATA_HOME` selects
+   `$XDG_DATA_HOME/opencode/auth.json` exclusively.
+3. With no absolute XDG override, Namzu reads
+   `~/.local/share/opencode/auth.json` and, on WSL, the paired Windows home's
+   corresponding file when available.
+
+Set `OPENCODE_API_KEY=public` to select anonymous Zen explicitly, even when
+`OPENCODE_ZEN_API_KEY` or OpenCode's credential store contains a paid key.
+The first applicable Zen key variable wins; a `public` value suppresses
+later aliases and stored keys. For Go, `public` does not enable anonymous
+access or fall back to a stored account.
+
+Only
+`type: "api"` entries with usable keys are admitted: `opencode` supplies Zen
+and `opencode-go` supplies Go. OAuth entries are not treated as API keys,
+and a Zen key is never reused for Go. The credential file is read only;
+Namzu does not rewrite or refresh it. An installed OpenCode executable is
+not required for public access.
+
+With no usable key, Zen is discovered as a public provider rather than a
+signed-in subscription. Selecting it does not request a key or start a
+login flow; its picker label says `free models · no API key`. Public access
+is ordered after existing credentials and reachable local providers,
+including when selected by an explicit `public` environment value, so it
+does not displace them when no provider preference is saved.
+The CLI supports `--provider zen` and `--provider zen-go`; its
+model picker uses live discovery.
+
+Anonymous access is restricted to these explicit bundled model IDs:
+
+- `muse-spark-1.3-contributor-free`
+- `big-pickle`
+- `mimo-v2.5-free`
+- `ling-3.0-flash-fin-free`
+- `nemotron-3-ultra-free`
+- `nemotron-3.5-lightning-free`
+
+This is current public access, subject to upstream availability and limits.
+The driver does not infer public admission from an arbitrary model name or
+zero price: the bundled `ZenModel.supportsAnonymousAccess` flag must be
+explicitly `true`. Paid and unknown models require a real key, even when a caller
+supplies a `protocol` override. The public convention follows OpenCode's
+[provider loader](https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts#L172),
+which filters its uncredentialed catalogue and supplies `apiKey: "public"`.
+Credential entry types are defined in OpenCode's
+[auth module](https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/auth/index.ts#L12).
+
+`ZenConfig` accepts optional `apiKey`, `sessionId`, `model`,
 `baseURL`, `timeout` and `protocol`. `timeout` is a positive request timeout
 in milliseconds, defaulting to 120,000. `baseURL` permits an HTTP(S)
 host-owned proxy and rejects embedded credentials, query strings and
@@ -112,7 +169,12 @@ context limits, pricing or effort support.
 `findZenModel(service, id)` performs exact lookup. `listModels(signal?)`
 requests the selected service's `/models` endpoint and intersects its IDs
 with that metadata. A live model without a supported local entry is not
-advertised as ready to use.
+advertised as ready to use. Anonymous discovery additionally restricts the
+result to the explicit public model set above.
+
+Catalogue-only consumers can import `getZenModels`, `findZenModel` and the
+model types from `@namzu/zen/models`. This lightweight subpath avoids loading
+the four native transport adapters; the CLI uses it for provider selection.
 
 The snapshot's `inputPrice` and `outputPrice` are documented USD per million
 tokens at the base tier. They are estimates for SDK accounting, not exact
@@ -148,6 +210,16 @@ refused before the request. Messages requires a schema for JSON output.
 Explicit ephemeral cache control requires Messages. Adapter
 warnings about unsupported settings become failures instead of successful
 responses that silently ignore requested behavior.
+
+All Responses function tools explicitly send `strict: false`, preserving their
+optional parameters and nested fields. This avoids backends interpreting
+omitted strictness as strict generation and rejecting valid Namzu tool
+schemas, such as an edit tool with optional `edits`. This also applies to
+tools named in `enforceToolInputSchema`: that field is a capability-dependent
+hint, and Responses strict generation cannot represent Namzu's general
+conditional and optional tool schemas. The schemas remain unchanged, and
+Namzu validates tool inputs before execution. Other protocols retain their
+own enforcement behavior.
 
 Tool call IDs remain unchanged. Tool result names are resolved from the
 preceding assistant calls, and malformed JSON or orphan results are refused
@@ -198,5 +270,18 @@ fixtures: native request bodies, tool continuations, signed metadata replay,
 route changes, cancellation, usage and error classification. A full SDK
 kernel fixture executes a registered tool and checks its result in the next
 model request and the run's completed answer. These tests do not
-establish live account access, inference quality or current billing. No
-OpenCode key was available for live inference validation of this change.
+establish live account access, inference quality or current billing.
+
+On 2026-09-08, a live public-access check found installed OpenCode 1.18.29 with zero stored
+credentials and successfully requested `muse-spark-1.3-contributor-free`.
+Namzu's real driver also completed a text-only request through that model
+using public access and its own attribution headers.
+
+A live Namzu `run-stream` call then used the same model with low effort,
+no account key, and the production tool set. Its `read` tool opened
+`verification.txt` containing a nonce absent from the prompt. The tool
+completed with `isError: false`; after two model requests, `done` returned
+the exact nonce with `end_turn`. This validates that model's public text
+and file-tool continuation path. It does not establish every public model,
+paid-account access, Go inference, or billing: the run reported 13,749
+unpriced tokens, which are not a verified charge.

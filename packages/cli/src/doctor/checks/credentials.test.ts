@@ -19,6 +19,21 @@ const { credentialSourcesCheck } = await import('./credentials.js')
 const ctx = { cwd: '/tmp', env: {}, projectRoot: null }
 
 describe('the credential-sources doctor check', () => {
+	it('describes public access and borrowed API provenance without inventing a credential', async () => {
+		discoverProviders.mockResolvedValue([
+			{ entry: { id: 'zen' }, source: { kind: 'public' } },
+			{
+				entry: { id: 'zen-go' },
+				source: { kind: 'opencode-file', path: '/owner/auth.json' },
+				apiKey: 'secret-fixture',
+			},
+		])
+		const result = await credentialSourcesCheck.run(ctx)
+		expect(result.message).toContain('free models · no API key; connectivity not checked')
+		expect(result.message).toContain('OpenCode API key · /owner/auth.json')
+		expect(result.message).not.toContain('secret-fixture')
+		expect(result.message).not.toContain('credential(s) found')
+	})
 	it('warns when nothing is found, and says the secrets file is no longer read', async () => {
 		discoverProviders.mockResolvedValue([])
 
@@ -34,8 +49,14 @@ describe('the credential-sources doctor check', () => {
 
 	it('names the source each credential actually came from', async () => {
 		discoverProviders.mockResolvedValue([
-			{ entry: { id: 'anthropic' }, source: { kind: 'keychain', service: 'a-keychain-item' } },
-			{ entry: { id: 'openai' }, source: { kind: 'env', envName: 'OPENAI_API_KEY' } },
+			{
+				entry: { id: 'anthropic' },
+				source: { kind: 'keychain', service: 'a-keychain-item' },
+			},
+			{
+				entry: { id: 'openai' },
+				source: { kind: 'env', envName: 'OPENAI_API_KEY' },
+			},
 		])
 
 		const result = await credentialSourcesCheck.run(ctx)

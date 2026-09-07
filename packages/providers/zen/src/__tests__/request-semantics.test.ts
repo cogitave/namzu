@@ -1,4 +1,4 @@
-import type { ChatCompletionParams, StreamChunk } from '@namzu/sdk'
+import { type ChatCompletionParams, EditTool, type StreamChunk } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZenProvider } from '../client.js'
 
@@ -52,6 +52,111 @@ async function drain(params: ChatCompletionParams): Promise<StreamChunk[]> {
 }
 
 describe('native option semantics at the HTTP boundary', () => {
+	it.each([false, true])(
+		'preserves production edit and optional read schemas on Responses with strict mode disabled (enforcement hint: %s)',
+		async (enforced) => {
+			const editSchema = EditTool.modelInputSchema
+			if (!editSchema) throw new Error('Expected the production edit model schema')
+			expect(EditTool.enforceModelInput).toBe(true)
+			const readSchema = {
+				type: 'object',
+				properties: {
+					path: { type: 'string' },
+					offset: { type: 'integer' },
+					limit: { type: 'integer' },
+				},
+				required: ['path'],
+				additionalProperties: false,
+			}
+			const requiredSchema = {
+				type: 'object',
+				properties: { text: { type: 'string' } },
+				required: ['text'],
+				additionalProperties: false,
+			}
+			const transport = vi.fn<typeof fetch>(
+				async () =>
+					new Response(
+						[
+							{
+								type: 'response.created',
+								response: {
+									id: 'tool-schema-response',
+									model: 'muse-spark-1.3-contributor-free',
+									created_at: 1,
+								},
+							},
+							{
+								type: 'response.completed',
+								response: { usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } },
+							},
+						]
+							.map((frame) => `data: ${JSON.stringify(frame)}\n\n`)
+							.join(''),
+						{ headers: { 'content-type': 'text/event-stream' } },
+					),
+			)
+			vi.stubGlobal('fetch', transport)
+			for await (const _ of new ZenProvider().chatStream({
+				model: 'muse-spark-1.3-contributor-free',
+				messages: [{ role: 'user', content: 'Read the file.' }],
+				tools: [
+					{
+						type: 'function',
+						function: {
+							name: EditTool.name,
+							description: EditTool.description,
+							parameters: editSchema,
+						},
+					},
+					{
+						type: 'function',
+						function: { name: 'read', description: 'Read a file', parameters: readSchema },
+					},
+					{
+						type: 'function',
+						function: {
+							name: 'required_tool',
+							description: 'Requires text',
+							parameters: requiredSchema,
+						},
+					},
+				],
+				...(enforced ? { enforceToolInputSchema: [EditTool.name, 'required_tool'] } : {}),
+			})) {
+			}
+			expect(transport).toHaveBeenCalledOnce()
+			const request = transport.mock.calls[0]
+			if (!request) throw new Error('Expected a Responses HTTP request')
+			expect(request[0]).toBe('https://opencode.ai/zen/v1/responses')
+			expect(new Headers(request[1]?.headers).get('authorization')).toBe('Bearer public')
+			const body = JSON.parse(String(request[1]?.body))
+			expect(body.tools).toEqual([
+				{
+					type: 'function',
+					name: EditTool.name,
+					description: EditTool.description,
+					parameters: editSchema,
+					strict: false,
+				},
+				{
+					type: 'function',
+					name: 'read',
+					description: 'Read a file',
+					parameters: readSchema,
+					strict: false,
+				},
+				{
+					type: 'function',
+					name: 'required_tool',
+					description: 'Requires text',
+					parameters: requiredSchema,
+					strict: false,
+				},
+			])
+		},
+	)
+
 	it.each([2048, undefined])(
 		'keeps manual thinking inside the total maxTokens cap (budget %s)',
 		async (budgetTokens) => {

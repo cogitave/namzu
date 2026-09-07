@@ -54,9 +54,23 @@ export interface ModelStep {
  */
 export function modelStep(
 	defaultModel: string,
-	listing: ModelListing,
-	currentModel?: string,
+	suppliedListing: ModelListing,
+	suppliedCurrentModel?: string,
+	options: { readonly allowModel?: (id: string) => boolean } = {},
 ): ModelStep {
+	// A saved pin does not grant access. In particular, losing a Zen account
+	// credential must not put a paid model back into its public-only list.
+	const currentModel =
+		suppliedCurrentModel && options.allowModel?.(suppliedCurrentModel) === false
+			? undefined
+			: suppliedCurrentModel
+	const listing =
+		suppliedListing.kind === 'ok' && options.allowModel
+			? {
+					...suppliedListing,
+					models: suppliedListing.models.filter((model) => options.allowModel?.(model.id)),
+				}
+			: suppliedListing
 	const fallback = (notice: string): ModelStep => {
 		const choices: ModelChoice[] = [
 			{ id: defaultModel, label: defaultModel, note: '(namzu default)' },

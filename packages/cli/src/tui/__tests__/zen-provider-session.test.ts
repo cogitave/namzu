@@ -24,6 +24,7 @@ import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
 	type Preferences,
+	discoverProviders,
 } from '../../integrations/providers/index.js'
 
 const queryCalls: QueryParams[] = []
@@ -131,6 +132,95 @@ it.each(['zen', 'zen-go'] as const)(
 		}
 	},
 )
+
+it('admits headless --provider zen with only public discovery and no account key', async () => {
+	const { createAgentSession } = await import('../agent.js')
+	const publicProviders = await discoverProviders({
+		home: cwd,
+		env: {},
+		skipProbes: true,
+		skipKeychain: true,
+		skipStored: true,
+	})
+	expect(publicProviders.map((provider) => provider.entry.id)).toEqual(['zen'])
+	const preferences = applyProviderFlags(
+		{
+			version: 3,
+			providers: [{ id: publicProviders[0]?.entry.id ?? 'zen' }],
+			subagents: { active: [] },
+		},
+		{ provider: 'zen', model: null },
+	)
+	const currentScope = scope()
+	const session = await createAgentSession(preferences, publicProviders, {
+		cwd,
+		scope: currentScope,
+	})
+	try {
+		expect(session.hasProvider, session.errorHint ?? '').toBe(true)
+		for await (const event of session.send([createUserMessage('hello')])) {
+			if (event.kind === 'error') throw new Error(event.message)
+		}
+		const request = queryCalls[0]
+		expect(request?.runConfig?.model).toBe('muse-spark-1.3-contributor-free')
+		expect(request && providerConfigurations.get(request.provider)).toEqual({
+			type: 'zen',
+			model: 'muse-spark-1.3-contributor-free',
+			baseURL: 'https://opencode.ai/zen/v1',
+			sessionId: currentScope.sessionId,
+		})
+	} finally {
+		await session.close()
+	}
+})
+
+it.each([undefined, 'public'])(
+	'refuses paid and unknown headless Zen models without a real credential (%s)',
+	async (apiKey) => {
+		const { createAgentSession } = await import('../agent.js')
+		for (const model of ['glm-5.3-flash', 'invented-free']) {
+			const session = await createAgentSession(
+				{
+					version: 3,
+					providers: [{ id: 'zen', model }],
+					subagents: { active: [] },
+				},
+				[{ ...detected('zen'), apiKey, source: { kind: 'public' } }],
+				{ cwd, scope: scope() },
+			)
+			try {
+				expect(session.hasProvider).toBe(false)
+				expect(session.errorHint).toContain('muse-spark-1.3-contributor-free')
+			} finally {
+				await session.close()
+			}
+		}
+		expect(queryCalls).toEqual([])
+		expect(ProviderRegistry.create).not.toHaveBeenCalled()
+	},
+)
+
+it('drops an anonymously unavailable paid Zen fallback before a turn', async () => {
+	const { createAgentSession } = await import('../agent.js')
+	const session = await createAgentSession(
+		{
+			version: 3,
+			providers: [{ id: 'zen' }, { id: 'zen', model: 'glm-5.3-flash' }],
+			subagents: { active: [] },
+		},
+		[{ ...detected('zen'), apiKey: undefined, source: { kind: 'public' } }],
+		{ cwd, scope: scope() },
+	)
+	try {
+		expect(session.hasProvider, session.errorHint ?? '').toBe(true)
+		for await (const event of session.send([createUserMessage('hello')])) {
+			if (event.kind === 'error') throw new Error(event.message)
+		}
+		expect(queryCalls[0]?.fallbackProviders ?? []).toEqual([])
+	} finally {
+		await session.close()
+	}
+})
 
 it('binds primary, fallback, compaction and durable resume to their conversation', async () => {
 	const { createAgentSession } = await import('../agent.js')

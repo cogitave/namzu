@@ -1,8 +1,36 @@
 import { describe, expect, it } from 'vitest'
+import { canSelectModel } from '../integrations/providers/access.js'
+import { PROVIDER_REGISTRY } from '../integrations/providers/registry.js'
 
 import { modelStep } from './model-choices.js'
 
 const DEFAULT = 'claude-sonnet-4-5'
+
+it.each([undefined, 'public'])(
+	'never reintroduces paid current pins into anonymous Zen choices (%s)',
+	(apiKey) => {
+		const entry = PROVIDER_REGISTRY.zen
+		const allowModel = (model: string) => canSelectModel(entry, apiKey, model)
+		for (const listing of [
+			{ kind: 'ok', models: [{ id: 'glm-5.3-flash', name: 'Paid GLM' }] },
+			{ kind: 'timeout' },
+			{ kind: 'failed', reason: 'offline' },
+		] as const) {
+			const step = modelStep(entry.defaultModel, listing, 'glm-5.3-flash', {
+				allowModel,
+			})
+			expect(step.choices.map((choice) => choice.id)).toEqual([entry.defaultModel])
+		}
+	},
+)
+
+it('retains a paid current Zen pin when an account credential is present', () => {
+	const entry = PROVIDER_REGISTRY.zen
+	const step = modelStep(entry.defaultModel, { kind: 'timeout' }, 'glm-5.3-flash', {
+		allowModel: (model) => canSelectModel(entry, 'account-key', model),
+	})
+	expect(step.choices.map((choice) => choice.id)).toContain('glm-5.3-flash')
+})
 
 describe('modelStep', () => {
 	it('offers the listed models', () => {

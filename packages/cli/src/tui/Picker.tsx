@@ -10,6 +10,8 @@
 import { Box, Text, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { canSelectModel } from '../integrations/providers/access.js'
+
 import {
 	ALL_PROVIDER_IDS,
 	type DetectedProvider,
@@ -292,7 +294,9 @@ export function Picker({
 			const showListing = (listing: ModelListing) => {
 				if (!ownsOperation(operation)) return
 				finishOperation(operation)
-				const step = modelStep(current.entry.defaultModel, listing, activeModel)
+				const step = modelStep(current.entry.defaultModel, listing, activeModel, {
+					allowModel: (id) => canSelectModel(current.entry, current.apiKey, id),
+				})
 				setModelPhase({ provider: current, step, returnToProviders })
 				setCursor(step.initialIndex)
 			}
@@ -1123,6 +1127,10 @@ function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
 			return `env · ${d.source.envName}`
+		case 'public':
+			return 'free models · no API key'
+		case 'opencode-file':
+			return 'OpenCode API key · this device'
 		case 'probe':
 			return `local · ${d.source.url.replace(/^https?:\/\//, '')}`
 		case 'keychain':

@@ -1,6 +1,10 @@
 import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 import {
+	hasApiCredential,
+	requiresCredentialForModel,
+} from '../../integrations/providers/access.js'
+import {
 	chainCapabilityDisagreements,
 	unresolvedMembers,
 } from '../../integrations/providers/chain-capabilities.js'
@@ -133,18 +137,23 @@ export async function describeProviderChain(
 		// The picker already says it this way; this line is the same value.
 		const model = member.model ?? `${entry.defaultModel} (namzu default)`
 		const det = detected.find((d) => d.entry.id === member.id)
-		const usable = entry.requiresApiKey ? Boolean(det?.apiKey) : Boolean(det)
+		const needsKey = requiresCredentialForModel(entry, member.model ?? entry.defaultModel)
+		const usable = needsKey ? hasApiCredential(entry, det?.apiKey) : Boolean(det)
 		if (!usable) {
 			unusable++
 			if (index === 0) primaryUnusable = true
 		}
-		const state = entry.requiresApiKey
+		const state = needsKey
 			? usable
 				? 'credential found'
 				: 'NO CREDENTIAL'
-			: usable
-				? 'reachable'
-				: 'NOT REACHABLE'
+			: entry.id === 'zen' && usable
+				? hasApiCredential(entry, det?.apiKey)
+					? 'credential found'
+					: 'free models available (connectivity not checked)'
+				: usable
+					? 'reachable'
+					: 'NOT REACHABLE'
 		lines.push(`${index + 1}. ${position} · ${entry.label} · ${model} · ${state}`)
 	}
 
