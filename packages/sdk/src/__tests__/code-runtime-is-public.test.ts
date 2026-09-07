@@ -9,11 +9,13 @@ import type {
 	HostCallRequest,
 	HostCallResult,
 	RunCodeOptions,
+	WorkerCodeRuntimeOptions,
 } from '../index.js'
 
 describe('the model-authored code seam is nameable from the package root', () => {
 	it('exports the runtime values and every type in their public signatures', () => {
-		const runtime: CodeRuntime = new WorkerCodeRuntime()
+		const limits = { maxHostCalls: 2 } satisfies WorkerCodeRuntimeOptions
+		const runtime: CodeRuntime = new WorkerCodeRuntime(limits)
 		const handler: HostCallHandler = async (
 			_request: HostCallRequest,
 			_context: HostCallContext,

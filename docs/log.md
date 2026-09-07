@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Creation**: [Bounded code execution](/sdk/code-execution.md) — QuickJS interpreter isolation, explicit source/value/memory/call limits and optional structured nested-tool results with unchanged authorization.
 * **Creation**: [Cognitive storage research](/sdk/cognitive-storage.md) — pinned Pydantic AI source comparison, proposed RAM/disk/index responsibilities, transactional update boundaries and a bounded local storage-cost experiment.
 * **Creation**: [Cognitive architecture research](/sdk/cognitive-architecture.md) — primary-source motivation, functional definitions, proposed selective control cycle, scoped associative activation, outcome/evidence distinctions, local CPU measurements and executable SDK mechanism ablations; explicitly separate from shipped CLI behavior.
 * **Update**: [Harness invariants](/sdk/harness-invariants.md) — advisory triggers use current context occupancy and the latest canonical tool failures rather than cumulative spend and stale error text.

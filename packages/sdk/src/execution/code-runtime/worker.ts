@@ -1,109 +1,85 @@
+import { createRequire } from 'node:module'
 import { Worker } from 'node:worker_threads'
 
+import { encodeCodeValue } from './json-value.js'
 import {
 	type CodeRunResult,
 	type CodeRuntime,
 	HostCallDeniedError,
 	type RunCodeOptions,
 } from './types.js'
+import { QUICKJS_WORKER_SOURCE } from './worker-program.js'
+
+const requireFromSdk = createRequire(import.meta.url)
+
+/** Resource policy for one fresh QuickJS worker execution. */
+export interface WorkerCodeRuntimeOptions {
+	/** QuickJS allocator limit, also the WASM linear-memory ceiling. Does not bound total Node/process memory. Default: 64 MiB. */
+	readonly memoryLimitBytes?: number
+	/** Maximum UTF-8 program source size. Default: 256 KiB. */
+	readonly maxSourceBytes?: number
+	/** Maximum UTF-8 JSON size of each input, host result, and program return. Default: 1 MiB. */
+	readonly maxValueBytes?: number
+	/** Maximum host calls admitted by one program, including refusals. Default: 100. */
+	readonly maxHostCalls?: number
+	/** Maximum host calls awaiting replies simultaneously. Default: 100. */
+	readonly maxPendingHostCalls?: number
+}
+
+function validateInteger(name: string, value: number, minimum: number, maximum: number): void {
+	if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+		throw new RangeError(`${name} must be an integer between ${minimum} and ${maximum}.`)
+	}
+}
+
+function resolveLimits(options: WorkerCodeRuntimeOptions): Required<WorkerCodeRuntimeOptions> {
+	const limits = {
+		memoryLimitBytes: options.memoryLimitBytes ?? 64 * 1024 * 1024,
+		maxSourceBytes: options.maxSourceBytes ?? 256 * 1024,
+		maxValueBytes: options.maxValueBytes ?? 1024 * 1024,
+		maxHostCalls: options.maxHostCalls ?? 100,
+		maxPendingHostCalls: options.maxPendingHostCalls ?? options.maxHostCalls ?? 100,
+	}
+	validateInteger('memoryLimitBytes', limits.memoryLimitBytes, 16 * 1024 * 1024, 256 * 1024 * 1024)
+	validateInteger('maxSourceBytes', limits.maxSourceBytes, 1, 4 * 1024 * 1024)
+	validateInteger('maxValueBytes', limits.maxValueBytes, 1, 16 * 1024 * 1024)
+	validateInteger('maxHostCalls', limits.maxHostCalls, 1, 10_000)
+	validateInteger('maxPendingHostCalls', limits.maxPendingHostCalls, 1, limits.maxHostCalls)
+	return limits
+}
+
+function decodeValue(json: unknown, maxBytes: number): unknown {
+	if (json === undefined) return undefined
+	if (typeof json !== 'string' || Buffer.byteLength(json) > maxBytes) {
+		throw new Error('Code runtime value exceeds the serialized value limit.')
+	}
+	return JSON.parse(json)
+}
 
 /**
- * A `worker_threads` backend.
- *
- * Chosen over `vm` because `vm` is not a sandbox and its own documentation
- * says so: a context shares the process, so a program that reaches a
- * constructor from the host realm is out — `this.constructor.constructor`
- * on any leaked object is the whole escape, and it fits in a tweet. A
- * worker is a separate V8 isolate with its own heap; escaping it means
- * escaping V8.
- *
- * Chosen over a subprocess because a subprocess is a process: it inherits
- * an environment, it can be a fork bomb, and killing it is the process-tree
- * problem `process/kill-tree.ts` exists for. A worker is cheaper to start,
- * cheaper to kill, and cannot outlive the process that made it.
- *
- * What a worker does NOT give, stated because it is the reason this is not
- * the whole answer: a worker shares the process's filesystem and network
- * access. It is not confined by anything the OS enforces. What confines the
- * program here is that it is handed a scope with nothing in it — no
- * `require`, no `process`, no `fetch` — and a single channel back to the
- * host. That is a language-level boundary, and a language-level boundary is
- * exactly as strong as the enumeration of what was withheld. So a host that
- * needs an OS boundary runs this inside a sandbox that has one, and this
- * comment is here so nobody concludes the worker was the boundary.
+ * Runs untrusted JavaScript in a QuickJS interpreter inside a worker thread.
+ * QuickJS owns the guest globals, functions, and promises. Node capabilities
+ * never enter that realm; constructors and dynamic imports cannot recover them.
+ * A fresh interpreter and bounded imported WASM memory are created per run.
+ * The worker makes wall-clock cancellation independent of interpreter progress.
  */
-
-/**
- * The worker's own body, as source.
- *
- * Inlined rather than a separate file because a separate file has to be
- * findable at runtime, and this package is consumed as `dist/` by hosts
- * whose bundlers rewrite paths. A string has no path.
- */
-const WORKER_SOURCE = `
-const { parentPort, workerData } = require('node:worker_threads')
-
-// Every host call is a request/response over the port, keyed by an id so
-// several can be in flight — a program that awaits two calls at once is
-// ordinary, and a channel that could only carry one would silently
-// serialise them.
-const pending = new Map()
-let nextId = 0
-
-function hostCall(name, input) {
-	const id = ++nextId
-	return new Promise((resolve, reject) => {
-		pending.set(id, { resolve, reject })
-		parentPort.postMessage({ kind: 'call', id, name, input })
-	})
-}
-
-// Posted as it happens, NOT batched until the end. A program that printed
-// its progress and then hung has told the host where it got to, and a
-// buffer that only ships on completion loses exactly the output a timeout
-// most needs to explain itself.
-function print(...parts) {
-	parentPort.postMessage({
-		kind: 'print',
-		line: parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' '),
-	})
-}
-
-parentPort.on('message', (message) => {
-	if (message.kind !== 'call-result') return
-	const entry = pending.get(message.id)
-	if (!entry) return
-	pending.delete(message.id)
-	if (message.ok) entry.resolve(message.value)
-	else entry.reject(new Error(message.error))
-})
-
-async function main() {
-	// The scope the program runs in, and everything it has. Built with
-	// \`new Function\` over an explicit parameter list rather than with
-	// \`with\` or a Proxy: the parameters SHADOW the outer names, so a
-	// program writing \`require\` gets the parameter, and the parameter is
-	// undefined.
-	const names = ['call', 'print', 'require', 'process', 'module', 'exports', 'globalThis', 'fetch']
-	const values = [hostCall, print, undefined, undefined, undefined, undefined, undefined, undefined]
-	const body = new Function(...names, '"use strict";return (async () => {' + workerData.source + '\\n})()')
-	return await body(...values)
-}
-
-main().then(
-	(result) => parentPort.postMessage({ kind: 'done', result }),
-	(error) => parentPort.postMessage({ kind: 'error', error: String(error && error.message || error) }),
-)
-`
-
 export class WorkerCodeRuntime implements CodeRuntime {
 	readonly id = 'worker_threads'
+	private readonly limits: Required<WorkerCodeRuntimeOptions>
+
+	constructor(options: WorkerCodeRuntimeOptions = {}) {
+		this.limits = resolveLimits(options)
+	}
 
 	async run(options: RunCodeOptions): Promise<CodeRunResult> {
+		validateInteger('timeoutMs', options.timeoutMs, 1, 2_147_483_647)
+		validateInteger('maxOutputBytes', options.maxOutputBytes, 0, 16 * 1024 * 1024)
 		const allowed = new Set(options.allowedCalls)
 		const calls: { name: string; ok: boolean }[] = []
 		let output = ''
 		let truncated = false
+		let printCount = 0
+		const seenCalls = new Set<number>()
 
 		// A withdrawn caller owns admission. Do not start an isolate merely to
 		// discover the signal was already aborted after construction.
@@ -116,10 +92,25 @@ export class WorkerCodeRuntime implements CodeRuntime {
 			}
 		}
 
+		if (
+			options.source.length > this.limits.maxSourceBytes ||
+			Buffer.byteLength(options.source) > this.limits.maxSourceBytes
+		) {
+			return {
+				outcome: {
+					status: 'failed',
+					error: `Program source exceeds ${this.limits.maxSourceBytes} bytes.`,
+				},
+				output,
+				outputTruncated: truncated,
+				calls,
+			}
+		}
+
 		const appendOutput = (lines: readonly string[]): void => {
 			for (const line of lines) {
 				if (truncated) return
-				const next = output.length === 0 ? line : `${output}\n${line}`
+				const next = printCount === 0 ? line : `${output}\n${line}`
 				if (Buffer.byteLength(next) > options.maxOutputBytes) {
 					// Cut at the LINE that would exceed, and say so. A cut
 					// mid-JSON produces output a reader cannot parse and cannot
@@ -128,26 +119,24 @@ export class WorkerCodeRuntime implements CodeRuntime {
 					return
 				}
 				output = next
+				printCount++
 			}
 		}
 
-		const worker = new Worker(WORKER_SOURCE, {
+		const worker = new Worker(QUICKJS_WORKER_SOURCE, {
 			eval: true,
-			workerData: { source: options.source },
-			// Nothing from the host's environment.
-			//
-			// **Unobservable today, and kept deliberately.** `process` is
-			// shadowed in the program's scope, so nothing the program can
-			// write reaches `process.env` either way — a mutation removing
-			// this line passes every test, correctly. It is defence behind the
-			// shadowing rather than beside it: the shadowing is a
-			// language-level boundary, exactly as strong as the enumeration of
-			// what was withheld, and the day that enumeration misses something
-			// this is what the leak finds. The cost is one empty object.
+			workerData: {
+				source: options.source,
+				corePath: requireFromSdk.resolve('quickjs-emscripten-core'),
+				variantPath: requireFromSdk.resolve('@jitl/quickjs-wasmfile-release-sync'),
+				limits: this.limits,
+				maxOutputBytes: options.maxOutputBytes,
+				deadline: Date.now() + options.timeoutMs,
+			},
+			// Trusted bootstrap requires Node; guest code runs only inside QuickJS.
+			// Avoid inheriting --input-type or test loaders into the CJS bootstrap.
+			execArgv: [],
 			env: {},
-			// No stdio inheritance: the program prints through `print`, which
-			// is bounded. A worker writing to the host's stdout would bypass
-			// the cap and interleave with the operator's own output.
 			stdout: true,
 			stderr: true,
 		})
@@ -212,13 +201,59 @@ export class WorkerCodeRuntime implements CodeRuntime {
 			}
 
 			worker.on('message', (message: Record<string, unknown>) => {
+				if (settled) return
+				if (message.kind === 'truncated') {
+					truncated = true
+					return
+				}
+				if (message.kind === 'timed-out') {
+					operation.abort(new Error(`Code runtime exceeded ${options.timeoutMs}ms`))
+					finish({
+						outcome: { status: 'timed-out' },
+						output,
+						outputTruncated: truncated,
+						calls,
+					})
+					return
+				}
 				if (message.kind === 'call') {
 					const name = String(message.name)
 					const id = message.id
+					if (
+						typeof id !== 'number' ||
+						!Number.isSafeInteger(id) ||
+						id < 1 ||
+						seenCalls.has(id) ||
+						seenCalls.size >= this.limits.maxHostCalls ||
+						inFlight.size >= this.limits.maxPendingHostCalls
+					) {
+						finish({
+							outcome: {
+								status: 'failed',
+								error: 'Invalid or over-budget host call.',
+							},
+							output,
+							outputTruncated: truncated,
+							calls,
+						})
+						return
+					}
+					seenCalls.add(id)
+					let input: unknown
+					try {
+						input = decodeValue(message.json, this.limits.maxValueBytes)
+					} catch (error) {
+						finish({
+							outcome: { status: 'failed', error: String(error) },
+							output,
+							outputTruncated: truncated,
+							calls,
+						})
+						return
+					}
 					if (!allowed.has(name)) {
-						// Refused HERE, not in the worker. The allow-list lives on
-						// the host side because a check inside the worker is a
-						// check the program shares a heap with.
+						// Authorization remains host-owned even though the interpreter
+						// also bounds its own bridge. A worker never expands the grant.
 						calls.push({ name, ok: false })
 						worker.postMessage({
 							kind: 'call-result',
@@ -234,20 +269,27 @@ export class WorkerCodeRuntime implements CodeRuntime {
 					const runtimeToolCallId = String(id)
 					const hostCall = Promise.resolve()
 						.then(() =>
-							options.onHostCall(
-								{ name, input: message.input },
-								{ runtimeToolCallId, signal: operation.signal },
-							),
+							options.onHostCall({ name, input }, { runtimeToolCallId, signal: operation.signal }),
 						)
 						.then((result) => {
 							if (settled) return
+							let json: string | undefined
+							try {
+								json = result.ok
+									? encodeCodeValue(result.value, this.limits.maxValueBytes)
+									: undefined
+							} catch (error) {
+								throw new Error(
+									`Host call "${name}" completed, but its result could not be delivered: ${error instanceof Error ? error.message : String(error)} Do not repeat a state-changing call solely to recover its output.`,
+								)
+							}
 							calls.push({ name, ok: result.ok })
 							worker.postMessage({
 								kind: 'call-result',
 								id,
 								ok: result.ok,
-								value: result.value,
-								error: result.error,
+								json,
+								error: result.error?.slice(0, 4096),
 							})
 						})
 						.catch((err: unknown) => {
@@ -257,7 +299,7 @@ export class WorkerCodeRuntime implements CodeRuntime {
 								kind: 'call-result',
 								id,
 								ok: false,
-								error: err instanceof Error ? err.message : String(err),
+								error: (err instanceof Error ? err.message : String(err)).slice(0, 4096),
 							})
 						})
 						.finally(() => {
@@ -278,8 +320,20 @@ export class WorkerCodeRuntime implements CodeRuntime {
 					// declaring its JavaScript body complete is not evidence that the
 					// effect it started is complete, so keep the runtime open until the
 					// already-admitted host calls settle (or the deadline revokes them).
+					let value: unknown
+					try {
+						value = decodeValue(message.json, this.limits.maxValueBytes)
+					} catch (error) {
+						finish({
+							outcome: { status: 'failed', error: String(error) },
+							output,
+							outputTruncated: truncated,
+							calls,
+						})
+						return
+					}
 					terminal = {
-						outcome: { status: 'completed', result: message.result },
+						outcome: { status: 'completed', result: value },
 						output,
 						outputTruncated: truncated,
 						calls,
@@ -311,9 +365,8 @@ export class WorkerCodeRuntime implements CodeRuntime {
 			})
 
 			worker.on('exit', (code) => {
-				// Only reached when the worker exited without a `done` or
-				// `error` message — a hard crash, or a program that called
-				// `process.exit` through something we failed to withhold.
+				// A bootstrap or interpreter failure may exit before a terminal
+				// message. Guest code has no access to Node's process object.
 				finish({
 					outcome: {
 						status: 'failed',

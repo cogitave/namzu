@@ -49,6 +49,12 @@ export interface RunCodeToolOptions {
 	readonly runtime?: CodeRuntime
 	readonly timeoutMs?: number
 	readonly maxOutputBytes?: number
+	/**
+	 * What a successful `call()` resolves to. Default: `text` (ToolResult.output).
+	 * `structured` returns `{ output, data? }`, preserving JSON tool data for
+	 * local filtering. Failures still reject; authority and dispatch are unchanged.
+	 */
+	readonly toolResultMode?: 'text' | 'structured'
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -59,8 +65,11 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 
 	return defineTool({
 		name: RUN_CODE_TOOL_NAME,
-		description:
-			"Runs a short JavaScript program that can call this run's own tools in a loop. Use it when the same tool would otherwise be called many times in a row — filtering, retrying, fanning out — and not for a single call.",
+		description: `Runs a short JavaScript program that can call this run's own tools in a loop. Use it when the same tool would otherwise be called many times in a row — filtering, retrying, fanning out — and not for a single call. ${
+			options.toolResultMode === 'structured'
+				? 'Each successful call() returns { output: string, data?: JSON value }. Filter data locally and return only the needed result. Failed calls reject.'
+				: 'Each successful call() returns the tool output string. Failed calls reject.'
+		}`,
 		inputSchema,
 		category: 'custom',
 		permissions: [],
@@ -108,9 +117,19 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 							signal: operation.signal,
 							runtimeToolCallId: operation.runtimeToolCallId,
 						})
-						return toolResult.success
-							? { ok: true, value: toolResult.output }
-							: { ok: false, error: toolResult.error ?? 'the tool failed' }
+						if (!toolResult.success) {
+							return { ok: false, error: toolResult.error ?? 'the tool failed' }
+						}
+						return {
+							ok: true,
+							value:
+								options.toolResultMode === 'structured'
+									? {
+											output: toolResult.output,
+											...(toolResult.data !== undefined ? { data: toolResult.data } : {}),
+										}
+									: toolResult.output,
+						}
 					} catch (err) {
 						return {
 							ok: false,
