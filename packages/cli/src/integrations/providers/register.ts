@@ -3,7 +3,7 @@
  *
  * This is the only place the wired driver packages are imported, so it decides
  * what a `namzu` invocation actually pulls in and when. The imports are dynamic
- * for that reason: a run on one provider does not load the other three, and a
+ * for that reason: a run on one provider does not load the other drivers, and a
  * command that never touches a model loads none.
  *
  * ## Why it lives here rather than in the session module
@@ -80,6 +80,16 @@ export async function ensureRegistered(id: ProviderId): Promise<void> {
 		case 'openrouter': {
 			const mod = await import('@namzu/openrouter')
 			mod.registerOpenRouter()
+			break
+		}
+		case 'zen': {
+			const mod = await import('@namzu/zen')
+			mod.registerZen()
+			break
+		}
+		case 'zen-go': {
+			const mod = await import('@namzu/zen')
+			mod.registerZenGo()
 			break
 		}
 		case 'ollama': {

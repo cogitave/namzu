@@ -21,6 +21,44 @@ function tmpHome(): string {
 const HERMETIC = { skipProbes: true, skipKeychain: true } as const
 
 describe('discoverProviders — env-var scan', () => {
+	it('discovers Zen and Go from their own credentials without crossing billing routes', async () => {
+		const zen = await discoverProviders({
+			...HERMETIC,
+			env: { OPENCODE_API_KEY: 'zen-primary', OPENCODE_ZEN_API_KEY: 'zen-alternative' },
+			home: tmpHome(),
+		})
+		expect(findDetected(zen, 'zen')).toMatchObject({
+			apiKey: 'zen-primary',
+			source: { kind: 'env', envName: 'OPENCODE_API_KEY' },
+			alternatives: [{ kind: 'env', envName: 'OPENCODE_ZEN_API_KEY' }],
+			baseUrl: 'https://opencode.ai/zen/v1',
+		})
+		expect(findDetected(zen, 'zen-go')).toBeNull()
+		const go = await discoverProviders({
+			...HERMETIC,
+			env: { OPENCODE_GO_API_KEY: 'go-key' },
+			home: tmpHome(),
+		})
+		expect(findDetected(go, 'zen-go')).toMatchObject({
+			apiKey: 'go-key',
+			source: { kind: 'env', envName: 'OPENCODE_GO_API_KEY' },
+			baseUrl: 'https://opencode.ai/zen/go/v1',
+		})
+		expect(findDetected(go, 'zen')).toBeNull()
+	})
+
+	it('accepts the explicit Zen environment variable when the primary alias is absent', async () => {
+		const list = await discoverProviders({
+			...HERMETIC,
+			env: { OPENCODE_ZEN_API_KEY: 'zen-only' },
+			home: tmpHome(),
+		})
+		expect(findDetected(list, 'zen')).toMatchObject({
+			apiKey: 'zen-only',
+			source: { kind: 'env', envName: 'OPENCODE_ZEN_API_KEY' },
+		})
+	})
+
 	it('picks anthropic from ANTHROPIC_API_KEY', async () => {
 		const list = await discoverProviders({
 			...HERMETIC,

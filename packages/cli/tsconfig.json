@@ -20,6 +20,7 @@
 		{ "path": "../providers/anthropic" },
 		{ "path": "../providers/deepseek" },
 		{ "path": "../providers/openai" },
+		{ "path": "../providers/zen" },
 		{ "path": "../providers/openrouter" },
 		{ "path": "../providers/ollama" }
 	],

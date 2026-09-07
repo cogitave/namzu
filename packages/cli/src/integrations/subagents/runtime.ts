@@ -57,6 +57,7 @@ import {
 	TopicArchivedError,
 	TopicManager,
 	WorkspaceBackendRegistry,
+	asRunId,
 	asTaskId,
 	defineTool,
 	filterReadOnlyTools,
@@ -136,8 +137,8 @@ export interface SubagentRuntimeOptions {
 	readonly pathBuilder?: PathBuilder
 	/** Root every child allocation at the session workspace or a fresh temp tree. */
 	readonly sandboxWorkspace?: 'working-directory' | 'ephemeral'
-	/** Construct a fresh provider for the sub-agent (current credential). */
-	readonly buildProvider: () => LLMProvider
+	/** Construct a fresh provider with the invoking conversation and current credential. */
+	readonly buildProvider: (parentSessionId?: SessionId) => LLMProvider
 	/** Build the sub-agent's tool registry (its own working set). */
 	readonly buildTools: () => ToolRegistryContract
 	readonly authorizationGate?: AuthorizationGateConfig
@@ -981,12 +982,18 @@ function buildDefinition(
 			// since the parent started, and a sub-agent asserting the stale answer
 			// is worse than one that was never told.
 			const environment = opts.readEnvironment ? await opts.readEnvironment() : null
+			// AgentManager supplies the actual parent run before it stamps the child's
+			// own Session ID. All delegated work shares that invoking conversation's
+			// upstream billing session, even after the TUI moves to another one.
+			const parent = options.parentRunId
+				? await opts.resolveParent(asRunId(options.parentRunId))
+				: undefined
 			return {
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? 200_000,
 				timeoutMs: options.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 				maxIterations: 40,
-				provider: opts.buildProvider(),
+				provider: opts.buildProvider(parent?.sessionId),
 				tools: tools(),
 				systemPrompt: environment ? `${base}\n\n${environment}` : base,
 				...(opts.projectInstructionContext

@@ -51,8 +51,8 @@ curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
 irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
 ```
 
-Installing brings the kernel and five model drivers — Anthropic, OpenAI,
-DeepSeek, OpenRouter and Ollama — plus `@namzu/files` and
+Installing brings the kernel and six model drivers — Anthropic, OpenAI,
+DeepSeek, OpenRouter, Zen and Ollama — plus `@namzu/files` and
 `@namzu/computer-use`, as ordinary dependencies rather than peers. So a fresh
 install can already reach those services and expose desktop control when the
 device has a supported adapter. `@namzu/telemetry` and `@namzu/sandbox` remain
@@ -127,6 +127,26 @@ expired or signed-out owner session is not offered as reusable.
 API keys remain optional alternatives through environment variables or the
 session-only credential picker, and detecting one does not hide the subscription
 sign-in action.
+
+Zen and Zen Go appear as separate providers in `/model` (press
+`p` to change providers). Set `OPENCODE_API_KEY` or `OPENCODE_ZEN_API_KEY` for
+Zen; set `OPENCODE_GO_API_KEY` for Go. When both Zen variables are present,
+`OPENCODE_API_KEY` wins. Namzu does not reuse a Zen key for Go or automatically
+read credentials from an OpenCode installation. Keys entered in the picker
+remain temporary; environment variables make them available on later launches.
+
+```bash
+namzu run --provider zen --model glm-5.3-flash "Explain this project"
+namzu run --provider zen-go --model glm-5.3-flash "Explain this project"
+```
+
+These commands read the corresponding environment variable and use the existing
+folder-trust rules. The same provider/model flags work with `run-stream`.
+The picker lists each service's supported models from the provider catalogue;
+an explicit model selection is saved using the existing preferences flow.
+Go requests carry the actual Namzu conversation ID in `x-opencode-session`,
+stable across turns and resumed runs. Delegated work shares its invoking
+conversation's upstream session; switching conversations changes that ID.
 
 Bare `/help` opens the session's complete command vocabulary as a keyboard
 palette; selecting a row runs that command through the same dispatcher as a

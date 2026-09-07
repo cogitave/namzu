@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { constructProvider } from '../../tui/agent.js'
+import { constructProvider, describeProviderModels, verifyCredential } from '../../tui/agent.js'
+import { modelStep } from '../../tui/model-choices.js'
+import type { DetectedProvider } from './discover.js'
 import { ensureRegistered, isRegistered } from './register.js'
 import { ALL_PROVIDER_IDS, PROVIDER_REGISTRY } from './registry.js'
 
@@ -32,6 +34,40 @@ import { ALL_PROVIDER_IDS, PROVIDER_REGISTRY } from './registry.js'
 
 const CONSTRUCTIBLE = ALL_PROVIDER_IDS.filter((id) => PROVIDER_REGISTRY[id].constructible)
 const NOT_CONSTRUCTIBLE = ALL_PROVIDER_IDS.filter((id) => !PROVIDER_REGISTRY[id].constructible)
+
+it.each(['zen', 'zen-go'] as const)(
+	'loads %s models for the picker without a paid credential probe',
+	async (id) => {
+		const entry = PROVIDER_REGISTRY[id]
+		const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+			expect(url).toBe(`${entry.defaultBaseUrl}/models`)
+			expect(init?.method ?? 'GET').toBe('GET')
+			return Response.json({
+				data: [{ id: 'glm-5.3-flash' }, { id: 'kimi-k2.6' }, { id: 'unrecognized-model-route' }],
+			})
+		})
+		try {
+			const credential: DetectedProvider = {
+				entry,
+				source: { kind: 'session' },
+				apiKey: 'not-a-real-key',
+				alternatives: [],
+			}
+			const listing = await describeProviderModels(id, credential)
+			expect(listing.kind).toBe('ok')
+			const step = modelStep(entry.defaultModel, listing)
+			expect(step.notice).toBeNull()
+			expect(step.choices.map((choice) => choice.id)).toContain('kimi-k2.6')
+			expect(step.choices.map((choice) => choice.id)).not.toContain('unrecognized-model-route')
+			expect(step.choices.filter((choice) => choice.id === entry.defaultModel)).toHaveLength(1)
+			expect(fetch).toHaveBeenCalledTimes(1)
+			expect(await verifyCredential(id, credential)).toEqual({ kind: 'unverifiable' })
+			expect(fetch).toHaveBeenCalledTimes(1)
+		} finally {
+			fetch.mockRestore()
+		}
+	},
+)
 
 function constructionCredential(id: (typeof ALL_PROVIDER_IDS)[number]) {
 	if (id === 'codex') {

@@ -68,6 +68,9 @@
 		},
 		{
 			"path": "./packages/ag-ui"
+		},
+		{
+			"path": "./packages/providers/zen"
 		}
 	],
 	"files": []

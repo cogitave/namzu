@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Creation**: [Zen and Zen Go](/sdk/zen.md) — optional providers and CLI selection with exact native protocol routing, stable conversation attribution, validated reasoning replay, live catalogue admission and explicit transport and billing limits.
 * **Creation**: [AG-UI clients](/sdk/ag-ui.md) — optional typed/SSE adapter with explicit host identity and history admission, backend tools, request-owned state, bounded events, final outcomes and documented CopilotKit compatibility limits.
 * **Update**: [Harness invariants](/sdk/harness-invariants.md), [Token budgets](/sdk/token-budgets.md) and [Project state](/cli/project-state.md) — live delegation width releases completed history; bounded queued admissions preserve task ownership and reserve a parent coordination share.
 * **Update**: [Terminal design](/cli/terminal-design.md) — independent workflows no longer become phases of earlier work; queued children, agent launch permissions and abnormal run stops have explicit displays.

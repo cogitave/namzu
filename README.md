@@ -460,6 +460,7 @@ is standalone. Nothing in the kernel depends back on any leaf package.
 | `@namzu/live` | Transport-agnostic live sessions orchestrating caller-supplied speech and audio-output drivers |
 | `@namzu/lsp` | Language-server-backed code navigation and symbol resolution |
 | `@namzu/ag-ui` | AG-UI adapter for streamed text, backend tools and application state; Fetch/SSE integration for host UIs |
+| `@namzu/zen` | Zen and Go model access with native API routing and stable conversation identity |
 | `@namzu/files` | File registry contracts, with in-memory, local-disk, Azure Blob and HTTP backends. Pre-1.0 |
 | `@namzu/evals` | The kernel's own behaviour suites, runnable against an installed kernel |
 

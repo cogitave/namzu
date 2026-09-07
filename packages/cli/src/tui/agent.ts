@@ -1403,7 +1403,7 @@ export async function createAgentSession(
 	}
 	let provider: LLMProvider
 	try {
-		provider = constructProvider(primary.id, det, model)
+		provider = constructProvider(primary.id, det, model, { sessionId: scope.sessionId })
 	} catch (err) {
 		return emptySession(
 			`Failed to construct ${entry.label}: ${err instanceof Error ? err.message : String(err)}`,
@@ -1489,6 +1489,7 @@ export async function createAgentSession(
 				'anthropic',
 				{ ...(det as DetectedProvider), apiKey: fresh },
 				model,
+				{ sessionId: scope.sessionId },
 			)
 			// Publish the pair together. If construction fails, both old values
 			// remain live and the next operation can retry against the stored token.
@@ -1535,6 +1536,7 @@ export async function createAgentSession(
 				},
 			},
 			model,
+			{ sessionId: scope.sessionId },
 		)
 		provider = refreshedProvider
 		currentToken = credential.accessToken
@@ -1559,6 +1561,7 @@ export async function createAgentSession(
 			'anthropic',
 			{ ...(det as DetectedProvider), apiKey: credential.accessToken },
 			model,
+			{ sessionId: scope.sessionId },
 		)
 		currentToken = credential.accessToken
 	}
@@ -1579,6 +1582,7 @@ export async function createAgentSession(
 				},
 			},
 			model,
+			{ sessionId: scope.sessionId },
 		)
 		provider = refreshedProvider
 		currentToken = credential.accessToken
@@ -1602,6 +1606,13 @@ export async function createAgentSession(
 		credentialTail = queued.catch(() => {})
 		return signal ? observeWithSignal(queued, signal) : queued
 	}
+	// The TUI can replace its conversation without replacing this session object.
+	// Bind each admitted run to its captured conversation, including durable resumes;
+	// a Zen client must never generate a fresh Go session for each model call.
+	const providerForSession = (sessionId: SessionId): LLMProvider =>
+		primary.id === 'zen' || primary.id === 'zen-go'
+			? constructProvider(primary.id, det, model, { sessionId })
+			: provider
 	// Session-owned discovery with one drain cursor per run. A child shares the
 	// discovered scopes without being able to consume the parent's update, and
 	// an edit takes effect in this session rather than only after reconnecting.
@@ -1862,12 +1873,17 @@ export async function createAgentSession(
 			// child announcing a swap the parent never made, inside a tool result,
 			// is a worse surface than the child simply failing and the parent
 			// reporting it.
-			buildProvider: () =>
-				constructProvider(
+			buildProvider: (sessionId) => {
+				if (!sessionId && (primary.id === 'zen' || primary.id === 'zen-go')) {
+					throw new Error('A delegated provider requires its invoking conversation.')
+				}
+				return constructProvider(
 					primary.id,
 					det ? { ...det, apiKey: currentToken ?? det.apiKey } : det,
 					model,
-				),
+					{ sessionId },
+				)
+			},
 			buildTools: () => {
 				// Sub-agents get the parent's working set minus `search_tools`:
 				// they run without a task store, so nothing in their registry is
@@ -2065,7 +2081,7 @@ export async function createAgentSession(
 	try {
 		const capabilityView = withProviderFallback([
 			{ provider, model },
-			...fallbackPlan.build(currentToken),
+			...fallbackPlan.build(currentToken, scope.sessionId),
 		])
 		const offered = capabilityView.reasoningEffortLevelsFor
 			? capabilityView.reasoningEffortLevelsFor(model)
@@ -2150,8 +2166,8 @@ export async function createAgentSession(
 			delegationScopes.set(entry.runId, { ...entry, topicId: scope.topicId })
 			try {
 				return await resumeRun({
-					provider,
-					fallbackProviders: fallbackPlan.build(currentToken),
+					provider: providerForSession(entry.sessionId),
+					fallbackProviders: fallbackPlan.build(currentToken, entry.sessionId),
 					tools: registry,
 					pluginManager: pluginRuntime?.manager,
 					skillRegistry: pluginRuntime?.skills,
@@ -2334,11 +2350,12 @@ export async function createAgentSession(
 		reasoningEffortDefault,
 		compact: (messages) =>
 			operations.promise(undefined, async (signal) => {
+				const sessionId = scope.sessionId
 				await prepareProviderCredential(signal)
 				return compactNow({
 					messages,
 					config: compactionConfigFor(options.compaction),
-					provider,
+					provider: providerForSession(sessionId),
 					model,
 					signal,
 				})
@@ -2514,7 +2531,7 @@ export async function createAgentSession(
 						}
 						try {
 							yield* runTurn({
-								provider,
+								provider: providerForSession(turnScope.sessionId),
 								compactionConfig: compactionConfigFor(options.compaction),
 								...(options.compaction?.consolidate ? { consolidateInto: memoryStore } : {}),
 								...(jobRegistry
@@ -2530,7 +2547,7 @@ export async function createAgentSession(
 								// that expired hours ago — and a chain whose own members are stale
 								// is a fallback that fails for the reason the fallback exists to
 								// survive. Building a driver is a client object, not a request.
-								fallbackProviders: fallbackPlan.build(currentToken),
+								fallbackProviders: fallbackPlan.build(currentToken, turnScope.sessionId),
 								model,
 								tools: registry,
 								pluginManager: pluginRuntime?.manager,
@@ -2634,7 +2651,7 @@ interface FallbackPlan {
 	 * explicitly permits when only the model differs — is built with the token
 	 * the head just refreshed rather than the one discovery found at startup.
 	 */
-	build(headToken: string | undefined): readonly ProviderChainMember[]
+	build(headToken: string | undefined, sessionId: SessionId): readonly ProviderChainMember[]
 }
 
 function planFallbacks(
@@ -2677,7 +2694,7 @@ function planFallbacks(
 
 	return {
 		notices,
-		build(headToken) {
+		build(headToken, sessionId) {
 			const out: ProviderChainMember[] = []
 			for (const { choice, det } of usable) {
 				const entry = PROVIDER_REGISTRY[choice.id]
@@ -2687,7 +2704,7 @@ function planFallbacks(
 					const credential =
 						headToken !== undefined && det?.oauth ? { ...det, apiKey: headToken } : det
 					out.push({
-						provider: constructProvider(choice.id, credential, memberModel),
+						provider: constructProvider(choice.id, credential, memberModel, { sessionId }),
 						model: memberModel,
 					})
 				} catch {
@@ -2707,6 +2724,7 @@ export function constructProvider(
 	id: ProviderId,
 	det: DetectedProvider | null,
 	model: string,
+	context: { readonly sessionId?: string } = {},
 ): LLMProvider {
 	switch (id) {
 		case 'anthropic': {
@@ -2758,6 +2776,17 @@ export function constructProvider(
 				type: 'openrouter',
 				apiKey: det?.apiKey ?? '',
 				baseUrl: det?.baseUrl,
+			})
+			return provider
+		}
+		case 'zen':
+		case 'zen-go': {
+			const { provider } = ProviderRegistry.create({
+				type: id,
+				apiKey: det?.apiKey ?? '',
+				baseURL: det?.baseUrl,
+				model,
+				...(context.sessionId ? { sessionId: context.sessionId } : {}),
 			})
 			return provider
 		}

@@ -49,6 +49,7 @@ describe('delegation belongs to the actual parent', () => {
 		])
 		const projectStateRoot = join(cwd, 'state', 'projects', first.project.id)
 		const events: RunEvent[] = []
+		const providerSessions: (string | undefined)[] = []
 		const runtime = await createSubagentRuntime({
 			cwd,
 			model: 'mock',
@@ -58,7 +59,10 @@ describe('delegation belongs to the actual parent', () => {
 				if (!parent) throw new Error('Parent no longer active')
 				return parent
 			},
-			buildProvider: () => new MockLLMProvider({ turns: [{ text: 'done' }] }),
+			buildProvider: (sessionId) => {
+				providerSessions.push(sessionId)
+				return new MockLLMProvider({ turns: [{ text: 'done' }] })
+			},
 			buildTools: () => new ToolRegistry(),
 			onEvent: (event) => {
 				events.push(event)
@@ -76,6 +80,9 @@ describe('delegation belongs to the actual parent', () => {
 				),
 			)
 			expect(results.every((result) => result.success)).toBe(true)
+			expect(providerSessions).toHaveLength(4)
+			expect(providerSessions.filter((id) => id === first.sessionId)).toHaveLength(2)
+			expect(providerSessions.filter((id) => id === second.sessionId)).toHaveLength(2)
 			const spawned = events.filter((event) => event.type === 'subsession_spawned')
 			expect(spawned).toHaveLength(4)
 			for (const event of spawned) {

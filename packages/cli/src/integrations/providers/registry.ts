@@ -11,6 +11,8 @@ export type ProviderId =
 	| 'codex'
 	| 'openai'
 	| 'openrouter'
+	| 'zen'
+	| 'zen-go'
 	| 'deepseek'
 	| 'ollama'
 	| 'lmstudio'
@@ -61,8 +63,8 @@ export interface ProviderRegistryEntry {
 	 * Can THIS BUILD of the CLI construct one?
 	 *
 	 * A statement about `@namzu/cli`'s dependencies, not about the provider. A
-	 * driver package exists in this repo for every entry below; only four of
-	 * them are dependencies of this package, so only four can be imported and
+	 * driver package exists in this repo for every entry below; only selected
+	 * packages are dependencies of this package and can be imported and
 	 * registered. Read the sentence that way or it will be deleted the day a
 	 * driver ships, which would put the lie back.
 	 *
@@ -146,6 +148,29 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			acceptsTypedCredential: true,
 			constructible: true,
 			driverPackage: '@namzu/openrouter',
+		},
+		zen: {
+			id: 'zen',
+			label: 'Zen',
+			envVars: ['OPENCODE_API_KEY', 'OPENCODE_ZEN_API_KEY'],
+			defaultBaseUrl: 'https://opencode.ai/zen/v1',
+			defaultModel: 'glm-5.3-flash',
+			requiresApiKey: true,
+			acceptsTypedCredential: true,
+			constructible: true,
+			driverPackage: '@namzu/zen',
+		},
+		'zen-go': {
+			id: 'zen-go',
+			label: 'Zen Go',
+			// Go has its own billing route. A Zen key never opts an operator into it.
+			envVars: ['OPENCODE_GO_API_KEY'],
+			defaultBaseUrl: 'https://opencode.ai/zen/go/v1',
+			defaultModel: 'glm-5.3-flash',
+			requiresApiKey: true,
+			acceptsTypedCredential: true,
+			constructible: true,
+			driverPackage: '@namzu/zen',
 		},
 		ollama: {
 			id: 'ollama',
