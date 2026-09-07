@@ -42,12 +42,17 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AdvisoryContext } from '../../../../advisory/context.js'
+import { TriggerEvaluator } from '../../../../advisory/evaluator.js'
+import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import type {
 	AdvisorDefinition,
 	AdvisoryResult,
 	AdvisoryTrigger,
+	TriggerEvaluationState,
 } from '../../../../types/advisory/index.js'
 import type { RunId } from '../../../../types/ids/index.js'
+import { createToolMessage, createUserMessage } from '../../../../types/message/index.js'
+import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { Logger } from '../../../../utils/logger.js'
 
 import { runAdvisoryPhase } from './advisory.js'
@@ -103,7 +108,7 @@ function makeAdvisoryCtx(options: MockAdvisoryCtxOptions = {}) {
 			durationMs: 1,
 		}
 	})
-	const evaluate = vi.fn(() => firedTriggers)
+	const evaluate = vi.fn((_state: TriggerEvaluationState) => firedTriggers)
 	const recordFiring = vi.fn()
 	const resolve = vi.fn(() => advisor)
 	const checkBudget = vi.fn(() => ({
@@ -423,5 +428,137 @@ describe('runAdvisoryPhase — trigger selection + question', () => {
 			unknown,
 		]
 		expect(consultArgs?.[1].question).toContain('Iteration 7')
+	})
+})
+
+function signalFixture(condition: AdvisoryTrigger['condition']) {
+	const evaluator = new TriggerEvaluator([{ ...trigger, condition }])
+	const { ctx: advisoryCtx, mocks } = makeAdvisoryCtx({ advisor })
+	mocks.evaluate.mockImplementation((state) => evaluator.evaluate(state))
+	const { ctx: base } = makeCtx({ advisoryCtx })
+	Object.assign(base.runConfig, { model: 'test-model', tokenBudget: 1_000_000 })
+	Object.assign(base.runMgr, { lastPromptTokens: 10_000, lastPromptMessageCount: 0 })
+	const ctx: IterationContext = { ...base, providerContextWindow: 100_000 }
+	return { ctx, mocks }
+}
+
+function toolBatch(...ids: string[]): ChatCompletionResponse {
+	return {
+		...response,
+		message: {
+			role: 'assistant',
+			content: null,
+			toolCalls: ids.map((id) => ({
+				id,
+				type: 'function',
+				function: { name: 'check', arguments: '{}' },
+			})),
+		},
+		finishReason: 'tool_calls',
+	}
+}
+
+describe('advisory signals describe current context and the current tool batch', () => {
+	it('does not confuse high cumulative spend with a nearly empty context', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
+		ctx.runMgr.tokenUsage.totalTokens = 950_000
+		await runAdvisoryPhase(ctx, 10, response)
+		expect(mocks.evaluate.mock.calls[0]?.[0].contextWindowPercent).toBe(10)
+		expect(mocks.consult).not.toHaveBeenCalled()
+	})
+
+	it('triggers on a full context despite a small share of the spend budget being used', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
+		Object.assign(ctx.runMgr, { lastPromptTokens: 85_000 })
+		ctx.runMgr.tokenUsage.totalTokens = 85_000
+		await runAdvisoryPhase(ctx, 1, response)
+		expect(mocks.evaluate.mock.calls[0]?.[0].contextWindowPercent).toBe(85)
+		expect(mocks.consult).toHaveBeenCalledTimes(1)
+	})
+
+	it('honors the explicit context-window override before the provider window', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
+		Object.assign(ctx.runMgr, { lastPromptTokens: 90_000 })
+		await runAdvisoryPhase(
+			{ ...ctx, compactionConfig: CompactionConfigSchema.parse({ contextWindowTokens: 200_000 }) },
+			1,
+			response,
+		)
+		expect(mocks.evaluate.mock.calls[0]?.[0].contextWindowPercent).toBe(45)
+		expect(mocks.consult).not.toHaveBeenCalled()
+	})
+
+	it('counts results appended beyond the provider prompt watermark with an unlimited spend budget', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
+		Object.assign(ctx.runConfig, { tokenBudget: 0 })
+		Object.assign(ctx.runMgr, {
+			lastPromptTokens: 1000,
+			lastPromptMessageCount: 1,
+			messages: [
+				createUserMessage('inspect'),
+				createToolMessage('x'.repeat(4000), 'current', false),
+			],
+		})
+		await runAdvisoryPhase({ ...ctx, providerContextWindow: 2000 }, 2, toolBatch('current'))
+		expect(mocks.evaluate.mock.calls[0]?.[0].contextWindowPercent).toBe(100)
+		expect(mocks.consult).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not resurrect an older failure after a successful batch, including reused call IDs', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_error' })
+		const current = toolBatch('same-id')
+		Object.assign(ctx.runMgr, {
+			messages: [
+				toolBatch('same-id').message,
+				createToolMessage('Error: old unresolved-looking text', 'same-id', true),
+				current.message,
+				createToolMessage(
+					'Error: is the literal prefix this successful check searched for',
+					'same-id',
+					false,
+				),
+			],
+		})
+		await runAdvisoryPhase(ctx, 2, current)
+		expect(mocks.evaluate.mock.calls[0]?.[0].lastError).toBeUndefined()
+		expect(mocks.consult).not.toHaveBeenCalled()
+	})
+
+	it('preserves every failed receipt in a mixed batch instead of letting the last success mask it', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_error', categories: ['permission'] })
+		const current = toolBatch('first', 'second', 'third')
+		Object.assign(ctx.runMgr, {
+			messages: [
+				current.message,
+				createToolMessage([{ type: 'text', text: 'permission denied' }], 'first', true),
+				createToolMessage('quota exhausted', 'second', true),
+				createToolMessage('inspection succeeded', 'third', false),
+			],
+		})
+		await runAdvisoryPhase(ctx, 1, current)
+		expect(mocks.evaluate.mock.calls[0]?.[0].lastError).toBe('permission denied\nquota exhausted')
+		expect(mocks.consult).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not classify unmarked text as a failed tool receipt', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_error' })
+		const current = toolBatch('current')
+		Object.assign(ctx.runMgr, {
+			messages: [current.message, createToolMessage('Error: an example in a document', 'current')],
+		})
+		await runAdvisoryPhase(ctx, 1, current)
+		expect(mocks.evaluate.mock.calls[0]?.[0].lastError).toBeUndefined()
+		expect(mocks.consult).not.toHaveBeenCalled()
+	})
+
+	it('retains the failure signal when a failed receipt has no readable body', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_error' })
+		const current = toolBatch('current')
+		Object.assign(ctx.runMgr, {
+			messages: [current.message, createToolMessage('', 'current', true)],
+		})
+		await runAdvisoryPhase(ctx, 1, current)
+		expect(mocks.evaluate.mock.calls[0]?.[0].lastError).toBe('Tool check reported an error.')
+		expect(mocks.consult).toHaveBeenCalledTimes(1)
 	})
 })

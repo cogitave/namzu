@@ -1,3 +1,4 @@
+import { resolveContextWindow } from '../../../../compaction/context-window.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/advisory/index.js'
@@ -5,6 +6,7 @@ import { toolResultToText } from '../../../../types/message/content.js'
 import { createRuntimeContextMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import { toErrorMessage } from '../../../../utils/error.js'
+import { measureContext } from './compaction.js'
 import type { IterationContext } from './context.js'
 
 function countToolCalls(ctx: IterationContext): number {
@@ -18,9 +20,12 @@ function countToolCalls(ctx: IterationContext): number {
 }
 
 function estimateContextWindowPercent(ctx: IterationContext): number {
-	const budget = ctx.runConfig.tokenBudget
-	if (budget <= 0) return 0
-	return (ctx.runMgr.tokenUsage.totalTokens / budget) * 100
+	const window = resolveContextWindow(
+		ctx.compactionConfig?.contextWindowTokens,
+		ctx.runConfig.model,
+		ctx.providerContextWindow,
+	)
+	return (measureContext(ctx).tokens / window.tokens) * 100
 }
 
 function computeCostBudgetPercent(ctx: IterationContext): number | undefined {
@@ -67,7 +72,7 @@ export async function runAdvisoryPhase(
 		contextWindowPercent: estimateContextWindowPercent(ctx),
 		totalCostUsd: ctx.runMgr.costInfo.totalCost,
 		costBudgetPercent: computeCostBudgetPercent(ctx),
-		lastError: extractLastErrorFromMessages(ctx),
+		lastError: extractCurrentToolErrors(ctx, response),
 		lastToolCategory: extractLastToolCategory(ctx, response),
 		advisoryCallCount: advisoryCtx.callHistory.length,
 	}
@@ -190,16 +195,26 @@ export async function runAdvisoryPhase(
 	}
 }
 
-function extractLastErrorFromMessages(ctx: IterationContext): string | undefined {
+function extractCurrentToolErrors(
+	ctx: IterationContext,
+	response: ChatCompletionResponse,
+): string | undefined {
+	const calls = new Map(response.message.toolCalls?.map((call) => [call.id, call.function.name]))
+	if (calls.size === 0) return undefined
 	const messages = ctx.runMgr.messages
+	const errors: string[] = []
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i]
-		if (msg?.role === 'tool') {
-			// Tool results can now carry content blocks; the error sentinel is
-			// a text convention, so flatten before matching it.
-			const text = toolResultToText(msg.content)
-			if (text.startsWith('Error:')) return text
+		// The current assistant turn starts this batch. Never resurrect an old
+		// failure, even if a provider reused a call ID in another iteration.
+		if (msg?.role === 'assistant') break
+		if (msg?.role === 'tool' && msg.isError === true && calls.has(msg.toolCallId)) {
+			errors.push(
+				toolResultToText(msg.content).trim() ||
+					`Tool ${calls.get(msg.toolCallId)} reported an error.`,
+			)
 		}
 	}
-	return undefined
+	// A successful sibling does not erase failed results in this same batch.
+	return errors.length > 0 ? errors.reverse().join('\n') : undefined
 }

@@ -139,6 +139,20 @@ usage. `Run.tokenUsage` describes the run itself, while `Run.budget.treeTokens`
 includes descendants. The ledger records tokens; dollar limits remain local to
 the run and its priced usage.
 
+## Advisory signal boundaries
+
+`on_context_percent` uses current prompt occupancy divided by the resolved model
+window, independently of cumulative token spend. It shares compaction's context
+measurement and window resolution. `on_error` uses canonical failed receipts in
+the current tool batch: successful siblings do not hide its errors, while a
+newer successful batch clears them. A successful output containing the literal
+text `Error:` is not classified as a failed execution.
+
+These signals can trigger the configured advisory mechanism. They do not
+constitute a world model or certify task progress. The
+[cognitive architecture research](cognitive-architecture.md) describes the
+separate proposed expectation, evidence and control loop.
+
 ## Bounded live evidence
 
 On 2026-09-06, an isolated CLI workspace used `gpt-5.6-luna` with explicit `low`

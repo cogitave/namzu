@@ -1,6 +1,9 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Creation**: [Cognitive storage research](/sdk/cognitive-storage.md) — pinned Pydantic AI source comparison, proposed RAM/disk/index responsibilities, transactional update boundaries and a bounded local storage-cost experiment.
+* **Creation**: [Cognitive architecture research](/sdk/cognitive-architecture.md) — primary-source motivation, functional definitions, proposed selective control cycle, scoped associative activation, outcome/evidence distinctions, local CPU measurements and executable SDK mechanism ablations; explicitly separate from shipped CLI behavior.
+* **Update**: [Harness invariants](/sdk/harness-invariants.md) — advisory triggers use current context occupancy and the latest canonical tool failures rather than cumulative spend and stale error text.
 * **Creation**: [Structured memory](/sdk/memory.md) — bounded per-step recall, current operator intent retained across compaction and checkpoints, ranked body search, explicit correction/archive/delete tools, and cooperating-process disk coordination with honest recovery limits.
 * **Update**: [Memory](/cli/memory.md) and [Context and compaction](/cli/context-and-compaction.md) — default project recall with a file-config opt-out, one selected durable-memory writer, bounded scoped markdown reads and visible skipped-file or clipped-note diagnostics.
 * **Update**: [Pinned facts](/sdk/pinned-facts.md) — removing the last tool pin clears its managed context slot; extracted negative requirements survive, assistant decisions retain source attribution, and bounded requirements disclose truncation.
