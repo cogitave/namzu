@@ -2,7 +2,8 @@
 
 Observed locally on 2026-09-07. The scripts are the reproducible specifications;
 timings below describe one environment and are not acceptance thresholds.
-No paid model or external database was used.
+The mechanism experiments below used no paid model or external database. The
+later production follow-up records separate live subscription-model observations.
 
 ## Cognitive mechanisms
 
@@ -92,3 +93,41 @@ two skipped. Eight SDK regressions exercise the corrected advisory inputs.
 This records those checks only. Coverage, consumer-install, publishing and the
 remaining release gates were not rerun for this local research commit. No push
 or release is established by these results.
+## Production follow-up, 2026-09-07
+
+The source audit and real CLI workload are recorded in [PYDANTIC_REVIEW.md](PYDANTIC_REVIEW.md)
+and [long-work/README.md](long-work/README.md). Unlike the experimental association
+and executive modules below, the context and code-execution fixes are shipped SDK
+paths. Local implementation commits are `c78fd3f0` and `c5cf4de9`; no push or publish
+was performed.
+
+Validation after integration:
+
+| Check | Observed result |
+| --- | --- |
+| Workspace typecheck, lint, build | Passed; existing lint warnings remain |
+| Workspace unit tests | Passed; SDK 5,746 and CLI 2,248 plus 2 skipped at that run |
+| SDK coverage rerun after added advisory regression | 5,747 passed; module coverage floors passed |
+| SDK process suite | 242 passed in 30 files |
+| Packed standalone SDK execution | Async structured calls and constructor denial passed |
+| Full consumer-install gate | Passed with previewed shipping versions, live/telemetry/sandbox/eval consumers |
+| Evals | Four suites passed |
+| Docs structure and fences | Passed; 24 fences and 17 package READMEs |
+| Gate parity, project references, source-name audit, log standard | Passed |
+| Price catalogue, test presence, publish metadata, exported signature types | Passed |
+| publint | All 17 publishable packages passed |
+| Installer syntax | `sh -n install.sh` passed; `dash` unavailable on this host |
+| Portable workload preflight | Baseline fails seeded cases; both reference variants pass exactly their declared cases |
+
+The installer matrix is therefore not fully verified locally. Tests establish
+specific invariants, not complete request-fit guarantees, general intelligence or
+an independently verified completion of the live queue task. Conversation resume
+preserved work and reached 17/17 visible tests, but independent behavior remained
+12/15 despite a completion claim. This is the main observed quality gap to carry
+into the next executive-control experiment. No hidden failures or reference patch
+were supplied during either live observation.
+
+The source-name audit now permits one explicitly named comparison source only in
+the two cognitive research pages and their index/log. Negative controls still
+reject unrelated brands, unrelated pages and kernel identifiers. This narrow
+exception preserves source attribution in the user-requested research.

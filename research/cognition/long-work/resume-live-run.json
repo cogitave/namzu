@@ -1,0 +1,24 @@
+{
+  "kind": "live-conversation-resume",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "contextWindowTokens": 16000,
+  "requests": 6,
+  "reportedTokens": 65139,
+  "requestCap": 15,
+  "tokenGuard": 150000,
+  "guardFired": false,
+  "visible": {
+    "passed": 17,
+    "failed": 0
+  },
+  "hidden": {
+    "passed": 12,
+    "failed": 3
+  },
+  "protectedFilesPreserved": true,
+  "declaredCompletion": true,
+  "independentlyPassed": false,
+  "remainingFailure": "Running cancellation overwrites actual attempt outcome and loses failure text.",
+  "caveat": "Same existing task, generic continue instruction, no hidden failures supplied. Conversation restore; not a controlled paired comparison or proof of exact checkpoint retry."
+}

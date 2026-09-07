@@ -1,0 +1,39 @@
+{
+	"kind": "single-bounded-observational-cli-run",
+	"date": "2026-09-07",
+	"model": "gpt-5.6-luna",
+	"effort": "low",
+	"contextWindowOverrideTokens": 16000,
+	"headlessOnlyConfiguredMaxIterations": 30,
+	"effectiveTuiMaxIterations": 50,
+	"operatorRequestGuard": 30,
+	"reportedRequests": 25,
+	"reportedTotalTokens": 255835,
+	"operatorTokenGuard": 250000,
+	"stop": {
+		"cause": "operator-guard-induced-pause",
+		"detail": "An in-flight request crossed the 250000-token guard. Further generation was stopped by the observer; the generic fetch error was classified as network. This was not a measured provider outage."
+	},
+	"instructionDelivery": {
+		"cancellation": "A second user turn after the initial repair turn had finished; not mid-run steering.",
+		"laterRegression": "Delivered while the cancellation turn was active and consumed as steering."
+	},
+	"gradingAtStop": {
+		"passed": false,
+		"visible": { "passed": 16, "total": 17 },
+		"hidden": { "passed": 12, "total": 15 },
+		"protectedFilesPreserved": true,
+		"prohibitedSourcePatternFlags": 0,
+		"remainingBehaviorFailures": [
+			"Running cancellation with late success and actual duration accounting",
+			"Running cancellation with late failure and receipt preservation",
+			"Cancelled failure remains idempotent while another tenant with the same key succeeds"
+		]
+	},
+	"limitations": [
+		"One fixture, one model/effort setting and one bounded run; no causal performance or general capability claim.",
+		"Grading describes the interrupted working tree, not a completed repair.",
+		"Configured context window and operator guards are experimental conditions.",
+		"No credentials, provider transcripts, private runtime state or full terminal logs are included in this record."
+	]
+}

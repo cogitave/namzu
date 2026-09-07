@@ -6,6 +6,10 @@ does not load them. They use no paid provider or downloaded model. The complete
 neuroscience evidence, software proposals and missing capabilities.
 The [recorded validation](VALIDATION.md) distinguishes observed mechanism
 behavior, local computation cost and the checks performed.
+The [Pydantic source audit](PYDANTIC_REVIEW.md) records implemented production
+follow-ups and remaining gaps. The [long-work CLI fixture](long-work/README.md)
+is reproducible without paid calls; its recorded live observations are separate
+from the scripted mechanism ablations below.
 
 From the repository root, using the workspace's already installed dependencies:
 

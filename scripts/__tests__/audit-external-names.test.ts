@@ -50,7 +50,10 @@ for (const directory of ['.namzu-cache', '.NAMZU']) {
 
 		const result = runAudit(root)
 		assert.equal(result.status, 1, result.stderr)
-		assert.match(result.stderr, new RegExp(`packages/sdk/${directory.replace('.', '\\.')}\\/authored\\.md`))
+		assert.match(
+			result.stderr,
+			new RegExp(`packages/sdk/${directory.replace('.', '\\.')}\\/authored\\.md`),
+		)
 	})
 }
 
@@ -99,4 +102,20 @@ test('a cached file deleted from the working tree has no prose left to audit', (
 
 	const result = runAudit(root)
 	assert.equal(result.status, 0, result.stderr)
+})
+
+test('a scoped source attribution exception does not exempt other prose or kernel identifiers', () => {
+	const root = repository()
+	const docs = join(root, 'docs/sdk')
+	mkdirSync(docs, { recursive: true })
+	writeFileSync(join(docs, 'cognitive-storage.md'), 'Source comparison against Pydantic AI.\n')
+	assert.equal(runAudit(root).status, 0)
+	writeFileSync(join(docs, 'cognitive-storage.md'), forbiddenProse)
+	assert.equal(runAudit(root).status, 1)
+	writeFileSync(join(docs, 'cognitive-storage.md'), 'Source comparison against Pydantic AI.\n')
+	writeFileSync(join(docs, 'unrelated.md'), 'Borrow Pydantic naming.\n')
+	assert.equal(runAudit(root).status, 1)
+	rmSync(join(docs, 'unrelated.md'))
+	writeFileSync(join(root, 'packages/sdk/src/clean.ts'), 'export const pydanticKernel = 1\n')
+	assert.equal(runAudit(root).status, 1)
 })

@@ -445,6 +445,22 @@ const DRIVEN_SERVICES = new Set([
 	'cohere',
 ])
 
+// Commissioned source comparisons must attribute the implementation examined.
+// This is a prose-only, source-and-file exception, not permission to derive
+// kernel identifiers or product positioning from another project. The index
+// and log name the research pages they catalogue.
+const RESEARCH_SOURCE_DOCS = new Map([
+	[
+		'pydantic',
+		new Set([
+			'docs/sdk/cognitive-storage.md',
+			'docs/sdk/cognitive-architecture.md',
+			'docs/sdk/index.md',
+			'docs/log.md',
+		]),
+	],
+])
+
 /**
  * Strip what markdown uses for the same job a string literal does in code.
  *
@@ -797,6 +813,7 @@ function findings(source, path) {
 			const prose = stripMarkdownCode(line)
 			for (const term of TERMS) {
 				if (DRIVEN_SERVICES.has(term.name)) continue
+				if (RESEARCH_SOURCE_DOCS.get(term.name)?.has(path)) continue
 				if (matches(term, prose)) {
 					hits.push({ path, line: index + 1, name: term.name, text: line.trim() })
 				}
