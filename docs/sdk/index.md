@@ -5,6 +5,7 @@ The kernel.
 * [Run the kernel](quick-start.md) - An offline SDK run, real tool execution and conversation identity.
 * [Bounded file discovery](file-discovery.md) - Explicit glob scope, incremental sandbox enumeration and recoverable incomplete results.
 * [Bounded code execution](code-execution.md) - Opt-in tool batching, structured results and interpreter resource limits.
+* [Answer verification](verification.md) - Command-backed review, cancellation, interrupted checks and honest completion boundaries.
 * [Pinned facts](pinned-facts.md) - How a tool puts a fact into the run's working memory by key, so it stays in front of the model across compaction.
 * [Structured memory](memory.md) - Store isolation, cross-process coordination, lexical search, lifecycle tools and bounded optional recall.
 * [Cognitive architecture research](cognitive-architecture.md) - Draft process architecture, neuroscience motivation and bounded experiments for state, recall, action and evidence.

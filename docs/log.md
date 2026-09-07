@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Creation**: [Answer verification](/sdk/verification.md) — command/fingerprint errors and interrupted zero-exit checks cannot pass verification, cancellation reaches commands, and diagnostic clipping respects its character allowance; remaining completion-path limits are explicit.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — non-shrinking summary candidates are declined, useful staged clears survive, original clear/stub evidence is archived before replacement, and changed working-memory slots invalidate stale provider measurements.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — model changes resolve their own provider window, recheck compaction and use that denominator for telemetry and recovery; preparation order and remaining fit limits are explicit.
 * **Update**: [Structured memory](/sdk/memory.md) — newly queued resume input takes precedence over old checkpoint intent, and operator steering updates the bounded state used by compaction.

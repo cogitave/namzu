@@ -48,6 +48,83 @@ function reviewed(gate: ReturnType<typeof createCommandGate>): Promise<AnswerRev
 	return Promise.resolve(gate('an answer', CONTEXT))
 }
 
+describe('a verifier must actually complete before accepting', () => {
+	it.each(['timeout', 'caller', 'teardown'] as const)(
+		'rejects exit zero after %s termination',
+		async (origin) => {
+			const gate = createCommandGate({
+				commands: ['verify'],
+				cwd: '/w',
+				fingerprint: async () => null,
+				exec: async () => result({ termination: { origin, admitted: true } }),
+			})
+			const verdict = await reviewed(gate)
+			expect(verdict.accept).toBe(false)
+			if (!verdict.accept) expect(verdict.feedback).toContain(origin)
+		},
+	)
+
+	it('turns executor rejection into a failed verification, not a throwing reviewer', async () => {
+		const gate = createCommandGate({
+			commands: ['verify'],
+			cwd: '/w',
+			fingerprint: async () => null,
+			exec: async () => {
+				throw new Error('executor unavailable')
+			},
+		})
+		const verdict = await reviewed(gate)
+		expect(verdict.accept).toBe(false)
+		if (!verdict.accept) expect(verdict.feedback).toContain('executor unavailable')
+	})
+
+	it('does not turn a fingerprint exception after a failed check into acceptance', async () => {
+		let calls = 0
+		const gate = createCommandGate({
+			commands: ['verify'],
+			cwd: '/w',
+			fingerprint: async () => {
+				throw new Error('fingerprint unavailable')
+			},
+			exec: async () => {
+				calls++
+				return result({ exitCode: calls === 1 ? 1 : 0 })
+			},
+		})
+		expect((await reviewed(gate)).accept).toBe(false)
+		expect((await reviewed(gate)).accept).toBe(true)
+		expect(calls).toBe(2)
+	})
+
+	it('does not admit another command when cancellation arrives during change detection', async () => {
+		const controller = new AbortController()
+		let fingerprints = 0
+		const exec = vi.fn(async () => result({ exitCode: 1 }))
+		const gate = createCommandGate({
+			commands: ['verify'],
+			cwd: '/w',
+			exec,
+			fingerprint: async () => {
+				if (++fingerprints === 2) controller.abort()
+				return `state-${fingerprints}`
+			},
+		})
+		const context = { ...CONTEXT, signal: controller.signal }
+		expect((await gate('first', context)).accept).toBe(false)
+		expect((await gate('second', context)).accept).toBe(false)
+		expect(exec).toHaveBeenCalledTimes(1)
+	})
+
+	it.each([0, 1, 12, 100])('keeps clipped output inside its %i-character allowance', (max) => {
+		const text = `HEAD${'x'.repeat(5_000)}TAIL`
+		expect(clipOutput(text, max).length).toBeLessThanOrEqual(max)
+		if (max >= 100) {
+			expect(clipOutput(text, max)).toContain('HEAD')
+			expect(clipOutput(text, max)).toContain('TAIL')
+		}
+	})
+})
+
 describe('a gate whose command passes', () => {
 	it('accepts, and runs each command in the order it was given', async () => {
 		const seen: string[] = []
@@ -126,7 +203,8 @@ describe('an answer that changed nothing', () => {
 		// problem is a different instruction.
 		if (second.accept) throw new Error('unreachable')
 		expect(second.feedback).toContain('was NOT re-run')
-		expect(second.feedback).toContain('identical')
+		expect(second.feedback).toContain('same state')
+		expect(second.feedback).toContain('ignored files and external inputs may have changed')
 		// The attempt still advanced. Skipping the command is a saving, not a
 		// pardon — an answer that changed nothing has been rejected, and a run
 		// whose budget never saw it would loop forever for free.

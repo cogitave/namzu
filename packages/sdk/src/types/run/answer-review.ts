@@ -29,6 +29,8 @@ export type AnswerReview =
 export interface AnswerReviewContext {
 	readonly runId: RunId
 	readonly iteration: number
+	/** Run cancellation; reviewers should forward it to verification operations. */
+	readonly signal?: AbortSignal
 	/** The full history, so a reviewer can see how the answer was reached. */
 	readonly messages: readonly Message[]
 }

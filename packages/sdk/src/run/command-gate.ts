@@ -110,11 +110,18 @@ export interface CommandGateOptions {
 
 /** Head and tail of a command's output, with the middle marked as dropped. */
 export function clipOutput(text: string, max: number): string {
+	if (!Number.isSafeInteger(max) || max < 0) {
+		throw new RangeError('maxOutputChars must be a nonnegative safe integer.')
+	}
 	const trimmed = text.trimEnd()
 	if (trimmed.length <= max) return trimmed
-	const half = Math.floor(max / 2)
-	const dropped = trimmed.length - half * 2
-	return `${trimmed.slice(0, half)}\n… ${dropped} characters omitted …\n${trimmed.slice(-half)}`
+	const markerBudget = `\n… ${trimmed.length} characters omitted …\n`.length
+	if (max < markerBudget) return max === 0 ? '' : '…'
+	const retained = max - markerBudget
+	const head = Math.ceil(retained / 2)
+	const tail = retained - head
+	const marker = `\n… ${trimmed.length - retained} characters omitted …\n`
+	return `${trimmed.slice(0, head)}${marker}${tail > 0 ? trimmed.slice(-tail) : ''}`
 }
 
 interface LastFailure {
@@ -142,7 +149,7 @@ function failureFeedback(
 					`Retained output is incomplete: ${truncatedStreams.join(' and ')} ${truncatedStreams.length === 1 ? 'was' : 'were'} truncated by the execution context. Re-run with a narrower command or filter to recover the missing diagnostics.`,
 				]
 	return [
-		`The answer was not accepted: \`${command}\` failed (attempt ${attempt}, exit ${result.exitCode}).`,
+		`The answer was not accepted: \`${command}\` failed (attempt ${attempt}, exit ${result.exitCode}${result.termination ? `, terminated: ${result.termination.origin}` : ''}).`,
 		'',
 		'Output:',
 		'```',
@@ -158,9 +165,9 @@ function unchangedFeedback(command: string, attempt: number): string {
 	return [
 		`The answer was not accepted, and \`${command}\` was NOT re-run (attempt ${attempt}).`,
 		'',
-		'The workspace is byte-for-byte identical to what it was when that command last failed — no file was created, edited or deleted since. Running it again would produce the failure you have already been shown.',
+		'The configured change detector reports the same state as after the last failure. The default detector covers the Git commit and Git-visible working state; ignored files and external inputs may have changed.',
 		'',
-		'Edit something before trying to finish again. If you believe the change you described was made, verify it by reading the file: it is not on disk.',
+		'Check that the intended fix is present and addresses the reported failure. If verification depends on state outside the detector, the host should supply a matching fingerprint or return null to re-run checks.',
 	].join('\n')
 }
 
@@ -183,20 +190,39 @@ export function createCommandGate(options: CommandGateOptions): ReviewAnswer {
 	const timeoutMs = options.timeoutMs ?? DEFAULT_GATE_TIMEOUT_MS
 	const maxRetries = options.maxRetries ?? DEFAULT_GATE_MAX_RETRIES
 	const maxOutputChars = options.maxOutputChars ?? DEFAULT_GATE_OUTPUT_CHARS
+	// Validate before a reviewer is installed: malformed limits cannot turn
+	// a formatting exception during verification into an unreviewed answer.
+	clipOutput('', maxOutputChars)
 
 	// Built once and reused: constructing a context per attempt would re-stat
 	// the directory for no gain, and the context holds nothing per-run.
 	const context = new LocalExecutionContext({ id: 'namzu-command-gate', cwd })
 	const exec: GateExec =
 		options.exec ?? ((command, args, opts) => context.executeCommand(command, args, opts))
-	const fingerprint =
-		options.fingerprint ?? (() => fingerprintWorkspace({ cwd, exec, timeoutMs: 20_000 }))
+	const readFingerprint = async (signal?: AbortSignal): Promise<string | null> => {
+		if (signal?.aborted) return null
+		try {
+			return options.fingerprint
+				? await options.fingerprint()
+				: await fingerprintWorkspace({
+						cwd,
+						timeoutMs: 20_000,
+						exec: (command, args, commandOptions) =>
+							exec(command, args, { ...commandOptions, ...(signal ? { signal } : {}) }),
+					})
+		} catch {
+			return null
+		}
+	}
 
 	let attempt = 0
 	let last: LastFailure | undefined
 	let executions = 0
 
-	return async (): Promise<AnswerReview> => {
+	return async (_answer, reviewContext): Promise<AnswerReview> => {
+		const signal = reviewContext.signal
+		if (signal?.aborted)
+			return { accept: false, feedback: 'Verification was cancelled before admission.' }
 		attempt += 1
 
 		// A gate that already failed, over a tree nothing has touched since.
@@ -209,7 +235,7 @@ export function createCommandGate(options: CommandGateOptions): ReviewAnswer {
 		// that deleted it killed no test, which is what a dead condition looks
 		// like from the outside.
 		if (last && last.fingerprint !== null) {
-			const now = await fingerprint()
+			const now = await readFingerprint(signal)
 			if (now === last.fingerprint) {
 				return { accept: false, feedback: unchangedFeedback(last.command, attempt) }
 			}
@@ -221,20 +247,42 @@ export function createCommandGate(options: CommandGateOptions): ReviewAnswer {
 
 		executions += 1
 		for (const command of commands) {
+			if (signal?.aborted)
+				return { accept: false, feedback: 'Verification was cancelled before admission.' }
 			// `shell: true` because the operator handed over a command LINE —
 			// `pnpm test -- --run`, with its flags and its quoting — and taking
 			// that as an executable name plus literal arguments would fail on
 			// every gate anyone would actually write. Explicit, per the note on
 			// `LocalExecutionContext.executeCommand`: shell interpretation is
 			// opt-in, and this is the opt-in.
-			const result = await exec(command, [], { cwd, timeoutMs, shell: true })
-			if (result.exitCode === 0) continue
+			let result: CommandResult
+			try {
+				result = await exec(command, [], {
+					cwd,
+					timeoutMs,
+					shell: true,
+					...(signal ? { signal } : {}),
+				})
+			} catch (error) {
+				// A command that could not be observed completing is not a pass.
+				// Keep this inside the builtin reviewer: generic review callbacks
+				// historically fail open on throws. No fabricated exit status.
+				last = { command, fingerprint: null }
+				return {
+					accept: false,
+					feedback: `The answer was not accepted: verification with \`${command}\` could not complete (attempt ${attempt}).\n${clipOutput(error instanceof Error ? error.message : String(error), maxOutputChars)}\nCheck the execution problem and any partial effects before retrying. Do not claim verification passed.`,
+				}
+			}
+			if (signal?.aborted) return { accept: false, feedback: 'Verification was cancelled.' }
+			if (result.exitCode === 0 && result.termination === undefined) continue
 
 			// Taken AFTER the failure, not before the run: the comparison next
 			// time is against the tree this verdict was formed over. A snapshot
 			// from before the command would miss anything the command itself
 			// wrote — a formatter, a snapshot updater, a lockfile.
-			last = { command, fingerprint: await fingerprint() }
+			// Interrupted verification is not a stable failure of these source
+			// bytes. Allow another check even when no tracked file has changed.
+			last = { command, fingerprint: result.termination ? null : await readFingerprint(signal) }
 			return { accept: false, feedback: failureFeedback(command, attempt, result, maxOutputChars) }
 		}
 

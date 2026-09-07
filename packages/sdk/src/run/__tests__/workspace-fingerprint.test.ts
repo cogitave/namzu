@@ -73,6 +73,16 @@ describe('what moves the fingerprint', () => {
 		expect(await fingerprint()).not.toBe(before)
 	})
 
+	it('distinguishes clean commits with different tracked contents', async () => {
+		const before = await fingerprint()
+		await writeFile(join(dir, 'tracked.txt'), 'committed fix\n')
+		await git('add', 'tracked.txt')
+		await git('commit', '-q', '-m', 'fix')
+		const status = await run('git', ['status', '--porcelain'], { cwd: dir })
+		expect(status.stdout).toBe('')
+		expect(await fingerprint()).not.toBe(before)
+	})
+
 	it('moves when an ALREADY-modified tracked file is edited again', async () => {
 		await writeFile(join(dir, 'tracked.txt'), 'two\n')
 		const before = await fingerprint()
@@ -128,6 +138,20 @@ describe('what moves the fingerprint', () => {
 })
 
 describe('when it cannot tell', () => {
+	it('does not hash interrupted git output even when the process exits zero', async () => {
+		const fp = await fingerprintWorkspace({
+			cwd: dir,
+			exec: async (): Promise<CommandResult> => ({
+				exitCode: 0,
+				stdout: '',
+				stderr: '',
+				durationMs: 1,
+				termination: { origin: 'timeout', admitted: true },
+			}),
+		})
+		expect(fp).toBeNull()
+	})
+
 	it('returns null outside a repository rather than a hash of nothing', async () => {
 		const bare = await mkdtemp(join(tmpdir(), 'namzu-fp-bare-'))
 		try {

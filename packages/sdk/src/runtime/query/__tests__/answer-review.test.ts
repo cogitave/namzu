@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import type { AnswerReview } from '../../../types/run/answer-review.js'
+import { createCommandGate } from '../../../run/command-gate.js'
+import type { AnswerReview, ReviewAnswer } from '../../../types/run/answer-review.js'
 import {
 	generateProjectId,
+	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -23,8 +25,9 @@ registerMock()
 
 function scriptedRun(
 	replies: readonly string[],
-	reviewAnswer: (answer: string) => AnswerReview | Promise<AnswerReview>,
+	reviewAnswer: ReviewAnswer,
 	maxAnswerReviews?: number,
+	signal?: AbortSignal,
 ) {
 	let turn = 0
 	const provider = new MockLLMProvider({
@@ -53,13 +56,60 @@ function scriptedRun(
 				sessionId: generateSessionId(),
 				topicId: generateTopicId(),
 				tenantId: generateTenantId(),
-				reviewAnswer: (answer: string) => reviewAnswer(answer),
+				reviewAnswer,
+				...(signal ? { signal } : {}),
 				...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
 			}),
 	}
 }
 
 describe('judging the answer a run is about to settle with', () => {
+	it('passes cancellation into command verification and preserves the cancelled run', async () => {
+		const controller = new AbortController()
+		const gate = createCommandGate({
+			commands: ['verify'],
+			cwd: process.cwd(),
+			exec: async (_command, _args, options) => {
+				expect(options?.signal).toBeDefined()
+				controller.abort(new Error('operator stopped verification'))
+				expect(options?.signal?.aborted).toBe(true)
+				return {
+					exitCode: 0,
+					stdout: '',
+					stderr: '',
+					durationMs: 1,
+					termination: { origin: 'caller', admitted: true },
+				}
+			},
+		})
+		const scripted = scriptedRun(['Everything passed.'], gate, 0, controller.signal)
+		const run = await scripted.run()
+		expect(run.status).toBe('cancelled')
+		expect(run.stopReason).toBe('cancelled')
+		expect(scripted.turns()).toBe(1)
+	})
+	it('does not turn an unavailable command verifier into an accepted run', async () => {
+		const gate = createCommandGate({
+			commands: ['verify'],
+			cwd: process.cwd(),
+			exec: async () => {
+				throw new Error('verifier unavailable')
+			},
+		})
+		const scripted = scriptedRun(
+			['Everything passed.'],
+			(answer) =>
+				gate(answer, {
+					runId: generateRunId(),
+					iteration: 1,
+					messages: [],
+				}),
+			0,
+		)
+		const run = await scripted.run()
+		expect(run.stopReason).toBe('answer_rejected')
+		expect(scripted.turns()).toBe(1)
+	})
 	it('accepts and settles without an extra turn', async () => {
 		const review = vi.fn(() => ({ accept: true }) as AnswerReview)
 		const scripted = scriptedRun(['the answer'], review)

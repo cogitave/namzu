@@ -1,5 +1,5 @@
 /**
- * A hash of everything a run could have changed in its working tree.
+ * A change detector for Git-visible workspace state.
  *
  * It exists to answer one question, asked between two attempts at the same
  * verification: **did anything happen since it last failed?** A verify-then-fix
@@ -10,7 +10,7 @@
  *
  * ## What is hashed, and why each part
  *
- * Three sources, because no one of them is complete:
+ * Four sources, because no one of them is complete:
  *
  *  1. **`git status --porcelain`** — which paths differ from the index at all.
  *     Cheap, and it catches additions, deletions and mode changes. On its own
@@ -23,6 +23,13 @@
  *  3. **Untracked file contents**, which no `git diff` covers. A new file is
  *     named by `status` but its CONTENT is not, so successive edits to a
  *     brand-new file would otherwise look like no change at all.
+ *  4. **`git rev-parse HEAD`** — the committed baseline. Two clean checkouts
+ *     can contain different code while all three sources above are empty.
+ *     Commit identity also covers verification that inspects Git history.
+ *
+ * Ignored files, external services and other command inputs are not covered.
+ * Reads are not an atomic snapshot. Matching hashes are an optimization hint,
+ * not proof that a command must produce the same result.
  *
  * ### Symlinks are recorded as their target, not read through
  *
@@ -131,7 +138,7 @@ async function untrackedEntry(cwd: string, rel: string, fs: FingerprintFs): Prom
 }
 
 /**
- * A hash of the working tree's uncommitted state, or `null` when it cannot be
+ * A hash of the commit and Git-visible working state, or `null` when it cannot be
  * established.
  *
  * **`null` is never "unchanged".** It means "I cannot tell", and the caller
@@ -152,14 +159,16 @@ export async function fingerprintWorkspace(
 		} catch {
 			return null
 		}
-		// A timeout surfaces here as a non-zero exit, and so does "not a
-		// repository" and "no commits yet". All three mean the same thing to
-		// this function: it has no basis for a comparison.
-		if (result.exitCode !== 0) return null
+		// A terminated process may handle its signal and exit zero. Its
+		// retained output still cannot establish a complete fingerprint.
+		if (result.exitCode !== 0 || result.termination !== undefined) return null
 		if (result.stdoutTruncated === true || result.stderrTruncated === true) return null
 		if (Buffer.byteLength(result.stdout, 'utf8') > maxBytes) return null
 		return result.stdout
 	}
+
+	const head = await git(['rev-parse', '--verify', 'HEAD'])
+	if (head === null) return null
 
 	const status = await git(['status', '--porcelain'])
 	if (status === null) return null
@@ -170,7 +179,7 @@ export async function fingerprintWorkspace(
 	const untracked = await git(['ls-files', '--others', '--exclude-standard', '-z'])
 	if (untracked === null) return null
 
-	const parts = [`status ${status}`, `diff ${diff}`]
+	const parts = [`head ${head}`, `status ${status}`, `diff ${diff}`]
 	// Split on NUL, which is what `-z` is for: a path may contain a newline,
 	// and splitting on one would turn a single strange filename into two
 	// ordinary-looking ones.

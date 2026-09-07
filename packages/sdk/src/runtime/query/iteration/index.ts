@@ -1059,6 +1059,11 @@ export class IterationOrchestrator {
 						// a loud stop rather than a loop.
 						if (!forceFinalize && this.ctx.reviewAnswer) {
 							const review = await this.reviewAnswer(response.message.content ?? '')
+							if (this.ctx.abortController.signal.aborted) {
+								runMgr.setStopReason('cancelled')
+								runMgr.markCancelled()
+								break
+							}
 							if (review && !review.accept) {
 								const attempt = ++this.answerReviewAttempts
 								const limit = this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT
@@ -2088,6 +2093,7 @@ export class IterationOrchestrator {
 			return await this.ctx.reviewAnswer(answer, {
 				runId: this.ctx.runMgr.id,
 				iteration: this.ctx.runMgr.currentIteration,
+				signal: this.ctx.abortController.signal,
 				messages: this.ctx.runMgr.messages,
 			})
 		} catch (err) {
