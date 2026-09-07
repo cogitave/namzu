@@ -1,0 +1,19 @@
+{
+  "kind": "live-buffered-output-smoke",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "requests": 2,
+  "reportedTokens": 13111,
+  "requestCap": 5,
+  "tokenGuard": 60000,
+  "guardFired": false,
+  "preliminaryNarrationObserved": true,
+  "toolCalls": [
+    "bash: node --test test/*.test.mjs"
+  ],
+  "visibleTestsPassed": 17,
+  "stdout": "VERIFIED: 17 tests passed.",
+  "preliminaryNarrationAbsentFromStdout": true,
+  "filesEdited": false,
+  "caveat": "A short CLI output contract check after the verifier-assisted task passed; not another task-success evaluation."
+}

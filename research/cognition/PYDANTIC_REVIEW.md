@@ -87,3 +87,13 @@ current observations and model assertions before accepting completion. The
 experimental executive already models this distinction, but the production CLI
 does not generally infer or enforce arbitrary natural-language acceptance criteria.
 This single task is not a matched before/after experiment or a competitor score.
+
+The subsequent [verifier-assisted continuation](long-work/gated-live-run.json)
+used Namzu's existing headless `--gate` hook. Its first independent verdict rejected
+the same three receipt failures; after feedback, the model repaired them and all
+17 visible plus 15 independent tests passed, including a separate post-run grade.
+It used 11 low-effort requests and reported 117,003 tokens. Private diagnostics
+were intentionally supplied, making this a different experiment from the blind
+resume. The useful production capability already exists; deriving comprehensive
+acceptance criteria, covering every settlement path and exposing verdicts clearly
+to operators remain distinct engineering problems.

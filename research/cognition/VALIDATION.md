@@ -131,3 +131,66 @@ The source-name audit now permits one explicitly named comparison source only in
 the two cognitive research pages and their index/log. Negative controls still
 reject unrelated brands, unrelated pages and kernel identifiers. This narrow
 exception preserves source attribution in the user-requested research.
+
+## Verification and final-answer follow-up, 2026-09-07
+
+Command-backed review had reproducible false-acceptance paths: interrupted
+processes could exit zero, and executor/fingerprint exceptions could escape into
+the generic review hook's fail-open behavior. Nine initial regression cases
+failed before the fix. A real shell with a TERM handler that exits zero now
+produces a timeout receipt and a rejected verdict. Run cancellation reaches the
+verifier, remains cancellation at settlement and prevents new command admission
+after asynchronous change detection. Diagnostic clipping includes its marker in
+the configured character allowance.
+
+Two further failing regressions exposed fingerprints that equated different
+clean commits and accepted interrupted Git output. The detector now includes
+the committed baseline and rejects incomplete command receipts. Its feedback
+describes Git-visible scope without claiming that ignored files or external
+inputs could not have changed. These SDK changes are committed as `b33dc987`.
+
+The [verifier-assisted live continuation](long-work/gated-live-run.json) first
+rejected the queue candidate at 12/15 independent checks, then passed all 15
+after model repair. All 17 visible tests and protected-file checks also passed.
+This used 11 requests and 117,003 reported tokens at `gpt-5.6-luna / low`, with
+no guard firing. Private diagnostics were intentionally supplied; the result is
+not a blind evaluation or controlled capability comparison.
+
+That run exposed a separate CLI defect: the final stdout artifact included an
+earlier rejected answer and preliminary narration. Four boundary regressions
+failed before carrying the settled kernel result through `done.text`. Buffered
+output now uses that value, including an explicit empty guarded answer, and
+streaming consumers can read it separately from previously emitted deltas. The
+CLI implementation is committed as `73de1243`.
+The [real output smoke](long-work/output-live-run.json) used two low-effort
+requests and 13,111 reported tokens. Preliminary narration was observed on the
+provider wire while stdout contained only the requested final verification line.
+
+Checks after these changes:
+
+| Check | Observed result |
+| --- | --- |
+| Workspace typecheck, lint and build | Passed; existing warnings remain |
+| SDK unit tests and coverage | 5,761 passed; module floors passed |
+| Other workspace package tests | Passed |
+| CLI unit tests after updating the event contract assertions | 2,251 passed, 2 skipped |
+| SDK process tests | 243 passed in 31 files |
+| Full consumer-install gate | Passed again, including live, sandbox and telemetry consumers |
+| Evals | All four suites passed |
+| Docs structure and fences | Passed; 25 TypeScript fences and 17 package READMEs |
+| Gate parity, project references, source-name audit and log standard | Passed |
+| Price catalogue, test presence, publish metadata and signature exports | Passed |
+| Installer syntax | Passed with both system `sh` and a temporary source-built `dash` |
+
+The previously missing `dash` check was completed without installing a system
+shell: upstream tag `v0.5.13.5`, commit
+`037bbdfd330017c368caf6242f977974123239b5`, was built in an owned temporary
+directory and used only for `-n install.sh`. [Pinned source](https://git.kernel.org/pub/scm/utils/dash/dash.git/commit/?id=037bbdfd330017c368caf6242f977974123239b5).
+The earlier all-package publint result remains applicable; no package metadata
+shape changed in this follow-up. No push or publish was performed.
+
+Remaining completion limits are explicit in [Answer verification](../../docs/sdk/verification.md):
+generic custom review exceptions, forced/terminal/structured settlement paths,
+uncooperative host callbacks and the absence of automatically derived complete
+acceptance criteria. Original-evidence indexing, a bounded current-plan projection
+and production integration of the experimental executive remain separate work.

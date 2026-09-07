@@ -1,0 +1,44 @@
+{
+  "kind": "live-verifier-assisted-conversation-continuation",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "contextWindowTokens": 16000,
+  "requests": 11,
+  "reportedTokens": 117003,
+  "inputTokens": 115314,
+  "cachedInputTokens": 31744,
+  "outputTokens": 1689,
+  "requestCap": 15,
+  "tokenGuard": 150000,
+  "guardFired": false,
+  "initialVerdict": {
+    "visible": {
+      "passed": 17,
+      "failed": 0
+    },
+    "independent": {
+      "passed": 12,
+      "failed": 3
+    }
+  },
+  "finalVerdict": {
+    "visible": {
+      "passed": 17,
+      "failed": 0
+    },
+    "independent": {
+      "passed": 15,
+      "failed": 0
+    }
+  },
+  "gateExecutions": 2,
+  "protectedFilesPreserved": true,
+  "postRunIndependentGradePassed": true,
+  "independentlyPassed": true,
+  "modelFilesChanged": [
+    "src/queue.mjs",
+    "test/regressions.test.mjs"
+  ],
+  "caveat": "Existing task resumed through headless CLI with an operator-supplied command gate. Private failure diagnostics were deliberately supplied after the first rejected answer. This is verifier-assisted repair, not a blind run, controlled comparison, TUI gate test, or general capability score. The fixture has no Git repository, so fingerprint-based retry suppression was not exercised. Built SDK included interrupted-verification and cancellation fixes but preceded committed-baseline fingerprint changes.",
+  "observedOutputGap": "Buffered headless stdout concatenated preliminary narration and the rejected completion with the eventual final answer."
+}

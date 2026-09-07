@@ -155,3 +155,43 @@ No private failures were supplied to the model. This exposes a completion-qualit
 gap and successful conversation restoration, not a causal before/after comparison
 or proof of exact checkpoint retry. See the [source review](../PYDANTIC_REVIEW.md)
 for the distinction between production behavior and the proposed executive.
+
+## Verifier-assisted continuation
+
+[gated-live-run.json](gated-live-run.json) records a separate headless continuation
+of that same conversation using the existing `--gate` integration. The operator
+wrapped the private grader in a bounded command that returned its verdict and
+failed assertions. The model was explicitly instructed to work only in the task
+directory and not inspect or edit operator-private verifier files. This supplied
+failure diagnostics after a proposed answer, so it was no longer a blind run.
+
+The first gate rejected the candidate at 17/17 visible and 12/15 independent
+checks. Namzu then distinguished the job's sticky cancellation state from the
+handler's actual attempt outcome, preserved the error message and updated its
+regression assertions. The second gate passed 17/17 visible and 15/15 independent
+checks. A separate post-run grade also passed, and protected files remained
+unchanged. The run made 11 requests at `gpt-5.6-luna / low`, reporting 117,003 tokens
+against a 15-request/150,000-token allowance; neither guard fired.
+
+This demonstrates an existing production feedback loop repairing an observed
+mistake when given independent evidence. It does not establish automatic
+acceptance-criteria generation or a controlled improvement in model success rate.
+The workspace had no Git repository, so this run did not exercise fingerprint
+retry suppression. Its SDK build included interrupted-verification and cancellation
+fixes, but preceded the committed-baseline fingerprint fix.
+
+The recording exposed a presentation defect too: buffered `namzu run` output
+concatenated preliminary narration, the rejected completion and the eventual
+answer. The final gate passed, but the printed artifact still contained an earlier
+incorrect claim. This requires the CLI to carry the kernel's settled result across
+the event boundary instead of rebuilding it from every streamed text fragment.
+
+The CLI now carries the kernel's settled result as terminal `done.text`. Buffered
+text/JSON output and fallback answer-only persistence use it, including an
+intentionally empty result after an output guardrail. A subsequent
+[live output smoke](output-live-run.json) used two requests at the same small model
+and low effort, reporting 13,111 tokens. The model announced a test check and ran
+the visible suite; stdout contained only `VERIFIED: 17 tests passed.`. The earlier
+announcement was present on the provider wire but absent from the final artifact.
+Deterministic regressions separately cover rejected candidates, explicit empty
+results and streaming/history boundaries. This smoke did not edit the task files.
