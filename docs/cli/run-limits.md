@@ -44,7 +44,14 @@ children. These are cumulative snapshots; do not sum successive events.
 
 `run-stream` emits one terminal `done` event, after session cleanup and the
 attempt to persist history. A persistence notice precedes that terminal event;
-its stop reason is preserved.
+its stop reason is preserved. When the kernel supplies a settled result,
+`done.text` contains that result, including an intentional empty string. Streamed
+`delta` events may contain progress and answers later rejected by review; hosts
+should use `done.text` for the final-answer artifact instead of concatenating all
+deltas. An interrupted run with no settled result can omit `text`; already emitted
+deltas cannot be retracted. Full conversation history retains its message and
+runtime-feedback boundaries. Fallback answer-only persistence uses the settled
+text when available.
 
 ## Waiting for the provider
 

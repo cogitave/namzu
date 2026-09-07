@@ -113,6 +113,8 @@ export const runStreamCommand: CommandDef = {
 		'unfolds — text deltas, tool starts and ends, usage, then a terminal',
 		'event. Built for a host UI that renders progress rather than waiting',
 		'for a final string.',
+		'The terminal done.text is the settled answer. Earlier deltas may include',
+		'progress or answers later rejected by verification.',
 		'',
 		'Takes the same options as `namzu run`, including --effort, --permission-mode and',
 		'the [permissions] table from the config file.',
@@ -417,8 +419,12 @@ export const runStreamCommand: CommandDef = {
 			})) {
 				if (event.kind === 'delta') assistantText += event.text
 				if ('budget' in event && event.budget) budget = event.budget
-				if (event.kind === 'done') terminalEvent = event
-				else write(event)
+				if (event.kind === 'done') {
+					terminalEvent = event
+					// Only used by fallback persistence when the full conversation
+					// callback is unavailable. Keep the settled answer here too.
+					if (event.text !== undefined) assistantText = event.text
+				} else write(event)
 			}
 		} catch (err) {
 			await session.close()

@@ -219,7 +219,7 @@ describe('toAgentEvent', () => {
 				} as unknown as RunEvent,
 				presenter,
 			),
-		).toEqual({ kind: 'done' })
+		).toEqual({ kind: 'done', text: 'ok' })
 		expect(
 			toAgentEvent(
 				{

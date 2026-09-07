@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Update**: [Run exit codes](/cli/run-exit-codes.md) and [Run limits](/cli/run-limits.md) — buffered output uses the kernel's settled answer instead of concatenated narration and rejected candidates; streaming hosts receive that result as `done.text`.
 * **Creation**: [Answer verification](/sdk/verification.md) — command/fingerprint errors and interrupted zero-exit checks cannot pass verification, cancellation reaches commands, and diagnostic clipping respects its character allowance; remaining completion-path limits are explicit.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — non-shrinking summary candidates are declined, useful staged clears survive, original clear/stub evidence is archived before replacement, and changed working-memory slots invalidate stale provider measurements.
 * **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — model changes resolve their own provider window, recheck compaction and use that denominator for telemetry and recovery; preparation order and remaining fit limits are explicit.

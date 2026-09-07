@@ -366,6 +366,8 @@ export type AgentEvent =
 	 */
 	| {
 			readonly kind: 'done'
+			/** Settled kernel result, including an intentionally empty guarded result. */
+			readonly text?: string
 			readonly stopReason?: StopReason
 			readonly budget?: TokenBudgetSummary
 	  }
@@ -3548,6 +3550,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// answer was refused.
 			return {
 				kind: 'done',
+				text: event.result,
 				...(event.budget ? { budget: event.budget } : {}),
 				...(event.stopReason ? { stopReason: event.stopReason } : {}),
 			}

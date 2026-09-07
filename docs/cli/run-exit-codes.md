@@ -12,6 +12,18 @@ generated: { by: human:bahadirarda, at: 2026-09-05T00:00:00Z }
 
 `namzu run` is built to be called by something that is not a person: a script, a cron job, a benchmark harness. That caller reads two things, the text on stdout and `$?`, and the exit code has to carry every distinction the caller would act on differently.
 
+When the kernel settles, stdout uses its final result, including an explicitly
+empty result after an output guardrail. Intermediate narration and answers later
+rejected by verification are not concatenated into that result. The JSON
+formatter uses the same value in `text`. A provider failure or pause without a
+settled result may still return streamed partial text, with the nonzero exit and
+stderr explanation below.
+
+Repeatable `--gate` commands review proposed prose answers and return failures
+for correction. See [Answer verification](../sdk/verification.md) for scope and
+limits: a normal reply is not automatic proof that every task requirement has
+been independently checked, and budget/cancellation can stop verification.
+
 | Code | Meaning | What a wrapper does |
 | --- | --- | --- |
 | 0 | The run finished and the text on stdout is the whole reply. | Use the output. |

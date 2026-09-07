@@ -82,6 +82,27 @@ async function runWith(events: unknown[]): Promise<{
 }
 
 describe('namzu run exit code reflects whether the run finished', () => {
+	it('prints the settled answer without rejected answers or intermediate narration', async () => {
+		const { code, printed } = await runWith([
+			{ kind: 'delta', text: 'Inspecting files. ' },
+			{ kind: 'delta', text: 'Everything is verified.' },
+			{ kind: 'delta', text: 'Fixing the rejected candidate. ' },
+			{ kind: 'delta', text: 'Verified the corrected behavior.' },
+			{ kind: 'done', stopReason: 'end_turn', text: 'Verified the corrected behavior.' },
+		])
+		expect(code).toBe(0)
+		expect(printed).toEqual(['Verified the corrected behavior.'])
+	})
+
+	it('respects an explicitly empty settled result after an output guardrail', async () => {
+		const { code, printed } = await runWith([
+			{ kind: 'delta', text: 'content the guardrail will block' },
+			{ kind: 'done', stopReason: 'output_guardrail', text: '' },
+		])
+		expect(code).toBe(1)
+		expect(printed).toEqual([''])
+	})
+
 	it('exits 0 when the model answered', async () => {
 		const { code, printed } = await runWith([
 			{ kind: 'delta', text: 'the answer' },

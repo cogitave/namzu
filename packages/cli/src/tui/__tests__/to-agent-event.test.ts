@@ -119,7 +119,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 			presenter,
 		)
 
-		expect(mapped).toEqual({ kind: 'done', stopReason: 'output_guardrail' })
+		expect(mapped).toEqual({ kind: 'done', stopReason: 'output_guardrail', text: '' })
 	})
 
 	it('passes end_turn through rather than inventing it downstream', () => {
@@ -136,7 +136,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 			presenter,
 		)
 
-		expect(mapped).toEqual({ kind: 'done', stopReason: 'end_turn' })
+		expect(mapped).toEqual({ kind: 'done', stopReason: 'end_turn', text: 'hi' })
 	})
 
 	it('still maps a completion that carries no reason', () => {
@@ -145,7 +145,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 			presenter,
 		)
 
-		expect(mapped).toEqual({ kind: 'done' })
+		expect(mapped).toEqual({ kind: 'done', text: 'hi' })
 	})
 
 	it('maps a failure to an error, not to done', () => {

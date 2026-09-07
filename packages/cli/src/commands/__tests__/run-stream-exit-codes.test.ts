@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { openSessions } from '../../integrations/sessions/store.js'
+import { appendMessages, openSessions } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession, probeAgentSession } from '../../tui/agent.js'
 import { runStreamCommand } from '../run-stream.js'
@@ -105,6 +105,35 @@ afterEach(() => {
 })
 
 describe('one terminal event per streamed run', () => {
+	it('publishes and persists the settled result separately from streamed candidates', async () => {
+		vi.mocked(appendMessages).mockClear()
+		vi.mocked(createAgentSession).mockResolvedValue(
+			fakeAgentSession({
+				send: async function* () {
+					yield { kind: 'delta', text: 'Rejected candidate.' }
+					yield { kind: 'delta', text: 'Corrected answer.' }
+					yield { kind: 'done', stopReason: 'end_turn', text: 'Corrected answer.' }
+				},
+			}),
+		)
+		const { out, code } = await run(['--session', '0614a7ea-f67e-4e8a-b36c-6de629acfb18', 'hello'])
+		expect(code).toBe(0)
+		const events = out
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line))
+		expect(events.filter((event) => event.kind === 'delta')).toHaveLength(2)
+		expect(events.at(-1)).toEqual({
+			kind: 'done',
+			stopReason: 'end_turn',
+			text: 'Corrected answer.',
+		})
+		expect(vi.mocked(appendMessages).mock.calls.at(-1)?.[2]).toEqual([
+			expect.objectContaining({ role: 'user', content: 'hello' }),
+			expect.objectContaining({ role: 'assistant', content: 'Corrected answer.' }),
+		])
+	})
+
 	it('keeps the stop reason and emits done once', async () => {
 		const { out, code } = await run(['hello'])
 		expect(code).toBe(0)

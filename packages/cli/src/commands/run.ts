@@ -110,7 +110,7 @@ export const runCommand: CommandDef = {
 		'  --skills <a,b,c>      Load these skills as context for the turn',
 		'  --continue, -c        Resume the most recent conversation here',
 		'  --resume <id>         Resume that conversation, and no other',
-		'  --gate <command>      Must pass before the run may finish; repeatable',
+		'  --gate <command>      Verify proposed answers with this command; repeatable',
 		'  --gate-retries <n>    Fix attempts a failing gate allows (default 3)',
 		'  --max-iterations <n>  Model calls this run may make (default 50)',
 		'  --token-budget <n>    Tokens this run may spend in total (default 1000000)',
@@ -138,17 +138,14 @@ export const runCommand: CommandDef = {
 		'',
 		'A mode only decides calls no rule decided: it can never reopen a deny.',
 		'',
-		'--gate is the unattended-operator flag: the run is not allowed to settle',
-		'until every gate command exits 0. A failure comes back to the model as the',
-		'next turn, naming the command, the exit code and the output. Repeat the',
-		'flag for several, and they run in order, stopping at the first failure.',
+		'--gate checks proposed answers with operator-supplied commands. Every',
+		'command must complete successfully; a failure returns diagnostics to the',
+		'model for correction. Repeat the flag to check several commands in order.',
+		'Budget exhaustion or cancellation may stop a run before verification.',
 		'',
-		'A gate is not re-run when the answer changed nothing on disk: the model is',
-		'told the workspace is unchanged instead, which is cheaper and a different',
-		'instruction from repeating a failure it has already been shown. The',
-		'attempt still counts. When the attempts run out the run stops with',
-		'answer_rejected and a non-zero exit — never with a green run over a red',
-		'build.',
+		'A failed gate may skip a retry when its Git change detector is unchanged.',
+		'The attempt still counts. Exhausted review attempts stop the run with',
+		'answer_rejected and a non-zero exit.',
 		'',
 		"The working directory's AGENTS.md files — that directory and every one up",
 		'to the repository root — are loaded as standing instructions for the run,',
@@ -463,6 +460,10 @@ export const runCommand: CommandDef = {
 					measured.usage = event
 					if (event.budget) measured.budget = event.budget
 				} else if (event.kind === 'done') {
+					// Deltas include preliminary and rejected answers. Settlement
+					// supplies the final result after review and output guardrails;
+					// an explicit empty result must also replace earlier text.
+					if (event.text !== undefined) text = event.text
 					stopReason = event.stopReason
 					if (event.budget) measured.budget = event.budget
 				}
