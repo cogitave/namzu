@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Creation**: [AG-UI clients](/sdk/ag-ui.md) — optional typed/SSE adapter with explicit host identity and history admission, backend tools, request-owned state, bounded events, final outcomes and documented CopilotKit compatibility limits.
 * **Update**: [Harness invariants](/sdk/harness-invariants.md), [Token budgets](/sdk/token-budgets.md) and [Project state](/cli/project-state.md) — live delegation width releases completed history; bounded queued admissions preserve task ownership and reserve a parent coordination share.
 * **Update**: [Terminal design](/cli/terminal-design.md) — independent workflows no longer become phases of earlier work; queued children, agent launch permissions and abnormal run stops have explicit displays.
 * **Update**: [Terminal design](/cli/terminal-design.md) — the opening header keeps only brand/version; model and working directory appear in the footer, routine connection chatter is suppressed, and the composer owns the typing hint; contracted terminals rebuild the retained transcript, and subagent panes bound file-output wrapping and separate phase/task/status columns.

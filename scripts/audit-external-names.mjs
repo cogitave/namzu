@@ -453,6 +453,7 @@ const RESEARCH_SOURCE_DOCS = new Map([
 	[
 		'pydantic',
 		new Set([
+			'docs/sdk/ag-ui.md',
 			'docs/sdk/cognitive-storage.md',
 			'docs/sdk/cognitive-architecture.md',
 			'docs/sdk/index.md',

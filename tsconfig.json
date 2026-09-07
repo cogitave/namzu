@@ -65,6 +65,9 @@
 		},
 		{
 			"path": "./packages/live"
+		},
+		{
+			"path": "./packages/ag-ui"
 		}
 	],
 	"files": []
