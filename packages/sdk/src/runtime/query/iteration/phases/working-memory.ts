@@ -91,16 +91,24 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 
 	if (!block.trim()) {
 		// Empty block ⇒ remove the slot (byte-identical-when-empty).
-		if (idx >= 0) msgs.splice(idx, 1)
+		if (idx >= 0) {
+			msgs.splice(idx, 1)
+			ctx.runMgr.clearLastPromptTokens?.()
+		}
 		return
 	}
 
 	const header = provider ? WORKING_MEMORY_HEADER : TOOL_PINS_HEADER
-	const wm = createSystemMessage(`${header}\n\n${block}`, 'ephemeral')
+	const content = `${header}\n\n${block}`
+	if (idx >= 0 && msgs[idx]?.content === content) return
+	const wm = createSystemMessage(content, 'ephemeral')
 	if (idx >= 0) {
 		msgs[idx] = wm
 	} else {
 		// Insert as the LAST leading system message (after static + dynamic).
 		msgs.splice(leadEnd, 0, wm)
 	}
+	// The old provider reading measured a different prefix, and an insertion
+	// also moves its tail watermark. Re-estimate until the next request reports.
+	ctx.runMgr.clearLastPromptTokens?.()
 }

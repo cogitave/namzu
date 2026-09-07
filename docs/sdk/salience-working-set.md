@@ -28,6 +28,18 @@ page count, model tokenization and provider processing can change actual cost.
 After a provider request, measured prompt usage replaces the estimate for that
 submitted prefix. Only messages appended afterward receive an estimated cost.
 The tool catalogue is included in the initial prompt estimate.
+Changing, inserting or removing the managed working-memory message invalidates
+that prefix measurement. An unchanged slot keeps the provider measurement.
+
+A model selected by `prepareStep` uses its own provider-reported window (cached
+per model for the run), then the model table/default when unavailable. An explicit
+configured window still takes precedence. Changing model invalidates the previous
+tokenizer measurement and triggers another compaction check before the request.
+Telemetry, advisory pressure and overflow recovery use that selected window.
+Preparation runs once, after the initial cleanup; changing to a larger model
+cannot undo cleanup already performed against the preceding window. Arbitrary
+host-supplied ephemeral instructions are not silently truncated, and estimated
+headroom remains a hint rather than a guarantee that every prepared request fits.
 
 Token savings are the difference between estimates before and after an edit.
 Encoded character savings remain storage telemetry and do not decide whether
@@ -69,10 +81,24 @@ artifact. Without a saved artifact, the missing full result is explicitly
 unavailable. Recovery guidance does not ask the agent to repeat a state-changing
 action. Recovering an observation and replaying its action are different operations.
 
+When `recordShedHistory` is enabled, the runtime archives original messages before
+publishing a clear, narration stub or summary. Hosts can recover them through
+`RunQuery.shedHistory()` and `fullTranscript()`, including clear-only passes.
+This archive is separate from an artifact path available to the model; it does
+not automatically provide a model-facing history search tool. An archival failure
+prevents the edit from replacing live history. Disabling recording forfeits this
+recovery path.
+
 If eligible edits cannot relieve pressure, the existing structured-summary path
 can run. LLM verification is optional for salience and off by default. Planning
 does not promise lossless memory: retained facts, summaries and durable learning
 have different lifetimes. Cross-run consolidation remains an explicit host option.
+
+The structured candidate must reduce the same estimated prompt cost before it
+replaces history or reports success. Equal or larger candidates report
+`shed_nothing`; a useful tool clear staged before that summary can still commit.
+Verification may already have run before its candidate is declined. This guard
+does not add a cooldown or guarantee the configured target will be reached.
 
 When verification runs, its conversation excerpt preserves visible message text,
 tool-call IDs, names and arguments, and each result's ID and reported error flag

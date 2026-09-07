@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
 import { WorkingStateManager } from '../../../../compaction/manager.js'
+import { estimateMessagesTokens } from '../../../../compaction/token-estimate.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import type { RunId } from '../../../../types/ids/index.js'
 import {
@@ -30,7 +31,7 @@ import {
 	createUserMessage,
 } from '../../../../types/message/index.js'
 import type { Logger } from '../../../../utils/logger.js'
-import { runCompactionCheck } from './compaction.js'
+import { measureContext, runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
 import { WORKING_MEMORY_HEADER, refreshWorkingMemory } from './working-memory.js'
 
@@ -97,6 +98,66 @@ function makeCtx(opts: {
 
 const WM_BLOCK =
 	'ARTIFACTS\n  • report.docx · Word document · 48.2 KB · imp:H\n       path: /mnt/user-data/outputs/report.docx'
+
+describe('working-memory changes after a provider measured the prompt', () => {
+	it.each([
+		['growth', 'small', 'x'.repeat(16_000)],
+		['shrinkage', 'x'.repeat(16_000), 'small'],
+		['same-size replacement', 'first', 'other'],
+		['insertion', '', 'new ledger'],
+		['removal', 'old ledger', ''],
+	])('recomputes the current context after %s', async (_change, before, after) => {
+		const messages = buildOverflowingMessages()
+		const ctx = makeCtx({
+			messages,
+			workingMemoryProvider: () => before ?? '',
+		})
+		await refreshWorkingMemory(ctx)
+		let measuredTokens: number | undefined = 1_000
+		let measuredCount: number | undefined = messages.length
+		Object.defineProperties(ctx.runMgr, {
+			lastPromptTokens: { get: () => measuredTokens },
+			lastPromptMessageCount: { get: () => measuredCount },
+		})
+		ctx.runMgr.clearLastPromptTokens = () => {
+			measuredTokens = undefined
+			measuredCount = undefined
+		}
+		// The tail must still count when insertion/removal shifts its old index.
+		messages.push(createAssistantMessage('unmeasured tail '.repeat(100)))
+		await refreshWorkingMemory({
+			...ctx,
+			workingMemoryProvider: () => after ?? '',
+		})
+		expect(measureContext(ctx)).toEqual({
+			tokens: estimateMessagesTokens(messages),
+			source: 'estimate',
+		})
+	})
+
+	it.each(['unchanged ledger', ''])(
+		'preserves the measurement when %j stays unchanged',
+		async (block) => {
+			const messages = buildOverflowingMessages()
+			const ctx = makeCtx({ messages, workingMemoryProvider: () => block })
+			await refreshWorkingMemory(ctx)
+			const measuredCount = messages.length
+			Object.assign(ctx.runMgr, {
+				lastPromptTokens: 1_000,
+				lastPromptMessageCount: measuredCount,
+			})
+			const invalidate = vi.spyOn(ctx.runMgr, 'clearLastPromptTokens')
+			const tail = createAssistantMessage('not included in the measured prompt')
+			messages.push(tail)
+			await refreshWorkingMemory(ctx)
+			expect(invalidate).not.toHaveBeenCalled()
+			expect(measureContext(ctx)).toEqual({
+				tokens: 1_000 + estimateMessagesTokens([tail]),
+				source: 'provider',
+			})
+		},
+	)
+})
 
 /** Messages can now carry content blocks; these cases are about text. */
 function asText(content: unknown): string {

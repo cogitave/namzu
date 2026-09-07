@@ -1,6 +1,9 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { resolveContextWindow } from '../../../compaction/context-window.js'
-import { extractFromAssistantMessage } from '../../../compaction/extractor.js'
+import {
+	extractFromAssistantMessage,
+	extractFromUserMessage,
+} from '../../../compaction/extractor.js'
 import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
 import {
@@ -57,10 +60,15 @@ import {
 	markProviderRejectedImage,
 	projectRequestRichContent,
 } from '../request-rich-content.js'
-import { formatSteeringNote } from '../steering.js'
+import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
-import { measureContext, relieveOverflow, runCompactionCheck } from './phases/compaction.js'
+import {
+	activeContextWindow,
+	measureContext,
+	relieveOverflow,
+	runCompactionCheck,
+} from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
@@ -266,8 +274,12 @@ export class IterationOrchestrator {
 		// Resume hydration happens after construction, before the loop starts.
 		this.latestUserMessage = this.ctx.checkpointMgr.restoredLatestUserMessage
 		if (!this.latestUserMessage) {
-			for (const message of runMgr.messages) this.rememberUserMessage(message)
+			for (const message of runMgr.messages) this.rememberUserMessage(message, false)
 		}
+		// The restored field can outlive the historical message it describes.
+		// Only known post-checkpoint arrivals may supersede it, never an old
+		// retained user turn encountered while scanning restored history.
+		for (const message of this.ctx.resumedInput ?? []) this.rememberUserMessage(message)
 
 		// One context-overflow relief per *stuck point*, not per run.
 		//
@@ -455,10 +467,6 @@ export class IterationOrchestrator {
 					// compaction preserves). No-op when no provider is configured.
 					await refreshWorkingMemory(this.ctx)
 					await runCompactionCheck(this.ctx)
-					// A context edit is a host-visible state transition, not a prelude
-					// whose events may wait behind the next network call. In particular,
-					// a slow or failing provider must not leave the host displaying the
-					// pre-compaction context after Run.messages already shrank.
 					yield* this.ctx.drainPending()
 
 					// Cache discipline: keep the tools param byte-stable even on the
@@ -476,7 +484,16 @@ export class IterationOrchestrator {
 					// Shape this step before calling the model. `stopWhen` decides
 					// whether to keep going; this decides HOW. No-op when the host
 					// supplied no hook.
+					const contextModelBeforePreparation = this.ctx.contextModel ?? model
 					const step = await this.prepareStep(iterationNum)
+					stepModel = step.model ?? model
+					await this.selectContextModel(stepModel)
+					// Preserve post-compaction preparation/recall semantics. A changed
+					// model needs a second check against its own window; never replay
+					// host preparation effects merely to rebuild its request guidance.
+					if (stepModel !== contextModelBeforePreparation) await runCompactionCheck(this.ctx)
+					// Publish context edits before entering a possibly slow provider.
+					yield* this.ctx.drainPending()
 
 					const stepAllowedTools = step.allowedTools ?? this.ctx.allowedTools
 					const llmTools = this.ctx.tools.toLLMTools(stepAllowedTools)
@@ -795,11 +812,7 @@ export class IterationOrchestrator {
 					const contextFigures = this.ctx.compactionConfig
 						? (() => {
 								const measured = measureContext(this.ctx)
-								const window = resolveContextWindow(
-									this.ctx.compactionConfig?.contextWindowTokens,
-									runConfig.model,
-									this.ctx.providerContextWindow,
-								)
+								const window = activeContextWindow(this.ctx)
 								return {
 									contextTokens: measured.tokens,
 									contextMeasuredBy: measured.source,
@@ -1632,7 +1645,11 @@ export class IterationOrchestrator {
 		const window = resolveContextWindow(
 			this.ctx.compactionConfig?.contextWindowTokens,
 			model,
-			model === this.ctx.runConfig.model ? this.ctx.providerContextWindow : undefined,
+			model === this.ctx.runConfig.model
+				? this.ctx.providerContextWindow
+				: model === this.ctx.contextModel
+					? this.ctx.activeProviderContextWindow
+					: undefined,
 		)
 		const skills = prepared.skills ? renderSkillsSection([...prepared.skills]) : null
 		const preamble = [prepared.system, skills].filter(Boolean).join('\n\n')
@@ -1695,6 +1712,7 @@ export class IterationOrchestrator {
 			try {
 				const decided = await stage(this.stepContext(stepNumber, result))
 				if (decided) result = { ...result, ...decided }
+				await this.selectContextModel(result.model ?? this.ctx.runConfig.model)
 			} catch (err) {
 				// Skipped, and the rest still run: one broken concern must
 				// not silently disable the others it was declared beside.
@@ -1756,6 +1774,18 @@ export class IterationOrchestrator {
 		return prepared
 	}
 
+	private async selectContextModel(model: string | undefined): Promise<void> {
+		if (model !== (this.ctx.contextModel ?? this.ctx.runConfig.model)) {
+			// A measurement from another tokenizer cannot price the new request.
+			this.ctx.runMgr.clearLastPromptTokens()
+		}
+		this.ctx.contextModel = model
+		this.ctx.activeProviderContextWindow =
+			model && model !== this.ctx.runConfig.model && !this.ctx.compactionConfig?.contextWindowTokens
+				? await this.ctx.resolveModelContextWindow?.(model)
+				: undefined
+	}
+
 	/** Steps completed so far, exposed on the returned `Run`. */
 	private readonly steps: StepResult[] = []
 
@@ -1784,15 +1814,15 @@ export class IterationOrchestrator {
 	 * empty drain must change nothing at all: a `continue` on nothing queued
 	 * spends an iteration and a model call to say the same thing again.
 	 */
-	private rememberUserMessage(message: Message): void {
-		if (message.role !== 'user') return
-		const source = message.source
-		if (
-			!source ||
-			source.type === 'goal-round' ||
-			(source.type === 'runtime-context' && source.kind === 'steering')
-		) {
-			this.latestUserMessage = message
+	private rememberUserMessage(message: Message, arriving = true): void {
+		if (!isOperatorUserMessage(message)) return
+		this.latestUserMessage = message
+		// The hook field alone does not reach the model. Preserve arrivals in
+		// the compaction state too, before their original message or attached
+		// tool result can be shed. Initial history was already extracted at seed.
+		const manager = this.ctx.workingStateManager
+		if (arriving && manager) {
+			extractFromUserMessage(manager, message.content, !manager.getState().task)
 		}
 	}
 

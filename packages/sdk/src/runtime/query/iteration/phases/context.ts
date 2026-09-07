@@ -181,6 +181,11 @@ export interface IterationContext {
 	 * through to the table.
 	 */
 	readonly providerContextWindow?: number
+	/** Selected request model; its window must not reuse another model's metadata. */
+	contextModel?: string
+	activeProviderContextWindow?: number
+	/** Bounded, run-cached provider metadata lookup for a newly selected model. */
+	readonly resolveModelContextWindow?: (model: string) => Promise<number | undefined>
 
 	/**
 	 * Text queued for this run since its last turn.
@@ -190,6 +195,8 @@ export interface IterationContext {
 	 * after tool results and before the next turn.
 	 */
 	readonly inboundMessages?: () => readonly import('../../../../types/message/index.js').Message[]
+	/** Known topic-queue arrivals appended after the restored checkpoint history. */
+	readonly resumedInput?: readonly import('../../../../types/message/index.js').Message[]
 	/** Observes pending input without draining it; abort releases the waiter. */
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
 

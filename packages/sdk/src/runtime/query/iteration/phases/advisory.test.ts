@@ -459,6 +459,13 @@ function toolBatch(...ids: string[]): ChatCompletionResponse {
 }
 
 describe('advisory signals describe current context and the current tool batch', () => {
+	it('uses the selected model window rather than the base provider window', async () => {
+		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
+		Object.assign(ctx, { contextModel: 'selected-small', activeProviderContextWindow: 12_500 })
+		await runAdvisoryPhase(ctx, 1, response)
+		expect(mocks.evaluate.mock.calls[0]?.[0].contextWindowPercent).toBe(80)
+		expect(mocks.consult).toHaveBeenCalledTimes(1)
+	})
 	it('does not confuse high cumulative spend with a nearly empty context', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
 		ctx.runMgr.tokenUsage.totalTokens = 950_000

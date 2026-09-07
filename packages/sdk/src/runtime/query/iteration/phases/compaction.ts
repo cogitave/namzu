@@ -28,6 +28,16 @@ import { isWorkingMemoryMessage } from './working-memory.js'
 // because `runtime/query/index.ts` already imports it from this path.
 export { isCompactionMessage } from '../../../../compaction/summary.js'
 
+/** The selected request model owns the denominator, including overflow recovery. */
+export function activeContextWindow(ctx: IterationContext) {
+	const model = ctx.contextModel ?? ctx.runConfig.model
+	return resolveContextWindow(
+		ctx.compactionConfig?.contextWindowTokens,
+		model,
+		model === ctx.runConfig.model ? ctx.providerContextWindow : ctx.activeProviderContextWindow,
+	)
+}
+
 /**
  * How much a forced pass must shed before the turn is worth retrying.
  *
@@ -147,7 +157,12 @@ async function commitToolResultClear(
 	plan: ToolResultClearPlan,
 	contextWindowTokens: number,
 	windowSource: 'config' | 'provider' | 'model-table' | 'default',
+	reason: 'threshold' | 'overflow',
 ): Promise<void> {
+	// A shorter replacement also removes evidence. Preserve its original
+	// content in the same archive used by whole-message compaction before
+	// changing the live history or publishing the clear.
+	await recordShed(ctx, [...ctx.runMgr.messages], plan.messages, reason)
 	installMessages(ctx.runMgr.messages, plan.messages)
 	// The provider counted the pre-edit prompt. Leaving that measurement live
 	// makes the next trigger compare the old prompt against the new history.
@@ -547,11 +562,7 @@ async function runCompactionCheckInner(
 	// number. Nothing in the estate ever set `contextWindowTokens`, so the
 	// fallback WAS the behavior, and the shipped CLI's 1M budget put the
 	// trigger at ~700k. See `compaction/context-window.ts`.
-	const window = resolveContextWindow(
-		config.contextWindowTokens,
-		ctx.runConfig.model,
-		ctx.providerContextWindow,
-	)
+	const window = activeContextWindow(ctx)
 	const budget = window.tokens
 
 	const usage = estimatedTokens / budget
@@ -659,7 +670,7 @@ async function runCompactionCheckInner(
 			...(openTasks ? { openTasks } : {}),
 		})
 		if (working.reclaimedTokens > 0) {
-			await commitToolResultClear(ctx, working, budget, window.source)
+			await commitToolResultClear(ctx, working, budget, window.source, pass.reason)
 		}
 		// Under the trigger, the working set was the whole pass: the summary
 		// path is for the trigger, not for the soft target.
@@ -684,7 +695,7 @@ async function runCompactionCheckInner(
 		// the NEXT turn will correct it, and an over-eager summarization is
 		// far more costly than one late pass.
 		if (clearPlan.reliefWasEnough) {
-			await commitToolResultClear(ctx, clearPlan, budget, window.source)
+			await commitToolResultClear(ctx, clearPlan, budget, window.source, pass.reason)
 			return
 		}
 	}
@@ -736,7 +747,7 @@ async function runCompactionCheckInner(
 		// There is no opaque provider wait on this path, so publish that single
 		// complete edit now rather than discarding it.
 		if (stagedClear) {
-			await commitToolResultClear(ctx, stagedClear, budget, window.source)
+			await commitToolResultClear(ctx, stagedClear, budget, window.source, pass.reason)
 		}
 		return
 	}
@@ -823,6 +834,20 @@ async function runCompactionCheckInner(
 
 	const live = ctx.runMgr.messages
 	const oldCount = live.length
+	// Retained history can survive in full while a summary adds another copy
+	// of its facts. Even an unretained span may be smaller than the cumulative
+	// summary. Compare both candidates with the same estimator, rather than
+	// comparing provider usage against an estimate or trusting message count.
+	// When a clear was staged, require the summary itself to improve on it;
+	// otherwise publish the useful clear without consuming its savings.
+	if (estimateMessagesTokens(newMessages) >= estimateMessagesTokens(messages)) {
+		if (stagedClear && stagedClear.reclaimedTokens > 0) {
+			await commitToolResultClear(ctx, stagedClear, budget, window.source, pass.reason)
+		} else {
+			await declined(ctx, 'shed_nothing', oldCount)
+		}
+		return
+	}
 	await recordShed(ctx, [...live], newMessages, options?.force ? 'overflow' : 'threshold')
 
 	installMessages(live, newMessages)
@@ -840,12 +865,9 @@ async function runCompactionCheckInner(
 	// edits are installed and no verifier can still fail between them.
 	if (stagedClear) await emitToolResultClear(ctx, stagedClear)
 
-	// Hysteresis. A pass that only gets the context from 0.72 to 0.71 of the
-	// window leaves the trigger armed, so the next iteration compacts again
-	// — paying a summarization call and busting the prompt-cache prefix each
-	// time, for nothing. Report the shortfall rather than repeating a move
-	// that demonstrably does not work; `resetThreshold` was declared and
-	// CLI-set but read by nothing until now.
+	// Report remaining pressure after a useful edit. This diagnostic does not
+	// suppress future passes: appended evidence may become reclaimable even
+	// when the protected floor and recent history remain above the target.
 	const reachedReset = newEstimate / budget <= config.resetThreshold
 	if (!reachedReset) {
 		ctx.log.warn('Compaction did not reach its reset threshold — context may still be tight', {

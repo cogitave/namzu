@@ -1,6 +1,9 @@
 # Documentation update log
 
 ## 2026-09-07
+* **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — non-shrinking summary candidates are declined, useful staged clears survive, original clear/stub evidence is archived before replacement, and changed working-memory slots invalidate stale provider measurements.
+* **Update**: [The salience-scored working set](/sdk/salience-working-set.md) — model changes resolve their own provider window, recheck compaction and use that denominator for telemetry and recovery; preparation order and remaining fit limits are explicit.
+* **Update**: [Structured memory](/sdk/memory.md) — newly queued resume input takes precedence over old checkpoint intent, and operator steering updates the bounded state used by compaction.
 * **Creation**: [Bounded code execution](/sdk/code-execution.md) — QuickJS interpreter isolation, explicit source/value/memory/call limits and optional structured nested-tool results with unchanged authorization.
 * **Creation**: [Cognitive storage research](/sdk/cognitive-storage.md) — pinned Pydantic AI source comparison, proposed RAM/disk/index responsibilities, transactional update boundaries and a bounded local storage-cost experiment.
 * **Creation**: [Cognitive architecture research](/sdk/cognitive-architecture.md) — primary-source motivation, functional definitions, proposed selective control cycle, scoped associative activation, outcome/evidence distinctions, local CPU measurements and executable SDK mechanism ablations; explicitly separate from shipped CLI behavior.

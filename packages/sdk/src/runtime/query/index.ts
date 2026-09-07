@@ -149,7 +149,7 @@ import {
 	resolveSandboxTeardownTimeoutMs,
 	teardownSandbox,
 } from './sandbox-lifecycle.js'
-import { SteeringBinding, type SteeringChannel } from './steering.js'
+import { SteeringBinding, type SteeringChannel, isOperatorUserMessage } from './steering.js'
 import { resolveQueryBudget } from './token-budget.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
@@ -1166,6 +1166,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		runConfig.timeoutMs,
 		log,
 	)
+	const modelContextWindows = new Map<string, number | undefined>()
+	if (runConfig.model) modelContextWindows.set(runConfig.model, providerContextWindow)
 
 	// The mode this conversation was left in, when the run config names none.
 	// Read once, before the loop exists, for the same reason the context
@@ -1982,11 +1984,27 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 		compactionConfig,
 		...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
+		...(params.resumeFromCheckpoint ? { resumedInput: queuedForThisRun } : {}),
 		...(params.waitForInbound ? { waitForInbound: params.waitForInbound } : {}),
 		...(params.projectInstructionContext
 			? { projectInstructionContext: params.projectInstructionContext }
 			: {}),
 		...(providerContextWindow !== undefined ? { providerContextWindow } : {}),
+		resolveModelContextWindow: async (model) => {
+			if (!modelContextWindows.has(model)) {
+				modelContextWindows.set(
+					model,
+					await resolveProviderContextWindow(
+						resilientProvider,
+						model,
+						ctx.abortController.signal,
+						runConfig.timeoutMs,
+						log,
+					),
+				)
+			}
+			return modelContextWindows.get(model)
+		},
 		workingStateManager,
 		taskRouter: params.taskRouter,
 		contextReducer: params.contextReducer,
@@ -2345,7 +2363,6 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				}
 			} else {
 				pushSystemMessages()
-				let isFirstUserMessage = true
 				for (const msg of initialMessages) {
 					if (msg.role === 'system') {
 						// A fresh run rebuilds its current static/dynamic prompt above,
@@ -2363,11 +2380,18 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						continue
 					}
 					ctx.runMgr.pushMessage(msg)
-
-					if (workingStateManager && msg.role === 'user' && msg.content) {
-						extractFromUserMessage(workingStateManager, msg.content, isFirstUserMessage)
-						isFirstUserMessage = false
-					}
+				}
+			}
+			// Fresh and continuation histories seed the same operator state.
+			// A worker report or project-policy message may have role `user`,
+			// but it must not become the task or an operator requirement.
+			// Resume restores this state and adopts only its newer queue arrivals.
+			if (!params.resumeFromCheckpoint && workingStateManager) {
+				let isFirstUserMessage = true
+				for (const message of initialMessages) {
+					if (!isOperatorUserMessage(message) || !message.content.trim()) continue
+					extractFromUserMessage(workingStateManager, message.content, isFirstUserMessage)
+					isFirstUserMessage = false
 				}
 			}
 

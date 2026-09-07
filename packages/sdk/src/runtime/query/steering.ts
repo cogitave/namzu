@@ -1,4 +1,15 @@
-import type { Message } from '../../types/message/index.js'
+import type { Message, UserMessage } from '../../types/message/index.js'
+
+/** User-role runtime reports are context, not new operator intent. */
+export function isOperatorUserMessage(message: Message): message is UserMessage {
+	if (message.role !== 'user') return false
+	const source = message.source
+	return (
+		!source ||
+		source.type === 'goal-round' ||
+		(source.type === 'runtime-context' && source.kind === 'steering')
+	)
+}
 
 /**
  * Guidance a host hands to a turn that is already running.
@@ -164,7 +175,10 @@ export function attachSteering(
 	}
 
 	const next = [...messages]
-	next[lastToolIndex] = { ...target, content: target.content + formatSteeringNote(guidance) }
+	next[lastToolIndex] = {
+		...target,
+		content: target.content + formatSteeringNote(guidance),
+	}
 	onDelivered?.(guidance)
 	return next
 }

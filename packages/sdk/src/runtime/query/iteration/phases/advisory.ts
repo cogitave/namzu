@@ -1,4 +1,3 @@
-import { resolveContextWindow } from '../../../../compaction/context-window.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/advisory/index.js'
@@ -6,7 +5,7 @@ import { toolResultToText } from '../../../../types/message/content.js'
 import { createRuntimeContextMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import { toErrorMessage } from '../../../../utils/error.js'
-import { measureContext } from './compaction.js'
+import { activeContextWindow, measureContext } from './compaction.js'
 import type { IterationContext } from './context.js'
 
 function countToolCalls(ctx: IterationContext): number {
@@ -20,11 +19,7 @@ function countToolCalls(ctx: IterationContext): number {
 }
 
 function estimateContextWindowPercent(ctx: IterationContext): number {
-	const window = resolveContextWindow(
-		ctx.compactionConfig?.contextWindowTokens,
-		ctx.runConfig.model,
-		ctx.providerContextWindow,
-	)
+	const window = activeContextWindow(ctx)
 	return (measureContext(ctx).tokens / window.tokens) * 100
 }
 

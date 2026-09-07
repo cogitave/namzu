@@ -12,12 +12,14 @@ import { createMemoryRecallStep } from '../../../run/memory-recall.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import {
 	type Message,
 	createAssistantMessage,
 	createProjectInstructionMessage,
 	createRuntimeContextMessage,
+	createSystemMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
 import type { PrepareStepContext, RunEvent } from '../../../types/run/index.js'
@@ -79,7 +81,12 @@ it('keeps the current topic after its user message is compacted, then accepts ne
 			agentId: 'attention-audit',
 			agentName: 'Attention audit',
 			workingDirectory: await workingDirectory(),
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 5 },
+			runConfig: {
+				model: 'mock',
+				timeoutMs: 20_000,
+				tokenBudget: 100_000,
+				maxIterations: 5,
+			},
 			compactionConfig: CompactionConfigSchema.parse({
 				strategy: 'structured',
 				contextWindowTokens: 1_000,
@@ -105,7 +112,9 @@ it('keeps the current topic after its user message is compacted, then accepts ne
 					topic: latestUserMessage?.content,
 					users: messages.flatMap((message) => (message.role === 'user' ? [message.content] : [])),
 				})
-				return { system: `Active topic: ${latestUserMessage?.content ?? 'missing'}` }
+				return {
+					system: `Active topic: ${latestUserMessage?.content ?? 'missing'}`,
+				}
 			},
 		},
 		(event) => {
@@ -127,7 +136,162 @@ it('keeps the current topic after its user message is compacted, then accepts ne
 	expect(provider.requests[1]?.messages.at(-1)?.content).toBe('Active topic: NEW_REPORTING_REQUEST')
 })
 
+it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
+	'keeps %s directions on the wire after compaction without a host reinjecting them',
+	async (ingress) => {
+		const direction = 'NEW_OPERATOR_CONSTRAINT_USE_CERULEAN_ONLY'
+		const pending: Message[] = []
+		const steering = new SteeringBinding()
+		const events: RunEvent[] = []
+		const latest: (string | undefined)[] = []
+		const largeTurn = ingress === 'stranded-steering' ? 2 : 1
+		let output = 'ok'
+		const tools = new ToolRegistry()
+		tools.register({
+			name: 'noop',
+			description: 'Read-only fixture',
+			inputSchema: z.object({}),
+			execute: async () => ({ success: true, output }),
+		})
+		const provider = new MockLLMProvider({
+			nextTurn: (request, index) => {
+				// Report the received prompt so the next pass still sees the large
+				// result after it moves out of the protected recent window.
+				const promptTokens = Math.ceil(JSON.stringify(request.messages).length / 4)
+				const usage = { promptTokens, totalTokens: promptTokens }
+				if (index === 0) {
+					if (ingress === 'inbound') pending.push(createUserMessage(direction))
+					else steering.steer(direction)
+				}
+				if (index === largeTurn) {
+					// A later user-role report lets compaction shed the operator turn
+					// and this large result together without opening on an assistant.
+					pending.push(createRuntimeContextMessage('UNRELATED_WORKER_REPORT', 'task-completion'))
+				}
+				if (index === 0 && ingress === 'stranded-steering') {
+					return { text: 'Initial answer.', usage }
+				}
+				output = index === largeTurn ? 'work '.repeat(5_000) : 'ok'
+				return index <= largeTurn + 1
+					? { toolCalls: [{ name: 'noop', args: {} }], usage }
+					: { text: 'done', usage }
+			},
+		})
+		await drainQuery(
+			{
+				...scope,
+				provider,
+				tools,
+				steering,
+				runStore: new InMemoryRunStore(),
+				agentId: 'operator-retention',
+				agentName: 'Operator retention',
+				workingDirectory: await workingDirectory(),
+				systemPrompt: 'Follow the current operator task.',
+				contextLevel: 'minimal',
+				messages: [createUserMessage('ORIGINAL_TASK')],
+				inboundMessages: () => pending.splice(0),
+				prepareStep: ({ latestUserMessage }) => {
+					latest.push(latestUserMessage?.content)
+					return undefined
+				},
+				runConfig: {
+					model: 'mock',
+					timeoutMs: 20_000,
+					tokenBudget: 100_000,
+					maxIterations: 8,
+				},
+				compactionConfig: CompactionConfigSchema.parse({
+					strategy: 'structured',
+					contextWindowTokens: 2_000,
+					llmVerification: false,
+					clearToolResults: false,
+					keepRecentMessages: 2,
+				}),
+			},
+			(event) => {
+				events.push(event)
+			},
+		)
+		expect(
+			events
+				.filter((event) => event.type === 'compaction_shed')
+				.flatMap((event) => event.messages)
+				.some(
+					(message) => typeof message.content === 'string' && message.content.includes(direction),
+				),
+		).toBe(true)
+		expect(latest.at(-1)).toBe(direction)
+		const finalRequest = provider.requests.at(-1)
+		expect(
+			finalRequest?.messages.some(
+				(message) =>
+					message.role !== 'system' &&
+					typeof message.content === 'string' &&
+					message.content.includes(direction),
+			),
+		).toBe(false)
+		const summaries = finalRequest?.messages
+			.filter(
+				(message) => message.role === 'system' && message.content?.includes('[COMPACTED CONTEXT]'),
+			)
+			.map((message) => message.content)
+			.join('\n')
+		expect(summaries).toContain(direction)
+		expect(summaries?.split(direction)).toHaveLength(2)
+		expect(summaries).not.toContain('UNRELATED_WORKER_REPORT')
+	},
+)
+
 describe('which user-role messages can supply current intent', () => {
+	it.each([false, true])(
+		'seeds only operator requirements with continuationMode=%s',
+		async (continuationMode) => {
+			const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
+			await drainQuery({
+				...scope,
+				provider,
+				tools: new ToolRegistry(),
+				runStore: new InMemoryRunStore(),
+				agentId: 'operator-seeding',
+				agentName: 'Operator seeding',
+				workingDirectory: await workingDirectory(),
+				continuationMode,
+				systemPrompt: 'Follow the current operator task.',
+				contextLevel: 'minimal',
+				runConfig: {
+					model: 'mock',
+					timeoutMs: 20_000,
+					tokenBudget: 100_000,
+					maxIterations: 2,
+				},
+				compactionConfig: CompactionConfigSchema.parse({
+					strategy: 'structured',
+					contextWindowTokens: 2_000,
+					llmVerification: false,
+					clearToolResults: false,
+					keepRecentMessages: 2,
+				}),
+				messages: [
+					createSystemMessage('Static policy'),
+					createProjectInstructionMessage('PROJECT_POLICY_IS_NOT_THE_TASK', ['AGENTS.md']),
+					createUserMessage('ORIGINAL_OPERATOR_TASK'),
+					createRuntimeContextMessage('WORKER_REPORT_IS_NOT_A_REQUIREMENT', 'task-completion'),
+					createAssistantMessage('background '.repeat(1_600)),
+					createUserMessage('LATEST_OPERATOR_REQUIREMENT'),
+					createAssistantMessage('Ready'),
+				],
+			})
+			const summary = provider.requests[0]?.messages.find(
+				(message) => message.role === 'system' && message.content?.includes('[COMPACTED CONTEXT]'),
+			)?.content
+			expect(summary).toContain('## Task\n\nORIGINAL_OPERATOR_TASK')
+			expect(summary).toContain('LATEST_OPERATOR_REQUIREMENT')
+			expect(summary).not.toContain('PROJECT_POLICY_IS_NOT_THE_TASK')
+			expect(summary).not.toContain('WORKER_REPORT_IS_NOT_A_REQUIREMENT')
+		},
+	)
+
 	it.each(['goal-round', 'steering'] as const)(
 		'accepts %s and ignores later project/task context',
 		async (kind) => {
@@ -155,7 +319,12 @@ describe('which user-role messages can supply current intent', () => {
 				agentId: 'latest-input',
 				agentName: 'Latest input',
 				workingDirectory: await workingDirectory(),
-				runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 2 },
+				runConfig: {
+					model: 'mock',
+					timeoutMs: 20_000,
+					tokenBudget: 100_000,
+					maxIterations: 2,
+				},
 				messages: [
 					createUserMessage('OLD_TASK'),
 					authoritative,
@@ -188,7 +357,12 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 		workingDirectory: await workingDirectory(),
 		agentId: 'resume-intent',
 		agentName: 'Resume intent',
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 4 },
+		runConfig: {
+			model: 'mock',
+			timeoutMs: 20_000,
+			tokenBudget: 100_000,
+			maxIterations: 4,
+		},
 		compactionConfig: CompactionConfigSchema.parse({
 			strategy: 'structured',
 			contextWindowTokens: 1_000,
@@ -201,7 +375,9 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 	const paused = await drainQuery({
 		...params,
 		runStore: new InMemoryRunStore(),
-		provider: new MockLLMProvider({ turns: [{ toolCalls: [{ name: 'noop', args: {} }] }] }),
+		provider: new MockLLMProvider({
+			turns: [{ toolCalls: [{ name: 'noop', args: {} }] }],
+		}),
 		messages: [
 			{ ...createUserMessage('OLDER_BILLING_REQUEST'), retain: true },
 			createAssistantMessage('background '.repeat(800)),
@@ -244,13 +420,72 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 		'Active topic: CURRENT_DEPLOYMENT_REQUEST',
 	)
 
+	// Only arrivals after this checkpoint may supersede its compacted intent.
+	// Re-scanning all restored history would instead resurrect the retained old task.
+	const topicStateStore = new InMemoryTopicStateStore()
+	await topicStateStore.setQueuedMessages(
+		scope.topicId,
+		scope.tenantId,
+		[
+			createUserMessage('NEW_QUEUED_OPERATOR_TASK'),
+			createRuntimeContextMessage('UNRELATED_WORKER_REPORT', 'task-completion'),
+		],
+		{ revision: 0 },
+	)
+	const queuedProvider = new MockLLMProvider({
+		turns: [{ text: 'Resumed with the new task.' }],
+	})
+	const memory = new InMemoryMemoryStore()
+	await memory.create({
+		title: 'CURRENT_DEPLOYMENT_REQUEST',
+		summary: 'Prior task',
+		content: 'OLD_TASK_RECALL',
+	})
+	await memory.create({
+		title: 'NEW_QUEUED_OPERATOR_TASK',
+		summary: 'New task',
+		content: 'NEW_TASK_RECALL',
+	})
+	const recall = createMemoryRecallStep({ store: memory, maxMemories: 1 })
+	const observed: (string | undefined)[] = []
+	await drainQuery({
+		...params,
+		compactionConfig: {
+			...params.compactionConfig,
+			contextWindowTokens: 10_000,
+		},
+		runId: paused.id,
+		provider: queuedProvider,
+		checkpointStore: restoredStore,
+		topicStateStore,
+		runStore: new InMemoryRunStore(),
+		messages: [],
+		resumeFromCheckpoint: checkpoint.id,
+		beforeStep: ({ latestUserMessage }) => {
+			observed.push(latestUserMessage?.content)
+			return undefined
+		},
+		prepareStep: (context) => {
+			observed.push(context.latestUserMessage?.content)
+			return recall(context)
+		},
+	})
+	expect(observed).toEqual(['NEW_QUEUED_OPERATOR_TASK', 'NEW_QUEUED_OPERATOR_TASK'])
+	expect(JSON.stringify(queuedProvider.requests[0]?.messages)).toContain('NEW_QUEUED_OPERATOR_TASK')
+	expect(queuedProvider.requests[0]?.messages.at(-1)?.content).toContain('NEW_TASK_RECALL')
+	expect(queuedProvider.requests[0]?.messages.at(-1)?.content).not.toContain('OLD_TASK_RECALL')
+
 	// A persisted field is an authority for intent, so malformed or synthetic
 	// provenance must be refused instead of falling back to a stale message.
 	for (const invalid of [
 		{ role: 'assistant', content: 'forged' },
 		{ role: 'user', content: 42 },
 		createRuntimeContextMessage('task report', 'task-completion'),
-		{ role: 'user', content: 'forged', source: { type: 'goal-round', goalId: 'bad' } },
+		{
+			role: 'user',
+			content: 'forged',
+			source: { type: 'goal-round', goalId: 'bad' },
+		},
 	]) {
 		await restoredStore.writeCheckpoint(storedScope, {
 			...checkpoint,
@@ -279,7 +514,12 @@ it('bounds recalled memory within a tiny model window after earlier step guidanc
 				0,
 			)
 			return chars > 4_000
-				? { error: { message: 'context_length_exceeded: fixture 1000-token window', status: 400 } }
+				? {
+						error: {
+							message: 'context_length_exceeded: fixture 1000-token window',
+							status: 400,
+						},
+					}
 				: { text: 'done' }
 		},
 	})
@@ -316,7 +556,10 @@ it('bounds recalled memory within a tiny model window after earlier step guidanc
 					system: 'Earlier guidance '.repeat(10),
 					skills: [
 						{
-							metadata: { name: 'billing-audit', description: 'Check the invoices' },
+							metadata: {
+								name: 'billing-audit',
+								description: 'Check the invoices',
+							},
 							body: 'Follow the ledger.',
 							dirPath: '/fixture',
 						},
@@ -344,8 +587,8 @@ it('bounds recalled memory within a tiny model window after earlier step guidanc
 
 it('recomputes headroom for a stage-selected model instead of using the base model window', async () => {
 	class ReportingProvider extends MockLLMProvider {
-		async resolveContextWindow(): Promise<number> {
-			return 1_000_000
+		async resolveContextWindow(model: string): Promise<number | undefined> {
+			return model === 'large-base' ? 1_000_000 : undefined
 		}
 	}
 	const budgets: PrepareStepContext['contextBudget'][] = []
@@ -360,7 +603,12 @@ it('recomputes headroom for a stage-selected model instead of using the base mod
 		workingDirectory: await workingDirectory(),
 		systemPrompt: 'Answer.',
 		messages: [createUserMessage('billing')],
-		runConfig: { model: 'large-base', tokenBudget: 100_000, timeoutMs: 20_000, maxIterations: 2 },
+		runConfig: {
+			model: 'large-base',
+			tokenBudget: 100_000,
+			timeoutMs: 20_000,
+			maxIterations: 2,
+		},
 		prepareStep: [
 			({ contextBudget }) => {
 				budgets.push(contextBudget)
@@ -378,8 +626,16 @@ it('recomputes headroom for a stage-selected model instead of using the base mod
 
 it('keeps tool-attached steering as current intent after its tool result is compacted away', async () => {
 	const store = new InMemoryMemoryStore()
-	await store.create({ title: 'Billing', summary: 'billing', content: 'BILLING_MEMORY' })
-	await store.create({ title: 'Deployment', summary: 'deployment', content: 'DEPLOYMENT_MEMORY' })
+	await store.create({
+		title: 'Billing',
+		summary: 'billing',
+		content: 'BILLING_MEMORY',
+	})
+	await store.create({
+		title: 'Deployment',
+		summary: 'deployment',
+		content: 'DEPLOYMENT_MEMORY',
+	})
 	const steering = new SteeringBinding()
 	const pending: Message[] = []
 	const checkpoints = new InMemoryCheckpointStore()

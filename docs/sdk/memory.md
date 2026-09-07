@@ -144,6 +144,11 @@ in `IterationCheckpoint.latestUserMessage`, without duplicating attachment bytes
 Resume refuses a malformed intent snapshot; older checkpoints without the field
 fall back to surviving history. This is a host-policy input, not an extra copy
 of the entire user message automatically inserted into every model request.
+New operator arrivals queued for resume take precedence over the checkpoint's
+older intent. Earlier surviving history does not overwrite a newer checkpoint.
+Inbound messages and tool-attached steering also refresh the bounded task and
+requirements extracted into working state, so its compaction summary can retain
+the changed direction. Runtime worker reports do not become operator intent.
 `options.query` is a fallback
 when that runtime field is absent, followed by an eligible message still in the
 history. Generic prompts such as “continue” do not list arbitrary memories.
