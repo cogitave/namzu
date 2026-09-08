@@ -101,6 +101,7 @@ describe('@namzu/http — registration', () => {
 			supportsTools: true,
 			supportsStreaming: true,
 			supportsFunctionCalling: true,
+			supportsNativeStructuredOutput: true,
 			supportsVision: false,
 			supportsDocuments: false,
 			supportsToolResultImages: false,

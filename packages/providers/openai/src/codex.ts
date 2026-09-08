@@ -35,6 +35,7 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
+	supportsNativeStructuredOutput: true,
 	supportsVision: true,
 	supportsDocuments: false,
 	supportsToolResultImages: true,
@@ -244,7 +245,11 @@ export function toCodexInput(
 	for (const message of messages) {
 		if (message.role === 'system') continue
 		if (message.role === 'user') {
-			input.push({ type: 'message', role: 'user', content: codexUserContent(message) })
+			input.push({
+				type: 'message',
+				role: 'user',
+				content: codexUserContent(message),
+			})
 			continue
 		}
 		if (message.role === 'tool') {
@@ -365,6 +370,16 @@ function buildRequest(
 		tool_choice: (params.toolChoice ?? 'auto') as ResponseCreateParamsStreaming['tool_choice'],
 		parallel_tool_calls: params.parallelToolCalls ?? true,
 		include: ['reasoning.encrypted_content'],
+		...(params.responseFormat
+			? {
+					text: {
+						format:
+							params.responseFormat.type === 'json_schema'
+								? { type: 'json_schema', ...params.responseFormat.json_schema }
+								: { type: 'json_object' },
+					},
+				}
+			: {}),
 		...(params.effort !== undefined
 			? { reasoning: { effort: params.effort, summary: 'auto' } }
 			: params.thinking?.type === 'adaptive'

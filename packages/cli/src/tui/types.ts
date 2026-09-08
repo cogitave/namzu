@@ -51,6 +51,7 @@ export interface TranscriptMessage {
 }
 
 export interface TuiContext {
+	readonly structuredOutput?: import('@namzu/sdk').StructuredOutputConfig
 	readonly cwd: string
 	readonly version: string
 	/** Exact durable conversation requested by `namzu resume <id>`. */

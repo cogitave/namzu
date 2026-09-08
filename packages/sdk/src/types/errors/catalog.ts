@@ -157,7 +157,7 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 		id: 'provider.rate_limit',
 		when: (facts) => facts.code === 'rate_limit' || facts.status === 429,
 		message: 'The provider is rate limiting this run.',
-		hint: 'Automatic retries with backoff have already been exhausted. Lower concurrency, or wait for the quota window to reset before resuming.',
+		hint: 'Respect the provider retry delay when reported. Lower concurrency, or wait for the quota window to reset before resuming.',
 	},
 	{
 		id: 'provider.context_overflow',

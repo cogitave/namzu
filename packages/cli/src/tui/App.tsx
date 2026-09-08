@@ -2438,6 +2438,7 @@ export function App({
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				...(activeCtx.structuredOutput ? { structuredOutput: activeCtx.structuredOutput } : {}),
 				...(activeCtx.additionalDirectories
 					? { additionalDirectories: activeCtx.additionalDirectories }
 					: {}),

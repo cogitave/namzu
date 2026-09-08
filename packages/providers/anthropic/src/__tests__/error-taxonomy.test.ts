@@ -9,8 +9,7 @@
  *
  * Transport seam: `AnthropicConfig.baseURL` — the tests point the SDK at a
  * loopback server that answers with a scripted status/headers/body. This
- * exercises the REAL vendor client (including its own internal retries,
- * which this group must not disturb).
+ * exercises the real vendor client and verifies host-visible retry ownership.
  */
 
 import { type Server, createServer } from 'node:http'
@@ -28,6 +27,7 @@ interface ScriptedReply {
 }
 
 let server: Server | undefined
+let requests = 0
 
 afterEach(async () => {
 	if (server) {
@@ -38,7 +38,9 @@ afterEach(async () => {
 
 /** Boot a loopback endpoint that answers every request with `reply`. */
 async function startEndpoint(reply: ScriptedReply): Promise<string> {
+	requests = 0
 	server = createServer((_req, res) => {
+		requests++
 		res.writeHead(reply.status, {
 			'Content-Type': 'application/json',
 			...(reply.headers ?? {}),
@@ -67,8 +69,7 @@ async function startSseEndpoint(frames: string[]): Promise<string> {
 
 async function captureChatStreamError(reply: ScriptedReply): Promise<unknown> {
 	const baseURL = await startEndpoint(reply)
-	// maxRetries is deliberately NOT set: this group classifies errors and
-	// must leave the vendor SDK's own retry behaviour exactly as it is.
+	// The default must surface the first response, leaving backoff to the host.
 	const provider = new AnthropicProvider({
 		apiKey: 'test-key',
 		model: 'claude-sonnet-4-5-20250929',
@@ -116,6 +117,7 @@ describe('@namzu/anthropic — provider error taxonomy', () => {
 			}),
 		})
 
+		expect(requests).toBe(1)
 		expect(err).toMatchObject({
 			name: 'ProviderRequestError',
 			kind: 'throttle',
@@ -271,4 +273,22 @@ describe('@namzu/anthropic — provider error taxonomy', () => {
 		expect(sdkAbort).not.toBe(reason)
 		expect(err).toBe(reason)
 	})
+})
+
+it('can explicitly opt back into vendor retry and preserves throttle classification', async () => {
+	const baseURL = await startEndpoint({
+		status: 429,
+		headers: { 'retry-after': '0.001' },
+		body: JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'slow' } }),
+	})
+	const error = await captureProviderError(
+		new AnthropicProvider({ apiKey: 'fixture', baseURL, maxRetries: 1 }),
+	)
+	expect(requests).toBe(2)
+	expect(error).toMatchObject({ kind: 'throttle', status: 429 })
+})
+it.each([-1, 0.5, Number.NaN])('refuses invalid maxRetries %s', (maxRetries) => {
+	expect(() => new AnthropicProvider({ apiKey: 'fixture', maxRetries })).toThrow(
+		'nonnegative integer',
+	)
 })

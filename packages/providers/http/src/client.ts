@@ -245,7 +245,10 @@ function formatAnthropicRequest(
 		}
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: ToolResultContent }
+			const toolMsg = msg as {
+				toolCallId?: string
+				content?: ToolResultContent
+			}
 			pendingToolResults.push({
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
@@ -298,6 +301,25 @@ function formatAnthropicRequest(
 		stream,
 	}
 
+	if (params.responseFormat) {
+		if (
+			params.responseFormat.type !== 'json_schema' ||
+			params.responseFormat.json_schema.strict === false
+		) {
+			throw new ProviderRequestError({
+				providerId: 'http',
+				kind: 'bad_request',
+				detail: 'Anthropic dialect requires strict JSON Schema output.',
+			})
+		}
+		body.output_config = {
+			format: {
+				type: 'json_schema',
+				schema: params.responseFormat.json_schema.schema,
+			},
+		}
+	}
+
 	if (systemParts.length > 0) body.system = systemParts.join('\n\n')
 	if (params.temperature !== undefined) body.temperature = params.temperature
 	if (params.topP !== undefined) body.top_p = params.topP
@@ -330,7 +352,9 @@ function formatAnthropicRequest(
 				// assuming one dialect fits every wire is the mistake being
 				// fixed here.
 				input_schema: toSchemaDialect(
-					(t.function.parameters as Record<string, unknown> | undefined) ?? { type: 'object' },
+					(t.function.parameters as Record<string, unknown> | undefined) ?? {
+						type: 'object',
+					},
 					'2020-12',
 				),
 				...(strict ? { strict: true } : {}),
@@ -364,6 +388,7 @@ export const HTTP_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
+	supportsNativeStructuredOutput: true,
 	supportsVision: false,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,

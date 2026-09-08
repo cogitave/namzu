@@ -38,6 +38,12 @@ describe('runCli', () => {
 
 	const invoke = (args: string[]) => runCli({ argv: ['node', 'namzu', ...args] })
 
+	it('does not silently ignore the interactive output schema on a subcommand', async () => {
+		const code = await invoke(['--output-schema', '/unused/schema.json', 'providers-json'])
+		expect(code).toBe(64)
+		expect(stderr).toContain('--output-schema applies to the interactive TUI')
+	})
+
 	it('--help returns 0 and lists every registered command', async () => {
 		const code = await invoke(['--help'])
 		expect(code).toBe(0)

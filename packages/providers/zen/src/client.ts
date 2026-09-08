@@ -35,6 +35,7 @@ export const ZEN_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
+	supportsNativeStructuredOutput: true,
 	supportsVision: true,
 	supportsDocuments: true,
 	supportsToolResultImages: true,
@@ -151,7 +152,22 @@ export class ZenProvider implements LLMProvider {
 			const settings = {
 				apiKey: this.apiKey,
 				baseURL: this.baseURL,
-				fetch: this.requestFetch,
+				fetch: ((input, init) => {
+					// The pinned Google adapter converts JSON Schema into an OpenAPI subset,
+					// dropping constraints. Use the endpoint's JSON Schema field instead.
+					if (
+						protocol === 'google' &&
+						params.responseFormat?.type === 'json_schema' &&
+						typeof init?.body === 'string'
+					) {
+						const body = JSON.parse(init.body)
+						body.generationConfig ??= {}
+						delete body.generationConfig.responseSchema
+						body.generationConfig.responseJsonSchema = params.responseFormat.json_schema.schema
+						return this.requestFetch(input, { ...init, body: JSON.stringify(body) })
+					}
+					return this.requestFetch(input, init)
+				}) as typeof fetch,
 			}
 			let native: LanguageModelV3
 			switch (protocol) {

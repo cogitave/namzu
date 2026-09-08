@@ -36,6 +36,7 @@ export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
+	supportsNativeStructuredOutput: true,
 	supportsVision: true,
 	supportsDocuments: false,
 	supportsToolResultImages: true,

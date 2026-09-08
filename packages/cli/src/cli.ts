@@ -8,6 +8,7 @@
  */
 
 import { resolve } from 'node:path'
+import { loadOutputSchema } from './output-schema.js'
 
 import { Command, CommanderError, Option } from 'commander'
 
@@ -99,6 +100,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				'yaml',
 			]),
 		)
+		.option(
+			'--output-schema <path>',
+			'Constrain TUI answers to a JSON Schema file using native structured output',
+		)
 		.option('-q, --quiet', 'Suppress non-essential output; also raises the log floor to warn')
 		.addOption(
 			new Option('-v, --verbose', 'Emit debug-level log records to stderr').conflicts('quiet'),
@@ -126,6 +131,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		)
 		// Required by Commander 14 so subcommands (doctor) can opt into
 		// passThroughOptions for unparsed argument forwarding.
+		.hook('preAction', (command, action) => {
+			if (command.opts().outputSchema && !['namzu', 'resume'].includes(action.name())) {
+				command.error('--output-schema applies to the interactive TUI, not this subcommand.', {
+					exitCode: EX_USAGE,
+					code: 'commander.invalidArgument',
+				})
+			}
+		})
 		.enablePositionalOptions(true)
 		.exitOverride()
 		.showHelpAfterError(false)
@@ -293,8 +306,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const launchOpts = program.opts<{
 				dangerouslySkipPermissions?: boolean
 				yolo?: boolean
+				outputSchema?: string
 				addDir?: string[]
 			}>()
+			const structuredOutput = launchOpts.outputSchema
+				? loadOutputSchema(resolve(process.cwd(), launchOpts.outputSchema))
+				: undefined
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
 			// The same three lines `run` and `run-stream` use. The TUI compiled
 			// nothing at all, so a `permissions` table in a config file did nothing
@@ -315,6 +332,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				].map((dir) => resolve(cwd, dir))
 				return {
 					cwd,
+					...(structuredOutput ? { structuredOutput } : {}),
 					version: CLI_VERSION,
 					configDebug: resolvedCtx.configDebug,
 					skipPermissions,
@@ -337,7 +355,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				buildTuiContext(resolveTrustedProjectContext(commandCtx, cwd), cwd),
 			)
 			const { launchTui } = await import('./tui/index.js')
-			if (opts.resumeCommand) await launchTui(tuiCtx, { resumeCommand: opts.resumeCommand })
+			const resumeCommand = launchOpts.outputSchema
+				? ([
+						...(opts.resumeCommand ?? ['namzu']),
+						'--output-schema',
+						resolve(process.cwd(), launchOpts.outputSchema),
+					] as [string, ...string[]])
+				: opts.resumeCommand
+			if (resumeCommand) await launchTui(tuiCtx, { resumeCommand })
 			else await launchTui(tuiCtx)
 			const code = await Promise.resolve(0)
 			setExitCode(code)

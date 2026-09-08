@@ -129,6 +129,11 @@ export function createCallOptions(
 				params.topP !== undefined
 			)
 				refuse('This model cannot honor temperature and topP together.')
+			if (
+				params.responseFormat?.type === 'json_schema' &&
+				params.responseFormat.json_schema.strict === false
+			)
+				refuse('The messages protocol cannot disable schema enforcement.')
 			if (params.responseFormat?.type === 'json_object')
 				refuse('The messages protocol requires a schema for JSON output.')
 			if (
@@ -163,6 +168,9 @@ export function createCallOptions(
 			)
 				refuse('This model protocol cannot enforce strict tool input schemas.')
 			options.anthropic = {
+				...(params.responseFormat?.type === 'json_schema'
+					? { structuredOutputMode: 'outputFormat' }
+					: {}),
 				sendReasoning: true,
 				...(thinking ? { thinking: { ...thinking } } : {}),
 				...(params.effort !== undefined ? { effort: params.effort } : {}),

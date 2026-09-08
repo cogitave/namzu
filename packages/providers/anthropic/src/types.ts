@@ -17,6 +17,8 @@ export interface AnthropicConfig {
 	model?: string
 	/** Override base URL (e.g. for AWS Bedrock Anthropic or Google Vertex endpoints — though use @namzu/bedrock for those). */
 	baseURL?: string
+	/** Vendor transport retries. Default 0: let the host own retry/backoff and observe throttles immediately. Set 2 for the previous vendor default. */
+	maxRetries?: number
 	/** Request timeout in ms. */
 	timeout?: number
 	/**

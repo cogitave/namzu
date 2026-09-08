@@ -36,7 +36,7 @@ export function extractScore(params: QueryParams) {
 
 The selected driver must explicitly declare
 [support for native structured output](native-provider-capabilities.md).
-OpenAI API and Anthropic currently declare their wire mappings. Codex does not.
+OpenAI API, Codex, Anthropic, OpenRouter, DeepSeek, HTTP and Zen declare their wire mappings.
 Each actual fallback member is checked before dispatch; unsupported routes fail
 rather than ignoring the schema. This is a driver contract, not a claim that
 every model accepts every schema. Vendor compatibility errors remain errors.
@@ -94,3 +94,21 @@ validation, rejection, cancellation, steering, guardrails, large output and
 checkpoint restoration. Driver tests inspect actual request bodies, including
 Anthropic through its SDK against a loopback HTTP server. No paid inference or
 live model eligibility is established by these tests.
+
+## Interactive CLI
+
+Launch `namzu --output-schema /absolute/path/schema.json` to constrain each
+main-query answer in the TUI through native output. The schema is loaded once
+for that invocation and applies across model switches. It is not saved as a
+global preference; the printed resume command carries the flag. Supply it yourself when using a different resume command. Unsupported providers
+fail explicitly. Subagents keep their own output contracts.
+
+The file must be an explicit object JSON Schema that round-trips through the
+SDK's JSON Schema/Zod bridge without changing constraints. Include `properties`,
+`required` and `additionalProperties`. Unrepresentable schemas are refused at
+launch, rather than silently weakened. `$schema` at the root is metadata and
+is not transmitted. Ordinary launches keep free-text answers.
+
+A run's `timeoutMs` is checked between iterations. For bounded live probes use
+an outer `AbortSignal` and `streamIdleTimeoutMs` as well; vendor request retries
+and an open but silent stream must not be mistaken for completed inference.

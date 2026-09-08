@@ -873,10 +873,16 @@ export class AnthropicProvider implements LLMProvider {
 		if (!config.apiKey && !config.authToken) {
 			throw new Error('AnthropicProvider: either `apiKey` or `authToken` is required')
 		}
+		if (
+			config.maxRetries !== undefined &&
+			(!Number.isSafeInteger(config.maxRetries) || config.maxRetries < 0)
+		)
+			throw new Error('maxRetries must be a nonnegative integer.')
 		this.config = config
 
 		const clientOpts: Record<string, unknown> = {
 			timeout: config.timeout ?? DEFAULT_TIMEOUT_MS,
+			maxRetries: config.maxRetries ?? 0,
 		}
 		if (config.authToken) {
 			clientOpts.authToken = config.authToken

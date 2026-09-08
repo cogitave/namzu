@@ -66,6 +66,7 @@ export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
+	supportsNativeStructuredOutput: true,
 	supportsVision: false,
 	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,

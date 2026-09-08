@@ -67,6 +67,7 @@ import {
 	type Skill,
 	type SkillRegistry,
 	type StopReason,
+	type StructuredOutputConfig,
 	type TaskScheduler,
 	type TaskStore,
 	type TenantId,
@@ -1197,6 +1198,7 @@ async function currentPluginSkills(registry: SkillRegistry): Promise<Skill[]> {
 }
 
 export interface AgentSessionOptions {
+	readonly structuredOutput?: StructuredOutputConfig
 	/** Session/thread/project/tenant identity for this run. Minted when absent. */
 	readonly scope?: RunScope
 	/**
@@ -1956,7 +1958,10 @@ export async function createAgentSession(
 			buildSwitchModelTool(async (request, context) => {
 				const handler = modelSwitchHandlers.get(context.runId)
 				if (!handler || context.abortSignal?.aborted) {
-					return { kind: 'rejected', reason: 'This turn no longer owns model selection.' }
+					return {
+						kind: 'rejected',
+						reason: 'This turn no longer owns model selection.',
+					}
 				}
 				return handler(request, context.abortSignal)
 			}),
@@ -2631,6 +2636,7 @@ export async function createAgentSession(
 								...(options.limits ? { limits: options.limits } : {}),
 								sandboxWorkspace,
 								rules: options.rules,
+								structuredOutput: options.structuredOutput,
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
@@ -2863,7 +2869,10 @@ export function constructProvider(
 			const { provider } = ProviderRegistry.create({
 				...(id === 'zen-go'
 					? { type: 'zen-go' as const, apiKey: apiKey as string }
-					: { type: 'zen' as const, ...(apiKey === undefined ? {} : { apiKey }) }),
+					: {
+							type: 'zen' as const,
+							...(apiKey === undefined ? {} : { apiKey }),
+						}),
 				baseURL: det?.baseUrl,
 				model,
 				...(context.sessionId ? { sessionId: context.sessionId } : {}),
@@ -3241,6 +3250,7 @@ interface RunTurnParams {
 	/** Operator rules for this run, already compiled. */
 	readonly rules: readonly AuthorizationRule[] | undefined
 	/** Standing verdict on the answer this turn settles with. See {@link AgentSessionOptions}. */
+	readonly structuredOutput: StructuredOutputConfig | undefined
 	readonly reviewAnswer: ReviewAnswer | undefined
 	readonly maxAnswerReviews: number | undefined
 	/** What this run should leave behind when it settles. */
@@ -3296,6 +3306,7 @@ async function* runTurn({
 	additionalDirectories,
 	sandboxWorkspace,
 	rules,
+	structuredOutput,
 	reviewAnswer,
 	maxAnswerReviews,
 	promoteMemory,
@@ -3323,6 +3334,7 @@ async function* runTurn({
 	const presenter = createToolPresenter(tools)
 	try {
 		const events = query({
+			...(structuredOutput ? { structuredOutput } : {}),
 			provider,
 			pathBuilder,
 			...(opts?.runId ? { runId: opts.runId } : {}),

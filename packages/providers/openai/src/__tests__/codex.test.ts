@@ -40,8 +40,8 @@ describe('Codex provider registration', () => {
 		})
 		expect(provider).toBeInstanceOf(CodexProvider)
 		expect(capabilities).toEqual(CODEX_CAPABILITIES)
-		expect(capabilities.supportsNativeStructuredOutput).toBeUndefined()
-		expect(provider.capabilities?.supportsNativeStructuredOutput).toBeUndefined()
+		expect(capabilities.supportsNativeStructuredOutput).toBe(true)
+		expect(provider.capabilities?.supportsNativeStructuredOutput).toBe(true)
 		expect(capabilities).toMatchObject({
 			supportsTools: true,
 			supportsVision: true,
@@ -50,7 +50,10 @@ describe('Codex provider registration', () => {
 	})
 
 	it('discovers menus and defaults for model identifiers unknown to the driver', async () => {
-		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		const provider = new CodexProvider({
+			accessToken: 'fixture',
+			accountId: 'fixture',
+		})
 		expect(provider.reasoningEffortLevelsFor('catalogue-new-model')).toBeUndefined()
 		expect(provider.reasoningEffortLevelsFor('gpt-6-astra')).toBeUndefined()
 		const models = await loadCatalogue(provider, [
@@ -75,7 +78,10 @@ describe('Codex provider registration', () => {
 	})
 
 	it('does not guess from malformed, missing or partly unknown effort metadata', async () => {
-		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		const provider = new CodexProvider({
+			accessToken: 'fixture',
+			accountId: 'fixture',
+		})
 		const models = await loadCatalogue(provider, [
 			{ slug: 'missing' },
 			catalogueRow('future-level', ['low', 'unrecognized-effort'], 'low'),
@@ -103,7 +109,10 @@ describe('Codex provider registration', () => {
 	})
 
 	it('replaces obsolete cached metadata on a successful catalogue refresh', async () => {
-		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		const provider = new CodexProvider({
+			accessToken: 'fixture',
+			accountId: 'fixture',
+		})
 		await loadCatalogue(provider, [
 			catalogueRow('changing', ['low'], 'low'),
 			catalogueRow('removed', ['high'], 'high'),
@@ -117,7 +126,10 @@ describe('Codex provider registration', () => {
 	})
 
 	it('keeps the last successful snapshot when discovery fails or is cancelled', async () => {
-		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		const provider = new CodexProvider({
+			accessToken: 'fixture',
+			accountId: 'fixture',
+		})
 		await loadCatalogue(provider, [catalogueRow('known', ['low'], 'low')])
 		const client = (provider as unknown as { client: { get: unknown } }).client
 		client.get = vi.fn(async () => {
@@ -135,8 +147,13 @@ describe('Codex provider registration', () => {
 describe('Codex request projection', () => {
 	it('uses refreshed catalogue metadata for admission and leaves unknown effort to the backend', async () => {
 		const create = vi.fn(async (_request: unknown) => (async function* () {})())
-		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
-		;(provider as unknown as { client: unknown }).client = { responses: { create } }
+		const provider = new CodexProvider({
+			accessToken: 'fixture',
+			accountId: 'fixture',
+		})
+		;(provider as unknown as { client: unknown }).client = {
+			responses: { create },
+		}
 		const send = async () => {
 			for await (const _chunk of provider.chatStream({
 				model: 'newly-discovered-model',
@@ -150,7 +167,9 @@ describe('Codex request projection', () => {
 		expect(create).not.toHaveBeenCalled()
 		await loadCatalogue(provider, [catalogueRow('newly-discovered-model', ['ultra'], 'ultra')])
 		await send()
-		expect(create.mock.calls[0]?.[0]).toMatchObject({ reasoning: { effort: 'ultra' } })
+		expect(create.mock.calls[0]?.[0]).toMatchObject({
+			reasoning: { effort: 'ultra' },
+		})
 		await loadCatalogue(provider, [{ slug: 'newly-discovered-model' }])
 		expect(provider.reasoningEffortLevelsFor('newly-discovered-model')).toBeUndefined()
 		await send()
@@ -159,8 +178,13 @@ describe('Codex request projection', () => {
 
 	it('leaves an omitted discovered-model effort to the backend default', async () => {
 		const create = vi.fn(async (_request: unknown) => (async function* () {})())
-		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
-		;(provider as unknown as { client: unknown }).client = { responses: { create } }
+		const provider = new CodexProvider({
+			accessToken: 'fixture',
+			accountId: 'fixture',
+		})
+		;(provider as unknown as { client: unknown }).client = {
+			responses: { create },
+		}
 		await loadCatalogue(provider, [
 			catalogueRow(
 				'catalogue-request-model',
@@ -181,8 +205,13 @@ describe('Codex request projection', () => {
 		'forwards discovered subscription effort %s unchanged',
 		async (effort) => {
 			const create = vi.fn(async (_request: unknown) => (async function* () {})())
-			const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
-			;(provider as unknown as { client: unknown }).client = { responses: { create } }
+			const provider = new CodexProvider({
+				accessToken: 'fixture',
+				accountId: 'fixture',
+			})
+			;(provider as unknown as { client: unknown }).client = {
+				responses: { create },
+			}
 			await loadCatalogue(provider, [
 				catalogueRow(
 					'catalogue-request-model',
@@ -208,8 +237,13 @@ describe('Codex request projection', () => {
 		'refuses discovered subscription effort %s before transport',
 		async (effort) => {
 			const create = vi.fn()
-			const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
-			;(provider as unknown as { client: unknown }).client = { responses: { create } }
+			const provider = new CodexProvider({
+				accessToken: 'fixture',
+				accountId: 'fixture',
+			})
+			;(provider as unknown as { client: unknown }).client = {
+				responses: { create },
+			}
 			await loadCatalogue(provider, [
 				catalogueRow(
 					'catalogue-request-model',
@@ -672,4 +706,31 @@ it('sends the Codex account-routed Responses wire and streams text, tools and re
 		usage: { promptTokens: 3, completionTokens: 2, cachedTokens: 1 },
 		replayState: { kind: 'namzu.codex.responses', route: ROUTE },
 	})
+})
+
+describe('Codex native response format', () => {
+	it.each([true, false])(
+		'preserves schema and strict=%s in Responses text.format',
+		async (strict) => {
+			const create = vi.fn(async (_request: unknown) => (async function* () {})())
+			const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+			;(provider as unknown as { client: unknown }).client = { responses: { create } }
+			const schema = {
+				type: 'object',
+				properties: { score: { type: 'number' } },
+				required: ['score'],
+				additionalProperties: false,
+			}
+			for await (const _ of provider.chatStream({
+				model: 'gpt-5.6-luna',
+				messages: [{ role: 'user', content: 'Score' }],
+				responseFormat: { type: 'json_schema', json_schema: { name: 'score', schema, strict } },
+			})) {
+			}
+			expect(create.mock.calls[0]?.[0]).toMatchObject({
+				text: { format: { type: 'json_schema', name: 'score', schema, strict } },
+			})
+			expect(create.mock.calls[0]?.[0]).not.toHaveProperty('response_format')
+		},
+	)
 })
