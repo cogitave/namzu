@@ -2,6 +2,8 @@
 
 ## 2026-09-08
 
+* **Update** Added host-authorized [AG-UI initial message snapshots](sdk/ag-ui.md), with bounded publication before native streaming and official HttpAgent verification.
+
 * **Update** Added [structured output review](sdk/structured-output-review.md) and [tool call budgets](sdk/tool-call-budget.md), covering host acceptance and durable execution admission.
 
 * **Update** Corrected [tool discovery](sdk/tool-discovery.md) to distinguish verified active matches from unknown tools and respect an empty allowed-tool list.

@@ -170,3 +170,9 @@ keeps unknown requests distinct; the two defects in step 1 are addressed.
 
 This audit changes documentation only. Passing the existing tests establishes
 the supported contracts and does not close the gaps listed here.
+
+The adapter now supports explicit initial `MESSAGES_SNAPSHOT` publication through
+`ui.setInitialMessages` inside the host query factory. Official-client tests
+verify stale display history replacement before new query events. This closes
+initial display reconciliation only; snapshots at a live interrupt boundary,
+frontend execution and replay-safe AG-UI resume remain open.

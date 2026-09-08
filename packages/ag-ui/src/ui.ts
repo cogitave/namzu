@@ -1,4 +1,4 @@
-import { type BaseEvent, EventType } from '@ag-ui/core'
+import { type BaseEvent, EventType, type Message, MessageSchema } from '@ag-ui/core'
 import jsonPatch, { type Operation } from 'fast-json-patch'
 
 export interface AGUIRunUIOptions {
@@ -14,6 +14,7 @@ export class AGUIRunUI {
 	private readonly events: BaseEvent[] = []
 	private notifyListener?: () => void
 	private closed = false
+	private messagesSealed = false
 	private readonly maxPending: number
 	private readonly maxBytes: number
 
@@ -26,6 +27,26 @@ export class AGUIRunUI {
 	/** A detached JSON snapshot. Mutating it does not publish a state change. */
 	get state(): unknown {
 		return this.copy(this.current)
+	}
+
+	/** Publish host-admitted display history before the query starts. Does not change model input. */
+	setInitialMessages(messages: readonly Message[]): void {
+		if (this.messagesSealed)
+			throw new Error('Initial messages must be supplied inside createQuery before it returns')
+		const parsed = MessageSchema.array().safeParse(this.copy(messages))
+		if (!parsed.success) throw new TypeError('Initial messages must match the AG-UI message schema')
+		const ids = new Set<string>()
+		for (const message of parsed.data) {
+			if (!message.id.trim() || ids.has(message.id))
+				throw new TypeError('Initial messages require nonempty unique IDs')
+			ids.add(message.id)
+		}
+		this.enqueue({ type: EventType.MESSAGES_SNAPSHOT, messages: parsed.data })
+	}
+
+	/** @internal Freeze display history before native message lifecycles begin. */
+	sealInitialMessages(): void {
+		this.messagesSealed = true
 	}
 
 	setState(value: unknown): void {

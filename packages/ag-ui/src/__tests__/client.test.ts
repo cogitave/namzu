@@ -82,6 +82,47 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
+	it('replaces stale browser history before streaming and keeps model admission explicit', async () => {
+		const provider = new MockLLMProvider({ turns: [{ text: 'Fresh answer', chunkSize: 2 }] })
+		let retainedUI: AGUIRunUI | undefined
+		const display = [
+			{ id: 'authorized-user', role: 'user' as const, content: 'Host-approved display history' },
+		]
+		const adapter = new AGUIAdapter({
+			createQuery: async ({ input, signal, ui }) => {
+				retainedUI = ui
+				const params = await queryParams(input, signal, provider)
+				ui.setInitialMessages(display)
+				display[0]!.content = 'Mutation after enqueue'
+				return { ...params, messages: [{ role: 'user', content: 'Separate admitted model input' }] }
+			},
+		})
+		const client = httpClient(adapter)
+		const events: BaseEvent[] = []
+		await client.runAgent(
+			{ runId: 'snapshot-run' },
+			{
+				onEvent: ({ event }) => {
+					events.push(event)
+					if (event.type === EventType.MESSAGES_SNAPSHOT) {
+						expect(provider.requests).toHaveLength(0)
+						expect(() => retainedUI?.setInitialMessages([])).toThrow('before it returns')
+					}
+				},
+			},
+		)
+		expect(events[0]?.type).toBe(EventType.RUN_STARTED)
+		expect(events[1]?.type).toBe(EventType.MESSAGES_SNAPSHOT)
+		expect(client.messages).toEqual([
+			{ id: 'authorized-user', role: 'user', content: 'Host-approved display history' },
+			expect.objectContaining({ role: 'assistant', content: 'Fresh answer' }),
+		])
+		expect(provider.requests[0]?.messages).toContainEqual(
+			expect.objectContaining({ content: 'Separate admitted model input' }),
+		)
+		expect(JSON.stringify(provider.requests)).not.toContain('Host-approved display history')
+	})
+
 	it('reconstructs streamed text and forwards the client request to the host', async () => {
 		const provider = new MockLLMProvider({
 			turns: [{ text: 'Hello from Namzu 🌍', chunkSize: 3 }],

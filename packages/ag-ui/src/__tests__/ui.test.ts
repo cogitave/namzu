@@ -3,6 +3,51 @@ import { describe, expect, it, vi } from 'vitest'
 import { AGUIRunUI } from '../ui.js'
 
 describe('request-scoped application events', () => {
+	it('publishes detached initial history and seals it before native streaming', () => {
+		const ui = new AGUIRunUI({})
+		const messages = [{ id: 'user-1', role: 'user' as const, content: 'Authorized history' }]
+		ui.setInitialMessages(messages)
+		messages[0]!.content = 'Changed after admission'
+		expect(ui.drain()).toEqual([
+			{
+				type: EventType.MESSAGES_SNAPSHOT,
+				messages: [{ id: 'user-1', role: 'user', content: 'Authorized history' }],
+			},
+		])
+		ui.sealInitialMessages()
+		expect(() => ui.setInitialMessages([])).toThrow('before it returns')
+		expect(ui.drain()).toEqual([])
+		ui.setState({ ready: true })
+		expect(ui.drain()).toHaveLength(1)
+	})
+	it('validates snapshot identity and shape before publishing anything', () => {
+		const ui = new AGUIRunUI({})
+		for (const messages of [
+			[{ id: 'x', role: 'bad', content: 'no' }],
+			[{ id: '', role: 'user', content: 'no' }],
+			[
+				{ id: 'x', role: 'user', content: 'first' },
+				{ id: 'x', role: 'user', content: 'second' },
+			],
+		]) {
+			expect(() => ui.setInitialMessages(messages as never)).toThrow()
+			expect(ui.drain()).toEqual([])
+		}
+		ui.setInitialMessages([])
+		expect(ui.drain()).toEqual([{ type: EventType.MESSAGES_SNAPSHOT, messages: [] }])
+	})
+	it('applies event byte, queue and request lifetime limits to initial history', () => {
+		const ui = new AGUIRunUI({}, { maxPendingEvents: 1, maxEventBytes: 120 })
+		expect(() =>
+			ui.setInitialMessages([{ id: 'x', role: 'user', content: 'x'.repeat(120) }]),
+		).toThrow('maxEventBytes')
+		ui.custom('ready', null)
+		expect(() => ui.setInitialMessages([])).toThrow('queue is full')
+		expect(ui.drain()).toHaveLength(1)
+		ui.close()
+		expect(() => ui.setInitialMessages([])).toThrow('ended')
+	})
+
 	it('owns detached JSON state and snapshots', () => {
 		const initial = { nested: { value: 1 } }
 		const ui = new AGUIRunUI(initial)

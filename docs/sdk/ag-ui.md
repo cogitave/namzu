@@ -136,6 +136,41 @@ Set `allowSystemMessages` only for instructions whose authority your host
 already established. Keep client context as data; the adapter does not put
 it in system instructions or trace metadata.
 
+## Reconcile initial display history
+
+Inside `createQuery`, call `ui.setInitialMessages(admittedMessages)` to replace
+stale browser display history with a host-authorized AG-UI transcript. The
+adapter sends `MESSAGES_SNAPSHOT` after `RUN_STARTED` and before native query
+events. It does not echo incoming history automatically.
+
+```ts
+import type { AGUIMessage, AGUIRunUI } from '@namzu/ag-ui'
+
+export function reconcileDisplay(ui: AGUIRunUI, authorized: readonly AGUIMessage[]) {
+  ui.setInitialMessages(authorized)
+}
+```
+
+This changes client display history only. Independently supply the admitted
+model history in `QueryParams.messages` or `prompt`. Do not include private
+system prompts, reasoning or other server-only content in the display snapshot.
+The official message schema is checked, message IDs must be nonempty and unique,
+and the data is copied before enqueueing. Empty history clears the client view.
+Invalid or oversized snapshots and a full event queue publish nothing from that
+call. Snapshots use the existing `maxEventBytes` and `maxPendingEvents` limits.
+
+The capability is sealed when `createQuery` returns. Calling it later, including
+from a backend tool, throws before enqueueing: replacing history during an open
+message or tool lifecycle could remove the object that later deltas refer to.
+State and custom-event publication remain available during execution. Like other
+UI events, a snapshot is request-scoped and does not persist conversation history.
+
+Initial history reconciliation is tested against the official `HttpAgent` over
+Fetch/SSE. It is not an interrupt-boundary snapshot or resume implementation.
+The [AG-UI interrupt contract](https://docs.ag-ui.com/concepts/interrupts) also
+requires boundary state, correlated responses and replay-safe resolution; these
+remain separate work.
+
 ## Publish state and application events
 
 Each factory invocation receives its own `AGUIRunUI`, initialized with a

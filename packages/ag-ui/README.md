@@ -44,6 +44,13 @@ host permits, call `toNamzuMessages(admittedMessages)` and put it in
 request's history. The helper converts complete tool rounds and inline
 image/document data; privileged roles require `allowSystemMessages: true`.
 
+To reconcile a stale browser transcript, call `ui.setInitialMessages(admittedMessages)`
+inside `createQuery`. The adapter publishes a bounded, detached `MESSAGES_SNAPSHOT`
+before native query events. This affects the client display only; select model
+history independently. Calls after the factory returns are rejected to preserve
+active message and tool lifecycles. State and custom events can still stream
+throughout the run. This does not enable interrupt resumption.
+
 ## Consume events directly
 
 ```ts

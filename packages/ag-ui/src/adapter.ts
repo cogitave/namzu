@@ -163,6 +163,7 @@ export class AGUIAdapter {
 				signal,
 			)
 			signal.throwIfAborted()
+			ui.sealInitialMessages()
 			// Wire IDs are correlation strings, never filesystem keys or trusted kernel scope.
 			const nativeSignal = params.signal ? AbortSignal.any([params.signal, signal]) : signal
 			if (nativeSignal !== signal) nativeSignal.addEventListener('abort', closeUI, { once: true })
@@ -249,6 +250,7 @@ export class AGUIAdapter {
 		try {
 			signal.throwIfAborted()
 			yield* deliver(mapper.start())
+			for (const event of ui.drain()) yield this.checked(event)
 			source = query(params)
 			pull()
 			while (!sourceDone) {
