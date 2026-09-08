@@ -83,3 +83,16 @@ string.
 ## License
 
 FSL-1.1-MIT, converting to MIT two years after each release.
+
+## Native JSON response format
+
+Direct `chatStream` calls map `responseFormat: { type: 'json_schema', json_schema }`
+to Anthropic's `output_config.format`, alongside any reasoning effort. Supply an
+Anthropic-compatible JSON schema; the driver does not remove constraints.
+`json_object` and `json_schema.strict: false` fail locally with a `bad_request`
+provider error. The shared format name is not sent to this API.
+
+This provider-level feature does not enable native mode in
+`QueryParams.structuredOutput`; that still uses the SDK output tool. See
+[structured output review and native transport](../../../docs/sdk/structured-output-review.md)
+for the boundary and tested behavior.

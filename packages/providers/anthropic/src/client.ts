@@ -981,17 +981,31 @@ export class AnthropicProvider implements LLMProvider {
 		// A sibling of `thinking`, not a field inside it — and gated on the
 		// model, since only some accept it at all.
 		const effort = resolveEffort(params.effort, thinkingBody, capability, model)
-		// Merged rather than assigned. `output_config` is a shared envelope on
-		// this wire — a structured-output format and a task budget live in it
-		// too, and `responseFormat` already exists on the params unhandled
-		// here. Assigning would mean whoever wires the next one silently
-		// deletes effort, or has effort silently delete theirs, depending only
-		// on which line ran last.
-		if (effort)
-			body.output_config = {
-				...(body.output_config as object | undefined),
-				effort,
+		// Effort and the native JSON format share the same envelope.
+		const outputConfig: Record<string, unknown> = {}
+		if (effort) outputConfig.effort = effort
+		if (params.responseFormat) {
+			if (params.responseFormat.type !== 'json_schema')
+				throw new ProviderRequestError({
+					kind: 'bad_request',
+					providerId: 'anthropic',
+					detail:
+						'Anthropic responseFormat requires json_schema; schema-free json_object is unsupported.',
+				})
+			if (params.responseFormat.json_schema.strict === false)
+				throw new ProviderRequestError({
+					kind: 'bad_request',
+					providerId: 'anthropic',
+					detail:
+						'Anthropic native JSON output cannot disable schema enforcement; omit strict or set it to true.',
+				})
+			outputConfig.format = {
+				type: 'json_schema',
+				schema: params.responseFormat.json_schema.schema,
 			}
+		}
+		if (Object.keys(outputConfig).length) body.output_config = outputConfig
+
 		if (params.temperature !== undefined) body.temperature = params.temperature
 		if (params.topP !== undefined) body.top_p = params.topP
 		if (params.topK !== undefined) body.top_k = params.topK

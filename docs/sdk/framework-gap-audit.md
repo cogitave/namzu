@@ -176,3 +176,8 @@ The adapter now supports explicit initial `MESSAGES_SNAPSHOT` publication throug
 verify stale display history replacement before new query events. This closes
 initial display reconciliation only; snapshots at a live interrupt boundary,
 frontend execution and replay-safe AG-UI resume remain open.
+
+Anthropic's provider-level `responseFormat` omission is now fixed: `json_schema`
+reaches `output_config.format` alongside effort. Real vendor-SDK loopback tests
+verify the body and local refusal of unsupported format variants. Native mode
+selection and validation inside `query` remain open.

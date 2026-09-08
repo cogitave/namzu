@@ -58,3 +58,48 @@ receipt that is no longer JSON fails before review; it cannot be accepted as
 validated output. Hosts expecting larger results must raise `maxToolOutputChars`
 (or explicitly set zero to disable that cap) and budget model context accordingly.
 A separate durable structured-result channel remains future work.
+
+## Anthropic provider-level native JSON format
+
+Direct `AnthropicProvider.chatStream` calls now forward
+`ChatCompletionParams.responseFormat` with `type: 'json_schema'` to
+`output_config.format`, preserving any sibling reasoning `effort`. The mapping
+follows the [Anthropic structured-output API](https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
+The shared schema `name` is not an Anthropic format field and is not sent.
+
+```ts
+import { AnthropicProvider } from '@namzu/anthropic'
+import type { ChatCompletionParams } from '@namzu/sdk'
+
+export function streamNativeJSON(provider: AnthropicProvider, request: ChatCompletionParams) {
+  return provider.chatStream({
+    ...request,
+    responseFormat: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'score',
+        strict: true,
+        schema: {
+          type: 'object',
+          properties: { score: { type: 'number' } },
+          required: ['score'],
+          additionalProperties: false,
+        },
+      },
+    },
+  })
+}
+```
+
+Native Anthropic output always constrains the schema. `strict: false` and
+schema-free `json_object` are rejected locally as `ProviderRequestError` with
+`kind: 'bad_request'`. Omitting `strict` uses native schema enforcement. The
+driver forwards the schema without weakening unsupported constraints; the
+vendor still decides model and schema compatibility. Callers must inspect the
+finish reason and validate the returned text before consuming it.
+
+Loopback HTTP tests exercise the real vendor SDK request encoding and streamed
+response, including effort coexistence and refusal before network dispatch.
+They do not establish live model or subscription eligibility. This fixes the
+driver transport seam only: `QueryParams.structuredOutput` still uses the output
+tool and does not select a native response-format mode.
