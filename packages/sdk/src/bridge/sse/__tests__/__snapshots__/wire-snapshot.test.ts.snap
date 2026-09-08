@@ -11,6 +11,7 @@ exports[`every RunEvent has a decided place on the SSE wire > declines nothing b
   "subsession_idled",
   "subsession_messaged",
   "subsession_spawned",
+  "tool_calls_admitted",
 ]
 `;
 
@@ -399,6 +400,7 @@ exports[`every RunEvent has a decided place on the SSE wire > pins the wire name
     ],
     "wire": "token.usage",
   },
+  "tool_calls_admitted": null,
   "tool_completed": {
     "keys": [
       "is_error",

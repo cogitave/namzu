@@ -68,6 +68,14 @@ const AGENT_RESULT = {
 }
 
 export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
+	tool_calls_admitted: () => ({
+		type: 'tool_calls_admitted',
+		runId: FIXTURE_RUN_ID,
+		kind: 'batch',
+		count: 1,
+		used: 1,
+		limit: 5,
+	}),
 	run_started: () => ({ type: 'run_started', runId: FIXTURE_RUN_ID }),
 	iteration_started: () => ({ type: 'iteration_started', runId: FIXTURE_RUN_ID, iteration: 1 }),
 	approval_policy_changed: () => ({

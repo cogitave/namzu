@@ -34,6 +34,8 @@ type EventTransform<K extends RunEvent['type']> = {
 const MAPPING: {
 	[K in RunEvent['type']]: EventTransform<K>
 } = {
+	// Internal cumulative admission ledger, not a public UI event.
+	tool_calls_admitted: null,
 	run_started: {
 		wire: 'run.started',
 		transform: (e, runId) => ({

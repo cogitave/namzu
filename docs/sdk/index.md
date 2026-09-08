@@ -2,6 +2,9 @@
 
 The kernel.
 
+* [Structured output review](structured-output-review.md) - Parsed-result validation, bounded corrections and checkpoint recovery.
+* [Tool call budgets](tool-call-budget.md) - Durable per-run admissions, batch limits and recovery accounting.
+
 * [Tool discovery](tool-discovery.md) - Verified active matches, bounded deferred activation and allowed-tool filtering.
 
 * [Computer action capabilities](computer-actions.md) - Exact supported actions and per-gesture mouse buttons.

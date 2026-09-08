@@ -46,6 +46,8 @@ type A2ATransform<K extends RunEvent['type']> =
 const MAPPING: {
 	[K in RunEvent['type']]: A2ATransform<K>
 } = {
+	// Internal cumulative admission ledger, not a public UI event.
+	tool_calls_admitted: null,
 	run_started: (e, ctx) => statusEvent(e.runId, 'running', false, ctx),
 
 	run_completed: (e, ctx) => {

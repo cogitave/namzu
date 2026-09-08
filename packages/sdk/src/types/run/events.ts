@@ -101,6 +101,16 @@ interface RunEventEnvelope {
 }
 
 type CoreRunEvent =
+	| {
+			type: 'tool_calls_admitted'
+			runId: RunId
+			kind: 'initialize' | 'batch' | 'nested' | 'retry'
+			/** Newly reserved attempts; zero only for ledger initialization. */
+			count: number
+			/** Cumulative reserved attempts, including abandoned reservations. */
+			used: number
+			limit: number
+	  }
 	| { type: 'run_started'; runId: RunId; systemPrompt?: string }
 	| { type: 'iteration_started'; runId: RunId; iteration: number }
 	/**

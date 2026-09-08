@@ -44,6 +44,7 @@ exports[`every RunEvent has a decided place on the A2A wire > lists what it decl
   "task_updated",
   "text_delta",
   "token_usage_updated",
+  "tool_calls_admitted",
   "tool_executing",
   "tool_input_completed",
   "tool_input_delta",
@@ -147,6 +148,7 @@ exports[`every RunEvent has a decided place on the A2A wire > pins the shape of 
   "task_updated": null,
   "text_delta": null,
   "token_usage_updated": null,
+  "tool_calls_admitted": null,
   "tool_completed": [
     "artifact",
     "contextId",

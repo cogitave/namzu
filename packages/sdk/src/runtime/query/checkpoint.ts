@@ -214,6 +214,8 @@ export class CheckpointManager {
 	private workingStateSource?: () => WorkingStateSnapshot | undefined
 	private latestUserMessageSource?: () => UserMessage | undefined
 	private restoredUserMessage?: UserMessage
+	private structuredReviewAttemptsSource?: () => number
+	private restoredReviewAttempts = 0
 
 	/**
 	 * The most recent checkpoint this manager wrote, if any.
@@ -294,6 +296,14 @@ export class CheckpointManager {
 		return this.restoredUserMessage
 	}
 
+	setStructuredReviewAttemptsSource(source: () => number): void {
+		this.structuredReviewAttemptsSource = source
+	}
+
+	get restoredStructuredReviewAttempts(): number {
+		return this.restoredReviewAttempts
+	}
+
 	/**
 	 * The run's root span, so every checkpoint records the trace it was
 	 * taken inside and a resume can join it rather than starting a second,
@@ -325,6 +335,8 @@ export class CheckpointManager {
 			runCreatedAt: this.runCreatedAt,
 			iteration,
 			messages: [...runMgr.messages],
+			structuredReviewAttempts:
+				this.structuredReviewAttemptsSource?.() ?? this.restoredReviewAttempts,
 			...(latestUserMessage ? { latestUserMessage: snapshotUserIntent(latestUserMessage) } : {}),
 			tokenUsage: { ...runMgr.tokenUsage },
 			budgetBinding: runMgr.budget?.binding,
@@ -516,6 +528,10 @@ export class CheckpointManager {
 		// its origin's age. A guard that no input can trip would have read as
 		// protection and been none.
 		this.runCreatedAt ??= checkpoint.runCreatedAt
+		const reviewAttempts = checkpoint.structuredReviewAttempts ?? 0
+		if (!Number.isSafeInteger(reviewAttempts) || reviewAttempts < 0)
+			throw new Error('Checkpoint structuredReviewAttempts must be a nonnegative safe integer')
+		this.restoredReviewAttempts = reviewAttempts
 		this.restoredUserMessage =
 			checkpoint.latestUserMessage === undefined
 				? undefined

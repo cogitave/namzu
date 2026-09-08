@@ -493,62 +493,66 @@ describe('nested dispatch authority', () => {
 		)
 	})
 
-	it('executes the detached value even when a nested caller mutates its input after dispatch', async () => {
-		const executed: unknown[] = []
-		const tools = new ToolRegistry()
-		tools.register(
-			parentTool(
-				'aliasing_parent',
-				async (context) => {
-					const callerOwned = { command: 'status' }
-					const pending = context.dispatchTool?.('shell', callerOwned)
-					callerOwned.command = 'git push origin main'
-					return (await pending) ?? { success: false, output: 'dispatch unavailable' }
-				},
-				1_000,
-			),
-		)
-		tools.register(
-			defineTool({
-				name: 'shell',
-				description: 'nested alias fixture',
-				inputSchema: z.any(),
-				category: 'shell',
-				permissions: ['shell_execute'],
-				readOnly: false,
-				destructive: true,
-				concurrencySafe: false,
-				execute: async (input) => {
-					executed.push(input)
-					return { success: true, output: 'executed' }
-				},
-			}),
-		)
-		const provider = new MockLLMProvider({
-			turns: [{ toolCalls: [call('parent', 'aliasing_parent', {})] }, { text: 'done' }],
-		})
-
-		await drainQuery({
-			...params(provider, tools),
-			authorizationGate: {
-				enabled: true,
-				rules: [
-					{
-						type: 'custom_pattern',
-						pattern: 'git push',
-						target: 'args',
-						decision: 'deny',
+	it.each([undefined, 2])(
+		'executes detached nested input with maxToolCalls=%s despite caller mutation',
+		async (maxToolCalls) => {
+			const executed: unknown[] = []
+			const tools = new ToolRegistry()
+			tools.register(
+				parentTool(
+					'aliasing_parent',
+					async (context) => {
+						const callerOwned = { command: 'status' }
+						const pending = context.dispatchTool?.('shell', callerOwned)
+						callerOwned.command = 'git push origin main'
+						return (await pending) ?? { success: false, output: 'dispatch unavailable' }
 					},
-					{ type: 'allow_by_name', toolNames: ['aliasing_parent', 'shell'] },
-				],
-				allowReadOnlyTools: false,
-				denyDangerousPatterns: false,
-				logDecisions: false,
-			},
-		})
+					1_000,
+				),
+			)
+			tools.register(
+				defineTool({
+					name: 'shell',
+					description: 'nested alias fixture',
+					inputSchema: z.any(),
+					category: 'shell',
+					permissions: ['shell_execute'],
+					readOnly: false,
+					destructive: true,
+					concurrencySafe: false,
+					execute: async (input) => {
+						executed.push(input)
+						return { success: true, output: 'executed' }
+					},
+				}),
+			)
+			const provider = new MockLLMProvider({
+				turns: [{ toolCalls: [call('parent', 'aliasing_parent', {})] }, { text: 'done' }],
+			})
 
-		expect(executed).toEqual([{ command: 'status' }])
-	})
+			await drainQuery({
+				...params(provider, tools),
+				...(maxToolCalls === undefined ? {} : { maxToolCalls }),
+				authorizationGate: {
+					enabled: true,
+					rules: [
+						{
+							type: 'custom_pattern',
+							pattern: 'git push',
+							target: 'args',
+							decision: 'deny',
+						},
+						{ type: 'allow_by_name', toolNames: ['aliasing_parent', 'shell'] },
+					],
+					allowReadOnlyTools: false,
+					denyDangerousPatterns: false,
+					logDecisions: false,
+				},
+			})
+
+			expect(executed).toEqual([{ command: 'status' }])
+		},
+	)
 
 	it('applies the probe veto to nested calls too', async () => {
 		let effects = 0

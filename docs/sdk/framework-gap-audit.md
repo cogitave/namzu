@@ -97,14 +97,15 @@ approval, frontend tools or reconnect.
 
 ## Remaining kernel and harness differences
 
-**Structured-output execution paths need a unified validation contract.**
+**Structured-output host review is implemented; native modes remain open.**
 Namzu already validates structured output with Zod and bounded retries.
-However, `reviewAnswer` is called on the plain-text path in
-`packages/sdk/src/runtime/query/iteration/index.ts:1060`; successful structured
-tool output settles through a separate path at line 1204. Pydantic's
+The audit found `reviewAnswer` only on the plain-text path. Optional
+[structured output review](structured-output-review.md) now checks JSON-decoded
+candidates before settlement, with bounded corrections, fail-closed errors and
+checkpointed rejection counts. Pydantic's
 [parsed-output validators](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/_output.py#L126)
 provide a run-aware async validation/retry hook. Zod refinements are not absent
-in Namzu; the missing contract is a consistent host review of parsed results.
+in Namzu; the host review gap is now addressed.
 Also, provider-level `responseFormat` exists, but the query request assembly
 does not populate it from `StructuredOutputConfig`; Pydantic exposes explicit
 [native, tool and prompted modes](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/output.py#L43).
@@ -113,8 +114,9 @@ one bounded review loop; a native-schema run sends the expected wire format.
 
 **Cumulative tool-call admission is distinct from concurrency.**
 `packages/sdk/src/run/LimitChecker.ts` checks tokens, cost, time and iterations;
-the executor caps simultaneous calls. Neither exposes a built-in cumulative
-tool-call limit with batch preadmission. Pydantic checks a
+the executor caps simultaneous calls. Optional
+[tool call budgets](tool-call-budget.md) now add cumulative batch preadmission
+and durable per-run accounting for retries, nested calls and recovery. Pydantic checks a
 [projected batch count](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/_tool_execution.py#L495)
 before executing calls. Acceptance: a batch of three with only two calls left
 executes none; retries, nested calls and resumed runs have documented accounting.

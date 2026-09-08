@@ -431,6 +431,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'tool_calls_admitted':
 			case 'compaction_shed':
 				// Deliberately silent. The report is what a human reads about a
 				// run; replaying every shed message into it would bury the

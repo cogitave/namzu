@@ -190,6 +190,10 @@ export class IterationOrchestrator {
 			},
 		}
 		ctx.checkpointMgr.setLatestUserMessageSource(() => this.latestUserMessage)
+		ctx.checkpointMgr.setStructuredReviewAttemptsSource?.(() => this.structuredReviewAttempts)
+		const maxReviews = ctx.structuredOutput?.maxReviews
+		if (maxReviews !== undefined && (!Number.isSafeInteger(maxReviews) || maxReviews < 0))
+			throw new RangeError('structuredOutput.maxReviews must be a nonnegative safe integer')
 	}
 
 	/**
@@ -273,6 +277,7 @@ export class IterationOrchestrator {
 		const tracer = getTracer()
 		// Resume hydration happens after construction, before the loop starts.
 		this.latestUserMessage = this.ctx.checkpointMgr.restoredLatestUserMessage
+		this.structuredReviewAttempts = this.ctx.checkpointMgr.restoredStructuredReviewAttempts ?? 0
 		if (!this.latestUserMessage) {
 			for (const message of runMgr.messages) this.rememberUserMessage(message, false)
 		}
@@ -306,6 +311,19 @@ export class IterationOrchestrator {
 		// no post-loop block reaches.
 		try {
 			while (true) {
+				if (this.ctx.abortController.signal.aborted) {
+					runMgr.setStopReason('cancelled')
+					runMgr.markCancelled()
+					break
+				}
+				if (
+					this.ctx.structuredOutput?.review &&
+					this.structuredReviewAttempts >
+						(this.ctx.structuredOutput.maxReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT)
+				) {
+					runMgr.setStopReason('answer_rejected')
+					break
+				}
 				// Read AND clear, in that order, in this one place.
 				//
 				// The flag is set by the previous iteration and read by this
@@ -1201,7 +1219,35 @@ export class IterationOrchestrator {
 					// run ends here rather than paying for another turn whose only
 					// job would be to restate it — unless it shared its turn with
 					// other calls, which relays instead. See the method.
-					if (this.captureStructuredOutput(reviewOutcome.results, response)) {
+					const structuredOutcome = await this.captureStructuredOutput(
+						reviewOutcome.results,
+						response,
+					)
+					if (
+						structuredOutcome === 'retry' ||
+						structuredOutcome === 'exhausted' ||
+						structuredOutcome === 'cancelled'
+					) {
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							runId: runMgr.id,
+							iteration: iterationNum,
+							hasToolCalls: true,
+						})
+						yield* this.ctx.drainPending()
+						if (this.ctx.abortController.signal.aborted) {
+							runMgr.setStopReason('cancelled')
+							runMgr.markCancelled()
+							break
+						}
+						if (structuredOutcome === 'retry') continue
+						runMgr.setStopReason(
+							structuredOutcome === 'cancelled' ? 'cancelled' : 'answer_rejected',
+						)
+						if (structuredOutcome === 'cancelled') runMgr.markCancelled()
+						break
+					}
+					if (structuredOutcome === 'accepted') {
 						this.ctx.log.info('Structured output produced — ending run', {
 							[NAMZU.RUN_ID]: runMgr.id,
 							[NAMZU.ITERATION]: iterationNum,
@@ -1953,6 +1999,7 @@ export class IterationOrchestrator {
 	/** Turns spent asking the model again for a valid structured output. */
 	private structuredOutputAttempts = 0
 	private structuredOutputDone = false
+	private structuredReviewAttempts = 0
 
 	private structuredOutputRetryLimit(): number {
 		return this.ctx.structuredOutput?.maxRetries ?? DEFAULT_STRUCTURED_OUTPUT_RETRIES
@@ -2047,13 +2094,13 @@ export class IterationOrchestrator {
 	 * doing work, and it is the bound the neighbour relies on for the
 	 * identical pathology.
 	 */
-	private captureStructuredOutput(
+	private async captureStructuredOutput(
 		results: readonly ToolCallOutcome[],
 		response: ChatCompletionResponse,
-	): boolean {
-		if (!this.needsStructuredOutput()) return false
+	): Promise<'absent' | 'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
+		if (!this.needsStructuredOutput()) return 'absent'
 		const hit = results.find((r) => r.toolName === STRUCTURED_OUTPUT_TOOL_NAME && !r.isError)
-		if (!hit) return false
+		if (!hit) return 'absent'
 
 		const callCount = response.message.toolCalls?.length ?? 0
 		if (callCount > 1) {
@@ -2061,18 +2108,79 @@ export class IterationOrchestrator {
 				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
 				'namzu.runtime.calls_in_turn': callCount,
 			})
-			return false
+			return 'absent'
 		}
 
+		let parsed: unknown
 		try {
-			this.ctx.runMgr.setStructuredOutput(JSON.parse(hit.output))
+			parsed = JSON.parse(hit.output)
 		} catch {
 			// The tool serializes its own validated input, so this is
 			// unreachable in practice; keep the raw text rather than losing it.
-			this.ctx.runMgr.setStructuredOutput(hit.output)
+			if (this.ctx.structuredOutput?.review)
+				throw new Error(
+					'Structured review requires an intact JSON tool result; check tool-output limits and result transformations',
+				)
+			parsed = hit.output
 		}
+		const reviewer = this.ctx.structuredOutput?.review
+		if (reviewer) {
+			const signal = this.ctx.abortController.signal
+			if (signal.aborted) return 'cancelled'
+			let onAbort: () => void = () => {}
+			const aborted = new Promise<never>((_resolve, reject) => {
+				onAbort = () => reject(signal.reason ?? new Error('Structured review cancelled'))
+				signal.addEventListener('abort', onAbort, { once: true })
+			})
+			let verdict: AnswerReview
+			try {
+				verdict = await Promise.race([
+					Promise.resolve().then(() =>
+						reviewer(structuredClone(parsed), {
+							runId: this.ctx.runMgr.id,
+							iteration: this.ctx.runMgr.currentIteration,
+							signal,
+							messages: this.ctx.runMgr.messages,
+						}),
+					),
+					aborted,
+				])
+			} catch (error) {
+				if (signal.aborted) return 'cancelled'
+				throw error
+			} finally {
+				signal.removeEventListener('abort', onAbort)
+			}
+			if (signal.aborted) return 'cancelled'
+			if (!verdict || typeof verdict.accept !== 'boolean')
+				throw new Error('Structured reviewer returned an invalid verdict')
+			if (!verdict.accept) {
+				if (typeof verdict.feedback !== 'string' || verdict.feedback.trim().length === 0)
+					throw new Error('Structured reviewer rejection requires feedback')
+				this.structuredReviewAttempts++
+				this.ctx.runMgr.pushMessage(createRuntimeContextMessage(verdict.feedback, 'answer-review'))
+				// Persist both the feedback and its consumed allowance before the
+				// next request. This checkpoint is not an approval/park boundary.
+				const checkpoint = await this.ctx.checkpointMgr.create(
+					this.ctx.runMgr,
+					this.ctx.runMgr.currentIteration,
+				)
+				await this.ctx.emitEvent({
+					type: 'checkpoint_created',
+					runId: this.ctx.runMgr.id,
+					checkpointId: checkpoint.id,
+					iteration: this.ctx.runMgr.currentIteration,
+				})
+				if (signal.aborted) return 'cancelled'
+				return this.structuredReviewAttempts >
+					(this.ctx.structuredOutput?.maxReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT)
+					? 'exhausted'
+					: 'retry'
+			}
+		}
+		this.ctx.runMgr.setStructuredOutput(parsed)
 		this.structuredOutputDone = true
-		return true
+		return 'accepted'
 	}
 
 	/**

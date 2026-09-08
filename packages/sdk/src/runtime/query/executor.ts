@@ -50,6 +50,7 @@ import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
 import type { ToolResultObservation } from './project-instructions.js'
+import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
 import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 	type ToolOutputBudgetResult,
@@ -356,6 +357,10 @@ export interface ToolExecutorConfig {
 	toolRetryBackoff?: Partial<BackoffPolicy>
 	/** Max concurrently-executing concurrency-safe tools. */
 	maxToolConcurrency?: number
+	/** Per-run cumulative attempt admission limit; unset is unlimited. */
+	maxToolCalls?: number
+	/** Complete strict event replay for restoring a configured call budget. */
+	readToolCallBudgetEvents?: () => Promise<readonly RunEvent[]>
 
 	/**
 	 * Builds the durable-pause seam handed to one tool call.
@@ -492,6 +497,7 @@ export class ToolExecutor {
 	private workingStateManager?: WorkingStateManager
 	private probes: ProbeEnforcement
 	private parentSpan?: Span
+	private readonly toolCallBudget?: ToolCallBudget
 	private readonly preparedBatches = new WeakSet<PreparedToolBatch>()
 	/** Set per turn by the orchestrator; see {@link setStepAllowedTools}. */
 	private stepAllowedTools?: readonly string[]
@@ -517,6 +523,15 @@ export class ToolExecutor {
 		log: Logger,
 		probes: ProbeEnforcement = defaultProbeRegistry,
 	) {
+		assertMaxToolCalls(config.maxToolCalls)
+		if (config.maxToolCalls !== undefined) {
+			this.toolCallBudget = new ToolCallBudget(
+				config.maxToolCalls,
+				config.runId,
+				emitEvent,
+				config.readToolCallBudgetEvents,
+			)
+		}
 		this.config = config
 		this.activityStore = activityStore
 		this.emitEvent = emitEvent
@@ -729,6 +744,18 @@ export class ToolExecutor {
 			const owned = preparedBatch as OwnedPreparedToolBatch | undefined
 			if (owned && !this.preparedBatches.has(owned)) {
 				throw new Error('Prepared tool batch is not owned by this executor.')
+			}
+			const refusal = this.toolCallBudget
+				? await this.toolCallBudget.admit(
+						toolCalls.filter((call) => prior?.get(call.id) === undefined).length,
+						'batch',
+						this.config.abortSignal,
+					)
+				: undefined
+			if (refusal) {
+				const refused = new Map(denials)
+				for (const call of toolCalls) if (!refused.has(call.id)) refused.set(call.id, refusal)
+				return await this.runBatch(toolCalls, refused, prior, owned)
 			}
 			return await this.runBatch(toolCalls, denials, prior, owned)
 		} finally {
@@ -959,8 +986,14 @@ export class ToolExecutor {
 		// retained closure must be observationally inert after its invocation
 		// ends, not merely unable to finish the registry call it already started.
 		signal.throwIfAborted()
+		// Preparation detaches input synchronously before its first await.
+		// Admission must not add an earlier yield where the caller can mutate it.
 		const preparedCall = await this.prepareNestedCall(name, input, signal)
 		signal.throwIfAborted()
+		if (this.toolCallBudget) {
+			const refusal = await this.toolCallBudget.admit(1, 'nested', signal)
+			if (refusal) return { success: false, output: '', error: refusal }
+		}
 		const preparedInput = preparedCall.input
 
 		const parent = context.toolUseId
@@ -1567,6 +1600,19 @@ export class ToolExecutor {
 				break
 			}
 
+			let refusal: string | undefined
+			try {
+				if (this.toolCallBudget)
+					refusal = await this.toolCallBudget.admit(1, 'retry', this.config.abortSignal)
+			} catch (error) {
+				if (this.config.abortSignal.aborted) break
+				throw error
+			}
+			if (refusal) {
+				result = { success: false, output: '', error: refusal }
+				post = { override: null, retry: false }
+				break
+			}
 			result = await this.runOnce(toolName, input, toolContext, prepared)
 			post = await this.runPostToolHook(toolName, input, result)
 		}

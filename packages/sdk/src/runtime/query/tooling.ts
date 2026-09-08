@@ -43,6 +43,8 @@ export interface ToolingBootstrapConfig {
 	web?: import('../../types/tool/index.js').ToolContext['web']
 	toolRetryBackoff?: Partial<BackoffPolicy>
 	maxToolConcurrency?: number
+	maxToolCalls?: number
+	readToolCallBudgetEvents?: () => Promise<readonly RunEvent[]>
 	maxToolOutputChars?: number
 	maxToolContentBytes?: number
 	toolOutputDir?: string
@@ -83,6 +85,10 @@ export class ToolingBootstrap {
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
 				...(config.toolRetryBackoff !== undefined
 					? { toolRetryBackoff: config.toolRetryBackoff }
+					: {}),
+				...(config.maxToolCalls !== undefined ? { maxToolCalls: config.maxToolCalls } : {}),
+				...(config.readToolCallBudgetEvents
+					? { readToolCallBudgetEvents: config.readToolCallBudgetEvents }
 					: {}),
 				...(config.maxToolConcurrency !== undefined
 					? { maxToolConcurrency: config.maxToolConcurrency }

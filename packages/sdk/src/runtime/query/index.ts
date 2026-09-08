@@ -151,6 +151,7 @@ import {
 } from './sandbox-lifecycle.js'
 import { SteeringBinding, type SteeringChannel, isOperatorUserMessage } from './steering.js'
 import { resolveQueryBudget } from './token-budget.js'
+import { assertMaxToolCalls } from './tool-call-budget.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
@@ -349,6 +350,8 @@ export interface QueryParams {
 
 	/** Max concurrently-executing concurrency-safe tools in one batch. */
 	maxToolConcurrency?: number
+	/** Per-run cumulative tool attempt limit, including nested calls and retries. Unset is unlimited. Re-supply on resume; durable reservations are never refunded. */
+	maxToolCalls?: number
 
 	/**
 	 * Model-visible size cap for a single tool result. Over-budget output is
@@ -1027,6 +1030,7 @@ function withoutOwnedResumeTurn(
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
+	assertMaxToolCalls(params.maxToolCalls)
 	// Required types do not protect JavaScript callers. Reject missing scope
 	// before opening a budget or persisting a run without its owning identity.
 	const missingFields = (['sessionId', 'topicId', 'projectId', 'tenantId'] as const).filter(
@@ -1731,6 +1735,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
 			...(params.toolRetryBackoff !== undefined
 				? { toolRetryBackoff: params.toolRetryBackoff }
+				: {}),
+			...(params.maxToolCalls !== undefined
+				? {
+						maxToolCalls: params.maxToolCalls,
+						readToolCallBudgetEvents: () =>
+							ctx.runMgr.getRunStore().readEvents({ integrity: 'strict' }),
+					}
 				: {}),
 			...(params.maxToolConcurrency !== undefined
 				? { maxToolConcurrency: params.maxToolConcurrency }

@@ -21,6 +21,16 @@ export interface StructuredOutputConfig<TSchema extends z.ZodType = z.ZodType> {
 	 * than iterating against `maxIterations`.
 	 */
 	maxRetries?: number
+
+	/** Review the JSON-decoded result before settlement. Narrow the value before use: serialization may change schema output types. Exceptions fail the run; cancellation is propagated. */
+	review?: (
+		output: unknown,
+		context: import('../run/answer-review.js').AnswerReviewContext,
+	) =>
+		| import('../run/answer-review.js').AnswerReview
+		| Promise<import('../run/answer-review.js').AnswerReview>
+	/** Corrections allowed after host rejection, separate from schema retries. Default 3; zero allows no correction. */
+	maxReviews?: number
 }
 
 /**

@@ -218,6 +218,8 @@ export interface IterationCheckpoint {
 	 * checkpoints omit this field and use surviving history on resume.
 	 */
 	latestUserMessage?: UserMessage
+	/** Structured host-review rejections consumed at this checkpoint, independent of compacted messages. */
+	structuredReviewAttempts?: number
 	tokenUsage: TokenUsage
 	costInfo: CostInfo
 	/**
