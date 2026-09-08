@@ -96,7 +96,22 @@ saved preferences change. A cancelled or failed switch leaves the previous
 session usable. A successful model switch resets the session’s effort override
 to the new model’s default.
 
-You can also ask for a change in the main conversation, for example
+Standalone `/model <ID>`, “modeli opus-5 yapar mısın” and
+“gpt-5.6 lunaya geçer misin” are host selections: they resolve the detected
+catalogues without sending the request to the model. The composer previews the
+requested model before Enter. Exact IDs win; a unique complete suffix such as
+`opus-5` can resolve to `claude-opus-5`. Ambiguous selections require an explicit
+provider or the picker. These selections preserve history and saved defaults.
+Attachments and requests mixing model selection with other work remain ordinary
+prompts. Active work must settle before a direct host selection can apply.
+
+The composer also previews `/effort <level>` against the current session's
+published menu, marking unsupported values unavailable. Preview is not application.
+`ultracode` is not an alias for an effort level; available levels come from the
+provider. See [OpenAI reasoning menus](../sdk/openai-reasoning.md) for Astra's
+different API and subscription menus.
+
+You can also ask for a change within a larger conversation request, for example
 “gpt-5.6-luna’ya geç”. In response to an explicit request, the interactive
 agent can call `switch_model` with `model` and optional `provider`, using
 exact catalogue and provider registry IDs. It checks the usable
@@ -167,6 +182,17 @@ delegated agents. Unknown prices remain unknown, partly priced usage is a
 lower bound, and measured zero is shown distinctly.
 
 ## Picker navigation
+
+The model picker filters the current provider's catalogue by model ID and
+display name as you type. Search ignores case and matches every typed word.
+Press `/` to start search explicitly, including a query beginning with `p` or
+a number. Before search starts, `p` changes provider and numbers select a row;
+while searching they are ordinary text. Left arrow always changes provider.
+Backspace removes a character and Ctrl+U clears the search. A selected model
+stays selected when it still matches, and current/default markers remain visible.
+Arrows, PgUp/PgDn and Home/End move through the filtered results. Enter applies
+the highlighted model; an empty result cannot be applied. Esc retains its
+normal back or cancel behavior, including cancelling a pending selection.
 
 In `/agents`, Enter opens the selected child's live transcript as a separate
 framed screen. Esc returns to the agent list; `q` or Ctrl+T returns to the main

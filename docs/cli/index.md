@@ -1,5 +1,8 @@
 # CLI
 
+* [Conversation evidence](conversation-evidence.md) - Bounded recovery of retained original tool and assistant output after compaction.
+* [Delegated work](delegated-work.md) - Background child tasks, queued corrections, completion and ownership.
+
 The operator application.
 
 * [Terminal design](terminal-design.md) - Namzu's visual identity, conversation hierarchy and terminal interaction boundaries.

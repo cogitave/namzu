@@ -114,6 +114,7 @@ describe('buildPermissionSummary', () => {
 						workflow: 'Product review',
 						phase: 'Research',
 						phase_order: 0,
+						run_in_background: true,
 					},
 					isDestructive: false,
 				}),
@@ -131,6 +132,7 @@ describe('buildPermissionSummary', () => {
 			'4. Delivery plan · general-purpose (default)',
 		])
 		expect(summary.text).toContain('Task: API research')
+		expect(summary.text).toContain('Execution: background')
 		expect(summary.text).toContain('Instructions: Complete api research and report evidence.')
 		expect(summary.text).toContain('Workflow label: Product review')
 		expect(summary.text).toContain('Phase display order: 1')

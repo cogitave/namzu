@@ -20,6 +20,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	readOnly: boolean
 	destructive: boolean | ((input: z.infer<S>) => boolean)
 	concurrencySafe: boolean
+	/** Batch ordering boundary; see {@link ToolDefinition.executionBarrier}. */
+	executionBarrier?: boolean
 	tier?: string
 	/**
 	 * How this tool's call and result should be shown; see
@@ -81,6 +83,9 @@ export function defineTool<S extends z.ZodType>(
 		...(options.presentResult ? { presentResult: options.presentResult } : {}),
 		...(options.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),
 		...(options.terminal !== undefined ? { terminal: options.terminal } : {}),
+		...(options.executionBarrier !== undefined
+			? { executionBarrier: options.executionBarrier }
+			: {}),
 		category: options.category,
 		permissions: options.permissions,
 		isReadOnly: () => options.readOnly,

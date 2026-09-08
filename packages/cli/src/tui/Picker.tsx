@@ -7,7 +7,7 @@
  * live agent session lives in `agent.ts`.
  */
 
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -31,7 +31,13 @@ import {
 	sessionCredential,
 } from './credential-entry.js'
 import { type ModelStep, modelStep } from './model-choices.js'
+import { filterModelChoices } from './model-search.js'
 import { moveSelection, selectionWindow } from './selection-window.js'
+import {
+	choiceDisplayWidth,
+	eraseLastChoiceGrapheme,
+	truncateChoiceText,
+} from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { useSelectionIndex } from './use-selection-index.js'
@@ -251,6 +257,11 @@ export function Picker({
 		setSelection: setCursor,
 	} = useSelectionIndex(Math.max(0, initialIndex))
 	const [errorHint, setErrorHint] = useState<string | null>(null)
+	// The ref makes a pasted query followed immediately by Enter use the new
+	// filtered list, even before React has drawn another frame. Null keeps the
+	// existing provider and numeric shortcuts available outside search.
+	const [modelQuery, setModelQuery] = useState<string | null>(null)
+	const modelQueryRef = useRef<string | null>(null)
 	// `null` while choosing a provider. Once a provider is accepted this holds
 	// the model step, and `undefined` inside it means the listing is in flight.
 	const [modelPhase, setModelPhase] = useState<{
@@ -285,6 +296,8 @@ export function Picker({
 	const openModels = useCallback(
 		(current: DetectedProvider, returnToProviders = true) => {
 			const operation = beginOperation()
+			modelQueryRef.current = null
+			setModelQuery(null)
 			setModelPhase({ provider: current, step: undefined, returnToProviders })
 			setCursor(0)
 			const activeModel =
@@ -509,6 +522,7 @@ export function Picker({
 		}
 
 		if (
+			modelPhase === null &&
 			(detected.length === 0 || keyEntryFor) &&
 			onCredential &&
 			(input === 'k' || input === 'K')
@@ -523,7 +537,10 @@ export function Picker({
 			return
 		}
 
-		if (modelPhase && (key.leftArrow || input === 'p' || input === 'P')) {
+		if (
+			modelPhase &&
+			(key.leftArrow || (modelQueryRef.current === null && (input === 'p' || input === 'P')))
+		) {
 			invalidateOperation()
 			setCursor(
 				Math.max(
@@ -633,28 +650,41 @@ export function Picker({
 		if (modelPhase) {
 			const step = modelPhase.step
 			if (!step) return // still listing; ignore input rather than act on a stale list
+			const choices = filterModelChoices(step.choices, modelQueryRef.current ?? '')
+			const updateQuery = (next: string | null) => {
+				const selectedId = choices[cursorRef.current]?.id
+				const filtered = filterModelChoices(step.choices, next ?? '')
+				modelQueryRef.current = next
+				setModelQuery(next)
+				setCursor(
+					Math.max(
+						0,
+						filtered.findIndex((choice) => choice.id === selectedId),
+					),
+				)
+				setErrorHint(null)
+			}
 			if (key.home || key.end || key.pageUp || key.pageDown) {
 				setCursor((current) =>
 					moveSelection(
 						current,
-						step.choices.length,
+						choices.length,
 						key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 					),
 				)
 				return
 			}
 			if (key.upArrow) {
-				setCursor((current) => moveSelection(current, step.choices.length, 'previous'))
+				setCursor((current) => moveSelection(current, choices.length, 'previous'))
 				return
 			}
 			if (key.downArrow) {
-				setCursor((current) => moveSelection(current, step.choices.length, 'next'))
+				setCursor((current) => moveSelection(current, choices.length, 'next'))
 				return
 			}
 			if (key.return) {
-				const chosen = step.choices[cursorRef.current]
+				const chosen = choices[cursorRef.current]
 				if (!chosen) {
-					setErrorHint('No model available.')
 					return
 				}
 				const operation = beginOperation()
@@ -664,8 +694,27 @@ export function Picker({
 				)
 				return
 			}
-			const n = Number.parseInt(input, 10)
-			if (Number.isFinite(n) && n >= 1 && n <= step.choices.length) setCursor(n - 1)
+			if (key.ctrl && input === 'u') {
+				updateQuery(null)
+				return
+			}
+			if (key.ctrl || key.meta || key.rightArrow || key.tab) return
+			if (key.backspace || key.delete) {
+				const next = eraseLastChoiceGrapheme(modelQueryRef.current ?? '')
+				updateQuery(next || null)
+				return
+			}
+			if (modelQueryRef.current === null && /^\d+$/.test(input)) {
+				const n = Number(input)
+				if (n >= 1 && n <= choices.length) setCursor(n - 1)
+				return
+			}
+			if (modelQueryRef.current === null && input === '/') {
+				updateQuery('')
+				return
+			}
+			const text = input.replace(/\p{Cc}/gu, '')
+			if (text) updateQuery(((modelQueryRef.current ?? '') + text).slice(0, 512))
 			return
 		}
 
@@ -830,6 +879,12 @@ export function Picker({
 						)
 						.map((provider) => provider.entry.label)}
 					step={modelPhase.step}
+					query={modelQuery}
+					currentModel={
+						currentProvider == null || currentProvider === modelPhase.provider.entry.id
+							? currentModel
+							: undefined
+					}
 					cursor={cursor}
 					errorHint={errorHint}
 					returnToProviders={modelPhase.returnToProviders}
@@ -996,6 +1051,8 @@ function ModelStepView({
 	providerLabel,
 	otherProviders,
 	step,
+	query,
+	currentModel,
 	cursor,
 	errorHint,
 	returnToProviders,
@@ -1004,12 +1061,23 @@ function ModelStepView({
 	readonly providerLabel: string
 	readonly otherProviders: readonly string[]
 	readonly step: ModelStep | undefined
+	readonly query: string | null
+	readonly currentModel?: string | null
 	readonly cursor: number
 	readonly errorHint: string | null
 	readonly returnToProviders: boolean
 	readonly sessionOnly: boolean
 }) {
-	const window = step ? selectionWindow(step.choices, cursor) : null
+	const terminal = useWindowSize()
+	const columns = terminal.columns ?? 80
+	const width = Math.max(1, columns - 4)
+	const choices = step ? filterModelChoices(step.choices, query ?? '') : []
+	const noticeRows = step?.notice ? Math.ceil(choiceDisplayWidth(step.notice) / width) : 0
+	const window = selectionWindow(
+		choices,
+		cursor,
+		Math.max(1, Math.min(7, (terminal.rows ?? 24) - 7 - noticeRows)),
+	)
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
@@ -1017,22 +1085,26 @@ function ModelStepView({
 					<Text color={theme.accent.system} bold wrap="truncate-end">
 						Choose a model · {providerLabel}
 					</Text>
-					<Text color={theme.text.secondary}>
-						{sessionOnly
-							? 'Applies to this session only (temporary credential).'
-							: 'Applies to this session and future launches.'}
+					<Text color={theme.text.secondary} wrap="truncate-end">
+						{columns < 70
+							? sessionOnly
+								? 'Applies to this session only.'
+								: 'Session and future launches.'
+							: sessionOnly
+								? 'Applies to this session only (temporary credential).'
+								: 'Applies to this session and future launches.'}
 					</Text>
 				</Box>
-				{step && step.choices.length > 0 ? (
+				{step ? (
 					<Text color={theme.text.muted}>
-						{cursor + 1}/{step.choices.length}
+						{choices.length > 0 ? cursor + 1 : 0}/{choices.length}
 					</Text>
 				) : null}
 			</Box>
 			{/* Use the former header spacer for a visible provider action. */}
 			<Box>
 				<Box flexShrink={0}>
-					<Text color={theme.accent.system}>p change provider</Text>
+					<Text color={theme.accent.system}>{query === null ? 'p' : '←'} change provider</Text>
 				</Box>
 				{otherProviders.length > 0 ? (
 					<Box minWidth={0} flexShrink={1}>
@@ -1048,31 +1120,51 @@ function ModelStepView({
 				<Text color={theme.text.muted}>Asking {providerLabel} what it has…</Text>
 			) : (
 				<>
+					<Text color={query === null ? theme.text.muted : theme.text.primary}>
+						{truncateChoiceText(`Search: ${query ?? 'type or / to filter'}`, width)}
+					</Text>
 					{step.notice ? (
-						<Box paddingBottom={1}>
-							<Text color={theme.status.warn}>{step.notice}</Text>
-						</Box>
+						<Text color={theme.status.warn}>{terminalDisplayText(step.notice)}</Text>
 					) : null}
 					<Box flexDirection="column">
-						{window?.items.map((c, visibleIndex) => {
+						{choices.length === 0 ? (
+							<Text color={theme.text.muted}>No matching models · Ctrl+U clears</Text>
+						) : null}
+						{window.items.map((c, visibleIndex) => {
 							const index = window.start + visibleIndex
+							const prefix = `${index === cursor ? '❯ ' : '  '}${index + 1}. `
+							const notes =
+								columns < 70
+									? [
+											c.id === currentModel ? '(current)' : '',
+											c.note?.includes('namzu default') ? '(default)' : '',
+											c.note?.includes('image input') ? '(image)' : '',
+										]
+									: [
+											c.note,
+											c.id === currentModel && !c.note?.includes('current') ? '(current)' : '',
+										]
+							const note = notes.filter(Boolean).join(' ')
+							const labelWidth = width - choiceDisplayWidth(prefix) - choiceDisplayWidth(note) - 1
 							return (
 								<Text
 									key={c.id}
 									color={index === cursor ? theme.accent.system : theme.text.primary}
 								>
-									{index === cursor ? '❯ ' : '  '}
-									{index + 1}. {c.label}
-									{c.note ? ` ${c.note}` : ''}
+									{prefix}
+									{truncateChoiceText(c.label, labelWidth)}
+									{note ? ` ${note}` : ''}
 								</Text>
 							)
 						})}
 					</Box>
 				</>
 			)}
-			<Box flexDirection="column" paddingTop={1}>
+			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
-					↑↓ · PgUp/PgDn · Home/End · enter apply · esc {returnToProviders ? 'back' : 'cancel'}
+					{columns < 70
+						? `↑↓ · enter apply · esc ${returnToProviders ? 'back' : 'cancel'}`
+						: `↑↓ · PgUp/PgDn · Home/End · enter apply · esc ${returnToProviders ? 'back' : 'cancel'}${query === null ? ' · digits select' : ' · Ctrl+U clears'}`}
 				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>

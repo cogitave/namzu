@@ -17,12 +17,14 @@ import { readClipboardImage } from '../integrations/clipboard/image.js'
 import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
 import type { UserCommand } from '../user-commands/store.js'
 import { activeFileMention, matchMentionableFiles } from './mentions.js'
+import { parseModelSelectionIntent } from './model-selection-intent.js'
 import { type SlashCommand, matchSlashCommands } from './slashCommands.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
 export interface ComposerProps {
 	readonly disabled?: boolean
+	readonly reasoningEffortLevels?: readonly string[]
 	readonly onSubmit: (
 		value: string,
 		attachments?: readonly MessageAttachment[],
@@ -328,6 +330,7 @@ function deleteNextWordAt(
 
 export function Composer({
 	disabled = false,
+	reasoningEffortLevels,
 	onSubmit,
 	history,
 	userCommands = [],
@@ -903,6 +906,15 @@ export function Composer({
 	// preserving it is what an unmounting ternary could not do.
 	if (hidden) return null
 
+	const modelIntent =
+		!attachments.length && !pastes.length ? parseModelSelectionIntent(value) : undefined
+	const effortIntent =
+		!attachments.length && !pastes.length
+			? /^\/effort\s+([a-z]+)$/.exec(value.trim())?.[1]
+			: undefined
+	const effortAvailable =
+		effortIntent === 'default' ||
+		(effortIntent !== undefined && reasoningEffortLevels?.includes(effortIntent))
 	const promptGlyph = disabled ? '…' : '›'
 	const showPlaceholder = !disabled && value.length === 0 && !editPreviousArmed
 	const historySearchQuery = historySearch
@@ -910,6 +922,18 @@ export function Composer({
 		: null
 	return (
 		<Box flexDirection="column">
+			{effortIntent ? (
+				<Box paddingX={1}>
+					<Text color={effortAvailable ? theme.accent.tool : theme.status.warn}>
+						Effort: {effortIntent} · {effortAvailable ? 'requested' : 'unavailable for this model'}
+					</Text>
+				</Box>
+			) : null}
+			{modelIntent ? (
+				<Box paddingX={1}>
+					<Text color={theme.accent.tool}>Model: {modelIntent.query} · requested</Text>
+				</Box>
+			) : null}
 			{pastes.length > 0 || attachments.length > 0 ? (
 				<Box flexDirection="column" paddingX={1} paddingBottom={1}>
 					{attachments.map((attachment, i) => (

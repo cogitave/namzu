@@ -172,6 +172,8 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
+import { buildConversationSearchTool } from '../integrations/sessions/conversation-search.js'
+import type { CliSessions } from '../integrations/sessions/store.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
@@ -1140,8 +1142,11 @@ function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
 }
 
 function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
-	return getBuiltinTools().flatMap((tool) => {
-		if (EXCLUDED_BUILTINS.has(tool.name)) return []
+	return getBuiltinTools().flatMap((source) => {
+		if (EXCLUDED_BUILTINS.has(source.name)) return []
+		const tool = ['bash', 'write', 'edit'].includes(source.name)
+			? { ...source, executionBarrier: true }
+			: source
 		if (backgroundJobs) return [tool]
 		if (tool.name === 'job') return []
 		return [tool.name === 'bash' ? foregroundOnlyBash(tool) : tool]
@@ -1211,6 +1216,8 @@ export interface AgentSessionOptions {
 	 * Project. Absent preserves the embedded API's historical cwd-local layout.
 	 */
 	readonly stateRoot?: string
+	/** Host-owned durable conversations, for run-scoped original evidence retrieval. */
+	readonly conversationSessions?: CliSessions
 	/**
 	 * Operator-authored tool rules, already compiled to the kernel's vocabulary.
 	 *
@@ -1825,6 +1832,21 @@ export async function createAgentSession(
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<RunId, RunScope>()
 	const delegatedInputWaiters = new Map<RunId, NonNullable<SendOptions['waitForInbound']>>()
+	if (options.conversationSessions) {
+		const sessions = options.conversationSessions
+		registry.register(
+			buildConversationSearchTool((context) => {
+				const owner = delegationScopes.get(context.runId)
+				if (
+					!owner ||
+					owner.projectId !== sessions.projectId ||
+					owner.tenantId !== sessions.tenantId
+				)
+					throw new Error('The requesting run does not own this conversation.')
+				return { sessions, sessionId: owner.sessionId }
+			}),
+		)
+	}
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
@@ -1910,6 +1932,7 @@ export async function createAgentSession(
 		})
 		subagentRuntime = sub
 		registry.register([sub.agentTool, sub.waitForTaskTool])
+		if (sub.sendMessageTool) registry.register(sub.sendMessageTool)
 		allowedAgentIds = sub.allowedAgentIds
 	} catch (err) {
 		await subagentRuntime?.close().catch((closeError: unknown) => {

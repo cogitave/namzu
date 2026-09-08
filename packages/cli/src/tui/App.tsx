@@ -174,7 +174,12 @@ import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { editDraftInExternalEditor } from './external-editor.js'
 import { liveWindow } from './live-window.js'
-import { type ModelSwitchOutcome, type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
+import {
+	type ModelSwitchOutcome,
+	type ModelSwitchRequest,
+	resolveModelSwitch,
+} from './model-switch.js'
+import { parseModelSelectionIntent, resolveModelSelectionIntent } from './model-selection-intent.js'
 import {
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
@@ -1156,7 +1161,8 @@ export function App({
 		codexLoginRef.current = null
 	}, [])
 	const runProbeRef = useRef<
-		((options?: { readonly signal?: AbortSignal; readonly announce?: boolean }) => Promise<void>) | null
+		| ((options?: { readonly signal?: AbortSignal; readonly announce?: boolean }) => Promise<void>)
+		| null
 	>(null)
 	useEffect(() => cancelPendingLogin, [cancelPendingLogin])
 	/**
@@ -2427,7 +2433,9 @@ export function App({
 				...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
 				enableComputerUse: true,
 				rules: activeCtx.rules,
-				...(sessionsRef.current ? { sessionGoals: sessionsRef.current.goals } : {}),
+				...(sessionsRef.current
+					? { sessionGoals: sessionsRef.current.goals, conversationSessions: sessionsRef.current }
+					: {}),
 				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 				...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 				...(activeCtx.web ? { web: activeCtx.web } : {}),
@@ -4001,11 +4009,11 @@ export function App({
 						'system',
 						`Capability warning (${event.capability}${event.contentSource === 'tool-result' ? ' tool result' : ''}): ${event.text}`,
 						false,
-						'⚠',
+						'!',
 					)
 					break
 				case 'history-repair':
-					pushMessage('system', `History warning (${event.source}): ${event.text}`, false, '⚠')
+					pushMessage('system', `History warning (${event.source}): ${event.text}`, false, '!')
 					break
 				case 'done': {
 					// `run_completed` is not synonymous with success: budgets,
@@ -4040,7 +4048,7 @@ export function App({
 					st.outcome = event.message === 'aborted' ? 'cancelled' : 'failed'
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
-						pushMessage('system', describeRunInterruption(event), false, '⚠')
+						pushMessage('system', describeRunInterruption(event), false, '!')
 					} else st.notification = null
 					break
 			}
@@ -4724,6 +4732,135 @@ export function App({
 		],
 	)
 
+	const selectModelIntent = useCallback(
+		async (query: string): Promise<void> => {
+			if (
+				!session ||
+				!currentProvider ||
+				state !== 'idle' ||
+				phase !== 'ready' ||
+				abortRef.current ||
+				hasUnsettledTurn() ||
+				pendingModelSwitchRef.current ||
+				queuedRef.current.length > 0 ||
+				permissionResolveRef.current ||
+				compactingRef.current ||
+				conversationMutationRef.current ||
+				exportingRef.current ||
+				goalDriveInFlightRef.current
+			) {
+				pushMessage(
+					'system',
+					'Model selection is unavailable until the active work and queue reach a stable boundary.',
+				)
+				return
+			}
+			const controller = new AbortController()
+			const pending: PendingModelSwitch = {
+				turnToken: {},
+				generation: conversationGenRef.current,
+				sessionId: scopeRef.current?.sessionId,
+				ownerSession: session,
+				controller,
+				signal: AbortSignal.any([appLifetime.signal, controller.signal]),
+			}
+			pendingModelSwitchRef.current = pending
+			setModelSwitchVersion((version) => version + 1)
+			const owns = () =>
+				pendingModelSwitchRef.current === pending &&
+				!pending.signal.aborted &&
+				conversationGenRef.current === pending.generation &&
+				scopeRef.current?.sessionId === pending.sessionId &&
+				previousSessionRef.current === session
+			const beforePublish = () => {
+				if (
+					!owns() ||
+					abortRef.current ||
+					hasUnsettledTurn() ||
+					conversationMutationRef.current ||
+					compactingRef.current ||
+					exportingRef.current ||
+					permissionResolveRef.current ||
+					session.jobs?.().some((job) => job.status === 'running') ||
+					session.subagents
+						?.getSnapshot()
+						.some((agent) => ['starting', 'queued', 'working'].includes(agent.status))
+				) {
+					throw new Error(
+						'Active work or the conversation changed before model selection could complete.',
+					)
+				}
+			}
+			try {
+				beforePublish()
+				pushMessage('system', `Model requested: ${query}. Checking available catalogues…`)
+				const resolved = await resolveModelSelectionIntent(query, {
+					currentProvider,
+					detected,
+					describeModels: describeProviderModels,
+					signal: pending.signal,
+				})
+				if (!owns()) return
+				if (resolved.kind === 'rejected') {
+					pushMessage(
+						'system',
+						resolved.reason +
+							(resolved.choices?.length
+								? ` Choices: ${resolved.choices.map((choice) => `${choice.provider}/${choice.model}`).join(', ')}.`
+								: ''),
+					)
+					return
+				}
+				pending.selection = resolved.selection
+				await persistenceTailRef.current
+				beforePublish()
+				await hydrateSession(
+					selectPrimaryProvider(savedPrefsRef.current, resolved.selection),
+					detected,
+					{
+						signal: pending.signal,
+						persistSelection: false,
+						beforePublish,
+					},
+				)
+				if (
+					pendingModelSwitchRef.current === pending &&
+					!pending.signal.aborted &&
+					previousSessionRef.current !== session
+				) {
+					pushMessage(
+						'system',
+						`Switched to ${resolved.selection.id} · ${resolved.selection.model} for this conversation.`,
+					)
+				}
+			} catch (error) {
+				if (owns())
+					pushMessage(
+						'system',
+						`Model selection failed: ${error instanceof Error ? error.message : String(error)} The current model is unchanged.`,
+					)
+			} finally {
+				if (pendingModelSwitchRef.current === pending) {
+					pendingModelSwitchRef.current = null
+					setModelSwitchVersion((version) => version + 1)
+					wakeGoalDriver()
+				}
+			}
+		},
+		[
+			session,
+			currentProvider,
+			state,
+			phase,
+			hasUnsettledTurn,
+			appLifetime.signal,
+			pushMessage,
+			detected,
+			hydrateSession,
+			wakeGoalDriver,
+		],
+	)
+
 	const handleSubmit = useCallback(
 		(
 			value: string,
@@ -4762,6 +4899,11 @@ export function App({
 				return
 			}
 			setHistory((prev) => [...prev, value])
+			const selectionIntent = !attachments?.length ? parseModelSelectionIntent(value) : undefined
+			if (selectionIntent) {
+				void selectModelIntent(selectionIntent.query)
+				return
+			}
 			// `#` remembers, `!` runs — neither is a prompt. Both are the
 			// operator acting directly, the way other coding agents spell it,
 			// and both leave a row the model reads on its next turn.
@@ -5250,7 +5392,7 @@ export function App({
 							// Dropping it silently would leave someone wondering where a
 							// file they can see on disk went.
 							s.problem
-								? `⚠ ${s.name} — ${s.problem}`
+								? `! ${s.name} — ${s.problem}`
 								: `${activeNames.has(s.name) ? '● ' : '○ '}${s.name} — ${s.description}`,
 						)
 						pushMessage('system', `Skills (● active):\n  ${lines.join('\n  ')}`)
@@ -5706,6 +5848,7 @@ export function App({
 			resetTranscript,
 			runConversationExport,
 			session,
+			selectModelIntent,
 			setChoicePicker,
 			setCopyPicker,
 			setReasoningEffort,
@@ -6888,6 +7031,7 @@ export function App({
 								</Box>
 							) : null}
 							<Composer
+								reasoningEffortLevels={session?.reasoningEffortLevels}
 								permissionMode={displayedPermissionMode}
 								onCycleMode={cyclePermissionMode}
 								disabled={

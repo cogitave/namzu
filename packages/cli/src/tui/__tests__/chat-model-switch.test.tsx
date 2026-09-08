@@ -406,3 +406,92 @@ it('reuses an accepted request instead of resolving and reserving the same switc
 	expect(lookups).toBe(1)
 	expect(closeOld).toHaveBeenCalledTimes(1)
 })
+
+it('previews and applies a standalone Turkish model intent without a model turn', async () => {
+	describe = async () => ({ kind: 'ok', models: [{ id: 'claude-opus-5', name: 'Opus 5' }] })
+	const screen = await open()
+	const saved = readFileSync(preferencesPath(home), 'utf8')
+	await press(screen, 'modeli opus-5 yapar mısın')
+	expect(screen.viewport().join('\n')).toContain('Model: opus-5 · requested')
+	await press(screen, '\r')
+	await until(screen, () => constructed.length === 2, 'Host did not select model')
+	await until(screen, () => screen.viewport().join('\n').includes('Switched to codex · claude-opus-5'), 'Host did not confirm model')
+	expect(sent).toHaveLength(0)
+	expect(constructed[1]?.prefs.providers[0]?.model).toBe('claude-opus-5')
+	expect(readFileSync(preferencesPath(home), 'utf8')).toBe(saved)
+})
+
+it('keeps ambiguous host requests out of the model and leaves the active selection intact', async () => {
+	describe = async () => ({ kind: 'ok', models: [{ id: 'claude-opus-5', name: 'One' }, { id: 'other-opus-5', name: 'Two' }] })
+	const screen = await open()
+	await submit(screen, '/model opus-5')
+	await until(screen, () => screen.viewport().join('\n').includes('ambiguous'), 'Ambiguity notice missing')
+	expect(constructed).toHaveLength(1)
+	expect(sent).toHaveLength(0)
+	expect(closeOld).not.toHaveBeenCalled()
+})
+
+it('keeps the old session when standalone host selection activation fails', async () => {
+	activate = async () => { throw new Error('activation fixture refusal') }
+	const screen = await open()
+	await submit(screen, `/model ${NEXT}`)
+	await until(screen, () => screen.viewport().join('\n').includes('activation fixture refusal'), 'Failure notice missing')
+	expect(sent).toHaveLength(0)
+	expect(closeOld).not.toHaveBeenCalled()
+})
+
+it('sends mixed work requests through the ordinary model path', async () => {
+	sendOld = async function* () { yield { kind: 'done', stopReason: 'end_turn' } }
+	const screen = await open()
+	await submit(screen, 'modeli opus-5 yapar mısın ve testleri çalıştır')
+	await until(screen, () => sent.length === 1, 'Mixed work was not sent')
+	expect(constructed).toHaveLength(1)
+})
+
+it('cancels a host intent lookup before a late catalogue can change the model', async () => {
+	const listing = deferred<ModelListing>()
+	describe = () => listing.promise
+	const screen = await open()
+	await submit(screen, `/model ${NEXT}`)
+	await until(screen, () => screen.viewport().join('\n').includes('Checking available catalogues'), 'Lookup not admitted')
+	await press(screen, '\x1b')
+	await until(screen, () => screen.viewport().join('\n').includes('Interrupted.'), 'Host selection was not cancelled')
+	listing.resolve({ kind: 'ok', models: [{ id: NEXT, name: NEXT }] })
+	await screen.waitForRender()
+	expect(constructed).toHaveLength(1)
+	expect(sent).toHaveLength(0)
+	expect(closeOld).not.toHaveBeenCalled()
+})
+
+it('holds prompts submitted during host selection and sends them once on the selected model', async () => {
+	const listing = deferred<ModelListing>()
+	describe = () => listing.promise
+	const screen = await open()
+	await submit(screen, `/model ${NEXT}`)
+	await until(screen, () => screen.viewport().join('\n').includes('Checking available catalogues'), 'Lookup not admitted')
+	await submit(screen, 'Continue the independent task')
+	expect(sent).toHaveLength(0)
+	listing.resolve({ kind: 'ok', models: [{ id: NEXT, name: NEXT }] })
+	await until(screen, () => sent.length === 1, 'Queued prompt was not released')
+	expect(sent[0]?.model).toBe(NEXT)
+	expect(sent[0]?.messages).toContainEqual(expect.objectContaining({ role: 'user', content: 'Continue the independent task' }))
+})
+
+it('previews supported effort as requested and unsupported effort as unavailable without inference', async () => {
+	const screen = await open()
+	await press(screen, '/effort high')
+	expect(screen.viewport().join('\n')).toContain('Effort: high · requested')
+	await press(screen, '\r')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: high'), 'Effort command did not execute')
+	expect(sent).toHaveLength(0)
+	await press(screen, '/effort ultracode')
+	expect(screen.viewport().join('\n')).toContain('Effort: ultracode · unavailable for this model')
+})
+
+it('routes the original spaced Turkish Luna request directly to the host', async () => {
+	const screen = await open()
+	await submit(screen, 'gpt-5.6 lunaya geçer misin')
+	await until(screen, () => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`), 'Turkish Luna request did not select the catalogue model')
+	expect(sent).toHaveLength(0)
+	expect(constructed[1]?.prefs.providers[0]?.model).toBe(NEXT)
+})

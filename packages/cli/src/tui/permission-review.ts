@@ -375,12 +375,14 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			'workflow',
 			'phase',
 			'phase_order',
+			'run_in_background',
 		])
 		const keys = Object.keys(input)
 		const shapeIsKnown =
 			keys.every((key) => allowed.has(key)) &&
 			typeof input.description === 'string' &&
 			typeof input.prompt === 'string' &&
+			(input.run_in_background === undefined || typeof input.run_in_background === 'boolean') &&
 			(input.subagent_type === undefined || typeof input.subagent_type === 'string') &&
 			(input.role === undefined || typeof input.role === 'string') &&
 			(input.workflow === undefined || typeof input.workflow === 'string') &&
@@ -396,11 +398,15 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 				workflow?: string
 				phase?: string
 				phase_order?: number
+				run_in_background?: boolean
 			}
 			return {
 				lines: [
 					...readableField('Task', known.description),
 					...readableField('Agent', agentTypeLabel(known.subagent_type)),
+					...(known.run_in_background !== undefined
+						? [`Execution: ${known.run_in_background ? 'background' : 'wait for result'}`]
+						: []),
 					...(known.subagent_type === 'explore'
 						? ['Tools: reading and searching only']
 						: known.subagent_type === undefined || known.subagent_type === 'general-purpose'

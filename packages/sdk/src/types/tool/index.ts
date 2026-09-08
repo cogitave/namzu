@@ -634,6 +634,18 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	isConcurrencySafe?(input: TInput): boolean
 
 	/**
+	 * Opt-in ordering boundary in a direct model tool-call batch. Earlier
+	 * calls settle before this call starts; later calls wait for this call
+	 * to settle (including failed results). Defaults to false. Independent
+	 * calls between barriers retain their existing concurrency-safe behavior.
+	 * Nested dispatch is owned by its enclosing call, not separately queued;
+	 * mark the enclosing tool as a barrier to isolate its nested operations.
+	 * Deadlines still abandon uncooperative tools: settlement does not prove
+	 * their external effects have stopped, and does not imply success.
+	 */
+	executionBarrier?: boolean
+
+	/**
 	 * Where this tool came from, when it did not come from here.
 	 *
 	 * Absent means host-defined: this process, code the operator installed,

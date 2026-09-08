@@ -889,8 +889,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'model',
 		description: 'Choose a model for the current provider, or change providers.',
 		help: {
-			usage: ['/model'],
+			usage: ['/model', '/model <model-or-provider/model>'],
 			details: [
+				'Pass a model ID to change only this conversation, without a model request. Without an ID, open the searchable picker; press / to search names starting with a reserved shortcut.',
 				'Press p in the model picker to change providers. Normal selections are saved for future launches; temporary credentials keep the selection in this session.',
 			],
 		},

@@ -3,9 +3,10 @@
  * DEFINE a specialist on the fly — pass a `role` (the persona / system prompt)
  * and namzu spins up a fresh sub-agent with that role at runtime, no
  * pre-registered definition needed. Omit `role` for a general-purpose one.
- * The call waits for a final result unless operator input releases the wait.
+ * The call waits for a final result unless background execution is requested
+ * or operator input releases the wait.
  * The child then stays owned by the parent run, and its completion reaches the
- * same query's inbox. Headless callers without an input waiter remain blocking.
+ * same query's inbox. Headless callers also support explicit background work.
  *
  * The runtime is fully self-contained: a dedicated in-memory session/thread
  * store backs the AgentManager, so sub-agent bookkeeping never touches the
@@ -187,6 +188,8 @@ export interface SubagentRuntime {
 	readonly agentTool: ToolDefinition
 	/** Retrieve a child result without starting another task. */
 	readonly waitForTaskTool: ToolDefinition
+	/** Queue a correction for an owned task that has not finished. */
+	readonly sendMessageTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
@@ -529,7 +532,7 @@ export async function createSubagentRuntime(
 	const agentTool = defineTool({
 		name: 'Agent',
 		description: [
-			'Delegate a self-contained task to a sub-agent and wait for its result. If the operator sends a message while you wait, this call returns the running task ID so you can respond; the child keeps working and its result arrives later as a task notification.',
+			'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working. Use send_message to correct a running task, and wait_for_task to retrieve its result; never launch duplicate work.',
 			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which files reference Y, how does Z work — it has reading and searching tools only and never asks for permission.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
 			'Define a specialist inline with `role` — a system prompt describing who the sub-agent is and how to behave (e.g.',
@@ -553,6 +556,11 @@ export async function createSubagentRuntime(
 				prompt: {
 					type: 'string',
 					description: 'Self-contained task with all the context the sub-agent needs.',
+				},
+				run_in_background: {
+					type: 'boolean',
+					description:
+						'Return after launch so the parent can continue independent work. Defaults to false.',
 				},
 				subagent_type: {
 					type: 'string',
@@ -597,7 +605,16 @@ export async function createSubagentRuntime(
 		concurrencySafe: true,
 		timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 		async execute(input, context) {
-			const { description, prompt, subagent_type, role, workflow, phase, phase_order } = input as {
+			const {
+				description,
+				prompt,
+				subagent_type,
+				role,
+				workflow,
+				phase,
+				phase_order,
+				run_in_background,
+			} = input as {
 				description: string
 				prompt: string
 				subagent_type?: string
@@ -605,6 +622,7 @@ export async function createSubagentRuntime(
 				workflow?: string
 				phase?: string
 				phase_order?: number
+				run_in_background?: boolean
 			}
 			const explore = subagent_type === EXPLORE_SUBAGENT
 			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
@@ -665,6 +683,7 @@ export async function createSubagentRuntime(
 					gateway: await gatewayForRun(context.runId),
 					signal: context.abortSignal,
 					waitForInbound: opts.resolveWaitForInbound?.(context.runId),
+					background: run_in_background === true,
 					completionInbox,
 					onCreated: () => {
 						taskOwnsCleanup = true
@@ -691,11 +710,11 @@ export async function createSubagentRuntime(
 						outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 					return {
 						success: true,
-						output: `Sub-agent ${agentId} is ${progress} as task ${outcome.handle.taskId}; it has not completed. Waiting was released because the operator sent a message. Respond to that message while this task remains owned by the run. Its actual result will arrive as a task notification; do not launch the same work again.`,
+						output: `Sub-agent ${agentId} is ${progress} as task ${outcome.handle.taskId}; it has not completed. ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Respond to that message.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
 						data: {
 							task_id: outcome.handle.taskId,
 							state: outcome.handle.state,
-							wait_released: 'operator_input',
+							wait_released: run_in_background ? 'background' : 'operator_input',
 						},
 					}
 				}
@@ -771,6 +790,59 @@ export async function createSubagentRuntime(
 		},
 	})
 
+	const sendMessageTool = defineTool({
+		name: 'send_message',
+		description:
+			'Queue a correction or additional context for a running or queued sub-agent task owned by this run. The child receives it at its next request boundary; acceptance is not delivery. This does not start new work or restart finished tasks.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				task_id: { type: 'string', description: 'Task UUID returned by Agent.' },
+				message: {
+					type: 'string',
+					minLength: 1,
+					maxLength: 16000,
+					description: 'Correction or additional context for this task.',
+				},
+			},
+			required: ['task_id', 'message'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: false,
+		destructive: false,
+		concurrencySafe: false,
+		async execute(input, context) {
+			context.abortSignal.throwIfAborted()
+			const { task_id, message } = input as { task_id: string; message: string }
+			if (!message.trim())
+				return { success: false, output: '', error: 'Message must not be blank.' }
+			const taskId = asTaskId(task_id)
+			const gateway = await gatewayForRun(context.runId)
+			const task = gateway.getTask(taskId)
+			if (!task)
+				return {
+					success: false,
+					output: '',
+					error: `Task ${taskId} does not belong to this parent run.`,
+				}
+			if (isTerminalAgentTaskState(task.state))
+				return {
+					success: false,
+					output: '',
+					error: 'This task has finished; send_message cannot restart it.',
+				}
+			context.abortSignal.throwIfAborted()
+			await gateway.continueTask(taskId, message)
+			return {
+				success: true,
+				output: `Message queued for task ${taskId}; it will be available at the child's next request boundary.`,
+				data: { task_id: taskId, status: 'queued' },
+			}
+		},
+	})
+
 	let closePromise: Promise<void> | undefined
 	const close = (): Promise<void> => {
 		if (closePromise) return closePromise
@@ -785,6 +857,7 @@ export async function createSubagentRuntime(
 		releaseRun,
 		agentTool,
 		waitForTaskTool,
+		sendMessageTool,
 		allowedAgentIds: agentTypeIds,
 		activity,
 		close,
@@ -795,6 +868,7 @@ type BlockingAgentTaskInput = {
 	readonly gateway: TaskScheduler
 	readonly signal: AbortSignal
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
+	readonly background?: boolean
 	readonly completionInbox: CompletionInbox
 	readonly onCreated: () => void
 	readonly onSettled: (handle: TaskHandle) => void
@@ -862,6 +936,13 @@ async function runBlockingAgentTask(
 				throw error
 			},
 		)
+		if (input.background && !isTerminalAgentTaskState(handle.state)) {
+			// The observer retains activity/definition cleanup after this invocation
+			// returns. Parent release still owns cancellation and the tree budget.
+			completion.catch(() => {})
+			input.completionInbox.expect(handle.taskId)
+			return { kind: 'yielded', handle }
+		}
 		const inbound = input
 			.waitForInbound?.(wakeController.signal)
 			.then(() => ({ kind: 'inbound' as const }))

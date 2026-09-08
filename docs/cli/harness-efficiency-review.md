@@ -89,6 +89,24 @@ or a claim that publishing gates have run.
 
 ## Prioritized next work
 
+The subsequent implementation adds [bounded retained evidence search](conversation-evidence.md),
+[opt-in SDK execution barriers](../sdk/tool-execution.md),
+[background delegation and queued corrections](delegated-work.md), and searchable
+model selection. Standalone model requests now use the host with composer previews.
+The comparison rows below record the original findings and acceptance criteria;
+they are not a list of wholly absent features in the updated code. Remaining
+extensions include full oversized-artifact recovery, restarting completed child
+tasks with their prior context, and paired model-quality benchmarks.
+
+On 2026-09-08, a real PTY session against the built CLI accepted
+`modeli opus-5 yapar mısın`, selected Anthropic Opus, then accepted
+`/model gpt-6-astra` and `/effort ultra` through Codex. Model and effort previews
+appeared before submission, saved defaults stayed unchanged, and no inference
+run was created. This verifies host controls, not an inference benchmark for
+either model. Deterministic kernel tests separately verify compacted evidence
+recovery after reopening, conversation ownership, ordered writes, background
+parent progress, single correction delivery and parent cancellation.
+
 First finish discovery feedback: `packages/sdk/src/tools/builtins/search-tools.ts`
 still claims that every unmatched query refers to already active tools. Distinguish
 an active match, naming the callable tool, from an unknown query; preserve tool

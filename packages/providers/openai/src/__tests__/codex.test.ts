@@ -39,6 +39,16 @@ describe('Codex provider registration', () => {
 			accountId: 'account',
 		})
 
+		expect(provider.reasoningEffortLevelsFor('gpt-6-astra')).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max',
+			'ultra',
+		])
+		expect(provider.reasoningEffortDefaultFor('gpt-6-astra')).toBe('medium')
+		expect(provider.reasoningEffortLevelsFor('gpt-6-astra-ultracode')).toBeUndefined()
 		expect(provider.reasoningEffortLevelsFor('gpt-5.6-sol')).toEqual([
 			'low',
 			'medium',
@@ -62,6 +72,59 @@ describe('Codex provider registration', () => {
 })
 
 describe('Codex request projection', () => {
+	it('leaves an omitted Astra effort to the backend default', async () => {
+		const create = vi.fn(async (_request: unknown) => (async function* () {})())
+		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		;(provider as unknown as { client: unknown }).client = { responses: { create } }
+		for await (const _chunk of provider.chatStream({
+			model: 'gpt-6-astra',
+			messages: [{ role: 'user', content: 'fixture' }],
+		})) {
+		}
+		expect(create).toHaveBeenCalledOnce()
+		expect(create.mock.calls[0]?.[0]).not.toHaveProperty('reasoning')
+	})
+
+	it.each(['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)(
+		'forwards Astra subscription effort %s unchanged',
+		async (effort) => {
+			const create = vi.fn(async (_request: unknown) => (async function* () {})())
+			const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+			;(provider as unknown as { client: unknown }).client = { responses: { create } }
+			for await (const _chunk of provider.chatStream({
+				model: 'gpt-6-astra',
+				messages: [{ role: 'user', content: 'fixture' }],
+				effort,
+			})) {
+			}
+			expect(create).toHaveBeenCalledOnce()
+			expect(create.mock.calls[0]?.[0]).toMatchObject({
+				model: 'gpt-6-astra',
+				reasoning: { effort, summary: 'auto' },
+			})
+		},
+	)
+
+	it.each(['none', 'minimal'] as const)(
+		'refuses Astra subscription effort %s before transport',
+		async (effort) => {
+			const create = vi.fn()
+			const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+			;(provider as unknown as { client: unknown }).client = { responses: { create } }
+			await expect(
+				provider
+					.chatStream({
+						model: 'gpt-6-astra',
+						messages: [{ role: 'user', content: 'fixture' }],
+						effort,
+					})
+					[Symbol.asyncIterator]()
+					.next(),
+			).rejects.toThrow(/is not supported/)
+			expect(create).not.toHaveBeenCalled()
+		},
+	)
+
 	it('admits an advanced subscription level and refuses a false no-reasoning level', async () => {
 		const create = vi.fn(async (_request: unknown) =>
 			(async function* () {

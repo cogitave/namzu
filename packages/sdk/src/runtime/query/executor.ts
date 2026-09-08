@@ -779,6 +779,24 @@ export class ToolExecutor {
 		const results: ToolCallOutcome[] = new Array(toolCalls.length)
 		const parallel: Promise<void>[] = []
 		let serial: Promise<void> = Promise.resolve()
+		let barrier: Promise<void> | undefined
+		const schedule = (run: () => Promise<void>, safe: boolean, isBarrier: boolean): void => {
+			if (isBarrier) {
+				// Settle the entire preceding segment, even when host plumbing
+				// rejects. A rejected host operation prevents dependent execution.
+				barrier = Promise.allSettled([...parallel, serial]).then(async (settled) => {
+					const failed = settled.find((entry) => entry.status === 'rejected')
+					if (failed?.status === 'rejected') throw failed.reason
+					await run()
+				})
+				parallel.length = 0
+				serial = barrier
+			} else if (safe) {
+				parallel.push(barrier ? barrier.then(run) : run())
+			} else {
+				serial = serial.then(run)
+			}
+		}
 		// Bounded fan-out. A model emitting fifty parallel reads used to open
 		// fifty file handles and fifty activity records simultaneously; the
 		// gate keeps that at a working-set size while preserving completion
@@ -786,6 +804,8 @@ export class ToolExecutor {
 		const gate = new Semaphore(this.config.maxToolConcurrency ?? DEFAULT_TOOL_CONCURRENCY)
 		toolCalls.forEach((toolCall, i) => {
 			const preparedCall = preparedBatch?.calls.get(toolCall.id)
+			const tool = this.config.tools.get(preparedCall?.toolName ?? toolCall.function.name)
+			const isBarrier = tool?.executionBarrier === true
 			const recovered = prior?.get(toolCall.id)
 			if (recovered !== undefined) {
 				// This call already ran, in a process that died before the
@@ -798,19 +818,21 @@ export class ToolExecutor {
 					output: recovered.result,
 					isError: recovered.isError,
 				}
+				if (isBarrier) schedule(async () => {}, true, true)
 				return
 			}
 
 			const denialReason = denials?.get(toolCall.id)
 			if (denialReason !== undefined) {
 				// Denied calls never touch the tool; they still get a result
-				// message so the assistant turn stays fully answered. Run them
-				// on the parallel branch — they perform no side effects, so
-				// serialization would only add latency.
-				parallel.push(
-					this.recordDenial(toolCall, denialReason, preparedCall).then((r) => {
-						results[i] = r
-					}),
+				// message so the assistant turn stays fully answered. They can
+				// overlap other calls within a segment, respecting its barriers.
+				schedule(
+					async () => {
+						results[i] = await this.recordDenial(toolCall, denialReason, preparedCall)
+					},
+					true,
+					isBarrier,
 				)
 				return
 			}
@@ -868,13 +890,8 @@ export class ToolExecutor {
 			} catch {
 				// non-JSON args → treat as unsafe (serialize), the conservative path
 			}
-			const preparedToolName = preparedCall?.toolName
-			const safe =
-				this.config.tools
-					.get(preparedToolName ?? toolCall.function.name)
-					?.isConcurrencySafe?.(input) === true
-			if (safe) parallel.push(gated())
-			else serial = serial.then(run)
+			const safe = tool?.isConcurrencySafe?.(input) === true
+			schedule(safe ? gated : run, safe, isBarrier)
 		})
 		await Promise.all([...parallel, serial])
 

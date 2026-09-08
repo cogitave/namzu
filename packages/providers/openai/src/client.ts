@@ -62,6 +62,9 @@ const GPT_5_2_TO_5_5_EFFORT = [
 	'high',
 	'xhigh',
 ] as const satisfies readonly ReasoningEffort[]
+// https://developers.openai.com/api/docs/models/gpt-6-astra (2026-09-08).
+const GPT_6_ASTRA_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+
 const GPT_5_6_EFFORT = [
 	'none',
 	'low',
@@ -81,6 +84,7 @@ const GPT_5_6_EFFORT = [
  */
 export function openAIReasoningEffortLevels(model: string): readonly ReasoningEffort[] | undefined {
 	const normalized = model.toLowerCase()
+	if (normalized === 'gpt-6-astra') return GPT_6_ASTRA_EFFORT
 	if (/^gpt-5\.6(?:-(?:sol|terra|luna))?(?:-\d{4}-\d{2}-\d{2})?$/.test(normalized)) {
 		return GPT_5_6_EFFORT
 	}

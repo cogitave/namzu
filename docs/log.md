@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-09-08
+* **Update**: [Tool execution barriers](/sdk/tool-execution.md), [Conversation evidence](/cli/conversation-evidence.md) and [Delegated work](/cli/delegated-work.md) — explicit SDK ordering, CLI write/verify boundaries, run-scoped retained evidence search, background delegation and queued child corrections.
+* **Update**: [Slash commands](/cli/slash-commands.md) and [OpenAI reasoning menus](/sdk/openai-reasoning.md) — searchable models, direct host selection for standalone model requests, composer selection previews and exact Astra effort menus.
 * **Update**: [Conversational model changes](/cli/slash-commands.md) and [Terminal design](/cli/terminal-design.md) — successful solitary switches settle without acknowledgement inference, repeated requests reuse acceptance, missing IDs receive bounded relevant choices, and empty deferred-tool search is withheld. [Harness efficiency review](/cli/harness-efficiency-review.md) records pinned upstream comparisons and measurable remaining gaps.
 * **Update**: [Slash commands](/cli/slash-commands.md) and [Terminal design](/cli/terminal-design.md) — conversational model requests queue a session-only change after the active turn settles, resolve exact usable models, preserve history and identity, and confirm only successful application.
 * **Update**: [Zen and Zen Go](/sdk/zen.md) — anonymous access defaults to public Muse Spark 1.3 Contributor Free, public discovery requires no installed client, and CLI credential lookup reuses separate OpenCode API-key entries without modifying their file; explicit public selection suppresses stored accounts, Responses tools preserve optional fields, and live public text inference is distinguished from catalogue and fixture coverage.

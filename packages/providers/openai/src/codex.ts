@@ -48,12 +48,16 @@ interface SubscriptionReasoningProfile {
 	readonly levels: readonly ReasoningEffort[]
 }
 
+// Codex 0.153.4 subscription catalogue, fetched 2026-09-08. The API's
+// Astra menu differs: ultra is advertised by the subscription catalogue only.
+const ASTRA_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
 const SOL_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
 const TERRA_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
 const LUNA_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 const STANDARD_LEVELS = ['low', 'medium', 'high', 'xhigh'] as const
 
 const SUBSCRIPTION_REASONING_PROFILES = new Map<string, SubscriptionReasoningProfile>([
+	['gpt-6-astra', { default: 'medium', levels: ASTRA_LEVELS }],
 	['gpt-5.6-sol', { default: 'low', levels: SOL_LEVELS }],
 	['gpt-5.6-terra', { default: 'medium', levels: TERRA_LEVELS }],
 	['gpt-5.6-luna', { default: 'medium', levels: LUNA_LEVELS }],

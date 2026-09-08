@@ -2,6 +2,9 @@
 
 The kernel.
 
+* [Tool execution barriers](tool-execution.md) - Explicit batch ordering while independent read segments remain parallel.
+* [OpenAI reasoning menus](openai-reasoning.md) - Model-specific API and subscription effort levels and validation.
+
 * [Run the kernel](quick-start.md) - An offline SDK run, real tool execution and conversation identity.
 * [AG-UI clients](ag-ui.md) - Explicit host admission, backend tool streaming, shared UI state and CopilotKit connection limits.
 * [Zen and Zen Go](zen.md) - Native model protocol routing, conversation attribution, validated reasoning replay and catalogue limits.

@@ -98,6 +98,11 @@ async function send(
 
 describe('reasoning effort reaches the Chat Completions wire', () => {
 	const accepted = [
+		['gpt-6-astra', 'low'],
+		['gpt-6-astra', 'medium'],
+		['gpt-6-astra', 'high'],
+		['gpt-6-astra', 'xhigh'],
+		['gpt-6-astra', 'max'],
 		['gpt-5.2', 'none'],
 		['gpt-5', 'minimal'],
 		['gpt-5.2', 'low'],
@@ -120,18 +125,24 @@ describe('reasoning effort reaches the Chat Completions wire', () => {
 		})
 	})
 
-	it('omits the wire key entirely when nobody selected an effort', async () => {
-		const { provider, create } = providerWithCapturedRequest()
+	it.each(['gpt-5.2', 'gpt-6-astra'])(
+		'omits the wire key when nobody selected an effort for %s',
+		async (model) => {
+			const { provider, create } = providerWithCapturedRequest()
 
-		await send(provider, { model: 'gpt-5.2' })
+			await send(provider, { model })
 
-		expect(create).toHaveBeenCalledTimes(1)
-		expect(create.mock.calls[0]?.[0]).not.toHaveProperty('reasoning_effort')
-	})
+			expect(create).toHaveBeenCalledTimes(1)
+			expect(create.mock.calls[0]?.[0]).not.toHaveProperty('reasoning_effort')
+		},
+	)
 })
 
 describe('recognized models refuse levels their published set does not contain', () => {
 	const refused = [
+		['gpt-6-astra', 'none'],
+		['gpt-6-astra', 'minimal'],
+		['gpt-6-astra', 'ultra'],
 		['gpt-5.2', 'minimal'],
 		['gpt-5.2', 'max'],
 		['gpt-5.2', 'ultra'],
@@ -168,6 +179,14 @@ describe('published model effort sets are exact and unknown stays unknown', () =
 	it('publishes the same answer through the provider capability contract', () => {
 		const provider = new OpenAIProvider({ apiKey: 'test-key' })
 
+		expect(provider.reasoningEffortLevelsFor('gpt-6-astra')).toEqual([
+			'low',
+			'medium',
+			'high',
+			'xhigh',
+			'max',
+		])
+		expect(provider.reasoningEffortLevelsFor('gpt-6-astra-ultracode')).toBeUndefined()
 		expect(provider.reasoningEffortLevelsFor('gpt-5.2')).toEqual([
 			'none',
 			'low',
