@@ -22,11 +22,15 @@ describe('the interactive model-switch request tool', () => {
 			success: true,
 			data: { status: 'pending', provider: 'zen', model: request.model },
 		})
-		expect(result.output).toContain('pending until this turn finishes')
-		expect(result.output).toContain('only this session')
+		expect(result.output).toContain('Pending host application for this session')
 		expect(result.output).not.toContain('switched')
 		expect(tool.isReadOnly?.(request)).toBe(true)
 		expect(tool.isConcurrencySafe?.(request)).toBe(false)
+		expect(tool.presentCall?.(request)).toEqual({
+			kind: 'generic',
+			label: `zen/${request.model}`,
+		})
+		expect(tool.presentResult?.(request, result)).toMatchObject({ visibility: 'hidden' })
 	})
 
 	it('puts ambiguous provider choices in model-visible error text', async () => {
@@ -43,6 +47,7 @@ describe('the interactive model-switch request tool', () => {
 		expect(result.error).toContain('codex: shared-model')
 		expect(result.error).toContain('zen: shared-model')
 		expect(result.output).not.toContain('queued')
+		expect(tool.presentResult?.({ model: 'shared-model' }, result)).toBeUndefined()
 	})
 
 	it('reports a host failure without leaking its exception or claiming acceptance', async () => {

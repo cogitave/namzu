@@ -164,7 +164,6 @@ describe('computer use session reachability', () => {
 				'read_memory',
 				'save_memory',
 				'computer_use',
-				'search_tools',
 				'Agent',
 				'update_memory',
 				'wait_for_task',

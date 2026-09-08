@@ -21,6 +21,27 @@ function listingProvider(listings: Partial<Record<ProviderId, ModelListing>>) {
 }
 
 describe('resolving an active conversation model change', () => {
+	it('keeps the requested family visible ahead of a large unrelated catalogue without selecting a partial ID', async () => {
+		const result = await resolveModelSwitch(
+			{ model: 'gpt-5.6' },
+			{
+				currentProvider: 'anthropic',
+				detected: [detected('anthropic'), detected('codex')],
+				describeModels: listingProvider({
+					anthropic: catalogue(...Array.from({ length: 30 }, (_, i) => `claude-variant-${i}`)),
+					codex: catalogue('gpt-5.6-luna', 'gpt-5.6-sol'),
+				}),
+			},
+		)
+		expect(result.kind).toBe('rejected')
+		if (result.kind !== 'rejected') throw new Error('Partial model IDs must not select a variant')
+		expect(result.choices?.slice(0, 2)).toEqual([
+			{ provider: 'codex', model: 'gpt-5.6-luna' },
+			{ provider: 'codex', model: 'gpt-5.6-sol' },
+		])
+		expect(result.choices).toHaveLength(8)
+	})
+
 	it('prefers an exact current-provider match without consulting other routes', async () => {
 		const describeModels = listingProvider({
 			openai: catalogue('shared'),

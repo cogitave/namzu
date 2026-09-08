@@ -4,6 +4,7 @@ The operator application.
 
 * [Terminal design](terminal-design.md) - Namzu's visual identity, conversation hierarchy and terminal interaction boundaries.
 * [Command experience audit](command-experience-audit.md) - Verified command defects, comparison with Codex source, and proposed interaction improvements.
+* [Harness efficiency review](harness-efficiency-review.md) - Revision-pinned comparisons, existing strengths and measurable improvements to tool and delegation workflows.
 * [Project and session state](project-state.md) - How working directories select a Project, where identities live, and how existing histories stay reachable.
 
 * [Context and compaction in the CLI](context-and-compaction.md) - The file-only compaction key that picks the kernel's strategy or overrides the model's window, and the /context command that shows what compaction has done in a session.

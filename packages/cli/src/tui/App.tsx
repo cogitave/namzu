@@ -4229,6 +4229,15 @@ export function App({
 				) {
 					return { kind: 'rejected', reason: 'The requesting turn is no longer active.' }
 				}
+				const accepted = pendingModelSwitchRef.current
+				if (
+					accepted?.turnToken === turnToken &&
+					!accepted.signal.aborted &&
+					accepted.selection?.model === request.model.trim() &&
+					(!request.provider || accepted.selection.id === request.provider.trim())
+				) {
+					return { kind: 'pending', selection: accepted.selection }
+				}
 				// A later request supersedes an earlier lookup even if its model list
 				// resolves first. Cancellation never changes the active provider.
 				cancelPendingModelSwitch()

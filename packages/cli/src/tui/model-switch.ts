@@ -127,9 +127,21 @@ export async function resolveModelSwitch(
 			return listing && listing.kind !== 'ok'
 		})
 		.map(({ entry }) => entry.id)
+	// Suggest close catalogue IDs first, before bounding the receipt. A large
+	// unrelated provider catalogue must not crowd the requested family out.
+	// Ranking is recovery guidance only; partial IDs never select a model.
+	const terms = model.toLowerCase().match(/[a-z]+|\d+(?:\.\d+)*/g) ?? []
+	const rankedChoices = choices
+		.map((choice) => {
+			const candidateTerms = new Set(choice.model.toLowerCase().match(/[a-z]+|\d+(?:\.\d+)*/g))
+			return { choice, score: terms.filter((term) => candidateTerms.has(term)).length }
+		})
+		.sort((a, b) => b.score - a.score)
+		.slice(0, 8)
+		.map(({ choice }) => choice)
 	return {
 		kind: 'rejected',
 		reason: `Model "${model}" was not found in the available model catalogues.${unverified.length > 0 ? ` Could not verify the catalogue for: ${unverified.join(', ')}.` : ''} Use an exact listed model ID.`,
-		...(choices.length > 0 ? { choices: choices.slice(0, 24) } : {}),
+		...(rankedChoices.length > 0 ? { choices: rankedChoices } : {}),
 	}
 }

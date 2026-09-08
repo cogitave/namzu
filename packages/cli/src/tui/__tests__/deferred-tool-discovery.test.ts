@@ -1,24 +1,7 @@
 /**
- * `search_tools` is mounted where there is something to find, and not where
- * there is not.
- *
- * The two registries come from the same builder, so "does the CLI register
- * search_tools" has one answer from one call site and a different correct
- * answer from the other — the shape that hides behind a green suite. The
- * session passes a `taskStore`, so `query()` registers the task tools deferred
- * and the search has a roster of three. A sub-agent is built with no task
- * store, so nothing in its registry is deferred and the tool could only ever
- * answer "no deferred tools matching X" — a capability advertised every turn
- * that costs a turn to discover it is unusable.
- *
- * Removing the peer-daemon catalog is what created the asymmetry: that catalog
- * used to supply BOTH registries, so both were justified in mounting the tool.
- * Only one lost its supplier, and from the side that still works the loss is
- * invisible.
- *
- * So this asserts the CONTRAST, not either half: a test that only checked the
- * session would pass with the tool wrongly mounted on the sub-agent, which is
- * exactly the state this file was written against.
+ * The CLI's ordinary tools are active. Let query() add search_tools only when
+ * runtime registration supplies a deferred roster. Plugin discovery is also
+ * exercised through the real query loop in plugin-runtime-reaches-session.
  */
 
 import { mkdtempSync } from 'node:fs'
@@ -102,17 +85,12 @@ function detectedAnthropic(): DetectedProvider[] {
 }
 
 describe('search_tools is mounted only where a deferred roster exists', () => {
-	it('the session offers it and a sub-agent does not', async () => {
+	it('withholds an empty search from both the session and sub-agents', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(prefs, detectedAnthropic(), { cwd: workDir })
 		expect(session.hasProvider).toBe(true)
 
-		// The session mounts the search itself: a tool server or plugin can
-		// register a deferred roster, and the search is how the model reaches
-		// it. (The task tools were once the standing example; the interactive
-		// session now registers those `active` — see the query call in
-		// agent.ts — so they are no longer what this search is for.)
-		expect(session.toolNames()).toContain('search_tools')
+		expect(session.toolNames()).not.toContain('search_tools')
 
 		expect(
 			capturedBuildTools,

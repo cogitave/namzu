@@ -385,3 +385,24 @@ it('lets the later request win even if an older model lookup finishes last', asy
 	expect(constructed[1]?.prefs.providers[0]?.model).toBe('gpt-5.6-terra')
 	expect(outcomes.map((outcome) => outcome.kind)).toEqual(['pending', 'rejected'])
 })
+
+it('reuses an accepted request instead of resolving and reserving the same switch again', async () => {
+	let lookups = 0
+	describe = async () => {
+		lookups += 1
+		return { kind: 'ok', models: [{ id: NEXT, name: NEXT }] }
+	}
+	sendOld = async function* (_messages, options) {
+		if (!options?.onModelSwitch) throw new Error('Model-switch callback missing')
+		outcomes.push(await options.onModelSwitch({ model: NEXT, provider: 'codex' }))
+		outcomes.push(await options.onModelSwitch({ model: NEXT }))
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
+	const screen = await open()
+	await submit(screen, 'switch to gpt-5.6-luna')
+	await until(screen, () => constructed.length === 2, 'Switch did not publish')
+	expect(outcomes).toHaveLength(2)
+	expect(outcomes[0]).toEqual(outcomes[1])
+	expect(lookups).toBe(1)
+	expect(closeOld).toHaveBeenCalledTimes(1)
+})

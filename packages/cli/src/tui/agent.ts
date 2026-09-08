@@ -62,7 +62,6 @@ import {
 	type RunId,
 	SESSION_GOAL_TOOL_NAMES,
 	type SandboxProvider,
-	SearchToolsTool,
 	type SessionGoalStore,
 	type SessionId,
 	type Skill,
@@ -1179,14 +1178,8 @@ function buildToolRegistry(
 	// handing `getIndex()` to the synchronous overload before the first store
 	// read makes a new process report every persisted memory as absent.
 	registry.register(buildMemoryTools(memoryStore))
-	// `search_tools` is deliberately NOT registered here. It is only useful
-	// where deferred tools exist, and that differs between this function's two
-	// callers: the session below passes a `taskStore`, so query() registers the
-	// task tools deferred and the search has a roster; a sub-agent is built with
-	// no task store, so its registry has nothing deferred and the tool could
-	// only ever answer "no deferred tools matching X" — a capability advertised
-	// every turn that costs a turn to discover is unusable. Mounting it is the
-	// caller's decision, made where the roster is known.
+	// query() mounts search_tools only if a deferred roster actually exists,
+	// after runtime tools are registered. Ordinary CLI task tools are active.
 	return { registry, memoryStore }
 }
 
@@ -1819,9 +1812,6 @@ export async function createAgentSession(
 		computerUseReady: computerUseHost !== undefined,
 		...(computerUseError ? { computerUseError } : {}),
 	})
-	// This session passes a `taskStore` to query() below, which registers the
-	// task tools deferred — so `search_tools` has something to find here.
-	registry.register([SearchToolsTool])
 	// Web reach, opted into in the config file and nowhere else. The parent's
 	// registry only: a child's config carries no provider, and a tool whose
 	// provider is missing is a tool that reports itself unwired — truthful,
@@ -1987,8 +1977,8 @@ export async function createAgentSession(
 	// query call, because the doctrine tells the model to plan with them and a
 	// tool it must search for first is a tool it skips.
 	//
-	// `search_tools` stays mounted above even so: a tool server or plugin can
-	// still register a deferred roster, and that is what the search is for. The
+	// A tool server or plugin can still register a deferred roster; query()
+	// mounts search_tools when one exists. Do not advertise an empty search. The
 	// task tools are registered inside query(), after this function returns,
 	// which is why the connect line reports no count of them — counting here
 	// would mean restating query's registration order in the CLI.

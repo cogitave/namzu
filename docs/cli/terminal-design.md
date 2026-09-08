@@ -75,7 +75,10 @@ Successful reasoning changes receive a short session-scoped confirmation;
 resetting the selection names the provider default. Configuration warnings,
 instruction-file disclosure, unavailable tools and startup errors remain visible.
 
-A model change requested in conversation first reports that it is queued.
+A model change requested in conversation shows a compact call row with the
+target model. Successful receipt text stays out of the transcript display;
+the full pending receipt remains in conversation history. A successful solitary
+call ends the turn directly, without a model-generated acknowledgement.
 The footer keeps showing the active model while the turn and its persistence
 finish. Only a successfully prepared and applied replacement updates the
 footer and receives a model-change confirmation. Cancellation or preparation
@@ -84,6 +87,10 @@ history and affect only the current session; see
 [Settings and model changes](slash-commands.md#settings-and-model-changes).
 Running delegated agents or background jobs prevent replacement, preserving
 their active session until that work ends.
+
+The CLI leaves deferred-tool discovery to the kernel. `search_tools` is offered
+when the registered roster contains deferred tools; a session whose tools are
+all active does not advertise an empty search capability.
 
 The writing area, `/help` and command execution share one catalogue. Commands
 with state-dependent availability explain why an action cannot run; execution

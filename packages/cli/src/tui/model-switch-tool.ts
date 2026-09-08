@@ -14,7 +14,7 @@ export function buildSwitchModelTool(requestSwitch: RequestModelSwitch): ToolDef
 	return defineTool({
 		name: 'switch_model',
 		description:
-			'Change the active conversation model only when the user explicitly requests a model change. Supply an exact model ID and optionally a provider ID; never infer a provider from a model name. A verified request is queued for this session only and applies after the current turn settles. After acceptance, briefly report that the change is pending and end your turn so the host can apply it. Do not claim the model has already changed or use this tool to change a delegated agent.',
+			'Change the current conversation model when the user requests it. Call this tool directly and alone, after any other work is finished; no tool search is needed. Supply the full model ID including its variant (for example gpt-5.6-luna, not just gpt-5.6), and optionally a provider ID. This tool checks available model catalogues and returns relevant choices on failure. Acceptance ends the turn automatically; the host applies the session-only change and confirms it. Do not repeat an accepted request or use this tool to change a delegated agent.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -42,6 +42,13 @@ export function buildSwitchModelTool(requestSwitch: RequestModelSwitch): ToolDef
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: false,
+		terminal: true,
+		presentCall: (input) => ({
+			kind: 'generic',
+			label: `${input.provider ? `${input.provider}/` : ''}${input.model}`,
+		}),
+		presentResult: (_input, result) =>
+			result.success ? { kind: 'generic', label: result.output, visibility: 'hidden' } : undefined,
 		timeoutMs: 10_000,
 		async execute(input, context) {
 			context.abortSignal?.throwIfAborted()
@@ -70,7 +77,7 @@ export function buildSwitchModelTool(requestSwitch: RequestModelSwitch): ToolDef
 			}
 			return {
 				success: true,
-				output: `Model change queued: ${outcome.selection.id}/${outcome.selection.model}. It is pending until this turn finishes; end your turn to let the host apply it. This change affects only this session.`,
+				output: `Model change queued: ${outcome.selection.id}/${outcome.selection.model}. Pending host application for this session.`,
 				data: { status: 'pending', provider: outcome.selection.id, model: outcome.selection.model },
 			}
 		},

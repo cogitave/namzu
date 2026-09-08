@@ -105,10 +105,15 @@ offers the requested model. If the ID matches multiple other providers,
 the request is refused with choices so you can specify the provider.
 A unique usable provider can be selected automatically. Names are not
 fuzzy-matched or inferred from prefixes; unavailable models do not change
-the current session.
+the current session. On a missing ID, up to eight recovery choices are ranked
+by overlap with the requested model's name before the list is bounded. A partial
+family name never silently selects a variant.
 
-A successful tool result means the switch is queued. The current turn
-finishes on its existing model, including saving its results, before the
+A successful tool result means the switch is queued. Called alone, this
+terminal tool ends the current turn without another model inference. A failed
+request still returns to the model for correction; a mixed tool batch retains
+the kernel's normal result-relay behavior. Repeating the same accepted request
+reuses its reservation. The current turn saves its results before the
 replacement is prepared and applied. The terminal confirms the new model
 only after application succeeds. Conversation identity and message history
 are retained, and a successful switch resets reasoning effort to the new
