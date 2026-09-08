@@ -258,3 +258,30 @@ describe('the declared capabilities stay honest', () => {
 		}
 	})
 })
+
+it('maps the declared native structured output capability to the exact response_format wire', async () => {
+	const { provider, create } = providerWithCapturedRequest()
+	const responseFormat = {
+		type: 'json_schema' as const,
+		json_schema: {
+			name: 'answer',
+			strict: true,
+			schema: {
+				type: 'object',
+				properties: { score: { type: 'number' } },
+				required: ['score'],
+				additionalProperties: false,
+			},
+		},
+	}
+	for await (const _chunk of provider.chatStream({
+		model: 'gpt-4o-mini',
+		messages: [],
+		responseFormat,
+	})) {
+		// Consume the production request against the fixture client.
+	}
+	expect(provider.capabilities.supportsNativeStructuredOutput).toBe(true)
+	expect(create).toHaveBeenCalledTimes(1)
+	expect(create.mock.calls[0]?.[0]?.response_format).toEqual(responseFormat)
+})

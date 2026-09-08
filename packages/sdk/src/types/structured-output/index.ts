@@ -1,10 +1,10 @@
 import type { z } from 'zod'
 
 /**
- * Configuration for structured output via tool constraint.
+ * Configuration for validated output via tool constraint or native JSON Schema.
  *
  * This configuration allows an agent to produce validated, typed output by
- * presenting the output schema as a special tool that the model must call.
+ * presenting the output schema as a tool by default, or as a native response format.
  */
 export interface StructuredOutputConfig<TSchema extends z.ZodType = z.ZodType> {
 	/**
@@ -12,6 +12,9 @@ export interface StructuredOutputConfig<TSchema extends z.ZodType = z.ZodType> {
 	 * Used for both validation and LLM tool schema generation.
 	 */
 	schema: TSchema
+
+	/** Default tool constraint, or native JSON schema on an explicitly capable driver. */
+	mode?: 'tool' | 'native'
 
 	/**
 	 * Turns spent re-prompting when the model answers in prose or fails

@@ -851,6 +851,7 @@ interface StreamEvent {
  * base64 image content blocks (`toAnthropicMessages`).
  */
 export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
+	supportsNativeStructuredOutput: true,
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,

@@ -40,6 +40,8 @@ describe('Codex provider registration', () => {
 		})
 		expect(provider).toBeInstanceOf(CodexProvider)
 		expect(capabilities).toEqual(CODEX_CAPABILITIES)
+		expect(capabilities.supportsNativeStructuredOutput).toBeUndefined()
+		expect(provider.capabilities?.supportsNativeStructuredOutput).toBeUndefined()
 		expect(capabilities).toMatchObject({
 			supportsTools: true,
 			supportsVision: true,

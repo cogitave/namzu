@@ -43,6 +43,7 @@ describe('@namzu/openai', () => {
 	describe('OPENAI_CAPABILITIES', () => {
 		it('declares the expected capability flags', () => {
 			expect(OPENAI_CAPABILITIES).toEqual({
+				supportsNativeStructuredOutput: true,
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,

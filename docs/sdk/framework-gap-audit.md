@@ -97,7 +97,7 @@ approval, frontend tools or reconnect.
 
 ## Remaining kernel and harness differences
 
-**Structured-output host review is implemented; native modes remain open.**
+**Structured-output host review and native query mode are implemented.**
 Namzu already validates structured output with Zod and bounded retries.
 The audit found `reviewAnswer` only on the plain-text path. Optional
 [structured output review](structured-output-review.md) now checks JSON-decoded
@@ -106,8 +106,8 @@ checkpointed rejection counts. Pydantic's
 [parsed-output validators](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/_output.py#L126)
 provide a run-aware async validation/retry hook. Zod refinements are not absent
 in Namzu; the host review gap is now addressed.
-Also, provider-level `responseFormat` exists, but the query request assembly
-does not populate it from `StructuredOutputConfig`; Pydantic exposes explicit
+Query request assembly now populates provider-level `responseFormat` for
+explicit native mode in `StructuredOutputConfig`; Pydantic exposes explicit
 [native, tool and prompted modes](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/output.py#L43).
 Acceptance: a schema-valid answer rejected by a host check is corrected within
 one bounded review loop; a native-schema run sends the expected wire format.
@@ -180,4 +180,5 @@ frontend execution and replay-safe AG-UI resume remain open.
 Anthropic's provider-level `responseFormat` omission is now fixed: `json_schema`
 reaches `output_config.format` alongside effort. Real vendor-SDK loopback tests
 verify the body and local refusal of unsupported format variants. Native mode
-selection and validation inside `query` remain open.
+selection and local validation inside `query` are now implemented; see
+[native structured output](native-structured-output.md).

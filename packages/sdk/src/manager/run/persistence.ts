@@ -306,6 +306,7 @@ export class RunPersistence {
 	}
 
 	markFailed(error: string, providerError?: ProviderErrorInfo): void {
+		this.clearStructuredOutput()
 		this.run.status = 'failed'
 		this.run.stopReason = 'error'
 		this.run.lastError = error
@@ -314,6 +315,7 @@ export class RunPersistence {
 	}
 
 	markCancelled(): void {
+		this.clearStructuredOutput()
 		this.run.status = 'cancelled'
 		this.run.stopReason = 'cancelled'
 		this.run.endedAt = Date.now()
@@ -459,6 +461,11 @@ export class RunPersistence {
 	 * and without the override flag it would walk the tail and put the stale
 	 * prose back.
 	 */
+	/** Invalidate a structured value without replacing the host's textual result. */
+	clearStructuredOutput(): void {
+		delete this.run.structuredOutput
+	}
+
 	setStructuredOutput(value: unknown): void {
 		this.run.structuredOutput = value
 		this.setResult(typeof value === 'string' ? value : JSON.stringify(value))

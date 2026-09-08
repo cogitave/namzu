@@ -220,6 +220,8 @@ export interface IterationCheckpoint {
 	latestUserMessage?: UserMessage
 	/** Structured host-review rejections consumed at this checkpoint, independent of compacted messages. */
 	structuredReviewAttempts?: number
+	/** Native structured-output corrections consumed independently of message history. */
+	nativeStructuredAttempts?: number
 	tokenUsage: TokenUsage
 	costInfo: CostInfo
 	/**

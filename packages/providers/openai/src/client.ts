@@ -34,6 +34,7 @@ import type { OpenAIConfig } from './types.js'
  * content parts with base64 data URIs (`toOpenAIMessages`).
  */
 export const OPENAI_CAPABILITIES: ProviderCapabilities = {
+	supportsNativeStructuredOutput: true,
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,

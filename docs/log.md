@@ -2,6 +2,8 @@
 
 ## 2026-09-08
 
+* **Update** Added [native structured output](sdk/native-structured-output.md) and [provider admission](sdk/native-provider-capabilities.md), with checkpointed corrections, steering/cancellation checks and guardrail invalidation.
+
 * **Update** Fixed [Anthropic native JSON transport](sdk/structured-output-review.md) to forward schemas alongside reasoning effort and reject unsupported format semantics before dispatch.
 
 * **Update** Added host-authorized [AG-UI initial message snapshots](sdk/ag-ui.md), with bounded publication before native streaming and official HttpAgent verification.

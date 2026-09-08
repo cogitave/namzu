@@ -1,4 +1,5 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
+import { assertNativeStructuredOutputSupported } from '../../../provider/capabilities.js'
 import { isProviderRequestError } from '../../../provider/errors.js'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
 import {
@@ -153,6 +154,7 @@ export async function* streamProviderTurn(
 		readonly onAccepted: (identity: RequestImageIdentity) => Promise<void>
 	},
 ): AsyncGenerator<RunEvent, StreamingTurnResult> {
+	assertNativeStructuredOutputSupported(provider, params)
 	// The `chat {model}` span the GenAI conventions require. There was none:
 	// `chatSpanName` existed with zero call sites, so a trace carried no LLM
 	// latency at all and the token counts landed on the iteration span

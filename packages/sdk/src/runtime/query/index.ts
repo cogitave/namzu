@@ -453,14 +453,9 @@ export interface QueryParams {
 	beforeStep?: BeforeStep
 
 	/**
-	 * Force the run to finish by calling a schema-validated tool, and land
-	 * the parsed value on `Run.structuredOutput`.
-	 *
-	 * Both leaf pieces already shipped and neither was reachable:
-	 * `createStructuredOutputTool` is excluded from the default builtin set,
-	 * and `StructuredOutputConfig` had no field on QueryParams at all. A host
-	 * needing a typed result had to register the tool by hand and hope —
-	 * nothing forced the call, and nothing stopped the loop when it came.
+	 * Produce a locally validated structured result. Defaults to an output tool;
+	 * mode:'native' requests JSON Schema from an explicitly capable driver.
+	 * Host review and bounded corrections apply before publication.
 	 */
 	structuredOutput?: StructuredOutputConfig
 
@@ -1574,7 +1569,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// invalidate the whole prompt cache for the rest of the run — the same
 	// reason the forced-final turn keeps its tools array and uses
 	// `toolChoice: 'none'` instead of dropping it.
-	if (params.structuredOutput && !params.tools.has(STRUCTURED_OUTPUT_TOOL_NAME)) {
+	if (
+		params.structuredOutput &&
+		params.structuredOutput.mode !== 'native' &&
+		!params.tools.has(STRUCTURED_OUTPUT_TOOL_NAME)
+	) {
 		params.tools.register(createStructuredOutputTool(params.structuredOutput.schema))
 	}
 
@@ -2760,6 +2759,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					ctx.log,
 				)
 
+				if (outputVerdict.blocked || outputVerdict.rewritten !== undefined) {
+					ctx.runMgr.clearStructuredOutput()
+					if (
+						params.structuredOutput &&
+						outputVerdict.rewritten !== undefined &&
+						ctx.runMgr.stopReason === 'end_turn'
+					)
+						ctx.runMgr.setStopReason('output_guardrail')
+				}
+
 				if (outputVerdict.blocked) {
 					await eventTranslator.emitEvent({
 						type: 'guardrail_triggered',
@@ -2820,6 +2829,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					}
 				}
 			}
+			if (ctx.abortController.signal.aborted) ctx.runMgr.markCancelled()
 			yield* resultAssembler.completeRun(rootSpan)
 		} catch (err) {
 			// A failed run still spent its steps; report them.

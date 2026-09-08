@@ -48,6 +48,7 @@ describe('@namzu/anthropic', () => {
 	describe('ANTHROPIC_CAPABILITIES', () => {
 		it('declares the expected capability flags', () => {
 			expect(ANTHROPIC_CAPABILITIES).toEqual({
+				supportsNativeStructuredOutput: true,
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,

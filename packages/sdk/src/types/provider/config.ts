@@ -121,6 +121,8 @@ export interface MockProviderConfig extends MockScript {
  * degradation is loud instead of silent.
  */
 export interface ProviderCapabilities {
+	/** Native JSON Schema response-format mapping. Absent means unsupported. */
+	supportsNativeStructuredOutput?: boolean
 	supportsTools: boolean
 	supportsStreaming: boolean
 	supportsFunctionCalling: boolean

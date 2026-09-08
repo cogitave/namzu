@@ -2,6 +2,9 @@
 
 The kernel.
 
+* [Native structured output](native-structured-output.md) - Query response schemas, local validation and bounded correction.
+* [Native provider admission](native-provider-capabilities.md) - Explicit driver support and fallback route checks.
+
 * [Structured output review](structured-output-review.md) - Parsed-result validation, bounded corrections and checkpoint recovery.
 * [Tool call budgets](tool-call-budget.md) - Durable per-run admissions, batch limits and recovery accounting.
 

@@ -1,4 +1,9 @@
-import type { LLMProvider, ProviderCapabilities } from '../types/provider/index.js'
+import type {
+	ChatCompletionParams,
+	LLMProvider,
+	ProviderCapabilities,
+} from '../types/provider/index.js'
+import { ProviderRequestError } from './errors.js'
 
 /**
  * Fully-resolved capability set: every flag present, no optionals left.
@@ -57,5 +62,24 @@ export function resolveProviderCapabilities(
 			declared?.supportsToolResultDocuments ??
 			PERMISSIVE_PROVIDER_CAPABILITIES.supportsToolResultDocuments,
 		maxOutputTokens: declared?.maxOutputTokens,
+	}
+}
+
+/** Require explicit wire support before dispatching a native JSON Schema request. */
+export function assertNativeStructuredOutputSupported(
+	provider: Pick<LLMProvider, 'id' | 'capabilities'>,
+	params: Pick<ChatCompletionParams, 'responseFormat'>,
+): void {
+	if (
+		params.responseFormat?.type === 'json_schema' &&
+		provider.capabilities?.supportsNativeStructuredOutput !== true
+	) {
+		throw new ProviderRequestError({
+			kind: 'bad_request',
+			providerId: provider.id,
+			providerCode: 'native_structured_output_unsupported',
+			detail:
+				'Native JSON Schema output requires a provider that declares supportsNativeStructuredOutput: true.',
+		})
 	}
 }

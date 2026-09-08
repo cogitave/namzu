@@ -31,6 +31,7 @@ import type {
 	ThinkingConfig,
 } from '../types/provider/index.js'
 import type { Logger } from '../utils/logger.js'
+import { assertNativeStructuredOutputSupported } from './capabilities.js'
 
 /**
  * One member of the chain: a constructed provider, and the model to ask it for.
@@ -396,6 +397,7 @@ export function withProviderFallback(
 					chainIndex: cursor,
 				},
 			}
+			assertNativeStructuredOutputSupported(member.provider, request)
 			let produced = false
 			try {
 				for await (const chunk of member.provider.chatStream(request)) {

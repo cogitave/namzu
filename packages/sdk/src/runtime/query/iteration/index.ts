@@ -13,6 +13,7 @@ import {
 import { renderSkillsSection } from '../../../persona/assembler.js'
 import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
+import { renderToolSchema } from '../../../registry/tool/schema.js'
 import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
 import {
 	GENAI,
@@ -61,6 +62,7 @@ import {
 	projectRequestRichContent,
 } from '../request-rich-content.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
+import { parseNativeCandidate } from './native-output.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
 import {
@@ -191,6 +193,19 @@ export class IterationOrchestrator {
 		}
 		ctx.checkpointMgr.setLatestUserMessageSource(() => this.latestUserMessage)
 		ctx.checkpointMgr.setStructuredReviewAttemptsSource?.(() => this.structuredReviewAttempts)
+		ctx.checkpointMgr.setNativeStructuredAttemptsSource?.(() => this.nativeStructuredAttempts)
+		if (ctx.structuredOutput?.mode === 'native') {
+			const limit = ctx.structuredOutput.maxRetries
+			if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0))
+				throw new RangeError(
+					'Native structuredOutput.maxRetries must be a nonnegative safe integer',
+				)
+		}
+		if (
+			ctx.structuredOutput?.mode !== undefined &&
+			!['tool', 'native'].includes(ctx.structuredOutput.mode)
+		)
+			throw new RangeError('Unknown structuredOutput.mode')
 		const maxReviews = ctx.structuredOutput?.maxReviews
 		if (maxReviews !== undefined && (!Number.isSafeInteger(maxReviews) || maxReviews < 0))
 			throw new RangeError('structuredOutput.maxReviews must be a nonnegative safe integer')
@@ -278,6 +293,7 @@ export class IterationOrchestrator {
 		// Resume hydration happens after construction, before the loop starts.
 		this.latestUserMessage = this.ctx.checkpointMgr.restoredLatestUserMessage
 		this.structuredReviewAttempts = this.ctx.checkpointMgr.restoredStructuredReviewAttempts ?? 0
+		this.nativeStructuredAttempts = this.ctx.checkpointMgr.restoredNativeStructuredAttempts ?? 0
 		if (!this.latestUserMessage) {
 			for (const message of runMgr.messages) this.rememberUserMessage(message, false)
 		}
@@ -314,6 +330,13 @@ export class IterationOrchestrator {
 				if (this.ctx.abortController.signal.aborted) {
 					runMgr.setStopReason('cancelled')
 					runMgr.markCancelled()
+					break
+				}
+				if (
+					this.ctx.structuredOutput?.mode === 'native' &&
+					this.nativeStructuredAttempts > this.structuredOutputRetryLimit()
+				) {
+					runMgr.setStopReason('structured_output_failed')
 					break
 				}
 				if (
@@ -514,7 +537,13 @@ export class IterationOrchestrator {
 					yield* this.ctx.drainPending()
 
 					const stepAllowedTools = step.allowedTools ?? this.ctx.allowedTools
-					const llmTools = this.ctx.tools.toLLMTools(stepAllowedTools)
+					const llmTools = this.ctx.tools
+						.toLLMTools(stepAllowedTools)
+						.filter(
+							(tool) =>
+								this.ctx.structuredOutput?.mode !== 'native' ||
+								tool.function.name !== STRUCTURED_OUTPUT_TOOL_NAME,
+						)
 					// The same list the request was built from now also bounds what
 					// may run. Narrowing only the request left the restriction
 					// presentational — the model was shown fewer tools and could
@@ -691,6 +720,18 @@ export class IterationOrchestrator {
 						this.ctx.provider,
 						{
 							model: stepModel,
+							...(this.ctx.structuredOutput?.mode === 'native'
+								? {
+										responseFormat: {
+											type: 'json_schema' as const,
+											json_schema: {
+												name: 'structured_output',
+												schema: renderToolSchema(this.ctx.structuredOutput.schema),
+												strict: true,
+											},
+										},
+									}
+								: {}),
 							providerRoute: requestedRoute,
 							messages,
 							tools: llmTools.length > 0 ? llmTools : undefined,
@@ -987,6 +1028,70 @@ export class IterationOrchestrator {
 							costBefore,
 						})
 
+						if (this.ctx.structuredOutput?.mode === 'native') {
+							const candidate = await parseNativeCandidate(
+								this.ctx.structuredOutput.schema,
+								response,
+								this.ctx.abortController.signal,
+							)
+							let outcome: 'accepted' | 'retry' | 'exhausted' | 'cancelled'
+							if (candidate.success) outcome = await this.reviewStructuredOutput(candidate.value)
+							else {
+								this.nativeStructuredAttempts++
+								runMgr.pushMessage(
+									createRuntimeContextMessage(
+										'Return a complete JSON value matching the supplied response schema. Do not continue a partial JSON fragment.',
+										'structured-output',
+									),
+								)
+								const checkpoint = await this.ctx.checkpointMgr.create(runMgr, iterationNum)
+								await this.ctx.emitEvent({
+									type: 'checkpoint_created',
+									runId: runMgr.id,
+									checkpointId: checkpoint.id,
+									iteration: iterationNum,
+								})
+								outcome =
+									this.nativeStructuredAttempts > this.structuredOutputRetryLimit()
+										? 'exhausted'
+										: 'retry'
+							}
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								runId: runMgr.id,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							if (this.ctx.abortController.signal.aborted || outcome === 'cancelled') {
+								runMgr.setStopReason('cancelled')
+								runMgr.markCancelled()
+								break
+							}
+							if (outcome === 'accepted') {
+								if (!forceFinalize) {
+									const changed = yield* this.holdForOutstandingWork(iterationNum, false)
+									const inbound = this.deliverInbound()
+									if (changed || inbound > 0) continue
+								}
+								if (this.ctx.abortController.signal.aborted) {
+									runMgr.setStopReason('cancelled')
+									runMgr.markCancelled()
+									break
+								}
+								this.publishStructuredOutput()
+								runMgr.setStopReason('end_turn')
+								break
+							}
+							if (outcome === 'exhausted') {
+								runMgr.setStopReason(
+									candidate.success ? 'answer_rejected' : 'structured_output_failed',
+								)
+								break
+							}
+							continue
+						}
+
 						const hasContent =
 							response.message.content !== null && response.message.content.length > 0
 
@@ -1252,7 +1357,6 @@ export class IterationOrchestrator {
 							[NAMZU.RUN_ID]: runMgr.id,
 							[NAMZU.ITERATION]: iterationNum,
 						})
-						runMgr.setStopReason('end_turn')
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
 							runId: runMgr.id,
@@ -1260,6 +1364,13 @@ export class IterationOrchestrator {
 							hasToolCalls: true,
 						})
 						yield* this.ctx.drainPending()
+						if (this.ctx.abortController.signal.aborted) {
+							runMgr.setStopReason('cancelled')
+							runMgr.markCancelled()
+							break
+						}
+						this.publishStructuredOutput()
+						runMgr.setStopReason('end_turn')
 						break
 					}
 
@@ -1998,7 +2109,9 @@ export class IterationOrchestrator {
 
 	/** Turns spent asking the model again for a valid structured output. */
 	private structuredOutputAttempts = 0
+	private nativeStructuredAttempts = 0
 	private structuredOutputDone = false
+	private pendingStructuredOutput: unknown
 	private structuredReviewAttempts = 0
 
 	private structuredOutputRetryLimit(): number {
@@ -2026,6 +2139,7 @@ export class IterationOrchestrator {
 		results: readonly ToolCallOutcome[],
 		response: ChatCompletionResponse,
 	): ToolCallOutcome | undefined {
+		if (this.ctx.structuredOutput?.mode === 'native') return undefined
 		const terminal = results.filter((r) => this.ctx.tools.get(r.toolName)?.terminal === true)
 		if (terminal.length === 0) return undefined
 
@@ -2098,7 +2212,8 @@ export class IterationOrchestrator {
 		results: readonly ToolCallOutcome[],
 		response: ChatCompletionResponse,
 	): Promise<'absent' | 'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
-		if (!this.needsStructuredOutput()) return 'absent'
+		if (!this.needsStructuredOutput() || this.ctx.structuredOutput?.mode === 'native')
+			return 'absent'
 		const hit = results.find((r) => r.toolName === STRUCTURED_OUTPUT_TOOL_NAME && !r.isError)
 		if (!hit) return 'absent'
 
@@ -2123,6 +2238,18 @@ export class IterationOrchestrator {
 				)
 			parsed = hit.output
 		}
+		return this.reviewStructuredOutput(parsed)
+	}
+
+	private publishStructuredOutput(): void {
+		this.ctx.runMgr.setStructuredOutput(this.pendingStructuredOutput)
+		this.structuredOutputDone = true
+	}
+
+	private async reviewStructuredOutput(
+		parsed: unknown,
+	): Promise<'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
+		if (this.ctx.abortController.signal.aborted) return 'cancelled'
 		const reviewer = this.ctx.structuredOutput?.review
 		if (reviewer) {
 			const signal = this.ctx.abortController.signal
@@ -2178,8 +2305,7 @@ export class IterationOrchestrator {
 					: 'retry'
 			}
 		}
-		this.ctx.runMgr.setStructuredOutput(parsed)
-		this.structuredOutputDone = true
+		this.pendingStructuredOutput = parsed
 		return 'accepted'
 	}
 
@@ -2264,6 +2390,8 @@ export class IterationOrchestrator {
 		model: string,
 		reason: StopReason,
 	): Promise<StopReason | undefined> {
+		if (this.ctx.structuredOutput?.mode === 'native') return 'structured_output_failed'
+
 		const lastAssistant = [...this.ctx.runMgr.messages]
 			.reverse()
 			.find((m) => m.role === 'assistant')

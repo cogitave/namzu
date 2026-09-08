@@ -216,6 +216,8 @@ export class CheckpointManager {
 	private restoredUserMessage?: UserMessage
 	private structuredReviewAttemptsSource?: () => number
 	private restoredReviewAttempts = 0
+	private nativeStructuredAttemptsSource?: () => number
+	private restoredNativeAttempts = 0
 
 	/**
 	 * The most recent checkpoint this manager wrote, if any.
@@ -296,6 +298,13 @@ export class CheckpointManager {
 		return this.restoredUserMessage
 	}
 
+	setNativeStructuredAttemptsSource(source: () => number): void {
+		this.nativeStructuredAttemptsSource = source
+	}
+	get restoredNativeStructuredAttempts(): number {
+		return this.restoredNativeAttempts
+	}
+
 	setStructuredReviewAttemptsSource(source: () => number): void {
 		this.structuredReviewAttemptsSource = source
 	}
@@ -335,6 +344,8 @@ export class CheckpointManager {
 			runCreatedAt: this.runCreatedAt,
 			iteration,
 			messages: [...runMgr.messages],
+			nativeStructuredAttempts:
+				this.nativeStructuredAttemptsSource?.() ?? this.restoredNativeAttempts,
 			structuredReviewAttempts:
 				this.structuredReviewAttemptsSource?.() ?? this.restoredReviewAttempts,
 			...(latestUserMessage ? { latestUserMessage: snapshotUserIntent(latestUserMessage) } : {}),
@@ -528,6 +539,10 @@ export class CheckpointManager {
 		// its origin's age. A guard that no input can trip would have read as
 		// protection and been none.
 		this.runCreatedAt ??= checkpoint.runCreatedAt
+		const nativeAttempts = checkpoint.nativeStructuredAttempts ?? 0
+		if (!Number.isSafeInteger(nativeAttempts) || nativeAttempts < 0)
+			throw new Error('Invalid nativeStructuredAttempts in checkpoint')
+		this.restoredNativeAttempts = nativeAttempts
 		const reviewAttempts = checkpoint.structuredReviewAttempts ?? 0
 		if (!Number.isSafeInteger(reviewAttempts) || reviewAttempts < 0)
 			throw new Error('Checkpoint structuredReviewAttempts must be a nonnegative safe integer')
