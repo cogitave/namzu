@@ -184,6 +184,8 @@ import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { projectRunConversation } from './conversation-history.js'
+import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
+import type { ModelSwitchRequest } from './model-switch.js'
 
 export type AgentEvent =
 	| {
@@ -437,6 +439,11 @@ export interface SendOptions {
 	 * tool itself is mounted per session (`AgentSessionOptions.askUser`).
 	 */
 	readonly onQuestion?: QuestionFn
+	/** Request a model change owned by this turn; the host publishes it after settlement. */
+	readonly onModelSwitch?: (
+		request: ModelSwitchRequest,
+		signal?: AbortSignal,
+	) => Promise<ModelSwitchOutcome>
 	/**
 	 * Live user messages accepted while this turn is running.
 	 *
@@ -1260,6 +1267,8 @@ export interface AgentSessionOptions {
 	 * the model is never offered a question it would ask into the void.
 	 */
 	readonly askUser?: boolean
+	/** Mount the current-chat model selection tool in an interactive host. */
+	readonly allowModelSwitch?: boolean
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
 	readonly hooks?: HooksConfig
 	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add-dir` extends it for the session. */
@@ -1926,6 +1935,19 @@ export async function createAgentSession(
 		// and got none had nothing on stderr to say why.
 		cliLogger().warn('sub-agent runtime unavailable this session', exceptionAttributes(err))
 	}
+	// This capability belongs to the active main turn, never the child roster.
+	const modelSwitchHandlers = new Map<RunId, NonNullable<SendOptions['onModelSwitch']>>()
+	if (options.allowModelSwitch) {
+		registry.register(
+			buildSwitchModelTool(async (request, context) => {
+				const handler = modelSwitchHandlers.get(context.runId)
+				if (!handler || context.abortSignal?.aborted) {
+					return { kind: 'rejected', reason: 'This turn no longer owns model selection.' }
+				}
+				return handler(request, context.abortSignal)
+			}),
+		)
+	}
 	// `ask_user_question`, where somebody can answer. The SDK tool parks the
 	// run through the handler it was BUILT with, so that handler reads the
 	// turn's answerer through a holder the prelude fills: the tool is per
@@ -2441,6 +2463,7 @@ export async function createAgentSession(
 						throw new Error(`Run ${runId} already owns a delegated review channel.`)
 					}
 					delegatedResumeHandlers.set(runId, resumeHandler)
+					if (opts?.onModelSwitch) modelSwitchHandlers.set(runId, opts.onModelSwitch)
 					if (opts?.waitForInbound) delegatedInputWaiters.set(runId, opts.waitForInbound)
 					const turnScope = { ...scope }
 					delegationScopes.set(runId, turnScope)
@@ -2620,6 +2643,7 @@ export async function createAgentSession(
 					} finally {
 						if (delegatedResumeHandlers.get(runId) === resumeHandler) {
 							delegatedResumeHandlers.delete(runId)
+							modelSwitchHandlers.delete(runId)
 							delegatedInputWaiters.delete(runId)
 							delegationScopes.delete(runId)
 							await subagentRuntime?.releaseRun(runId)

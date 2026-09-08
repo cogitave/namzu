@@ -58,6 +58,7 @@ import {
 	type CodexDeviceLogin,
 	type DetectedProvider,
 	type Preferences,
+	type ProviderChoice,
 	type ProviderId,
 	type SubscriptionLogin,
 	type SubscriptionProviderId,
@@ -157,6 +158,7 @@ import {
 	type RunScope,
 	type UserQuestion,
 	createAgentSession,
+	describeProviderModels,
 	probeAgentSession,
 } from './agent.js'
 import {
@@ -172,6 +174,7 @@ import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { editDraftInExternalEditor } from './external-editor.js'
 import { liveWindow } from './live-window.js'
+import { type ModelSwitchOutcome, type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
 import {
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
@@ -248,6 +251,16 @@ export type ExternalEditorAdapter = (request: {
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume' | 'edit'
 type ConversationMutation = 'fork' | 'edit' | 'new' | 'archive' | 'materialize'
+
+interface PendingModelSwitch {
+	readonly turnToken: object
+	readonly generation: number
+	readonly sessionId: SessionId | undefined
+	readonly ownerSession: AgentSession
+	readonly controller: AbortController
+	readonly signal: AbortSignal
+	selection?: ProviderChoice & { readonly model: string }
+}
 type AgentSurface =
 	| {
 			readonly kind: 'cockpit'
@@ -1106,6 +1119,17 @@ export function App({
 	const abortRef = useRef<AbortController | null>(null)
 	/** Identity of the turn allowed to notify when it settles. */
 	const activeTurnTokenRef = useRef<object | null>(null)
+	/** A tool can reserve a switch; only the owning turn's finalizer may publish it. */
+	const pendingModelSwitchRef = useRef<PendingModelSwitch | null>(null)
+	const [modelSwitchVersion, setModelSwitchVersion] = useState(0)
+	const cancelPendingModelSwitch = useCallback((): boolean => {
+		const pending = pendingModelSwitchRef.current
+		if (!pending) return false
+		pendingModelSwitchRef.current = null
+		pending.controller.abort(new Error('The pending model switch was cancelled.'))
+		setModelSwitchVersion((version) => version + 1)
+		return true
+	}, [])
 	/** Exact live-input owner; absent before provider admission and after settlement. */
 	const activeTurnInboxRef = useRef<ActiveTurnInbox | null>(null)
 	/** A broken terminal notification is reported once, not after every turn. */
@@ -1203,13 +1227,14 @@ export function App({
 	 * hook never ran.
 	 */
 	const closeAndExit = useCallback(() => {
+		cancelPendingModelSwitch()
 		const closing = session?.close() ?? Promise.resolve()
 		const bounded = Promise.race([
 			closing,
 			new Promise<void>((resolve) => setTimeout(resolve, SESSION_CLOSE_ON_EXIT_MS).unref?.()),
 		])
 		void bounded.catch(() => undefined).finally(() => exit())
-	}, [exit, session])
+	}, [cancelPendingModelSwitch, exit, session])
 	const exitWithSummary = useCallback(() => {
 		onExitSummary?.({
 			...(conversationMaterializedRef.current && scopeRef.current?.sessionId
@@ -2384,6 +2409,8 @@ export function App({
 				readonly signal?: AbortSignal
 				readonly persistSelection?: boolean
 				readonly announce?: boolean
+				/** Revalidate a deferred host action immediately before candidate publication. */
+				readonly beforePublish?: () => void
 			} = {},
 		) => {
 			const { signal, persistSelection = false, announce = false } = options
@@ -2411,6 +2438,7 @@ export function App({
 				// Somebody is at this terminal, so the model may ask them one
 				// question when a decision is genuinely theirs.
 				askUser: true,
+				allowModelSwitch: true,
 			})
 			if (signal?.aborted) {
 				void s.close()
@@ -2428,6 +2456,7 @@ export function App({
 			}
 			let commands: ReturnType<typeof discoverUserCommands>
 			try {
+				options.beforePublish?.()
 				commands = discoverUserCommands({ cwd: activeCtx.cwd, reserved: hostCommandNames() })
 				// Construction and validation precede the saved change. There is no
 				// await between this atomic write and publishing the usable session.
@@ -3026,10 +3055,14 @@ export function App({
 	 * sends at that prompt, for the same reason.
 	 */
 	const interruptTurn = useCallback((): boolean => {
+		const cancelledSwitch = cancelPendingModelSwitch()
 		if (permissionResolveRef.current)
 			resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
 		const ac = abortRef.current
-		if (!ac) return false
+		if (!ac) {
+			if (cancelledSwitch) discardQueued()
+			return cancelledSwitch
+		}
 		ac.abort(new RunCancelled('user'))
 		const activeSessionId = scopeRef.current?.sessionId
 		if (activeSessionId) goalActivation.disarm(activeSessionId)
@@ -3044,7 +3077,14 @@ export function App({
 		clearActiveTools()
 		setState('idle')
 		return true
-	}, [clearActiveTools, discardQueued, goalActivation, resolvePermission, wakeGoalDriver])
+	}, [
+		cancelPendingModelSwitch,
+		clearActiveTools,
+		discardQueued,
+		goalActivation,
+		resolvePermission,
+		wakeGoalDriver,
+	])
 
 	/**
 	 * Load the chosen conversation into the transcript and continue in it.
@@ -3121,6 +3161,7 @@ export function App({
 			discardQueued()
 			goalActivation.clear()
 			wakeGoalDriver()
+			cancelPendingModelSwitch()
 			conversationGenRef.current += 1
 			resetSubagentActivity()
 			session?.resetTaskStore?.()
@@ -3164,6 +3205,7 @@ export function App({
 			interruptTurn,
 			nextId,
 			pushMessage,
+			cancelPendingModelSwitch,
 			resetSubagentActivity,
 			session,
 			resetTranscript,
@@ -3207,6 +3249,7 @@ export function App({
 				discardQueued()
 				goalActivation.clear()
 				wakeGoalDriver()
+				cancelPendingModelSwitch()
 				conversationGenRef.current += 1
 				resetSubagentActivity()
 				session?.resetTaskStore?.()
@@ -3264,6 +3307,7 @@ export function App({
 			goalActivation,
 			interruptTurn,
 			pushMessage,
+			cancelPendingModelSwitch,
 			resetSubagentActivity,
 			session,
 			resetTranscript,
@@ -3567,6 +3611,7 @@ export function App({
 					.slice(0, target.userOrdinal)
 					.map((prompt) => prompt.displayText)
 
+				cancelPendingModelSwitch()
 				conversationGenRef.current += 1
 				resetSubagentActivity()
 				session?.resetTaskStore?.()
@@ -3616,6 +3661,7 @@ export function App({
 			hasUnsettledTurn,
 			nextId,
 			pushMessage,
+			cancelPendingModelSwitch,
 			resetSubagentActivity,
 			session,
 			resetTranscript,
@@ -4004,6 +4050,14 @@ export function App({
 
 	const runTurn = useCallback(
 		async (prompt: QueuedPrompt) => {
+			// A passive queue effect can still hold the previous render's session
+			// while a replacement is being committed. Keep FIFO ownership until
+			// the render and the resource-owning session agree.
+			const pendingAtAdmission = pendingModelSwitchRef.current
+			if (pendingAtAdmission || previousSessionRef.current !== session) {
+				replaceQueued([prompt, ...queuedRef.current])
+				return
+			}
 			if (!session || !session.hasProvider) {
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
@@ -4160,6 +4214,69 @@ export function App({
 			const turnGeneration = conversationGenRef.current
 			unsettledTurnGenerationsRef.current.set(turnToken, turnGeneration)
 			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
+			const requestModelSwitch = async (
+				request: ModelSwitchRequest,
+				requestSignal?: AbortSignal,
+			): Promise<ModelSwitchOutcome> => {
+				if (
+					!currentProvider ||
+					!stillHere() ||
+					ac.signal.aborted ||
+					requestSignal?.aborted ||
+					appLifetime.signal.aborted ||
+					activeTurnTokenRef.current !== turnToken ||
+					previousSessionRef.current !== session
+				) {
+					return { kind: 'rejected', reason: 'The requesting turn is no longer active.' }
+				}
+				// A later request supersedes an earlier lookup even if its model list
+				// resolves first. Cancellation never changes the active provider.
+				cancelPendingModelSwitch()
+				const controller = new AbortController()
+				const pending: PendingModelSwitch = {
+					turnToken,
+					generation: turnGeneration,
+					sessionId: scopeRef.current?.sessionId,
+					ownerSession: session,
+					controller,
+					// A tool's lifetime can end before the turn. Once accepted, the
+					// switch belongs to the turn and host, not that completed tool call.
+					signal: AbortSignal.any([ac.signal, appLifetime.signal, controller.signal]),
+				}
+				pendingModelSwitchRef.current = pending
+				setModelSwitchVersion((version) => version + 1)
+				try {
+					const result = await resolveModelSwitch(request, {
+						currentProvider,
+						detected,
+						describeModels: describeProviderModels,
+						signal: requestSignal ? AbortSignal.any([pending.signal, requestSignal]) : pending.signal,
+					})
+					if (
+						pendingModelSwitchRef.current !== pending ||
+						pending.signal.aborted ||
+						requestSignal?.aborted ||
+						!stillHere() ||
+						activeTurnTokenRef.current !== turnToken
+					) {
+						return { kind: 'rejected', reason: 'The model switch was cancelled or superseded.' }
+					}
+					if (result.kind === 'rejected') return result
+					pending.selection = result.selection
+					return { kind: 'pending', selection: result.selection }
+				} catch (error) {
+					return {
+						kind: 'rejected',
+						reason: pending.signal.aborted
+							? 'The model switch was cancelled.'
+							: `Could not resolve the requested model: ${error instanceof Error ? error.message : String(error)}`,
+					}
+				} finally {
+					if (!pending.selection && pendingModelSwitchRef.current === pending) {
+						cancelPendingModelSwitch()
+					}
+				}
+			}
 			let inboxOpen = true
 			const inboxEntries: LiveInput[] = []
 			const inputWaiters = new Set<() => void>()
@@ -4312,6 +4429,7 @@ export function App({
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
 						onQuestion: askQuestion,
+						onModelSwitch: requestModelSwitch,
 						inboundMessages: () => inbox.drain(),
 						waitForInbound: (signal) => inbox.waitForInbound(signal),
 						extraSystem:
@@ -4497,16 +4615,95 @@ export function App({
 				// operation that sees no current-generation entries can now await that
 				// tail without a turn appearing behind its read later.
 				unsettledTurnGenerationsRef.current.delete(turnToken)
+				const pending = pendingModelSwitchRef.current
+				if (pending?.turnToken === turnToken && pending.selection) {
+					const selection = pending.selection
+					const ownsSwitch = () =>
+						pendingModelSwitchRef.current === pending &&
+						conversationGenRef.current === pending.generation &&
+						scopeRef.current?.sessionId === pending.sessionId &&
+						previousSessionRef.current === pending.ownerSession &&
+						!pending.signal.aborted
+					const beforePublish = () => {
+						if (
+							!ownsSwitch() ||
+							conversationMutationRef.current ||
+							hasUnsettledTurn(pending.generation) ||
+							abortRef.current ||
+							compactingRef.current ||
+							exportingRef.current
+						) {
+							throw new Error('The active conversation changed before the model switch could complete.')
+						}
+						if (
+							pending.ownerSession.subagents
+								?.getSnapshot()
+								.some(
+									(agent) =>
+										agent.status === 'starting' ||
+										agent.status === 'queued' ||
+										agent.status === 'working',
+								)
+						) {
+							throw new Error(
+								'Delegated agents are still active. Wait for them to finish before switching models.',
+							)
+						}
+						if (pending.ownerSession.jobs?.().some((job) => job.status === 'running')) {
+							throw new Error(
+								'Background jobs are still running. Wait for them to finish before switching models.',
+							)
+						}
+					}
+					try {
+						await persistenceTailRef.current
+						beforePublish()
+						await hydrateSession(selectPrimaryProvider(savedPrefsRef.current, selection), detected, {
+							signal: pending.signal,
+							persistSelection: false,
+							beforePublish,
+						})
+						if (
+							pendingModelSwitchRef.current === pending &&
+							!pending.signal.aborted &&
+							previousSessionRef.current !== pending.ownerSession
+						) {
+							pushMessage(
+								'system',
+								`Switched to ${selection.id} · ${selection.model} for this conversation.`,
+							)
+						}
+					} catch (error) {
+						if (ownsSwitch()) {
+							pushMessage(
+								'system',
+								`Model switch failed: ${error instanceof Error ? error.message : String(error)} The current model is unchanged.`,
+							)
+						}
+					} finally {
+						if (pendingModelSwitchRef.current === pending) {
+							pendingModelSwitchRef.current = null
+							setModelSwitchVersion((version) => version + 1)
+							wakeGoalDriver()
+						}
+					}
+				}
 			}
 		},
 		[
 			activeSkills,
+			appLifetime.signal,
 			applyEvent,
+			cancelPendingModelSwitch,
 			clearActiveTools,
+			currentProvider,
 			ctx.cwd,
+			detected,
 			finalizeMessage,
 			flushStream,
 			goalActivation,
+			hasUnsettledTurn,
+			hydrateSession,
 			materializeConversation,
 			onPermission,
 			pushMessage,
@@ -4858,6 +5055,7 @@ export function App({
 					case 'repick':
 						if (
 							state !== 'idle' ||
+							pendingModelSwitchRef.current ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
 							(queuedRef.current.length > 0 && queuePauseRef.current === null) ||
@@ -5567,6 +5765,7 @@ export function App({
 			queuedRef.current.length > 0 ||
 			abortRef.current ||
 			hasUnsettledTurn() ||
+			pendingModelSwitchRef.current ||
 			conversationMutationRef.current ||
 			exportingRef.current ||
 			compactingRef.current ||
@@ -5595,6 +5794,7 @@ export function App({
 					state !== 'idle' ||
 					abortRef.current ||
 					hasUnsettledTurn(generation) ||
+					pendingModelSwitchRef.current ||
 					conversationMutationRef.current ||
 					exportingRef.current ||
 					compactingRef.current ||
@@ -5630,6 +5830,7 @@ export function App({
 				if (
 					conversationGenRef.current !== generation ||
 					scopeRef.current?.sessionId !== sessionId ||
+					pendingModelSwitchRef.current ||
 					conversationMutationRef.current ||
 					goalCommandInFlightRef.current ||
 					!goalActivation.isArmed(sessionId, armed)
@@ -5666,6 +5867,7 @@ export function App({
 		enqueueQueued,
 		goalActivation,
 		goalDriveVersion,
+		modelSwitchVersion,
 		hasUnsettledTurn,
 		phase,
 		pushMessage,
@@ -5688,6 +5890,7 @@ export function App({
 			queuePauseRef.current !== null ||
 			abortRef.current ||
 			hasUnsettledTurn() ||
+			pendingModelSwitchRef.current ||
 			conversationMutationRef.current ||
 			exportingRef.current ||
 			compactingRef.current ||
@@ -5707,6 +5910,7 @@ export function App({
 		state,
 		phase,
 		queued,
+		modelSwitchVersion,
 		queuePause,
 		textPrompt,
 		choicePicker,
@@ -6326,7 +6530,7 @@ export function App({
 			}
 			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
 			// the Ctrl+C interrupt path: abort, drop the queue, one "Interrupted." line.
-			if (key.escape && abortRef.current) {
+			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
 				interruptTurn()
 				pushMessage('system', 'Interrupted.')
 				return
@@ -6694,7 +6898,10 @@ export function App({
 								}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
-								escapeInterrupts={!compacting && (state === 'thinking' || state === 'tool')}
+								escapeInterrupts={
+									!compacting &&
+									(state === 'thinking' || state === 'tool' || pendingModelSwitchRef.current !== null)
+								}
 								onSubmit={handleSubmit}
 								onNotice={(text) => pushMessage('system', text)}
 								onStepReasoningEffort={stepReasoningEffort}

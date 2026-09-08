@@ -96,6 +96,30 @@ saved preferences change. A cancelled or failed switch leaves the previous
 session usable. A successful model switch resets the session’s effort override
 to the new model’s default.
 
+You can also ask for a change in the main conversation, for example
+“gpt-5.6-luna’ya geç”. In response to an explicit request, the interactive
+agent can call `switch_model` with `model` and optional `provider`, using
+exact catalogue and provider registry IDs. It checks the usable
+provider catalogues and prefers the current provider when that provider
+offers the requested model. If the ID matches multiple other providers,
+the request is refused with choices so you can specify the provider.
+A unique usable provider can be selected automatically. Names are not
+fuzzy-matched or inferred from prefixes; unavailable models do not change
+the current session.
+
+A successful tool result means the switch is queued. The current turn
+finishes on its existing model, including saving its results, before the
+replacement is prepared and applied. The terminal confirms the new model
+only after application succeeds. Conversation identity and message history
+are retained, and a successful switch resets reasoning effort to the new
+model’s default. Cancelling the turn, leaving the conversation, or failing
+to prepare the replacement leaves the existing model in place. A switch
+is refused while delegated agents or background jobs are still running.
+
+Conversational switches affect only this session; they do not change saved
+defaults for later launches. The `switch_model` tool is available only to
+the main interactive agent, not headless runs or delegated agents.
+
 `/effort` and `/permissions` affect future turns in the current TUI session.
 The effort choices depend on the selected model and usable fallback models.
 Changing any permission mode clears a previous “approve all” choice. Explicit

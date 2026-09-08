@@ -75,6 +75,16 @@ Successful reasoning changes receive a short session-scoped confirmation;
 resetting the selection names the provider default. Configuration warnings,
 instruction-file disclosure, unavailable tools and startup errors remain visible.
 
+A model change requested in conversation first reports that it is queued.
+The footer keeps showing the active model while the turn and its persistence
+finish. Only a successfully prepared and applied replacement updates the
+footer and receives a model-change confirmation. Cancellation or preparation
+failure retains the previous session. These conversational changes preserve
+history and affect only the current session; see
+[Settings and model changes](slash-commands.md#settings-and-model-changes).
+Running delegated agents or background jobs prevent replacement, preserving
+their active session until that work ends.
+
 The writing area, `/help` and command execution share one catalogue. Commands
 with state-dependent availability explain why an action cannot run; execution
 checks again before changing state. Opening a menu keeps the draft and its

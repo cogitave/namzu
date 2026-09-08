@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-09-08
+* **Update**: [Slash commands](/cli/slash-commands.md) and [Terminal design](/cli/terminal-design.md) — conversational model requests queue a session-only change after the active turn settles, resolve exact usable models, preserve history and identity, and confirm only successful application.
 * **Update**: [Zen and Zen Go](/sdk/zen.md) — anonymous access defaults to public Muse Spark 1.3 Contributor Free, public discovery requires no installed client, and CLI credential lookup reuses separate OpenCode API-key entries without modifying their file; explicit public selection suppresses stored accounts, Responses tools preserve optional fields, and live public text inference is distinguished from catalogue and fixture coverage.
 
 ## 2026-09-07
