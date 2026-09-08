@@ -277,6 +277,16 @@ export class Win32Adapter implements Adapter {
 			keyboard: true,
 			cursorPosition: true,
 			clipboard: true,
+			supportedActions: Object.freeze([
+				'screenshot' as const,
+				'cursor_position' as const,
+				'mouse_move' as const,
+				'mouse_click' as const,
+				'mouse_drag' as const,
+				'scroll' as const,
+				'type_text' as const,
+				'key' as const,
+			]),
 		})
 	}
 

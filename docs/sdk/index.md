@@ -2,6 +2,10 @@
 
 The kernel.
 
+* [Tool discovery](tool-discovery.md) - Verified active matches, bounded deferred activation and allowed-tool filtering.
+
+* [Computer action capabilities](computer-actions.md) - Exact supported actions and per-gesture mouse buttons.
+
 * [Framework and computer-use gap audit](framework-gap-audit.md) - Verified boundaries against Pydantic AI, AG-UI and OpenBot, with next acceptance checks.
 
 * [Model-owned reasoning capabilities](model-reasoning.md) - Provider-neutral catalogue metadata and exact session effort menus.

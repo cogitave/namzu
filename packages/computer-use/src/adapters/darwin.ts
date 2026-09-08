@@ -136,6 +136,19 @@ export class DarwinAdapter implements Adapter {
 			keyboard: probeResult.hasOsascript,
 			cursorPosition: probeResult.hasCliclick,
 			clipboard: probeResult.hasPbcopy,
+			supportedActions: Object.freeze([
+				...(probeResult.hasScreencapture ? ['screenshot' as const] : []),
+				...(probeResult.hasOsascript
+					? ['mouse_click' as const, 'type_text' as const, 'key' as const]
+					: []),
+				...(probeResult.hasCliclick
+					? ['cursor_position' as const, 'mouse_move' as const, 'mouse_drag' as const]
+					: []),
+			]),
+			mouseClickButtons: Object.freeze(
+				probeResult.hasCliclick ? ['left' as const, 'right' as const] : ['left' as const],
+			),
+			mouseDragButtons: Object.freeze(probeResult.hasCliclick ? ['left' as const] : []),
 		})
 	}
 
@@ -189,6 +202,12 @@ export class DarwinAdapter implements Adapter {
 				await this.mouseClick(action.at, action.button)
 				return { type: 'ok' }
 			case 'mouse_drag':
+				if (action.button !== 'left')
+					throw new ActionCapabilityError(
+						'mouse_drag',
+						'mouse',
+						'macOS drag supports only the left button',
+					)
 				await this.mouseDrag(action.from, action.to)
 				return { type: 'ok' }
 			case 'scroll':
@@ -263,8 +282,14 @@ export class DarwinAdapter implements Adapter {
 	}
 
 	private async mouseClick(at: Point, button: 'left' | 'right' | 'middle') {
+		if (button === 'middle')
+			throw new ActionCapabilityError(
+				'mouse_click',
+				'mouse',
+				'middle-click is not supported by this macOS adapter',
+			)
 		if (this.hasCliclick) {
-			const prefix = button === 'right' ? 'rc' : button === 'middle' ? 'tc' : 'c'
+			const prefix = button === 'right' ? 'rc' : 'c'
 			await runCommandOrThrow('cliclick', [`${prefix}:${at.x},${at.y}`])
 			return
 		}

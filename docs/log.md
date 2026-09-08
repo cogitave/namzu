@@ -2,6 +2,10 @@
 
 ## 2026-09-08
 
+* **Update** Corrected [tool discovery](sdk/tool-discovery.md) to distinguish verified active matches from unknown tools and respect an empty allowed-tool list.
+
+* **Update** Added [exact computer action capabilities](sdk/computer-actions.md); unsupported macOS gestures are excluded and refused before execution.
+
 * **Update** Recorded a source-pinned [framework and computer-use gap audit](sdk/framework-gap-audit.md), desktop readiness probe, capability-advertising defect and AG-UI interoperability limits.
 
 * **Update** Added [model-owned reasoning metadata](sdk/model-reasoning.md) and provider-neutral discovery for session effort controls.

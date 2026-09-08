@@ -14,6 +14,8 @@ import type { ToolPresentation } from './presentation.js'
 
 export interface ToolRegistryRef {
 	searchDeferred(query: string): ToolDefinition[]
+	/** Ranked active matches, when this registry supports active-tool discovery. */
+	searchActive?(query: string): ToolDefinition[]
 	activate(names: string[]): void
 	getAvailability(name: string): ToolAvailability
 }
@@ -775,6 +777,8 @@ export interface ToolRegistryContract {
 	suspendAll(): void
 	hasSuspended(): boolean
 	searchDeferred(query: string): ToolDefinition[]
+	/** Ranked active matches, when this registry supports active-tool discovery. */
+	searchActive?(query: string): ToolDefinition[]
 	getCallableTools(toolNames?: string[]): ToolDefinition[]
 
 	/**

@@ -364,17 +364,30 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	 * would churn that prefix repeatedly and is rejected.
 	 */
 	searchDeferred(query: string): ToolDefinition[] {
+		return this.searchByAvailability(query, ['deferred'])
+	}
+
+	/** Active matches use the same ranking, also recognizing exact short or generic names. */
+	searchActive(query: string): ToolDefinition[] {
+		return this.searchByAvailability(query, ['active'], true)
+	}
+
+	private searchByAvailability(
+		query: string,
+		states: ToolAvailability[],
+		allowExactName = false,
+	): ToolDefinition[] {
 		const q = query.toLowerCase().trim()
 		if (q.length === 0) return []
 		const terms = q.split(/\s+/).filter((tok) => tok.length >= 3 && !SEARCH_STOP_TOKENS.has(tok))
-		if (terms.length === 0) return []
+		if (terms.length === 0 && !allowExactName) return []
 
 		const scored: Array<{ tool: ToolDefinition; score: number }> = []
-		for (const tool of this.getByAvailability(['deferred'])) {
+		for (const tool of this.getByAvailability(states)) {
 			const name = tool.name.toLowerCase()
 			const description = tool.description.toLowerCase()
 			const argumentNames = listArgumentNames(tool)
-			let score = 0
+			let score = allowExactName && terms.length === 0 && name === q ? SEARCH_WEIGHT_NAME_EXACT : 0
 			for (const term of terms) {
 				if (name === term) {
 					score += SEARCH_WEIGHT_NAME_EXACT

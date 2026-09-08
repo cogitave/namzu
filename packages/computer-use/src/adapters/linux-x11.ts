@@ -52,6 +52,20 @@ export class LinuxX11Adapter implements Adapter {
 			keyboard: probeResult.hasXdotool,
 			cursorPosition: probeResult.hasXdotool,
 			clipboard: probeResult.hasXclip,
+			supportedActions: Object.freeze([
+				...(probeResult.hasMaim ? ['screenshot' as const] : []),
+				...(probeResult.hasXdotool
+					? [
+							'cursor_position' as const,
+							'mouse_move' as const,
+							'mouse_click' as const,
+							'mouse_drag' as const,
+							'scroll' as const,
+							'type_text' as const,
+							'key' as const,
+						]
+					: []),
+			]),
 		})
 	}
 

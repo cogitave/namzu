@@ -30,6 +30,12 @@ Screen capture, keyboard and pointer control, behind one adapter interface.
 Which backend serves a call depends on the platform, and what a platform
 cannot do is reported as a capability rather than discovered as a failure.
 
+Adapters publish an exact `supportedActions` subset. Optional `mouseClickButtons`
+and `mouseDragButtons` distinguish gesture support: on macOS scrolling is
+unavailable, move/drag require cliclick, and drag supports only the left button.
+The SDK tool filters its advertised actions and rejects unsupported gestures
+before desktop execution. See [computer action capabilities](../../docs/sdk/computer-actions.md).
+
 ## Install
 
 ```bash

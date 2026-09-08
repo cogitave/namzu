@@ -65,6 +65,84 @@ function makeContext(): ToolContext {
 }
 
 describe('createComputerUseTool', () => {
+	it('uses exact action support for both model schema and execution admission', async () => {
+		const { host, calls } = makeHost({
+			supportedActions: ['screenshot', 'mouse_click'],
+			mouseClickButtons: ['left'],
+		})
+		const tool = createComputerUseTool(host)
+		expect(tool.modelInputSchema).toMatchObject({
+			properties: { type: { enum: ['screenshot', 'mouse_click'] }, button: { enum: ['left'] } },
+		})
+		expect(tool.description).toContain('Available actions: screenshot; mouse_click.')
+		const refused = await tool.execute(
+			{ type: 'scroll', at: { x: 1, y: 2 }, direction: 'down', amount: 1 },
+			makeContext(),
+		)
+		expect(refused.success).toBe(false)
+		expect(calls).toEqual([])
+		expect(
+			(
+				await tool.execute(
+					{ type: 'mouse_click', at: { x: 1, y: 2 }, button: 'left' },
+					makeContext(),
+				)
+			).success,
+		).toBe(true)
+		expect(calls).toHaveLength(1)
+	})
+
+	it('checks button support per action before invoking the host', async () => {
+		const { host, calls } = makeHost({
+			mouseClickButtons: ['left', 'right'],
+			mouseDragButtons: ['left'],
+		})
+		const tool = createComputerUseTool(host)
+		expect(
+			(
+				await tool.execute(
+					{ type: 'mouse_click', at: { x: 0, y: 0 }, button: 'middle' },
+					makeContext(),
+				)
+			).success,
+		).toBe(false)
+		expect(
+			(
+				await tool.execute(
+					{ type: 'mouse_drag', from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, button: 'right' },
+					makeContext(),
+				)
+			).success,
+		).toBe(false)
+		expect(calls).toEqual([])
+	})
+
+	it('exact declarations cannot enable a disabled broad capability', async () => {
+		const { host, calls } = makeHost({
+			mouse: false,
+			supportedActions: ['screenshot', 'mouse_click'],
+		})
+		const tool = createComputerUseTool(host)
+		expect(tool.modelInputSchema).toMatchObject({ properties: { type: { enum: ['screenshot'] } } })
+		expect(
+			(
+				await tool.execute(
+					{ type: 'mouse_click', at: { x: 0, y: 0 }, button: 'left' },
+					makeContext(),
+				)
+			).success,
+		).toBe(false)
+		expect(calls).toEqual([])
+	})
+
+	it('an explicitly empty action menu refuses all host access', async () => {
+		const { host, calls } = makeHost({ supportedActions: [] })
+		const tool = createComputerUseTool(host)
+		expect(tool.description).toContain('Available actions: none.')
+		expect((await tool.execute({ type: 'screenshot' }, makeContext())).success).toBe(false)
+		expect(calls).toEqual([])
+	})
+
 	const validActions = [
 		{ type: 'screenshot' },
 		{ type: 'cursor_position' },

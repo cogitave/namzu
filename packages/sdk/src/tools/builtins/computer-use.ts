@@ -63,7 +63,7 @@ const pointModelInputSchema = {
 	additionalProperties: false,
 } as const
 
-const modelInputSchema: Record<string, unknown> = {
+const modelInputSchema = {
 	type: 'object',
 	properties: {
 		type: {
@@ -136,16 +136,17 @@ function requiredCapability(type: ComputerUseAction['type']): keyof ComputerUseC
 
 function buildDescription(host: ComputerUseHost): string {
 	const caps = host.capabilities
-	const available: string[] = []
-	if (caps.screenshot) available.push('screenshot')
-	if (caps.cursorPosition) available.push('cursor_position')
-	if (caps.mouse) available.push('mouse_move, mouse_click, mouse_drag, scroll')
-	if (caps.keyboard) available.push('type_text, key')
+	const available = availableActions(caps)
 	const unavailable: string[] = []
 	if (!caps.screenshot) unavailable.push('screenshot')
 	if (!caps.cursorPosition) unavailable.push('cursor_position')
 	if (!caps.mouse) unavailable.push('mouse')
 	if (!caps.keyboard) unavailable.push('keyboard')
+	if (caps.supportedActions) {
+		for (const action of actionSchema.options.map((option) => option.shape.type.value)) {
+			if (!available.includes(action)) unavailable.push(action)
+		}
+	}
 
 	const lines = [
 		`Controls the user's desktop on a ${caps.displayServer} host. Use to take screenshots and drive mouse/keyboard input for GUI tasks.`,
@@ -161,7 +162,40 @@ function buildDescription(host: ComputerUseHost): string {
 	lines.push(
 		'Coordinates are in logical pixels from the top-left of the primary display. Call getDisplayGeometry through screenshot output before clicking to confirm bounds.',
 	)
+	if (caps.mouseClickButtons && available.includes('mouse_click'))
+		lines.push(`Click buttons: ${caps.mouseClickButtons.join(', ') || 'none'}.`)
+	if (caps.mouseDragButtons && available.includes('mouse_drag'))
+		lines.push(`Drag buttons: ${caps.mouseDragButtons.join(', ') || 'none'}.`)
 	return lines.join(' ')
+}
+
+function availableActions(caps: ComputerUseCapabilities): ComputerUseAction['type'][] {
+	return actionSchema.options
+		.map((option) => option.shape.type.value)
+		.filter((action) => {
+			const required = requiredCapability(action)
+			return (
+				(required === null || caps[required] === true) &&
+				(caps.supportedActions === undefined || caps.supportedActions.includes(action)) &&
+				(action !== 'mouse_click' || caps.mouseClickButtons?.length !== 0) &&
+				(action !== 'mouse_drag' || caps.mouseDragButtons?.length !== 0)
+			)
+		})
+}
+
+function hostModelSchema(caps: ComputerUseCapabilities): Record<string, unknown> {
+	const schema = structuredClone(modelInputSchema)
+	const actions = availableActions(caps)
+	// An unavailable host remains a diagnostic tool. Avoid invalid empty enums
+	// on provider wires; every execution is still refused before host access.
+	if (actions.length > 0) schema.properties.type.enum = actions
+	const buttons = new Set<string>()
+	if (actions.includes('mouse_click'))
+		for (const button of caps.mouseClickButtons ?? ['left', 'right', 'middle']) buttons.add(button)
+	if (actions.includes('mouse_drag'))
+		for (const button of caps.mouseDragButtons ?? ['left', 'right', 'middle']) buttons.add(button)
+	if (buttons.size > 0) schema.properties.button.enum = [...buttons]
+	return schema
 }
 
 function pointLabel(point: { readonly x: number; readonly y: number }): string {
@@ -283,7 +317,7 @@ export function createComputerUseTool(host: ComputerUseHost): ToolDefinition<Act
 		name: COMPUTER_USE_TOOL_NAME,
 		description: buildDescription(host),
 		inputSchema: actionSchema,
-		modelInputSchema: structuredClone(modelInputSchema),
+		modelInputSchema: hostModelSchema(host.capabilities),
 		validationErrorHint:
 			'Action requirements: mouse_move needs "to"; mouse_click needs "at" and "button"; mouse_drag needs "from", "to", and "button"; scroll needs "at", "direction", and positive "amount"; type_text needs "text"; key needs "keys".',
 		category: 'custom',
@@ -308,6 +342,26 @@ export function createComputerUseTool(host: ComputerUseHost): ToolDefinition<Act
 					success: false,
 					output: '',
 					error: `computer_use: action "${input.type}" requires capability "${required}" which is not available on this host (displayServer=${host.capabilities.displayServer}).${host.capabilities.unavailableReason ? ` ${host.capabilities.unavailableReason} Do not retry; tell the user.` : ''}`,
+				}
+			}
+			if (!availableActions(host.capabilities).includes(input.type)) {
+				return {
+					success: false,
+					output: '',
+					error: `computer_use: action "${input.type}" is not supported on this host.`,
+				}
+			}
+			const buttons =
+				input.type === 'mouse_click'
+					? host.capabilities.mouseClickButtons
+					: input.type === 'mouse_drag'
+						? host.capabilities.mouseDragButtons
+						: undefined
+			if (buttons && 'button' in input && !buttons.includes(input.button)) {
+				return {
+					success: false,
+					output: '',
+					error: `computer_use: action "${input.type}" does not support button "${input.button}" on this host.`,
 				}
 			}
 			try {

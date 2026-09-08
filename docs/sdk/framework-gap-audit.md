@@ -143,6 +143,12 @@ implemented and must not be reported as wholly missing.
 
 ## Implementation order
 
+Follow-up implementation now addresses the computer action-advertising defect
+through [exact action and button capabilities](computer-actions.md). The
+source observations above remain the audit of the named baseline revision.
+The [tool-discovery receipt](tool-discovery.md) now verifies active matches and
+keeps unknown requests distinct; the two defects in step 1 are addressed.
+
 1. Correct computer action capability declarations and tool-discovery feedback.
    `packages/sdk/src/tools/builtins/search-tools.ts` still says all matching tools
    are active when a deferred search has no result, without checking active

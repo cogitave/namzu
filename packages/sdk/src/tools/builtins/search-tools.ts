@@ -38,8 +38,7 @@ export const SearchToolsTool = defineTool({
 			}
 		}
 
-		const allowed =
-			context.allowedTools && context.allowedTools.length > 0 ? new Set(context.allowedTools) : null
+		const allowed = context.allowedTools !== undefined ? new Set(context.allowedTools) : null
 		// `searchDeferred` returns a ranked list (score-descending), so slicing
 		// the head is a true top-k activation, not an arbitrary subset.
 		const ranked = context.toolRegistry
@@ -47,9 +46,25 @@ export const SearchToolsTool = defineTool({
 			.filter((tool) => !allowed || allowed.has(tool.name))
 
 		if (ranked.length === 0) {
+			const active = context.toolRegistry
+				.searchActive?.(input.query)
+				.filter(
+					(tool) =>
+						(!allowed || allowed.has(tool.name)) &&
+						context.toolRegistry?.getAvailability(tool.name) === 'active',
+				)
+			const activeReceipt =
+				active === undefined
+					? 'This registry cannot search active tools.'
+					: active.length === 0
+						? 'No matching active tools were found.'
+						: `Already active matching tools (up to ${ACTIVATION_TOP_K}):\n${active
+								.slice(0, ACTIVATION_TOP_K)
+								.map((tool) => `- ${tool.name}`)
+								.join('\n')}`
 			return {
 				success: true,
-				output: `No deferred tools matching "${input.query}". All matching tools are already active.`,
+				output: `No deferred tools matching "${input.query}". ${activeReceipt}`,
 			}
 		}
 

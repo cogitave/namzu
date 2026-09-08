@@ -67,6 +67,20 @@ export class LinuxWaylandAdapter implements Adapter {
 			keyboard: probeResult.hasWtype || probeResult.hasYdotool,
 			cursorPosition: false,
 			clipboard: probeResult.hasWlCopy,
+			supportedActions: Object.freeze([
+				...(probeResult.hasGrim ? ['screenshot' as const] : []),
+				...(probeResult.hasYdotool
+					? [
+							'mouse_move' as const,
+							'mouse_click' as const,
+							'mouse_drag' as const,
+							'scroll' as const,
+						]
+					: []),
+				...(probeResult.hasWtype || probeResult.hasYdotool
+					? ['type_text' as const, 'key' as const]
+					: []),
+			]),
 		})
 	}
 

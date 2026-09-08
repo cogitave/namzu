@@ -30,6 +30,12 @@ export interface ComputerUseCapabilities {
 	readonly keyboard: boolean
 	readonly cursorPosition: boolean
 	readonly clipboard: boolean
+	/** Exact action subset when known. Refines the broad flags; absent retains their legacy interpretation. */
+	readonly supportedActions?: readonly ComputerUseAction['type'][]
+	/** Supported click buttons; absent leaves button admission to the host. */
+	readonly mouseClickButtons?: readonly MouseButton[]
+	/** Supported drag buttons; absent leaves button admission to the host. */
+	readonly mouseDragButtons?: readonly MouseButton[]
 	/**
 	 * Why every flag above is false, when a host loaded but the desktop did
 	 * not answer — a WSL process with PowerShell and no interactive Windows
