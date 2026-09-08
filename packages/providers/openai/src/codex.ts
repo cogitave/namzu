@@ -44,34 +44,41 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
 const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 
 interface SubscriptionReasoningProfile {
-	readonly default: ReasoningEffort
+	readonly default?: ReasoningEffort
 	readonly levels: readonly ReasoningEffort[]
 }
 
-// Codex 0.153.4 subscription catalogue, fetched 2026-09-08. The API's
-// Astra menu differs: ultra is advertised by the subscription catalogue only.
-const ASTRA_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
-const SOL_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
-const TERRA_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
-const LUNA_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
-const STANDARD_LEVELS = ['low', 'medium', 'high', 'xhigh'] as const
+const KNOWN_EFFORT_LEVELS: readonly ReasoningEffort[] = [
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+	'ultra',
+]
 
-const SUBSCRIPTION_REASONING_PROFILES = new Map<string, SubscriptionReasoningProfile>([
-	['gpt-6-astra', { default: 'medium', levels: ASTRA_LEVELS }],
-	['gpt-5.6-sol', { default: 'low', levels: SOL_LEVELS }],
-	['gpt-5.6-terra', { default: 'medium', levels: TERRA_LEVELS }],
-	['gpt-5.6-luna', { default: 'medium', levels: LUNA_LEVELS }],
-	['gpt-daybreak-blue-latest', { default: 'low', levels: SOL_LEVELS }],
-	['gpt-daybreak-red-latest', { default: 'medium', levels: TERRA_LEVELS }],
-	['gpt-5.5', { default: 'medium', levels: STANDARD_LEVELS }],
-	['gpt-5.4', { default: 'medium', levels: STANDARD_LEVELS }],
-	['gpt-5.4-mini', { default: 'medium', levels: STANDARD_LEVELS }],
-	['gpt-5.2', { default: 'medium', levels: STANDARD_LEVELS }],
-	['codex-auto-review', { default: 'medium', levels: LUNA_LEVELS }],
-])
-
-function subscriptionReasoningProfile(model: string): SubscriptionReasoningProfile | undefined {
-	return SUBSCRIPTION_REASONING_PROFILES.get(model.toLowerCase())
+/** Unknown levels invalidate an exact menu; filtering them would invent one. */
+function subscriptionReasoningProfile(
+	item: Record<string, unknown>,
+): SubscriptionReasoningProfile | undefined {
+	if (!Array.isArray(item.supported_reasoning_levels)) return undefined
+	const levels: ReasoningEffort[] = []
+	for (const entry of item.supported_reasoning_levels) {
+		const effort = record(entry)?.effort
+		if (typeof effort !== 'string' || !KNOWN_EFFORT_LEVELS.includes(effort as ReasoningEffort))
+			return undefined
+		if (levels.includes(effort as ReasoningEffort)) return undefined
+		levels.push(effort as ReasoningEffort)
+	}
+	const defaultLevel = item.default_reasoning_level
+	return {
+		levels: Object.freeze(levels),
+		...(typeof defaultLevel === 'string' && levels.includes(defaultLevel as ReasoningEffort)
+			? { default: defaultLevel as ReasoningEffort }
+			: {}),
+	}
 }
 
 interface CodexReplayState {
@@ -315,8 +322,8 @@ function buildRequest(
 	params: ChatCompletionParams,
 	model: string,
 	targetRoute: ProviderRoute,
+	supportedEffort: readonly ReasoningEffort[] | undefined,
 ): ResponseCreateParamsStreaming {
-	const supportedEffort = subscriptionReasoningProfile(model)?.levels
 	if (
 		params.effort !== undefined &&
 		supportedEffort !== undefined &&
@@ -377,6 +384,7 @@ export class CodexProvider implements LLMProvider {
 
 	private client: OpenAI
 	private defaultModel?: string
+	private reasoningProfiles = new Map<string, SubscriptionReasoningProfile>()
 
 	constructor(config: CodexConfig) {
 		if (!config.accessToken) throw new Error('Codex access token is required.')
@@ -403,11 +411,11 @@ export class CodexProvider implements LLMProvider {
 	}
 
 	reasoningEffortLevelsFor(model: string): readonly ReasoningEffort[] | undefined {
-		return subscriptionReasoningProfile(model)?.levels
+		return this.reasoningProfiles.get(model.toLowerCase())?.levels
 	}
 
 	reasoningEffortDefaultFor(model: string): ReasoningEffort | undefined {
-		return subscriptionReasoningProfile(model)?.default
+		return this.reasoningProfiles.get(model.toLowerCase())?.default
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
@@ -417,7 +425,7 @@ export class CodexProvider implements LLMProvider {
 			model,
 			chainIndex: 0,
 		}
-		const request = buildRequest(params, model, targetRoute)
+		const request = buildRequest(params, model, targetRoute, this.reasoningEffortLevelsFor(model))
 		let stream: AsyncIterable<ResponseStreamEvent>
 		try {
 			stream = (await this.client.responses.create(request, {
@@ -565,22 +573,30 @@ export class CodexProvider implements LLMProvider {
 			signal,
 		})) as { models?: unknown }
 		signal?.throwIfAborted()
-		if (!Array.isArray(response.models)) return []
-		return response.models.flatMap((value): ModelInfo[] => {
-			const item = record(value)
-			if (typeof item?.slug !== 'string' || item.slug.length === 0) return []
-			if (item.visibility === 'hide' || item.visibility === 'hidden') return []
-			return [
-				{
-					id: item.slug,
-					name: typeof item.display_name === 'string' ? item.display_name : item.slug,
-					inputPrice: 0,
-					outputPrice: 0,
-					supportsToolUse: true,
-					supportsStreaming: true,
-				},
-			]
-		})
+		const profiles = new Map<string, SubscriptionReasoningProfile>()
+		const models = (Array.isArray(response.models) ? response.models : []).flatMap(
+			(value): ModelInfo[] => {
+				const item = record(value)
+				if (typeof item?.slug !== 'string' || item.slug.length === 0) return []
+				if (item.visibility === 'hide' || item.visibility === 'hidden') return []
+				const profile = subscriptionReasoningProfile(item)
+				if (profile) profiles.set(item.slug.toLowerCase(), profile)
+				return [
+					{
+						id: item.slug,
+						name: typeof item.display_name === 'string' ? item.display_name : item.slug,
+						inputPrice: 0,
+						outputPrice: 0,
+						supportsToolUse: true,
+						supportsStreaming: true,
+						...(profile ? { reasoningEffortLevels: profile.levels } : {}),
+						...(profile?.default !== undefined ? { reasoningEffortDefault: profile.default } : {}),
+					},
+				]
+			},
+		)
+		this.reasoningProfiles = profiles
+		return models
 	}
 
 	async probeCredential(signal?: AbortSignal): Promise<void> {

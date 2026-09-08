@@ -30,7 +30,7 @@ explain why they cannot run and are checked again when selected.
 | `/memory` | Show curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a project fact; put `--user` before `add` to save a user fact. |
 | `/skills` | Choose an available skill; use /skills list for the full roster. |
 | `/resume` | Resume a past conversation in this project. |
-| `/model` | Choose a model for the current provider. Other detected providers are named above the list; press `p` to switch providers, then choose a model. The picker states whether the selection is saved for future launches. |
+| `/model` | Choose a model for the current provider, then its reasoning effort when supported. Other detected providers are named above the list; press `p` to switch providers. The picker states whether the model selection is saved for future launches. |
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
 | `/cost` | Show usage and cost for the current or latest run; `/cost details` adds pricing and scope information. |
@@ -94,7 +94,12 @@ fallback models, removing an exact duplicate of the new primary from the
 fallback list. The replacement session must construct successfully before
 saved preferences change. A cancelled or failed switch leaves the previous
 session usable. A successful model switch resets the session’s effort override
-to the new model’s default.
+to the new model’s default. After an interactive model choice, a non-empty
+supported effort menu opens for the new session. Enter applies the selected
+effort for this session; Esc keeps the successfully selected model at its default
+effort. Queued work waits until this step closes. Models with no supported effort
+choices, or no known exact menu, return directly to the composer. `/effort`
+remains available to change effort later.
 
 Standalone `/model <ID>`, “modeli opus-5 yapar mısın” and
 “gpt-5.6 lunaya geçer misin” are host selections: they resolve the detected

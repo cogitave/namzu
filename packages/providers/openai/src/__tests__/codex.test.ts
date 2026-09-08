@@ -11,6 +11,20 @@ const ROUTE: ProviderRoute = {
 	chainIndex: 0,
 }
 
+function catalogueRow(slug: string, levels: readonly string[], defaultLevel?: string) {
+	return {
+		slug,
+		supported_reasoning_levels: levels.map((effort) => ({ effort })),
+		default_reasoning_level: defaultLevel,
+	}
+}
+
+async function loadCatalogue(provider: CodexProvider, models: unknown[]) {
+	const client = (provider as unknown as { client: { get: unknown } }).client
+	client.get = vi.fn(async () => ({ models }))
+	return provider.listModels()
+}
+
 beforeEach(() => {
 	if (ProviderRegistry.isSupported('codex')) ProviderRegistry.unregister('codex')
 })
@@ -33,51 +47,127 @@ describe('Codex provider registration', () => {
 		})
 	})
 
-	it('publishes the subscription catalogue levels and model-owned defaults', () => {
-		const provider = new CodexProvider({
-			accessToken: 'access',
-			accountId: 'account',
+	it('discovers menus and defaults for model identifiers unknown to the driver', async () => {
+		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		expect(provider.reasoningEffortLevelsFor('catalogue-new-model')).toBeUndefined()
+		expect(provider.reasoningEffortLevelsFor('gpt-6-astra')).toBeUndefined()
+		const models = await loadCatalogue(provider, [
+			catalogueRow('catalogue-new-model', ['low', 'high', 'ultra'], 'high'),
+			catalogueRow('different-model', ['none'], 'none'),
+			catalogueRow('empty-model', []),
+		])
+		expect(models[0]).toMatchObject({
+			id: 'catalogue-new-model',
+			reasoningEffortLevels: ['low', 'high', 'ultra'],
+			reasoningEffortDefault: 'high',
 		})
+		expect(provider.reasoningEffortLevelsFor('catalogue-new-model')).toEqual([
+			'low',
+			'high',
+			'ultra',
+		])
+		expect(provider.reasoningEffortDefaultFor('catalogue-new-model')).toBe('high')
+		expect(provider.reasoningEffortDefaultFor('different-model')).toBe('none')
+		expect(provider.reasoningEffortLevelsFor('empty-model')).toEqual([])
+		expect(provider.reasoningEffortDefaultFor('empty-model')).toBeUndefined()
+	})
 
-		expect(provider.reasoningEffortLevelsFor('gpt-6-astra')).toEqual([
-			'low',
-			'medium',
-			'high',
-			'xhigh',
-			'max',
-			'ultra',
+	it('does not guess from malformed, missing or partly unknown effort metadata', async () => {
+		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		const models = await loadCatalogue(provider, [
+			{ slug: 'missing' },
+			catalogueRow('future-level', ['low', 'unrecognized-effort'], 'low'),
+			catalogueRow('duplicate', ['high', 'high'], 'high'),
+			{ slug: 'malformed', supported_reasoning_levels: ['high'] },
+			{ slug: 'not-array', supported_reasoning_levels: 'high' },
+			catalogueRow('bad-default', ['low', 'high'], 'ultra'),
+			{ ...catalogueRow('hidden', ['high'], 'high'), visibility: 'hide' },
 		])
-		expect(provider.reasoningEffortDefaultFor('gpt-6-astra')).toBe('medium')
-		expect(provider.reasoningEffortLevelsFor('gpt-6-astra-ultracode')).toBeUndefined()
-		expect(provider.reasoningEffortLevelsFor('gpt-5.6-sol')).toEqual([
-			'low',
-			'medium',
-			'high',
-			'xhigh',
-			'max',
-			'ultra',
+		for (const name of [
+			'missing',
+			'future-level',
+			'duplicate',
+			'malformed',
+			'not-array',
+			'hidden',
+		]) {
+			expect(provider.reasoningEffortLevelsFor(name)).toBeUndefined()
+			expect(provider.reasoningEffortDefaultFor(name)).toBeUndefined()
+			expect(models.find((model) => model.id === name)?.reasoningEffortLevels).toBeUndefined()
+		}
+		expect(provider.reasoningEffortLevelsFor('bad-default')).toEqual(['low', 'high'])
+		expect(provider.reasoningEffortDefaultFor('bad-default')).toBeUndefined()
+		expect(models.some((model) => model.id === 'hidden')).toBe(false)
+	})
+
+	it('replaces obsolete cached metadata on a successful catalogue refresh', async () => {
+		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		await loadCatalogue(provider, [
+			catalogueRow('changing', ['low'], 'low'),
+			catalogueRow('removed', ['high'], 'high'),
 		])
-		expect(provider.reasoningEffortDefaultFor('gpt-5.6-sol')).toBe('low')
-		expect(provider.reasoningEffortDefaultFor('gpt-5.6-terra')).toBe('medium')
-		expect(provider.reasoningEffortLevelsFor('gpt-5.6-luna')).toEqual([
-			'low',
-			'medium',
-			'high',
-			'xhigh',
-			'max',
-		])
-		expect(provider.reasoningEffortLevelsFor('gateway/future-model')).toBeUndefined()
-		expect(provider.reasoningEffortDefaultFor('gateway/future-model')).toBeUndefined()
+		await loadCatalogue(provider, [catalogueRow('changing', ['medium', 'max'], 'max')])
+		expect(provider.reasoningEffortLevelsFor('changing')).toEqual(['medium', 'max'])
+		expect(provider.reasoningEffortDefaultFor('changing')).toBe('max')
+		expect(provider.reasoningEffortLevelsFor('removed')).toBeUndefined()
+		await loadCatalogue(provider, [{ slug: 'changing' }])
+		expect(provider.reasoningEffortLevelsFor('changing')).toBeUndefined()
+	})
+
+	it('keeps the last successful snapshot when discovery fails or is cancelled', async () => {
+		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		await loadCatalogue(provider, [catalogueRow('known', ['low'], 'low')])
+		const client = (provider as unknown as { client: { get: unknown } }).client
+		client.get = vi.fn(async () => {
+			throw new Error('catalogue unavailable')
+		})
+		await expect(provider.listModels()).rejects.toThrow('catalogue unavailable')
+		expect(provider.reasoningEffortLevelsFor('known')).toEqual(['low'])
+		const controller = new AbortController()
+		controller.abort(new Error('cancel discovery'))
+		await expect(provider.listModels(controller.signal)).rejects.toThrow('cancel discovery')
+		expect(provider.reasoningEffortDefaultFor('known')).toBe('low')
 	})
 })
 
 describe('Codex request projection', () => {
-	it('leaves an omitted Astra effort to the backend default', async () => {
+	it('uses refreshed catalogue metadata for admission and leaves unknown effort to the backend', async () => {
 		const create = vi.fn(async (_request: unknown) => (async function* () {})())
 		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
 		;(provider as unknown as { client: unknown }).client = { responses: { create } }
+		const send = async () => {
+			for await (const _chunk of provider.chatStream({
+				model: 'newly-discovered-model',
+				messages: [{ role: 'user', content: 'fixture' }],
+				effort: 'ultra',
+			})) {
+			}
+		}
+		await loadCatalogue(provider, [catalogueRow('newly-discovered-model', ['low'], 'low')])
+		await expect(send()).rejects.toThrow(/is not supported/)
+		expect(create).not.toHaveBeenCalled()
+		await loadCatalogue(provider, [catalogueRow('newly-discovered-model', ['ultra'], 'ultra')])
+		await send()
+		expect(create.mock.calls[0]?.[0]).toMatchObject({ reasoning: { effort: 'ultra' } })
+		await loadCatalogue(provider, [{ slug: 'newly-discovered-model' }])
+		expect(provider.reasoningEffortLevelsFor('newly-discovered-model')).toBeUndefined()
+		await send()
+		expect(create).toHaveBeenCalledTimes(2)
+	})
+
+	it('leaves an omitted discovered-model effort to the backend default', async () => {
+		const create = vi.fn(async (_request: unknown) => (async function* () {})())
+		const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+		;(provider as unknown as { client: unknown }).client = { responses: { create } }
+		await loadCatalogue(provider, [
+			catalogueRow(
+				'catalogue-request-model',
+				['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+				'medium',
+			),
+		])
 		for await (const _chunk of provider.chatStream({
-			model: 'gpt-6-astra',
+			model: 'catalogue-request-model',
 			messages: [{ role: 'user', content: 'fixture' }],
 		})) {
 		}
@@ -86,35 +176,49 @@ describe('Codex request projection', () => {
 	})
 
 	it.each(['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)(
-		'forwards Astra subscription effort %s unchanged',
+		'forwards discovered subscription effort %s unchanged',
 		async (effort) => {
 			const create = vi.fn(async (_request: unknown) => (async function* () {})())
 			const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
 			;(provider as unknown as { client: unknown }).client = { responses: { create } }
+			await loadCatalogue(provider, [
+				catalogueRow(
+					'catalogue-request-model',
+					['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+					'medium',
+				),
+			])
 			for await (const _chunk of provider.chatStream({
-				model: 'gpt-6-astra',
+				model: 'catalogue-request-model',
 				messages: [{ role: 'user', content: 'fixture' }],
 				effort,
 			})) {
 			}
 			expect(create).toHaveBeenCalledOnce()
 			expect(create.mock.calls[0]?.[0]).toMatchObject({
-				model: 'gpt-6-astra',
+				model: 'catalogue-request-model',
 				reasoning: { effort, summary: 'auto' },
 			})
 		},
 	)
 
 	it.each(['none', 'minimal'] as const)(
-		'refuses Astra subscription effort %s before transport',
+		'refuses discovered subscription effort %s before transport',
 		async (effort) => {
 			const create = vi.fn()
 			const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
 			;(provider as unknown as { client: unknown }).client = { responses: { create } }
+			await loadCatalogue(provider, [
+				catalogueRow(
+					'catalogue-request-model',
+					['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+					'medium',
+				),
+			])
 			await expect(
 				provider
 					.chatStream({
-						model: 'gpt-6-astra',
+						model: 'catalogue-request-model',
 						messages: [{ role: 'user', content: 'fixture' }],
 						effort,
 					})
@@ -143,6 +247,9 @@ describe('Codex request projection', () => {
 			responses: { create },
 		}
 
+		await loadCatalogue(provider, [
+			catalogueRow('gpt-5.6-sol', ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], 'low'),
+		])
 		for await (const _chunk of provider.chatStream({
 			model: 'gpt-5.6-sol',
 			messages: [{ role: 'user', content: 'hard task' }],

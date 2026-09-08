@@ -3,6 +3,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { MockLLMProvider, ProviderRegistry } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -32,6 +33,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+	vi.restoreAllMocks()
 	removeTempDir(cwd)
 })
 
@@ -54,6 +56,40 @@ function detected(...ids: ProviderId[]): DetectedProvider[] {
 }
 
 describe('the TUI reasoning-effort hop', () => {
+	it('discovers an unseen model menu and default from its own provider catalogue', async () => {
+		const provider = Object.assign(new MockLLMProvider(), {
+			listModels: vi.fn(async () => [
+				{
+					id: 'fixture-model',
+					name: 'New model',
+					inputPrice: 0,
+					outputPrice: 0,
+					supportsToolUse: true,
+					supportsStreaming: true,
+					reasoningEffortLevels: ['medium', 'max'] as const,
+					reasoningEffortDefault: 'max' as const,
+				},
+			]),
+		})
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(
+			{
+				version: 3,
+				providers: [{ id: 'openai', model: 'fixture-model' }],
+				subagents: { active: [] },
+			} as Preferences,
+			detected('openai'),
+			{ cwd },
+		)
+		try {
+			expect(provider.listModels).toHaveBeenCalled()
+			expect(session.reasoningEffortLevels).toEqual(['medium', 'max'])
+			expect(session.reasoningEffortDefault).toBe('max')
+		} finally {
+			await session.close()
+		}
+	})
 	it('passes the selected level to query and omits the key at provider default', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const preferences = {

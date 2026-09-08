@@ -172,6 +172,7 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
+import { modelReasoningView } from '../integrations/providers/model-reasoning.js'
 import { buildConversationSearchTool } from '../integrations/sessions/conversation-search.js'
 import type { CliSessions } from '../integrations/sessions/store.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
@@ -2125,10 +2126,33 @@ export async function createAgentSession(
 	let reasoningEffortDefault: ReasoningEffort | undefined
 	let effortNotice: string | undefined
 	try {
-		const capabilityView = withProviderFallback([
+		const capabilityMembers = [
 			{ provider, model },
 			...fallbackPlan.build(currentToken, scope.sessionId),
-		])
+		]
+		const capabilityView = withProviderFallback(
+			await Promise.all(
+				capabilityMembers.map(async (member) => {
+					const memberModel = member.model ?? model
+					const known = member.provider.reasoningEffortLevelsFor
+						? member.provider.reasoningEffortLevelsFor(memberModel)
+						: member.provider.effortLevelsFor?.(memberModel)
+					// A model-owned answer (including []) needs no extra catalogue
+					// request. Discover only missing capability information.
+					const catalogue =
+						known === undefined && member.provider.listModels
+							? await runPickerProviderOperation(
+									undefined,
+									(signal) => member.provider.listModels?.(signal) ?? Promise.resolve([]),
+								).catch(() => [])
+							: []
+					return {
+						...member,
+						provider: modelReasoningView(member.provider, memberModel, catalogue),
+					}
+				}),
+			),
+		)
 		const offered = capabilityView.reasoningEffortLevelsFor
 			? capabilityView.reasoningEffortLevelsFor(model)
 			: capabilityView.effortLevelsFor?.(model)

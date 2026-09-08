@@ -1,6 +1,9 @@
 # Documentation update log
 
 ## 2026-09-08
+
+* **Update** Added [model-owned reasoning metadata](sdk/model-reasoning.md) and provider-neutral discovery for session effort controls.
+* **Update** Interactive [model selection](cli/slash-commands.md) now continues to the selected model's effort menu; queued work waits for selection, and Escape keeps the selected model at its default effort.
 * **Update**: [Tool execution barriers](/sdk/tool-execution.md), [Conversation evidence](/cli/conversation-evidence.md) and [Delegated work](/cli/delegated-work.md) — explicit SDK ordering, CLI write/verify boundaries, run-scoped retained evidence search, background delegation and queued child corrections.
 * **Update**: [Slash commands](/cli/slash-commands.md) and [OpenAI reasoning menus](/sdk/openai-reasoning.md) — searchable models, direct host selection for standalone model requests, composer selection previews and exact Astra effort menus.
 * **Update**: [Conversational model changes](/cli/slash-commands.md) and [Terminal design](/cli/terminal-design.md) — successful solitary switches settle without acknowledgement inference, repeated requests reuse acceptance, missing IDs receive bounded relevant choices, and empty deferred-tool search is withheld. [Harness efficiency review](/cli/harness-efficiency-review.md) records pinned upstream comparisons and measurable remaining gaps.

@@ -14,6 +14,10 @@ export interface ModelInfo {
 	 * the answer; it must not be read as text-only.
 	 */
 	inputModalities?: readonly ModelInputModality[]
+	/** Exact selectable effort levels for this model and route. Absent means unknown; [] means unsupported. */
+	reasoningEffortLevels?: readonly import('./chat.js').ReasoningEffort[]
+	/** Published default, when established; must belong to reasoningEffortLevels when both are present. */
+	reasoningEffortDefault?: import('./chat.js').ReasoningEffort
 	/**
 	 * Tokens the model's context holds, when the driver knows.
 	 *

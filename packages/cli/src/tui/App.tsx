@@ -359,6 +359,8 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly kind: 'reasoning-effort'
 			readonly title: string
 			readonly notice?: string
+			/** The published model whose paused queue this follow-up may configure. */
+			readonly selectedSession?: AgentSession
 			readonly values: readonly (ReasoningEffort | undefined)[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
@@ -1529,7 +1531,7 @@ export function App({
 	)
 
 	const applyReasoningEffort = useCallback(
-		(effort: ReasoningEffort | undefined): void => {
+		(effort: ReasoningEffort | undefined, selectedSession?: AgentSession): void => {
 			if (!session?.hasProvider) {
 				pushMessage(
 					'system',
@@ -1537,11 +1539,18 @@ export function App({
 				)
 				return
 			}
+			if (selectedSession !== undefined && selectedSession !== session) {
+				pushMessage(
+					'system',
+					'Reasoning effort was not changed: the selected model is no longer active.',
+				)
+				return
+			}
 			if (
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				queuedRef.current.length > 0 ||
+				(queuedRef.current.length > 0 && selectedSession !== session) ||
 				permissionResolveRef.current !== null ||
 				compactingRef.current
 			) {
@@ -2182,7 +2191,7 @@ export function App({
 				removeStoredCredential(value as SubscriptionProviderId)
 				return
 			}
-			applyReasoningEffort(value as ReasoningEffort | undefined)
+			applyReasoningEffort(value as ReasoningEffort | undefined, picker.selectedSession)
 		},
 		[
 			activateSkill,
@@ -2415,6 +2424,8 @@ export function App({
 				readonly signal?: AbortSignal
 				readonly persistSelection?: boolean
 				readonly announce?: boolean
+				/** Follow an interactive model choice with the published session's effort menu. */
+				readonly chooseReasoningEffort?: boolean
 				/** Revalidate a deferred host action immediately before candidate publication. */
 				readonly beforePublish?: () => void
 			} = {},
@@ -2489,6 +2500,12 @@ export function App({
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
+			if (options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
+				// Own input before publishing ready or releasing a paused queue. The
+				// menu closes only after choosing an effort or keeping the new default.
+				setSelectedChoice(0)
+				setChoicePicker(reasoningEffortPicker(s, undefined, true) ?? null)
+			}
 			setUserCommands(commands)
 			const mentionLoadOwner = {}
 			mentionLoadOwnerRef.current = mentionLoadOwner
@@ -2549,7 +2566,15 @@ export function App({
 				if (s.errorHint) pushMessage('system', s.errorHint)
 			}
 		},
-		[appLifetime.signal, advanceQueueContinuation, ensureSessions, pushMessage, setReasoningEffort],
+		[
+			appLifetime.signal,
+			advanceQueueContinuation,
+			ensureSessions,
+			pushMessage,
+			setChoicePicker,
+			setReasoningEffort,
+			setSelectedChoice,
+		],
 	)
 
 	/**
@@ -5302,17 +5327,7 @@ export function App({
 								values.findIndex((value) => value === current),
 							),
 						)
-						setChoicePicker({
-							kind: 'reasoning-effort',
-							title: `Select Reasoning Level for ${session.modelSummary ?? 'current model'}`,
-							values,
-							options: values.map((effort) => ({
-								label: effort ?? 'default',
-								description: reasoningEffortDescription(effort),
-								current: effort === current,
-								default: effort === undefined,
-							})),
-						})
+						setChoicePicker(reasoningEffortPicker(session, current) ?? null)
 						return
 					}
 					case 'login':
@@ -6090,13 +6105,18 @@ export function App({
 			prefs: Preferences,
 			detectedNow: readonly DetectedProvider[],
 			signal: AbortSignal,
-			options: { readonly revealAllOnFailure?: boolean; readonly persistSelection?: boolean } = {},
+			options: {
+				readonly revealAllOnFailure?: boolean
+				readonly persistSelection?: boolean
+				readonly chooseReasoningEffort?: boolean
+			} = {},
 		): Promise<void> => {
 			try {
 				await hydrateSession(prefs, detectedNow, {
 					signal,
 					persistSelection: options.persistSelection,
 					announce: true,
+					chooseReasoningEffort: options.chooseReasoningEffort,
 				})
 			} catch (err) {
 				// A superseded choice no longer owns even its failure message. Its
@@ -6158,6 +6178,7 @@ export function App({
 			// Only a real refusal broadens back to the general, sign-in-capable picker.
 			void hydrateFromPicker(prefs, detected, signal, {
 				revealAllOnFailure: true,
+				chooseReasoningEffort: selection.model !== undefined,
 				persistSelection:
 					detected.find((provider) => provider.entry.id === selection.provider)?.source.kind !==
 					'session',
@@ -7234,6 +7255,33 @@ function permissionPicker(
 				current: value === current,
 			}
 		}),
+	}
+}
+
+function reasoningEffortPicker(
+	session: AgentSession,
+	current: ReasoningEffort | undefined,
+	afterModelSelection = false,
+): Extract<ChoicePickerState, { kind: 'reasoning-effort' }> | undefined {
+	const levels = session.reasoningEffortLevels
+	if (!session.hasProvider || levels === undefined) return undefined
+	const values: readonly (ReasoningEffort | undefined)[] = [undefined, ...levels]
+	return {
+		kind: 'reasoning-effort',
+		title: `Select Reasoning Level for ${session.modelSummary ?? 'current model'}`,
+		...(afterModelSelection
+			? {
+					selectedSession: session,
+					notice: 'Model selected. Esc keeps this model at its default effort.',
+				}
+			: {}),
+		values,
+		options: values.map((effort) => ({
+			label: effort ?? 'default',
+			description: reasoningEffortDescription(effort),
+			current: effort === current,
+			default: effort === undefined,
+		})),
 	}
 }
 
