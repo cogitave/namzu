@@ -2,6 +2,8 @@
 
 ## 2026-09-08
 
+* **Update** Recorded a source-pinned [framework and computer-use gap audit](sdk/framework-gap-audit.md), desktop readiness probe, capability-advertising defect and AG-UI interoperability limits.
+
 * **Update** Added [model-owned reasoning metadata](sdk/model-reasoning.md) and provider-neutral discovery for session effort controls.
 * **Update** Interactive [model selection](cli/slash-commands.md) now continues to the selected model's effort menu; queued work waits for selection, and Escape keeps the selected model at its default effort.
 * **Update**: [Tool execution barriers](/sdk/tool-execution.md), [Conversation evidence](/cli/conversation-evidence.md) and [Delegated work](/cli/delegated-work.md) — explicit SDK ordering, CLI write/verify boundaries, run-scoped retained evidence search, background delegation and queued child corrections.
