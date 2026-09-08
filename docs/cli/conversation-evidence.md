@@ -25,18 +25,30 @@ The host binds the tenant, project and session; the model cannot choose another
 session or a filesystem path. Reads reject static symlink components and
 nonregular transcript files. The private host-owned state hierarchy is trusted
 against concurrent directory replacement: component checks and leaf descriptor
-flags do not provide an atomic, race-proof ancestor traversal. A log's identity, consecutive sequence, record termination and
-searchable payload shapes are checked before any of its matches are returned.
-Malformed or unavailable runs are counted and excluded.
+flags do not provide an atomic, race-proof ancestor traversal. Each page validates
+record identity, consecutive sequence, newline termination and
+searchable payload shapes before returning that page's matches. A corrupt record
+invalidates matches from that run on the current page. Earlier pages establish
+only a validated prefix, not validity of the entire transcript.
 
-Each search examines at most 100 directory entries, 2 MiB per transcript and
-8 MiB of transcript bytes, with a one-byte overflow probe. Match payloads total
-at most 12,000 bytes. Transcripts larger than 2 MiB are excluded as unavailable
-in their entirety; searches over them are incomplete. Results include `scannedRuns`, `scannedBytes`,
-`unavailableRuns` and `incomplete`; an incomplete search cannot establish that
-missing evidence does not exist. A known run ID can narrow a subsequent search.
-Enumeration is bounded before sorting; this is not a chronological search or a
-complete index of a large conversation.
+Each call examines at most 100 directory entries and reads at most 8 MiB, in
+64 KiB chunks. Individual JSONL records are capped at 4 MiB; total transcript
+size is no longer capped at 2 MiB. Match payloads total at most 12,000 bytes.
+`nextCursor`, when present, continues at an unconsumed record or message inside
+a compaction record. Pass it as `cursor` with the same `query`; omit `runId` or
+repeat the original single-run ID.
+The 48-character handle binds the host scope, query and file snapshot. It expires
+after ten minutes, process restart or eviction from a 128-entry cache. Restart
+the search if the cursor expires. Changed files are reported as unavailable;
+restart to search the new snapshot. No cursor state is stored on disk.
+
+Results include `scannedRuns`, `scannedBytes`, `unavailableRuns` and `incomplete`.
+Counts describe the current call. `incomplete` remains true while another page
+exists or if any run or truncated evidence was omitted. Follow continuation even
+when the current page has zero matches. Incomplete absence is not proof that
+missing evidence does not exist. Enumeration is bounded before sorting; cursors
+cover only the initially enumerated runs, not a complete index beyond 100 entries.
+An exact `runId` can search a run excluded by enumeration.
 
 This surface searches only runs physically owned by the selected conversation.
 It does not traverse fork ancestry, delegated sessions, arbitrary artifact

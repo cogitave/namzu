@@ -37,3 +37,5 @@ The kernel.
 * [Harness invariants](harness-invariants.md) - Ownership, budget conservation, result recovery and bounded live execution evidence.
 
 * [Token budgets](token-budgets.md) - Shared parent and descendant accounting, durable reservations and explicit recovery boundaries.
+
+* [Paired harness verification](harness-verification.md) - Trace-attributed comparison and fresh confirmation of harness candidates.

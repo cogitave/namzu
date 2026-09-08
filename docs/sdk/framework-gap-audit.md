@@ -165,7 +165,7 @@ keeps unknown requests distinct; the two defects in step 1 are addressed.
    dependency.
 5. Measure long-run evidence recovery and resume behavior before claiming a
    complete memory or cognitive system. Existing bounded conversation search
-   excludes transcripts above 2 MiB; retained previews cannot restore discarded
+   now pages through large transcripts with bounded reads and 4 MiB record admission; retained previews cannot restore discarded
    bytes. Indexed/spilled evidence recovery remains an extension.
 
 This audit changes documentation only. Passing the existing tests establishes

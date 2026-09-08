@@ -1,4 +1,14 @@
 export { evalRunFromQuery, evalRunFromRun } from './from-run.js'
+export { compareHarnessTrials, reviewHarnessCandidate } from './harness-verification.js'
+export type {
+	HarnessTrial,
+	HarnessAttribution,
+	HarnessVerificationBatch,
+	HarnessBehaviorStatus,
+	HarnessTaskComparison,
+	HarnessComparison,
+	HarnessReview,
+} from './harness-verification.js'
 export { formatReport, runExperiment } from './experiment.js'
 export type { ExperimentConfig } from './experiment.js'
 export { judgeScorer } from './judge.js'

@@ -227,7 +227,7 @@ describe('bounded original conversation evidence', () => {
 		expect(result.incomplete).toBe(true)
 	})
 
-	it('bounds results and excerpts and reports oversized or corrupt evidence honestly', async () => {
+	it('bounds excerpts, admits large records, and reports corrupt evidence honestly', async () => {
 		const { sessions, sessionId } = await fixture()
 		await transcript(sessions, sessionId, `${'x'.repeat(10_000)}TARGET${'y'.repeat(10_000)}`)
 		await transcript(sessions, sessionId, 'TARGET invalid tail', '{broken}\n')
@@ -236,13 +236,147 @@ describe('bounded original conversation evidence', () => {
 			query: 'TARGET',
 			limit: 20,
 		})
-		expect(result.matches).toHaveLength(1)
+		expect(result.matches).toHaveLength(2)
 		expect(result.matches[0]?.text.length).toBeLessThan(600)
-		expect(result.unavailableRuns).toBe(2)
+		expect(result.unavailableRuns).toBe(1)
 		expect(result.incomplete).toBe(true)
 		expect(result.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
 		await expect(
 			searchConversation(sessions, sessionId, { query: 'TARGET', limit: 21 }),
 		).rejects.toThrow()
 	})
+})
+
+it('recovers evidence past 8 MiB with bounded pages and no repeated matches', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { runId, path } = await transcript(sessions, sessionId, 'seed')
+	const events: unknown[] = [{ type: 'run_started', runId, seq: 1 }]
+	for (let index = 0; index < 12; index++)
+		events.push({
+			type: 'tool_completed',
+			runId,
+			seq: index + 2,
+			result: 'x'.repeat(1024 * 1024) + (index === 11 ? 'HIDDEN-ORIGINAL-91' : ''),
+		})
+	await writeFile(
+		join(path, 'transcript.jsonl'),
+		events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+	)
+	const first = await searchConversation(sessions, sessionId, {
+		query: 'HIDDEN-ORIGINAL-91',
+		runId,
+	})
+	expect(first.matches).toEqual([])
+	expect(first.unavailableRuns).toBe(0)
+	expect(first.incomplete).toBe(true)
+	expect(first.nextCursor).toHaveLength(48)
+	const second = await searchConversation(sessions, sessionId, {
+		query: 'HIDDEN-ORIGINAL-91',
+		cursor: first.nextCursor,
+	})
+	expect(second.matches).toHaveLength(1)
+	expect(second.matches[0]).toMatchObject({ runId, seq: 13 })
+	expect(second.incomplete).toBe(false)
+	expect(second.nextCursor).toBeUndefined()
+	for (const page of [first, second]) expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+})
+it('paginates several matches within one compaction event without duplicates', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { runId, path } = await transcript(sessions, sessionId, 'seed')
+	await writeFile(
+		join(path, 'transcript.jsonl'),
+		[
+			{ type: 'run_started', runId, seq: 1 },
+			{
+				type: 'compaction_shed',
+				runId,
+				seq: 2,
+				messages: Array.from({ length: 7 }, (_, i) => ({ role: 'tool', content: `TARGET-${i}` })),
+			},
+			{ type: 'run_completed', runId, seq: 3 },
+		]
+			.map((e) => JSON.stringify(e))
+			.join('\n') + '\n',
+	)
+	let cursor: string | undefined
+	const texts: string[] = []
+	for (let page = 0; page < 5; page++) {
+		const result = await searchConversation(sessions, sessionId, {
+			query: 'TARGET',
+			limit: 2,
+			...(cursor ? { cursor } : { runId }),
+		})
+		texts.push(...result.matches.map((m) => m.text))
+		cursor = result.nextCursor
+		if (!cursor) {
+			expect(result.incomplete).toBe(false)
+			break
+		}
+	}
+	expect(cursor).toBeUndefined()
+	expect(texts).toEqual(Array.from({ length: 7 }, (_, i) => `TARGET-${i}`))
+})
+it('binds cursors to the original query, conversation and stable file snapshot', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { runId, path } = await transcript(sessions, sessionId, 'seed')
+	const content =
+		[
+			{ type: 'run_started', runId, seq: 1 },
+			{ type: 'tool_completed', runId, seq: 2, result: 'TARGET-one' },
+			{ type: 'tool_completed', runId, seq: 3, result: 'TARGET-two' },
+		]
+			.map((e) => JSON.stringify(e))
+			.join('\n') + '\n'
+	await writeFile(join(path, 'transcript.jsonl'), content)
+	const first = await searchConversation(sessions, sessionId, { query: 'TARGET', runId, limit: 1 })
+	expect(first.nextCursor).toBeDefined()
+	const repeatedScope = await searchConversation(sessions, sessionId, {
+		query: 'TARGET',
+		runId,
+		cursor: first.nextCursor,
+	})
+	expect(repeatedScope.matches.map((m) => m.text)).toEqual(['TARGET-two'])
+	await expect(
+		searchConversation(sessions, sessionId, {
+			query: 'TARGET',
+			runId: generateRunId(),
+			cursor: first.nextCursor,
+		}),
+	).rejects.toThrow('continuation scope')
+	await expect(
+		searchConversation(sessions, sessionId, { query: 'different', cursor: first.nextCursor }),
+	).rejects.toThrow('scope or query')
+	const other = await startConversation(sessions)
+	await expect(
+		searchConversation(sessions, other, { query: 'TARGET', cursor: first.nextCursor }),
+	).rejects.toThrow('scope or query')
+	await expect(
+		searchConversation(sessions, sessionId, { query: 'TARGET', cursor: 'forged' }),
+	).rejects.toThrow('unavailable')
+	await writeFile(join(path, 'transcript.jsonl'), content + '{}\n')
+	const changed = await searchConversation(sessions, sessionId, {
+		query: 'TARGET',
+		cursor: first.nextCursor,
+	})
+	expect(changed.matches).toEqual([])
+	expect(changed.incomplete).toBe(true)
+	expect(changed.unavailableRuns).toBe(1)
+})
+it('propagates cancellation instead of returning an empty search result', async () => {
+	const { sessions, sessionId } = await fixture()
+	const controller = new AbortController()
+	controller.abort(new Error('stop evidence scan'))
+	await expect(
+		searchConversation(sessions, sessionId, { query: 'TARGET' }, controller.signal),
+	).rejects.toThrow('stop evidence scan')
+})
+
+it('refuses an oversized single record rather than allocating without bound', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { runId } = await transcript(sessions, sessionId, 'TARGET' + 'x'.repeat(4 * 1024 * 1024))
+	const result = await searchConversation(sessions, sessionId, { query: 'TARGET', runId })
+	expect(result.matches).toEqual([])
+	expect(result.unavailableRuns).toBe(1)
+	expect(result.incomplete).toBe(true)
+	expect(result.nextCursor).toBeUndefined()
 })

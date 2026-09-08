@@ -1113,6 +1113,8 @@ export { anyOf, hasToolCall, stepCountIs } from './types/run/step.js'
 // ─── evaluation harness ──────────────────────────────────────────────────
 
 export {
+	compareHarnessTrials,
+	reviewHarnessCandidate,
 	completionScorer,
 	containsScorer,
 	customScorer,

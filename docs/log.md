@@ -2,6 +2,8 @@
 
 ## 2026-09-08
 
+- **Update** Added [paired harness verification](sdk/harness-verification.md), based on HarnessLens, and [paged conversation evidence](cli/conversation-evidence.md) for large transcripts.
+
 - **Update** Native output mappings now cover Codex, OpenRouter, DeepSeek, HTTP dialects and Zen; TUI accepts `--output-schema` with lossless schema admission. Anthropic transport retries default to zero so throttles reach the host immediately.
 
 
