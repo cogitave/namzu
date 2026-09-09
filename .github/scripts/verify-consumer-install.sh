@@ -48,6 +48,18 @@ restore_versions() {
   # as runnable locally and a developer's uncommitted manifest edit is not
   # this script's to discard.
   if [ -n "$VERSION_SNAPSHOT" ] && [ -d "$VERSION_SNAPSHOT" ]; then
+    # First releases create a changelog where none existed on entry. Untarring
+    # cannot restore absence, so remove only those preview-created files next
+    # to snapshotted manifests. Existing uncommitted changelogs are restored.
+    if [ -d "$VERSION_SNAPSHOT/packages" ]; then
+      while IFS= read -r -d '' manifest; do
+        relative=${manifest#"$VERSION_SNAPSHOT"/}
+        relative=${relative%package.json}CHANGELOG.md
+        if [ ! -e "$VERSION_SNAPSHOT/$relative" ]; then
+          rm -f -- "$WORKSPACE_ROOT/$relative"
+        fi
+      done < <(find "$VERSION_SNAPSHOT/packages" -type f -name package.json -print0)
+    fi
     rm -rf "$WORKSPACE_ROOT/.changeset"
     (cd "$VERSION_SNAPSHOT" && tar cf - .) | (cd "$WORKSPACE_ROOT" && tar xf -)
   fi

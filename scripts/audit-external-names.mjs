@@ -317,6 +317,12 @@ const WIRE_VALUE_FILES = [
 	'packages/sdk/src/tools/builtins/computer-use.ts',
 	'packages/computer-use/src/',
 	'packages/cli/src/integrations/',
+	// Provider selection fixtures exercise registry keys and cross-provider catalogues.
+	'packages/cli/src/tui/__tests__/conversation-search-reaches-session.test.ts',
+	'packages/cli/src/tui/__tests__/model-picker-search.test.tsx',
+	'packages/cli/src/tui/__tests__/model-switch-reaches-session.test.ts',
+	'packages/cli/src/tui/model-selection-intent.test.ts',
+	'packages/cli/src/tui/model-switch.test.ts',
 	// A sandbox backend drives one containment mechanism and has to speak
 	// its API — the same category as a provider driver. The exemption stops
 	// at `backends/`: the package's own public surface is prose about
@@ -453,6 +459,10 @@ const RESEARCH_SOURCE_DOCS = new Map([
 	[
 		'pydantic',
 		new Set([
+			'docs/cli/harness-efficiency-review.md',
+			'docs/cli/task-context.md',
+			'docs/sdk/framework-gap-audit.md',
+			'docs/sdk/memory-research.md',
 			'docs/sdk/ag-ui.md',
 			'docs/sdk/cognitive-storage.md',
 			'docs/sdk/cognitive-architecture.md',

@@ -25,7 +25,7 @@ skipped. No network request is sent through that member.
 The OpenAI API driver declares support because it sends `response_format`.
 The Anthropic driver declares support because it maps JSON Schema onto
 `output_config.format`; it rejects explicit `strict: false`.
-The ChatGPT subscription (Codex) driver maps schemas to Responses `text.format`.
+The OpenAI subscription (Codex) driver maps schemas to Responses `text.format`.
 OpenRouter, DeepSeek and the HTTP OpenAI dialect forward `response_format`.
 The HTTP Anthropic dialect uses `output_config.format` and refuses schema-free
 JSON mode or `strict: false`. These declarations describe wire mapping, not

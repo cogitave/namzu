@@ -2,6 +2,8 @@
 
 ## 2026-09-09
 
+- **Update** Clarified the subscription driver name in [native provider capabilities](sdk/native-provider-capabilities.md); scoped source-attribution and provider-fixture name-audit exceptions to their reviewed files.
+
 - **Update** Added opt-in [identifier-grounded memory recall](sdk/memory.md) and recorded a [24-run candidate comparison](sdk/memory-recall-scores.md); retained the default after higher measured token use without factual improvement.
 
 - **Update** Recorded [24 live memory-recall comparisons](sdk/memory-recall-scores.md), separating factual correctness, answer-format compliance and measured token/tool consumption.

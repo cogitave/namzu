@@ -121,3 +121,32 @@ describe('the live minimum-SDK fixture', () => {
 		assert.match(source, /else[\s\S]*"@namzu\/sdk@\$LIVE_MINIMUM_SDK"/)
 	})
 })
+
+describe('first-release changelog cleanup', () => {
+	it('removes only generated changelogs absent from the original package snapshot', () => {
+		const scratch = mkdtempSync(join(tmpdir(), 'namzu-first-release-'))
+		try {
+			const workspace = join(scratch, 'workspace')
+			const snapshot = join(scratch, 'snapshot')
+			for (const root of [workspace, snapshot]) {
+				for (const pkg of ['new-package', 'existing-package']) {
+					execFileSync('mkdir', ['-p', join(root, 'packages', pkg)])
+					writeFileSync(join(root, 'packages', pkg, 'package.json'), '{}')
+				}
+			}
+			writeFileSync(join(snapshot, 'packages/existing-package/CHANGELOG.md'), 'uncommitted original')
+			writeFileSync(join(workspace, 'packages/existing-package/CHANGELOG.md'), 'preview edit')
+			writeFileSync(join(workspace, 'packages/new-package/CHANGELOG.md'), 'first release preview')
+			writeFileSync(join(workspace, 'packages/new-package/notes.md'), 'keep this')
+			const source = readFileSync(SCRIPT, 'utf8')
+			const restore = source.slice(source.indexOf('restore_versions() {'), source.indexOf('\ncleanup() {'))
+			assert.ok(restore.endsWith('}\n'))
+			execFileSync('bash', ['-c', `set -euo pipefail\nWORKSPACE_ROOT="$1"\nVERSION_SNAPSHOT="$2"\n${restore}\nrestore_versions`, '_', workspace, snapshot])
+			assert.equal(existsSync(join(workspace, 'packages/new-package/CHANGELOG.md')), false)
+			assert.equal(readFileSync(join(workspace, 'packages/existing-package/CHANGELOG.md'), 'utf8'), 'uncommitted original')
+			assert.equal(readFileSync(join(workspace, 'packages/new-package/notes.md'), 'utf8'), 'keep this')
+		} finally {
+			rmSync(scratch, { recursive: true, force: true })
+		}
+	})
+})

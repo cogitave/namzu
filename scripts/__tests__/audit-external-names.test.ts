@@ -119,3 +119,26 @@ test('a scoped source attribution exception does not exempt other prose or kerne
 	writeFileSync(join(root, 'packages/sdk/src/clean.ts'), 'export const pydanticKernel = 1\n')
 	assert.equal(runAudit(root).status, 1)
 })
+
+test('commissioned research may attribute its source without exempting other prose', () => {
+	const root = repository()
+	mkdirSync(join(root, 'docs/sdk'), { recursive: true })
+	writeFileSync(join(root, 'docs/sdk/memory-research.md'), 'Pydantic search was inspected.\n')
+	assert.equal(runAudit(root).status, 0)
+	writeFileSync(join(root, 'docs/sdk/unrelated.md'), 'Pydantic shapes our kernel.\n')
+	const result = runAudit(root)
+	assert.equal(result.status, 1)
+	assert.match(result.stderr, /docs\/sdk\/unrelated.md/)
+})
+
+test('provider selection fixtures may name wire keys without exempting adjacent code', () => {
+	const root = repository()
+	mkdirSync(join(root, 'packages/cli/src/tui'), { recursive: true })
+	const fixture = 'const selected = PROVIDER_REGISTRY.anthropic\n'
+	writeFileSync(join(root, 'packages/cli/src/tui/model-switch.test.ts'), fixture)
+	assert.equal(runAudit(root).status, 0)
+	writeFileSync(join(root, 'packages/cli/src/tui/unrelated.ts'), fixture)
+	const result = runAudit(root)
+	assert.equal(result.status, 1)
+	assert.match(result.stderr, /packages\/cli\/src\/tui\/unrelated.ts/)
+})
