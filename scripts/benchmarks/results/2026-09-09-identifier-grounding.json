@@ -1,0 +1,1042 @@
+{
+  "manifest": {
+    "revision": "e2d031f03fcd59a013ae099fd0363270d7d4c7a5",
+    "model": "gpt-5.6-luna",
+    "provider": "codex",
+    "effort": "low",
+    "maxIterations": 6,
+    "tokenBudget": 30000,
+    "trials": 2,
+    "mode": "grounding",
+    "variantOffset": 100,
+    "cwd": "/tmp/namzu-recall-score-bqGIuf",
+    "projectId": "f9fa7a2c-b5a5-4d9d-9cd3-c7363c41e0df",
+    "common": "Answer using only this project's active memory, current user instructions and any current artifact named in the question. You may use memory tools. Do not modify files or memory, delegate, or inspect outside this project. Return only the requested value, with no explanation; if it is not supported, return UNKNOWN.",
+    "scenarios": [
+      {
+        "id": "body-fact",
+        "variants": [
+          {
+            "title": "Prior investigation",
+            "summary": "A service finding",
+            "content": "cobalt100 retention is 117 hours.",
+            "question": "What is cobalt100 retention in hours?",
+            "expected": "117"
+          },
+          {
+            "title": "Prior investigation",
+            "summary": "A service finding",
+            "content": "cobalt101 retention is 118 hours.",
+            "question": "What is cobalt101 retention in hours?",
+            "expected": "118"
+          }
+        ]
+      },
+      {
+        "id": "corrected",
+        "variants": [
+          {
+            "title": "violet100 TTL",
+            "summary": "Configuration note",
+            "content": "violet100 TTL is 14 hours.",
+            "update": {
+              "content": "violet100 TTL is 128 hours."
+            },
+            "question": "What is violet100 TTL in hours?",
+            "expected": "128"
+          },
+          {
+            "title": "violet101 TTL",
+            "summary": "Configuration note",
+            "content": "violet101 TTL is 14 hours.",
+            "update": {
+              "content": "violet101 TTL is 129 hours."
+            },
+            "question": "What is violet101 TTL in hours?",
+            "expected": "129"
+          }
+        ]
+      },
+      {
+        "id": "archived",
+        "variants": [
+          {
+            "title": "copper100 region",
+            "summary": "Obsolete configuration",
+            "content": "copper100 region is east.",
+            "update": {
+              "status": "archived"
+            },
+            "question": "What is the currently supported copper100 region?",
+            "expected": "UNKNOWN"
+          },
+          {
+            "title": "copper101 region",
+            "summary": "Obsolete configuration",
+            "content": "copper101 region is east.",
+            "update": {
+              "status": "archived"
+            },
+            "question": "What is the currently supported copper101 region?",
+            "expected": "UNKNOWN"
+          }
+        ]
+      },
+      {
+        "id": "user-override",
+        "variants": [
+          {
+            "title": "saffron100 port",
+            "summary": "Earlier configuration",
+            "content": "saffron100 port is 4100.",
+            "question": "I have changed saffron100 port to 6300. What port should you use now?",
+            "expected": "6300"
+          },
+          {
+            "title": "saffron101 port",
+            "summary": "Earlier configuration",
+            "content": "saffron101 port is 4100.",
+            "question": "I have changed saffron101 port to 6301. What port should you use now?",
+            "expected": "6301"
+          }
+        ]
+      },
+      {
+        "id": "fresh-file",
+        "variants": [
+          {
+            "title": "indigo100 concurrency",
+            "summary": "Earlier configuration",
+            "content": "indigo100 concurrency is 8.",
+            "file": "{\"service\":\"indigo100\",\"concurrency\":112}",
+            "question": "Read current.json for the current indigo100 configuration. What concurrency should you use?",
+            "expected": "112"
+          },
+          {
+            "title": "indigo101 concurrency",
+            "summary": "Earlier configuration",
+            "content": "indigo101 concurrency is 8.",
+            "file": "{\"service\":\"indigo101\",\"concurrency\":113}",
+            "question": "Read current.json for the current indigo101 configuration. What concurrency should you use?",
+            "expected": "113"
+          }
+        ]
+      },
+      {
+        "id": "unrelated",
+        "variants": [
+          {
+            "title": "opal100 connection",
+            "summary": "Earlier observation",
+            "content": "opal100 connection timeout is 19 seconds.",
+            "question": "What is quartz100 queue delay in seconds?",
+            "expected": "UNKNOWN"
+          },
+          {
+            "title": "opal101 connection",
+            "summary": "Earlier observation",
+            "content": "opal101 connection timeout is 19 seconds.",
+            "question": "What is quartz101 queue delay in seconds?",
+            "expected": "UNKNOWN"
+          }
+        ]
+      }
+    ],
+    "scoring": "trim, lowercase, remove one final period; exact equality; errors/incomplete runs are failures",
+    "arms": "automatic recall enabled in both arms; only memory.identifierGrounding differs",
+    "startedAt": "2026-09-09T07:34:33.689Z"
+  },
+  "runtimeNote": "Base revision plus uncommitted identifier-grounding candidate. Both arms explicitly set the option; final opt-in default changes only omitted settings.",
+  "builtRuntimeSha256": {
+    "packages/sdk/dist/run/memory-recall.js": "26c6264001e1fe098bddeb25286216fadf001c717dbe43bcde4253adc0238c50",
+    "packages/sdk/dist/store/memory/index.js": "a2f22a1e9fb0d8bfb0f584e741c5dcaa2c2a4f373197464d7b6968a8ee3b0d0e",
+    "packages/sdk/dist/store/memory/disk.js": "7f58b56e1f123167247f904ae8f8bcf6f62d18f6054a8e45dd6ef1a6b770165f",
+    "packages/cli/dist/config/load.js": "39a52299347dfe0b771b64910e562478990d9f95ce3fa020694d605dd406d013",
+    "packages/cli/dist/tui/agent.js": "5fd1a2e4672a516c1058a7d585007a75f0c4fe53efd1589988857055c6d0590a"
+  },
+  "summary": {
+    "totalRuns": 24,
+    "arms": [
+      {
+        "arm": "off",
+        "passed": 12,
+        "total": 12,
+        "tokens": 102061,
+        "tools": 7,
+        "durationMs": 53623
+      },
+      {
+        "arm": "on",
+        "passed": 11,
+        "total": 12,
+        "tokens": 112488,
+        "tools": 9,
+        "durationMs": 70074
+      }
+    ],
+    "tasks": [
+      {
+        "id": "body-fact",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "corrected",
+        "off": 2,
+        "on": 1,
+        "trials": 2
+      },
+      {
+        "id": "archived",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "user-override",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "fresh-file",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "unrelated",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      }
+    ]
+  },
+  "factualReview": "One candidate answer was 128 hours instead of 128. Accepted post-hoc as factually correct; original strict-format failure retained.",
+  "decision": "Not promoted to default: no factual gain, higher token use; optional exact-identifier control only.",
+  "rows": [
+    {
+      "task": "body-fact",
+      "trial": 0,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "body-fact-0-off",
+      "expected": "117",
+      "answer": "117",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 3299,
+      "tokens": 5375,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5375
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "0ccae9ba-a4f9-4a99-b079-7d78b7baebb5",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "c311b9476ef2ea4559874ae78a503d20f6cbe44cea066c374f2c82cd7b388a11",
+      "streamSha256": "69e32fe8e4beebb60d3d01682f033816f404a90b472f61df0008311e5bb2e41d"
+    },
+    {
+      "task": "body-fact",
+      "trial": 0,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "body-fact-0-on",
+      "expected": "117",
+      "answer": "117",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 3178,
+      "tokens": 5367,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5367
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "ce28a2fe-4569-4d28-b759-4f90dbd1a3c5",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "61b80514dea56683f4acbb66e7ea5bc7a595b981eb9980a98c5a9576a09bd545",
+      "streamSha256": "f4252035e4f1c9befa967508faa091d69984f51f7793c1ac163612217eaa3cad"
+    },
+    {
+      "task": "body-fact",
+      "trial": 1,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "body-fact-1-on",
+      "expected": "118",
+      "answer": "118",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5186,
+      "tokens": 10841,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10841
+      },
+      "tools": [
+        "read_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "f120e4cd-f837-47e6-aa69-6f191560f1de",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "2ab95cecbd35dd9eda35097a62843cd9e2841bb6113e2b74d45fd45ebee853fa",
+      "streamSha256": "4d57f6cedc2254d028a09ae6e4b57cb353d94ce51b94d62a97bec84296194587"
+    },
+    {
+      "task": "body-fact",
+      "trial": 1,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "body-fact-1-off",
+      "expected": "118",
+      "answer": "118",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5273,
+      "tokens": 10816,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10816
+      },
+      "tools": [
+        "read_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "5f207afc-451f-4e2d-84ef-52196d86d7f7",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "65a57406948fb7dbbd24d27560710fa55c4918575b355f1aa1462e28e43ca200",
+      "streamSha256": "cb184f470cdd6b0f75706497de16758c6d557f441ee613f3d8da1b4e3acc4a94"
+    },
+    {
+      "task": "corrected",
+      "trial": 0,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "corrected-0-off",
+      "expected": "128",
+      "answer": "128",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 2948,
+      "tokens": 5369,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5369
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "4215922c-a180-4bf4-8082-b959c42a67c1",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "c3e1bc6af9046605c18b22bfd97ac5b7a6d49d5f19208599f2d8b583dba0f247",
+      "streamSha256": "bd9c3f3be9ca3eada855fcab253cf11624ccbc0b220713414a7729000ca0f89b"
+    },
+    {
+      "task": "corrected",
+      "trial": 0,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "corrected-0-on",
+      "expected": "128",
+      "answer": "128 hours",
+      "passed": false,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 3577,
+      "tokens": 5381,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5381
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "c7f90b4b-0797-461f-8881-57b287cf3aab",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "3541c589e8758d8cee9ca18db83d1a6d0166135439c02c68bc09ca0ba3d0bfcf",
+      "streamSha256": "1dc7f315c8b183564bc59d28528f4e4df87578a8b46a0a3156bc0c80bee374fc"
+    },
+    {
+      "task": "corrected",
+      "trial": 1,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "corrected-1-on",
+      "expected": "129",
+      "answer": "129",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 3808,
+      "tokens": 5374,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5374
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "53f593f4-90cd-4e50-9e1b-16fbd70586df",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "894d86097d05dda61c35397ff4bd30840bc7c54ceb6131fdffb1d91570f7f453",
+      "streamSha256": "297fe2efbc957d71ddee5a925b24304bd51e6c42539a4dd88f57f1b4402f473f"
+    },
+    {
+      "task": "corrected",
+      "trial": 1,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "corrected-1-off",
+      "expected": "129",
+      "answer": "129",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 2878,
+      "tokens": 5354,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5354
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "299c9501-8e14-4d5d-a8ad-be8cbae8d24e",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "d2197629558b8b48bb2d8661a794817b7e4980ff4bff8af8d021339e39c11dd2",
+      "streamSha256": "4870de34f7f22fa4ce22942152ffb9ba80a5b6f70a11fac3240fefc11c60bbd2"
+    },
+    {
+      "task": "archived",
+      "trial": 0,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "archived-0-off",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5796,
+      "tokens": 10559,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10559
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "f0d3b3ae-3e25-475d-ac8e-05ac285b67a1",
+      "envelopesWithRecall": 0,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "0b553f90e5aa17dce80c828e5ddc22a4d7c87093ea7893d1de6bfa5a7aa93b19",
+      "streamSha256": "3bf9408cfba36b25c50fef4669aaa1e6405ba85005430fdf8ccc31fd46f1578e"
+    },
+    {
+      "task": "archived",
+      "trial": 0,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "archived-0-on",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 7119,
+      "tokens": 10571,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10571
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "cd238330-b0bc-4532-816d-c4e2b168475b",
+      "envelopesWithRecall": 0,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "4f7319c6298bd73f3b1c4635cf6eefb8f10d5ab3444abe2115fba8b6ae223998",
+      "streamSha256": "21f5170492129ff59dda9bdab571996e666c89bbb161315afddc10bcac3233bd"
+    },
+    {
+      "task": "archived",
+      "trial": 1,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "archived-1-on",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 6476,
+      "tokens": 10555,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10555
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "9bf551b7-7fff-4c86-a047-42671fc4c119",
+      "envelopesWithRecall": 0,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "ff918171452e9a124697c6011163558080c7c72b4c8c48cd62fe8bb10db41e40",
+      "streamSha256": "19de3ca030ccd09f2efaa1b92a72e212ff1a856e5da3b63c0a1f82f9929ccfd1"
+    },
+    {
+      "task": "archived",
+      "trial": 1,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "archived-1-off",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5101,
+      "tokens": 10569,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10569
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "2271f04f-52b0-4ebe-b02d-a0d25aeeba4d",
+      "envelopesWithRecall": 0,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "32dcc79ec3c52ab8cc4fb805e9fb9f3a635d6ea6f08711ecf0f4697396441818",
+      "streamSha256": "5c5a8c08ceee9d9de1cf93c4d048f6f54e460a3b90e8d1191b47db93c3c482f4"
+    },
+    {
+      "task": "user-override",
+      "trial": 0,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "user-override-0-off",
+      "expected": "6300",
+      "answer": "6300",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 3134,
+      "tokens": 5384,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5384
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "33fa6eed-bcb9-4ac7-a9f6-e9e182355e4f",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "5fd823ed31446a53bc7187933ac6f2ec2c2a3f83e366172173b8b29bd567dae1",
+      "streamSha256": "0ae06f3b555af8fea5b555fd13945b15e4f58a5bc75a06761cabdfe4cc311c9d"
+    },
+    {
+      "task": "user-override",
+      "trial": 0,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "user-override-0-on",
+      "expected": "6300",
+      "answer": "6300",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 4319,
+      "tokens": 5396,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5396
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "506f1ef1-491b-48d6-95d5-2f1675954792",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "3837bfde217ba43c918cecb167c1d1e0a434515133a10a775f6ec9d94397e719",
+      "streamSha256": "c7e72c7025a20e806bcacc613e57605f043f20c4fd9e75ad75cd4e513d3b9cba"
+    },
+    {
+      "task": "user-override",
+      "trial": 1,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "user-override-1-on",
+      "expected": "6301",
+      "answer": "6301",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5556,
+      "tokens": 5391,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5391
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "9806e341-5202-4a2e-9252-fbe0699db66e",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "2980551270a576af65f2218119800c265f5504bbd96e1b647bbf39cfec5cbe95",
+      "streamSha256": "4861aa5a3088daa951ce399e9855f2784a0bcaeec224daac8891fa6cbc7948e6"
+    },
+    {
+      "task": "user-override",
+      "trial": 1,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "user-override-1-off",
+      "expected": "6301",
+      "answer": "6301",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 4305,
+      "tokens": 5390,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5390
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "b50b220e-44ae-41f1-b632-bc3307c51796",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "c430b439da5be2a29ac9ed48bb63afe86d592627af70dd0e4eb9915ba911506d",
+      "streamSha256": "d90e7a859cb7215dd7e1b46d551b52a921b7a2b09a68e82de01e8f579faff91a"
+    },
+    {
+      "task": "fresh-file",
+      "trial": 0,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "fresh-file-0-off",
+      "expected": "112",
+      "answer": "112",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 4573,
+      "tokens": 10790,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10790
+      },
+      "tools": [
+        "read"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "9c1db9cc-0149-41ed-a385-46e207c76d2f",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "0b7917c593303ecafccaa2fe3e785dbf67c6e14b26c386c776cc701bed41cb8e",
+      "streamSha256": "851ef05acbc1d98cd96e99eb34af4f5ef1c35f09e12d5999043c9f5ba1da3173"
+    },
+    {
+      "task": "fresh-file",
+      "trial": 0,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "fresh-file-0-on",
+      "expected": "112",
+      "answer": "112",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5967,
+      "tokens": 10790,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10790
+      },
+      "tools": [
+        "read"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "42831e0f-0b55-4ed1-85bb-bb1d52cca0cb",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "e4d96ac6627387530b4895b0a2a46a05351e9f431a099d30c75c99ff735c77b1",
+      "streamSha256": "45ad822c49d9ced43281be70a2b3f24cf1238c1ec84f383541b7709ed78e0974"
+    },
+    {
+      "task": "fresh-file",
+      "trial": 1,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "fresh-file-1-on",
+      "expected": "113",
+      "answer": "113",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 7203,
+      "tokens": 10786,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10786
+      },
+      "tools": [
+        "read"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "f38adf04-e1a9-4719-82c2-0e5ac10d82a8",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "f1bb793cb845da959f20d1a557c9878f184d1ac336cffdeccd3325049f20f982",
+      "streamSha256": "0d8a9e98a4fef01887575b5c2aceea2817c3bb50af76ee73435c3e922c95de4a"
+    },
+    {
+      "task": "fresh-file",
+      "trial": 1,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "fresh-file-1-off",
+      "expected": "113",
+      "answer": "113",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 4886,
+      "tokens": 10801,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10801
+      },
+      "tools": [
+        "read"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "3287c077-b645-461a-b608-2762726ca996",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "5dca4dc62b90b7421ceca63130f62f6fdfdeca5811adefc577468701f240e933",
+      "streamSha256": "40ac4cb1b92fd7d4fe947d01cc1f6bc99a588fa267581fc33c6acd64b7e0299c"
+    },
+    {
+      "task": "unrelated",
+      "trial": 0,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "unrelated-0-off",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 4819,
+      "tokens": 10830,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10830
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "35a76cd3-6b12-45ea-b5cd-da4c4503b37a",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "77ac70787f6378a79824d168138ae976816556568b7325af23e70a1fe6321f3f",
+      "streamSha256": "ced64b87019a143eb3c9dae70f20db7be153c0e9181d8993aceca2304a380393"
+    },
+    {
+      "task": "unrelated",
+      "trial": 0,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "unrelated-0-on",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 7767,
+      "tokens": 16035,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16035
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "eda9e43a-8426-4b75-8fd6-c5f4989763ce",
+      "envelopesWithRecall": 0,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "05d28b98720418a6efcadf8d5eff68dc5bdaa6f85bdde4eb4245ff76e6589e1d",
+      "streamSha256": "a3b4678b44d586e6fc186a6a81ca62163416c2b44bf5c93097707d276e744301"
+    },
+    {
+      "task": "unrelated",
+      "trial": 1,
+      "arm": "on",
+      "recall": true,
+      "identifierGrounding": true,
+      "label": "unrelated-1-on",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 9918,
+      "tokens": 16001,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16001
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "7aaf72a9-b8af-4324-a41e-da3c2fb02c0f",
+      "envelopesWithRecall": 0,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "09ef1f16feed0732df2778af02d006f8330002b55c49b824b8a7ebc9dcba6816",
+      "streamSha256": "cee976970411f937f5f8de3a28a12c780e0e357c4e99d8182c10cb77a3358695"
+    },
+    {
+      "task": "unrelated",
+      "trial": 1,
+      "arm": "off",
+      "recall": true,
+      "identifierGrounding": false,
+      "label": "unrelated-1-off",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 6611,
+      "tokens": 10824,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10824
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "a85d89db-dd16-4c38-979b-53ccab565f01",
+      "envelopesWithRecall": 1,
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "factualReviewPassed": true,
+      "transcriptSha256": "1ef6c7aba74f5394559a31fe4db5bb8b6b8fa24c351ec82b54d11d2345e52fec",
+      "streamSha256": "a6b62b50d19496721bd7f9e2b29f74b0d7cb0c6b17c8be1d1eaa8ab9d3114b32"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	DefaultPathBuilder,
+	DiskMemoryStore,
 	type LLMProvider,
 	MockLLMProvider,
 	ProviderRegistry,
@@ -299,3 +300,37 @@ it('projects the task created by the actual run tools into the next provider req
 	await send(session)
 	expect(systems(2)).not.toContain('Current run task snapshot.')
 })
+
+it.each([true, false])(
+	'forwards identifier grounding policy %s into actual requests',
+	async (identifierGrounding) => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-grounding-session-'))
+		roots.push(cwd)
+		const store = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		await store.create({
+			title: 'opal9 connection',
+			summary: 'A historical fact',
+			content: 'opal9 timeout is 19 seconds.',
+		})
+		const provider = new MockLLMProvider({ turns: [{ text: 'UNKNOWN' }] })
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			sandbox: { enabled: false },
+			memory: { identifierGrounding },
+		})
+		opened.push(session)
+		for await (const _event of session.send(
+			[createUserMessage('What is quartz8 delay in seconds?')],
+			{ permissionMode: 'auto' },
+		)) {
+			/* consume production request */
+		}
+		const system =
+			provider.requests[0]?.messages
+				.filter((m) => m.role === 'system')
+				.map((m) => m.content)
+				.join('\n') ?? ''
+		expect(system.includes('Retrieved project memory:')).toBe(!identifierGrounding)
+	},
+)

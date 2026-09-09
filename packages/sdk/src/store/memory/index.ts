@@ -15,6 +15,17 @@ function terms(text: string): Set<string> {
 	)
 }
 
+/** Exact normalized word membership; no substring, stemming or alias inference. */
+export function matchesMemoryIdentifier(text: string, identifiers: ReadonlySet<string>): boolean {
+	for (const match of text
+		.normalize('NFKC')
+		.toLowerCase()
+		.matchAll(/[\p{L}\p{N}_]+/gu)) {
+		if (identifiers.has(match[0])) return true
+	}
+	return false
+}
+
 /** Shared lexical ranking; a caller-owned index can omit body content. */
 export function searchMemoryEntries(
 	entries: readonly MemoryIndexEntry[],
@@ -22,12 +33,22 @@ export function searchMemoryEntries(
 	contentOf: (id: MemoryId) => string = () => '',
 ): MemorySearchResult {
 	const query = terms(params.query ?? '')
+	const identifiers = new Set(
+		params.requiredIdentifiers?.map((id) => id.normalize('NFKC').toLowerCase()),
+	)
 	if (params.query?.trim() && query.size === 0) return { entries: [], totalCount: 0 }
 	const ranked = entries
 		.filter(
 			(entry) =>
 				(!params.status || entry.status === params.status) &&
 				(!params.tags?.length || params.tags.every((tag) => entry.tags.includes(tag))),
+		)
+		.filter(
+			(entry) =>
+				!identifiers.size ||
+				[entry.id, entry.title, entry.summary, contentOf(entry.id)].some((text) =>
+					matchesMemoryIdentifier(text, identifiers),
+				),
 		)
 		.map((entry) => {
 			let coverage = 0

@@ -635,3 +635,12 @@ describe('compaction', () => {
 		).toBeUndefined()
 	})
 })
+
+it('preserves identifier grounding opt-out and rejects nonboolean values', () => {
+	const home = userConfig('memory:\n  identifierGrounding: false\n')
+	expect(loadConfig({ home, cwd: tmpdir(), env: {} }).memory).toEqual({
+		identifierGrounding: false,
+	})
+	const invalid = userConfig('memory:\n  identifierGrounding: sometimes\n')
+	expect(() => loadConfig({ home: invalid, cwd: tmpdir(), env: {} })).toThrow(ConfigValueError)
+})

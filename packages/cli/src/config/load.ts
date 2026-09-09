@@ -528,12 +528,21 @@ const CONFIG_READERS: ConfigReaders = {
 	memory: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'recall') return invalidConfigValue(context, [key], 'is not a memory key')
+			if (key !== 'recall' && key !== 'identifierGrounding')
+				return invalidConfigValue(context, [key], 'is not a memory key')
 		}
 		if (v.recall !== undefined && typeof v.recall !== 'boolean') {
 			return invalidConfigValue(context, ['recall'], 'must be true or false')
 		}
-		return v.recall === undefined ? {} : { recall: v.recall as boolean }
+		if (v.identifierGrounding !== undefined && typeof v.identifierGrounding !== 'boolean') {
+			return invalidConfigValue(context, ['identifierGrounding'], 'must be true or false')
+		}
+		return {
+			...(v.recall === undefined ? {} : { recall: v.recall as boolean }),
+			...(v.identifierGrounding === undefined
+				? {}
+				: { identifierGrounding: v.identifierGrounding as boolean }),
+		}
 	},
 	compaction: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')

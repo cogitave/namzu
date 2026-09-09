@@ -102,6 +102,8 @@ export interface WebConfig {
 export interface MemoryCliConfig {
 	/** Recall bounded active project records before each model step. Default true. */
 	readonly recall?: boolean
+	/** Ground automatic recall in mixed letter/digit identifiers when present. Default false. */
+	readonly identifierGrounding?: boolean
 }
 
 /**

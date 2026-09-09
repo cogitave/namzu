@@ -42,6 +42,8 @@ export interface MemorySearchParams {
 	readonly tags?: string[]
 	readonly status?: MemoryStatus
 	readonly limit?: number
+	/** Match at least one exact normalized word token before limiting results. Empty means no constraint. */
+	readonly requiredIdentifiers?: readonly string[]
 }
 
 export interface MemorySearchResult {

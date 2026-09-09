@@ -1,4 +1,5 @@
 import { tokenize } from '../compaction/salience/tokenize.js'
+import { matchesMemoryIdentifier } from '../store/memory/index.js'
 import type { MemoryStore } from '../types/memory/index.js'
 import type { Message } from '../types/message/index.js'
 import type { PrepareStep } from '../types/run/prepare-step.js'
@@ -14,6 +15,8 @@ export interface MemoryRecallOptions {
 	readonly timeoutMs?: number
 	/** Host baseline when the runtime supplies no latestUserMessage; precedes visible history. */
 	readonly query?: string
+	/** Require an exact mixed letter/digit identifier match when the query has one. Default false. */
+	readonly identifierGrounding?: boolean
 }
 
 // Bound optional reads across hooks using the same store instance. A timeout
@@ -70,6 +73,20 @@ const GLUE = new Set([
 	'kankacım',
 	'tamam',
 ])
+
+// Deliberately narrow: machine-like word tokens, not numbers or inferred entities.
+function identifiers(text: string): string[] {
+	return [
+		...new Set(
+			text
+				.normalize('NFKC')
+				.toLowerCase()
+				.match(/[\p{L}\p{N}_]+/gu) ?? [],
+		),
+	]
+		.filter((term) => /^[\p{L}_]/u.test(term) && /\p{L}/u.test(term) && /\p{N}/u.test(term))
+		.slice(0, 32)
+}
 
 function latestQuery(messages: readonly Message[]): string | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
@@ -131,7 +148,19 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 			Math.max(0, Math.floor(contextBudget?.remainingTokens ?? maxChars)),
 		)
 		const query = latestUserMessage?.content ?? options.query ?? latestQuery(messages) ?? ''
-		const terms = [...new Set(tokenize(query.slice(-4_000)))]
+		const anchors = new Set(
+			options.identifierGrounding === true ? identifiers(query.slice(-4_000)) : [],
+		)
+		const terms = [
+			...new Set([
+				...anchors,
+				...tokenize(
+					options.identifierGrounding === true
+						? query.slice(-4_000).normalize('NFKC')
+						: query.slice(-4_000),
+				),
+			]),
+		]
 			.filter((term) => term.length > 1 && !GLUE.has(term))
 			.slice(0, 32)
 		if (terms.length === 0 || charBudget <= HEADER.length) return undefined
@@ -142,6 +171,7 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 				query: terms.join(' '),
 				status: 'active',
 				limit: maxMemories,
+				...(anchors.size ? { requiredIdentifiers: [...anchors] } : {}),
 			})
 			let block = HEADER
 			const entries = page.entries
@@ -159,6 +189,13 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 					? record?.content
 					: await options.store.get(selected.id)
 				if (!entry || entry.status !== 'active' || !full || expired) continue
+				if (
+					anchors.size &&
+					![entry.id, entry.title, entry.summary, full.content].some((text) =>
+						matchesMemoryIdentifier(text, anchors),
+					)
+				)
+					continue
 				const remaining = charBudget - block.length
 				const allowance = Math.floor(remaining / (entries.length - i))
 				let bodyLimit = Math.max(0, allowance - 180)

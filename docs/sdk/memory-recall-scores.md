@@ -103,3 +103,42 @@ The next experiment should predeclare separate factual and formatting scorers,
 add distractor-heavy and multi-step tasks, and measure retrieval relevance as
 well as final success. Keep the current suite as a regression reference rather
 than tuning exclusively to these six examples.
+
+
+## Identifier-grounding candidate
+
+A follow-up on the same day used the working-tree identifier-grounding candidate,
+with **automatic recall enabled in both arms**. Only `identifierGrounding`
+changed. The same six families used new numeric variants (100 and 101), not
+held-out task families. The paired settings were explicit in all 24 runs; the
+final default of false does not change those settings.
+
+| Metric | Grounding off | Grounding on |
+| --- | --- | --- |
+| Factually correct, manually reviewed | 12/12 | 12/12 |
+| Strict format | 12/12 | 11/12 |
+| Reported tokens | 102,061 | 112,488 |
+| Tool calls | 7 | 9 |
+| Sum of subprocess wall times | 53.6 s | 70.1 s |
+
+The sole format miss was `128 hours` instead of `128`. In the two unrelated
+cases, automatic irrelevant-memory injection fell to zero in recorded request
+envelopes. However, the model used `search_memory` **and** `read_memory` in each
+candidate run, compared with search alone in each baseline run. Removing an
+irrelevant automatic reminder did not remove the model's desire to investigate.
+Overall token use rose 10.2%; no factual improvement was observed. This is why
+identifier grounding remains **opt-in**, not a new default. The result does not
+establish a causal latency penalty or general accuracy parity beyond this set.
+
+The raw rows, trajectory IDs, stream/transcript digests and measured build-file
+digests are in `scripts/benchmarks/results/2026-09-09-identifier-grounding.json`.
+Raw local logs are in `/tmp/namzu-grounding-scores-0909/`. No failed provider
+runs were excluded. Reproduce this ablation explicitly with:
+
+```sh
+node scripts/benchmarks/memory-recall.mjs /tmp/namzu-grounding-scores-new grounding
+```
+
+This control enforces an exact lexical requirement when the host wants it. It
+is not a general solution to recall relevance: aliases and renamed entities
+need separate evaluation, and direct tool search still returns broad matches.

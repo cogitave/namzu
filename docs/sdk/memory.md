@@ -94,6 +94,16 @@ stemming, synonym expansion, embedding or semantic verification. Contradictory
 records can both match. Disk searches read candidate bodies under the operation
 lock; a result limit bounds returned rows, not the amount of content scanned.
 
+`MemorySearchParams.requiredIdentifiers` optionally requires at least one exact
+word-token match in ID, title, summary or body **before** ranking/limiting.
+Both shipped stores normalize NFKC and lowercase, preserving underscores in
+these identifier tokens. `quartz9` does not match `quartz90`. An empty array adds
+no condition. `totalCount` counts only eligible results. A metadata-only
+`MemoryIndex` cannot find body-only identifiers; the disk store loads bodies
+before applying this condition. The condition does not make disk scanning
+sublinear. Custom stores must implement this optional search contract to avoid
+losing eligible results behind irrelevant top-k entries.
+
 All requested tags must match. An empty or whitespace-only query lists records
 by recency; a nonempty query containing no letter/number terms matches nothing.
 Supply `limit` to bound direct store results; omitting it returns all matches.
@@ -176,6 +186,23 @@ more optional reads on subsequent steps or runs. It does not cancel disk I/O,
 coordinate separate store objects/processes, or throttle explicit memory tools.
 No result is shared across callers; a later admitted pass uses its own current
 query and reads fresh records.
+
+Identifier grounding is opt-in through `MemoryRecallOptions.identifierGrounding: true`
+(default false).
+When enabled, recall extracts up to 32 mixed-letter/digit word tokens from the
+last 4,000 query characters (for example `quartz9` or `worker_v2`). Tokens must
+begin with a letter or underscore and contain both a Unicode letter and number.
+Plain numbers and words do not activate this policy. It prioritizes these tokens
+within the existing 32-term search budget and requires a match with **any** one
+of them, so a comparison of two identifiers can retrieve records about either.
+
+The hook supplies the store condition and rechecks each fresh record before
+injection. A custom store that ignores the condition cannot inject a mismatched
+record, but may fail to return a relevant record beyond its own result limit.
+This is lexical grounding, not entity recognition or semantic relevance. Aliases,
+renamed identifiers and alternative spellings can be missed. Shared versions
+such as `v2` can still match unrelated records. Explicit memory tools retain
+ordinary broad search and remain available to investigate such cases.
 
 The block labels its contents as untrusted historical claims, includes record
 IDs and update times, and includes a source run when recorded. This framing is

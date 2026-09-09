@@ -12,6 +12,10 @@ if (!output)
 	throw new Error(
 		"Usage: node scripts/benchmarks/memory-recall.mjs <new-output-directory>",
 	);
+const mode = process.argv[3] ?? "recall";
+if (!["recall", "grounding"].includes(mode))
+	throw new Error("Mode must be recall or grounding");
+const variantOffset = mode === "grounding" ? 100 : 0;
 const out = resolve(output);
 await mkdir(out, { recursive: false });
 const cwd = await mkdtemp("/tmp/namzu-recall-score-");
@@ -97,23 +101,28 @@ const manifest = {
 	maxIterations: 6,
 	tokenBudget: 30000,
 	trials: 2,
+	mode,
+	variantOffset,
 	cwd,
 	projectId: scope.projectId,
 	common,
 	scenarios: scenarios.map((s) => ({
 		id: s.id,
-		variants: [s.make(0), s.make(1)],
+		variants: [s.make(variantOffset), s.make(variantOffset + 1)],
 	})),
 	scoring:
 		"trim, lowercase, remove one final period; exact equality; errors/incomplete runs are failures",
-	arms: "same CLI revision; only memory.recall differs; tools available in both arms",
+	arms:
+		mode === "grounding"
+			? "automatic recall enabled in both arms; only memory.identifierGrounding differs"
+			: "same CLI revision; only memory.recall differs; tools available in both arms",
 	startedAt: new Date().toISOString(),
 };
 await writeFile(join(out, "manifest.json"), JSON.stringify(manifest, null, 2));
 const rows = [];
 for (const scenario of scenarios)
 	for (let trial = 0; trial < 2; trial++) {
-		const fixture = scenario.make(trial);
+		const fixture = scenario.make(trial + variantOffset);
 		for (const recall of trial === 0 ? [false, true] : [true, false]) {
 			for (const entry of (await store.list()).entries)
 				await store.delete(entry.id);
@@ -126,7 +135,12 @@ for (const scenario of scenarios)
 			await writeFile(join(cwd, "current.json"), fixture.file ?? "{}");
 			await writeFile(
 				join(cwd, "namzu.config.json"),
-				JSON.stringify({ memory: { recall } }),
+				JSON.stringify({
+					memory:
+						mode === "grounding"
+							? { recall: true, identifierGrounding: recall }
+							: { recall },
+				}),
 			);
 			const label = `${scenario.id}-${trial}-${recall ? "on" : "off"}`;
 			const args = [
@@ -201,7 +215,9 @@ for (const scenario of scenarios)
 			const row = {
 				task: scenario.id,
 				trial,
-				recall,
+				arm: recall ? "on" : "off",
+				recall: mode === "grounding" ? true : recall,
+				identifierGrounding: mode === "grounding" ? recall : undefined,
 				label,
 				expected: fixture.expected,
 				answer,
@@ -231,9 +247,9 @@ for (const scenario of scenarios)
 const summary = {
 	totalRuns: rows.length,
 	arms: [false, true].map((recall) => {
-		const rs = rows.filter((r) => r.recall === recall);
+		const rs = rows.filter((r) => r.arm === (recall ? "on" : "off"));
 		return {
-			recall,
+			arm: recall ? "on" : "off",
 			passed: rs.filter((r) => r.passed).length,
 			total: rs.length,
 			tokens: rs.reduce((n, r) => n + (r.tokens ?? 0), 0),
@@ -243,8 +259,10 @@ const summary = {
 	}),
 	tasks: scenarios.map((s) => ({
 		id: s.id,
-		off: rows.filter((r) => r.task === s.id && !r.recall && r.passed).length,
-		on: rows.filter((r) => r.task === s.id && r.recall && r.passed).length,
+		off: rows.filter((r) => r.task === s.id && r.arm === "off" && r.passed)
+			.length,
+		on: rows.filter((r) => r.task === s.id && r.arm === "on" && r.passed)
+			.length,
 		trials: 2,
 	})),
 };

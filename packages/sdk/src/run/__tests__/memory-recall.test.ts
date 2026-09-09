@@ -268,3 +268,65 @@ it('releases admission after a rejected store operation', async () => {
 	await expect(recall(context())).rejects.toThrow('disk failed')
 	expect((await recall(context()))?.system).toContain('14 hours')
 })
+
+it('rejects unit-only matches when the query names a different technical identifier', async () => {
+	const store = new InMemoryMemoryStore()
+	await store.create({
+		title: 'opal7 connection',
+		summary: 'Earlier observation',
+		content: 'opal7 timeout is 19 seconds.',
+	})
+	const query = context('What is quartz9 delay in seconds?')
+	expect(await createMemoryRecallStep({ store, identifierGrounding: true })(query)).toBeUndefined()
+	expect((await createMemoryRecallStep({ store })(query))?.system).toContain('19 seconds')
+	expect(
+		(await createMemoryRecallStep({ store, identifierGrounding: false })(query))?.system,
+	).toContain('19 seconds')
+})
+
+it('retains body-only identifiers, Unicode normalization and comparison queries', async () => {
+	const store = new InMemoryMemoryStore()
+	await store.create({
+		title: 'Observation',
+		summary: 'Earlier investigation',
+		content: 'KOBALT7 timeout is 23 seconds.',
+	})
+	const recall = createMemoryRecallStep({ store, identifierGrounding: true })
+	expect((await recall(context('Compare kobalt7 and quartz9 timeouts.')))?.system).toContain(
+		'23 seconds',
+	)
+	expect((await recall(context('What is ＫＯＢＡＬＴ７ timeout?')))?.system).toContain('23 seconds')
+	expect(await recall(context('What is kobalt70 timeout?'))).toBeUndefined()
+	expect((await recall(context('What timeout was observed?')))?.system).toContain('23 seconds')
+})
+
+it('applies identifier eligibility before the top-k limit', async () => {
+	const store = new InMemoryMemoryStore()
+	for (let i = 0; i < 5; i++)
+		await store.create({
+			title: 'timeout seconds configured value current',
+			summary: 'seconds timeout current value',
+			content: `other${i} timeout value is 19 seconds.`,
+		})
+	await store.create({
+		title: 'Observation',
+		summary: 'A fact',
+		content: 'kobalt7 takes 23 seconds.',
+	})
+	const result = await createMemoryRecallStep({ store, identifierGrounding: true })(
+		context('What is the current configured timeout value for kobalt7 in seconds?'),
+	)
+	expect(result?.system).toContain('23 seconds')
+	expect(result?.system).not.toContain('19 seconds')
+})
+
+it('rechecks identifiers even when a custom store ignores the search constraint', async () => {
+	const { store } = await fixture()
+	const list = store.list.bind(store)
+	vi.spyOn(store, 'list').mockImplementation(() => list())
+	expect(
+		await createMemoryRecallStep({ store, identifierGrounding: true })(
+			context('What is quartz9 expiry?'),
+		),
+	).toBeUndefined()
+})

@@ -374,10 +374,16 @@ export class DiskMemoryStore implements MemoryStore {
 
 	async list(params?: MemorySearchParams): Promise<MemorySearchResult> {
 		return this.withAuthoritativeIndex(async (location) => {
-			if (!params?.query?.trim()) return this.index.search(params ?? {})
+			if (!params?.query?.trim() && !params?.requiredIdentifiers?.length)
+				return this.index.search(params ?? {})
 			// Search the current bodies inside the same operation as the index
 			// snapshot. No retained cache can hide another process's update.
-			const candidates = this.index.search({ ...params, query: undefined, limit: undefined })
+			const candidates = this.index.search({
+				...params,
+				query: undefined,
+				limit: undefined,
+				requiredIdentifiers: undefined,
+			})
 			const contents = new Map<MemoryId, string>()
 			for (const entry of candidates.entries) {
 				contents.set(entry.id, (await this.readContent(location, entry.id)).content)

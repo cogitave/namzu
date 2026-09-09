@@ -2,6 +2,8 @@
 
 ## 2026-09-09
 
+- **Update** Added opt-in [identifier-grounded memory recall](sdk/memory.md) and recorded a [24-run candidate comparison](sdk/memory-recall-scores.md); retained the default after higher measured token use without factual improvement.
+
 - **Update** Recorded [24 live memory-recall comparisons](sdk/memory-recall-scores.md), separating factual correctness, answer-format compliance and measured token/tool consumption.
 
 - **Update** Bounded overlapping optional [memory recall](sdk/memory.md) reads and recorded [retrieval research decisions](sdk/memory-research.md), separating returned-result limits from scan cost.

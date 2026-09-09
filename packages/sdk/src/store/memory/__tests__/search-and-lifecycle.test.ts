@@ -148,3 +148,34 @@ it('searches a sibling process/store update rather than retaining a cached body'
 		content: { id: entry.id, content: 'retired-endpoint' },
 	})
 })
+
+it.each(['disk', 'memory'] as const)(
+	'%s applies exact identifier constraints before limiting, including body-only lookup',
+	async (kind) => {
+		const store = await fixture(kind)
+		await store.create({
+			title: 'seconds timeout seconds',
+			summary: 'timeout',
+			content: 'opal70 uses 19 seconds',
+		})
+		const { entry } = await store.create({
+			title: 'Recorded fact',
+			summary: '',
+			content: 'quartz9 uses 23 seconds',
+		})
+		const result = await store.list({
+			query: 'seconds timeout',
+			requiredIdentifiers: ['ＱＵＡＲＴＺ９'],
+			limit: 1,
+		})
+		expect(result.entries.map((e) => e.id)).toEqual([entry.id])
+		expect(result.totalCount).toBe(1)
+		expect(
+			(await store.list({ requiredIdentifiers: ['quartz9'] })).entries.map((e) => e.id),
+		).toEqual([entry.id])
+		expect((await store.list({ requiredIdentifiers: ['opal7'] })).totalCount).toBe(0)
+		expect((await store.list({ requiredIdentifiers: [] })).totalCount).toBe(2)
+		await store.update(entry.id, { content: 'quartz90 uses 24 seconds' })
+		expect((await store.list({ requiredIdentifiers: ['quartz9'] })).totalCount).toBe(0)
+	},
+)

@@ -2275,7 +2275,12 @@ export async function createAgentSession(
 						createTaskContextStep(runTaskStore, entry.tenantId),
 						...(options.memory?.recall === false
 							? []
-							: [createMemoryRecallStep({ store: memoryStore })]),
+							: [
+									createMemoryRecallStep({
+										store: memoryStore,
+										identifierGrounding: options.memory?.identifierGrounding,
+									}),
+								]),
 						...(options.conversationSessions ? [createContextInventoryStep()] : []),
 					],
 					...(options.compaction?.consolidate
@@ -2657,6 +2662,7 @@ export async function createAgentSession(
 												createMemoryRecallStep({
 													store: memoryStore,
 													query: lastUserText(messages),
+													identifierGrounding: options.memory?.identifierGrounding,
 												}),
 											]),
 									...(options.conversationSessions ? [createContextInventoryStep()] : []),

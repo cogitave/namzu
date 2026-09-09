@@ -109,6 +109,14 @@ next recall step, and the recalled block is not saved as a new user message.
 Set `memory.recall: false` in CLI configuration to disable automatic recall while
 keeping the explicit memory tools available.
 
+`memory.identifierGrounding` (default false) controls the automatic recall policy for technical
+word tokens containing letters and digits. With it enabled, a question naming
+`quartz9` cannot automatically inject an `opal7` record solely because both
+mention seconds. Set it to `false` for the earlier broad lexical policy. The
+same setting applies to new sends and checkpoint resumes; explicit search tools
+remain available in either mode. See [structured memory](../sdk/memory.md) for
+exact matching rules and alias limitations.
+
 The default promoter writes useful extracted claims to this store when a run
 settles. `compaction.consolidate: true` selects consolidation instead, so the CLI
 does not run both writers. Writing remains separate from curated file appends
