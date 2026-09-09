@@ -47,7 +47,7 @@ import {
 	type Message,
 	type ModelInfo,
 	type PluginLifecycleManager,
-	type PrepareStep,
+	type PrepareStepChain,
 	type ProjectId,
 	type ProjectInstructionContext,
 	type PromoteMemory,
@@ -174,7 +174,11 @@ import {
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { modelReasoningView } from '../integrations/providers/model-reasoning.js'
-import { buildConversationSearchTool } from '../integrations/sessions/conversation-search.js'
+import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
+import {
+	buildConversationReadTool,
+	buildConversationSearchTool,
+} from '../integrations/sessions/conversation-search.js'
 import type { CliSessions } from '../integrations/sessions/store.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
@@ -1837,18 +1841,19 @@ export async function createAgentSession(
 	const delegatedInputWaiters = new Map<RunId, NonNullable<SendOptions['waitForInbound']>>()
 	if (options.conversationSessions) {
 		const sessions = options.conversationSessions
-		registry.register(
-			buildConversationSearchTool((context) => {
-				const owner = delegationScopes.get(context.runId)
-				if (
-					!owner ||
-					owner.projectId !== sessions.projectId ||
-					owner.tenantId !== sessions.tenantId
-				)
-					throw new Error('The requesting run does not own this conversation.')
-				return { sessions, sessionId: owner.sessionId }
-			}),
-		)
+		for (const build of [buildConversationSearchTool, buildConversationReadTool])
+			registry.register(
+				build((context) => {
+					const owner = delegationScopes.get(context.runId)
+					if (
+						!owner ||
+						owner.projectId !== sessions.projectId ||
+						owner.tenantId !== sessions.tenantId
+					)
+						throw new Error('The requesting run does not own this conversation.')
+					return { sessions, sessionId: owner.sessionId }
+				}),
+			)
 	}
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
@@ -2267,9 +2272,12 @@ export async function createAgentSession(
 						: {}),
 					authorizationGate: gateFor(options.rules),
 					compactionConfig: compactionConfigFor(options.compaction),
-					...(options.memory?.recall === false
-						? {}
-						: { prepareStep: createMemoryRecallStep({ store: memoryStore }) }),
+					prepareStep: [
+						...(options.memory?.recall === false
+							? []
+							: [createMemoryRecallStep({ store: memoryStore })]),
+						...(options.conversationSessions ? [createContextInventoryStep()] : []),
+					],
 					...(options.compaction?.consolidate
 						? { consolidateInto: memoryStore }
 						: { promoteMemory }),
@@ -2640,14 +2648,17 @@ export async function createAgentSession(
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
-								...(options.memory?.recall === false
-									? {}
-									: {
-											prepareStep: createMemoryRecallStep({
-												store: memoryStore,
-												query: lastUserText(messages),
-											}),
-										}),
+								prepareStep: [
+									...(options.memory?.recall === false
+										? []
+										: [
+												createMemoryRecallStep({
+													store: memoryStore,
+													query: lastUserText(messages),
+												}),
+											]),
+									...(options.conversationSessions ? [createContextInventoryStep()] : []),
+								],
 								taskStore: selectTaskStore(runId, turnScope),
 								systemPrompt,
 								messages,
@@ -3255,7 +3266,7 @@ interface RunTurnParams {
 	readonly maxAnswerReviews: number | undefined
 	/** What this run should leave behind when it settles. */
 	readonly promoteMemory: PromoteMemory | undefined
-	readonly prepareStep?: PrepareStep
+	readonly prepareStep?: PrepareStepChain
 	/** Exact interactive authority shared with children launched by this run. */
 	readonly resumeHandler: ResumeHandler
 	readonly taskStore: TaskStore

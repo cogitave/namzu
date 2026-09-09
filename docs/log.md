@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-09
+
+- **Update** Added [exact retained-text reading and visible context inventory](cli/conversation-evidence.md), with scoped durable addresses, bounded pages and pressure-aware request metadata.
+
 ## 2026-09-08
 
 - **Update** Added [paired harness verification](sdk/harness-verification.md), based on HarnessLens, and [paged conversation evidence](cli/conversation-evidence.md) for large transcripts.

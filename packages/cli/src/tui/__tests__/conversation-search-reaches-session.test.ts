@@ -182,6 +182,7 @@ it('keeps evidence attached to its invoking run when the host changes conversati
 	})
 	opened.push(session)
 	expect(session.toolNames()).toContain('search_conversation')
+	expect(session.toolNames()).toContain('read_conversation')
 	const firstRunId = generateRunId()
 	let pending = send(session, firstRunId)
 	pending.catch(() => {})
@@ -250,6 +251,7 @@ it('does not offer conversation search without host-owned conversation storage',
 	})
 	opened.push(session)
 	expect(session.toolNames()).not.toContain('search_conversation')
+	expect(session.toolNames()).not.toContain('read_conversation')
 	await send(session)
 	expect(
 		provider.requests[0]?.tools?.some((tool) => tool.function.name === 'search_conversation'),

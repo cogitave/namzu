@@ -15,7 +15,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { searchConversation } from './conversation-search.js'
+import { readConversationEvidence, searchConversation } from './conversation-search.js'
 import {
 	type CliSessions,
 	appendMessages,
@@ -140,6 +140,7 @@ describe('bounded original conversation evidence', () => {
 		expect(result.matches).toEqual([
 			{
 				runId: original.runId,
+				part: 0,
 				seq: 2,
 				source: 'tool_completed',
 				text: 'The immutable identifier is ORIGINAL-72af99.',
@@ -379,4 +380,101 @@ it('refuses an oversized single record rather than allocating without bound', as
 	expect(result.unavailableRuns).toBe(1)
 	expect(result.incomplete).toBe(true)
 	expect(result.nextCursor).toBeUndefined()
+})
+
+it('reads every retained character without splitting surrogate pairs or re-running a tool', async () => {
+	const { sessions, sessionId } = await fixture()
+	const content = 'x'.repeat(5999) + '😀' + 'tail'.repeat(1900)
+	const { runId } = await transcript(sessions, sessionId, content)
+	let cursor: string | undefined
+	let actual = ''
+	for (let i = 0; i < 5; i++) {
+		const page = await readConversationEvidence(sessions, sessionId, { runId, seq: 2, cursor })
+		expect(page.text.length).toBeLessThanOrEqual(6000)
+		expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+		expect(page.offset).toBe(actual.length)
+		expect(page.retainedPreview).toBe(false)
+		actual += page.text
+		cursor = page.nextCursor
+		if (page.complete) break
+	}
+	expect(cursor).toBeUndefined()
+	expect(actual).toBe(content)
+	// Durable address also works without the old process-local cursor.
+	expect((await readConversationEvidence(sessions, sessionId, { runId, seq: 2 })).offset).toBe(0)
+})
+
+it('addresses individual shed messages and refuses a foreign scope or changed cursor address', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { runId, path } = await transcript(sessions, sessionId, 'seed')
+	await writeFile(
+		join(path, 'transcript.jsonl'),
+		[
+			{ type: 'run_started', runId, seq: 1 },
+			{
+				type: 'compaction_shed',
+				runId,
+				seq: 2,
+				messages: [
+					{ role: 'tool', content: 'first' },
+					{ role: 'tool', content: 'second'.repeat(1500) },
+				],
+			},
+		]
+			.map((e) => JSON.stringify(e))
+			.join('\n') + '\n',
+	)
+	const matches = await searchConversation(sessions, sessionId, { runId, query: 'second' })
+	expect(matches.matches[0]?.part).toBe(1)
+	const page = await readConversationEvidence(sessions, sessionId, { runId, seq: 2, part: 1 })
+	expect(page.text).toBe('second'.repeat(1000))
+	expect(page.nextCursor).toBeDefined()
+	await expect(
+		readConversationEvidence(sessions, sessionId, {
+			runId,
+			seq: 2,
+			part: 0,
+			cursor: page.nextCursor,
+		}),
+	).rejects.toThrow('scope or query')
+	const other = await startConversation(sessions)
+	await expect(
+		readConversationEvidence(sessions, other, { runId, seq: 2, part: 1, cursor: page.nextCursor }),
+	).rejects.toThrow('scope or query')
+	await expect(readConversationEvidence(sessions, other, { runId, seq: 2 })).rejects.toThrow()
+	await expect(readConversationEvidence(sessions, sessionId, { runId, seq: 3 })).rejects.toThrow(
+		'no retained textual part',
+	)
+})
+
+it('continues a full read beyond the per-call scan budget and marks retained previews', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { runId, path } = await transcript(sessions, sessionId, 'seed')
+	await writeFile(
+		join(path, 'transcript.jsonl'),
+		[
+			{ type: 'run_started', runId, seq: 1 },
+			...Array.from({ length: 10 }, (_, i) => ({
+				type: 'tool_completed',
+				runId,
+				seq: i + 2,
+				result: 'x'.repeat(1024 * 1024),
+			})),
+			{ type: 'tool_completed', runId, seq: 12, result: 'retained preview', outputTruncated: true },
+		]
+			.map((e) => JSON.stringify(e))
+			.join('\n') + '\n',
+	)
+	const first = await readConversationEvidence(sessions, sessionId, { runId, seq: 12 })
+	expect(first.text).toBe('')
+	expect(first.complete).toBe(false)
+	expect(first.nextCursor).toBeDefined()
+	const second = await readConversationEvidence(sessions, sessionId, {
+		runId,
+		seq: 12,
+		cursor: first.nextCursor,
+	})
+	expect(second.text).toBe('retained preview')
+	expect(second.complete).toBe(true)
+	expect(second.retainedPreview).toBe(true)
 })
