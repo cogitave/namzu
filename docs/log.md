@@ -2,6 +2,8 @@
 
 ## 2026-09-09
 
+- **Update** Recorded [24 live memory-recall comparisons](sdk/memory-recall-scores.md), separating factual correctness, answer-format compliance and measured token/tool consumption.
+
 - **Update** Bounded overlapping optional [memory recall](sdk/memory.md) reads and recorded [retrieval research decisions](sdk/memory-research.md), separating returned-result limits from scan cost.
 
 - **Update** Added [current-run task context](cli/task-context.md), projecting unfinished work with scope checks and bounded waiting; documented upstream research and deferred retrieval improvements.

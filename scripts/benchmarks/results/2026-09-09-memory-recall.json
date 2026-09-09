@@ -1,0 +1,1001 @@
+{
+  "manifest": {
+    "revision": "086ade90",
+    "model": "gpt-5.6-luna",
+    "provider": "codex",
+    "effort": "low",
+    "maxIterations": 6,
+    "tokenBudget": 30000,
+    "trials": 2,
+    "cwd": "/tmp/namzu-recall-score-5hQu79",
+    "projectId": "724cac2d-8e07-470c-975e-b14570f3b190",
+    "common": "Answer using only this project's active memory, current user instructions and any current artifact named in the question. You may use memory tools. Do not modify files or memory, delegate, or inspect outside this project. Return only the requested value, with no explanation; if it is not supported, return UNKNOWN.",
+    "scenarios": [
+      {
+        "id": "body-fact",
+        "variants": [
+          {
+            "title": "Prior investigation",
+            "summary": "A service finding",
+            "content": "cobalt0 retention is 17 hours.",
+            "question": "What is cobalt0 retention in hours?",
+            "expected": "17"
+          },
+          {
+            "title": "Prior investigation",
+            "summary": "A service finding",
+            "content": "cobalt1 retention is 18 hours.",
+            "question": "What is cobalt1 retention in hours?",
+            "expected": "18"
+          }
+        ]
+      },
+      {
+        "id": "corrected",
+        "variants": [
+          {
+            "title": "violet0 TTL",
+            "summary": "Configuration note",
+            "content": "violet0 TTL is 14 hours.",
+            "update": {
+              "content": "violet0 TTL is 28 hours."
+            },
+            "question": "What is violet0 TTL in hours?",
+            "expected": "28"
+          },
+          {
+            "title": "violet1 TTL",
+            "summary": "Configuration note",
+            "content": "violet1 TTL is 14 hours.",
+            "update": {
+              "content": "violet1 TTL is 29 hours."
+            },
+            "question": "What is violet1 TTL in hours?",
+            "expected": "29"
+          }
+        ]
+      },
+      {
+        "id": "archived",
+        "variants": [
+          {
+            "title": "copper0 region",
+            "summary": "Obsolete configuration",
+            "content": "copper0 region is east.",
+            "update": {
+              "status": "archived"
+            },
+            "question": "What is the currently supported copper0 region?",
+            "expected": "UNKNOWN"
+          },
+          {
+            "title": "copper1 region",
+            "summary": "Obsolete configuration",
+            "content": "copper1 region is east.",
+            "update": {
+              "status": "archived"
+            },
+            "question": "What is the currently supported copper1 region?",
+            "expected": "UNKNOWN"
+          }
+        ]
+      },
+      {
+        "id": "user-override",
+        "variants": [
+          {
+            "title": "saffron0 port",
+            "summary": "Earlier configuration",
+            "content": "saffron0 port is 4100.",
+            "question": "I have changed saffron0 port to 6200. What port should you use now?",
+            "expected": "6200"
+          },
+          {
+            "title": "saffron1 port",
+            "summary": "Earlier configuration",
+            "content": "saffron1 port is 4100.",
+            "question": "I have changed saffron1 port to 6201. What port should you use now?",
+            "expected": "6201"
+          }
+        ]
+      },
+      {
+        "id": "fresh-file",
+        "variants": [
+          {
+            "title": "indigo0 concurrency",
+            "summary": "Earlier configuration",
+            "content": "indigo0 concurrency is 8.",
+            "file": "{\"service\":\"indigo0\",\"concurrency\":12}",
+            "question": "Read current.json for the current indigo0 configuration. What concurrency should you use?",
+            "expected": "12"
+          },
+          {
+            "title": "indigo1 concurrency",
+            "summary": "Earlier configuration",
+            "content": "indigo1 concurrency is 8.",
+            "file": "{\"service\":\"indigo1\",\"concurrency\":13}",
+            "question": "Read current.json for the current indigo1 configuration. What concurrency should you use?",
+            "expected": "13"
+          }
+        ]
+      },
+      {
+        "id": "unrelated",
+        "variants": [
+          {
+            "title": "opal0 connection",
+            "summary": "Earlier observation",
+            "content": "opal0 connection timeout is 19 seconds.",
+            "question": "What is quartz0 queue delay in seconds?",
+            "expected": "UNKNOWN"
+          },
+          {
+            "title": "opal1 connection",
+            "summary": "Earlier observation",
+            "content": "opal1 connection timeout is 19 seconds.",
+            "question": "What is quartz1 queue delay in seconds?",
+            "expected": "UNKNOWN"
+          }
+        ]
+      }
+    ],
+    "scoring": "trim, lowercase, remove one final period; exact equality; errors/incomplete runs are failures",
+    "arms": "same CLI revision; only memory.recall differs; tools available in both arms",
+    "startedAt": "2026-09-09T07:14:25.510Z"
+  },
+  "summary": {
+    "totalRuns": 24,
+    "arms": [
+      {
+        "recall": false,
+        "passed": 8,
+        "total": 12,
+        "tokens": 175777,
+        "tools": 21,
+        "durationMs": 93628
+      },
+      {
+        "recall": true,
+        "passed": 12,
+        "total": 12,
+        "tokens": 107587,
+        "tools": 8,
+        "durationMs": 65889
+      }
+    ],
+    "tasks": [
+      {
+        "id": "body-fact",
+        "off": 0,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "corrected",
+        "off": 0,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "archived",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "user-override",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "fresh-file",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      },
+      {
+        "id": "unrelated",
+        "off": 2,
+        "on": 2,
+        "trials": 2
+      }
+    ]
+  },
+  "factualReview": "Post-hoc manual review: four baseline answers added the correct unit hours. Accept those as factually correct while retaining their original strict-format failures. No other overrides.",
+  "rows": [
+    {
+      "task": "body-fact",
+      "trial": 0,
+      "recall": false,
+      "label": "body-fact-0-off",
+      "expected": "17",
+      "answer": "17 hours",
+      "passed": false,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 7282,
+      "tokens": 16005,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16005
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "94ac49d5-6acc-42eb-b353-33b62c48c71b",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "4b729251f5da077cc327c893ea65033c29b00ec89a392f82d939a3f4265548b2",
+      "transcriptSha256": "4d81f94096cbc8f8fa536e9add4364123cdf49d7974e4febbe39af58559e9e77"
+    },
+    {
+      "task": "body-fact",
+      "trial": 0,
+      "recall": true,
+      "label": "body-fact-0-on",
+      "expected": "17",
+      "answer": "17",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 3427,
+      "tokens": 5377,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5377
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "38acc108-408d-433f-a283-919396c2d0da",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "ca1a7840b8a48c25502c1da46c6d16319fe4094caf9904a1501dfb8e0de7e382",
+      "transcriptSha256": "470a705e94fb1d7a13056dccb98f8af5d068e74a773618eb0266218d09ae350c"
+    },
+    {
+      "task": "body-fact",
+      "trial": 1,
+      "recall": true,
+      "label": "body-fact-1-on",
+      "expected": "18",
+      "answer": "18",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 6902,
+      "tokens": 10842,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10842
+      },
+      "tools": [
+        "read_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "5019bf2a-5afb-48ef-9502-42ce0d7f4fe6",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "202077024eb0eaa8a15629163938282ff0ce3ed506e793d366c54284405792f6",
+      "transcriptSha256": "5e15e1d2d0bfe3032ab9eb7d23bc59ac4644e4c4d7393a9b687dba00d208993b"
+    },
+    {
+      "task": "body-fact",
+      "trial": 1,
+      "recall": false,
+      "label": "body-fact-1-off",
+      "expected": "18",
+      "answer": "18 hours",
+      "passed": false,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 10585,
+      "tokens": 16013,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16013
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "54c40310-53b6-401e-bbff-f49490570fca",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "1e20e1033353cf05b35cfcbaf0b7b5db4e9e4e5d15baf407df6da29d0394200b",
+      "transcriptSha256": "c0f9e37cd968bfba541647b7d5d9ed36515a78167079f8416370718f0b6333ac"
+    },
+    {
+      "task": "corrected",
+      "trial": 0,
+      "recall": false,
+      "label": "corrected-0-off",
+      "expected": "28",
+      "answer": "28 hours",
+      "passed": false,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 10332,
+      "tokens": 16013,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16013
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "a05afdd4-1df7-4f12-b06f-9f72ade5eb99",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "b4b55bf6ec53a3926aee077eee55c9a72bc8282b475f77009777a982369f1c17",
+      "transcriptSha256": "39e452c91981f1510d320c60726a92b993a3503c8a6473b3171b5a9cbe2da664"
+    },
+    {
+      "task": "corrected",
+      "trial": 0,
+      "recall": true,
+      "label": "corrected-0-on",
+      "expected": "28",
+      "answer": "28",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 2698,
+      "tokens": 5356,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5356
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "5512750c-97eb-4867-b145-bae5d455c682",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "d1800d97287c0700f0685383d8c13fa8ebd859f94c65558d325742361ca33f1d",
+      "transcriptSha256": "63ef367175ae68bdba0a4f8a4ff261a853c99c2b2a861f7d0096b7ba352e8268"
+    },
+    {
+      "task": "corrected",
+      "trial": 1,
+      "recall": true,
+      "label": "corrected-1-on",
+      "expected": "29",
+      "answer": "29",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5270,
+      "tokens": 5385,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5385
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "a9df0477-951c-4ac5-972d-bebe06dfc8f0",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "6222babb5db12f0c4bbafd96d7ce09a851052b8125b3ed19f00c112662b8ef8d",
+      "transcriptSha256": "098de0178b07da9192533f4e928359e898c601dd68433bd5d2091c87bc0e9648"
+    },
+    {
+      "task": "corrected",
+      "trial": 1,
+      "recall": false,
+      "label": "corrected-1-off",
+      "expected": "29",
+      "answer": "29 hours",
+      "passed": false,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 9112,
+      "tokens": 15996,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 15996
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "445c3783-2d2f-4d64-848c-f414af7ba0b9",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "77111af8b15c54e7075ae30b79b14eb129fe99958ccff5ac52a3b09f7458bc1e",
+      "transcriptSha256": "c0db33325631713ca3e572290fc828151490d4e2f9b8a5d28b70ed17a61cea89"
+    },
+    {
+      "task": "archived",
+      "trial": 0,
+      "recall": false,
+      "label": "archived-0-off",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 8183,
+      "tokens": 10573,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10573
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "e86b699f-07d4-4017-a4d7-cff2a15c462f",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "9f43cd04a8afa59518759585db9c2f7f0bacf5e7790ee53324b001c6b77ccdbc",
+      "transcriptSha256": "fa614979e3669243e4efd5e91afb4088815eb19fad14c7edd462017daaf99b11"
+    },
+    {
+      "task": "archived",
+      "trial": 0,
+      "recall": true,
+      "label": "archived-0-on",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5005,
+      "tokens": 10570,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10570
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "001cd4e6-75b0-42b4-a177-c3e07232f6ec",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "29bfe3110d5614a12f6de6a5f33297bfec5d94315937bada18983935f1d854df",
+      "transcriptSha256": "5fff3331c28c87cae6c75adbdbf642546a7e6efeef03973d89d70e42ffc801c3"
+    },
+    {
+      "task": "archived",
+      "trial": 1,
+      "recall": true,
+      "label": "archived-1-on",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 6246,
+      "tokens": 10576,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10576
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "a371d83e-5594-4db7-9334-e9c2c411f1ad",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "deeadeb5314f2237ed2f709f8b5f6148200d692b1d5f77e98cea82494a87cabb",
+      "transcriptSha256": "659760f360041773320fa15badfe4dac7496dbacf8dc284ed47fad22bf9c2c32"
+    },
+    {
+      "task": "archived",
+      "trial": 1,
+      "recall": false,
+      "label": "archived-1-off",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 6521,
+      "tokens": 10557,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10557
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "5f6065f1-ad6f-470e-8f4c-76b2c5f73301",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "86ca48673324b8cd3affbdbabf49a63c011b693a920444b085f66ef84a952779",
+      "transcriptSha256": "4c26e4747c48a929735bcaf3cb8336c120ba26a0945f3799333fa7e026d722f6"
+    },
+    {
+      "task": "user-override",
+      "trial": 0,
+      "recall": false,
+      "label": "user-override-0-off",
+      "expected": "6200",
+      "answer": "6200",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 7133,
+      "tokens": 16042,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16042
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "a99215bc-f445-4082-8034-603db26b0007",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "69b6c8115b3e5e04d968dedb2b5de623629e083fea5a4be1c7c5493ecd2defca",
+      "transcriptSha256": "9eaa582826373d42e7717f3e16f5a54654a676206f7f8afd6e0f94b3d4593ff7"
+    },
+    {
+      "task": "user-override",
+      "trial": 0,
+      "recall": true,
+      "label": "user-override-0-on",
+      "expected": "6200",
+      "answer": "6200",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 2919,
+      "tokens": 5391,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5391
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "30fb5a7b-b408-4502-94ca-20fe05bc61b8",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "7b311a24a58cc219f3c4b7ff7a3d17a2d5483053d407c715af41d0c96e01aa7c",
+      "transcriptSha256": "eb12d963c5b22b2be696235cfdb36fb7d61b2e84b6b40609b9cb04d9d56ac423"
+    },
+    {
+      "task": "user-override",
+      "trial": 1,
+      "recall": true,
+      "label": "user-override-1-on",
+      "expected": "6201",
+      "answer": "6201",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 4133,
+      "tokens": 5400,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 5400
+      },
+      "tools": [],
+      "modelRequests": 1,
+      "trajectoryId": "d1e1be22-abed-4470-b002-322ae064cf59",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "c4b99018e270fbfd2c935d007e7a77958e480e9d53a80cb640bb522f7258ddd4",
+      "transcriptSha256": "8fd1e8075b47cb3d168e46e734d4682dd3f3de70e17c54a472ccf5a49034228b"
+    },
+    {
+      "task": "user-override",
+      "trial": 1,
+      "recall": false,
+      "label": "user-override-1-off",
+      "expected": "6201",
+      "answer": "6201",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 7392,
+      "tokens": 16052,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16052
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "39eefcc8-c12a-419a-ad99-695930baefca",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "bdef13e47ef059362aefb64dbc568bd11b81871d1fe0a39b0acebea327daf2c9",
+      "transcriptSha256": "60d0ce2f5a2fb9c3a9cc608b3878747457a005a4ab8e0f4ef1a33476a1292b50"
+    },
+    {
+      "task": "fresh-file",
+      "trial": 0,
+      "recall": false,
+      "label": "fresh-file-0-off",
+      "expected": "12",
+      "answer": "12",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5139,
+      "tokens": 10578,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10578
+      },
+      "tools": [
+        "read"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "eca874cb-a9c9-443e-8192-a1fa19e60fd3",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "60fd6f1f71751b6522e04cdc8a908730cfb7ca1232cefd5dfef85ba2910bee17",
+      "transcriptSha256": "bb273c75d9992b5fa0481c55394454574f1ba8db28ae15c02b59b0edb6ddc641"
+    },
+    {
+      "task": "fresh-file",
+      "trial": 0,
+      "recall": true,
+      "label": "fresh-file-0-on",
+      "expected": "12",
+      "answer": "12",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 6553,
+      "tokens": 16241,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16241
+      },
+      "tools": [
+        "glob",
+        "read"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "b9db43a5-2d13-453d-b3a6-a95e309953e9",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "7bb4463f9e39d7ec2e72494d1f66f160d42bf1e0823fbf94ea54f24da60ccd51",
+      "transcriptSha256": "6beb267a5f0bde728d1f321efb0046134fb56ef9f455ef6b9520b8f9d62a5cc1"
+    },
+    {
+      "task": "fresh-file",
+      "trial": 1,
+      "recall": true,
+      "label": "fresh-file-1-on",
+      "expected": "13",
+      "answer": "13",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 4213,
+      "tokens": 10793,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10793
+      },
+      "tools": [
+        "read"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "c047bb8a-bb6a-48b4-a1f2-f73e76086fb0",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "e0f00916a96eda4154c47ed423cc8a18f7186c9fe138e3454140fe27ebf4d4ff",
+      "transcriptSha256": "a06afc6946de5e31d8a6a54c0c4d745774405ab29f6877d2a944a15f3396e363"
+    },
+    {
+      "task": "fresh-file",
+      "trial": 1,
+      "recall": false,
+      "label": "fresh-file-1-off",
+      "expected": "13",
+      "answer": "13",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 7659,
+      "tokens": 15906,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 15906
+      },
+      "tools": [
+        "glob",
+        "read"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "89331891-565b-418b-99dc-754778f284c5",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "eef3028532c7fa8d77cabd0c8e54f9e22c775ad04ba74c32c1b45af31de6ecfa",
+      "transcriptSha256": "b2533990bb88bca7f8f028365817d2676efa00aa0dbfd97569a0189124db6467"
+    },
+    {
+      "task": "unrelated",
+      "trial": 0,
+      "recall": false,
+      "label": "unrelated-0-off",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 7429,
+      "tokens": 16019,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16019
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "9b584a13-d33a-49b7-a73e-5eed2256265c",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "3a206e13bd36ee8226eae66f726827267b43d1422311a86afc7cde7e5bfba458",
+      "transcriptSha256": "6a3ca5325f47829ed734ead19a553a6efbf606ca11cdc46f8502c23182434277"
+    },
+    {
+      "task": "unrelated",
+      "trial": 0,
+      "recall": true,
+      "label": "unrelated-0-on",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 5101,
+      "tokens": 10823,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10823
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "907bf25d-7f28-45d7-a58a-5e3c053b7742",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "6444d960b132edc51d1c8d30723c4ffdb02908f4677e93b5d9094d4217c1a869",
+      "transcriptSha256": "5ca7a91bcefa2085c370b89d0712e8437e4cb1f9669b1c8585f30d2f221df12a"
+    },
+    {
+      "task": "unrelated",
+      "trial": 1,
+      "recall": true,
+      "label": "unrelated-1-on",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 13422,
+      "tokens": 10833,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10833
+      },
+      "tools": [
+        "search_memory"
+      ],
+      "modelRequests": 2,
+      "trajectoryId": "fc9c3cb4-6218-4d5f-bd62-a28ea458b88a",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 1,
+      "factualReviewPassed": true,
+      "streamSha256": "43fe36b8744c01b6e0bb66c82e398674edbac2eb91e9f6b955d3d17c324381f2",
+      "transcriptSha256": "f1fe62741ce91959f9dd243ab4d2731121ff6eb9943d14b2af0ea157dbccb5cd"
+    },
+    {
+      "task": "unrelated",
+      "trial": 1,
+      "recall": false,
+      "label": "unrelated-1-off",
+      "expected": "UNKNOWN",
+      "answer": "UNKNOWN",
+      "passed": true,
+      "healthy": true,
+      "stopReason": "end_turn",
+      "exitCode": 0,
+      "timedOut": false,
+      "errors": [],
+      "durationMs": 6861,
+      "tokens": 16023,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16023
+      },
+      "tools": [
+        "search_memory",
+        "read_memory"
+      ],
+      "modelRequests": 3,
+      "trajectoryId": "debd26eb-ffe5-4a10-a18d-45d5a3362b0f",
+      "requestEnvelopeModels": [
+        "gpt-5.6-luna"
+      ],
+      "envelopesWithRecall": 0,
+      "factualReviewPassed": true,
+      "streamSha256": "1ed3c828c1db088fad47ee3e08cdce01ef66b189d0ba9004249566aa65b3f055",
+      "transcriptSha256": "0848a1579cce7aa354f9bb28af31e8f48b0dd8ef23b6bcd04e2191609302a522"
+    }
+  ]
+}
