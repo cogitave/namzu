@@ -180,6 +180,7 @@ import {
 	buildConversationSearchTool,
 } from '../integrations/sessions/conversation-search.js'
 import type { CliSessions } from '../integrations/sessions/store.js'
+import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
@@ -2244,6 +2245,7 @@ export async function createAgentSession(
 			}
 			delegatedResumeHandlers.set(entry.runId, resumeHandler)
 			delegationScopes.set(entry.runId, { ...entry, topicId: scope.topicId })
+			const runTaskStore = selectTaskStore(entry.runId, { ...entry, topicId: scope.topicId })
 			try {
 				return await resumeRun({
 					provider: providerForSession(entry.sessionId),
@@ -2252,10 +2254,7 @@ export async function createAgentSession(
 					pluginManager: pluginRuntime?.manager,
 					skillRegistry: pluginRuntime?.skills,
 					skills: pluginSkills,
-					taskStore: selectTaskStore(entry.runId, {
-						...entry,
-						topicId: scope.topicId,
-					}),
+					taskStore: runTaskStore,
 					// The same availability the original run registered under.
 					// A resumed run re-registers the task tools; leaving them at
 					// the kernel's `deferred` default would hand the model a plan
@@ -2273,6 +2272,7 @@ export async function createAgentSession(
 					authorizationGate: gateFor(options.rules),
 					compactionConfig: compactionConfigFor(options.compaction),
 					prepareStep: [
+						createTaskContextStep(runTaskStore, entry.tenantId),
 						...(options.memory?.recall === false
 							? []
 							: [createMemoryRecallStep({ store: memoryStore })]),
@@ -2613,6 +2613,7 @@ export async function createAgentSession(
 							capturedAuthority = Object.freeze({ ...opts.goalRound })
 							goalAuthorities.set(opts.runId, capturedAuthority)
 						}
+						const runTaskStore = selectTaskStore(runId, turnScope)
 						try {
 							yield* runTurn({
 								provider: providerForSession(turnScope.sessionId),
@@ -2649,6 +2650,7 @@ export async function createAgentSession(
 								maxAnswerReviews: options.maxAnswerReviews,
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
 								prepareStep: [
+									createTaskContextStep(runTaskStore, turnScope.tenantId),
 									...(options.memory?.recall === false
 										? []
 										: [
@@ -2659,7 +2661,7 @@ export async function createAgentSession(
 											]),
 									...(options.conversationSessions ? [createContextInventoryStep()] : []),
 								],
-								taskStore: selectTaskStore(runId, turnScope),
+								taskStore: runTaskStore,
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createRunContext(),

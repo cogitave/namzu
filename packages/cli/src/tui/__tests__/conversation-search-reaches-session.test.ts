@@ -257,3 +257,45 @@ it('does not offer conversation search without host-owned conversation storage',
 		provider.requests[0]?.tools?.some((tool) => tool.function.name === 'search_conversation'),
 	).toBe(false)
 })
+
+it('projects the task created by the actual run tools into the next provider request only', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-task-context-session-'))
+	roots.push(cwd)
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [
+					{
+						id: 'create-plan',
+						name: 'task_create',
+						args: {
+							subject: 'TASK-SNAPSHOT sentinel',
+							description: 'Check the artifact before delivery',
+						},
+					},
+				],
+			},
+			{ text: 'Plan recorded.' },
+			{ text: 'A new run has no inherited task snapshot.' },
+		],
+	})
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		sandbox: { enabled: false },
+		memory: { recall: false },
+	})
+	opened.push(session)
+	await send(session)
+	const systems = (index: number) =>
+		provider.requests[index]?.messages
+			.filter((m) => m.role === 'system')
+			.map((m) => m.content)
+			.join('\n') ?? ''
+	expect(systems(0)).not.toContain('Current run task snapshot.')
+	expect(systems(1)).toContain('Current run task snapshot.')
+	expect(systems(1)).toContain('TASK-SNAPSHOT sentinel')
+	expect(systems(1)).toContain('"status":"pending"')
+	await send(session)
+	expect(systems(2)).not.toContain('Current run task snapshot.')
+})

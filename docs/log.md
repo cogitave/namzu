@@ -2,6 +2,8 @@
 
 ## 2026-09-09
 
+- **Update** Added [current-run task context](cli/task-context.md), projecting unfinished work with scope checks and bounded waiting; documented upstream research and deferred retrieval improvements.
+
 - **Update** Added [exact retained-text reading and visible context inventory](cli/conversation-evidence.md), with scoped durable addresses, bounded pages and pressure-aware request metadata.
 
 ## 2026-09-08
