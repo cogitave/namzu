@@ -1,5 +1,185 @@
 # Changelog
 
+## 37.0.0
+
+### Major Changes
+
+- 4d66337: Make project memory usable across runs, corrections and compaction, with bounded automatic recall in the CLI.
+
+  SDK memory search now matches ranked Unicode terms in titles, summaries and bodies instead of metadata substrings. `search_memory` defaults to active records and 10 results, with limits restricted to 1–50; pass `status: "archived"` to inspect archived records or use the store API for an unbounded listing. Hosts relying on the previous matching algorithm should supply a custom `MemoryIndex` with their intended semantics. `buildMemoryTools` adds `update_memory` and destructive `delete_memory`; hosts that allow only selected tools should filter the returned roster explicitly.
+
+  Disk memory operations now coordinate through a per-store lock and refresh the index for each operation. Read access requires permission to create the lock. Stop older writers before upgrading a shared store. A stale lock left by a crash is reported with its path and requires owner inspection after stopping cooperating processes; the store does not silently steal it or promise a crash-atomic multi-file transaction. `lockTimeoutMs` controls acquisition wait time.
+
+  SDK hosts can opt into `createMemoryRecallStep` through `prepareStep`. Preparation receives the current operator message independently of compacted history, estimated context headroom and cancellation. Checkpoints preserve that intent without duplicating attachment bytes. Both shipped stores provide optional `getRecord` snapshots; custom stores can implement it for consistent status/body reads. Promotion records actual claims and their source, skips exact prior claim sets on a best-effort basis, and leaves archived matches archived. Pin removal and extraction no longer retain a stale final pin or discard negative user requirements.
+
+  CLI automatic recall is now on: each main-session model step can receive up to three active project records, within 6,000 characters and available estimated context headroom, with a one-second deadline. Set `"memory": { "recall": false }` in CLI configuration to retain explicit tool-only retrieval. This setting does not disable memory writes. `compaction.consolidate: true` now chooses consolidation instead of also running the default promoter; omitted or false retains promotion.
+
+  Curated CLI memory files over 1 MiB, malformed text, non-regular files and links escaping their scope are skipped with diagnostics rather than read or overwritten. Split oversized files and keep them inside their intended scope. Notes saved beyond the prompt cap now say that they were saved but excluded from the model's context.
+
+- c78fd3f: Run model-authored JavaScript inside QuickJS in `WorkerCodeRuntime`. Constructor chains can no longer reach Node capabilities through the worker's host realm. The `WorkerCodeRuntime` name and `worker_threads` id remain unchanged, and nested calls retain host authorization, cancellation and result tracking.
+
+  Programs must use `call()` for host capabilities: Node modules, Node globals and host timers are unavailable. Inputs and results now cross as JSON-safe values, with top-level `undefined` also supported. Functions, bigint, cycles and non-JSON host objects fail instead of crossing the interpreter boundary.
+
+  The default runtime now limits source to 256 KiB, each serialized value to 1 MiB, total and pending host calls to 100, and the QuickJS allocator/WASM linear memory to 64 MiB. This memory limit does not bound total Node or process memory. Printed output remains controlled by `maxOutputBytes`, which accepts zero and now has a 16 MiB ceiling; `timeoutMs` must be a positive integer within Node's timer range.
+
+  Consumers requiring different budgets can construct `new WorkerCodeRuntime({ memoryLimitBytes, maxSourceBytes, maxValueBytes, maxHostCalls, maxPendingHostCalls })` within the documented ceilings and pass it as the tool's `runtime`. Consumers requiring additional execution semantics must supply another `CodeRuntime` that meets the no-ambient-capability and wall/output-bound guarantees. Do not rely on the previously reachable Node globals or pass non-JSON objects through host calls.
+
+- e81a109: Add opt-in structuredOutput.mode:'native', preserving the default tool mode. Capable routes receive the JSON Schema response format; completed JSON is locally validated and host-reviewed with bounded, checkpointed corrections. Cancellation and pending operator corrections are checked before publication. Native output avoids the tool-result preview cap.
+
+  Blocked, rewritten, cancelled and failed runs now invalidate structuredOutput. A textual output-guardrail rewrite on a configured structured run stops with output_guardrail instead of exposing the old structured value as success. Consumers must check stopReason and handle an absent structuredOutput; use structuredOutput.review to request schema-valid corrections instead of rewriting final text.
+
+- e81a109: Require explicit `ProviderCapabilities.supportsNativeStructuredOutput: true` for JSON Schema response-format requests at query and provider fallback dispatch. Custom providers previously forwarding `json_schema` through `withProviderFallback` without this declaration must now declare the flag after implementing the native schema wire mapping; otherwise dispatch fails before their network call. Ordinary requests and older capability defaults are unchanged.
+
+  OpenAI API and Anthropic declare their existing native schema mappings. Codex does not claim support. Every actual fallback member is checked, preventing an unsupported fallback from silently dropping the output contract.
+
+- ce514f9: `maxDelegationWidth` now limits pending/active direct child sessions instead of
+  all historical children. Completed and failed history remains readable without
+  using a live slot. Hosts requiring a lifetime child quota must enforce it
+  separately; `capacityBehavior: 'reject'` still fails immediately when live slots
+  are full, but does not restore the former lifetime interpretation.
+
+  The CLI now queues excess agent tasks instead of failing them on width. The
+  SDK exposes opt-in `AgentManager` queue admission and a bounded pending queue.
+  Queued work receives a task ID before execution, rechecks host authority before
+  starting, and keeps cancellation and budget ownership with the parent. Queue
+  mode allocates tokens across available slots plus a parent share; CLI child
+  grants therefore change from geometric halves to that distribution. Total
+  configured token limits are unchanged.
+
+  Independent agent workflows now have separate navigation; phases remain inside
+  their own workflow. Agent launch approvals show type and capabilities, and
+  resource/policy stops visibly explain why a turn ended. Completed delegation
+  outputs identify the task and status before the child result, keeping IDs inside
+  that result separate from scheduler handles.
+
+- b33dc98: Command-backed answer verification rejects interrupted commands even if their
+  termination handler exits zero, and converts executor failures into rejection
+  feedback. Fingerprint exceptions mean unknown state rather than a throwing
+  reviewer; interrupted checks may retry without a source change. Run cancellation
+  is available as `AnswerReviewContext.signal` and reaches built-in verification
+  commands without being replaced by answer rejection.
+
+  The workspace change detector includes the Git commit, so different clean commits
+  do not suppress verification as unchanged. Interrupted Git commands produce unknown
+  state even if they exit zero. Unchanged feedback describes the detector's actual
+  scope instead of claiming no file or external input could have changed.
+
+  `maxOutputChars` must now be a nonnegative safe integer; invalid values previously
+  reached JavaScript slicing behavior. Use zero to suppress diagnostic content or
+  an integer character allowance. The omission marker now counts inside that
+  allowance, so clipped excerpts may retain fewer source characters than before.
+  Other review-path limitations, including generic callback exceptions and separate
+  forced/terminal completion paths, remain documented in Answer verification.
+
+### Minor Changes
+
+- d045660: Add optional `QueryParams.maxToolCalls`, a cumulative per-run admission limit.
+  An oversized direct tool batch is refused before any of its calls executes;
+  nested dispatches and retry attempts consume additional slots. Zero disables new
+  tool calls, while an omitted limit keeps existing unlimited behavior.
+
+  Reservations are persisted as internal `tool_calls_admitted` run events and
+  survive compaction and restart. Supply the limit again when resuming the same
+  run. Completed recovered calls are not charged again; unfinished replay attempts
+  reserve new slots without refunding uncertain earlier reservations. Invalid or
+  unavailable recovery evidence refuses execution. This is a per-run policy, not
+  a shared budget across independent delegated runs.
+
+- 67d8438: Add optional `executionBarrier` metadata to tool definitions and `defineTool`.
+  Opt a tool in to wait for earlier calls in its model batch and hold later calls
+  until it settles, enabling ordered write-and-verify batches while independent
+  read segments remain parallel. Existing concurrency flags and SDK builtin
+  defaults are unchanged. Nested programs still order dependent calls with `await`;
+  timeouts retain the existing abandonment behavior for uncooperative tools.
+- 035dcbc: Add optional `ModelInfo.reasoningEffortLevels` and `reasoningEffortDefault`
+  metadata. The CLI discovers missing model menus through provider catalogues,
+  retains established model-specific driver capabilities without extra network
+  requests, and intersects usable fallback routes. Third-party drivers can publish effort capabilities without adding
+  provider or model cases to the CLI. Unknown menus remain unavailable; absent
+  defaults do not erase known choices.
+- 2b0d90d: Add optional exact-word constraints through `MemorySearchParams.requiredIdentifiers`
+  in the built-in memory stores, applied before ranking and limiting results.
+
+  SDK hosts can opt into `createMemoryRecallStep({ identifierGrounding: true })`;
+  CLI users can set `memory.identifierGrounding: true`. Queries containing mixed
+  letter/digit identifiers then require one of those identifiers in an automatically
+  recalled record. Explicit memory tools keep their broad search behavior.
+
+  The option defaults to false. The live comparison removed irrelevant automatic
+  recall but did not improve factual accuracy and used more tokens, so this is a
+  precision control for suitable workloads, not a promoted performance default.
+  Exact spelling can miss aliases or renamed identifiers.
+
+- 8a7a4d5: SDK: add `compareHarnessTrials` and `reviewHarnessCandidate` for paired,
+  trace-attributed harness verification with fresh confirmation and explicit
+  regression/inconclusive decisions. These functions inspect recorded results;
+  they do not automatically execute or promote candidates.
+
+  CLI: `search_conversation` now scans large transcripts in bounded pages and
+  returns `nextCursor` for continuation. The former 2 MiB whole-file limit becomes
+  a 4 MiB per-record limit. Validation now covers the current page's prefix rather
+  than the entire run before any result is returned. Consumers relying on whole-run
+  validation must validate the full archive themselves. Follow `nextCursor` with
+  the same query, and restart searches after cursor expiry or file changes.
+
+- c78fd3f: Add `buildRunCodeTool({ toolResultMode: 'structured' })` so successful nested
+  calls return `{ output, data? }` and programs can filter tool data without parsing
+  display text. The default remains the output string. Failed calls still reject,
+  and all requests retain the run's authorization, lineage and cancellation rules.
+- d045660: Add optional structuredOutput.review to check parsed structured results before publication. Rejections supply correction feedback, bounded by maxReviews (default three). Reviewer failures fail the run and cancellation stops waiting. Checkpoints retain consumed correction opportunities; hosts must supply their review configuration when resuming. Existing callers without a reviewer keep their current behavior.
+- b4408d6: Add optional exact desktop `supportedActions`, `mouseClickButtons` and
+  `mouseDragButtons` capabilities. The computer-use tool uses them in its model
+  schema and rejects unsupported operations before contacting the desktop.
+  Custom hosts that omit these fields retain broad-flag behavior.
+
+  Native adapters now publish supported actions. On macOS, unavailable scroll,
+  move and drag actions are no longer advertised as usable. Middle clicks and
+  non-left drags fail explicitly instead of accidentally performing a triple
+  click or a left drag. Left/right click support depends on cliclick availability.
+
+- b4408d6: Make `search_tools` distinguish verified active matches from missing tools when deferred discovery finds nothing. Active results remain bounded and access-scoped, and an explicit empty tool allowlist no longer exposes or activates tools. Add `ToolRegistry.searchActive` with an optional structural interface method; custom registries without it receive an honest discovery limitation instead of an invented active-tool receipt.
+
+### Patch Changes
+
+- c5cf4de: Keep the existing conversation when a structured compaction summary would increase or preserve its estimated token size. These attempts no longer publish a successful compaction or invalidate the provider's prompt measurement. A useful staged tool-result clear can still commit when the summary itself offers no additional relief.
+
+  Clear-only passes now archive the original tool output or shortened narration before replacing it, so `RunQuery.shedHistory()` and `fullTranscript()` can recover the evidence. The existing `recordShedHistory: false` opt-out is respected.
+
+- 4a46cb2: Correct advisory trigger inputs. Context-pressure triggers now use the same current-context measurement and model-window resolution as compaction, including tool results appended after the provider's last prompt measurement. Cumulative token spending no longer masquerades as context fullness. Error triggers inspect canonical failure flags from the current tool batch, retain errors beside successful sibling calls, and stop reacting to failures from older batches or successful output that merely begins with `Error:`.
+- c5cf4de: Preserve new operator directions in compaction working state across inbound,
+  tool-attached and resumed-queue delivery. Runtime worker reports cannot replace
+  operator intent, and older surviving history cannot overwrite a newer checkpoint.
+
+  Invalidate stale provider prompt measurements when the working-memory block or
+  selected model changes. Resolve and cache provider context windows for selected
+  models, recheck compaction after model changes, and report context pressure against
+  the selected model. Preparation hooks are not replayed. Their existing position
+  after the initial compaction check is retained, so moving to a larger model can
+  still follow an earlier cleanup against the preceding window.
+
+- 086ade9: Prevent automatic memory recall from accumulating overlapping reads after a
+  store timeout or cancellation. Hooks sharing the same store object skip recall
+  while an earlier pass is still outstanding, then read fresh state once it
+  settles. Explicit memory tools and separate store instances are unaffected.
+  This bounds optional work admission; it does not cancel underlying disk I/O.
+- c635b5a: Use `namzu --output-schema /absolute/path/schema.json` for native schema-constrained TUI answers. Unsupported or lossy schema conversion fails at launch; normal conversations remain unchanged. Supply the flag again on resume.
+
+  Enable native query admission for Codex, OpenRouter, DeepSeek, HTTP and Zen wire mappings. Codex forwards Responses text.format; HTTP maps schemas for both dialects. Zen messages requests use native format instead of hidden tool fallback, and Google requests preserve JSON Schema constraints. Endpoint/model support is still required and vendor errors remain errors.
+
+  Breaking for direct HTTP/Zen callers: an Anthropic-dialect response format can no longer be silently ignored or fall back to an output tool. Schema-free JSON and explicit strict:false are rejected. Use strict native JSON Schema on a capable model, or choose SDK structuredOutput.mode="tool" when native schema output is unavailable.
+
+  Anthropic transport retries now default to zero instead of the vendor SDK default of two. The host immediately receives classified HTTP 429 responses with Retry-After metadata instead of waiting invisibly inside the vendor client. Set AnthropicConfig.maxRetries to 2 to retain the former transport retry behavior.
+
+  Rate-limit guidance no longer claims automatic retries were exhausted when retry policy may have disabled them or refused the requested delay.
+
+- f370947: Reject missing session, topic, project or tenant identity at the start of
+  `query` and `drainQuery`, before model calls or filesystem persistence. Untyped
+  callers could previously omit `topicId` and still run despite the required
+  TypeScript input. Supply all four identity fields, or use `runAgent` to generate
+  them. Invalid calls now report `invalid_config` with `details.missingFields`.
+- f370947: Preserve readable evidence in compaction verifier requests. Rich tool-result text no longer becomes `[object Object]`, and tool-only assistant turns retain their call IDs, names and arguments alongside result error flags. Image and document attachments are represented by descriptors without their payloads or provider-private reasoning state. The excerpt character budget now includes labels, separators and the truncation marker, including when arguments or attachment names are large.
+- 481b3d5: Replace the SDK quick start that failed at runtime because it omitted required session identity with complete, offline `runAgent` examples. The examples show a real tool execution, the supported Zod peer range, and how identity and history are carried between turns.
+
 ## 36.0.0
 
 ### Major Changes

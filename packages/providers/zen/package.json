@@ -1,6 +1,6 @@
 {
   "name": "@namzu/zen",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Zen and Go model provider for the Namzu agent kernel, with native protocol routing and conversation attribution.",
   "license": "FSL-1.1-MIT",
   "engines": {

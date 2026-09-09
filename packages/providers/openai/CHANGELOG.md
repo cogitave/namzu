@@ -1,5 +1,44 @@
 # Changelog
 
+## 3.0.0
+
+### Major Changes
+
+- 67d8438: Discover ChatGPT subscription reasoning menus and defaults from each model's
+  actual catalogue metadata instead of a fixed model-name allowlist. `listModels()`
+  returns `ModelInfo.reasoningEffortLevels` and `reasoningEffortDefault` when valid,
+  and refreshes the metadata used by capability methods and request admission.
+  New model names with valid catalogue metadata work without driver changes.
+
+  Hosts must call `listModels()` (or `probeCredential()`) before reading subscription
+  menus: previously familiar model names had hardcoded levels and defaults before
+  any discovery; now unknown metadata remains undefined. Each successful refresh
+  replaces the snapshot. Missing or invalid metadata clears an old profile; failed
+  or cancelled refreshes retain the last successful snapshot. Explicit effort with
+  unknown metadata continues to reach the backend unchanged.
+
+  The API transport separately recognizes `gpt-6-astra` and rejects none, minimal,
+  and ultra before transport, where this formerly unknown name passed them through.
+  Choose low, medium, high, xhigh or max, or omit effort to retain the backend default.
+  Subscription catalogue levels do not imply API support or introduce an ultracode
+  alias.
+
+### Minor Changes
+
+- c635b5a: Use `namzu --output-schema /absolute/path/schema.json` for native schema-constrained TUI answers. Unsupported or lossy schema conversion fails at launch; normal conversations remain unchanged. Supply the flag again on resume.
+
+  Enable native query admission for Codex, OpenRouter, DeepSeek, HTTP and Zen wire mappings. Codex forwards Responses text.format; HTTP maps schemas for both dialects. Zen messages requests use native format instead of hidden tool fallback, and Google requests preserve JSON Schema constraints. Endpoint/model support is still required and vendor errors remain errors.
+
+  Breaking for direct HTTP/Zen callers: an Anthropic-dialect response format can no longer be silently ignored or fall back to an output tool. Schema-free JSON and explicit strict:false are rejected. Use strict native JSON Schema on a capable model, or choose SDK structuredOutput.mode="tool" when native schema output is unavailable.
+
+  Anthropic transport retries now default to zero instead of the vendor SDK default of two. The host immediately receives classified HTTP 429 responses with Retry-After metadata instead of waiting invisibly inside the vendor client. Set AnthropicConfig.maxRetries to 2 to retain the former transport retry behavior.
+
+  Rate-limit guidance no longer claims automatic retries were exhausted when retry policy may have disabled them or refused the requested delay.
+
+- e81a109: Require explicit `ProviderCapabilities.supportsNativeStructuredOutput: true` for JSON Schema response-format requests at query and provider fallback dispatch. Custom providers previously forwarding `json_schema` through `withProviderFallback` without this declaration must now declare the flag after implementing the native schema wire mapping; otherwise dispatch fails before their network call. Ordinary requests and older capability defaults are unchanged.
+
+  OpenAI API and Anthropic declare their existing native schema mappings. Codex does not claim support. Every actual fallback member is checked, preventing an unsupported fallback from silently dropping the output contract.
+
 ## 2.1.0
 
 ### Minor Changes

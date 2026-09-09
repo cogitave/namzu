@@ -1,5 +1,260 @@
 # @namzu/cli
 
+## 21.0.0
+
+### Major Changes
+
+- 4d66337: Make project memory usable across runs, corrections and compaction, with bounded automatic recall in the CLI.
+
+  SDK memory search now matches ranked Unicode terms in titles, summaries and bodies instead of metadata substrings. `search_memory` defaults to active records and 10 results, with limits restricted to 1–50; pass `status: "archived"` to inspect archived records or use the store API for an unbounded listing. Hosts relying on the previous matching algorithm should supply a custom `MemoryIndex` with their intended semantics. `buildMemoryTools` adds `update_memory` and destructive `delete_memory`; hosts that allow only selected tools should filter the returned roster explicitly.
+
+  Disk memory operations now coordinate through a per-store lock and refresh the index for each operation. Read access requires permission to create the lock. Stop older writers before upgrading a shared store. A stale lock left by a crash is reported with its path and requires owner inspection after stopping cooperating processes; the store does not silently steal it or promise a crash-atomic multi-file transaction. `lockTimeoutMs` controls acquisition wait time.
+
+  SDK hosts can opt into `createMemoryRecallStep` through `prepareStep`. Preparation receives the current operator message independently of compacted history, estimated context headroom and cancellation. Checkpoints preserve that intent without duplicating attachment bytes. Both shipped stores provide optional `getRecord` snapshots; custom stores can implement it for consistent status/body reads. Promotion records actual claims and their source, skips exact prior claim sets on a best-effort basis, and leaves archived matches archived. Pin removal and extraction no longer retain a stale final pin or discard negative user requirements.
+
+  CLI automatic recall is now on: each main-session model step can receive up to three active project records, within 6,000 characters and available estimated context headroom, with a one-second deadline. Set `"memory": { "recall": false }` in CLI configuration to retain explicit tool-only retrieval. This setting does not disable memory writes. `compaction.consolidate: true` now chooses consolidation instead of also running the default promoter; omitted or false retains promotion.
+
+  Curated CLI memory files over 1 MiB, malformed text, non-regular files and links escaping their scope are skipped with diagnostics rather than read or overwritten. Split oversized files and keep them inside their intended scope. Notes saved beyond the prompt cap now say that they were saved but excluded from the model's context.
+
+- 539d5bf: Interactive conversations now expose `read_conversation` to page exact retained
+  text using the `runId`, `seq`, and new `part` field from `search_conversation`.
+  Read and search cursors are distinct and expire; durable event addresses remain
+  usable after restarting without a cursor. Oversized records and bytes never
+  recorded remain unavailable.
+
+  The interactive prompt now includes a bounded context inventory when visible
+  tool output is large or context is under pressure. This changes default prompt
+  and tool-catalogue behavior. Embedders requiring the previous exact prompt and
+  catalogue must retain the previous CLI version or compose their host using SDK
+  hooks without the inventory/read tool. No SDK default changes.
+
+- c056381: Interactive runs and checkpoint resumes now automatically include a bounded
+  snapshot of the current run's unfinished tasks in model requests. This changes
+  the default prompt even when automatic project-memory recall is disabled.
+  Tasks remain scoped to their run and tenant; new runs do not inherit old plans.
+
+  Consumers requiring the previous exact prompt must retain the previous CLI
+  version or compose an SDK host without this prepare step. SDK defaults and
+  TaskStore APIs are unchanged.
+
+- 67d8438: CLI built-in `bash`, `write` and `edit` calls now act as execution barriers within
+  a model-generated batch. Earlier calls settle before them and later calls wait
+  for them, instead of concurrency-safe reads overlapping those mutations. SDK
+  embedders can retain the old scheduling by leaving `executionBarrier` unset;
+  the CLI deliberately uses ordered mutation boundaries. Background shell jobs
+  still release the boundary after launch, not after the job finishes.
+
+  Add opt-in `Agent.run_in_background` and `send_message` for queued corrections
+  to owned running children. Existing blocking delegation remains the default;
+  finished tasks are not restarted. Add direct, session-only host model selection
+  for standalone `/model ID` and recognized model-change requests, with model and
+  effort previews in the composer. Mixed work remains a model prompt.
+
+- 8a7a4d5: SDK: add `compareHarnessTrials` and `reviewHarnessCandidate` for paired,
+  trace-attributed harness verification with fresh confirmation and explicit
+  regression/inconclusive decisions. These functions inspect recorded results;
+  they do not automatically execute or promote candidates.
+
+  CLI: `search_conversation` now scans large transcripts in bounded pages and
+  returns `nextCursor` for continuation. The former 2 MiB whole-file limit becomes
+  a 4 MiB per-record limit. Validation now covers the current page's prefix rather
+  than the entire run before any result is returned. Consumers relying on whole-run
+  validation must validate the full archive themselves. Follow `nextCursor` with
+  the same query, and restart searches after cursor expiry or file changes.
+
+- ce514f9: `maxDelegationWidth` now limits pending/active direct child sessions instead of
+  all historical children. Completed and failed history remains readable without
+  using a live slot. Hosts requiring a lifetime child quota must enforce it
+  separately; `capacityBehavior: 'reject'` still fails immediately when live slots
+  are full, but does not restore the former lifetime interpretation.
+
+  The CLI now queues excess agent tasks instead of failing them on width. The
+  SDK exposes opt-in `AgentManager` queue admission and a bounded pending queue.
+  Queued work receives a task ID before execution, rechecks host authority before
+  starting, and keeps cancellation and budget ownership with the parent. Queue
+  mode allocates tokens across available slots plus a parent share; CLI child
+  grants therefore change from geometric halves to that distribution. Total
+  configured token limits are unchanged.
+
+  Independent agent workflows now have separate navigation; phases remain inside
+  their own workflow. Agent launch approvals show type and capabilities, and
+  resource/policy stops visibly explain why a turn ended. Completed delegation
+  outputs identify the task and status before the child result, keeping IDs inside
+  that result separate from scheduler handles.
+
+### Minor Changes
+
+- 67d8438: Add `search_conversation` to recover exact identifiers and phrases from the current conversation's recorded assistant and tool output after compaction or restart. Searches remain within the host-selected tenant, project and session, return bounded excerpts with run/event references, and report incomplete or unavailable evidence without repeating external work.
+- 400cf27: Let the main interactive agent change the current conversation's model
+  through `switch_model`, so a request such as “gpt-5.6-luna’ya geç” can use
+  the normal model-selection path. The tool accepts an exact model ID and
+  optional provider, prefers the current usable provider, and returns choices
+  when another provider must be selected explicitly.
+
+  An accepted request is queued until the active turn and its persistence
+  settle. Successful application preserves conversation identity and history
+  and resets reasoning effort to the new model's default. Cancellation,
+  conversation departure or replacement failure retains the current model;
+  active delegated agents or background jobs prevent the switch.
+  Conversational switches do not change saved defaults and are unavailable
+  to headless runs and subagents.
+
+- 035dcbc: Add optional `ModelInfo.reasoningEffortLevels` and `reasoningEffortDefault`
+  metadata. The CLI discovers missing model menus through provider catalogues,
+  retains established model-specific driver capabilities without extra network
+  requests, and intersects usable fallback routes. Third-party drivers can publish effort capabilities without adding
+  provider or model cases to the CLI. Unknown menus remain unavailable; absent
+  defaults do not erase known choices.
+- 035dcbc: After choosing a model in the interactive picker, choose from the new session's supported reasoning-effort levels. Esc keeps the successfully selected model at its default effort, and queued work waits for this step to close. Models without a known non-empty effort menu return directly to the composer; `/effort` remains available separately.
+- c635b5a: Use `namzu --output-schema /absolute/path/schema.json` for native schema-constrained TUI answers. Unsupported or lossy schema conversion fails at launch; normal conversations remain unchanged. Supply the flag again on resume.
+
+  Enable native query admission for Codex, OpenRouter, DeepSeek, HTTP and Zen wire mappings. Codex forwards Responses text.format; HTTP maps schemas for both dialects. Zen messages requests use native format instead of hidden tool fallback, and Google requests preserve JSON Schema constraints. Endpoint/model support is still required and vendor errors remain errors.
+
+  Breaking for direct HTTP/Zen callers: an Anthropic-dialect response format can no longer be silently ignored or fall back to an output tool. Schema-free JSON and explicit strict:false are rejected. Use strict native JSON Schema on a capable model, or choose SDK structuredOutput.mode="tool" when native schema output is unavailable.
+
+  Anthropic transport retries now default to zero instead of the vendor SDK default of two. The host immediately receives classified HTTP 429 responses with Retry-After metadata instead of waiting invisibly inside the vendor client. Set AnthropicConfig.maxRetries to 2 to retain the former transport retry behavior.
+
+  Rate-limit guidance no longer claims automatic retries were exhausted when retry policy may have disabled them or refused the requested delay.
+
+- 2b0d90d: Add optional exact-word constraints through `MemorySearchParams.requiredIdentifiers`
+  in the built-in memory stores, applied before ranking and limiting results.
+
+  SDK hosts can opt into `createMemoryRecallStep({ identifierGrounding: true })`;
+  CLI users can set `memory.identifierGrounding: true`. Queries containing mixed
+  letter/digit identifiers then require one of those identifiers in an automatically
+  recalled record. Explicit memory tools keep their broad search behavior.
+
+  The option defaults to false. The live comparison removed irrelevant automatic
+  recall but did not improve factual accuracy and used more tokens, so this is a
+  precision control for suitable workloads, not a promoted performance default.
+  Exact spelling can miss aliases or renamed identifiers.
+
+- 67d8438: Search the model picker by model ID or display name, with bounded results and visible current/default markers on narrow terminals. Type to filter or press `/` first to search for names beginning with the existing `p` or numeric shortcuts. Backspace edits the query, Ctrl+U clears it, and Enter applies only a matching selection.
+- 73de124: `run-stream` terminal `done` events now carry the kernel's settled result in
+  optional `text`, including an intentionally empty guarded result. Hosts should
+  use that field for the final answer; earlier deltas can include progress and
+  answers rejected by verification. Interrupted streams without a settled result
+  can omit it.
+
+  Buffered `namzu run` text and JSON output now use that same final result, fixing
+  concatenation of intermediate narration and rejected completion claims. Fallback
+  answer-only history persistence also uses the settled result. Partial output on
+  provider failure or pause remains available with the existing nonzero exit.
+
+- 0795da3: Add optional Zen and Zen Go providers for OpenCode's services using Namzu's
+  existing model contract. Exact service/model catalogue entries select Chat Completions,
+  Responses, Anthropic Messages or Google streaming transport. Tool
+  continuations, native reasoning metadata, conversation attribution,
+  cancellation and classified provider errors remain part of the normal
+  Namzu kernel lifecycle.
+
+  The CLI exposes Zen (`zen`) and Zen Go (`zen-go`) in provider selection and
+  headless runs. Zen supports anonymous public models and optional credentials;
+  Go requires its own key. The actual Namzu
+  conversation is retained for service attribution across turns and resume.
+  The driver requires Node.js 20+ and a supported public model, or a real key
+  with a known model or explicit protocol. Bundled prices are estimates;
+  unsupported controls and content combinations are refused.
+
+- 4cac9ca: Enable Zen's current public models without requiring an account key or an
+  OpenCode installation. Anonymous SDK calls and the CLI's Zen default use
+  `muse-spark-1.3-contributor-free`. Omitted, blank or `public` Zen keys select
+  anonymous access, restricted to six explicitly supported free model IDs;
+  paid or unknown models still require a real key. The SDK keeps
+  `glm-5.3-flash` as the default for credentialed Zen and Go calls, and Go
+  continues to require its own API key.
+
+  The CLI uses environment keys first, then reuses separate `opencode` and
+  `opencode-go` API-key entries from `OPENCODE_AUTH_CONTENT` or OpenCode's
+  data-directory `auth.json`, including the paired Windows home on WSL when
+  no absolute XDG override is supplied.
+  It leaves that file unchanged and does not reinterpret OAuth records as
+  API keys. Explicit `OPENCODE_API_KEY=public` selects anonymous access and
+  suppresses secondary Zen key aliases and stored account keys. With no
+  credential, Zen appears as public access without a login
+  or key prompt. Public model availability and service limits remain under
+  the upstream service's control.
+
+  Expose `@namzu/zen/models` for catalogue functions and model types without
+  loading the four native transport adapters during provider selection.
+
+  Send `strict: false` for all Responses function tools so optional parameters,
+  including nested read/edit fields, remain optional. This fixes HTTP 400
+  schema rejection when a backend defaults omitted strictness to true.
+  Responses also declines the capability-dependent `enforceToolInputSchema`
+  hint for these general schemas; Namzu continues to validate inputs before
+  tool execution. Other protocols retain their existing enforcement behavior.
+
+### Patch Changes
+
+- 6973fa8: Stop repeating accepted conversational model switches. A successful solitary
+  `switch_model` call now ends the turn through the kernel's terminal-tool path,
+  without another inference to acknowledge it. Repeated requests for the same
+  accepted target reuse that reservation. Failed requests remain correctable;
+  mixed tool batches keep their existing result-relay behavior.
+
+  Show a compact target row and host-confirmed application instead of duplicating
+  the pending receipt. Rank missing-model suggestions before limiting them to
+  eight choices. Let the kernel mount `search_tools` only when deferred tools
+  exist, avoiding an empty discovery call in ordinary interactive sessions.
+
+- 7587d43: Keep long conversation names and goal objectives editable in narrow terminals.
+  The text editor now scrolls with its cursor while keeping its title and action
+  keys visible, without shortening saved values or splitting Unicode characters.
+- 1a7420d: Remove repeated startup identity from the interactive transcript. The opening
+  header shows Namzu and its version; current model, reasoning effort and working
+  directory stay in the footer. Normal startup no longer prints the same connection
+  again, and the composer supplies the typing hint. Explicit provider/model changes
+  still confirm their result, reasoning confirmations are shorter, and configuration
+  warnings, instruction-file disclosure and failures remain visible. Provider/tool
+  details remain available through `/status` and `/status tools`.
+
+  Fix repeated transcript rows after terminal contraction while preserving the
+  conversation, draft and selected agent. Subagent screens now page tabbed and
+  Unicode output within the frame; phase and agent panes have distinct boundaries,
+  and completed status is no longer repeated as activity text.
+
+- 7587d43: Keep completed delegated results available to `wait_for_task` after the manager
+  evicts terminal task records. A parent can retrieve the full output retained in
+  its task ledger, including text omitted from completion notifications, without
+  launching another child. Results remain restricted to the parent that launched
+  the task.
+- Updated dependencies [fdd76aa]
+- Updated dependencies [67d8438]
+- Updated dependencies [4d66337]
+- Updated dependencies [c78fd3f]
+- Updated dependencies [d045660]
+- Updated dependencies [67d8438]
+- Updated dependencies [c5cf4de]
+- Updated dependencies [4a46cb2]
+- Updated dependencies [c5cf4de]
+- Updated dependencies [086ade9]
+- Updated dependencies [035dcbc]
+- Updated dependencies [c635b5a]
+- Updated dependencies [e81a109]
+- Updated dependencies [e81a109]
+- Updated dependencies [2b0d90d]
+- Updated dependencies [8a7a4d5]
+- Updated dependencies [f370947]
+- Updated dependencies [ce514f9]
+- Updated dependencies [f370947]
+- Updated dependencies [481b3d5]
+- Updated dependencies [c78fd3f]
+- Updated dependencies [d045660]
+- Updated dependencies [b4408d6]
+- Updated dependencies [b33dc98]
+- Updated dependencies [b4408d6]
+- Updated dependencies [0795da3]
+- Updated dependencies [4cac9ca]
+  - @namzu/anthropic@5.0.0
+  - @namzu/openai@3.0.0
+  - @namzu/sdk@37.0.0
+  - @namzu/openrouter@2.4.0
+  - @namzu/deepseek@1.2.0
+  - @namzu/zen@1.0.0
+  - @namzu/computer-use@1.4.2
+  - @namzu/ollama@2.2.2
+
 ## 20.0.0
 
 ### Major Changes
