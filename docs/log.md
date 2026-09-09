@@ -2,6 +2,8 @@
 
 ## 2026-09-09
 
+- **Update** Bounded overlapping optional [memory recall](sdk/memory.md) reads and recorded [retrieval research decisions](sdk/memory-research.md), separating returned-result limits from scan cost.
+
 - **Update** Added [current-run task context](cli/task-context.md), projecting unfinished work with scope checks and bounded waiting; documented upstream research and deferred retrieval improvements.
 
 - **Update** Added [exact retained-text reading and visible context inventory](cli/conversation-evidence.md), with scoped durable addresses, bounded pages and pressure-aware request metadata.

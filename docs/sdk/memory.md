@@ -168,7 +168,14 @@ there is no persistent recall cache. An error or timeout is reported by the
 runtime's preparation diagnostic and that request proceeds without this stage's
 recalled context. The hook also observes the run's `signal` to stop waiting on
 cancellation. A store call already in progress may finish after a timeout or
-cancellation; its late result is not inserted into a later request.
+cancellation; its late result is not inserted into a later request. While an
+optional recall is still outstanding, other recall hooks using the same store
+object skip their pass. The slot is released only when the underlying pass
+settles, including after errors. This prevents a timed-out read from accumulating
+more optional reads on subsequent steps or runs. It does not cancel disk I/O,
+coordinate separate store objects/processes, or throttle explicit memory tools.
+No result is shared across callers; a later admitted pass uses its own current
+query and reads fresh records.
 
 The block labels its contents as untrusted historical claims, includes record
 IDs and update times, and includes a source run when recorded. This framing is

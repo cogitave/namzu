@@ -205,3 +205,66 @@ describe('bounded memory recall', () => {
 		},
 	)
 })
+
+it('does not stack timed-out recalls across hooks sharing a store and reads fresh after release', async () => {
+	const { store, entry } = await fixture()
+	let release!: (value: Awaited<ReturnType<MemoryStore['list']>>) => void
+	const original = store.list.bind(store)
+	const list = vi.spyOn(store, 'list').mockImplementationOnce(
+		() =>
+			new Promise((resolve) => {
+				release = resolve
+			}),
+	)
+	const get = vi.spyOn(store, 'getRecord')
+	const recall = createMemoryRecallStep({ store, timeoutMs: 5 })
+	await expect(recall(context())).rejects.toThrow('Memory recall exceeded')
+	for (let i = 0; i < 10; i++) {
+		expect(await createMemoryRecallStep({ store, timeoutMs: 5 })(context())).toBeUndefined()
+	}
+	expect(list).toHaveBeenCalledTimes(1)
+	const unrelated = await fixture()
+	expect((await unrelated.recall(context()))?.system).toContain('14 hours')
+	release({ entries: [entry], totalCount: 1 })
+	await new Promise((resolve) => setTimeout(resolve, 0))
+	expect(get).not.toHaveBeenCalled()
+	await store.update(entry.id, { content: 'cerulean-cache expires after 28 hours' })
+	list.mockImplementation(original)
+	const fresh = await recall(context())
+	expect(fresh?.system).toContain('28 hours')
+	expect(fresh?.system).not.toContain('14 hours')
+})
+
+it('holds the admission slot through a stalled record read, including cancellation', async () => {
+	const { store, entry } = await fixture()
+	let release!: (value: Awaited<ReturnType<NonNullable<MemoryStore['getRecord']>>>) => void
+	const record = await store.getRecord(entry.id)
+	const get = vi.spyOn(store, 'getRecord').mockImplementationOnce(
+		() =>
+			new Promise((resolve) => {
+				release = resolve
+			}),
+	)
+	const list = vi.spyOn(store, 'list')
+	const controller = new AbortController()
+	const pending = createMemoryRecallStep({ store, timeoutMs: 10000 })({
+		...context(),
+		signal: controller.signal,
+	})
+	await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1))
+	controller.abort('stop')
+	await expect(pending).rejects.toThrow('cancelled')
+	expect(await createMemoryRecallStep({ store })(context())).toBeUndefined()
+	expect(list).toHaveBeenCalledTimes(1)
+	release(record)
+	await new Promise((resolve) => setTimeout(resolve, 0))
+	expect((await createMemoryRecallStep({ store })(context()))?.system).toContain('14 hours')
+})
+
+it('releases admission after a rejected store operation', async () => {
+	const { store } = await fixture()
+	vi.spyOn(store, 'list').mockRejectedValueOnce(new Error('disk failed'))
+	const recall = createMemoryRecallStep({ store })
+	await expect(recall(context())).rejects.toThrow('disk failed')
+	expect((await recall(context()))?.system).toContain('14 hours')
+})

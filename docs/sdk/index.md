@@ -39,3 +39,4 @@ The kernel.
 * [Token budgets](token-budgets.md) - Shared parent and descendant accounting, durable reservations and explicit recovery boundaries.
 
 * [Paired harness verification](harness-verification.md) - Trace-attributed comparison and fresh confirmation of harness candidates.
+* [Memory retrieval research](memory-research.md) - Source-backed retrieval gaps, admission fix and evaluation priorities.
