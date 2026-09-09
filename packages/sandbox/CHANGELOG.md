@@ -1,5 +1,34 @@
 # @namzu/sandbox
 
+## 10.0.0
+
+### Patch Changes
+
+- Updated dependencies [4d66337]
+- Updated dependencies [c78fd3f]
+- Updated dependencies [d045660]
+- Updated dependencies [67d8438]
+- Updated dependencies [c5cf4de]
+- Updated dependencies [4a46cb2]
+- Updated dependencies [c5cf4de]
+- Updated dependencies [086ade9]
+- Updated dependencies [035dcbc]
+- Updated dependencies [c635b5a]
+- Updated dependencies [e81a109]
+- Updated dependencies [e81a109]
+- Updated dependencies [2b0d90d]
+- Updated dependencies [8a7a4d5]
+- Updated dependencies [f370947]
+- Updated dependencies [ce514f9]
+- Updated dependencies [f370947]
+- Updated dependencies [481b3d5]
+- Updated dependencies [c78fd3f]
+- Updated dependencies [d045660]
+- Updated dependencies [b4408d6]
+- Updated dependencies [b33dc98]
+- Updated dependencies [b4408d6]
+  - @namzu/sdk@37.0.0
+
 ## 9.0.0
 
 ### Major Changes
