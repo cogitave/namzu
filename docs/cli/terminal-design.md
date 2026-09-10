@@ -281,3 +281,17 @@ Screen regressions use the existing `@xterm/headless` emulator with production
 Ink rendering to exercise repeated opening/closing, pagination and scrollback
 counts. It interprets emitted terminal control sequences; it does not replace
 Ink's component layout or require a browser terminal in the CLI.
+
+## Upgrade activity
+
+`namzu upgrade` animates a green fill through the existing wordmark while npm
+installs the selected version. This is an activity loop, not a percentage.
+The wordmark remains fully green only after the installed version is read back
+and matches the requested version. Failures clear the animation and show npm
+diagnostics (the last 16,384 characters) followed by the error.
+
+The animation uses stderr only in an interactive text terminal. `--check`,
+quiet mode, structured output, `NO_COLOR`, dumb terminals, and redirected stderr
+keep static output. Terminals below 28 columns use the compact signature; below
+12 columns the animation is disabled. The renderer releases its timer and exit
+listener when the operation finishes, and clears its display on process exit.

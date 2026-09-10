@@ -2,10 +2,12 @@ import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { dirname, join, posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { stripVTControlCharacters } from 'node:util'
 
 import { EXIT_FAIL, EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
 import { compareVersions, latestNamzuVersion } from '../integrations/updates.js'
 import type { CommandDef } from './types.js'
+import { startUpgradeProgress } from './upgrade-progress.js'
 
 const HELP = `namzu upgrade — update the active global Namzu installation
 
@@ -21,6 +23,7 @@ export interface NpmUpgradeRequest {
 	readonly executable: string
 	readonly args: readonly string[]
 	readonly prefix: string
+	readonly onOutput?: (text: string) => void
 }
 
 export interface UpgradeCommandDeps {
@@ -73,11 +76,15 @@ function runNpm(request: NpmUpgradeRequest): Promise<number> {
 		const child = spawn(request.executable, [...request.args], {
 			cwd: request.prefix,
 			env: process.env,
-			stdio: 'inherit',
+			stdio: request.onOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit',
 			shell: false,
 		})
+		if (request.onOutput) {
+			child.stdout?.setEncoding('utf8').on('data', request.onOutput)
+			child.stderr?.setEncoding('utf8').on('data', request.onOutput)
+		}
 		child.once('error', reject)
-		child.once('exit', (code) => resolveRun(code ?? 1))
+		child.once('close', (code) => resolveRun(code ?? 1))
 	})
 }
 
@@ -170,45 +177,82 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 				`Updating the active npm installation from ${deps.currentVersion} to ${latest}…`,
 			)
 
-			let code: number
+			const progress =
+				ctx.formatter.name === 'text' && !['silent', 'error'].includes(ctx.logging?.level ?? 'info')
+					? startUpgradeProgress()
+					: undefined
+			let output = ''
+			const stop = () => {
+				progress?.stop()
+				if (output)
+					process.stderr.write(
+						`${Array.from(stripVTControlCharacters(output))
+							.filter(
+								(char) =>
+									char === '\n' ||
+									char === '\t' ||
+									(char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127),
+							)
+							.join('')}\n`,
+					)
+			}
 			try {
-				code = await deps.runNpm(request)
-			} catch (error) {
-				ctx.formatter.error({
-					message: `Could not start npm: ${error instanceof Error ? error.message : String(error)}`,
-				})
-				return EXIT_FAIL
-			}
-			if (code !== 0) {
-				ctx.formatter.error({
-					message: `npm exited with status ${code}; Namzu was not verified.`,
-				})
-				return EXIT_FAIL
-			}
+				let code: number
+				try {
+					code = await deps.runNpm(
+						progress
+							? {
+									...request,
+									onOutput: (text) => {
+										output = (output + text).slice(-16_384)
+									},
+								}
+							: request,
+					)
+				} catch (error) {
+					stop()
+					ctx.formatter.error({
+						message: `Could not start npm: ${error instanceof Error ? error.message : String(error)}`,
+					})
+					return EXIT_FAIL
+				}
+				if (code !== 0) {
+					stop()
+					ctx.formatter.error({
+						message: `npm exited with status ${code}; Namzu was not verified.`,
+					})
+					return EXIT_FAIL
+				}
 
-			let installed: string
-			try {
-				installed = deps.installedVersion(deps.packageRoot)
-			} catch (error) {
-				ctx.formatter.error({
-					message: `npm exited successfully, but the active installation could not be read back: ${error instanceof Error ? error.message : String(error)}`,
-				})
-				return EXIT_FAIL
-			}
-			if (installed !== latest) {
-				ctx.formatter.error({
-					message: `npm exited successfully, but the active installation still reports ${installed} instead of ${latest}. No update is being claimed.`,
-				})
-				return EXIT_FAIL
-			}
+				let installed: string
+				try {
+					installed = deps.installedVersion(deps.packageRoot)
+				} catch (error) {
+					stop()
+					ctx.formatter.error({
+						message: `npm exited successfully, but the active installation could not be read back: ${error instanceof Error ? error.message : String(error)}`,
+					})
+					return EXIT_FAIL
+				}
+				if (installed !== latest) {
+					stop()
+					ctx.formatter.error({
+						message: `npm exited successfully, but the active installation still reports ${installed} instead of ${latest}. No update is being claimed.`,
+					})
+					return EXIT_FAIL
+				}
 
-			ctx.formatter.print({
-				previous: deps.currentVersion,
-				current: installed,
-				updated: true,
-				text: `Updated Namzu ${deps.currentVersion} → ${installed}.`,
-			})
-			return EXIT_OK
+				progress?.stop(true)
+				ctx.formatter.print({
+					previous: deps.currentVersion,
+					current: installed,
+					updated: true,
+					text: `Updated Namzu ${deps.currentVersion} → ${installed}.`,
+				})
+				return EXIT_OK
+			} finally {
+				progress?.stop()
+			}
 		},
 	}
 }

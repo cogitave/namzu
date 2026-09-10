@@ -2,6 +2,8 @@
 
 ## 2026-09-10
 
+- **Update** Added an interactive wordmark fill during CLI upgrades, with verified completion, bounded failure diagnostics and static output fallbacks.
+
 - **Update** Shortened exit resume commands for matching PATH installations and omitted redundant working-directory changes.
 
 - **Update** Removed bundled OAuth application credentials from the Google integration; expired borrowed sessions require owner renewal or explicit matching application configuration.
