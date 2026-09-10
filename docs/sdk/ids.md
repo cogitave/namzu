@@ -38,6 +38,18 @@ Constructors accept canonical hyphenated UUIDs with an RFC variant and version
 1–8, preserving their case. Prefixed strings, arbitrary names, path segments
 and malformed UUIDs are rejected. Constructors never trim or rewrite keys.
 
+Tests in a consuming package can import `fixtureId` from
+`@namzu/sdk/testing`. Each entity-kind function maps a readable label to a
+stable UUID v4 fixture, so assertions stay deterministic without reviving the
+removed prefix format or sharing one identity across unrelated cases.
+
+```ts
+import { fixtureId } from '@namzu/sdk/testing'
+
+const runId = fixtureId.run('retries-after-approval')
+const sessionId = fixtureId.session('retries-after-approval')
+```
+
 `ProjectIdSchema`, `RunIdSchema` and `MessageIdSchema` use the same spelling
 rules as their constructors. They remain Zod string schemas and expose their
 validation patterns when converted to JSON Schema.

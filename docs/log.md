@@ -4,6 +4,8 @@
 
 - **Update** Shortened exit resume commands for matching PATH installations and omitted redundant working-directory changes.
 
+- **Update** Published deterministic valid entity-ID fixtures through the SDK's testing subpath for consumer test suites migrating from removed prefixed IDs.
+
 - **Update** Documented exact host/guest rollout, guest-owned PTY and loopback TCP channels, explicit Firecracker network-policy admission, and plan-step identity on pending delegated work.
 
 - **Update** Removed bundled OAuth application credentials from the Google integration; expired borrowed sessions require owner renewal or explicit matching application configuration.

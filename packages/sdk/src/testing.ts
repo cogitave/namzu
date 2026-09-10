@@ -38,3 +38,5 @@ export {
 	defineProviderDriverConformance,
 } from './provider/conformance.js'
 export type { ProviderDriverConformanceOptions } from './provider/conformance.js'
+
+export { fixtureId } from './test-support/ids.js'
