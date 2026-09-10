@@ -4,6 +4,8 @@
 
 - **Update** Shortened exit resume commands for matching PATH installations and omitted redundant working-directory changes.
 
+- **Update** Scoped the Anthropic provider's optional Claude Code version probe out of framework filesystem tracing so server bundles do not absorb the consumer's complete project tree.
+
 - **Update** Published deterministic valid entity-ID fixtures through the SDK's testing subpath for consumer test suites migrating from removed prefixed IDs.
 
 - **Update** Documented exact host/guest rollout, guest-owned PTY and loopback TCP channels, explicit Firecracker network-policy admission, and plan-step identity on pending delegated work.
