@@ -1,10 +1,12 @@
 import { mkdir, realpath, rename } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { expect, it } from 'vitest'
 
 it('runs inside the working directory verified by the SDK test boundary', async () => {
 	const workingDirectory = await realpath(process.cwd())
 	expect(process.env.NAMZU_SDK_TEST_ROOT).toBe(workingDirectory)
 	expect(process.env.NAMZU_SDK_TEST_WORKER_VERIFIED).toBe(workingDirectory)
+	expect(await realpath(tmpdir())).toBe(tmpdir())
 
 	if (process.env.NAMZU_SDK_TEST_PROBE_FAIL === '1') {
 		expect.fail('deliberate SDK test-runner child failure')

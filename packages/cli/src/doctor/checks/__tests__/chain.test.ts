@@ -27,7 +27,7 @@ function writePrefs(body: unknown): void {
  * running the suite.
  */
 function check(env: Record<string, string> = {}) {
-	return describeProviderChain({ home, env, skipProbes: true })
+	return describeProviderChain({ home, env, skipKeychain: true, skipProbes: true })
 }
 
 describe('the provider chain check', () => {

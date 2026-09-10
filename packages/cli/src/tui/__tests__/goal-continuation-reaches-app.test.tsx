@@ -162,7 +162,11 @@ function deferred(): {
 
 async function until(check: () => boolean, why: string): Promise<void> {
 	const started = performance.now()
-	while (!check() && performance.now() - started < 5_000) await tick()
+	// The full CLI suite transforms and renders many integration-shaped tests
+	// concurrently. Leave enough observation time for the expected frame under
+	// that measured contention while the enclosing 15-second test budget still
+	// catches a real hang.
+	while (!check() && performance.now() - started < 8_000) await tick()
 	expect(check(), why).toBe(true)
 }
 
